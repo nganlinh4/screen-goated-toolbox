@@ -15,6 +15,17 @@ internal enum class PhoneControlProtectedCapturePolicy {
     RELEASE_PROJECTION,
 }
 
+internal sealed interface PhoneControlProtectedCheckpointReadiness {
+    data object Ready : PhoneControlProtectedCheckpointReadiness
+
+    data class NotReady(val code: String) : PhoneControlProtectedCheckpointReadiness
+}
+
+internal data class PhoneControlProtectedSetupNavigationContract(
+    val platformCapability: String,
+    val destinationState: String,
+)
+
 /**
  * Local-only adapter for a platform-owned setup checkpoint.
  *
@@ -24,6 +35,9 @@ internal enum class PhoneControlProtectedCapturePolicy {
  */
 internal interface PhoneControlProtectedSetupAdapter {
     val capturePolicy: PhoneControlProtectedCapturePolicy
+    val navigationContract: PhoneControlProtectedSetupNavigationContract
+
+    fun checkpointReadiness(context: Context): PhoneControlProtectedCheckpointReadiness
 
     suspend fun complete(
         context: Context,

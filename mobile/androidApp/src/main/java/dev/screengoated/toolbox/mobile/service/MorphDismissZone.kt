@@ -32,6 +32,7 @@ internal class MorphDismissZone(
     private val context: Context,
     private val windowManager: WindowManager,
     private val targets: List<DismissTargetDef>,
+    private val windowType: Int = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
 ) {
     private var container: FrameLayout? = null
     private val morphViews = mutableListOf<MorphShapeView>()
@@ -40,8 +41,8 @@ internal class MorphDismissZone(
     // Smoothed proximity values (EMA filter to prevent shaking)
     private val smoothedProximity = FloatArray(targets.size)
 
-    fun show() {
-        if (container != null) return
+    fun show(): Boolean {
+        if (container != null) return true
         val shapeSize = dp(SHAPE_SIZE_DP)
         // Layout cell is larger to give room for scale-up bloom without clipping
         val cellSize = dp(CELL_SIZE_DP)
@@ -66,7 +67,7 @@ internal class MorphDismissZone(
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             cellSize * 2,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            windowType,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
@@ -75,12 +76,16 @@ internal class MorphDismissZone(
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.START
         }
+        if (runCatching { windowManager.addView(root, params) }.isFailure) {
+            morphViews.clear()
+            return false
+        }
         container = root
-        runCatching { windowManager.addView(root, params) }
 
         morphViews.forEachIndexed { idx, view ->
             view.animateIn(startDelay = idx * 60L)
         }
+        return true
     }
 
     /**

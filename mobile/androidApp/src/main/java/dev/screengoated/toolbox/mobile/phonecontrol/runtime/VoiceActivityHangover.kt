@@ -37,6 +37,10 @@ internal class VoiceActivityHangover(
             (atMs <= lastActive || atMs - lastActive <= hangoverMs)
     }
 
+    fun reset() {
+        lastActiveAtMs.set(NO_ACTIVITY)
+    }
+
     private companion object {
         const val NO_ACTIVITY = -1L
     }

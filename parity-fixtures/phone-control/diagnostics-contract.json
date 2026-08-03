@@ -1,14 +1,15 @@
 {
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "feature": "phone-control",
   "canonical_windows_files": [
     "docs/COMPUTER_CONTROL_DEVELOPMENT.md",
     "src/overlay/computer_control/telemetry.rs"
   ],
   "journal": {
-    "recordSchemaVersion": 2,
+    "recordSchemaVersion": 3,
     "requiredRecordFields": [
       "schema_version",
+      "process_role",
       "session_id",
       "sequence",
       "timestamp_ms",
@@ -33,10 +34,34 @@
       "throwableMessage": "omit",
       "consoleThrowableEvidence": "class_and_bounded_code_locations"
     },
+    "processJournals": {
+      "primary": ["events.jsonl", "events.previous.jsonl"],
+      "authorityBridge": [
+        "events.authority-bridge.jsonl",
+        "events.authority-bridge.previous.jsonl"
+      ],
+      "mergeOrder": "timestamp_then_session_sequence",
+      "crossProcessSharedWriter": false
+    },
+    "authorityBridgeEvents": {
+      "lifecycle": ["service_created", "service_bound", "service_destroyed"],
+      "terminalPhases": ["connect_result", "pair_result", "authority_result"],
+      "terminalTimingField": "elapsed_ms",
+      "timelineFields": [
+        "result",
+        "verified",
+        "uid",
+        "pairing_established",
+        "elapsed_ms"
+      ],
+      "persistsPairingCode": false,
+      "persistsEndpoint": false,
+      "persistsCredential": false,
+      "initializesFullApplicationContainer": false
+    },
     "collectorOutputs": [
       "capture.json",
-      "events.jsonl",
-      "events.previous.jsonl",
+      "events*.jsonl",
       "logcat.txt",
       "summary.json",
       "timeline.txt"

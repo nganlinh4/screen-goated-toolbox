@@ -53,6 +53,7 @@ internal object PhoneControlAccessibilityProvider {
         synchronized(lock) { knownControllerWindowIds.clear() }
         service = candidate
         invalidate("service_connected")
+        AccessibilityStructuralChangeBus.publish()
     }
 
     fun detach(candidate: SgtAccessibilityService) {
@@ -61,6 +62,7 @@ internal object PhoneControlAccessibilityProvider {
             synchronized(lock) { knownControllerWindowIds.clear() }
             service = null
             invalidate("service_destroyed")
+            AccessibilityStructuralChangeBus.publish()
         }
     }
 
@@ -95,6 +97,7 @@ internal object PhoneControlAccessibilityProvider {
         }
         if (impact == AccessibilityInvalidationImpact.NONE) {
             AccessibilityWindowAttribution.record(event.windowId, sourcePackage, observationGeneration)
+            AccessibilityStructuralChangeBus.publish()
             return
         }
         AccessibilityInvalidationDiagnostics.record(
@@ -113,6 +116,7 @@ internal object PhoneControlAccessibilityProvider {
             advanceVisualRevision()
         }
         AccessibilityWindowAttribution.record(event.windowId, sourcePackage, observationGeneration)
+        AccessibilityStructuralChangeBus.publish()
     }
 
     suspend fun observe(maxElements: Int = 400): AccessibilityProviderResult<AccessibilityObservation> {

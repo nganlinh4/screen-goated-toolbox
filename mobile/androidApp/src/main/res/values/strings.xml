@@ -65,6 +65,8 @@
     <string name="phone_control_power_recommended">%1$s, recommended</string>
     <string name="phone_control_authority_ready">%1$s ready.</string>
     <string name="phone_control_authority_ready_toast">%1$s ready.</string>
+    <string name="phone_control_setup_voice_start">Setting up enhanced control. Please don\'t interrupt.</string>
+    <string name="phone_control_setup_voice_success">Setup succeeded. Please wait a few seconds, then you can use Phone Control normally.</string>
     <string name="phone_control_sgt_adb_ready_toast">SGT Bridge ready.</string>
     <string name="phone_control_sgt_adb_ready_resume">SGT Bridge is ready. Tap to share the screen again and resume Phone Control.</string>
     <string name="phone_control_sgt_adb_setup">SGT will open Wireless debugging and navigate to its pairing surface. Model-visible frames pause briefly while SGT pairs locally; screen sharing stays active. Android-owned enablement or trust confirmation remains yours.</string>

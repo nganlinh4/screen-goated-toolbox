@@ -64,6 +64,7 @@ class PhoneControlOverlayExclusionTest {
                         phase = PhoneControlRuntimePhase.WORKING,
                         code = PhoneControlRuntimeCode.READY,
                         userMessage = "Working",
+                        authorityGuidance = "Setting up",
                     ),
                 )
                 awaitCondition("Phone Control orb never became visible") {
@@ -72,16 +73,23 @@ class PhoneControlOverlayExclusionTest {
                 instrumentation.waitForIdleSync()
 
                 val device = UiDevice.getInstance(instrumentation)
-                val orb = requireNotNull(controller.orbBounds())
+                requireNotNull(controller.orbBounds())
+                val touchLayout = windowParams(controller, "touchParams")
                 val screen = Rect(0, 0, device.displayWidth, device.displayHeight)
+                val dismiss = dismissController(controller)
+                assertEquals(
+                    "Dismiss target must share the orb renderer window layer",
+                    windowParams(controller, "orbParams").type,
+                    configuredDismissWindowType(dismiss),
+                )
                 val target = requireNotNull(
-                    dismissController(controller).targetCenterPx(DismissAction.SINGLE, screen),
+                    dismiss.targetCenterPx(DismissAction.SINGLE, screen),
                 )
                 assertTrue(
                     "UiAutomator could not inject the orb dismiss drag",
                     device.swipe(
-                        (orb.left + orb.right) / 2,
-                        (orb.top + orb.bottom) / 2,
+                        touchLayout.x + touchLayout.width / 2,
+                        touchLayout.y + touchLayout.height / 2,
                         target.first.toInt(),
                         target.second.toInt(),
                         DISMISS_SWIPE_STEPS,
@@ -220,6 +228,12 @@ class PhoneControlOverlayExclusionTest {
         val field = PhoneControlOverlayController::class.java.getDeclaredField("dismissBubble")
         field.isAccessible = true
         return field.get(controller) as DismissBubbleController
+    }
+
+    private fun configuredDismissWindowType(controller: DismissBubbleController): Int {
+        val field = DismissBubbleController::class.java.getDeclaredField("windowType")
+        field.isAccessible = true
+        return field.getInt(controller)
     }
 
     private fun readOverlayMode(packageName: String): String {

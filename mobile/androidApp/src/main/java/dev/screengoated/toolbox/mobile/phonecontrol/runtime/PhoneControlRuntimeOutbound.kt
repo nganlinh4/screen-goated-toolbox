@@ -22,6 +22,7 @@ internal class PhoneControlRuntimeOutbound(
     private val screenFramesSent: AtomicLong,
     private val pendingWorkCount: () -> Int,
     private val turnPhase: () -> PhoneControlTurnPhase,
+    private val microphoneInput: PhoneControlSetupSessionGate,
     private val userSpeaking: () -> Boolean,
     private val userInterfaceGoals: PhoneControlUserInterfaceGoalQueue,
     private val onInputSent: () -> Unit,
@@ -40,14 +41,16 @@ internal class PhoneControlRuntimeOutbound(
         repeat(MAX_AUDIO_FRAMES_PER_FLUSH) {
             val samples = audioFrames.tryReceive().getOrNull() ?: return@repeat
             bufferedAudio.updateAndGet { (it - 1).coerceAtLeast(0) }
-            if (!sender.send(
+            val sent = microphoneInput.withAdmittedInput {
+                sender.send(
                     session = session,
                     payload = buildPhoneControlAudioPayload(samples),
                     kind = PhoneControlOutboundKind.MICROPHONE_AUDIO,
                     pendingWork = pendingWorkCount(),
                     turnPhase = turnPhase(),
                 )
-            ) return false
+            } ?: return@repeat
+            if (!sent) return false
             if (audioFramesSent.incrementAndGet() == 1L) {
                 Log.i(TAG, "audio_uplink_started samples_per_frame=${samples.size}")
             }

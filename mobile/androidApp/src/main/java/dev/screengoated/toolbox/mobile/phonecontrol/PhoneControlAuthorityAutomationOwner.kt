@@ -10,7 +10,7 @@ internal enum class PhoneControlAuthorityAutomationDisposition {
 internal data class PhoneControlAuthorityAutomationOwnership(
     val goalId: Long,
     val providerId: String,
-    val captureHandoff: Boolean,
+    val checkpointMonitoring: Boolean,
 )
 
 internal fun phoneControlAuthorityAutomationDisposition(
@@ -41,7 +41,7 @@ internal class PhoneControlAuthorityAutomationOwner {
     fun begin(
         goalId: Long,
         providerId: String,
-        captureHandoff: Boolean,
+        checkpointMonitoring: Boolean,
     ): PhoneControlAuthorityAutomationOwnership {
         require(goalId > 0L)
         require(providerId.isNotBlank())
@@ -49,17 +49,17 @@ internal class PhoneControlAuthorityAutomationOwner {
         return PhoneControlAuthorityAutomationOwnership(
             goalId = goalId,
             providerId = providerId,
-            captureHandoff = captureHandoff,
+            checkpointMonitoring = checkpointMonitoring,
         ).also { ownership = it }
     }
 
     fun coalesce(
         providerId: String,
-        captureHandoff: Boolean,
+        checkpointMonitoring: Boolean,
     ): PhoneControlAuthorityAutomationOwnership? {
         val active = ownership?.takeIf { it.providerId == providerId } ?: return null
         return active.copy(
-            captureHandoff = active.captureHandoff || captureHandoff,
+            checkpointMonitoring = active.checkpointMonitoring || checkpointMonitoring,
         ).also { ownership = it }
     }
 
@@ -69,7 +69,9 @@ internal class PhoneControlAuthorityAutomationOwner {
         return active
     }
 
-    fun clear() {
+    fun clear(): PhoneControlAuthorityAutomationOwnership? {
+        val active = ownership
         ownership = null
+        return active
     }
 }

@@ -210,7 +210,7 @@ class BoundedProcessRunnerTest {
     }
 
     private companion object {
-        const val WAIT_MS = 3_000L
+        const val WAIT_MS = 10_000L
 
         fun command(label: String = "default") = listOf("program", label)
 

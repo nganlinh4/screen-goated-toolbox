@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged
 import android.content.Context
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCapturePolicy
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointReadiness
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointToken
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupAdapter
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupResult
@@ -10,6 +11,14 @@ import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 
 internal object SgtAdbProtectedSetupAdapter : PhoneControlProtectedSetupAdapter {
     override val capturePolicy = PhoneControlProtectedCapturePolicy.RETAIN_PROJECTION
+    override val navigationContract = WirelessDebuggingSetupContract
+
+    override fun checkpointReadiness(context: Context): PhoneControlProtectedCheckpointReadiness =
+        if (SgtAdbCommandBridge.hasPairing(context)) {
+            PhoneControlProtectedCheckpointReadiness.Ready
+        } else {
+            ProtectedPairingCodeReader.surfaceReadiness(context)
+        }
 
     override suspend fun complete(
         context: Context,
@@ -26,13 +35,19 @@ internal object SgtAdbProtectedSetupAdapter : PhoneControlProtectedSetupAdapter 
                 return PhoneControlProtectedSetupResult.Completed
             }
         }
-        val pairingCode = ProtectedPairingCodeReader.await(
+        val pairingCodeResult = ProtectedPairingCodeReader.await(
             context = context,
             token = token,
             timeoutMs = PAIRING_CODE_TIMEOUT_MS,
-        ) ?: return PhoneControlProtectedSetupResult.NeedsUserStep(
-            "pairing_code_unavailable",
         )
+        val pairingCode = when (pairingCodeResult) {
+            is ProtectedPairingCodeReadResult.Available -> pairingCodeResult.code
+            is ProtectedPairingCodeReadResult.Unavailable -> {
+                return PhoneControlProtectedSetupResult.NeedsUserStep(
+                    pairingCodeResult.failure.code,
+                )
+            }
+        }
         return try {
             if (!PhoneControlProtectedCheckpointRegistry.owns(token)) {
                 return PhoneControlProtectedSetupResult.Failed("checkpoint_owner_lost")

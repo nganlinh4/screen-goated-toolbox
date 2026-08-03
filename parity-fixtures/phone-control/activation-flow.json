@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 21,
+  "schemaVersion": 27,
   "feature": "phone-control-activation",
   "requiredOrder": [
     "gemini_api",
@@ -49,6 +49,18 @@
       "completionFeedback": "localized_structural_state",
       "userInterruption": "restore_normal_conversation_before_new_turn"
     },
+    "setupSessionBoundary": {
+      "startAnnouncement": "one_localized_app_owned_voice_message",
+      "microphoneCaptureAllocation": "may_remain_open",
+      "microphoneSamples": "discard_locally_while_setup_active",
+      "microphoneLevels": "zero_while_setup_active",
+      "modelMicrophoneInput": false,
+      "successAnnouncement": "one_localized_app_owned_voice_message",
+      "successConversation": "fresh_non_resumed_live_session",
+      "microphoneResume": "only_after_fresh_session_ready_and_success_announcement_finished",
+      "internalTurnPersistence": false,
+      "cancelOrExhaustion": "fresh_non_resumed_live_session_without_success_announcement"
+    },
     "setupFeedback": {
       "toast": "localized_short_state_only_max_32_characters",
       "orbCaption": "localized_compact_status",
@@ -56,6 +68,13 @@
       "explicitUiLocales": ["default", "ko", "vi"],
       "otherUiLocales": "android_default_resource_fallback",
       "uiLocaleSource": "in_app_language_setting"
+    },
+    "orbDismissTarget": {
+      "windowOwner": "same_current_overlay_host_as_orb_renderer",
+      "windowType": "same_as_orb_renderer",
+      "zOrder": "attached_after_orb_renderer",
+      "attachmentFailure": "not_visible",
+      "setupVisibility": "same_as_normal_runtime"
     },
     "accessibilityReadiness": {
       "requiredEvidence": ["configured_service", "live_service_binding"],
@@ -168,6 +187,7 @@
         "recommendedNonRoot": "sgt_adb",
         "selectedMarker": "purple_fill",
         "recommendedMarker": "star_icon_without_selected_fill",
+        "recommendedBorder": "same_as_ordinary_unselected_choice",
         "forgetPairing": {
           "visibility": "compact_secondary_action_when_paired",
           "credentialOutcome": "delete_client_key_and_pairing_state",
@@ -185,7 +205,7 @@
       "verifiedReadyFeedback": {
         "trigger": "fresh_provider_probe_ready_after_visual_evidence_restored",
         "visual": "immediate_short_localized_orb_caption_and_toast",
-        "voice": "none",
+        "voice": "one_localized_app_owned_voice_message",
         "deduplication": "once_per_verified_ready_transition",
         "completion": "clear_pending_setup_without_reopening_or_extra_model_turn"
       },
@@ -244,11 +264,56 @@
       "minimumApi": 30,
       "feedbackBeforeExternalStep": true,
       "lifetime": "until_ready_forgotten_or_authority_changed",
+      "externalReturn": "one_fresh_probe_without_automatic_reopen",
+      "unchangedExternalState": "remain_selected_pending_until_fresh_evidence_or_explicit_retry",
       "discovery": "local_interface_mdns_pairing_then_connect_services",
+      "handoffReadiness": "structurally_verified_pairing_surface_before_visual_seal",
+      "navigationOrchestration": {
+        "goalInput": "provider_owned_semantic_setup_contract",
+        "checkpointMonitor": "armed_while_silent_navigation_goal_is_active",
+        "checkpointDetection": "local_structure_only_without_secret_export",
+        "modelCompletionPostcondition": "checkpoint_or_fresh_authority_probe_required",
+        "intermediateCompletion": "bounded_fresh_observation_continuation_within_original_deadline",
+        "exhaustedNavigation": "retire_hidden_owner_clear_stale_guidance_leave_provider_selected_pending",
+        "visualSeal": "immediate_on_structural_checkpoint_detection",
+        "modelBoundary": "block_new_tools_settle_owned_action_then_retire_hidden_generation",
+        "localAdapterStart": "after_hidden_generation_boundary",
+        "normalDoneSemanticsChanged": false,
+        "publicSettingsEntryOnly": true,
+        "privateSettingsComponentAllowed": false,
+        "localizedLabelOrOemRouteAllowed": false
+      },
       "keyStorage": "android_keystore_non_exportable_private_key",
+      "packageIsolation": "per_application_uid_key_and_pairing_state_with_identical_flavor_behavior",
       "pairingCode": "sealed_local_adapter_only",
       "pairingCodeModelVisibility": false,
       "pairingCodePersistence": false,
+      "pairingDeadline": "single_end_to_end_monotonic_deadline",
+      "bridgeProcessIsolation": {
+        "fullApplicationContainer": "primary_application_process_only",
+        "dedicatedProcessStartup": "service_owned_minimal_runtime",
+        "diagnostics": "separate_durable_process_journal_merged_by_collector",
+        "diagnosticPhases": [
+          "service_lifecycle",
+          "connect_terminal",
+          "pair_terminal",
+          "authority_terminal"
+        ],
+        "unrelatedSubsystemInitialization": false,
+        "timeoutMaskingAllowed": false,
+        "distributionParity": true
+      },
+      "diagnosticStages": [
+        "accessibility_unavailable",
+        "settings_handler_unavailable",
+        "settings_surface_unavailable",
+        "pairing_surface_not_ready",
+        "pairing_code_unavailable",
+        "pairing_endpoint_unavailable",
+        "pairing_failed",
+        "paired_connect_pending",
+        "ready"
+      ],
       "androidOwnedEnablementAndTrust": "user_step",
       "captureLifecycle": "sealed_model_evidence_with_projection_retained",
       "cancelDuringPairing": "serialize_then_forget_abandoned_client_key_after_terminal_return",

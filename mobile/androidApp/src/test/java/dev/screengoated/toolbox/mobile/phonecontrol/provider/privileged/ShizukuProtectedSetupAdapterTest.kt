@@ -1,7 +1,9 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged
 
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShizukuProtectedSetupAdapterTest {
@@ -43,6 +45,29 @@ class ShizukuProtectedSetupAdapterTest {
                 ),
             ),
         )
+    }
+
+    @Test
+    fun `recognizes only structurally complete pairing readiness`() {
+        assertTrue(
+            protectedPairingSurfaceReady(
+                listOf(
+                    surfaceValue(null, "l_pairing_six_digit"),
+                    surfaceValue(null, "pairing_code"),
+                    surfaceValue("192.0.2.8:37123", "ip_addr"),
+                ),
+            ),
+        )
+        assertTrue(
+            protectedPairingSurfaceReady(
+                listOf(
+                    surfaceValue("654321"),
+                    surfaceValue("[2001:db8::1]:37123"),
+                ),
+            ),
+        )
+        assertFalse(protectedPairingSurfaceReady(listOf(surfaceValue("192.0.2.8:37123"))))
+        assertFalse(protectedPairingSurfaceReady(listOf(surfaceValue("Developer options"))))
     }
 
     @Test

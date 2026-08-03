@@ -44,6 +44,7 @@ class PhoneControlRuntimeOutboundTest {
             screenFramesSent = screenSent,
             pendingWorkCount = { 0 },
             turnPhase = { PhoneControlTurnPhase.LISTENING },
+            microphoneInput = PhoneControlSetupSessionGate(),
             userSpeaking = { false },
             userInterfaceGoals = PhoneControlUserInterfaceGoalQueue(),
             onInputSent = { inputSignals.incrementAndGet() },
@@ -62,6 +63,42 @@ class PhoneControlRuntimeOutboundTest {
         assertEquals(2, inputSignals.get())
         assertEquals(1, activitySignals.get())
         assertEquals(0, control.snapshot().count)
+    }
+
+    @Test
+    fun `setup gate discards buffered microphone without delaying control`() {
+        val audio = Channel<ShortArray>(1)
+        val control = PhoneControlSessionPayloadQueue()
+        val session = RecordingSession()
+        val gate = PhoneControlSetupSessionGate()
+        val bufferedAudio = AtomicInteger(1)
+        assertTrue(audio.trySend(shortArrayOf(3, -3)).isSuccess)
+        assertTrue(control.offer("tool-response", PhoneControlOutboundKind.TOOL_RESPONSE))
+        assertTrue(gate.begin())
+
+        val outbound = PhoneControlRuntimeOutbound(
+            visualEvidence = PhoneControlRuntimeVisualEvidence(),
+            audioFrames = audio,
+            bufferedAudio = bufferedAudio,
+            controlPayloads = control,
+            screenFrames = Channel(1),
+            screenReconciliationQueued = AtomicBoolean(false),
+            sender = PhoneControlOutboundSender { 1L },
+            audioFramesSent = AtomicLong(),
+            screenFramesSent = AtomicLong(),
+            pendingWorkCount = { 0 },
+            turnPhase = { PhoneControlTurnPhase.LISTENING },
+            microphoneInput = gate,
+            userSpeaking = { false },
+            userInterfaceGoals = PhoneControlUserInterfaceGoalQueue(),
+            onInputSent = {},
+            onInputActivity = {},
+            onFreshScreenDelivered = {},
+        )
+
+        assertTrue(outbound.flush(session))
+        assertEquals(listOf("tool-response"), session.sent)
+        assertEquals(0, bufferedAudio.get())
     }
 
     private class RecordingSession : GeminiLiveReadySession {

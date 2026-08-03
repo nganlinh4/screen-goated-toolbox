@@ -4,12 +4,16 @@ import android.content.Intent
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlAuthorityAutomationDisposition
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlAuthorityAutomationOwner
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlAuthorityResumeDisposition
+import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlProtectedNavigationDecision
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCapturePolicy
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.phoneControlAuthorityAutomationDisposition
 import dev.screengoated.toolbox.mobile.phonecontrol.phoneControlAuthorityResumeDisposition
+import dev.screengoated.toolbox.mobile.phonecontrol.phoneControlProtectedNavigationDecision
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuBridgeCondition
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.ShizukuProtectedSetupAdapter
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbBridgeCondition
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbBridgeProbe
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbProtectedSetupAdapter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,6 +21,60 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PhoneControlActivationBehaviorTest {
+    @Test
+    fun `protected navigation completion requires structural postcondition`() {
+        assertEquals(
+            PhoneControlProtectedNavigationDecision.WAIT,
+            phoneControlProtectedNavigationDecision(
+                goalFinished = false,
+                postGoalSettled = false,
+                attempt = 1,
+                maximumAttempts = 4,
+                deadlineReached = false,
+            ),
+        )
+        assertEquals(
+            PhoneControlProtectedNavigationDecision.WAIT,
+            phoneControlProtectedNavigationDecision(
+                goalFinished = true,
+                postGoalSettled = false,
+                attempt = 1,
+                maximumAttempts = 4,
+                deadlineReached = false,
+            ),
+        )
+        assertEquals(
+            PhoneControlProtectedNavigationDecision.RETRY,
+            phoneControlProtectedNavigationDecision(
+                goalFinished = true,
+                postGoalSettled = true,
+                attempt = 1,
+                maximumAttempts = 4,
+                deadlineReached = false,
+            ),
+        )
+        assertEquals(
+            PhoneControlProtectedNavigationDecision.EXHAUSTED,
+            phoneControlProtectedNavigationDecision(
+                goalFinished = true,
+                postGoalSettled = true,
+                attempt = 4,
+                maximumAttempts = 4,
+                deadlineReached = false,
+            ),
+        )
+        assertEquals(
+            PhoneControlProtectedNavigationDecision.EXHAUSTED,
+            phoneControlProtectedNavigationDecision(
+                goalFinished = false,
+                postGoalSettled = false,
+                attempt = 1,
+                maximumAttempts = 4,
+                deadlineReached = true,
+            ),
+        )
+    }
+
     @Test
     fun `authority setup automation is single flight per selected provider`() {
         assertEquals(
@@ -61,14 +119,14 @@ class PhoneControlActivationBehaviorTest {
             PhoneControlAuthorityAutomationDisposition.SUBMIT,
             owner.disposition(automationRequested = true, requestedProvider = "provider-a"),
         )
-        owner.begin(goalId = 41, providerId = "provider-a", captureHandoff = false)
+        owner.begin(goalId = 41, providerId = "provider-a", checkpointMonitoring = false)
         assertEquals(
             PhoneControlAuthorityAutomationDisposition.COALESCE,
             owner.disposition(automationRequested = true, requestedProvider = "provider-a"),
         )
-        val coalesced = owner.coalesce("provider-a", captureHandoff = true)
+        val coalesced = owner.coalesce("provider-a", checkpointMonitoring = true)
         assertEquals(41L, coalesced?.goalId)
-        assertTrue(coalesced?.captureHandoff == true)
+        assertTrue(coalesced?.checkpointMonitoring == true)
         assertEquals(null, owner.complete(99))
         assertEquals(coalesced, owner.complete(41))
         assertEquals(
@@ -87,6 +145,12 @@ class PhoneControlActivationBehaviorTest {
             PhoneControlProtectedCapturePolicy.RELEASE_PROJECTION,
             ShizukuProtectedSetupAdapter.capturePolicy,
         )
+        assertEquals(
+            SgtAdbProtectedSetupAdapter.navigationContract,
+            ShizukuProtectedSetupAdapter.navigationContract,
+        )
+        assertTrue(SgtAdbProtectedSetupAdapter.navigationContract.platformCapability.isNotBlank())
+        assertTrue(SgtAdbProtectedSetupAdapter.navigationContract.destinationState.isNotBlank())
     }
 
     @Test
@@ -242,6 +306,39 @@ class PhoneControlActivationBehaviorTest {
         assertEquals(
             PhoneControlShizukuRepeatDisposition.DISPATCH,
             phoneControlShizukuRepeatDisposition(installed, missing, stepActive = false),
+        )
+    }
+
+    @Test
+    fun `SGT bridge setup waits for fresh state instead of reopening unchanged settings`() {
+        val missing = phoneControlSgtAdbSetupAttempt(
+            SgtAdbBridgeProbe(
+                state = CapabilityState.NEEDS_USER_STEP,
+                condition = SgtAdbBridgeCondition.NOT_PAIRED,
+            ),
+        )
+        val connecting = phoneControlSgtAdbSetupAttempt(
+            SgtAdbBridgeProbe(
+                state = CapabilityState.DEGRADED,
+                condition = SgtAdbBridgeCondition.CONNECTING,
+            ),
+        )
+
+        assertEquals(
+            PhoneControlSgtAdbRepeatDisposition.DISPATCH,
+            phoneControlSgtAdbRepeatDisposition(missing, previous = null, stepActive = false),
+        )
+        assertEquals(
+            PhoneControlSgtAdbRepeatDisposition.WAIT_FOR_RETURN,
+            phoneControlSgtAdbRepeatDisposition(missing, missing, stepActive = true),
+        )
+        assertEquals(
+            PhoneControlSgtAdbRepeatDisposition.LEAVE_SELECTED_PENDING,
+            phoneControlSgtAdbRepeatDisposition(missing, missing, stepActive = false),
+        )
+        assertEquals(
+            PhoneControlSgtAdbRepeatDisposition.DISPATCH,
+            phoneControlSgtAdbRepeatDisposition(connecting, missing, stepActive = false),
         )
     }
 }

@@ -63,6 +63,8 @@ internal class DismissBubbleController(
     private val showDismissAll: Boolean = true,
     private val allLabel: () -> String = { "All" },
     coordinateScaleOverride: Float? = null,
+    private val windowType: Int = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+    private val onAttachFailure: () -> Unit = {},
 ) {
     private val density = context.resources.displayMetrics.density
 
@@ -80,17 +82,24 @@ internal class DismissBubbleController(
 
     val isShowing: Boolean get() = zone != null
 
-    fun ensureShown() {
-        if (zone != null) return
-        zone = MorphDismissZone(
+    fun ensureShown(): Boolean {
+        if (zone != null) return true
+        val candidate = MorphDismissZone(
             context = context,
             windowManager = windowManager,
             targets = dismissTargets(),
-        ).also { it.show() }
+            windowType = windowType,
+        )
+        if (!candidate.show()) {
+            onAttachFailure()
+            return false
+        }
+        zone = candidate
+        return true
     }
 
     fun update(hit: DismissHit) {
-        ensureShown()
+        if (!ensureShown()) return
         zone?.update(
             if (showDismissAll) {
                 floatArrayOf(hit.singleProximity, hit.allProximity)

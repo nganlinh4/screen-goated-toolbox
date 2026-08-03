@@ -22,6 +22,7 @@ internal class PhoneControlRuntimeAudioPipelines(
     private val audioFrames: SendChannel<ShortArray>,
     private val bufferedAudio: AtomicInteger,
     private val playback: PhoneControlPlaybackQueue,
+    private val inputAdmitted: () -> Boolean,
     private val onListeningLevel: (Float) -> Unit,
 ) {
     suspend fun captureMicrophone() {
@@ -32,14 +33,16 @@ internal class PhoneControlRuntimeAudioPipelines(
             try {
                 audioCapture.open(
                     config = LiveSessionConfig(sourceMode = SourceMode.MIC),
-                    onRms = onListeningLevel,
+                    onRms = { level ->
+                        onListeningLevel(if (inputAdmitted()) level else 0f)
+                    },
                 ).collect { samples ->
                     consecutiveFailures = 0
                     if (firstFrame) {
                         firstFrame = false
                         Log.i(TAG, "microphone_capture_started samples_per_frame=${samples.size}")
                     }
-                    if (audioFrames.trySend(samples).isSuccess) {
+                    if (inputAdmitted() && audioFrames.trySend(samples).isSuccess) {
                         bufferedAudio.incrementAndGet()
                     }
                 }

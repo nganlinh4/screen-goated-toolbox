@@ -9,6 +9,7 @@ import android.text.SpannableStringBuilder
 import android.view.accessibility.AccessibilityNodeInfo
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCapturePolicy
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointReadiness
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointToken
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupAdapter
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupResult
@@ -20,6 +21,10 @@ import rikka.shizuku.Shizuku
 
 internal object ShizukuProtectedSetupAdapter : PhoneControlProtectedSetupAdapter {
     override val capturePolicy = PhoneControlProtectedCapturePolicy.RELEASE_PROJECTION
+    override val navigationContract = WirelessDebuggingSetupContract
+
+    override fun checkpointReadiness(context: Context): PhoneControlProtectedCheckpointReadiness =
+        ProtectedPairingCodeReader.surfaceReadiness(context)
 
     override suspend fun complete(
         context: Context,
@@ -27,8 +32,13 @@ internal object ShizukuProtectedSetupAdapter : PhoneControlProtectedSetupAdapter
     ): PhoneControlProtectedSetupResult = withContext(Dispatchers.Main.immediate) {
         val service = SgtAccessibilityService.instance
             ?: return@withContext needsUserStep("accessibility_unavailable")
-        val oneTimeCode = ProtectedPairingCodeReader.await(context, token)
-            ?: return@withContext needsUserStep("pairing_code_unavailable")
+        val codeResult = ProtectedPairingCodeReader.await(context, token)
+        val oneTimeCode = when (codeResult) {
+            is ProtectedPairingCodeReadResult.Available -> codeResult.code
+            is ProtectedPairingCodeReadResult.Unavailable -> {
+                return@withContext needsUserStep(codeResult.failure.code)
+            }
+        }
         try {
             if (!owns(token)) return@withContext failed("checkpoint_owner_lost")
             if (!service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)) {

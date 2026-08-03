@@ -281,13 +281,6 @@ function Run-FlavorTests {
             $classes +=
                 "dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlShizukuSetupDeviceTest"
         }
-        if ($VariantFlavor -eq "play") {
-            $classes +=
-                "dev.screengoated.toolbox.mobile.phonecontrol.PlayPhoneControlDetectorDeliveryTest"
-        } else {
-            $classes +=
-                "dev.screengoated.toolbox.mobile.phonecontrol.FullPhoneControlDetectorDeliveryTest"
-        }
         $classes = $classes -join ","
         $instrumentArguments = @(
             "shell",

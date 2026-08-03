@@ -218,8 +218,9 @@ and replies remain multilingual without language-specific routing.
    The chooser is a compact four-choice card without explanatory prose. Purple
    fill marks only the currently persisted authority choice. It marks SGT Bridge
    with a star as the recommended non-root route even when another choice is
-   selected; recommendation alone never receives the selected fill. This is
-   presentation, not an automatic selection or a weaker fallback contract. A
+   selected; recommendation alone never receives the selected fill or a distinct
+   border. The star is the only recommendation styling. This is presentation,
+   not an automatic selection or a weaker fallback contract. A
    paired bridge exposes only a compact secondary forget action. Forgetting
    deletes the app-owned key and pairing state, persists standard authority, and
    rebuilds the chooser from that persisted choice.
@@ -323,6 +324,44 @@ and replies remain multilingual without language-specific routing.
    selected and its guidance visible, but must not automatically republish the
    identical setup goal. It retries only after an explicit user action or fresh
    capability evidence.
+   The first-party bridge also treats an unchanged Android Settings return as
+   no progress: it probes once, remains selected and pending, and never reopens
+   the same surface until fresh provider evidence or an explicit retry. Model
+   completion alone cannot enter its protected checkpoint. A local structural
+   probe must first prove the current pairing surface is present without
+   exposing its one-time value. If a silent navigation generation ends on an
+   intermediate surface, SGT keeps the original setup deadline, takes fresh
+   structural evidence, and submits a bounded continuation generation. It
+   never converts an unverified model completion into setup success. Exhausted
+   continuation or deadline budgets retire the hidden owner, clear stale orb
+   guidance, and leave the selected provider honestly pending for an explicit
+   retry. Missing Accessibility, Settings ownership,
+   pairing structure, code availability, pairing endpoint, transport, and
+   authority are distinct typed stages. Pairing plus the initial connection use
+   one monotonic end-to-end deadline rather than restarting a full timeout at
+   each stage. Debug and release packages follow this same state machine while
+   retaining their platform-required per-UID keys, grants, and pairing state.
+   Protected setup navigation is checkpoint-driven rather than turn-end-driven.
+   Each provider supplies a stable semantic setup contract; the local structural
+   checkpoint monitor is armed while its silent navigation goal is active. When
+   the exact protected surface appears, SGT immediately seals model-visible
+   pixels, blocks new model tools, lets the one owned action settle, retires the
+   hidden generation, and only then starts the local secret-handling adapter.
+   Ordinary `done` semantics remain unchanged. Android Settings entry uses only
+   documented public actions; private components, localized-label routes, and
+   OEM-specific navigation are forbidden.
+   An accepted authority-setup session emits one short localized app-owned voice
+   announcement before automation proceeds. While that structural session is
+   active, microphone capture may remain allocated for runtime continuity, but
+   its samples and level activity are discarded locally and never reach the live
+   model. Success emits one localized completion announcement, retires the
+   internal setup generation, clears setup-owned captions and playback, and
+   opens a fresh non-resumed live protocol session. Microphone input becomes
+   admissible only after that fresh session is ready and the local completion
+   announcement has ended, so setup speech, ambient user speech, tool context,
+   and model output cannot leak into the first normal user turn. Cancellation
+   or bounded setup exhaustion performs the same clean
+   session boundary without a success announcement.
    Tapping the orb reopens the preference prompt, so the user can explicitly
    cancel the pending route by choosing another authority. If that choice occurs
    while a protected checkpoint is active, SGT cancels the old local adapter and
@@ -545,9 +584,11 @@ device timeout or release a still-running production operation.
   capture exclusion but can never enlarge the touch-consuming surface.
 - Crossing the touch shim's drag threshold opens the same shared, single-target
   bottom dismiss bubble used by Android's other floating overlays. Current raw
-  pointer coordinates drive its proximity feedback. Releasing inside its commit
-  threshold runs the canonical orb exit plus the shared swallow animation, stops
-  the Phone Control foreground service, and returns the Apps card to **Turn on**.
+  pointer coordinates drive its proximity feedback. The target uses the orb
+  renderer's current window owner and type and is attached above that renderer;
+  an attachment failure is never represented as a visible target. Releasing
+  inside its commit threshold runs the canonical orb exit plus the shared
+  swallow animation, stops the Phone Control foreground service, and returns the Apps card to **Turn on**.
   Releasing elsewhere hides the target and persists the clamped orb position;
   cancellation hides the target without stopping the session. The dismiss target
   is local overlay chrome, not a model tool or phrase-gated action.
@@ -1136,6 +1177,11 @@ real-device proof passes. Its contract is:
   fact before connection-service discovery. A delayed connect remains a bounded
   reconnect state and never asks for the one-time code again or claims another
   user step is required;
+- require a structurally verified current pairing surface before sealing visual
+  evidence for the local relay. An unchanged Settings return remains pending
+  without reopening, and each failure stage stays distinct in diagnostics;
+- bound pairing discovery, pairing exchange, connection discovery, and the
+  initial connection by one monotonic end-to-end deadline;
 - bind pairing and connection discovery to the same persisted Android ADB mDNS
   identity family. Accept exact names and Android's documented pairing/connect
   backend-suffix variants; never accept an unrelated `adb-` family merely
@@ -1144,6 +1190,11 @@ real-device proof passes. Its contract is:
 - discover only Android's local mDNS pairing/connect services and reject remote
   addresses that do not belong to a current local interface;
 - survive process interruption without replaying commands;
+- start the private bridge process with only its service-owned runtime. The full
+  application container belongs exclusively to the primary application process;
+  dedicated service and worker processes must not initialize UI, TTS, creation,
+  WebView, or unrelated background work. Binding timeouts report a genuine
+  bridge failure and never mask unrelated application startup;
 - expose a provider-neutral probe, start, cancel, and revoke API so Shizuku,
   first-party ADB, root, and future backends share one router;
 - keep command transport typed and bounded; never expose a generic unauthenticated
@@ -1373,16 +1424,22 @@ tool plan and capability route.
 
 ### Diagnostic evidence
 
-- Phone Control writes a bounded two-file JSONL diagnostic journal under its
-  app-specific external-files directory. Writes are asynchronous and best
-  effort: diagnostic failure or backpressure can never affect the runtime.
-  `mobile/scripts/collect-phone-control-diagnostics.ps1` collects that journal
-  plus filtered Logcat from one exact device, Android user 0, and package. The
-  collector also emits a bounded structural timeline tail and summary with an
-  explicit omitted-record count; raw files remain evidence, not the primary
-  diagnosis view.
-- Journal schema v2 gives every record a process-session identity, monotonic
-  sequence, event name, and typed structural fields. Turn records carry
+- Phone Control writes one bounded two-file JSONL diagnostic journal per
+  participating application process under its app-specific external-files
+  directory. Separate journals prevent cross-process append and rotation races.
+  Writes are asynchronous and best effort: diagnostic failure or backpressure
+  can never affect the runtime. The authority bridge initializes only this
+  minimal diagnostic writer, never the full application container.
+  `mobile/scripts/collect-phone-control-diagnostics.ps1` discovers and collects
+  every process journal plus filtered Logcat from one exact device, Android user
+  0, and package, then merges records by timestamp. The collector also emits a
+  bounded structural timeline tail and summary with an explicit omitted-record
+  count; raw files remain evidence, not the primary diagnosis view.
+- Journal schema v3 gives every record a stable process role, process-session
+  identity, monotonic sequence, event name, and typed structural fields. Bridge
+  setup records include service lifecycle plus terminal connect, pair, and
+  authority verification outcomes without endpoints, pairing codes, keys,
+  tokens, command output, or other authentication material. Turn records carry
   generation and elapsed time without transcript text. Tool dispatch/receipt
   records carry turn, generation, job, elapsed time, capability/provider state,
   observation identity, effect certainty, invalidation, recovery, retry, and
