@@ -9,25 +9,30 @@ internal data class CreationPreparationSlotState(
 
 internal fun nextCreationPreparationSlot(
     slots: List<CreationPreparationSlotState>,
-): Int? {
-    val preparationInFlight = slots.any {
-        !it.ready && !it.busy && (it.binding || it.connected)
-    }
-    if (preparationInFlight) return null
-    return slots.indexOfFirst {
+): Int? = slots.indexOfFirst {
         !it.connected && !it.binding && !it.ready
     }.takeIf { it >= 0 }
-}
 
 internal fun activeCreationPreparationAfterFailure(
     active: CreationTool?,
     failed: CreationTool,
 ): CreationTool? = active.takeUnless { it == failed }
 
+internal fun hasIndependentPreparationLane(
+    slots: List<CreationPreparationSlotState>,
+    failedSlot: Int,
+): Boolean = slots.withIndex().any { (index, slot) ->
+    index != failedSlot && (slot.connected || slot.binding || slot.ready || slot.busy)
+}
+
 internal class CreationPreparationFailureRegistry {
     private val failed = mutableSetOf<CreationTool>()
 
     fun markFailed(tool: CreationTool): Boolean = failed.add(tool)
+
+    fun markFailed(tools: Set<CreationTool>) {
+        failed += tools
+    }
 
     fun restart(tool: CreationTool): Boolean = failed.remove(tool)
 

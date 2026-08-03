@@ -295,7 +295,17 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         scope.launch {
             val available = runtime.awaitFactory() != null
             runtimeAwaiting = false
-            if (available) handler.post(::schedulePreparation)
+            handler.post {
+                if (available) {
+                    schedulePreparation()
+                } else {
+                    synchronized(leaseLock) {
+                        preparationFailures.markFailed(leases.retainedTools())
+                        activePreparationTool = null
+                    }
+                    preparationStateListener?.invoke()
+                }
+            }
         }
     }
 
@@ -322,6 +332,8 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                 }
             }
             handler.postDelayed({ bind(worker) }, PREPARATION_RETRY_DELAY_MS)
+        } else {
+            schedulePreparation()
         }
     }
 
@@ -425,20 +437,35 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                         publicCreationFailureCategory(event.failureCode),
                 )
             }
+            val hasAlternative = synchronized(workers) {
+                val matching = workers.filter { it.tool == worker.tool }
+                hasIndependentPreparationLane(
+                    matching.map {
+                        CreationPreparationSlotState(
+                            connected = it.binder != null,
+                            binding = it.binding || it.preparing || it.prepareScheduled,
+                            ready = it.ready,
+                            busy = it.busy,
+                        )
+                    },
+                    matching.indexOf(worker),
+                )
+            }
             val failedStartup = synchronized(leaseLock) {
+                if (hasAlternative) return@synchronized false
                 preparationFailures.markFailed(worker.tool)
                 activePreparationTool = activeCreationPreparationAfterFailure(
                     activePreparationTool,
                     worker.tool,
                 )
-                if (startupActive == worker.tool) {
-                    startupActive = null
-                    true
-                } else {
-                    false
+                (startupActive == worker.tool).also { failed ->
+                    if (failed) startupActive = null
                 }
             }
-            handleWorkerLoss(worker, call.epoch)
+            handleWorkerLoss(worker, call.epoch, reschedule = !hasAlternative)
+            if (hasAlternative) {
+                handler.postDelayed(::schedulePreparation, PREPARATION_RETRY_DELAY_MS)
+            }
             if (failedStartup) {
                 release(worker.tool, STARTUP_LEASE)
                 val next = synchronized(leaseLock) { nextStartupToolLocked() }
@@ -525,7 +552,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             true
         }
 
-    private fun handleWorkerLoss(worker: Worker, epoch: Long) {
+    private fun handleWorkerLoss(worker: Worker, epoch: Long, reschedule: Boolean = true) {
         val loss = synchronized(workers) {
             if (worker.connectionEpoch != epoch) return
             val assignment = worker.assignment.lose()
@@ -550,39 +577,11 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                 failureCode = "execution_lost",
             ),
         )
-        schedulePreparation()
+        if (reschedule) schedulePreparation()
     }
 
     private fun toolIsRequested(tool: CreationTool): Boolean =
         creationToolReleased(tool) && synchronized(leaseLock) { leases.retained(tool) }
-
-    private data class Worker(
-        val key: String,
-        val tool: CreationTool,
-        val serviceClass: Class<*>,
-        @Volatile var binder: ICreationWorker? = null,
-        @Volatile var connection: ServiceConnection? = null,
-        @Volatile var binding: Boolean = false,
-        @Volatile var prepareScheduled: Boolean = false,
-        @Volatile var preparing: Boolean = false,
-        @Volatile var ready: Boolean = false,
-        @Volatile var busy: Boolean = false,
-        val assignment: CreationWorkerAssignmentGuard = CreationWorkerAssignmentGuard(),
-        @Volatile var connectionEpoch: Long = 0,
-    )
-
-    private data class Assignment(val worker: Worker, val binder: ICreationWorker)
-    private data class PreparedCall(val binder: ICreationWorker, val epoch: Long)
-    private data class WorkerLoss(
-        val connection: ServiceConnection?,
-        val assignment: CreationWorkerAssignment?,
-    )
-    private data class ShutdownAction(
-        val worker: Worker,
-        val binder: ICreationWorker?,
-        val connection: ServiceConnection?,
-        val assignment: CreationWorkerAssignment?,
-    )
 
     companion object {
         private const val TAG = "CreationWorkerPool"

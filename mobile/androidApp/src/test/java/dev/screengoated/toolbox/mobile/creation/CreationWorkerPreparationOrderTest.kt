@@ -1,7 +1,6 @@
 package dev.screengoated.toolbox.mobile.creation
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class CreationWorkerPreparationOrderTest {
@@ -11,8 +10,9 @@ class CreationWorkerPreparationOrderTest {
     }
 
     @Test
-    fun `duplicate signal cannot start another slot while one is binding`() {
-        assertNull(
+    fun `independent slot starts while another slot is binding`() {
+        assertEquals(
+            1,
             nextCreationPreparationSlot(
                 listOf(emptySlot().copy(binding = true), emptySlot()),
             ),
@@ -40,8 +40,34 @@ class CreationWorkerPreparationOrderTest {
     }
 
     @Test
+    fun `failure preserves an independent ready or preparing lane`() {
+        assertEquals(
+            true,
+            hasIndependentPreparationLane(
+                listOf(emptySlot().copy(connected = true), emptySlot().copy(ready = true)),
+                failedSlot = 0,
+            ),
+        )
+        assertEquals(
+            true,
+            hasIndependentPreparationLane(
+                listOf(emptySlot().copy(connected = true), emptySlot().copy(binding = true)),
+                failedSlot = 0,
+            ),
+        )
+        assertEquals(
+            false,
+            hasIndependentPreparationLane(
+                listOf(emptySlot().copy(connected = true), emptySlot()),
+                failedSlot = 0,
+            ),
+        )
+    }
+
+    @Test
     fun `failed preparation releases its tool lane before retry`() {
-        assertNull(
+        assertEquals(
+            null,
             activeCreationPreparationAfterFailure(
                 CreationTool.IMAGE_CREATOR,
                 CreationTool.IMAGE_CREATOR,
@@ -69,6 +95,18 @@ class CreationWorkerPreparationOrderTest {
             ),
         )
         assertEquals(true, failures.restart(CreationTool.IMAGE_CREATOR))
+        assertEquals(false, failures.isFailed(CreationTool.IMAGE_CREATOR))
+    }
+
+    @Test
+    fun `runtime delivery failure closes every retained preparation lane`() {
+        val failures = CreationPreparationFailureRegistry()
+        failures.markFailed(
+            setOf(CreationTool.IMAGE_TO_3D, CreationTool.IMAGE_TO_SVG),
+        )
+
+        assertEquals(true, failures.isFailed(CreationTool.IMAGE_TO_3D))
+        assertEquals(true, failures.isFailed(CreationTool.IMAGE_TO_SVG))
         assertEquals(false, failures.isFailed(CreationTool.IMAGE_CREATOR))
     }
 

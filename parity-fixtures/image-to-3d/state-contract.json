@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 31,
+  "schemaVersion": 32,
   "tool": "image-to-3d",
   "names": {
     "en": "Image to 3D",
@@ -41,7 +41,12 @@
     "expansionIsBounded": true,
     "consumptionStartsBackgroundReplenishment": true,
     "readyWorkDoesNotWaitForReplenishment": true,
-    "toolCapacityIsIsolated": true
+    "toolCapacityIsIsolated": true,
+    "actionableSurfaceRequired": true,
+    "blockingFirstUseGuidanceResolved": true,
+    "modePreparationIsIndependent": true,
+    "independentLanesPrepareConcurrently": true,
+    "laneFailureDoesNotRevokeOtherReadiness": true
   },
   "surfaceActivity": {
     "firstPaintPrecedesReadinessRequest": true,

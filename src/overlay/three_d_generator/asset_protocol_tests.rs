@@ -405,7 +405,7 @@ fn model_safety_fixture_matches_windows_limits() {
         "../../../parity-fixtures/image-to-3d/state-contract.json"
     ))
     .unwrap();
-    assert_eq!(fixture["schemaVersion"].as_u64(), Some(31));
+    assert_eq!(fixture["schemaVersion"].as_u64(), Some(32));
     let safety = fixture["modelSafety"].as_object().unwrap();
     for (field, expected) in [
         ("maximumGlbBytes", MAX_GLB_BYTES),

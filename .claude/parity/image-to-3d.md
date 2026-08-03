@@ -52,6 +52,11 @@
   capacity, and consuming prepared capacity starts background replenishment.
   Existing ready work never waits for replenishment, and demand in another
   creation tool cannot consume this tool's reserve.
+- Readiness requires an actionable creation surface. A signed-in surface that
+  is still blocked by first-use guidance is resolved before it can accept work.
+- Each generation mode has an independently prepared execution lane. A lane
+  that is slow or unavailable does not delay, revoke, or consume readiness for
+  another mode, and independent lanes may prepare concurrently.
 - Opening the surface paints the product UI before requesting readiness work.
   Idle surfaces do not poll jobs, history, or readiness. Job status and
   estimated-progress refreshes run only while accepted or recovered work is
