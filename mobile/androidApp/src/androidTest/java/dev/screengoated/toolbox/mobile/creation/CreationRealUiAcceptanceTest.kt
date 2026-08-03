@@ -18,14 +18,13 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeLeft
-import androidx.compose.ui.test.swipeUp
 import dev.screengoated.toolbox.mobile.MainActivity
 import java.io.File
 import java.util.UUID
@@ -48,7 +47,7 @@ class CreationRealUiAcceptanceTest {
 
     @Before
     fun removeOrphanedInputs() {
-        cancelAbandonedQualityControlJobs()
+        cancelUnassignedQualityControlJobs()
         context.contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             arrayOf(MediaStore.Images.Media._ID),
@@ -67,11 +66,12 @@ class CreationRealUiAcceptanceTest {
         }
     }
 
-    private fun cancelAbandonedQualityControlJobs() {
+    private fun cancelUnassignedQualityControlJobs() {
         val manager = CreationJobManager.get(context)
         CreationJobJournal(context).load()
             .filter { record ->
                 record.ownerId.startsWith(QUALITY_CONTROL_OWNER_PREFIX) &&
+                    record.engineId == null &&
                     creationStageIsBusy(record.status.stage)
             }
             .forEach { record ->
@@ -116,7 +116,8 @@ class CreationRealUiAcceptanceTest {
                     .fetchSemanticsNodes(atLeastOneRootRequired = false)
                     .isNotEmpty()
             }
-            scrollAppsTo("app-card-image-creator")
+            compose.onNodeWithTag("apps-carousel").performScrollToIndex(7)
+            compose.waitForIdle()
             compose.onNodeWithTag("app-card-image-creator")
                 .assertIsDisplayed()
                 .performClick()
@@ -133,28 +134,6 @@ class CreationRealUiAcceptanceTest {
         }
     }
 
-    private fun scrollAppsTo(tag: String) {
-        repeat(8) {
-            if (
-                compose.onAllNodesWithTag(tag)
-                    .fetchSemanticsNodes(atLeastOneRootRequired = false)
-                    .isNotEmpty()
-            ) return
-            compose.onNodeWithTag("apps-carousel").performTouchInput {
-                if (
-                    context.resources.configuration.orientation ==
-                    android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                ) {
-                    swipeLeft(durationMillis = 800)
-                } else {
-                    swipeUp(durationMillis = 800)
-                }
-            }
-            compose.waitForIdle()
-        }
-        error("Timed out scrolling to app card: $tag")
-    }
-
     private fun runImageCase(
         tool: CreationTool,
         settingTag: String,
@@ -162,14 +141,19 @@ class CreationRealUiAcceptanceTest {
     ) {
         sourceUri = createInputImage()
         runSurface(tool) { startedAt ->
+            val queueSizeBeforeImport = currentQueueSize()
             compose.onNodeWithTag("creation-add-input").assertExists().performClick()
             selectInputFromSystemPicker(requireNotNull(sourceUri))
             compose.waitUntil(timeoutMillis = 30_000) {
-                compose.onAllNodesWithTag("creation-selected-input")
-                    .fetchSemanticsNodes(atLeastOneRootRequired = false)
-                    .isNotEmpty()
+                currentQueueSize() > queueSizeBeforeImport &&
+                    compose.onAllNodesWithTag("creation-selected-stage-draft")
+                        .fetchSemanticsNodes(atLeastOneRootRequired = false)
+                        .isNotEmpty()
             }
+            compose.onNodeWithTag("creation-selected-input").assertExists()
+            compose.onNodeWithTag("creation-selected-stage-draft").assertExists()
             compose.onNodeWithTag(settingTag).assertExists().performClick()
+            compose.onNodeWithTag("creation-primary-action").assertIsEnabled()
             submitAndValidate(tool, startedAt, validate)
         }
     }
@@ -251,6 +235,12 @@ class CreationRealUiAcceptanceTest {
         context.contentResolver.update(uri, values, null, null)
         return uri
     }
+
+    private fun currentQueueSize(): Int =
+        compose.onAllNodesWithTag("creation-input")
+            .fetchSemanticsNodes(atLeastOneRootRequired = false).size +
+            compose.onAllNodesWithTag("creation-selected-input")
+                .fetchSemanticsNodes(atLeastOneRootRequired = false).size
 
     private fun selectInputFromSystemPicker(uri: Uri) {
         val displayName = context.contentResolver.query(
