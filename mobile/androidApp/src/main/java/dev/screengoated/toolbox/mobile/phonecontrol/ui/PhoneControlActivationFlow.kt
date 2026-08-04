@@ -82,6 +82,26 @@ internal enum class PhoneControlAccessibilityState {
     READY,
 }
 
+internal enum class PhoneControlAccessibilityResolution {
+    CONTINUE,
+    WAIT,
+    OPEN_SETTINGS,
+    STOP,
+}
+
+internal fun phoneControlAccessibilityResolution(
+    state: PhoneControlAccessibilityState,
+    reconnectWaitExhausted: Boolean,
+): PhoneControlAccessibilityResolution = when (state) {
+    PhoneControlAccessibilityState.READY -> PhoneControlAccessibilityResolution.CONTINUE
+    PhoneControlAccessibilityState.DISABLED -> PhoneControlAccessibilityResolution.OPEN_SETTINGS
+    PhoneControlAccessibilityState.RECONNECTING -> if (reconnectWaitExhausted) {
+        PhoneControlAccessibilityResolution.STOP
+    } else {
+        PhoneControlAccessibilityResolution.WAIT
+    }
+}
+
 internal fun phoneControlAccessibilityState(
     configured: Boolean,
     serviceBound: Boolean,

@@ -281,6 +281,40 @@ class PhoneControlActivationBehaviorTest {
     }
 
     @Test
+    fun `accessibility activation opens settings only for freshly disabled service`() {
+        assertEquals(
+            PhoneControlAccessibilityResolution.OPEN_SETTINGS,
+            phoneControlAccessibilityResolution(
+                PhoneControlAccessibilityState.DISABLED,
+                reconnectWaitExhausted = false,
+            ),
+        )
+        assertEquals(
+            PhoneControlAccessibilityResolution.WAIT,
+            phoneControlAccessibilityResolution(
+                PhoneControlAccessibilityState.RECONNECTING,
+                reconnectWaitExhausted = false,
+            ),
+        )
+        assertEquals(
+            PhoneControlAccessibilityResolution.STOP,
+            phoneControlAccessibilityResolution(
+                PhoneControlAccessibilityState.RECONNECTING,
+                reconnectWaitExhausted = true,
+            ),
+        )
+        listOf(false, true).forEach { reconnectWaitExhausted ->
+            assertEquals(
+                PhoneControlAccessibilityResolution.CONTINUE,
+                phoneControlAccessibilityResolution(
+                    PhoneControlAccessibilityState.READY,
+                    reconnectWaitExhausted,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun `Shizuku setup advances on state change without repeating one external step`() {
         val missing = PhoneControlShizukuSetupAttempt(
             ShizukuBridgeCondition.PACKAGE_MISSING,

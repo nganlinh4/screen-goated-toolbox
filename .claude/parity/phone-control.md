@@ -202,8 +202,11 @@ and replies remain multilingual without language-specific routing.
    a live `SgtAccessibilityService` binding. The configured record alone is not
    semantic or control authority. When Android reports the service configured
    but the binding is absent, activation waits only for a bounded reconnect
-   interval. It then opens the Android-owned Accessibility surface for a user
-   re-enable step instead of starting a degraded session or claiming readiness.
+   interval and re-probes both facts. A recovered binding continues without
+   navigation; a freshly disabled service opens the Android-owned Accessibility
+   surface; a still-configured service stops that activation attempt without
+   opening a surface that offers no unresolved grant. Another **Turn on** starts
+   from fresh evidence. It never starts a degraded session or claims readiness.
 4. Once required evidence is sufficient, SGT starts the correctly typed
    foreground service, creates the granted projection and its virtual display,
    then starts the runtime and orb. The card becomes **Turn off** and remains the
