@@ -22,6 +22,7 @@ internal enum class PlatformSettingsNavigationResult(val wireName: String) {
     RETURNED_AFTER_PERMISSION("returned_after_permission"),
     AMBIGUOUS_TARGET("ambiguous_target"),
     TARGET_NOT_FOUND("target_not_found"),
+    GRANT_NOT_OBSERVED("grant_not_observed"),
     DISPATCH_FAILED("dispatch_failed"),
 }
 
@@ -104,6 +105,25 @@ internal object PhoneControlPlatformSettingsNavigator {
         } else {
             PlatformSettingsNavigationResult.TARGET_NOT_FOUND
         }
+    }
+
+    /**
+     * Waits for a grant on a Settings page this app deep-linked into, then walks back out.
+     * No row navigation: the page is already the right one, and hunting for the app row would
+     * act on whichever Settings screen happens to be in front.
+     */
+    suspend fun awaitGrantAndReturn(
+        settingsPackage: String,
+        permissionReady: () -> Boolean,
+    ): PlatformSettingsNavigationResult {
+        repeat(MAX_NAVIGATION_POLLS) {
+            if (permissionReady()) {
+                PhoneControlLog.i(TAG, "settings_navigation phase=grant_observed")
+                return returnFromSettings(settingsPackage)
+            }
+            delay(POLL_MS)
+        }
+        return PlatformSettingsNavigationResult.GRANT_NOT_OBSERVED
     }
 
     private suspend fun returnFromSettings(

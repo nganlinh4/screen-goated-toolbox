@@ -282,39 +282,55 @@ class PhoneControlActivity : ComponentActivity() {
         )
         launchPlatformStep(userSteps.settings, intent) {
             settingsLauncher.launch(intent)
-            if (step == PhoneControlActivationStep.ACCESSIBILITY ||
-                step == PhoneControlActivationStep.OVERLAY
-            ) {
-                startSettingsNavigation(step, intent)
+            when (step) {
+                // Only the accessibility intent lands on a list that needs driving.
+                PhoneControlActivationStep.ACCESSIBILITY ->
+                    startAccessibilitySettingsNavigation(intent)
+                // The overlay intent deep-links straight to this app's page, so only watch for
+                // the grant and return. Driving rows here would click the app row on whichever
+                // Settings screen is still in front, stacking that page over the overlay one.
+                PhoneControlActivationStep.OVERLAY -> startOverlayGrantWatch(intent)
+                else -> Unit
             }
         }
     }
 
-    private fun startSettingsNavigation(
-        step: PhoneControlActivationStep,
+    private fun startAccessibilitySettingsNavigation(intent: Intent) {
+        val appLabel = applicationInfo.loadLabel(packageManager).toString()
+        if (appLabel.isBlank()) {
+            PhoneControlLog.w(TAG, "settings_navigation unavailable=true")
+            return
+        }
+        startSettingsWatch(intent) { settingsPackage ->
+            PhoneControlPlatformSettingsNavigator.openAppRow(
+                settingsPackage = settingsPackage,
+                appLabel = appLabel,
+                permissionReady = { isAccessibilityReady(this@PhoneControlActivity) },
+            )
+        }
+    }
+
+    private fun startOverlayGrantWatch(intent: Intent) {
+        startSettingsWatch(intent) { settingsPackage ->
+            PhoneControlPlatformSettingsNavigator.awaitGrantAndReturn(
+                settingsPackage = settingsPackage,
+                permissionReady = { Settings.canDrawOverlays(this@PhoneControlActivity) },
+            )
+        }
+    }
+
+    private fun startSettingsWatch(
         intent: Intent,
+        watch: suspend (settingsPackage: String) -> PlatformSettingsNavigationResult,
     ) {
         val settingsPackage = intent.resolveActivity(packageManager)?.packageName
-        val appLabel = applicationInfo.loadLabel(packageManager).toString()
-        if (settingsPackage.isNullOrBlank() || appLabel.isBlank()) {
+        if (settingsPackage.isNullOrBlank()) {
             PhoneControlLog.w(TAG, "settings_navigation unavailable=true")
             return
         }
         settingsNavigationJob?.cancel()
         settingsNavigationJob = lifecycleScope.launch {
-            val result = PhoneControlPlatformSettingsNavigator.openAppRow(
-                settingsPackage = settingsPackage,
-                appLabel = appLabel,
-                permissionReady = {
-                    when (step) {
-                        PhoneControlActivationStep.ACCESSIBILITY ->
-                            isAccessibilityReady(this@PhoneControlActivity)
-                        PhoneControlActivationStep.OVERLAY ->
-                            Settings.canDrawOverlays(this@PhoneControlActivity)
-                        else -> false
-                    }
-                },
-            )
+            val result = watch(settingsPackage)
             PhoneControlLog.i(TAG, "settings_navigation result=${result.wireName}")
         }
     }
@@ -331,34 +347,69 @@ class PhoneControlActivity : ComponentActivity() {
     }
 
     private fun prepareAccessibilityStep(step: PhoneControlActivationStep) {
-        if (probePhoneControlAccessibilityState(this) !=
-            PhoneControlAccessibilityState.RECONNECTING
-        ) {
-            launchActivationSettings(step, accessibilitySettingsIntent(this))
-            return
+        when (phoneControlAccessibilityResolution(
+            probePhoneControlAccessibilityState(this),
+            reconnectWaitExhausted = false,
+        )) {
+            PhoneControlAccessibilityResolution.CONTINUE -> advanceActivation()
+            PhoneControlAccessibilityResolution.OPEN_SETTINGS ->
+                launchActivationSettings(step, accessibilitySettingsIntent(this))
+            PhoneControlAccessibilityResolution.STOP -> stopAccessibilityReconnect()
+            PhoneControlAccessibilityResolution.WAIT -> waitForAccessibilityReconnect(step)
         }
+    }
+
+    private fun waitForAccessibilityReconnect(step: PhoneControlActivationStep) {
         awaitingStep = step
         PhoneControlLog.i(TAG, "activation_accessibility_reconnect_wait started=true")
         activationResumeJob?.cancel()
         activationResumeJob = lifecycleScope.launch {
-            val next = awaitActivationProgress(step)
+            awaitActivationProgress(step)
             awaitingStep = null
-            if (next != step) {
-                PhoneControlLog.i(TAG, "activation_accessibility_reconnect_wait recovered=true")
-                advanceActivation()
-            } else {
-                PhoneControlLog.w(TAG, "activation_accessibility_reconnect_wait recovered=false")
-                showPhoneControlToast(
-                    R.string.phone_control_accessibility_reconnecting_toast,
+            when (phoneControlAccessibilityResolution(
+                probePhoneControlAccessibilityState(this@PhoneControlActivity),
+                reconnectWaitExhausted = true,
+            )) {
+                PhoneControlAccessibilityResolution.CONTINUE -> {
+                    PhoneControlLog.i(
+                        TAG,
+                        "activation_accessibility_reconnect_wait outcome=recovered",
+                    )
+                    advanceActivation()
+                }
+                PhoneControlAccessibilityResolution.OPEN_SETTINGS -> {
+                    PhoneControlLog.i(
+                        TAG,
+                        "activation_accessibility_reconnect_wait outcome=disabled",
+                    )
+                    launchActivationSettings(
+                        step,
+                        accessibilitySettingsIntent(this@PhoneControlActivity),
+                    )
+                }
+                PhoneControlAccessibilityResolution.STOP -> stopAccessibilityReconnect()
+                PhoneControlAccessibilityResolution.WAIT -> error(
+                    "exhausted accessibility reconnect must resolve to a terminal action",
                 )
-                launchActivationSettings(step, accessibilitySettingsIntent(this@PhoneControlActivity))
             }
         }
+    }
+
+    private fun stopAccessibilityReconnect() {
+        PhoneControlLog.w(
+            TAG,
+            "activation_accessibility_reconnect_wait outcome=still_reconnecting",
+        )
+        showPhoneControlToast(R.string.phone_control_accessibility_reconnecting_toast)
+        finish()
     }
 
     private fun completeActivationStep() {
         val completed = awaitingStep ?: return
         awaitingStep = null
+        // The step's Settings navigator has served its purpose once we are resumed; leaving it
+        // running lets its clicks and back presses land on the next step's Settings screen.
+        settingsNavigationJob?.cancel()
         activationResumeJob?.cancel()
         activationResumeJob = lifecycleScope.launch {
             val startedAtMs = SystemClock.elapsedRealtime()

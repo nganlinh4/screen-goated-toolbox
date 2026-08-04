@@ -16,7 +16,7 @@ class PhoneControlActivationFlowTest {
     @Test
     fun `activation reducer and launcher contract match the shared fixture`() {
         val fixture = Json.parseToJsonElement(fixtureFile().readText()).jsonObject
-        assertEquals(27L, fixture.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(28L, fixture.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals(
             PhoneControlActivationStep.entries.map(PhoneControlActivationStep::wireName),
             fixture.getValue("requiredOrder").jsonArray.map { it.jsonPrimitive.content },
@@ -154,8 +154,13 @@ class PhoneControlActivationFlowTest {
         )
         assertFalse(accessibility.boolean("configuredSettingAloneIsReady"))
         assertEquals(
-            "bounded_reconnect_wait_then_android_settings_user_step",
+            "bounded_reconnect_wait_then_fresh_state_resolution",
             accessibility.string("configuredButUnbound"),
+        )
+        assertEquals("freshly_disabled_only", accessibility.string("settingsLaunch"))
+        assertEquals(
+            "stop_without_settings_then_retry_from_fresh_evidence",
+            accessibility.string("stillConfiguredAfterWait"),
         )
         assertFalse(accessibility.boolean("serviceBoundAfterSettingRemovalIsReady"))
         val semantics = invariants.getValue("accessibilitySemantics").jsonObject
