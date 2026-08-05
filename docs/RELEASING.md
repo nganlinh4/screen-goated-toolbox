@@ -40,7 +40,19 @@ channel lives in it as a `## ` section, so the whole release reads in one place.
 
 ## play vi-VN
 ...
+
+## announcement vi-VN
+_Phiên bản tiếng Việt:_
+...
 ```
+
+Section names in use:
+
+| Section | Goes to |
+| --- | --- |
+| `github` | GitHub release body. English bullets only, plus the two footer lines below. |
+| `play <locale>` | Play listing for that locale, 500 characters max. |
+| `announcement vi-VN` | Vietnamese write-up for the Zalo group. Never the GitHub body. |
 
 `## ` at the start of a line delimits sections, so demote any heading inside a
 section body. Read sections back with the helper rather than by hand:
