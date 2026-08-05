@@ -12,7 +12,8 @@ tools/
 nul
 
 # Scratch / temporary release notes drafts
-tmp-release-notes-*.txt
+tmp-release-notes-*
+tmp-github-body.txt
 
 # Local-only release infra notes (embedding server / SSH details)
 docs/RELEASING.local.md
