@@ -180,7 +180,9 @@ internal class PhoneControlProtectedSetupCoordinator(
 
     private fun returnFromProtectedSetup(providerId: String) {
         if (PhoneControlPowerPreferences.current(context)?.elevatedProviderId != providerId) return
-        val intent = PhoneControlActivity.resumeCaptureIntent(context)
+        // Retained projection means nothing was suspended, so this is a plain return to the app
+        // rather than a capture resume.
+        val intent = PhoneControlActivity.returnToAppIntent(context)
         val dispatch = PhoneControlCoordinatorReentryLauncher.dispatch(context, intent)
         if (!dispatch.dispatched) {
             PhoneControlSetupNotification.show(

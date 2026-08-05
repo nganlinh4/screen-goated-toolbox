@@ -94,7 +94,8 @@ class PhoneControlActivity : ComponentActivity() {
                 finish()
             }
             Mode.SGT_ADB_FORGET,
-            Mode.RESUME_CAPTURE -> {
+            Mode.RESUME_CAPTURE,
+            Mode.RETURN_TO_APP -> {
                 userSteps.settings.finish()
                 finish()
             }
@@ -158,6 +159,7 @@ class PhoneControlActivity : ComponentActivity() {
             Mode.ROOT -> requestRootAuthorization()
             Mode.SGT_ADB_FORGET -> forgetSgtAdbPairing()
             Mode.RESUME_CAPTURE -> requestCaptureResume()
+            Mode.RETURN_TO_APP -> finish()
             Mode.CANCEL_SETUP -> cancelAuthoritySetup()
         }
     }
@@ -183,6 +185,7 @@ class PhoneControlActivity : ComponentActivity() {
             Mode.ROOT -> requestRootAuthorization()
             Mode.SGT_ADB_FORGET -> forgetSgtAdbPairing()
             Mode.RESUME_CAPTURE -> requestCaptureResume()
+            Mode.RETURN_TO_APP -> finish()
             Mode.CANCEL_SETUP -> cancelAuthoritySetup()
         }
     }
@@ -597,6 +600,7 @@ class PhoneControlActivity : ComponentActivity() {
         ROOT("root"),
         SGT_ADB_FORGET("sgt_adb_forget"),
         RESUME_CAPTURE("resume_capture"),
+        RETURN_TO_APP("return_to_app"),
         CANCEL_SETUP("cancel_setup"),
     }
 
@@ -615,6 +619,17 @@ class PhoneControlActivity : ComponentActivity() {
         ).putExtra(
             EXTRA_MODE,
             Mode.RESUME_CAPTURE.wireName,
+        ).addFlags(COORDINATOR_REENTRY_FLAGS)
+        /**
+         * Brings the coordinator forward purely to pull the user out of a system Settings
+         * screen. Nothing is suspended on this route, so it must not ask for a capture resume.
+         */
+        internal fun returnToAppIntent(context: Context): Intent = Intent(
+            context,
+            PhoneControlActivity::class.java,
+        ).putExtra(
+            EXTRA_MODE,
+            Mode.RETURN_TO_APP.wireName,
         ).addFlags(COORDINATOR_REENTRY_FLAGS)
         internal fun sgtAdbForgetIntent(context: Context): Intent = Intent(
             context,

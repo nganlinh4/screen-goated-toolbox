@@ -341,6 +341,7 @@ internal object PhoneControlLog {
         "server_activity_started",
         "server_frame_gap",
         "live_session_opened",
+        "protected_setup_return",
         "service_command",
         "service_created",
         "service_bound",
