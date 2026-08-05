@@ -120,7 +120,6 @@ else {
 # --- Build 3D Generator Frontend ---
 Write-Host "Building 3D Generator Frontend..." -ForegroundColor Cyan
 $gen3dDir = Join-Path $PSScriptRoot "3d-generator-ui"
-$gen3dDist = Join-Path $gen3dDir "dist"
 $gen3dTargetDist = Join-Path $PSScriptRoot "src\overlay\three_d_generator\dist"
 
 Push-Location $gen3dDir
@@ -142,11 +141,7 @@ finally {
     Pop-Location
 }
 
-if (Test-Path $gen3dDist) {
-    if (-not (Test-Path $gen3dTargetDist)) {
-        New-Item -ItemType Directory -Path $gen3dTargetDist -Force | Out-Null
-    }
-    Copy-Item -Path "$gen3dDist\*" -Destination $gen3dTargetDist -Recurse -Force
+if (Test-Path $gen3dTargetDist) {
     Write-Host "3D Generator assets synchronized." -ForegroundColor Green
 }
 else {
@@ -157,7 +152,6 @@ else {
 # --- Build Image to SVG Frontend ---
 Write-Host "Building Image to SVG Frontend..." -ForegroundColor Cyan
 $svgDir = Join-Path $PSScriptRoot "image-to-svg-ui"
-$svgDist = Join-Path $svgDir "dist"
 $svgTargetDist = Join-Path $PSScriptRoot "src\overlay\image_to_svg\dist"
 
 Push-Location $svgDir
@@ -179,11 +173,7 @@ finally {
     Pop-Location
 }
 
-if (Test-Path $svgDist) {
-    if (-not (Test-Path $svgTargetDist)) {
-        New-Item -ItemType Directory -Path $svgTargetDist -Force | Out-Null
-    }
-    Copy-Item -Path "$svgDist\*" -Destination $svgTargetDist -Recurse -Force
+if (Test-Path $svgTargetDist) {
     Write-Host "Image to SVG assets synchronized." -ForegroundColor Green
 }
 else {
