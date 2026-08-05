@@ -166,6 +166,11 @@ internal class CreationJobManager private constructor(context: Context) {
         tool: CreationTool,
         args: JsonObject,
     ): CreationSubmissionOutcome {
+        if (!creationToolReleased(tool)) {
+            return CreationSubmissionOutcome.Rejected(
+                CreationSubmissionFailure.FEATURE_UNAVAILABLE,
+            )
+        }
         if (!durableStateReadable) {
             return CreationSubmissionOutcome.Rejected(
                 CreationSubmissionFailure.STORAGE_UNAVAILABLE,

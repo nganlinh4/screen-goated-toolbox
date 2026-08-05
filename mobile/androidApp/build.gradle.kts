@@ -78,6 +78,11 @@ val imageCreationContractFile = rootProject.projectDir.parentFile
 val imageCreationContract = JsonSlurper().parse(imageCreationContractFile) as Map<*, *>
 val imageCreatorReleaseEnabled =
     ((imageCreationContract["releaseAvailability"] as Map<*, *>)["enabled"] as Boolean)
+val imageToSvgContractFile = rootProject.projectDir.parentFile
+    .resolve("parity-fixtures/image-to-svg/state-contract.json")
+val imageToSvgContract = JsonSlurper().parse(imageToSvgContractFile) as Map<*, *>
+val imageToSvgReleaseEnabled =
+    ((imageToSvgContract["releaseAvailability"] as Map<*, *>)["enabled"] as Boolean)
 
 /** Convert semver string to an integer versionCode: "4.9.0" → 40900, "4.10.1" → 41001. */
 fun semverToVersionCode(version: String): Int {
@@ -362,6 +367,11 @@ android {
             "boolean",
             "IMAGE_CREATOR_RELEASE_ENABLED",
             imageCreatorReleaseEnabled.toString(),
+        )
+        buildConfigField(
+            "boolean",
+            "IMAGE_TO_SVG_RELEASE_ENABLED",
+            imageToSvgReleaseEnabled.toString(),
         )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

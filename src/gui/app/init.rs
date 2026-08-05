@@ -335,6 +335,7 @@ impl SettingsApp {
             show_tts_playground: false,
             show_computer_control_dialog: false,
             show_image_creator_coming_soon_dialog: false,
+            show_image_to_svg_coming_soon_dialog: false,
             // -----------------------------
 
             // --- ARGUMENT HANDLING ---

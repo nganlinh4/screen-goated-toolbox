@@ -65,6 +65,7 @@ internal sealed interface CreationSubmissionOutcome {
 }
 
 internal enum class CreationSubmissionFailure {
+    FEATURE_UNAVAILABLE,
     INVALID_REQUEST,
     QUEUE_FULL,
     SOURCE_UNAVAILABLE,

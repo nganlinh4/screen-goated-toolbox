@@ -190,6 +190,7 @@ class CreationParityContractTest {
     @Test
     fun `image to SVG Android contract matches shared fixture`() {
         val fixture = fixture("image-to-svg")
+        val availability = fixture["releaseAvailability"]!!.jsonObject
         val limits = fixture["limits"]!!.jsonObject
         val models = fixture["models"]!!.jsonObject
         val viewer = fixture["viewer"]!!.jsonObject
@@ -200,6 +201,15 @@ class CreationParityContractTest {
         val distribution = fixture["distribution"]!!.jsonObject
         val qualityControl = fixture["qualityControl"]!!.jsonObject
 
+        assertFalse(availability["enabled"]!!.jsonPrimitive.boolean)
+        assertFalse(availability["entryVisible"]!!.jsonPrimitive.boolean)
+        assertEquals(
+            "coming_soon_dialog",
+            availability["entryBehavior"]!!.jsonPrimitive.content,
+        )
+        assertFalse(availability["startsSurface"]!!.jsonPrimitive.boolean)
+        assertFalse(availability["startsReadiness"]!!.jsonPrimitive.boolean)
+        assertTrue(availability["preservesPreparedCapacity"]!!.jsonPrimitive.boolean)
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.int("maximumParallelJobs"))
         assertEquals(setOf("simple", "detail"), models.keys)
         assertTrue(models.getValue("simple").jsonObject.boolean("selectable"))
@@ -268,6 +278,7 @@ class CreationParityContractTest {
         val references = fixture["request"]!!.jsonObject["references"]!!.jsonObject
         val locales = fixture["locales"]!!.jsonObject
         assertFalse(availability["enabled"]!!.jsonPrimitive.boolean)
+        assertFalse(availability["entryVisible"]!!.jsonPrimitive.boolean)
         assertEquals(
             "coming_soon_dialog",
             availability["entryBehavior"]!!.jsonPrimitive.content,

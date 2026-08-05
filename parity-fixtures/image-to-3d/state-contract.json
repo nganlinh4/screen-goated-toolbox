@@ -46,7 +46,9 @@
     "blockingFirstUseGuidanceResolved": true,
     "modePreparationIsIndependent": true,
     "independentLanesPrepareConcurrently": true,
-    "laneFailureDoesNotRevokeOtherReadiness": true
+    "laneFailureDoesNotRevokeOtherReadiness": true,
+    "unresponsivePreparationIsRetiredBeforeRetry": true,
+    "executionContextMatchesPresentationSurface": true
   },
   "surfaceActivity": {
     "firstPaintPrecedesReadinessRequest": true,

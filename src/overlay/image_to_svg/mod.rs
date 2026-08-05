@@ -40,6 +40,9 @@ fn admit_dropped_images(paths: Vec<std::path::PathBuf>) -> Result<Vec<std::path:
 }
 
 pub fn show_image_to_svg() {
+    if !crate::creation_feature_availability::request_image_to_svg_entry() {
+        return;
+    }
     let capability = crate::runtime_support::require_webview2("Image to SVG");
     if !capability.is_supported() {
         crate::runtime_support::notify_capability_issue(&capability);

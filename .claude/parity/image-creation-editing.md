@@ -15,9 +15,10 @@
 
 - The app is named Create/edit image / 이미지 생성/편집 / Tạo/edit ảnh.
 - Release availability is owned by the shared product fixture. While disabled,
-  selecting the app shows the localized app name with the shared localized
-  “Coming soon” dialog, does not open the creation surface, and does not start
-  readiness or preparation work. Existing prepared capacity is preserved.
+  launcher UI omits the app. A direct or stale entry request shows the localized
+  app name with the shared localized “Coming soon” dialog, does not open the
+  creation surface, and does not start readiness or preparation work. Existing
+  prepared capacity is preserved.
 - Its stable tool identifier is `image`, its operation is `create_image`, and
   its public job prefix is `image_`. References are optional and do not change
   the operation.

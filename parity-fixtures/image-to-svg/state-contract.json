@@ -1,6 +1,17 @@
 {
-  "schemaVersion": 30,
+  "schemaVersion": 31,
   "tool": "image-to-svg",
+  "releaseAvailability": {
+    "enabled": false,
+    "entryVisible": false,
+    "entryBehavior": "coming_soon_dialog",
+    "dialogTitleUsesLocalizedAppName": true,
+    "dialogMessageKey": "coming_soon",
+    "startsSurface": false,
+    "startsReadiness": false,
+    "preservesPreparedCapacity": true,
+    "platforms": ["windows", "android_full", "android_play"]
+  },
   "states": [
     "draft",
     "queued",
@@ -41,7 +52,9 @@
     "expansionIsBounded": true,
     "consumptionStartsBackgroundReplenishment": true,
     "readyWorkDoesNotWaitForReplenishment": true,
-    "toolCapacityIsIsolated": true
+    "toolCapacityIsIsolated": true,
+    "unresponsivePreparationIsRetiredBeforeRetry": true,
+    "executionContextMatchesPresentationSurface": true
   },
   "surfaceActivity": {
     "firstPaintPrecedesReadinessRequest": true,

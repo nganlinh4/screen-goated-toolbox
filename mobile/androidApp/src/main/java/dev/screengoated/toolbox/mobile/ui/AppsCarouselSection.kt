@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlService
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
+import dev.screengoated.toolbox.mobile.creation.CreationTool
+import dev.screengoated.toolbox.mobile.creation.creationToolReleased
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 
@@ -62,6 +64,14 @@ internal val appSlots = listOf(
     AppSlot(MaterialShapes.SemiCircle,   { it.appSlotCoral }),  // Create/edit image — coral
 )
 
+internal fun releasedAppSlotIndices(): List<Int> = appSlots.indices.filter { index ->
+    when (index) {
+        6 -> creationToolReleased(CreationTool.IMAGE_TO_SVG)
+        7 -> creationToolReleased(CreationTool.IMAGE_CREATOR)
+        else -> true
+    }
+}
+
 @Composable
 internal fun AppsCarouselSection(
     state: LiveSessionState,
@@ -79,9 +89,11 @@ internal fun AppsCarouselSection(
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
 ) {
     val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val visibleSlotIndices = remember { releasedAppSlotIndices() }
 
     if (isLandscape) {
         AppsHorizontalCarousel(
+            visibleSlotIndices,
             state,
             locale,
             onSessionToggle,
@@ -98,6 +110,7 @@ internal fun AppsCarouselSection(
         )
     } else {
         AppsVerticalCarousel(
+            visibleSlotIndices,
             state,
             locale,
             onSessionToggle,
@@ -193,6 +206,7 @@ private fun AppsItemContent(
 
 @Composable
 private fun AppsVerticalCarousel(
+    visibleSlotIndices: List<Int>,
     state: LiveSessionState,
     locale: MobileLocaleText,
     onSessionToggle: () -> Unit,
@@ -217,7 +231,7 @@ private fun AppsVerticalCarousel(
 
     Box(modifier = Modifier.fillMaxWidth().height(carouselHeight)) {
         VerticalUncontainedCarousel(
-            itemCount = appSlots.size,
+            itemCount = visibleSlotIndices.size,
             itemHeight = itemHeight,
             modifier = Modifier
                 .fillMaxWidth()
@@ -225,7 +239,8 @@ private fun AppsVerticalCarousel(
                 .testTag("apps-carousel"),
             itemSpacing = 8.dp,
             contentPadding = PaddingValues(top = 4.dp, bottom = fadeSize),
-        ) { index ->
+        ) { visibleIndex ->
+            val index = visibleSlotIndices[visibleIndex]
             Box(modifier = Modifier.fillMaxSize().maskClip(MaterialTheme.shapes.extraLarge)) {
                 AppsItemContent(
                     index,
@@ -251,6 +266,7 @@ private fun AppsVerticalCarousel(
 
 @Composable
 private fun AppsHorizontalCarousel(
+    visibleSlotIndices: List<Int>,
     state: LiveSessionState,
     locale: MobileLocaleText,
     onSessionToggle: () -> Unit,
@@ -273,7 +289,7 @@ private fun AppsHorizontalCarousel(
     val carouselHeight = (screenH - 100.dp).coerceIn(160.dp, 300.dp)
     val fadeSize = 24.dp
     val bgColor = MaterialTheme.colorScheme.background
-    val carouselState = rememberCarouselState { appSlots.size }
+    val carouselState = rememberCarouselState { visibleSlotIndices.size }
 
     Box(modifier = Modifier.fillMaxWidth().height(carouselHeight)) {
         HorizontalUncontainedCarousel(
@@ -289,7 +305,8 @@ private fun AppsHorizontalCarousel(
                 ),
             itemSpacing = 8.dp,
             contentPadding = PaddingValues(start = 4.dp, end = fadeSize),
-        ) { index ->
+        ) { visibleIndex ->
+            val index = visibleSlotIndices[visibleIndex]
             Card(
                 modifier = Modifier.fillMaxSize().maskClip(MaterialTheme.shapes.extraLarge),
                 shape = MaterialTheme.shapes.extraLarge,

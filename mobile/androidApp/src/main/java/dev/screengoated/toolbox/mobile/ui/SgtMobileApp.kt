@@ -127,6 +127,7 @@ internal fun SgtMobileApp(
     var showDownloader by rememberSaveable { mutableStateOf(false) }
     var showFeatureUnsupported by rememberSaveable { mutableStateOf(false) }
     var showImageCreatorComingSoon by rememberSaveable { mutableStateOf(false) }
+    var showImageToSvgComingSoon by rememberSaveable { mutableStateOf(false) }
     var showDj by rememberSaveable { mutableStateOf(false) }
     var showTranslationGummy by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -321,9 +322,16 @@ internal fun SgtMobileApp(
                             )
                         },
                         onImageToSvgClick = {
-                            appContext.startActivity(
-                                CreationMiniAppActivity.intent(appContext, CreationTool.IMAGE_TO_SVG),
-                            )
+                            if (creationToolReleased(CreationTool.IMAGE_TO_SVG)) {
+                                appContext.startActivity(
+                                    CreationMiniAppActivity.intent(
+                                        appContext,
+                                        CreationTool.IMAGE_TO_SVG,
+                                    ),
+                                )
+                            } else {
+                                showImageToSvgComingSoon = true
+                            }
                         },
                         onImageCreatorClick = {
                             if (creationToolReleased(CreationTool.IMAGE_CREATOR)) {
@@ -372,6 +380,20 @@ internal fun SgtMobileApp(
                 text = { Text(locale.comingSoonLabel) },
                 confirmButton = {
                     TextButton(onClick = { showImageCreatorComingSoon = false }) {
+                        Text(locale.closeLabel)
+                    }
+                },
+            )
+        }
+
+        if (showImageToSvgComingSoon) {
+            AlertDialog(
+                modifier = Modifier.testTag("image-to-svg-coming-soon-dialog"),
+                onDismissRequest = { showImageToSvgComingSoon = false },
+                title = { Text(locale.creationApps.appImageToSvgTitle) },
+                text = { Text(locale.comingSoonLabel) },
+                confirmButton = {
+                    TextButton(onClick = { showImageToSvgComingSoon = false }) {
                         Text(locale.closeLabel)
                     }
                 },

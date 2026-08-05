@@ -99,28 +99,30 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
             crate::overlay::three_d_generator::show_three_d_generator();
         }
 
-        if compact_filled_icon_button(
-            ui,
-            Icon::DrawCollage,
-            text.shell.image_to_svg_btn,
-            theme.accent_image_to_svg(),
-            btn_text,
-            6,
-        )
-        .clicked()
+        if crate::creation_feature_availability::image_to_svg_entry_visible()
+            && compact_filled_icon_button(
+                ui,
+                Icon::DrawCollage,
+                text.shell.image_to_svg_btn,
+                theme.accent_image_to_svg(),
+                btn_text,
+                6,
+            )
+            .clicked()
         {
             crate::overlay::image_to_svg::show_image_to_svg();
         }
 
-        if compact_filled_icon_button(
-            ui,
-            Icon::Image,
-            text.shell.image_creator_btn,
-            theme.accent_image_creator(),
-            btn_text,
-            6,
-        )
-        .clicked()
+        if crate::creation_feature_availability::image_creator_entry_visible()
+            && compact_filled_icon_button(
+                ui,
+                Icon::Image,
+                text.shell.image_creator_btn,
+                theme.accent_image_creator(),
+                btn_text,
+                6,
+            )
+            .clicked()
         {
             crate::overlay::image_creator::show_image_creator();
         }

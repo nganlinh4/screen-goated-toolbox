@@ -85,11 +85,18 @@ impl StartupArgs {
 
     pub(crate) fn configure_creation_ui_test(&self) -> Option<CreationUiTestApp> {
         let app = parse_creation_ui_test_app(self.value(CREATION_UI_TEST_FLAG).as_deref())?;
-        if app == CreationUiTestApp::Image
-            && !crate::creation_feature_availability::image_creator_release_enabled()
-        {
+        let release_gated = match app {
+            CreationUiTestApp::Image => {
+                !crate::creation_feature_availability::image_creator_release_enabled()
+            }
+            CreationUiTestApp::Svg => {
+                !crate::creation_feature_availability::image_to_svg_release_enabled()
+            }
+            CreationUiTestApp::ThreeD => false,
+        };
+        if release_gated {
             crate::log_info!(
-                "[CreationUiTest] Release-gated image entry does not require WebView2 debugging"
+                "[CreationUiTest] Release-gated creation entry does not require WebView2 debugging"
             );
             return Some(app);
         }

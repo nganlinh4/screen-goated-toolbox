@@ -1,11 +1,12 @@
 {
   "schema": "sgt.creation.image",
-  "fixtureVersion": 44,
+  "fixtureVersion": 45,
   "tool": "image",
   "jobIdPrefix": "image_",
   "operation": "create_image",
   "releaseAvailability": {
     "enabled": false,
+    "entryVisible": false,
     "entryBehavior": "coming_soon_dialog",
     "dialogTitleUsesLocalizedAppName": true,
     "dialogMessageKey": "coming_soon",

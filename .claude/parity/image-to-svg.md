@@ -11,6 +11,11 @@
 
 ## Product Contract
 
+- Release availability is owned by the shared product fixture. While disabled,
+  launcher UI omits the app. A direct or stale entry request shows the localized
+  app name with the shared localized “Coming soon” dialog, does not open the
+  creation surface, and does not start readiness or preparation work. Existing
+  prepared capacity is preserved.
 - One picker or drop may add multiple images as a batch.
 - Every SVG job has exactly one source image. A multi-image batch creates
   independent one-image sessions; references are never combined into one job.
@@ -200,6 +205,10 @@
   cannot enter a clean workspace is quarantined for revalidation rather than
   returned to the ready queue, and one transient capacity failure cannot poison
   unrelated tools or every later SVG job.
+- A preparation instance whose rendering context stops responding is retired
+  before retry. Recreated execution state must use platform services belonging
+  to its own presentation surface so an app or system-runtime update cannot
+  preserve a mismatched context indefinitely.
 - A temporary capacity pause is waited through for a bounded interval before a
   job fails. Recovery remains scoped to the affected product capability and
   never exposes implementation details through UI, history, public diagnostics,

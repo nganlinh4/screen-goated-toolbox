@@ -19,11 +19,9 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import dev.screengoated.toolbox.mobile.MainActivity
 import java.io.File
@@ -101,14 +99,16 @@ class CreationRealUiAcceptanceTest {
     }
 
     @Test
-    fun imageToSvgSimpleGeneratesValidatedSvg() {
-        runImageCase(CreationTool.IMAGE_TO_SVG, "creation-svg-simple") {
-            CreationArtifactValidator.validateSvg(it)
-        }
+    fun imageToSvgReleaseEntryIsHiddenWithoutStartingReadiness() {
+        assertReleaseEntryHidden("app-card-image-to-svg", CreationTool.IMAGE_TO_SVG)
     }
 
     @Test
-    fun imageCreatorReleaseEntryShowsComingSoonWithoutStartingReadiness() {
+    fun imageCreatorReleaseEntryIsHiddenWithoutStartingReadiness() {
+        assertReleaseEntryHidden("app-card-image-creator", CreationTool.IMAGE_CREATOR)
+    }
+
+    private fun assertReleaseEntryHidden(cardTag: String, tool: CreationTool) {
         ActivityScenario.launch(MainActivity::class.java).use {
             compose.onNodeWithTag("shell-tab-apps").performClick()
             compose.waitUntil(timeoutMillis = 10_000) {
@@ -116,21 +116,16 @@ class CreationRealUiAcceptanceTest {
                     .fetchSemanticsNodes(atLeastOneRootRequired = false)
                     .isNotEmpty()
             }
-            compose.onNodeWithTag("apps-carousel").performScrollToIndex(7)
             compose.waitForIdle()
-            compose.onNodeWithTag("app-card-image-creator")
-                .assertIsDisplayed()
-                .performClick()
-            compose.onNodeWithTag("image-creator-coming-soon-dialog").assertIsDisplayed()
             assertTrue(
-                compose.onAllNodesWithTag("creation-root")
+                compose.onAllNodesWithTag(cardTag)
                     .fetchSemanticsNodes(atLeastOneRootRequired = false)
                     .isEmpty(),
             )
             check(
                 CreationJobManager.get(context)
-                    .preparationStatus(CreationTool.IMAGE_CREATOR) == "unavailable",
-            ) { "Disabled image entry started readiness" }
+                    .preparationStatus(tool) == "unavailable",
+            ) { "Disabled creation entry started readiness" }
         }
     }
 

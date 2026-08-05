@@ -214,6 +214,10 @@
   committed.
 - A prepared execution slot remains live until its assigned job finishes.
   Failed preparation retires that execution instance before the slot retries.
+- A preparation instance whose rendering context stops responding is retired
+  before retry. Recreated execution state must use platform services belonging
+  to its own presentation surface so an app or system-runtime update cannot
+  preserve a mismatched context indefinitely.
 - A recovery-reserved slot is checked against the exact request before
   assignment and cannot consume or fail an unrelated queued job.
 - Every finished assignment retires its execution instance before that slot is
