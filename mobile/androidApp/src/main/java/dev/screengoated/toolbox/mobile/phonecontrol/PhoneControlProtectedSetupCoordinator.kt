@@ -164,6 +164,11 @@ internal class PhoneControlProtectedSetupCoordinator(
                 token,
                 continuation.consumeResumeSelectedSetup(),
             )
+            // Retained-projection setup finishes while the user is still parked in a system
+            // Settings screen (wireless debugging, for the SGT bridge). Restoring the capture
+            // checkpoint does not move them, so dispatch the same re-entry the release path
+            // uses instead of relying on a background startActivity the platform can drop.
+            returnFromProtectedSetup(providerId)
         } else {
             continueProviderSetup(
                 providerId,
@@ -171,6 +176,25 @@ internal class PhoneControlProtectedSetupCoordinator(
                 R.string.phone_control_private_setup_complete_toast,
             )
         }
+    }
+
+    private fun returnFromProtectedSetup(providerId: String) {
+        if (PhoneControlPowerPreferences.current(context)?.elevatedProviderId != providerId) return
+        val intent = PhoneControlActivity.resumeCaptureIntent(context)
+        val dispatch = PhoneControlCoordinatorReentryLauncher.dispatch(context, intent)
+        if (!dispatch.dispatched) {
+            PhoneControlSetupNotification.show(
+                context,
+                context.phoneControlString(R.string.phone_control_private_setup_continue),
+                intent,
+            )
+        }
+        PhoneControlLog.i(
+            TAG,
+            "protected_setup_return provider=$providerId " +
+                "reentry_sequence=${dispatch.token} " +
+                "capture_resume_dispatched=${dispatch.dispatched}",
+        )
     }
 
     private fun publishRetainedPending(providerId: String) {

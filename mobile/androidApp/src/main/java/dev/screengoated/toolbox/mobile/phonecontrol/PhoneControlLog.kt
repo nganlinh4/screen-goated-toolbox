@@ -339,6 +339,8 @@ internal object PhoneControlLog {
         "screenshot_route",
         "screenshot_window_stale",
         "server_activity_started",
+        "server_frame_gap",
+        "live_session_opened",
         "service_command",
         "service_created",
         "service_bound",
@@ -424,6 +426,9 @@ internal object PhoneControlLog {
     private val INTEGER_FIELD_NAMES = setOf(
         "acknowledgement_goal",
         "age_ms",
+        "gap_ms",
+        "open_ms",
+        "frame",
         "argument_bytes",
         "argument_fields",
         "assistant_chars",
@@ -497,6 +502,8 @@ internal object PhoneControlLog {
     )
     private val SYMBOL_FIELD_NAMES = setOf(
         "action",
+        "model",
+        "rejected_token",
         "argument_field",
         "argument_keys",
         "authority",
