@@ -117,10 +117,26 @@ def main() -> int:
         body={"track": args.track, "releases": [release]},
     ).execute()
 
-    edits.commit(packageName=PACKAGE_NAME, editId=edit_id).execute()
+    # Some apps cannot have edits sent for review through the API. Play rejects the plain
+    # commit and names the parameter it needs; retry that way and say plainly that the
+    # release then has to be sent for review from the Console.
+    sent_for_review = True
+    try:
+        edits.commit(packageName=PACKAGE_NAME, editId=edit_id).execute()
+    except Exception as error:
+        if "changesNotSentForReview" not in str(error):
+            raise
+        sent_for_review = False
+        edits.commit(
+            packageName=PACKAGE_NAME, editId=edit_id, changesNotSentForReview=True,
+        ).execute()
+
     pct = f"{args.fraction * 100:.0f}%"
-    print(f"Done: '{args.track}' release committed (versionCode {version_code}, rollout {pct}). "
-          f"Google review follows for production.")
+    print(f"Done: '{args.track}' release committed (versionCode {version_code}, rollout {pct}).")
+    if sent_for_review:
+        print("Google review follows for production.")
+    else:
+        print("NOT yet submitted: open Play Console and use 'Send for review' to start review.")
     return 0
 
 
