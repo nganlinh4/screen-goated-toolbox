@@ -177,6 +177,10 @@ class CreationParityContractTest {
         assertTrue(presentation.boolean("sharedIconCatalog"))
         assertTrue(presentation.boolean("unchangedStatusRefreshPreservesSessionList"))
         assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesStatusRefresh"))
+        val geometryStats = presentation.getValue("geometryStats").jsonObject
+        assertTrue(geometryStats.boolean("sharedVertexStorageCountedOnce"))
+        assertTrue(geometryStats.boolean("distinctIndexedPrimitivesCountFacesOnce"))
+        assertFalse(geometryStats.boolean("repeatedPresentationInstancesInflateTopology"))
         assertTrue(lifecycle.boolean("closeCancelsOnlyOwnerJobs"))
         assertTrue(lifecycle.boolean("closeDestroysProductSurface"))
         assertTrue(distribution.boolean("behaviorIdentical"))

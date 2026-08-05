@@ -134,6 +134,9 @@
 - Segmented output preserves existing meaningful part nodes. A single-mesh
   result may be expanded by disconnected components when that produces useful
   parts.
+- Result topology statistics count shared vertex storage once. Distinct indexed
+  primitives contribute their triangle faces once, while repeated presentation
+  instances do not inflate either value.
 - Durable history stores the frozen product settings and result metadata.
 - Recent sessions are presented newest-first on every surface, including newly
   imported, queued, processing, and saved-result rows. Presentation sorting

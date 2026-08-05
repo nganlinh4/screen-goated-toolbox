@@ -6,7 +6,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { LatestOnlyLane } from "./latest-only-lane";
-import { meshVertexCount, prepareSegmentedGeometry } from "./segmented-geometry";
+import { modelGeometryStats, prepareSegmentedGeometry } from "./segmented-geometry";
 
 export type ShadingMode = "original" | "toon" | "parts";
 export type ModelStats = { vertices: number; faces: number };
@@ -97,7 +97,6 @@ export class ModelViewer {
   private modelLoads = new LatestOnlyLane<THREE.Group>();
   private frameRequest = 0;
   private interacting = false;
-  private interactionEndedAt = 0;
   private interactionListener?: (active: boolean) => void;
   private theme: "light" | "dark" = "dark";
   private hemisphere = new THREE.HemisphereLight(0xe5fbf5, 0x1a2524, 2.15);
@@ -111,7 +110,9 @@ export class ModelViewer {
     this.camera.position.set(0, 0.1, 3.4);
 
     this.controls = new OrbitControls(this.camera, this.canvas);
-    this.controls.enableDamping = true;
+    // Direct manipulation must stop at mouse-up so consecutive drags never
+    // compete with residual camera momentum.
+    this.controls.enableDamping = false;
     this.controls.enablePan = true;
     this.controls.minDistance = 0.7;
     this.controls.maxDistance = 10;
@@ -125,7 +126,6 @@ export class ModelViewer {
     this.controls.addEventListener("change", () => this.requestRender());
     this.controls.addEventListener("end", () => {
       this.interacting = false;
-      this.interactionEndedAt = performance.now();
       this.interactionListener?.(false);
       this.requestRender();
     });
@@ -247,6 +247,7 @@ export class ModelViewer {
     try {
       this.idleObject.visible = false;
       prepareSegmentedGeometry(object, segmented);
+      const stats = modelGeometryStats(object);
       const box = new THREE.Box3().setFromObject(object);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
@@ -255,12 +256,8 @@ export class ModelViewer {
       object.updateMatrixWorld(true);
 
       let meshIndex = 0;
-      const stats: ModelStats = { vertices: 0, faces: 0 };
       object.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return;
-        const positions = child.geometry.getAttribute("position");
-        stats.vertices += meshVertexCount(child.geometry);
-        stats.faces += Math.floor((child.geometry.getIndex()?.count || positions?.count || 0) / 3);
         const originals = Array.isArray(child.material) ? child.material : [child.material];
         const toon = originals.map((material) => this.createToonMaterial(material));
         const parts = originals.map(() => new THREE.MeshToonMaterial({
@@ -529,7 +526,6 @@ export class ModelViewer {
       || this.controls.autoRotate
       || this.interacting
       || controlsChanged
-      || now - this.interactionEndedAt < 360
     ) {
       this.requestRender();
     }

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 32,
+  "schemaVersion": 33,
   "tool": "image-to-3d",
   "names": {
     "en": "Image to 3D",
@@ -377,6 +377,11 @@
       "toon",
       "outline"
     ],
+    "geometryStats": {
+      "sharedVertexStorageCountedOnce": true,
+      "distinctIndexedPrimitivesCountFacesOnce": true,
+      "repeatedPresentationInstancesInflateTopology": false
+    },
     "wireframeAndOutlineIndependent": true
   },
   "hostLifecycle": {

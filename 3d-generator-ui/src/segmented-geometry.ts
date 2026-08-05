@@ -137,6 +137,45 @@ export function prepareSegmentedGeometry(root: THREE.Object3D, segmented: boolea
   }
 }
 
-export function meshVertexCount(geometry: THREE.BufferGeometry) {
-  return geometry.getAttribute("position")?.count || 0;
+export type GeometryStats = { vertices: number; faces: number };
+
+export function modelGeometryStats(root: THREE.Object3D): GeometryStats {
+  const stats: GeometryStats = { vertices: 0, faces: 0 };
+  const countedPositions = new WeakSet<THREE.BufferAttribute | THREE.InterleavedBufferAttribute>();
+  const countedUnindexedPositions = new WeakSet<THREE.BufferAttribute | THREE.InterleavedBufferAttribute>();
+  const countedIndexedPrimitives = new WeakMap<
+    THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+    WeakSet<THREE.BufferAttribute>
+  >();
+
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const position = child.geometry.getAttribute("position");
+    if (!position) return;
+    if (!countedPositions.has(position)) {
+      countedPositions.add(position);
+      stats.vertices += position.count;
+    }
+
+    const index = child.geometry.getIndex();
+    if (!index) {
+      if (!countedUnindexedPositions.has(position)) {
+        countedUnindexedPositions.add(position);
+        stats.faces += Math.floor(position.count / 3);
+      }
+      return;
+    }
+
+    let countedIndices = countedIndexedPrimitives.get(position);
+    if (!countedIndices) {
+      countedIndices = new WeakSet<THREE.BufferAttribute>();
+      countedIndexedPrimitives.set(position, countedIndices);
+    }
+    if (!countedIndices.has(index)) {
+      countedIndices.add(index);
+      stats.faces += Math.floor(index.count / 3);
+    }
+  });
+
+  return stats;
 }
