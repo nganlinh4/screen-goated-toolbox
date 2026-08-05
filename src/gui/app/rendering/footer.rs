@@ -62,7 +62,12 @@ impl SettingsApp {
             crate::log_info!("[ImageCreator] Coming soon dialog displayed");
             self.show_image_creator_coming_soon_dialog = true;
         }
+        if crate::creation_feature_availability::take_image_to_svg_dialog_request() {
+            crate::log_info!("[ImageToSvg] Coming soon dialog displayed");
+            self.show_image_to_svg_coming_soon_dialog = true;
+        }
         self.render_image_creator_coming_soon_dialog(ctx, &text);
+        self.render_image_to_svg_coming_soon_dialog(ctx, &text);
         self.render_computer_control_dialog(ctx, &text);
 
         // Pointer Gallery Window
