@@ -27,8 +27,20 @@ rg -n 'version\s*=|FILEVERSION|ProductVersion' Cargo.toml app.rc mobile
 
 Create gitignored `tmp-release-notes-<VERSION>-github.txt` using the established
 GitHub format: plain English bullets with no added release heading, followed by
-the current Zalo support-group line. Never include Vietnamese release notes,
-Google Play notes, store metadata, or donation copy in a GitHub release body.
+the current Zalo support-group line, then a horizontal rule and the VietQR
+donation footer:
+
+```text
+_Nhóm chat hỗ trợ SGT tại Việt Nam: https://zalo.me/g/arxevk379_
+
+---
+
+💙 **Ủng hộ tác giả** — Người dùng Việt Nam có thể ủng hộ qua VietQR: [bấm vào đây](https://img.vietqr.io/image/970418-8850273958-compact2.png?accountName=NGUYEN%20BAO%20LINH&addInfo=Ung%20ho%20SGT).
+```
+
+Those two trailing lines are the only non-English copy allowed. Keep the
+donation link identical to the one in `README.md`. Never include Vietnamese
+release notes, Google Play notes, or store metadata in a GitHub release body.
 
 Map every bullet to a real commit. Owner reviews notes before any publish step.
 
@@ -142,8 +154,9 @@ gh release create v<VERSION> `
 ```
 
 Every GitHub release must attach both the Windows x64 executable and the Full
-Android APK. Review title, English-only body, binaries, sizes, and checksums in
-GitHub UI. Publish only after owner approval.
+Android APK. Review title, body (English bullets plus the step 3 Zalo and
+VietQR footer), binaries, sizes, and checksums in GitHub UI. Publish only after
+owner approval.
 
 ## 10. Publish Google Play
 
