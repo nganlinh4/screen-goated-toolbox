@@ -25,10 +25,34 @@ rg -n 'version\s*=|FILEVERSION|ProductVersion' Cargo.toml app.rc mobile
 
 ## 3. Draft release notes
 
-Create gitignored `tmp-release-notes-<VERSION>-github.txt` using the established
-GitHub format: plain English bullets with no added release heading, followed by
-the current Zalo support-group line, then a horizontal rule and the VietQR
-donation footer:
+One release is one gitignored file: `tmp-release-notes-<VERSION>.md`. Every
+channel lives in it as a `## ` section, so the whole release reads in one place.
+
+```markdown
+# v<VERSION>
+
+## github
+- plain English bullet
+...
+
+## play en-US
+...
+
+## play vi-VN
+...
+```
+
+`## ` at the start of a line delimits sections, so demote any heading inside a
+section body. Read sections back with the helper rather than by hand:
+
+```powershell
+python scripts/release_notes.py tmp-release-notes-<VERSION>.md --list
+python scripts/release_notes.py tmp-release-notes-<VERSION>.md --section github
+```
+
+The `github` section uses the established format: plain English bullets with no
+added release heading, followed by the current Zalo support-group line, then a
+horizontal rule and the VietQR donation footer:
 
 ```text
 _Nhóm chat hỗ trợ SGT tại Việt Nam: https://zalo.me/g/arxevk379_
@@ -44,9 +68,9 @@ release notes, Google Play notes, or store metadata in a GitHub release body.
 
 Map every bullet to a real commit. Owner reviews notes before any publish step.
 
-Google Play release notes have a 500-character limit per language. Keep each
-locale in a separate gitignored Play-only file and never reuse those files as
-GitHub release notes.
+Each `play <locale>` section has a 500-character limit. Never publish a `play`
+section as the GitHub body or the reverse: the GitHub body carries the Zalo and
+VietQR lines, which do not belong on a store listing.
 
 ## 4. Refresh help index
 
@@ -89,9 +113,19 @@ Android host builds until every item is complete:
 6. Use that exact verified combined delivery manifest for all subsequent
    Windows, Android Full, and Android Play app builds.
 
+The private runtime source and its build scripts live in the nested, gitignored
+`native/sgt_3d_generator_runtime/` repository; its build output lands in the
+gitignored `local-runtime-bundles/sgt_creation_runtime/`.
+
 ```powershell
-$env:SGT_CREATION_RUNTIME_DELIVERY_MANIFEST = 'C:\secure\sgt_creation_runtime.delivery.json'
+.\native\sgt_3d_generator_runtime\scripts\build_exe.ps1
+.\native\sgt_3d_generator_runtime\scripts\build_android_runtime.ps1 -CopyToBundleDirectory
+$env:SGT_CREATION_RUNTIME_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_creation_runtime\sgt_creation_runtime.delivery.json'
 ```
+
+Native libraries must be built for 16 KB memory pages or Play rejects the
+update. Verify before publishing that every `PT_LOAD` segment in every `.so`
+inside the AAB reports `p_align` of at least 16384.
 
 The same manifest version and feature handshake must feed Windows, Android Full,
 and Android Play. It supplies private delivery locations and integrity metadata
@@ -144,11 +178,13 @@ Verify the remote tag resolves to the reviewed release commit before creating a 
 Create a draft first; use paths produced by step 6:
 
 ```powershell
+python scripts/release_notes.py tmp-release-notes-<VERSION>.md --section github |
+  Set-Content -Path tmp-github-body.txt -Encoding utf8
 gh release create v<VERSION> `
   --verify-tag `
   --draft `
   --title "Screen Goated Toolbox v<VERSION>" `
-  --notes-file "tmp-release-notes-<VERSION>-github.txt" `
+  --notes-file "tmp-github-body.txt" `
   "target/x86_64-pc-windows-msvc/release/ScreenGoatedToolbox_v<VERSION>.exe" `
   "target/release/ScreenGoatedToolbox_v<VERSION>.apk"
 ```
@@ -174,14 +210,13 @@ $env:PLAY_SERVICE_ACCOUNT_JSON = '<path to the Play service-account JSON>'
 python scripts/play_publish.py `
   --aab "target/release/ScreenGoatedToolbox_v<VERSION>.aab" `
   --track production `
-  --notes-file "tmp-release-notes-<VERSION>-play-en-US.txt" --lang en-US `
-  --notes-file "tmp-release-notes-<VERSION>-play-vi-VN.txt" --lang vi-VN `
+  --notes-md "tmp-release-notes-<VERSION>.md" `
   --fraction 1.0
 ```
 
-Publish straight to `production`. Never use the `internal` track. Pass one
-`--lang` per `--notes-file` so every locale ships in the same release. Keep the
-service-account JSON outside the repository.
+Publish straight to `production`. Never use the `internal` track. `--notes-md`
+publishes every `## play <locale>` section in one release, so locales cannot
+drift apart. Keep the service-account JSON outside the repository.
 
 ### Send the release for review (Play Console, manual)
 
