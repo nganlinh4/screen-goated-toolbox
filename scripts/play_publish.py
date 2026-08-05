@@ -41,9 +41,12 @@ def main() -> int:
                         help="Use an already-uploaded versionCode instead of uploading a new .aab.")
     parser.add_argument("--track", default="production",
                         help="Track: production | beta | alpha | internal (default: production).")
+    parser.add_argument("--notes-md",
+                        help="Single release-notes file (tmp-release-notes-<VERSION>.md). "
+                             "Every '## play <locale>' section is published.")
     parser.add_argument("--notes-file", action="append", default=[],
                         help="Release-notes text file (<=500 chars for Play). "
-                             "Repeat with --lang to publish several locales in one release.")
+                             "Repeat with --lang for several locales. Prefer --notes-md.")
     parser.add_argument("--lang", action="append", default=[],
                         help="Release-notes language for the matching --notes-file "
                              "(default: en-US). Repeat once per --notes-file.")
@@ -94,7 +97,22 @@ def main() -> int:
         release["userFraction"] = args.fraction
         # countryTargeting is only valid on staged (in-progress) releases.
         release["countryTargeting"] = {"includeRestOfWorld": True}
-    if args.notes_file:
+    if args.notes_md:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from release_notes import play_locales
+        found = play_locales(args.notes_md)
+        if not found:
+            return _fail(f"No '## play <locale>' section in {args.notes_md}.")
+        release_notes = []
+        for lang, notes in found:
+            if len(notes) > PLAY_NOTE_LIMIT:
+                print(f"  WARNING: {lang} notes are {len(notes)} chars; "
+                      f"Play caps at {PLAY_NOTE_LIMIT}. Truncating.")
+                notes = notes[:PLAY_NOTE_LIMIT]
+            release_notes.append({"language": lang, "text": notes})
+            print(f"  notes {lang}: {len(notes)} chars")
+        release["releaseNotes"] = release_notes
+    elif args.notes_file:
         langs = args.lang or ["en-US"]
         if len(langs) != len(args.notes_file):
             return _fail(
