@@ -68,6 +68,7 @@ internal suspend fun handleAct(
             "unknown or missing act verb",
             argumentField = "verb",
             contractReason = "missing_or_invalid",
+            rejectedToken = rejectedEnumToken(args.string("verb")),
         )
     val confirmed = args.confirmationOrNull()
         ?: return invalidArgs(
@@ -483,6 +484,10 @@ private fun attemptedTargetData(
     }
 }
 
+/**
+ * [rejectedToken] is for closed-enum fields only (pass it through [rejectedEnumToken]). Never
+ * pass a free-text argument such as an `act` value: rejection data is written to the log.
+ */
 internal fun invalidArgs(
     job: PhoneControlToolJobContext,
     tool: String,
@@ -490,6 +495,7 @@ internal fun invalidArgs(
     observationGeneration: Long = 0,
     argumentField: String? = null,
     contractReason: String? = null,
+    rejectedToken: String? = null,
 ): PhoneControlToolExecution = PhoneControlToolExecution(
     response = toolResponse(
         job = job,
@@ -506,6 +512,7 @@ internal fun invalidArgs(
             put("failure_class", "contract")
             argumentField?.let { put("argument_field", it) }
             contractReason?.let { put("contract_reason", it) }
+            rejectedToken?.let { put("rejected_token", it) }
         },
     ),
     mutating = false,
@@ -555,10 +562,24 @@ private fun staleGrid(
 internal fun capabilityForVerb(verb: AccessibilityActionVerb): String =
     if (verb == AccessibilityActionVerb.FILL) TEXT_EDIT_CAPABILITY else POINTER_CAPABILITY
 
+/**
+ * Echoes a rejected closed-enum argument so the log names the value the model actually sent.
+ * Sanitised and truncated so free text landing in an enum field cannot be written verbatim.
+ */
+internal fun rejectedEnumToken(value: String?): String = when {
+    value == null -> "absent"
+    value.isBlank() -> "blank"
+    else -> value.take(MAX_REJECTED_TOKEN_CHARS)
+        .map { char -> if (char.isLetterOrDigit() || char == '_') char else '_' }
+        .joinToString("")
+        .uppercase()
+}
+
 private fun parseActionVerb(value: String?): AccessibilityActionVerb? = value
     ?.uppercase()
     ?.let { name -> runCatching { AccessibilityActionVerb.valueOf(name) }.getOrNull() }
 
+private const val MAX_REJECTED_TOKEN_CHARS = 24
 private const val ACCESSIBILITY_PROVIDER = "accessibility"
 private const val SEMANTIC_OBSERVE_CAPABILITY = "ui.semantic_observe"
 private const val POINTER_CAPABILITY = "ui.pointer_action"

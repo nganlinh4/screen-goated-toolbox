@@ -12,6 +12,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.session.buildPhoneControlSet
 import dev.screengoated.toolbox.mobile.phonecontrol.tools.PhoneControlToolDispatchBoundary
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveClassifiedError
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleAdapter
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleConnection
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleFrame
@@ -70,6 +71,7 @@ internal class PhoneControlRuntime(
     private val audioFramesSent = AtomicLong(0L)
     private val screenFramesSent = AtomicLong(0L)
     private val serverFramesReceived = AtomicLong(0L)
+    private var lastServerFrameMs = 0L
     private val protectedCheckpointGoalId = AtomicLong(NO_PROTECTED_CHECKPOINT_GOAL)
     private val userInterfaceGoals = PhoneControlUserInterfaceGoalQueue()
     private val audioCapture = AudioCaptureController(appContext, projectionConsentStore)
@@ -269,7 +271,16 @@ internal class PhoneControlRuntime(
         policy = GeminiLiveLifecyclePolicy.agent(),
         clockMs = SystemClock::elapsedRealtime,
         openConnectedSession = {
+            val startedMs = SystemClock.elapsedRealtime()
             openGeminiLiveConnectedSession(httpClient = httpClient, apiKey = apiKey.trim())
+                .also {
+                    Log.i(
+                        TAG,
+                        "live_session_opened " +
+                            "model=${GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_3_1} " +
+                            "open_ms=${SystemClock.elapsedRealtime() - startedMs}",
+                    )
+                }
         },
         setupPayload = {
             buildPhoneControlSetupPayload(
@@ -484,10 +495,23 @@ internal class PhoneControlRuntime(
         frame: GeminiLiveServerFrame,
     ) {
         val received = serverFramesReceived.incrementAndGet()
+        val nowMs = SystemClock.elapsedRealtime()
+        val previousFrameMs = lastServerFrameMs
+        lastServerFrameMs = nowMs
         if (received == 1L) {
             Log.i(
                 TAG,
                 "server_activity_started content_present=${frame.contentCount > 0} " +
+                    "tools=${frame.toolCallIds.isNotEmpty()}",
+            )
+        }
+        // Quantifies how long the stream went quiet between server frames. A long gap here is
+        // model/transport time, not app time: every tool dispatch completes in well under a second.
+        if (previousFrameMs != 0L && nowMs - previousFrameMs >= SERVER_FRAME_GAP_LOG_MS) {
+            Log.w(
+                TAG,
+                "server_frame_gap gap_ms=${nowMs - previousFrameMs} frame=$received " +
+                    "content_present=${frame.contentCount > 0} " +
                     "tools=${frame.toolCallIds.isNotEmpty()}",
             )
         }
@@ -590,6 +614,7 @@ internal class PhoneControlRuntime(
 
     private companion object {
         const val TAG = "SGTPhoneControl"
+        const val SERVER_FRAME_GAP_LOG_MS = 3_000L
         const val NO_PROTECTED_CHECKPOINT_GOAL = -1L
     }
 }

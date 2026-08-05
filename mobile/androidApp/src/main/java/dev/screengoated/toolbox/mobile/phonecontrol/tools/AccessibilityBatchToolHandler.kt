@@ -30,7 +30,14 @@ internal suspend fun handleDoSteps(
         val id = step.int("id")
             ?: return invalidArgs(job, "do_steps", "step ${index + 1} has no integer id")
         val verb = parseBatchActionVerb(step.string("verb"))
-            ?: return invalidArgs(job, "do_steps", "step ${index + 1} has no valid verb")
+            ?: return invalidArgs(
+                job,
+                "do_steps",
+                "step ${index + 1} has no valid verb",
+                argumentField = "verb",
+                contractReason = "missing_or_invalid",
+                rejectedToken = rejectedEnumToken(step.string("verb")),
+            )
         val identity = backend.currentTargetIdentity(id)
             ?: return staleBatch(
                 job = job,
