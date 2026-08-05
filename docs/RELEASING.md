@@ -174,15 +174,47 @@ $env:PLAY_SERVICE_ACCOUNT_JSON = '<path to the Play service-account JSON>'
 python scripts/play_publish.py `
   --aab "target/release/ScreenGoatedToolbox_v<VERSION>.aab" `
   --track production `
-  --notes-file "tmp-release-notes-<VERSION>-play-<LOCALE>.txt" `
+  --notes-file "tmp-release-notes-<VERSION>-play-en-US.txt" --lang en-US `
+  --notes-file "tmp-release-notes-<VERSION>-play-vi-VN.txt" --lang vi-VN `
   --fraction 1.0
 ```
 
-Publish straight to `production`. Never use the `internal` track. Keep the
+Publish straight to `production`. Never use the `internal` track. Pass one
+`--lang` per `--notes-file` so every locale ships in the same release. Keep the
 service-account JSON outside the repository.
+
+### Send the release for review (Play Console, manual)
+
+The helper reports which commit path it took:
+
+- `Google review follows for production.` — the edit was submitted, nothing else
+  to do here.
+- `NOT yet submitted: ...` — the API refused to submit and committed with
+  `changesNotSentForReview=true`. The release exists on the track but no review
+  has started, so it will never reach users until it is sent by hand.
+
+Google exposes no API call to submit an already-committed edit; it is Console
+only. After a rejection Play forces this path for every later edit.
+
+1. Play Console → the app → **Publishing overview**.
+2. Read the banner first. **Some recent changes were rejected** means a previous
+   submission failed review; open **Policy status** and confirm every listed
+   violation is actually fixed before resubmitting.
+3. Check **Policy status → Policy issues** for anything under *App updates with
+   these issues will be rejected*. Those block approval even when the release
+   itself is fine.
+4. Only once those are clear, use **Submit N changes for review** on Publishing
+   overview.
+5. Confirm the release moves to *In review* on **Test and release → Latest
+   releases and bundles**.
+
+Do not resubmit while an appeal is still open on the same violation; wait for
+the appeal outcome so the appeal and the new submission do not conflict.
 
 ## 11. Finish
 
 - Publish GitHub draft.
+- Confirm the Play release reached *In review*, then *Available on Google Play*.
+  A committed release that was never sent for review reaches nobody.
 - Verify download/install/update paths from a clean client.
 - Record any release-only caveat in durable docs, not temporary chat notes.
