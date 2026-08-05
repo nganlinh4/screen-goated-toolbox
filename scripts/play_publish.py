@@ -41,8 +41,12 @@ def main() -> int:
                         help="Use an already-uploaded versionCode instead of uploading a new .aab.")
     parser.add_argument("--track", default="production",
                         help="Track: production | beta | alpha | internal (default: production).")
-    parser.add_argument("--notes-file", help="Release-notes text file (<=500 chars for Play).")
-    parser.add_argument("--lang", default="en-US", help="Release-notes language (default: en-US).")
+    parser.add_argument("--notes-file", action="append", default=[],
+                        help="Release-notes text file (<=500 chars for Play). "
+                             "Repeat with --lang to publish several locales in one release.")
+    parser.add_argument("--lang", action="append", default=[],
+                        help="Release-notes language for the matching --notes-file "
+                             "(default: en-US). Repeat once per --notes-file.")
     parser.add_argument("--fraction", type=float, default=1.0,
                         help="Rollout fraction 0<f<=1 (1.0 = full, default).")
     parser.add_argument("--credentials",
@@ -91,11 +95,22 @@ def main() -> int:
         # countryTargeting is only valid on staged (in-progress) releases.
         release["countryTargeting"] = {"includeRestOfWorld": True}
     if args.notes_file:
-        notes = open(args.notes_file, encoding="utf-8").read().strip()
-        if len(notes) > PLAY_NOTE_LIMIT:
-            print(f"  WARNING: notes are {len(notes)} chars; Play caps at {PLAY_NOTE_LIMIT}. Truncating.")
-            notes = notes[:PLAY_NOTE_LIMIT]
-        release["releaseNotes"] = [{"language": args.lang, "text": notes}]
+        langs = args.lang or ["en-US"]
+        if len(langs) != len(args.notes_file):
+            return _fail(
+                f"Got {len(args.notes_file)} --notes-file and {len(langs)} --lang. "
+                "Pass one --lang per --notes-file so each locale keeps its own text."
+            )
+        release_notes = []
+        for path, lang in zip(args.notes_file, langs):
+            notes = open(path, encoding="utf-8").read().strip()
+            if len(notes) > PLAY_NOTE_LIMIT:
+                print(f"  WARNING: {lang} notes are {len(notes)} chars; "
+                      f"Play caps at {PLAY_NOTE_LIMIT}. Truncating.")
+                notes = notes[:PLAY_NOTE_LIMIT]
+            release_notes.append({"language": lang, "text": notes})
+            print(f"  notes {lang}: {len(notes)} chars from {os.path.basename(path)}")
+        release["releaseNotes"] = release_notes
 
     edits.tracks().update(
         packageName=PACKAGE_NAME, editId=edit_id, track=args.track,
