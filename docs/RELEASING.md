@@ -170,19 +170,19 @@ Upload the AAB in Play Console, or use the repository helper:
 
 ```powershell
 python -m pip install google-api-python-client google-auth
-$env:PLAY_SERVICE_ACCOUNT_JSON = 'C:\secure\play-service-account.json'
+$env:PLAY_SERVICE_ACCOUNT_JSON = '<path to the Play service-account JSON>'
 python scripts/play_publish.py `
   --aab "target/release/ScreenGoatedToolbox_v<VERSION>.aab" `
-  --track internal `
-  --notes-file "play-notes-<VERSION>.txt" `
+  --track production `
+  --notes-file "tmp-release-notes-<VERSION>-play-<LOCALE>.txt" `
   --fraction 1.0
 ```
 
-Test `internal` first. Promote or change track only after validating the uploaded build. Keep service-account JSON outside the repository.
+Publish straight to `production`. Never use the `internal` track. Keep the
+service-account JSON outside the repository.
 
 ## 11. Finish
 
 - Publish GitHub draft.
-- Promote Play release.
 - Verify download/install/update paths from a clean client.
 - Record any release-only caveat in durable docs, not temporary chat notes.
