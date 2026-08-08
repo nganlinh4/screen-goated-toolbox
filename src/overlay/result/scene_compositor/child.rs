@@ -231,6 +231,8 @@ fn drain_commands(hwnd: HWND) {
     if !RENDERER_READY.load(Ordering::SeqCst) {
         return;
     }
+    let mut redraw_region = false;
+    let mut handled_command = false;
     loop {
         let command = COMMANDS.lock().unwrap().pop_front();
         let Some(command) = command else {
@@ -242,6 +244,8 @@ fn drain_commands(hwnd: HWND) {
             }
             return;
         }
+        handled_command = true;
+        redraw_region |= command_requires_region_redraw(&command);
         apply_scene_state(&command);
         if let Ok(command_json) = serde_json::to_string(&command) {
             let script = format!("window.applyHostCommand({command_json});");
@@ -258,7 +262,13 @@ fn drain_commands(hwnd: HWND) {
             });
         }
     }
-    update_window_region(hwnd);
+    if handled_command {
+        update_window_region(hwnd, redraw_region);
+    }
+}
+
+fn command_requires_region_redraw(command: &HostCommand) -> bool {
+    !matches!(command, HostCommand::Geometry { .. })
 }
 
 fn handle_renderer_event(body: &str) {
@@ -366,7 +376,7 @@ fn apply_scene_state(command: &HostCommand) {
     }
 }
 
-fn update_window_region(hwnd: HWND) {
+fn update_window_region(hwnd: HWND, redraw: bool) {
     unsafe {
         let combined = CreateRectRgn(0, 0, 0, 0);
         let cards = CARDS.lock().unwrap();
@@ -383,7 +393,7 @@ fn update_window_region(hwnd: HWND) {
             let _ = DeleteObject(rect.into());
         }
         drop(cards);
-        let _ = SetWindowRgn(hwnd, Some(combined), true);
+        let _ = SetWindowRgn(hwnd, Some(combined), redraw);
         if visible_count == 0 {
             let _ = ShowWindow(hwnd, SW_HIDE);
         } else {
@@ -435,5 +445,34 @@ fn emit_event(event: ChildEvent) {
         let mut stdout = STDOUT.lock().unwrap();
         let _ = writeln!(stdout, "{line}");
         let _ = stdout.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::command_requires_region_redraw;
+    use crate::overlay::result::scene_compositor::protocol::{
+        HostCommand, SceneGeometry, SceneRect,
+    };
+
+    #[test]
+    fn geometry_only_commands_do_not_force_a_webview_redraw() {
+        let command = HostCommand::Geometry {
+            cards: vec![SceneGeometry {
+                id: 42,
+                rect: SceneRect {
+                    x: 10,
+                    y: 20,
+                    width: 300,
+                    height: 200,
+                },
+                visible: true,
+            }],
+        };
+
+        assert!(!command_requires_region_redraw(&command));
+        assert!(command_requires_region_redraw(&HostCommand::Remove {
+            id: 42
+        }));
     }
 }
