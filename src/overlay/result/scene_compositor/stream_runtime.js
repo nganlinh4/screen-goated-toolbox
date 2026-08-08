@@ -210,9 +210,14 @@
 
         window._streamWordCount = newWordCount;
         window._streamRenderCount = prevRenderCount + 1;
+        // Auto-fit owns the complete viewport, so keep its stable top edge
+        // while newly appended content temporarily overflows. Following the
+        // bottom here makes scroll position fight the shrink animation: each
+        // chunk hides the first line, then layout clamping snaps it back.
         window.scrollTo({
-            top: document.body.scrollHeight,
-            behavior: options.smoothScroll ? 'smooth' : 'auto'
+            top: 0,
+            left: 0,
+            behavior: 'auto'
         });
     };
 

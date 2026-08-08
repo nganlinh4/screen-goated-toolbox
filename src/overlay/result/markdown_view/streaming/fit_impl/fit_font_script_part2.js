@@ -110,7 +110,7 @@
                     }
 
                     // ===== PHASE 8: OVERFLOW RESCUE CONDENSE =====
-                    if (!fits()) {
+                    if (!foundFittingSize && !fits()) {
                         var rescueSize = Math.max(minSize, parseFloat(body.style.fontSize) || minSize);
                         body.style.fontSize = rescueSize + 'px';
                         body.style.letterSpacing = '0px';
@@ -188,6 +188,7 @@
                                 probeWidthAtWdth55: widthAt55,
                                 probeWdthDelta: widthAt90 - widthAt55,
                                 fitDurationMs: performance.now() - _fitStart,
+                                layoutProbes: layoutProbeCount,
                                 fitCallCount: window._sgtFitCallCount || 0,
                                 streamingFit: isStreamingFit
                             };
@@ -214,6 +215,22 @@
                             || lastReportedTarget.streaming !== isStreamingFit
                             || Math.abs(lastReportedTarget.fontSize - targetFontSize) >= 0.1
                             || Math.abs(lastReportedTarget.fontStretch - targetWdth) >= 0.3;
+                        var paintSampleNow = performance.now();
+                        var previousPaintSample = window._sgtLastFitPaintSample;
+                        var paintedShrinkPxPerSec = 0;
+                        if (previousPaintSample
+                            && Number.isFinite(priorDisplayedFontSize)
+                            && paintSampleNow > previousPaintSample.time) {
+                            paintedShrinkPxPerSec = (
+                                (previousPaintSample.fontSize - priorDisplayedFontSize)
+                                * 1000
+                                / (paintSampleNow - previousPaintSample.time)
+                            );
+                        }
+                        window._sgtLastFitPaintSample = {
+                            time: paintSampleNow,
+                            fontSize: priorDisplayedFontSize
+                        };
                         if (!isStreamingFit || targetChanged) {
                             postFitDiagnostic({
                                 action: 'fit_target',
@@ -225,7 +242,9 @@
                                 fromFontSize: priorDisplayedFontSize,
                                 fontSize: targetFontSize,
                                 fontStretch: targetWdth,
-                                fitDurationMs: performance.now() - _fitStart
+                                fitDurationMs: performance.now() - _fitStart,
+                                layoutProbes: layoutProbeCount,
+                                paintedShrinkPxPerSec: paintedShrinkPxPerSec
                             });
                         }
                         window._sgtLastReportedFitTarget = {
@@ -274,17 +293,19 @@
                         // delta after the full layout and remain visibly smooth.
                         var fsDelta = Math.abs(targetFontSize - startFontSize);
                         var wDelta = Math.abs(targetWdth - startWdth);
-                        // Continuous-flow duration: duration scales linearly
-                        // with delta so visual velocity is constant (~55 px/s
-                        // for streaming, ~75 px/s for final). A 5px change
-                        // finishes in ~90ms, a 40px change takes ~720ms — no
-                        // jarring fast flicks for small deltas, no
-                        // "everything takes 280ms" for big ones. Clamped at
-                        // [140, 900]ms so the loop never feels instant or
-                        // glacial regardless of delta.
+                        // Streaming fits are retargeted at the model's chunk
+                        // cadence. Use a linear path whose duration is derived
+                        // from remaining distance so retargeting preserves the
+                        // same visual velocity instead of restarting a cubic
+                        // acceleration pulse. Final fits happen once and keep
+                        // their eased settle.
                         var PX_PER_SEC = isStreamingFit ? 55 : 75;
-                        var durationFromDelta = (fsDelta / PX_PER_SEC) * 1000;
-                        var duration = Math.max(140, Math.min(900, durationFromDelta));
+                        var WDTH_PER_SEC = 120;
+                        var durationFromFont = (fsDelta / PX_PER_SEC) * 1000;
+                        var durationFromWdth = (wDelta / WDTH_PER_SEC) * 1000;
+                        var durationFromDelta = Math.max(durationFromFont, durationFromWdth);
+                        var minimumDuration = isStreamingFit ? 16 : 140;
+                        var duration = Math.max(minimumDuration, Math.min(900, durationFromDelta));
                         // Only SNAP when the first fit of a session (no prior
                         // to animate from) or when the delta is essentially
                         // zero (< 0.1px wouldn't be visible anyway). Removed
@@ -303,12 +324,9 @@
                             var animStart = performance.now();
                             var tick = function(now) {
                                 var t = Math.min(1, (now - animStart) / duration);
-                                // ease-out cubic — non-zero initial velocity
-                                // preserves visual continuity when a new
-                                // target comes in mid-animation (common in
-                                // fast streaming). smootherStep would create
-                                // a brake-and-restart feel at every new fit.
-                                var eased = 1 - Math.pow(1 - t, 3);
+                                var eased = isStreamingFit
+                                    ? t
+                                    : 1 - Math.pow(1 - t, 3);
                                 var curFs = startFontSize + (targetFontSize - startFontSize) * eased;
                                 var curW = startWdth + (targetWdth - startWdth) * eased;
                                 var curPT = startPadTop + (targetPadTop - startPadTop) * eased;

@@ -111,55 +111,28 @@
                         }
                     }
 
-                    function currentLineHeightPx() {
-                        var computed = window.getComputedStyle(body);
-                        var fontSize = parseFloat(computed.fontSize) || parseFloat(body.style.fontSize) || 14;
-                        var lineHeight = parseFloat(computed.lineHeight);
-                        if (!Number.isFinite(lineHeight)) {
-                            var inlineLineHeight = parseFloat(body.style.lineHeight);
-                            lineHeight = fontSize * (Number.isFinite(inlineLineHeight) ? inlineLineHeight : 1.15);
-                        }
-                        return Math.max(1, lineHeight);
+                    var layoutProbeCount = 0;
+
+                    function readLayoutMetrics() {
+                        void body.offsetHeight;
+                        layoutProbeCount++;
+                        return {
+                            height: doc.scrollHeight,
+                            width: Math.max(doc.scrollWidth || 0, body.scrollWidth || 0)
+                        };
                     }
 
-                    function hasPathologicalWrap() {
-                        if (!isStreamingFit || textLen < 8) {
-                            return false;
-                        }
-
-                        var tokens = text.trim().split(/\s+/).filter(Boolean);
-                        var wordCount = tokens.length;
-                        var longestToken = 0;
-                        for (var i = 0; i < tokens.length; i++) {
-                            longestToken = Math.max(longestToken, tokens[i].length);
-                        }
-
-                        var approxLineCount = Math.max(
-                            1,
-                            Math.round(doc.scrollHeight / currentLineHeightPx())
-                        );
-                        var avgCharsPerLine = textLen / approxLineCount;
-
-                        return avgCharsPerLine < 3.5
-                            && approxLineCount > Math.max(3, wordCount + 1)
-                            && (wordCount <= 12 || longestToken >= 4);
+                    function metricsFit(metrics) {
+                        return metrics.height <= winH && metrics.width <= winW + 1;
                     }
 
                     function getHorizontalOverflow() {
-                        void body.offsetHeight;
-                        var scrollW = Math.max(
-                            doc.scrollWidth || 0,
-                            body.scrollWidth || 0
-                        );
-                        return scrollW - Math.max(1, winW);
+                        return readLayoutMetrics().width - Math.max(1, winW);
                     }
 
-                    // Helper: check if content fits (re-reads scrollHeight each time for accuracy).
+                    // Helper: one forced layout supplies both axes.
                     function fits() {
-                        void body.offsetHeight;
-                        return doc.scrollHeight <= winH
-                            && getHorizontalOverflow() <= 1
-                            && !hasPathologicalWrap();
+                        return metricsFit(readLayoutMetrics());
                     }
 
                     function getGap() {
@@ -167,11 +140,15 @@
                         return winH - doc.scrollHeight;
                     }
 
+                    // Cache the final block once. Re-querying the whole streamed DOM
+                    // for every search probe made target calculation scale with chunk size.
+                    var fitBlocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+                    var finalFitBlock = fitBlocks.length > 0 ? fitBlocks[fitBlocks.length - 1] : null;
+
                     // Helper: reset last child margin (used during binary search phases).
                     function clearLastMargin() {
-                        var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
-                        if (blocks.length > 0) {
-                            blocks[blocks.length - 1].style.marginBottom = '0';
+                        if (finalFitBlock) {
+                            finalFitBlock.style.marginBottom = '0';
                         }
                     }
 
@@ -248,22 +225,80 @@
                     var low = minSize, high = maxSize, bestSize = minSize;
                     var foundFittingSize = false;
 
-                    // Streaming stability: keep the displayed size only while the new
-                    // content actually fits. Once it overflows, compute a smaller target
-                    // immediately so fast streams shrink progressively instead of
-                    // rewrapping at an oversized font until finalization.
+                    // Streaming target search starts at the previous verified target,
+                    // not the lagging displayed value. An area estimate followed by at
+                    // most two verified refinements bounds renderer-thread layout work
+                    // while the exact final fit retains the exhaustive search.
                     var preservedSize = false;
-                    if (isStreamingFit && hasPriorFontSize && priorDisplayedFontSize >= minSize) {
-                        body.style.fontSize = priorDisplayedFontSize + 'px';
+                    if (isStreamingFit) {
+                        var previousTarget = window._sgtLastReportedFitTarget;
+                        var previousTextLen = window._sgtLastStreamingFitTextLen;
+                        var contentOnlyGrew = Number.isFinite(previousTextLen)
+                            && textLen >= previousTextLen;
+                        var searchHigh = maxSize;
+                        if (contentOnlyGrew
+                            && previousTarget
+                            && previousTarget.streaming
+                            && Number.isFinite(previousTarget.fontSize)) {
+                            searchHigh = Math.max(
+                                minSize,
+                                Math.min(maxSize, previousTarget.fontSize)
+                            );
+                        }
+                        window._sgtLastStreamingFitTextLen = textLen;
+
+                        body.style.fontSize = searchHigh + 'px';
                         clearLastMargin();
-                        if (fits()) {
-                            bestSize = priorDisplayedFontSize;
+                        var highMetrics = readLayoutMetrics();
+                        if (metricsFit(highMetrics)) {
+                            bestSize = searchHigh;
                             foundFittingSize = true;
                             preservedSize = true;
-                        }
-                    }
+                        } else {
+                            var heightScale = Math.sqrt(winH / Math.max(1, highMetrics.height));
+                            var widthScale = winW / Math.max(1, highMetrics.width);
+                            var estimateScale = Math.min(1, heightScale, widthScale);
+                            var estimate = Math.max(
+                                minSize,
+                                Math.min(searchHigh - 1, Math.floor(searchHigh * estimateScale))
+                            );
+                            var searchLow = minSize;
+                            var searchUpper = searchHigh - 1;
 
-                    if (!preservedSize) {
+                            body.style.fontSize = estimate + 'px';
+                            clearLastMargin();
+                            if (fits()) {
+                                foundFittingSize = true;
+                                bestSize = estimate;
+                                searchLow = estimate + 1;
+                            } else {
+                                searchUpper = estimate - 1;
+                            }
+
+                            var refinementProbe = 0;
+                            var MAX_STREAMING_REFINEMENT_PROBES = 2;
+                            while (searchLow <= searchUpper
+                                && refinementProbe < MAX_STREAMING_REFINEMENT_PROBES) {
+                                var refinementSize = Math.floor((searchLow + searchUpper) / 2);
+                                body.style.fontSize = refinementSize + 'px';
+                                clearLastMargin();
+                                if (fits()) {
+                                    foundFittingSize = true;
+                                    bestSize = refinementSize;
+                                    searchLow = refinementSize + 1;
+                                } else {
+                                    searchUpper = refinementSize - 1;
+                                }
+                                refinementProbe++;
+                            }
+
+                            if (!foundFittingSize) {
+                                bestSize = minSize;
+                            }
+                            body.style.fontSize = bestSize + 'px';
+                            clearLastMargin();
+                        }
+                    } else {
                         while (low <= high) {
                             var mid = Math.floor((low + high) / 2);
                             body.style.fontSize = mid + 'px';
@@ -284,7 +319,7 @@
                     }
 
                     // Small-window + less-text path: run a settle pass to avoid "almost right" first paint.
-                    if (isConstrainedShortContent && !preservedSize) {
+                    if (!isStreamingFit && isConstrainedShortContent && !preservedSize) {
                         void body.offsetHeight;
                         var settleLow = minSize, settleHigh = bestSize, settleBest = minSize;
                         while (settleLow <= settleHigh) {

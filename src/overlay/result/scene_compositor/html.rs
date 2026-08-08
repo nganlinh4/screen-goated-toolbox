@@ -58,7 +58,8 @@ function ensureCard(id) {
     html: null,
     loadedHtml: null,
     ready: false,
-    pendingMessage: null,
+    pendingContent: null,
+    contentPhase: 'document',
     streaming: false,
     visible: false,
     navigationDepth: 0,
@@ -71,7 +72,7 @@ function ensureCard(id) {
     reportCardDiagnostic(id, entry, 'document_loaded', {
       payloadLen: entry.loadedHtml.length
     });
-    const flushed = flushPendingMessage(entry);
+    const flushed = flushPendingContent(entry);
     if (entry.visible && entry.navigationDepth === 0 && !flushed) {
       postCardMessage(entry, { type: 'run_fit', streaming: entry.streaming });
     }
@@ -81,22 +82,42 @@ function ensureCard(id) {
 }
 
 function postCardMessage(entry, message) {
-  if (!entry.ready || !entry.frame.contentWindow) {
-    entry.pendingMessage = message;
-    reportCardDiagnostic(entry.card.dataset.id, entry, 'message_queued', {
-      payloadLen: message.html ? message.html.length : 0
-    });
-    return false;
-  }
+  if (!entry.ready || !entry.frame.contentWindow) return false;
   entry.frame.contentWindow.postMessage(message, '*');
   return true;
 }
 
-function flushPendingMessage(entry) {
-  if (!entry.pendingMessage || !entry.ready || !entry.visible) return false;
-  const message = entry.pendingMessage;
-  entry.pendingMessage = null;
-  return postCardMessage(entry, message);
+function queueCardContent(entry, message) {
+  const priority = message.type === 'finalize' ? 2 : 1;
+  const current = entry.pendingContent;
+  if (current && current.revision === entry.revision && current.priority > priority) {
+    reportCardDiagnostic(entry.card.dataset.id, entry, 'stale_content_ignored', {
+      payloadLen: message.html.length
+    });
+    return false;
+  }
+  entry.pendingContent = {
+    type: message.type,
+    html: message.html,
+    revision: entry.revision,
+    priority: priority
+  };
+  reportCardDiagnostic(entry.card.dataset.id, entry, 'content_queued', {
+    payloadLen: message.html.length
+  });
+  return true;
+}
+
+function flushPendingContent(entry) {
+  const message = entry.pendingContent;
+  if (!message || !entry.ready || !entry.visible) return false;
+  if (message.revision !== entry.revision) {
+    entry.pendingContent = null;
+    return false;
+  }
+  if (!postCardMessage(entry, message)) return false;
+  entry.pendingContent = null;
+  return true;
 }
 
 function loadCardDocument(entry, html) {
@@ -132,8 +153,8 @@ function activateCard(entry, becameVisible) {
     loadCardDocument(entry, entry.html);
     return;
   }
-  if (flushPendingMessage(entry)) return;
-  if (becameVisible) {
+  if (flushPendingContent(entry)) return;
+  if (becameVisible && entry.ready) {
     postCardMessage(entry, { type: 'run_fit', streaming: entry.streaming });
   }
 }
@@ -146,10 +167,12 @@ function upsertCard(model) {
   entry.html = model.html;
   entry.streaming = Boolean(model.streaming);
   if (htmlChanged && entry.loadedHtml !== model.html) {
-    entry.pendingMessage = null;
+    entry.pendingContent = null;
+    entry.contentPhase = entry.streaming ? 'streaming' : 'document';
     loadCardDocument(entry, model.html);
     return;
   }
+  if (entry.streaming) entry.contentPhase = 'streaming';
   activateCard(entry, becameVisible);
 }
 
@@ -162,8 +185,15 @@ function streamCard(model) {
     return;
   }
   const becameVisible = applyAppearance(entry, model);
+  if (entry.contentPhase === 'finalized') {
+    reportCardDiagnostic(model.id, entry, 'stale_stream_ignored', {
+      payloadLen: model.body.length
+    });
+    return;
+  }
   entry.streaming = true;
-  entry.pendingMessage = { type: 'stream_update', html: model.body };
+  entry.contentPhase = 'streaming';
+  queueCardContent(entry, { type: 'stream_update', html: model.body });
   activateCard(entry, becameVisible);
 }
 
@@ -178,13 +208,14 @@ function finalizeCard(model) {
   const becameVisible = applyAppearance(entry, model);
   entry.html = model.html;
   entry.streaming = false;
+  entry.contentPhase = 'finalized';
   if (entry.loadedHtml === null) {
-    entry.pendingMessage = null;
+    entry.pendingContent = null;
     activateCard(entry, becameVisible);
     return;
   }
   entry.loadedHtml = model.html;
-  entry.pendingMessage = { type: 'finalize', html: model.body };
+  queueCardContent(entry, { type: 'finalize', html: model.body });
   activateCard(entry, becameVisible);
 }
 
@@ -265,7 +296,8 @@ window.applyHostCommand = function(command) {
     if (entry && entry.navigationDepth > 0) {
       entry.navigationDepth--;
       if (entry.navigationDepth === 0) {
-        entry.pendingMessage = null;
+        entry.pendingContent = null;
+        entry.contentPhase = 'document';
         loadCardDocument(entry, entry.html);
       } else {
         entry.ready = false;
@@ -320,9 +352,30 @@ mod tests {
 
     #[test]
     fn stream_and_final_updates_wait_for_frame_readiness() {
-        assert!(DOCUMENT.contains("entry.pendingMessage = { type: 'stream_update'"));
-        assert!(DOCUMENT.contains("entry.pendingMessage = { type: 'finalize'"));
+        assert!(DOCUMENT.contains("queueCardContent(entry, { type: 'stream_update'"));
+        assert!(DOCUMENT.contains("queueCardContent(entry, { type: 'finalize'"));
         assert!(DOCUMENT.contains("frame.addEventListener('load'"));
+    }
+
+    #[test]
+    fn fitting_cannot_replace_content_waiting_for_document_load() {
+        let post_start = DOCUMENT.find("function postCardMessage").unwrap();
+        let post_end = DOCUMENT[post_start..]
+            .find("function queueCardContent")
+            .map(|offset| post_start + offset)
+            .unwrap();
+        let post_function = &DOCUMENT[post_start..post_end];
+
+        assert!(!post_function.contains("pendingContent ="));
+        assert!(DOCUMENT.contains("if (becameVisible && entry.ready)"));
+        assert!(DOCUMENT.contains("const priority = message.type === 'finalize' ? 2 : 1"));
+    }
+
+    #[test]
+    fn finalized_cards_reject_late_stream_updates() {
+        assert!(DOCUMENT.contains("if (entry.contentPhase === 'finalized')"));
+        assert!(DOCUMENT.contains("'stale_stream_ignored'"));
+        assert!(DOCUMENT.contains("entry.contentPhase = 'finalized'"));
     }
 
     #[test]

@@ -49,4 +49,24 @@ mod tests {
         assert!(cancellation > readiness_frame);
         assert!(cancellation < displayed_axis_capture);
     }
+
+    #[test]
+    fn streaming_retargets_preserve_constant_scale_velocity() {
+        let script = runtime_fit_script();
+
+        assert!(script.contains("var minimumDuration = isStreamingFit ? 16 : 140"));
+        assert!(script.contains("var eased = isStreamingFit"));
+        assert!(script.contains("? t"));
+    }
+
+    #[test]
+    fn streaming_target_search_has_bounded_layout_work() {
+        let script = runtime_fit_script();
+
+        assert!(script.contains("MAX_STREAMING_REFINEMENT_PROBES = 2"));
+        assert!(script.contains("previousTarget.fontSize"));
+        assert!(script.contains("layoutProbes: layoutProbeCount"));
+        assert!(script.contains("paintedShrinkPxPerSec: paintedShrinkPxPerSec"));
+        assert!(!script.contains("hasPathologicalWrap"));
+    }
 }

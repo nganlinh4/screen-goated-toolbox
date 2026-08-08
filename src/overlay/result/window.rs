@@ -181,15 +181,28 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
         return;
     }
 
-    {
+    let sync_immediately = {
         let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+        let Some(state) = states.get_mut(&(hwnd.0 as isize)) else {
+            return;
+        };
+        if text_update_waits_for_stream_timer(state.is_streaming_active) {
             state.pending_text = Some(text.to_string());
+            false
+        } else {
+            state.pending_text = None;
             state.full_text = text.to_string();
+            true
         }
+    };
+    if sync_immediately {
+        let visible = unsafe { IsWindowVisible(hwnd).as_bool() };
+        super::scene_compositor::sync_window(hwnd, visible);
     }
-    let visible = unsafe { IsWindowVisible(hwnd).as_bool() };
-    super::scene_compositor::sync_window(hwnd, visible);
+}
+
+fn text_update_waits_for_stream_timer(is_streaming_active: bool) -> bool {
+    is_streaming_active
 }
 
 #[cfg(test)]
@@ -201,5 +214,11 @@ mod tests {
         let (_, style) = result_window_styles();
 
         assert_eq!(style.0 & WS_VISIBLE.0, 0);
+    }
+
+    #[test]
+    fn streaming_updates_have_one_timer_owned_sync_path() {
+        assert!(text_update_waits_for_stream_timer(true));
+        assert!(!text_update_waits_for_stream_timer(false));
     }
 }

@@ -44,8 +44,7 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
         window.__SGT_APPLY_STREAM_UPDATE__({
           html: event.data.html,
           runInlineSizing: true,
-          animateNewWords: true,
-          smoothScroll: true
+          animateNewWords: true
         });
         requestFit(true);
         if (!reportedStreamUpdate) {
@@ -60,8 +59,7 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
         window.__SGT_APPLY_STREAM_UPDATE__({
           html: event.data.html,
           runInlineSizing: false,
-          animateNewWords: false,
-          smoothScroll: false
+          animateNewWords: false
         });
         window.__SGT_INIT_STREAM_GRIDS__();
         requestFit(false);
