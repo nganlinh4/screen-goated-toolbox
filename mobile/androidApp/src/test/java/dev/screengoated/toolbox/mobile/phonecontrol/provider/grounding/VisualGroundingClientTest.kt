@@ -10,39 +10,39 @@ class VisualGroundingClientTest {
     @Test
     fun namedRecordsRequireEveryExactIdentifier() {
         val records = parseNamedRecords(
-            "M|from|100|200|source\nM|to|800|700|destination",
+            """{"points":[{"id":"from","x":100,"y":200,"label":"source"},{"id":"to","x":800,"y":700,"label":"destination"}],"missing":[]}""",
             setOf("from", "to"),
             "model",
         )
         assertEquals(listOf("from", "to"), records?.map(GroundingCoordinate::id))
         assertNull(
             parseNamedRecords(
-                "M|from|100|200|source\nN|to",
+                """{"points":[{"id":"from","x":100,"y":200,"label":"source"}],"missing":["to"]}""",
                 setOf("from", "to"),
                 "model",
             ),
         )
         assertTrue(
             reportsNotVisible(
-                "M|from|100|200|source\nN|to",
+                """{"points":[{"id":"from","x":100,"y":200,"label":"source"}],"missing":["to"]}""",
                 setOf("from", "to"),
             ),
         )
         assertTrue(
             reportsNotVisible(
-                "N|from\nN|to",
+                """{"points":[],"missing":["from","to"]}""",
                 setOf("from", "to"),
             ),
         )
         assertFalse(
             reportsNotVisible(
-                "M|target|100|200|source\nN|to",
+                """{"points":[{"id":"target","x":100,"y":200,"label":"source"}],"missing":["to"]}""",
                 setOf("target"),
             ),
         )
         assertFalse(
             reportsNotVisible(
-                "N|from\nN|from",
+                """{"points":[],"missing":["from","from"]}""",
                 setOf("from", "to"),
             ),
         )
@@ -53,21 +53,21 @@ class VisualGroundingClientTest {
         assertNull(parseOpenRecords("Here are the points", "model"))
         assertNull(
             parseOpenRecords(
-                "M|first|100|200\nM|second|104|204",
+                """{"points":[{"x":100,"y":200,"label":"first"},{"x":104,"y":204,"label":"second"}]}""",
                 "model",
             ),
         )
-        val overflow = (0..30).joinToString("\n") { index ->
-            "M|target $index|${index * 30}|${index * 30}"
+        val overflow = (0..30).joinToString(",", prefix = "{\"points\":[", postfix = "]}") { index ->
+            "{\"x\":${index * 30},\"y\":${index * 30},\"label\":\"target $index\"}"
         }
         assertNull(parseOpenRecords(overflow, "model"))
     }
 
     @Test
     fun openRecordsAcceptEmptyAndReadingOrder() {
-        assertTrue(parseOpenRecords("N", "model").orEmpty().isEmpty())
+        assertTrue(parseOpenRecords("""{"points":[]}""", "model").orEmpty().isEmpty())
         val records = parseOpenRecords(
-            "M|upper|250|100\nM|lower|250|800|",
+            """{"points":[{"x":250,"y":100,"label":"upper"},{"x":250,"y":800,"label":"lower"}]}""",
             "model",
         )
         assertEquals(listOf("upper", "lower"), records?.map(GroundingCoordinate::label))
@@ -76,9 +76,9 @@ class VisualGroundingClientTest {
     @Test
     fun labelsCountUnicodeCodePointsRatherThanUtf16Units() {
         assertTrue(
-            parseOpenRecords("M|${"😀".repeat(160)}|100|200", "model")?.size == 1,
+            parseOpenRecords("""{"points":[{"x":100,"y":200,"label":"${"😀".repeat(160)}"}]}""", "model")?.size == 1,
         )
-        assertNull(parseOpenRecords("M|${"😀".repeat(161)}|100|200", "model"))
+        assertNull(parseOpenRecords("""{"points":[{"x":100,"y":200,"label":"${"😀".repeat(161)}"}]}""", "model"))
     }
 
     @Test

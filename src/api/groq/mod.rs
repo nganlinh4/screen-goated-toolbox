@@ -20,7 +20,7 @@ pub enum ServiceTier {
 }
 
 pub fn supports_strict_structured_output(model: &str) -> bool {
-    model == "openai/gpt-oss-120b"
+    matches!(model, "openai/gpt-oss-120b" | "openai/gpt-oss-20b")
 }
 
 /// Select the strongest schema mode the requested model officially supports.
@@ -105,12 +105,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strict_schema_is_used_only_where_supported() {
+    fn strict_schema_is_used_for_both_gpt_oss_generation_models() {
         let schema = serde_json::json!({"type": "object"});
-        let strict = structured_response_format("openai/gpt-oss-120b", "result", schema.clone());
+        let strict_120b =
+            structured_response_format("openai/gpt-oss-120b", "result", schema.clone());
+        let strict_20b = structured_response_format("openai/gpt-oss-20b", "result", schema.clone());
         let generic = structured_response_format("future-vision-model", "result", schema.clone());
         let qwen = structured_response_format("qwen/qwen3.6-27b", "result", schema);
-        assert_eq!(strict["json_schema"]["strict"], true);
+        assert_eq!(strict_120b["json_schema"]["strict"], true);
+        assert_eq!(strict_20b["json_schema"]["strict"], true);
         assert_eq!(generic["type"], "json_object");
         assert_eq!(qwen["type"], "json_object");
     }

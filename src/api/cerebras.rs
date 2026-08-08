@@ -115,11 +115,28 @@ pub fn supports_structured_outputs(model: &str) -> bool {
 
 /// Strict schema shape required by Cerebras constrained decoding.
 pub fn strict_json_schema(name: &str, mut schema: Value) -> Value {
+    normalize_supported_schema(&mut schema);
     require_closed_objects(&mut schema);
     json!({
         "type": "json_schema",
         "json_schema": { "name": name, "strict": true, "schema": schema }
     })
+}
+
+fn normalize_supported_schema(schema: &mut Value) {
+    match schema {
+        Value::Array(values) => values.iter_mut().for_each(normalize_supported_schema),
+        Value::Object(object) => {
+            object.remove("minItems");
+            object.remove("maxItems");
+            object.remove("minLength");
+            object.remove("maxLength");
+            object.remove("minimum");
+            object.remove("maximum");
+            object.values_mut().for_each(normalize_supported_schema);
+        }
+        _ => {}
+    }
 }
 
 fn require_closed_objects(schema: &mut Value) {
@@ -305,6 +322,43 @@ mod tests {
         assert_eq!(
             format.pointer("/json_schema/schema/properties/point/additionalProperties"),
             Some(&Value::Bool(false))
+        );
+    }
+
+    #[test]
+    fn strict_schema_removes_unsupported_validation_bounds() {
+        let format = strict_json_schema(
+            "points",
+            json!({
+                "type": "object",
+                "properties": {
+                    "points": {"type": "array", "minItems": 0, "maxItems": 1, "items": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "integer", "minimum": 0, "maximum": 1000},
+                            "label": {"type": "string", "minLength": 1, "maxLength": 160}
+                        }
+                    }}
+                },
+                "required": ["points"]
+            }),
+        );
+        let points = format
+            .pointer("/json_schema/schema/properties/points")
+            .unwrap();
+        assert!(points.get("minItems").is_none());
+        assert!(points.get("maxItems").is_none());
+        assert!(points.pointer("/items/properties/x/minimum").is_none());
+        assert!(points.pointer("/items/properties/x/maximum").is_none());
+        assert!(
+            points
+                .pointer("/items/properties/label/minLength")
+                .is_none()
+        );
+        assert!(
+            points
+                .pointer("/items/properties/label/maxLength")
+                .is_none()
         );
     }
 

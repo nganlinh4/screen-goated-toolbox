@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "id_rule": {
     "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-(?:text|vision|audio|search)$",
     "forbidden_lifecycle_segments": [
@@ -59,6 +59,18 @@
       "vi": "GG Live",
       "ko": "GG Live",
       "en": "GG Live"
+    },
+    {
+      "model_id": "groq-gpt-oss-20b-text",
+      "vi": "G Gọn",
+      "ko": "G 간결",
+      "en": "G Compact"
+    },
+    {
+      "model_id": "groq-llama-3-1-8b-instant-text",
+      "vi": "G Cơ bản",
+      "ko": "G 기본",
+      "en": "G Basic"
     }
   ],
   "performance": {

@@ -36,14 +36,13 @@ pub(crate) fn point_request(description: &str, context: &str) -> GroundingReques
     GroundingRequest {
         prompt: format!(
             "{}Find this visible target in the image: {description}\n\
-             Output exactly one line and nothing else:\n\
-             M|target|x|y|short visible label\n\
-             x and y are integer CENTER coordinates on a 0-1000 grid (x left to \
-             right, y top to bottom). If it is not visible, output N|target. \
-             Do not use markdown or add a second line.",
+             Output only JSON matching the supplied schema. Put the target in \
+             points, or put \"target\" in missing when it is not visible. x and y \
+             are integer CENTER coordinates on a 0-1000 grid (x left to right, \
+             y top to bottom).",
             context_prefix(context)
         ),
-        response_schema: None,
+        response_schema: Some(named_points_schema(&["target"])),
     }
 }
 
@@ -51,14 +50,13 @@ pub(crate) fn marks_request(description: &str, context: &str) -> GroundingReques
     GroundingRequest {
         prompt: format!(
             "{}Map every distinct visible actionable target relevant to: {description}\n\
-             Output only records in reading order, at most 30:\n\
-             M|short visible label|x|y\n\
-             x and y are integer CENTER coordinates on a 0-1000 grid (x left to \
-             right, y top to bottom). Use one record per target. If none are \
-             visible, output N. Do not use markdown, prose, or duplicate points.",
+             Output only JSON matching the supplied schema, in reading order, \
+             with at most 30 points. x and y are integer CENTER coordinates on a \
+             0-1000 grid (x left to right, y top to bottom). Use one point per \
+             target and an empty points array when none are visible.",
             context_prefix(context)
         ),
-        response_schema: None,
+        response_schema: Some(open_points_schema()),
     }
 }
 
@@ -71,15 +69,13 @@ pub(crate) fn drag_request(
         prompt: format!(
             "{}Locate both drag endpoints in this same image.\n\
              Start: {from_description}\nDestination: {to_description}\n\
-             Output exactly two lines and nothing else:\n\
-             M|from|x|y|short visible label\n\
-             M|to|x|y|short visible label\n\
-             x and y are integer CENTER coordinates on a 0-1000 grid (x left to \
-             right, y top to bottom). If an endpoint is not visible, output only \
-             N|from or N|to for that missing endpoint. Do not use markdown.",
+             Output only JSON matching the supplied schema. Put each visible \
+             endpoint in points and each non-visible endpoint ID in missing. x \
+             and y are integer CENTER coordinates on a 0-1000 grid (x left to \
+             right, y top to bottom).",
             context_prefix(context)
         ),
-        response_schema: None,
+        response_schema: Some(named_points_schema(&["from", "to"])),
     }
 }
 
@@ -109,60 +105,26 @@ pub(crate) fn parse_named_grounding_records(
     response: &str,
     expected_ids: &[&str],
 ) -> Option<Vec<GroundingPoint>> {
-    if expected_ids.is_empty() || grounding_reports_not_visible(response, expected_ids) {
+    if expected_ids.is_empty() {
         return None;
     }
-    let mut points = Vec::with_capacity(expected_ids.len());
-    for line in strict_record_lines(response)? {
-        let fields = record_fields(line);
-        if fields.len() != 5 || fields[0] != "M" {
-            return None;
-        }
-        let id = fields[1];
-        if !expected_ids.contains(&id)
-            || points
-                .iter()
-                .any(|point: &GroundingPoint| point.id.as_deref() == Some(id))
-        {
-            return None;
-        }
-        points.push(GroundingPoint {
-            id: Some(id.to_string()),
-            x: parse_grid_coordinate(fields[2])?,
-            y: parse_grid_coordinate(fields[3])?,
-            label: parse_label(fields[4])?,
-        });
-    }
-    if points.len() != expected_ids.len()
-        || expected_ids
-            .iter()
-            .any(|id| !points.iter().any(|point| point.id.as_deref() == Some(id)))
-    {
+    let (points, missing) = parse_named_points_object(response, expected_ids)?;
+    if !missing.is_empty() {
         return None;
     }
     Some(points)
 }
 
 pub(crate) fn parse_open_grounding_records(response: &str) -> Option<Vec<GroundingPoint>> {
-    if response.trim() == "N" {
-        return Some(Vec::new());
-    }
-    let lines = strict_record_lines(response)?;
-    if lines.len() > 30 {
+    let value = parse_json_response(response)?;
+    let object = exact_object(&value, &["points"])?;
+    let values = object.get("points")?.as_array()?;
+    if values.len() > 30 {
         return None;
     }
-    let mut points = Vec::with_capacity(lines.len());
-    for line in lines {
-        let fields = record_fields(line);
-        if fields.len() != 4 || fields[0] != "M" {
-            return None;
-        }
-        let point = GroundingPoint {
-            id: None,
-            label: parse_label(fields[1])?,
-            x: parse_grid_coordinate(fields[2])?,
-            y: parse_grid_coordinate(fields[3])?,
-        };
+    let mut points = Vec::with_capacity(values.len());
+    for value in values {
+        let point = parse_point_object(value, false)?;
         if points.iter().any(|existing: &GroundingPoint| {
             let dx = existing.x - point.x;
             let dy = existing.y - point.y;
@@ -176,68 +138,71 @@ pub(crate) fn parse_open_grounding_records(response: &str) -> Option<Vec<Groundi
 }
 
 pub(crate) fn grounding_reports_not_visible(response: &str, expected_ids: &[&str]) -> bool {
-    let Some(lines) = strict_record_lines(response) else {
-        return false;
-    };
-    if lines.len() == 1 {
-        let fields = record_fields(lines[0]);
-        if fields.as_slice() == ["N"] {
-            return true;
-        }
-    }
-    if expected_ids.is_empty() || lines.len() != expected_ids.len() {
-        return false;
-    }
-    let mut seen_ids = Vec::with_capacity(expected_ids.len());
-    let mut missing_count = 0;
-    for line in lines {
-        let fields = record_fields(line);
-        let id = match fields.as_slice() {
-            ["N", id] if expected_ids.contains(id) => {
-                missing_count += 1;
-                *id
-            }
-            ["M", id, x, y, label]
-                if expected_ids.contains(id)
-                    && parse_grid_coordinate(x).is_some()
-                    && parse_grid_coordinate(y).is_some()
-                    && parse_label(label).is_some() =>
-            {
-                *id
-            }
-            _ => return false,
-        };
-        if seen_ids.contains(&id) {
-            return false;
-        }
-        seen_ids.push(id);
-    }
-    missing_count > 0
-        && expected_ids
-            .iter()
-            .all(|expected| seen_ids.contains(expected))
+    !expected_ids.is_empty()
+        && parse_named_points_object(response, expected_ids)
+            .is_some_and(|(_, missing)| !missing.is_empty())
 }
 
-fn strict_record_lines(response: &str) -> Option<Vec<&str>> {
-    let trimmed = response.trim();
-    if trimmed.is_empty() || trimmed.contains("```") {
+fn parse_named_points_object(
+    response: &str,
+    expected_ids: &[&str],
+) -> Option<(Vec<GroundingPoint>, Vec<String>)> {
+    let value = parse_json_response(response)?;
+    let object = exact_object(&value, &["points", "missing"])?;
+    let point_values = object.get("points")?.as_array()?;
+    let missing_values = object.get("missing")?.as_array()?;
+    if point_values.len() + missing_values.len() != expected_ids.len() {
         return None;
     }
-    let lines = trimmed.lines().map(str::trim).collect::<Vec<_>>();
-    (!lines.is_empty() && lines.iter().all(|line| !line.is_empty())).then_some(lines)
-}
-
-fn record_fields(line: &str) -> Vec<&str> {
-    let mut fields = line.split('|').map(str::trim).collect::<Vec<_>>();
-    if fields.last() == Some(&"") {
-        fields.pop();
+    let mut points = Vec::with_capacity(point_values.len());
+    let mut seen = Vec::with_capacity(expected_ids.len());
+    for value in point_values {
+        let point = parse_point_object(value, true)?;
+        let id = point.id.as_deref()?;
+        if !expected_ids.contains(&id) || seen.iter().any(|seen_id| seen_id == id) {
+            return None;
+        }
+        seen.push(id.to_string());
+        points.push(point);
     }
-    fields
+    let mut missing = Vec::with_capacity(missing_values.len());
+    for value in missing_values {
+        let id = value.as_str()?;
+        if !expected_ids.contains(&id) || seen.iter().any(|seen_id| seen_id == id) {
+            return None;
+        }
+        seen.push(id.to_string());
+        missing.push(id.to_string());
+    }
+    expected_ids
+        .iter()
+        .all(|expected| seen.iter().any(|id| id == expected))
+        .then_some((points, missing))
 }
 
-fn parse_grid_coordinate(value: &str) -> Option<f64> {
-    let parsed = value.parse::<u16>().ok()?;
-    (parsed <= 1000).then_some(f64::from(parsed))
+fn parse_point_object(value: &serde_json::Value, named: bool) -> Option<GroundingPoint> {
+    let expected = if named {
+        &["id", "x", "y", "label"][..]
+    } else {
+        &["x", "y", "label"][..]
+    };
+    let object = exact_object(value, expected)?;
+    let id = if named {
+        Some(object.get("id")?.as_str()?.to_string())
+    } else {
+        None
+    };
+    Some(GroundingPoint {
+        id,
+        x: parse_grid_coordinate(object.get("x")?)?,
+        y: parse_grid_coordinate(object.get("y")?)?,
+        label: parse_label(object.get("label")?.as_str()?)?,
+    })
+}
+
+fn parse_grid_coordinate(value: &serde_json::Value) -> Option<f64> {
+    let parsed = value.as_u64()?;
+    (parsed <= 1000).then_some(parsed as f64)
 }
 
 fn parse_label(value: &str) -> Option<String> {
@@ -312,15 +277,8 @@ pub(crate) fn crosshair_crop(jpeg: &[u8], x_1000: f64, y_1000: f64) -> Result<Ve
 }
 
 pub(crate) fn parse_verification(response: &str) -> Option<VerificationDecision> {
-    let value: serde_json::Value = serde_json::from_str(response.trim()).ok()?;
-    let object = value.as_object()?;
-    if object.len() != 3
-        || !object.contains_key("matches")
-        || !object.contains_key("confidence")
-        || !object.contains_key("what")
-    {
-        return None;
-    }
+    let value = parse_json_response(response)?;
+    exact_object(&value, &["matches", "confidence", "what"])?;
     let note = value.get("what").and_then(serde_json::Value::as_str)?;
     if note.trim().is_empty() || note.chars().count() > 160 {
         return None;
@@ -332,6 +290,101 @@ pub(crate) fn parse_verification(response: &str) -> Option<VerificationDecision>
             .and_then(serde_json::Value::as_u64)
             .filter(|confidence| *confidence <= 100)?,
         note: Some(note.trim().to_string()),
+    })
+}
+
+fn exact_object<'a>(
+    value: &'a serde_json::Value,
+    expected: &[&str],
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    let object = value.as_object()?;
+    (object.len() == expected.len() && expected.iter().all(|key| object.contains_key(*key)))
+        .then_some(object)
+}
+
+fn parse_json_response(response: &str) -> Option<serde_json::Value> {
+    let trimmed = response.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let payload = if trimmed.starts_with("```") {
+        let mut lines = trimmed.lines();
+        let opener = lines.next()?.trim();
+        if !matches!(opener, "```" | "```json" | "```JSON") {
+            return None;
+        }
+        let mut body = lines.collect::<Vec<_>>();
+        if body.pop()?.trim() != "```" || body.iter().any(|line| line.contains("```")) {
+            return None;
+        }
+        body.join("\n")
+    } else {
+        if trimmed.contains("```") {
+            return None;
+        }
+        trimmed.to_string()
+    };
+    serde_json::from_str(payload.trim()).ok()
+}
+
+fn named_points_schema(ids: &[&str]) -> serde_json::Value {
+    let id_values = ids
+        .iter()
+        .map(|id| serde_json::json!(id))
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "points": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": ids.len(),
+                "items": point_schema(Some(&id_values))
+            },
+            "missing": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": ids.len(),
+                "items": {"type": "string", "enum": id_values}
+            }
+        },
+        "required": ["points", "missing"],
+        "additionalProperties": false
+    })
+}
+
+fn open_points_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "points": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 30,
+                "items": point_schema(None)
+            }
+        },
+        "required": ["points"],
+        "additionalProperties": false
+    })
+}
+
+fn point_schema(ids: Option<&[serde_json::Value]>) -> serde_json::Value {
+    let mut properties = serde_json::json!({
+        "x": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "y": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "label": {"type": "string", "minLength": 1, "maxLength": 160}
+    });
+    let mut required = vec!["x", "y", "label"];
+    if let Some(ids) = ids {
+        properties["id"] = serde_json::json!({"type": "string", "enum": ids});
+        required.insert(0, "id");
+    }
+    serde_json::json!({
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": false
     })
 }
 
@@ -353,9 +406,12 @@ mod tests {
     fn point_and_verification_contracts_are_fail_closed() {
         let point = point_request("Save button", "Save the document");
         assert!(point.prompt.contains("Context (for disambiguation only"));
-        assert!(point.prompt.contains("M|target|x|y|short visible label"));
-        assert!(point.prompt.contains("N|target"));
-        assert!(point.response_schema.is_none());
+        assert!(point.prompt.contains("supplied schema"));
+        let point_schema = point.response_schema.expect("point schema");
+        assert_eq!(
+            point_schema["required"],
+            serde_json::json!(["points", "missing"])
+        );
 
         let verification = verification_request("Save button", "Save the document");
         assert!(verification.prompt.contains("CROSSHAIR CENTER"));
@@ -366,6 +422,12 @@ mod tests {
         assert!(
             parse_verification(r#"{"matches":true,"confidence":91,"what":"Save button"}"#)
                 .is_some()
+        );
+        assert!(
+            parse_verification(
+                "```json\n{\"matches\":true,\"confidence\":91,\"what\":\"Save button\"}\n```"
+            )
+            .is_some()
         );
         assert!(
             parse_verification(r#"prose {"matches":true,"confidence":91,"what":"Save button"}"#)

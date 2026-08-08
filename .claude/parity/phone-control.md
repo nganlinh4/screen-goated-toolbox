@@ -990,11 +990,14 @@ window change, or uncertain interruption invalidates it.
   insets, snapshot generation, and capture timestamp.
 - Gemini grounding receives one clean current-view image. It may locate one
   named point, enumerate up to 30 relevant actionable marks, or locate both drag
-  endpoints in one request. The strict model-neutral line records and 0-1000
-  coordinate grid are owned by
+  endpoints in one request. The strict model-neutral JSON point collections and
+  0-1000 `x`/`y` coordinate grid are owned by
   `parity-fixtures/phone-control/model-chain.json`; malformed, duplicate,
   unknown-ID, or out-of-range output advances the grounding chain and otherwise
-  fails closed.
+  fails closed. The caller always supplies the matching bounded schema; each
+  endpoint profile selects strict-schema, JSON-object, or prompt-only transport.
+  One outer JSON Markdown fence may be removed before the same strict local
+  validation, while surrounding prose remains invalid.
 - Visual surface selection must not require an Accessibility node root. A
   rootless active application/system window may recover its package authority
   only from an exact-window Accessibility event recorded in the current
@@ -1011,7 +1014,7 @@ window change, or uncertain interruption invalidates it.
   the named point on a clean frame; a fresh crosshair crop must confirm that its
   center is inside the requested target with at least 70% confidence; final
   surface and target-local pixel revalidation must then pass before dispatch.
-  Verification accepts only the exact JSON object owned by the shared fixture;
+  Verification accepts only the schema-valid JSON object owned by the shared fixture;
   prose, missing/extra fields, or out-of-range confidence advances the chain,
   while a well-formed rejection is terminal and no later model may overrule it.
   Language meaning never moves into Kotlin or Rust and no second agent tool call

@@ -41,6 +41,9 @@
   providers retain provider-specific names, quotas, and request policy.
 - Lists sort globally by latency regardless of provider, with durable model ID
   as the tie-breaker. Runtime priority/retry chains retain their authored order.
+- A benchmark-qualified built-in endpoint becomes selectable
+  on Windows and Android from the same catalog revision; neither platform may
+  hide it behind a platform-local allowlist or duplicate its fallback placement.
 - Quota labels mean daily request count and use only the localized daily-count
   form or localized Unlimited form.
 - `supports_search` is provider capability metadata used for explicit

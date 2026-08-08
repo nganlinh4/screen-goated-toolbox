@@ -64,6 +64,9 @@ permission logic. Do not silently reroute the model's requested tool.
 ## Grounding and effects
 
 - Prefer semantic browser/native state, then current-frame vision.
+- Visual point, mark, drag, and crosshair decisions use bounded JSON schemas.
+  Provider adapters select their strongest catalog-declared structured-output
+  transport; local validation remains mandatory and fails closed.
 - Coordinates and element IDs are bound to frame, view, document, and surface.
 - Re-observe after change or uncertainty. Never reuse stale targets.
 - An interrupted mutation with no delivered no-effect receipt blocks later

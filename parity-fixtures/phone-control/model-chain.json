@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "live_session": {
     "api_model": "gemini-3.1-flash-live-preview",
     "thinking_config": {
@@ -42,27 +42,36 @@
     "response_contract": {
       "coordinate_grid": 1000,
       "maximum_marks": 30,
-      "named_point_record": "M|target|x|y|label",
-      "open_mark_record": "M|label|x|y",
-      "not_visible_records": ["N", "N|target", "N|from", "N|to"],
-      "named_not_visible_set": "terminal when every expected identifier appears exactly once and at least one record is N",
-      "drag_endpoint_records": [
-        "M|from|x|y|label",
-        "M|to|x|y|label"
-      ],
-      "optional_final_delimiter": true,
+      "named_point_object": {
+        "points": [{"id": "target", "x": 500, "y": 500, "label": "visible label"}],
+        "missing": []
+      },
+      "open_marks_object": {
+        "points": [{"x": 500, "y": 500, "label": "visible label"}]
+      },
+      "drag_endpoint_object": {
+        "points": [
+          {"id": "from", "x": 250, "y": 500, "label": "source"},
+          {"id": "to", "x": 750, "y": 500, "label": "destination"}
+        ],
+        "missing": []
+      },
+      "named_not_visible_set": "terminal when every expected identifier appears exactly once across points and missing and missing is nonempty",
       "duplicate_or_unknown_ids": "invalid",
       "out_of_range_coordinates": "invalid",
+      "unknown_fields": "invalid",
+      "single_outer_json_fence": "accepted_then_strictly_validated",
       "surrounding_prose": "invalid"
     },
     "verification_contract": {
-      "format": "exact_json_object",
+      "format": "schema_validated_json_object",
       "required_fields": [
         "matches",
         "confidence",
         "what"
       ],
       "unknown_fields": "invalid",
+      "single_outer_json_fence": "accepted_then_strictly_validated",
       "surrounding_prose": "invalid",
       "confidence_range": [
         0,

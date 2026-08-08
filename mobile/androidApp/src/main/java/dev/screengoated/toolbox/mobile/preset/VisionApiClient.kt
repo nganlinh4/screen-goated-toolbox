@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import org.json.JSONObject
 
 class VisionApiClient(internal val httpClient: OkHttpClient) {
 
@@ -20,6 +21,7 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
         uiLanguage: String,
         onChunk: (String) -> Unit,
         streamingEnabled: Boolean = true,
+        responseSchema: JSONObject? = null,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val model = resolveModel(modelId)
@@ -39,6 +41,7 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     uiLanguage = uiLanguage,
                     onChunk = onChunk,
                     streamingEnabled = streamingEnabled,
+                    responseSchema = responseSchema,
                 )
 
                 PresetModelProvider.GROQ -> streamOpenAiVision(

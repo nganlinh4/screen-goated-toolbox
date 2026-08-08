@@ -17,10 +17,11 @@ internal suspend fun VisionApiClient.streamGeminiVision(
     uiLanguage: String,
     onChunk: (String) -> Unit,
     streamingEnabled: Boolean,
+    responseSchema: JSONObject?,
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:google")
 
-    val payload = buildGeminiVisionPayload(model, prompt, imageBase64, mimeType)
+    val payload = buildGeminiVisionPayload(model, prompt, imageBase64, mimeType, responseSchema)
     val action = if (streamingEnabled) "streamGenerateContent?alt=sse" else "generateContent"
     val request = Request.Builder()
         .url("$GEMINI_ENDPOINT/${model.fullName}:$action")
@@ -106,6 +107,7 @@ internal fun buildGeminiVisionPayload(
     prompt: String,
     imageBase64: String,
     mimeType: String,
+    responseSchema: JSONObject? = null,
 ): JSONObject {
     val textPart = JSONObject().put("text", prompt)
     val imagePart = JSONObject().put(
@@ -144,6 +146,13 @@ internal fun buildGeminiVisionPayload(
     }
     when (model.visionMediaResolution) {
         PresetVisionMediaResolution.PROVIDER_DEFAULT -> Unit
+    }
+    if (responseSchema != null &&
+        model.structuredOutputPolicy == PresetStructuredOutputPolicy.STRICT_JSON_SCHEMA
+    ) {
+        generationConfig
+            .put("responseMimeType", "application/json")
+            .put("responseJsonSchema", responseSchema)
     }
     if (generationConfig.length() > 0) {
         payload.put("generationConfig", generationConfig)

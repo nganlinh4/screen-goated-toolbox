@@ -54,21 +54,24 @@ fn grounding_chain_matches_phone_control_fixture() {
 
 #[test]
 fn structured_grounding_results_distinguish_terminal_from_malformed() {
-    assert!(grounding_reports_not_visible("N|target", &["target"]));
     assert!(grounding_reports_not_visible(
-        "M|from|100|200|source\nN|to",
+        r#"{"points":[],"missing":["target"]}"#,
+        &["target"]
+    ));
+    assert!(grounding_reports_not_visible(
+        r#"{"points":[{"id":"from","x":100,"y":200,"label":"source"}],"missing":["to"]}"#,
         &["from", "to"],
     ));
     assert!(grounding_reports_not_visible(
-        "N|from\nN|to",
+        r#"{"points":[],"missing":["from","to"]}"#,
         &["from", "to"],
     ));
     assert!(!grounding_reports_not_visible(
-        "M|target|100|200|source\nN|to",
+        r#"{"points":[{"id":"target","x":100,"y":200,"label":"source"}],"missing":["to"]}"#,
         &["target"],
     ));
     assert!(!grounding_reports_not_visible(
-        "N|from\nN|from",
+        r#"{"points":[],"missing":["from","from"]}"#,
         &["from", "to"],
     ));
     assert!(!grounding_reports_not_visible("not json", &["target"]));
@@ -98,9 +101,11 @@ fn rejects_box_not_visible() {
 }
 
 #[test]
-fn mark_records_accept_strict_lines_and_preserve_reading_order() {
-    let points =
-        parse_open_grounding_records("M|right target|900|500\nM|left target|100|200").unwrap();
+fn mark_records_accept_strict_json_and_preserve_reading_order() {
+    let points = parse_open_grounding_records(
+        r#"{"points":[{"x":900,"y":500,"label":"right target"},{"x":100,"y":200,"label":"left target"}]}"#,
+    )
+    .unwrap();
     assert_eq!(points.len(), 2);
     assert_eq!((points[0].x, points[0].y), (900.0, 500.0));
     assert_eq!((points[1].x, points[1].y), (100.0, 200.0));
@@ -109,32 +114,44 @@ fn mark_records_accept_strict_lines_and_preserve_reading_order() {
 #[test]
 fn mark_records_reject_malformed_out_of_range_and_duplicates() {
     assert_eq!(parse_open_grounding_records("not records"), None);
-    assert_eq!(parse_open_grounding_records("M|target|-1|1001"), None);
     assert_eq!(
-        parse_open_grounding_records("M|first|100|200\nM|second|104|204"),
+        parse_open_grounding_records(r#"{"points":[{"x":-1,"y":1001,"label":"target"}]}"#),
+        None
+    );
+    assert_eq!(
+        parse_open_grounding_records(
+            r#"{"points":[{"x":100,"y":200,"label":"first"},{"x":104,"y":204,"label":"second"}]}"#,
+        ),
         None
     );
 }
 
 #[test]
 fn mark_records_have_a_hard_cap() {
-    let body = (0..31)
-        .map(|index| format!("M|target {index}|{}|{}", index * 30, index * 30))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let body = serde_json::json!({
+        "points": (0..31).map(|index| serde_json::json!({
+            "x": index * 30,
+            "y": index * 30,
+            "label": format!("target {index}")
+        })).collect::<Vec<_>>()
+    })
+    .to_string();
     assert_eq!(parse_open_grounding_records(&body), None);
 }
 
 #[test]
 fn named_drag_records_require_every_exact_endpoint() {
     let points = parse_named_grounding_records(
-        "M|from|100|200|source\nM|to|800|700|destination",
+        r#"{"points":[{"id":"from","x":100,"y":200,"label":"source"},{"id":"to","x":800,"y":700,"label":"destination"}],"missing":[]}"#,
         &["from", "to"],
     )
     .unwrap();
     assert_eq!(points.len(), 2);
     assert_eq!(
-        parse_named_grounding_records("M|from|100|200|source\nN|to", &["from", "to"]),
+        parse_named_grounding_records(
+            r#"{"points":[{"id":"from","x":100,"y":200,"label":"source"}],"missing":["to"]}"#,
+            &["from", "to"]
+        ),
         None
     );
 }

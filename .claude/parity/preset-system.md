@@ -28,11 +28,11 @@
   stable default. Catalog availability or priority-chain membership does not
   make a model a built-in preset default. Authority-bearing Computer/Phone
   Control keeps its separate catalog-owned model chain.
-- The fast text-arena seed uses Groq GPT-OSS 120B. The general image retry
+- The fast text-arena seed uses Groq GPT-OSS 20B. The general image retry
   chain keeps Gemini 3.5 Flash Lite first, then prioritizes the fast reliable
-  Cerebras and Groq OCR endpoints before higher-variance fallbacks. The text
-  chain keeps Cerebras GLM first, then favors the stable low-latency Groq
-  endpoints before Gemini and OpenRouter fallbacks. Exact order remains owned
+  Groq and OpenRouter OCR endpoints before higher-variance fallbacks. The text
+  chain keeps Cerebras GLM first for answer quality, with Groq GPT-OSS 20B as
+  its speed-specialized fallback before the remaining hosted endpoints. Exact order remains owned
   only by the shared catalog and fixture.
 - The Windows one-time post-update recommendation prompt compares the staged
   preset models, priority chains, and recommended-provider defaults. Applying
@@ -86,12 +86,16 @@
 - Cerebras vision is base64 PNG/JPEG through `gemma-4-31b` only. It uses the Cerebras key and endpoint on both platforms; it must never fall through to Groq.
 - Ordinary LLM vision request shape comes from
   `catalog/model_catalog.json#vision_request_profiles` on both platforms.
-  Google Gemma 4 sends image before text; Gemini, Cerebras Gemma, and Groq
-  Qwen send text before image. Media resolution remains provider-default:
+  Google vision endpoints send image before text; Cerebras Gemma and Groq Qwen
+  send text before image. Media resolution remains provider-default:
   small-image probes showed no durable completion-latency win from forcing a
   lower setting. Plain OCR is non-streaming because the product consumes the
   complete transcription and the tested endpoints generally buffer their first
   visible output until near completion.
+- A caller-supplied vision schema is sent only when the endpoint profile declares
+  strict structured-output support. Gemini uses `responseJsonSchema`; endpoints
+  without that capability keep their catalog-owned prompt-only or JSON-object
+  transport. Plain OCR supplies no schema.
 - Vision payloads preserve their real MIME type. Groq images use a prompt-aware
   encoded-byte budget below the provider request ceiling: keep PNG when it fits,
   otherwise use adaptive JPEG compression and resizing before sending. Qwen
