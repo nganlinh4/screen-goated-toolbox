@@ -105,11 +105,6 @@
       "lifecycle": "stable",
       "replacement": null,
       "verified_at": "2026-07-24"
-    },
-    "inclusionai/ling-3.0-flash:free": {
-      "lifecycle": "stable",
-      "replacement": null,
-      "verified_at": "2026-07-24"
     }
   },
   "defaults": {
@@ -165,7 +160,7 @@
       "groq-gpt-oss-120b-text",
       "groq-llama-3-3-70b-text",
       "google-gemini-3-5-flash-lite-text",
-      "openrouter-ling-3-0-flash-text",
+      "openrouter-nemotron-3-nano-omni-30b-a3b-text",
       "google-gemini-3-1-flash-lite-text",
       "google-gemma-4-31b-text",
       "google-gemma-4-26b-a4b-text"
@@ -751,18 +746,6 @@
       "search_tool_enabled_by_default": false,
       "reasoning_policy": "openai-none"
     },
-    "openrouter:inclusionai/ling-3.0-flash:free": {
-      "name_vi": "O Ổn định",
-      "name_ko": "O 안정적",
-      "name_en": "O Steady",
-      "quota_vi": "50 lượt/ngày",
-      "quota_ko": "50회/일",
-      "quota_en": "50 requests/day",
-      "intelligence_tier": 5,
-      "supports_search": false,
-      "search_tool_enabled_by_default": false,
-      "reasoning_policy": "openai-none"
-    },
     "groq:whisper-large-v3-turbo": {
       "name_vi": "G Chép nhanh",
       "name_ko": "G 빠른 받아쓰기",
@@ -1007,15 +990,6 @@
       "enabled": true,
       "typical_latency_ms": 643,
       "performance_source": "benchmark-2026-07-29-protocol6:text"
-    },
-    {
-      "id": "openrouter-ling-3-0-flash-text",
-      "provider": "openrouter",
-      "full_name": "inclusionai/ling-3.0-flash:free",
-      "model_type": "Text",
-      "enabled": true,
-      "typical_latency_ms": 872,
-      "performance_source": "benchmark-2026-08-06-protocol7:text"
     },
     {
       "id": "groq-gpt-oss-120b-text",

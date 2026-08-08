@@ -394,7 +394,7 @@ mod tests {
             state
                 .preferred_text_model("", "", "openrouter", "")
                 .map(|model| model.0),
-            Some("openrouter-ling-3-0-flash-text".to_string())
+            Some("openrouter-nemotron-3-nano-omni-30b-a3b-text".to_string())
         );
     }
 }
