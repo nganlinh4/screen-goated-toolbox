@@ -2,20 +2,27 @@ use std::collections::VecDeque;
 
 use super::{MIX_OUTPUT_CHANNELS, MIX_OUTPUT_SAMPLE_RATE};
 
-const WAV_FAST_CHUNK_FRAMES: usize = 8192;
+/// Speed is sampled once per chunk, so the chunk length caps how closely a speed
+/// ramp can be tracked. 2048 frames is ~43ms at 48kHz: fine enough that the residual
+/// error inside a chunk stays inaudible, and each chunk is still placed at an exact
+/// output time so nothing accumulates.
+const WAV_FAST_CHUNK_FRAMES: usize = 2048;
 
 pub(super) struct DecodedAudioChunk {
-    pub(super) pcm: Vec<u8>,
+    /// Interleaved f32 at [`MIX_OUTPUT_SAMPLE_RATE`].
+    pub(super) samples: Vec<f32>,
     pub(super) decoded_time: f64,
     pub(super) channels: usize,
 }
 
-fn f32_samples_to_le_bytes(samples: &[f32]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(samples.len() * 4);
-    for sample in samples {
-        bytes.extend_from_slice(&sample.to_le_bytes());
+impl DecodedAudioChunk {
+    pub(super) fn frames(&self) -> usize {
+        if self.channels == 0 {
+            0
+        } else {
+            self.samples.len() / self.channels
+        }
     }
-    bytes
 }
 
 fn push_wav_frame(
@@ -59,7 +66,7 @@ fn wav_frames_to_output_chunks(
                 return;
             }
             chunks.push_back(DecodedAudioChunk {
-                pcm: f32_samples_to_le_bytes(samples),
+                samples: std::mem::take(samples),
                 decoded_time: start_frame as f64 / MIX_OUTPUT_SAMPLE_RATE as f64,
                 channels: MIX_OUTPUT_CHANNELS as usize,
             });
@@ -148,43 +155,4 @@ pub(super) fn read_wav_fast_chunks(
         &source_frames,
         spec.sample_rate,
     )))
-}
-
-pub(super) fn fast_retime_f32le(pcm: &[u8], channels: usize, speed: f64) -> Vec<u8> {
-    if pcm.is_empty() || channels == 0 {
-        return Vec::new();
-    }
-    let input_frames = pcm.len() / (channels * 4);
-    if input_frames == 0 {
-        return Vec::new();
-    }
-    let speed = speed.clamp(0.05, 64.0);
-    if (speed - 1.0).abs() <= 0.0001 {
-        return pcm.to_vec();
-    }
-
-    let output_frames = ((input_frames as f64) / speed).ceil().max(1.0) as usize;
-    let mut out = Vec::with_capacity(output_frames * channels * 4);
-    for output_frame_idx in 0..output_frames {
-        let source_pos = output_frame_idx as f64 * speed;
-        let left_frame = source_pos.floor().min((input_frames - 1) as f64) as usize;
-        let right_frame = (left_frame + 1).min(input_frames - 1);
-        let t = (source_pos - left_frame as f64) as f32;
-        for channel_idx in 0..channels {
-            let left_sample_idx = ((left_frame * channels) + channel_idx) * 4;
-            let right_sample_idx = ((right_frame * channels) + channel_idx) * 4;
-            let left = f32::from_le_bytes(
-                pcm[left_sample_idx..left_sample_idx + 4]
-                    .try_into()
-                    .unwrap(),
-            );
-            let right = f32::from_le_bytes(
-                pcm[right_sample_idx..right_sample_idx + 4]
-                    .try_into()
-                    .unwrap(),
-            );
-            out.extend_from_slice(&(left + (right - left) * t).to_le_bytes());
-        }
-    }
-    out
 }

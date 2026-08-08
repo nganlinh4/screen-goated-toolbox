@@ -142,6 +142,86 @@ impl OutputTimeMapper {
     }
 }
 
+/// Walks one kept region the other way round: the caller advances output time by a
+/// fixed step and reads back where that lands in project time.
+///
+/// The stretcher needs this because it emits a fixed number of output frames per hop
+/// and has to know how far along the source to draw the next grain from. Integrating
+/// with the same step and midpoint rule as [`OutputTimeMapper`] keeps the stretched
+/// audio and the mixer's placement from drifting apart.
+pub(super) struct SegmentWalker {
+    project_time: f64,
+    output_time: f64,
+    end_time: f64,
+    speed_points: Vec<SpeedPoint>,
+}
+
+impl SegmentWalker {
+    pub(super) fn new(
+        start_time: f64,
+        end_time: f64,
+        output_time: f64,
+        speed_points: Vec<SpeedPoint>,
+    ) -> Self {
+        Self {
+            project_time: start_time,
+            output_time,
+            end_time,
+            speed_points,
+        }
+    }
+
+    pub(super) fn project_time(&self) -> f64 {
+        self.project_time
+    }
+
+    /// Advances until output time has moved by `output_delta`. Returns `false` once
+    /// the region is used up.
+    pub(super) fn advance(&mut self, output_delta: f64) -> bool {
+        let target = self.output_time + output_delta;
+        while self.output_time < target - 1e-12 {
+            if self.project_time >= self.end_time - 1e-12 {
+                return false;
+            }
+            let step_end = (self.project_time + MIXER_INTEGRATION_STEP_SEC).min(self.end_time);
+            let mid_time = (self.project_time + step_end) * 0.5;
+            let speed = get_speed(mid_time, &self.speed_points).clamp(0.1, 16.0);
+            let step_output = (step_end - self.project_time) / speed;
+            if self.output_time + step_output >= target {
+                self.project_time += (target - self.output_time) * speed;
+                self.output_time = target;
+                return true;
+            }
+            self.output_time += step_output;
+            self.project_time = step_end;
+        }
+        true
+    }
+}
+
+/// Moves a project-time volume envelope onto the output timeline. Points past the
+/// last kept region collapse onto `output_end`, which holds the final level.
+pub(super) fn volume_points_in_output_time(
+    points: &[DeviceAudioPoint],
+    trim_segments: &[TrimSegment],
+    speed_points: &[SpeedPoint],
+    output_end: f64,
+) -> Vec<DeviceAudioPoint> {
+    if points.is_empty() {
+        return Vec::new();
+    }
+    let mut sorted = points.to_vec();
+    sorted.sort_by(|left, right| left.time.total_cmp(&right.time));
+    let mut mapper = OutputTimeMapper::new(trim_segments.to_vec(), speed_points.to_vec());
+    sorted
+        .into_iter()
+        .map(|point| DeviceAudioPoint {
+            time: mapper.map_source_time(point.time).unwrap_or(output_end),
+            volume: point.volume,
+        })
+        .collect()
+}
+
 pub(super) fn source_project_start_time(source: &ExportAudioSource) -> f64 {
     source.start_offset_sec
         + source
@@ -151,12 +231,27 @@ pub(super) fn source_project_start_time(source: &ExportAudioSource) -> f64 {
             / source.playback_rate.max(0.0001)
 }
 
-pub(super) fn source_project_end_time(source: &ExportAudioSource, fallback_duration: f64) -> f64 {
-    let source_out = source
-        .source_out_sec
-        .filter(|value| value.is_finite())
-        .unwrap_or(fallback_duration.max(0.0));
-    source.start_offset_sec + source_out / source.playback_rate.max(0.0001)
+/// Where a source stops on the project timeline.
+///
+/// A source with an explicit out-point stops there. One without — device and mic
+/// audio, which simply run alongside the recording — plays until the timeline does.
+/// It must NOT fall back to the segment duration: that is the *trimmed* length,
+/// while trim segments carry absolute source times, so `trimStart + duration` is the
+/// real end and `duration` alone comes up short by exactly `trimStart`. The video
+/// pipeline walks the segments directly and never had this gap, so getting it wrong
+/// here ends the audio early while the picture keeps going.
+pub(super) fn source_timeline_end_time(
+    source: &ExportAudioSource,
+    trim_segments: &[TrimSegment],
+    fallback_duration: f64,
+) -> f64 {
+    match source.source_out_sec.filter(|value| value.is_finite()) {
+        Some(out) => source.start_offset_sec + out / source.playback_rate.max(0.0001),
+        None => trim_segments
+            .last()
+            .map(|segment| segment.end_time)
+            .unwrap_or(fallback_duration.max(0.0)),
+    }
 }
 
 fn output_time_for_project_time(
@@ -179,26 +274,4 @@ pub fn calculate_mix_output_duration(
         return 0.0;
     };
     output_time_for_project_time(last_end, &normalized, speed_points).unwrap_or(duration.max(0.0))
-}
-
-pub(super) fn average_output_tempo(
-    source: &ExportAudioSource,
-    trim_segments: &[TrimSegment],
-    speed_points: &[SpeedPoint],
-    fallback_duration: f64,
-) -> Option<(f64, f64)> {
-    let project_start = source_project_start_time(source);
-    let project_end = source_project_end_time(source, fallback_duration);
-    if project_end <= project_start {
-        return None;
-    }
-    let output_start = output_time_for_project_time(project_start, trim_segments, speed_points)?;
-    let output_end = output_time_for_project_time(project_end, trim_segments, speed_points)?;
-    if output_end <= output_start {
-        return None;
-    }
-    Some((
-        (project_end - project_start) / (output_end - output_start),
-        output_start,
-    ))
 }

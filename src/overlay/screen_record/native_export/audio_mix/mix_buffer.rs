@@ -29,13 +29,16 @@ impl FloatMixBuffer {
         }
     }
 
-    pub(super) fn mix_f32le(
+    /// Mixes at an exact frame index. The stretcher emits hops that must butt up
+    /// against each other perfectly; rounding each hop's start from a float time
+    /// would leave a sample-sized gap or overlap at every seam.
+    pub(super) fn mix_f32_at_frame(
         &mut self,
-        output_start_time: f64,
-        pcm: &[u8],
+        start_frame: usize,
+        samples: &[f32],
         channels: usize,
     ) -> Result<(), String> {
-        if pcm.is_empty() || channels == 0 {
+        if samples.is_empty() {
             return Ok(());
         }
         if channels != self.channels {
@@ -44,17 +47,12 @@ impl FloatMixBuffer {
                 self.channels
             ));
         }
-        let start_frame = (output_start_time * MIX_OUTPUT_SAMPLE_RATE as f64)
-            .round()
-            .max(0.0) as usize;
         let start_sample = start_frame.saturating_mul(self.channels);
-        let source_samples = pcm.len() / 4;
-        let required = start_sample.saturating_add(source_samples);
+        let required = start_sample.saturating_add(samples.len());
         if required > self.samples.len() {
             self.samples.resize(required, 0.0);
         }
-        for (index, chunk) in pcm.chunks_exact(4).enumerate() {
-            let sample = f32::from_le_bytes(chunk.try_into().unwrap());
+        for (index, sample) in samples.iter().enumerate() {
             self.samples[start_sample + index] += sample;
         }
         Ok(())
