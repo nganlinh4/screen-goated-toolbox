@@ -121,19 +121,26 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
     );
     assert_eq!(
         default_text_to_text_priority_chain_ids().get(7).copied(),
-        Some("openrouter-ling-3-0-flash-text")
+        Some("openrouter-nemotron-3-nano-omni-30b-a3b-text")
     );
     assert_eq!(
         default_text_to_text_priority_chain_ids().get(8).copied(),
         Some("google-gemini-3-1-flash-lite-text")
     );
-    let ling = get_model_by_id("openrouter-ling-3-0-flash-text").expect("Ling text model exists");
-    assert_eq!(ling.full_name, "inclusionai/ling-3.0-flash:free");
-    assert_eq!(ling.name_vi, "O Ổn định");
-    assert_eq!(ling.intelligence_tier, Some(5));
-    assert_eq!(ling.typical_latency_ms, Some(872));
+    let openrouter = get_model_by_id("openrouter-nemotron-3-nano-omni-30b-a3b-text")
+        .expect("OpenRouter text fallback exists");
     assert_eq!(
-        ordinary_reasoning_policy("openrouter", "inclusionai/ling-3.0-flash:free"),
+        openrouter.full_name,
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    );
+    assert_eq!(openrouter.name_vi, "O Nhanh");
+    assert_eq!(openrouter.intelligence_tier, Some(4));
+    assert_eq!(openrouter.typical_latency_ms, Some(643));
+    assert_eq!(
+        ordinary_reasoning_policy(
+            "openrouter",
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+        ),
         OrdinaryReasoningPolicy::OpenAiEffort("none")
     );
 }

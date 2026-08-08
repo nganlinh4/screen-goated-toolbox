@@ -63,6 +63,9 @@
   reasoning policies fail catalog generation.
 - Unknown persisted IDs do not alias or migrate. Preset loading replaces them
   with the canonical default for the block modality.
+- Removing an unavailable endpoint removes its profile and model rows atomically;
+  recommended chains may replace it only with another enabled, benchmarked row
+  already owned by the shared catalog.
 - A model without successful benchmark evidence may remain selectable, but its
   reliability warning and retry position must not imply measured stability.
 - Catalog decisions use only the newest complete protocol-compatible benchmark
