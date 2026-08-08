@@ -35,13 +35,14 @@ static GEOMETRY_SIGNAL: LazyLock<SyncSender<()>> = LazyLock::new(|| {
     let (sender, receiver) = sync_channel(1);
     std::thread::spawn(move || {
         while receiver.recv().is_ok() {
-            std::thread::sleep(Duration::from_millis(8));
             while receiver.try_recv().is_ok() {}
-            let cards = {
+            let cards: Vec<SceneGeometry> = {
                 let mut pending = PENDING_GEOMETRY.lock().unwrap();
                 pending.drain().map(|(_, geometry)| geometry).collect()
             };
-            send_command(HostCommand::Geometry { cards });
+            if !cards.is_empty() {
+                send_command(HostCommand::Geometry { cards });
+            }
         }
     });
     sender
