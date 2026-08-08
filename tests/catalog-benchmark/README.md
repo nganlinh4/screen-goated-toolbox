@@ -1,7 +1,10 @@
 # Catalog benchmark
 
 Current catalog decision record:
-[`RESULTS-2026-07-26-VISION-TAIL-DIAGNOSTIC.md`](RESULTS-2026-07-26-VISION-TAIL-DIAGNOSTIC.md).
+[`RESULTS-2026-08-06-PROTOCOL7.md`](RESULTS-2026-08-06-PROTOCOL7.md).
+The immediately preceding text-candidate and vision-tail decisions remain in
+[`RESULTS-2026-08-06-TEXT-CANDIDATES.md`](RESULTS-2026-08-06-TEXT-CANDIDATES.md)
+and [`RESULTS-2026-07-26-VISION-TAIL-DIAGNOSTIC.md`](RESULTS-2026-07-26-VISION-TAIL-DIAGNOSTIC.md).
 Its baseline full-catalog run is
 [`RESULTS-2026-07-26-PROTOCOL6.md`](RESULTS-2026-07-26-PROTOCOL6.md).
 Earlier protocol-5 and discovery records remain available in
@@ -107,6 +110,10 @@ effective reasoning policy. “Fastest” therefore means the fastest production
 wire policy established by the current provider probes; it is auditable and
 identical between benchmark and product, but remains revisable when a provider
 adds a genuinely faster supported method.
+Protocol 7 supersedes coordinate rows from protocol 6: visual grounding now
+uses strict JSON point collections and catalog-owned structured-output transport,
+and Google vision inputs are image-first. Text and plain-OCR scoring are unchanged,
+but vision request-profile changes require fresh rows.
 
 ## Local latest-run history
 
@@ -147,10 +154,9 @@ For the selected latest row:
   median and P95 retain the large-image stress evidence.
 
 Coordinate rows remain separate Computer Control evidence and must not be mixed
-into the general image-to-text latency shown for OCR-oriented features. They are
-useful spatial-model evidence for Phone Control, but are not an exact benchmark
-of Android's detector-anchor first stage; Android selects numbered detector
-anchors before applying an equivalent fresh-crosshair verification gate.
+into the general image-to-text latency shown for OCR-oriented features. Windows,
+Android Phone Control, and this benchmark share the strict JSON point contract
+and fresh-crosshair verification gate; platform capture remains a thin adapter.
 
 Refresh local history without provider calls:
 

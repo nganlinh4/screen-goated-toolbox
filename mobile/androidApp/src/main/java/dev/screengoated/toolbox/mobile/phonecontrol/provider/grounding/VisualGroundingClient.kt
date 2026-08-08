@@ -7,6 +7,7 @@ import dev.screengoated.toolbox.mobile.preset.GeneratedPresetModelCatalogData
 import dev.screengoated.toolbox.mobile.preset.VisionApiClient
 import kotlinx.coroutines.CancellationException
 import org.json.JSONException
+import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 
@@ -46,6 +47,7 @@ internal class VisualGroundingClient(context: Context) {
         imageBytes: ByteArray,
     ): GroundingClientResult<GroundingCoordinate> = run(
         prompt = pointPrompt(description, context),
+        responseSchema = namedPointsSchema(setOf("target")),
         imageBytes = imageBytes,
         parse = { response, model ->
             parseNamedRecords(response, setOf("target"), model)
@@ -61,6 +63,7 @@ internal class VisualGroundingClient(context: Context) {
         imageBytes: ByteArray,
     ): GroundingClientResult<List<GroundingCoordinate>> = run(
         prompt = marksPrompt(description, context),
+        responseSchema = openPointsSchema(),
         imageBytes = imageBytes,
         parse = { response, model ->
             parseOpenRecords(response, model)
@@ -76,6 +79,7 @@ internal class VisualGroundingClient(context: Context) {
         imageBytes: ByteArray,
     ): GroundingClientResult<Pair<GroundingCoordinate, GroundingCoordinate>> = run(
         prompt = dragPrompt(from, to, context),
+        responseSchema = namedPointsSchema(setOf("from", "to")),
         imageBytes = imageBytes,
         parse = { response, model ->
             val points = parseNamedRecords(response, setOf("from", "to"), model)
@@ -97,12 +101,14 @@ internal class VisualGroundingClient(context: Context) {
         imageBytes: ByteArray,
     ): GroundingClientResult<GroundingVerification> = run(
         prompt = verificationPrompt(description, context),
+        responseSchema = verificationSchema(),
         imageBytes = imageBytes,
         parse = { response, model -> parseVerification(response, model) },
     )
 
     private suspend fun <T> run(
         prompt: String,
+        responseSchema: JSONObject,
         imageBytes: ByteArray,
         parse: (String, String) -> GroundingClientResult<T>,
     ): GroundingClientResult<T> {
@@ -126,6 +132,7 @@ internal class VisualGroundingClient(context: Context) {
                     uiLanguage = "en",
                     onChunk = {},
                     streamingEnabled = false,
+                    responseSchema = responseSchema,
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -163,41 +170,20 @@ internal fun parseNamedRecords(
     modelId: String,
 ): List<GroundingCoordinate>? {
     if (expectedIds.isEmpty() || reportsNotVisible(response, expectedIds)) return null
-    val records = strictLines(response)?.map { line ->
-        val fields = recordFields(line)
-        if (fields.size != 5 || fields[0] != "M" || fields[1] !in expectedIds) return null
-        GroundingCoordinate(
-            id = fields[1],
-            x = parseGrid(fields[2]) ?: return null,
-            y = parseGrid(fields[3]) ?: return null,
-            label = parseLabel(fields[4]) ?: return null,
-            modelId = modelId,
-        )
-    } ?: return null
-    return records.takeIf {
-        it.size == expectedIds.size &&
-            it.mapNotNull(GroundingCoordinate::id).toSet() == expectedIds
-    }
+    val root = parseJsonObject(response, NAMED_ROOT_FIELDS) ?: return null
+    val missing = parseStringSet(root.optJSONArray("missing")) ?: return null
+    if (missing.isNotEmpty() || !expectedIds.containsAll(missing)) return null
+    val records = parsePoints(root.optJSONArray("points"), modelId, named = true) ?: return null
+    return records.takeIf { it.mapNotNull(GroundingCoordinate::id).toSet() == expectedIds }
 }
 
 internal fun parseOpenRecords(
     response: String,
     modelId: String,
 ): List<GroundingCoordinate>? {
-    if (response.trim() == "N") return emptyList()
-    val lines = strictLines(response) ?: return null
-    if (lines.size > MAX_MARKS) return null
-    val records = lines.map { line ->
-        val fields = recordFields(line)
-        if (fields.size != 4 || fields[0] != "M") return null
-        GroundingCoordinate(
-            id = null,
-            label = parseLabel(fields[1]) ?: return null,
-            x = parseGrid(fields[2]) ?: return null,
-            y = parseGrid(fields[3]) ?: return null,
-            modelId = modelId,
-        )
-    }
+    val root = parseJsonObject(response, OPEN_ROOT_FIELDS) ?: return null
+    val records = parsePoints(root.optJSONArray("points"), modelId, named = false) ?: return null
+    if (records.size > MAX_MARKS) return null
     return records.takeIf { points ->
         points.indices.none { left ->
             (left + 1 until points.size).any { right ->
@@ -211,18 +197,7 @@ internal fun parseVerification(
     response: String,
     modelId: String,
 ): GroundingClientResult<GroundingVerification> {
-    val trimmed = response.trim()
-    val value = try {
-        val parser = JSONTokener(trimmed)
-        val parsed = parser.nextValue() as? JSONObject ?: return invalidVerification()
-        if (parser.nextClean() != '\u0000') return invalidVerification()
-        parsed
-    } catch (_: JSONException) {
-        return invalidVerification()
-    }
-    if (value.keys().asSequence().toSet() != VERIFICATION_FIELDS) {
-        return invalidVerification()
-    }
+    val value = parseJsonObject(response, VERIFICATION_FIELDS) ?: return invalidVerification()
     val matches = value.opt("matches") as? Boolean ?: return invalidVerification()
     val confidence = value.strictInt("confidence") ?: return invalidVerification()
     val what = (value.opt("what") as? String)
@@ -250,17 +225,15 @@ internal fun parseVerification(
 private fun pointPrompt(description: String, context: String): String =
     """
     ${contextPrefix(context)}Find this visible target: ${JSONObject.quote(description)}
-    Output exactly one line: M|target|x|y|short visible label
-    x and y are integer center coordinates on a 0-1000 grid. If not visible, output N|target.
-    Output no markdown or other text.
+    Output only JSON matching the supplied schema. Put the target in points, or put "target" in missing.
+    x and y are integer center coordinates on a 0-1000 grid.
     """.trimIndent()
 
 private fun marksPrompt(description: String, context: String): String =
     """
     ${contextPrefix(context)}Map every distinct visible actionable target relevant to: ${JSONObject.quote(description)}
-    Output only records in reading order, at most $MAX_MARKS: M|short visible label|x|y
-    x and y are integer center coordinates on a 0-1000 grid. If none are visible, output N.
-    Output no markdown, prose, or duplicate points.
+    Output only JSON matching the supplied schema, in reading order, with at most $MAX_MARKS points.
+    x and y are integer center coordinates on a 0-1000 grid. Use an empty points array when none are visible.
     """.trimIndent()
 
 private fun dragPrompt(from: String, to: String, context: String): String =
@@ -268,9 +241,8 @@ private fun dragPrompt(from: String, to: String, context: String): String =
     ${contextPrefix(context)}Locate both drag endpoints in this same image.
     Start: ${JSONObject.quote(from)}
     Destination: ${JSONObject.quote(to)}
-    Output exactly two lines: M|from|x|y|short visible label and M|to|x|y|short visible label.
-    Coordinates are integer centers on a 0-1000 grid. For a missing endpoint output N|from or N|to.
-    Output no markdown or other text.
+    Output only JSON matching the supplied schema. Put visible endpoints in points and absent IDs in missing.
+    Coordinates are integer centers on a 0-1000 grid.
     """.trimIndent()
 
 private fun verificationPrompt(description: String, context: String): String =
@@ -287,45 +259,65 @@ private fun contextPrefix(context: String): String =
             "${JSONObject.quote(it.takeCodePoints(MAX_CONTEXT_CHARS))}\n"
     } ?: ""
 
-private fun strictLines(response: String): List<String>? {
-    val trimmed = response.trim()
-    if (trimmed.isEmpty() || "```" in trimmed) return null
-    return trimmed.lines().map(String::trim).takeIf { it.all(String::isNotEmpty) }
-}
-
-private fun recordFields(line: String): List<String> =
-    line.split('|').map(String::trim).let { if (it.lastOrNull().isNullOrEmpty()) it.dropLast(1) else it }
-
-private fun parseGrid(value: String): Int? = value.toIntOrNull()?.takeIf { it in 0..1000 }
-
 private fun parseLabel(value: String): String? =
     value.trim().takeIf { it.isNotEmpty() && it.codePointLength() <= MAX_LABEL_CHARS }
 
 internal fun reportsNotVisible(response: String, expectedIds: Set<String>): Boolean {
-    val lines = strictLines(response) ?: return false
-    if (lines.size == 1) {
-        val fields = recordFields(lines.single())
-        if (fields == listOf("N")) return true
+    if (expectedIds.isEmpty()) return false
+    val root = parseJsonObject(response, NAMED_ROOT_FIELDS) ?: return false
+    val missing = parseStringSet(root.optJSONArray("missing")) ?: return false
+    val points = parsePoints(root.optJSONArray("points"), "", named = true) ?: return false
+    val present = points.mapNotNull(GroundingCoordinate::id).toSet()
+    return missing.isNotEmpty() && missing.all { it in expectedIds } &&
+        present.intersect(missing).isEmpty() && present + missing == expectedIds
+}
+
+private fun parsePoints(array: JSONArray?, modelId: String, named: Boolean): List<GroundingCoordinate>? {
+    array ?: return null
+    val records = ArrayList<GroundingCoordinate>(array.length())
+    repeat(array.length()) { index ->
+        val value = array.optJSONObject(index) ?: return null
+        val fields = if (named) NAMED_POINT_FIELDS else OPEN_POINT_FIELDS
+        if (value.keys().asSequence().toSet() != fields) return null
+        val id = if (named) (value.opt("id") as? String)?.takeIf(String::isNotBlank) else null
+        if (named && id == null) return null
+        val x = value.strictInt("x")?.takeIf { it in 0..1000 } ?: return null
+        val y = value.strictInt("y")?.takeIf { it in 0..1000 } ?: return null
+        val label = (value.opt("label") as? String)?.let(::parseLabel) ?: return null
+        records += GroundingCoordinate(id, x, y, label, modelId)
     }
-    if (expectedIds.isEmpty() || lines.size != expectedIds.size) return false
-    val missingIds = linkedSetOf<String>()
-    val seenIds = linkedSetOf<String>()
-    lines.forEach { line ->
-        val fields = recordFields(line)
-        val id = when {
-            fields.size == 2 && fields[0] == "N" && fields[1] in expectedIds ->
-                fields[1].also { missingIds += it }
-            fields.size == 5 &&
-                fields[0] == "M" &&
-                fields[1] in expectedIds &&
-                parseGrid(fields[2]) != null &&
-                parseGrid(fields[3]) != null &&
-                parseLabel(fields[4]) != null -> fields[1]
-            else -> return false
-        }
-        if (!seenIds.add(id)) return false
+    return records.takeIf { points ->
+        points.mapNotNull(GroundingCoordinate::id).toSet().size == points.size || !named
     }
-    return missingIds.isNotEmpty() && seenIds == expectedIds
+}
+
+private fun parseStringSet(array: JSONArray?): Set<String>? {
+    array ?: return null
+    val values = linkedSetOf<String>()
+    repeat(array.length()) { index ->
+        val value = array.opt(index) as? String ?: return null
+        if (value.isBlank() || !values.add(value)) return null
+    }
+    return values
+}
+
+private fun parseJsonObject(response: String, fields: Set<String>): JSONObject? {
+    val normalized = normalizeOuterFence(response) ?: return null
+    return try {
+        val parser = JSONTokener(normalized)
+        val value = parser.nextValue() as? JSONObject ?: return null
+        if (parser.nextClean() != '\u0000' || value.keys().asSequence().toSet() != fields) null else value
+    } catch (_: JSONException) {
+        null
+    }
+}
+
+private fun normalizeOuterFence(response: String): String? {
+    val trimmed = response.trim()
+    if (!trimmed.startsWith("```")) return trimmed.takeIf { it.isNotEmpty() && "```" !in it }
+    val lines = trimmed.lines()
+    if (lines.size < 3 || lines.first() !in setOf("```", "```json") || lines.last() != "```") return null
+    return lines.subList(1, lines.lastIndex).joinToString("\n").trim().takeIf { "```" !in it }
 }
 
 private fun <T> groundingFailure(
@@ -372,6 +364,59 @@ private fun distanceSquared(left: GroundingCoordinate, right: GroundingCoordinat
     return dx * dx + dy * dy
 }
 
+private fun namedPointsSchema(ids: Set<String>): JSONObject {
+    val idValues = JSONArray().also { values -> ids.forEach(values::put) }
+    return objectSchema(
+        JSONObject()
+            .put("points", arraySchema(pointSchema(idValues)))
+            .put("missing", arraySchema(JSONObject().put("type", "string").put("enum", idValues))),
+        JSONArray().put("points").put("missing"),
+    )
+}
+
+private fun openPointsSchema(): JSONObject = objectSchema(
+    JSONObject().put("points", arraySchema(pointSchema(null)).put("maxItems", MAX_MARKS)),
+    JSONArray().put("points"),
+)
+
+private fun pointSchema(ids: JSONArray?): JSONObject {
+    val properties = JSONObject()
+    if (ids != null) properties.put("id", JSONObject().put("type", "string").put("enum", ids))
+    properties
+        .put("x", boundedIntegerSchema())
+        .put("y", boundedIntegerSchema())
+        .put("label", JSONObject().put("type", "string"))
+    val required = JSONArray()
+    if (ids != null) required.put("id")
+    required.put("x").put("y").put("label")
+    return objectSchema(properties, required)
+}
+
+private fun verificationSchema(): JSONObject = objectSchema(
+    JSONObject()
+        .put("matches", JSONObject().put("type", "boolean"))
+        .put("confidence", integerSchema(100))
+        .put("what", JSONObject().put("type", "string")),
+    JSONArray().put("matches").put("confidence").put("what"),
+)
+
+private fun boundedIntegerSchema(): JSONObject = integerSchema(1000)
+
+private fun integerSchema(maximum: Int): JSONObject = JSONObject()
+    .put("type", "integer")
+    .put("minimum", 0)
+    .put("maximum", maximum)
+
+private fun arraySchema(items: JSONObject): JSONObject = JSONObject()
+    .put("type", "array")
+    .put("items", items)
+
+private fun objectSchema(properties: JSONObject, required: JSONArray): JSONObject = JSONObject()
+    .put("type", "object")
+    .put("properties", properties)
+    .put("required", required)
+    .put("additionalProperties", false)
+
 internal val GROUNDING_MODEL_IDS: List<String> =
     GeneratedPresetModelCatalogData.computerControlGroundingModelChain
 private const val MAX_MARKS = 30
@@ -380,3 +425,7 @@ private const val MAX_CONTEXT_CHARS = 600
 private const val MIN_ENDPOINT_DISTANCE_SQUARED = 100
 private const val MIN_VERIFICATION_CONFIDENCE = 70
 private val VERIFICATION_FIELDS = setOf("matches", "confidence", "what")
+private val NAMED_ROOT_FIELDS = setOf("points", "missing")
+private val OPEN_ROOT_FIELDS = setOf("points")
+private val NAMED_POINT_FIELDS = setOf("id", "x", "y", "label")
+private val OPEN_POINT_FIELDS = setOf("x", "y", "label")

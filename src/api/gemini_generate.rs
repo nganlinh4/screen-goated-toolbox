@@ -496,11 +496,11 @@ mod tests {
             "application/json"
         );
         assert_eq!(gemma["generationConfig"]["responseJsonSchema"], schema);
-        assert!(
-            flash["generationConfig"]
-                .get("responseJsonSchema")
-                .is_none()
+        assert_eq!(
+            flash["generationConfig"]["responseMimeType"],
+            "application/json"
         );
+        assert_eq!(flash["generationConfig"]["responseJsonSchema"], schema);
     }
 
     #[test]

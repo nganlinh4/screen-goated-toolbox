@@ -169,8 +169,8 @@ family-name substring.
 
 The current policies come from production-path transport probes:
 
-- Google Gemma 4 uses image-first ordering. Ordinary Gemini, Cerebras Gemma,
-  and Groq Qwen use text-first ordering.
+- Google vision endpoints use image-first ordering. Cerebras Gemma and Groq
+  Qwen use text-first ordering.
 - Media resolution remains provider-default. Lower resolution reduced Gemini
   input-token accounting but did not produce a durable end-to-end latency win.
 - Qwen 3.6 uses the Groq-accepted subset of its documented non-thinking

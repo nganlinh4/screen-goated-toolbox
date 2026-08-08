@@ -47,7 +47,19 @@ class VisionImageBudgetTest {
         ).getJSONArray("contents")
             .getJSONObject(0)
             .getJSONArray("parts")
-        assertEquals("Read", flashParts.getJSONObject(0).getString("text"))
+        assertTrue(flashParts.getJSONObject(0).has("inline_data"))
+        assertEquals("Read", flashParts.getJSONObject(1).getString("text"))
+
+        val schema = JSONObject("""{"type":"object"}""")
+        val structured = buildGeminiVisionPayload(
+            model = flash,
+            prompt = "Locate",
+            imageBase64 = "AA==",
+            mimeType = "image/png",
+            responseSchema = schema,
+        ).getJSONObject("generationConfig")
+        assertEquals("application/json", structured.getString("responseMimeType"))
+        assertEquals(schema.toString(), structured.getJSONObject("responseJsonSchema").toString())
     }
 
     @Test

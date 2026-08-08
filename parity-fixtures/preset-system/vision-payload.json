@@ -15,11 +15,11 @@
       {
         "provider": "google",
         "api_model": "gemini-3.5-flash-lite",
-        "input_order": "text-first",
+        "input_order": "image-first",
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": null,
-        "structured_output": "prompt-only"
+        "structured_output": "strict-json-schema"
       },
       {
         "provider": "cerebras",
@@ -51,6 +51,7 @@
     ],
     "rules": [
       "reasoning_uses_the_catalog_owned_minimum_policy",
+      "google_single_image_requests_put_the_image_before_the_prompt",
       "plain_ocr_never_requests_json_or_a_schema",
       "structured_output_requires_an_explicit_caller_schema_and_endpoint_support",
       "media_resolution_stays_provider_default_until_a_comparable_probe_proves_a_better_policy",

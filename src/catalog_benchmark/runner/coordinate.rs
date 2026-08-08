@@ -322,9 +322,8 @@ mod tests {
     #[test]
     fn coordinate_benchmark_uses_the_exact_production_contract() {
         let request = point_request("the fourth star", "Give a four-star rating");
-        assert!(request.prompt.contains("M|target|x|y|short visible label"));
-        assert!(request.prompt.contains("N|target"));
-        assert!(request.response_schema.is_none());
+        assert!(request.prompt.contains("supplied schema"));
+        assert!(request.response_schema.is_some());
         assert_eq!(
             request.response_schema,
             crate::overlay::computer_control::vision_contract::point_request(
