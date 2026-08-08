@@ -113,13 +113,26 @@ pub(super) unsafe extern "system" fn mouse_hook_proc(
                 if RIGHT_DOWN.load(Ordering::SeqCst) {
                     LAST_X.store(pt.x, Ordering::SeqCst);
                     LAST_Y.store(pt.y, Ordering::SeqCst);
-                    // Timer (60fps) picks up latest position — no blocking in hook.
+                    let hwnd_value = RECT_OVERLAY_HWND.load(Ordering::SeqCst);
+                    if hwnd_value != 0
+                        && !DRAG_RENDER_PENDING.swap(true, Ordering::SeqCst)
+                        && PostMessageW(
+                            Some(HWND(hwnd_value as *mut _)),
+                            DRAG_RENDER_MESSAGE,
+                            WPARAM(0),
+                            LPARAM(0),
+                        )
+                        .is_err()
+                    {
+                        DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
+                    }
                 }
             }
 
             WM_RBUTTONUP => {
                 if RIGHT_DOWN.load(Ordering::SeqCst) {
                     RIGHT_DOWN.store(false, Ordering::SeqCst);
+                    DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
 
                     // Trigger fade-out animation
                     let hwnd_val = RECT_OVERLAY_HWND.load(Ordering::SeqCst);

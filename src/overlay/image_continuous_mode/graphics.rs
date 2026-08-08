@@ -2,6 +2,14 @@
 
 use super::*;
 
+mod clipped_render;
+mod dirty_region;
+#[cfg(test)]
+mod render_tests;
+
+use clipped_render::render_frozen_clip;
+use dirty_region::{damaged_region, selection_rect};
+
 // === GRAPHICS ===
 
 pub(super) unsafe fn capture_screen_now() -> anyhow::Result<GdiCapture> {
@@ -152,6 +160,21 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
             return;
         }
 
+        let dim_alpha = CURRENT_DIM_ALPHA;
+        let is_dragging = RIGHT_DOWN.load(Ordering::SeqCst);
+        let current_selection = is_dragging
+            .then(|| {
+                selection_rect(
+                    (
+                        START_X.load(Ordering::SeqCst),
+                        START_Y.load(Ordering::SeqCst),
+                    ),
+                    (LAST_X.load(Ordering::SeqCst), LAST_Y.load(Ordering::SeqCst)),
+                    (sx, sy),
+                )
+            })
+            .flatten();
+
         // 1. Cache DIB section (avoid per-frame allocation of ~8MB)
         if OVERLAY_DIB_W != w || OVERLAY_DIB_H != h {
             if !std::ptr::addr_of!(OVERLAY_DIB).read().0.is_invalid() {
@@ -185,10 +208,20 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
                 OVERLAY_DIB_BITS = bits as *mut u32;
                 OVERLAY_DIB_W = w;
                 OVERLAY_DIB_H = h;
+                LAST_RENDERED_SELECTION = None;
+                LAST_RENDERED_DIM_ALPHA = u8::MAX;
             } else {
                 return;
             }
         }
+
+        if LAST_RENDERED_DIM_ALPHA == dim_alpha && LAST_RENDERED_SELECTION == current_selection {
+            return;
+        }
+
+        let dirty = (LAST_RENDERED_DIM_ALPHA == dim_alpha)
+            .then(|| damaged_region(LAST_RENDERED_SELECTION, current_selection, (w, h)))
+            .flatten();
 
         // 2. Render into the cached DIB
         let hdc_screen = GetDC(None);
@@ -205,7 +238,7 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
         let len = (w * h) as usize;
         let pixels_u32 = std::slice::from_raw_parts_mut(OVERLAY_DIB_BITS, len);
 
-        // BitBlt frozen capture into DIB (hardware-accelerated, same approach as normal mode).
+        // Restore either the damaged selection region or the whole frozen frame.
         let has_frozen = {
             let guard = GESTURE_CAPTURE.lock().unwrap();
             if let Some(cap) = guard.as_ref() {
@@ -214,7 +247,23 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
                     false
                 } else {
                     let old = SelectObject(hdc_src, cap.hbitmap.into());
-                    let _ = BitBlt(mem_dc, 0, 0, w, h, Some(hdc_src), 0, 0, SRCCOPY);
+                    let copy = dirty.unwrap_or(RECT {
+                        left: 0,
+                        top: 0,
+                        right: w,
+                        bottom: h,
+                    });
+                    let _ = BitBlt(
+                        mem_dc,
+                        copy.left,
+                        copy.top,
+                        copy.right - copy.left,
+                        copy.bottom - copy.top,
+                        Some(hdc_src),
+                        copy.left,
+                        copy.top,
+                        SRCCOPY,
+                    );
                     SelectObject(hdc_src, old);
                     let _ = DeleteDC(hdc_src);
                     true
@@ -224,38 +273,21 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
             }
         };
 
-        let dim_alpha = CURRENT_DIM_ALPHA;
-        let is_dragging = RIGHT_DOWN.load(Ordering::SeqCst);
-
         if has_frozen && dim_alpha > 0 {
-            if is_dragging {
-                let s_x = START_X.load(Ordering::SeqCst);
-                let s_y = START_Y.load(Ordering::SeqCst);
-                let l_x = LAST_X.load(Ordering::SeqCst);
-                let l_y = LAST_Y.load(Ordering::SeqCst);
-
-                let left = s_x.min(l_x) - sx;
-                let top = s_y.min(l_y) - sy;
-                let right = s_x.max(l_x) - sx;
-                let bottom = s_y.max(l_y) - sy;
-
-                if (right - left).abs() > 0 && (bottom - top).abs() > 0 {
+            if let Some(selection) = current_selection {
+                if let Some(clip) = dirty {
+                    render_frozen_clip(pixels_u32, (w, h), Some(selection), dim_alpha, clip);
+                } else {
                     render_frozen_with_selection(FrozenSelectionRender {
                         pixels: pixels_u32,
                         size: (w, h),
-                        selection: RECT {
-                            left,
-                            top,
-                            right,
-                            bottom,
-                        },
+                        selection,
                         dim_alpha,
                     });
-                } else {
-                    dim_pixels(pixels_u32, 256u32 - dim_alpha as u32);
                 }
+            } else if let Some(clip) = dirty {
+                render_frozen_clip(pixels_u32, (w, h), None, dim_alpha, clip);
             } else {
-                // Frozen frame with dim only (fade-in before drag starts, or shouldn't happen)
                 dim_pixels(pixels_u32, 256u32 - dim_alpha as u32);
             }
         } else {
@@ -283,17 +315,39 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
             AlphaFormat: AC_SRC_ALPHA as u8,
         };
 
-        let _ = UpdateLayeredWindow(
-            hwnd,
-            Some(hdc_screen),
-            Some(&pt_dst),
-            Some(&size),
-            Some(mem_dc),
-            Some(&pt_src),
-            COLORREF(0),
-            Some(&blend),
-            ULW_ALPHA,
-        );
+        let dirty_updated = if has_frozen && let Some(dirty) = dirty {
+            let update = UPDATELAYEREDWINDOWINFO {
+                cbSize: std::mem::size_of::<UPDATELAYEREDWINDOWINFO>() as u32,
+                hdcDst: hdc_screen,
+                pptDst: &pt_dst,
+                psize: &size,
+                hdcSrc: mem_dc,
+                pptSrc: &pt_src,
+                crKey: COLORREF(0),
+                pblend: &blend,
+                dwFlags: ULW_ALPHA,
+                prcDirty: &dirty,
+            };
+            UpdateLayeredWindowIndirect(hwnd, &update).as_bool()
+        } else {
+            false
+        };
+        if !dirty_updated {
+            let _ = UpdateLayeredWindow(
+                hwnd,
+                Some(hdc_screen),
+                Some(&pt_dst),
+                Some(&size),
+                Some(mem_dc),
+                Some(&pt_src),
+                COLORREF(0),
+                Some(&blend),
+                ULW_ALPHA,
+            );
+        }
+
+        LAST_RENDERED_SELECTION = current_selection;
+        LAST_RENDERED_DIM_ALPHA = dim_alpha;
 
         // Cleanup DC only (bitmap is cached and reused)
         SelectObject(mem_dc, old_bmp);
@@ -402,6 +456,14 @@ pub(super) unsafe extern "system" fn rect_overlay_wnd_proc(
 ) -> LRESULT {
     unsafe {
         match msg {
+            DRAG_RENDER_MESSAGE => {
+                DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
+                if RIGHT_DOWN.load(Ordering::SeqCst) {
+                    CURRENT_DIM_ALPHA = stepped_dim_alpha(CURRENT_DIM_ALPHA, TARGET_DIM_ALPHA);
+                    sync_rect_overlay(hwnd);
+                }
+                LRESULT(0)
+            }
             WM_TIMER => {
                 if wparam.0 == DIM_TIMER_ID {
                     let target = if RIGHT_DOWN.load(Ordering::SeqCst) {
@@ -409,36 +471,43 @@ pub(super) unsafe extern "system" fn rect_overlay_wnd_proc(
                     } else {
                         0
                     };
-                    let mut changed = false;
-                    if CURRENT_DIM_ALPHA < target {
-                        CURRENT_DIM_ALPHA =
-                            CURRENT_DIM_ALPHA.saturating_add(DIM_FADE_STEP).min(target);
-                        changed = true;
-                    } else if CURRENT_DIM_ALPHA > target {
-                        CURRENT_DIM_ALPHA =
-                            CURRENT_DIM_ALPHA.saturating_sub(DIM_FADE_STEP).max(target);
-                        changed = true;
-                    }
+                    let next_alpha = stepped_dim_alpha(CURRENT_DIM_ALPHA, target);
+                    let changed = next_alpha != CURRENT_DIM_ALPHA;
+                    CURRENT_DIM_ALPHA = next_alpha;
 
-                    if changed || RIGHT_DOWN.load(Ordering::SeqCst) {
-                        // Render during fade animation AND during drag.
-                        // Timer at 60fps reads latest mouse position from atomics.
+                    if changed {
+                        // The timer owns opacity animation only. Mouse movement posts an
+                        // immediate coalesced render message instead of waiting for this tick.
                         sync_rect_overlay(hwnd);
                     } else {
-                        // Fade complete, not dragging — clean up
                         let _ = KillTimer(Some(hwnd), DIM_TIMER_ID);
-                        // Restore click-through if it was removed during drag
-                        let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-                        if style & WS_EX_TRANSPARENT.0 as i32 == 0 {
-                            SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT.0 as i32);
+                        if !RIGHT_DOWN.load(Ordering::SeqCst) {
+                            // Fade complete, not dragging — clean up.
+                            let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                            if style & WS_EX_TRANSPARENT.0 as i32 == 0 {
+                                SetWindowLongW(
+                                    hwnd,
+                                    GWL_EXSTYLE,
+                                    style | WS_EX_TRANSPARENT.0 as i32,
+                                );
+                            }
+                            *GESTURE_CAPTURE.lock().unwrap() = None;
                         }
-                        // Clear any leftover capture
-                        *GESTURE_CAPTURE.lock().unwrap() = None;
                     }
                 }
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
+    }
+}
+
+fn stepped_dim_alpha(current: u8, target: u8) -> u8 {
+    if current < target {
+        current.saturating_add(DIM_FADE_STEP).min(target)
+    } else if current > target {
+        current.saturating_sub(DIM_FADE_STEP).max(target)
+    } else {
+        current
     }
 }
