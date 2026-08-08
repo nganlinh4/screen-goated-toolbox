@@ -29,6 +29,7 @@ static HAS_RELEASED_SINCE_ACTIVATION: AtomicBool = AtomicBool::new(false);
 
 // Gesture state
 static RIGHT_DOWN: AtomicBool = AtomicBool::new(false);
+static DRAG_RENDER_PENDING: AtomicBool = AtomicBool::new(false);
 static START_X: AtomicI32 = AtomicI32::new(0);
 static START_Y: AtomicI32 = AtomicI32::new(0);
 static LAST_X: AtomicI32 = AtomicI32::new(0);
@@ -39,6 +40,7 @@ static mut CURRENT_DIM_ALPHA: u8 = 0;
 const TARGET_DIM_ALPHA: u8 = 100;
 const DIM_FADE_STEP: u8 = 20; // Fast fade (approx 5 frames @ 60fps)
 const DIM_TIMER_ID: usize = 5;
+const DRAG_RENDER_MESSAGE: u32 = WM_APP + 17;
 
 // Zoom state (while right is held + wheel)
 static ZOOM_LEVEL: Mutex<f32> = Mutex::new(1.0);
@@ -62,6 +64,8 @@ static mut OVERLAY_DIB: SendHbitmap = SendHbitmap(HBITMAP(std::ptr::null_mut()))
 static mut OVERLAY_DIB_BITS: *mut u32 = std::ptr::null_mut();
 static mut OVERLAY_DIB_W: i32 = 0;
 static mut OVERLAY_DIB_H: i32 = 0;
+static mut LAST_RENDERED_SELECTION: Option<RECT> = None;
+static mut LAST_RENDERED_DIM_ALPHA: u8 = 0;
 
 // Window and Hook Handles (Managed by the thread)
 static OVERLAY_THREAD_ID: AtomicU32 = AtomicU32::new(0);
@@ -87,10 +91,13 @@ pub fn enter(preset_idx: usize, hotkey_name: String, hotkey_id: i32) {
 
     // Reset state
     RIGHT_DOWN.store(false, Ordering::SeqCst);
+    DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
     *ZOOM_LEVEL.lock().unwrap() = 1.0;
     *GESTURE_CAPTURE.lock().unwrap() = None;
     unsafe {
         CURRENT_DIM_ALPHA = 0;
+        LAST_RENDERED_SELECTION = None;
+        LAST_RENDERED_DIM_ALPHA = 0;
     }
 
     IS_ACTIVE.store(true, Ordering::SeqCst);
@@ -140,6 +147,7 @@ pub fn exit() {
 
     // If currently dragging, cancel the drag instead of exiting the mode.
     if RIGHT_DOWN.swap(false, Ordering::SeqCst) {
+        DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
         *GESTURE_CAPTURE.lock().unwrap() = None;
         crate::log_info!("[ImageContinuous] Drag cancelled via exit()");
         return;
@@ -279,8 +287,11 @@ fn overlay_thread_entry() {
             OVERLAY_DIB_BITS = std::ptr::null_mut();
             OVERLAY_DIB_W = 0;
             OVERLAY_DIB_H = 0;
+            LAST_RENDERED_SELECTION = None;
+            LAST_RENDERED_DIM_ALPHA = 0;
         }
         RECT_OVERLAY_HWND.store(0, Ordering::SeqCst);
+        DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
         OVERLAY_THREAD_ID.store(0, Ordering::SeqCst);
     }
 }
