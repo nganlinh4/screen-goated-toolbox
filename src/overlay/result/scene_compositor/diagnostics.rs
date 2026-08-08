@@ -66,8 +66,10 @@ pub(super) fn log_fit_diagnostic(id: isize, payload: &serde_json::Value) {
     let font_size = payload["fontSize"].as_f64().unwrap_or(0.0);
     let font_stretch = payload["fontStretch"].as_f64().unwrap_or(0.0);
     let duration = payload["fitDurationMs"].as_f64().unwrap_or(0.0);
+    let layout_probes = payload["layoutProbes"].as_u64().unwrap_or(0);
+    let painted_shrink_px_per_sec = payload["paintedShrinkPxPerSec"].as_f64().unwrap_or(0.0);
     let reason = payload["reason"].as_str().unwrap_or("none");
     crate::log_info!(
-        "[ResultCard] id={id} phase=fit action={action} fit_phase={phase} streaming={streaming} text_len={text_len} viewport={width}x{height} from_font_size={from_font_size:.1} target_font_size={font_size:.1} font_stretch={font_stretch:.1} duration_ms={duration:.1} reason={reason}"
+        "[ResultCard] id={id} phase=fit action={action} fit_phase={phase} streaming={streaming} text_len={text_len} viewport={width}x{height} from_font_size={from_font_size:.1} target_font_size={font_size:.1} font_stretch={font_stretch:.1} painted_shrink_px_per_sec={painted_shrink_px_per_sec:.1} duration_ms={duration:.1} layout_probes={layout_probes} reason={reason}"
     );
 }

@@ -28,6 +28,7 @@ struct RendererProcess {
 
 static SCENES: LazyLock<Mutex<HashMap<isize, SceneCard>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static SCENE_DISPATCH: Mutex<()> = Mutex::new(());
 static PENDING_GEOMETRY: LazyLock<Mutex<HashMap<isize, SceneGeometry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static GEOMETRY_SIGNAL: LazyLock<SyncSender<()>> = LazyLock::new(|| {
@@ -57,8 +58,9 @@ pub fn register_window(hwnd: HWND) {
 }
 
 pub fn sync_window(hwnd: HWND, requested_visible: bool) {
+    let _dispatch = SCENE_DISPATCH.lock().unwrap();
     if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
-        remove_window(hwnd);
+        remove_window_locked(hwnd);
         return;
     }
 
@@ -96,36 +98,47 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         streaming: snapshot.6,
     };
 
-    let previous_streaming = SCENES
-        .lock()
-        .unwrap()
-        .insert(hwnd_key, card.clone())
-        .map(|previous| previous.streaming);
-    start_watchdog();
-    let command = match (previous_streaming, card.streaming) {
-        (Some(true), true) => HostCommand::Stream {
-            card: SceneStream {
-                id: card.id,
-                body: stream_body,
-                background: card.background,
-                opacity: card.opacity,
-                visible: card.visible,
-            },
-        },
-        (Some(true), false) => HostCommand::Finalize {
-            card: SceneFinalize {
-                id: card.id,
-                body: stream_body,
-                html: card.html,
-                background: card.background,
-                opacity: card.opacity,
-                visible: card.visible,
-            },
-        },
-        _ => HostCommand::Upsert { card },
+    let previous = SCENES.lock().unwrap().insert(hwnd_key, card.clone());
+    let Some(command) = command_for_transition(previous.as_ref(), &card, stream_body) else {
+        return;
     };
+    start_watchdog();
     log_host_command(&command, snapshot.0.chars().count());
     send_command(command);
+}
+
+fn command_for_transition(
+    previous: Option<&SceneCard>,
+    card: &SceneCard,
+    stream_body: String,
+) -> Option<HostCommand> {
+    if previous == Some(card) {
+        return None;
+    }
+    Some(
+        match (previous.map(|scene| scene.streaming), card.streaming) {
+            (Some(true), true) => HostCommand::Stream {
+                card: SceneStream {
+                    id: card.id,
+                    body: stream_body.clone(),
+                    background: card.background.clone(),
+                    opacity: card.opacity,
+                    visible: card.visible,
+                },
+            },
+            (Some(true), false) => HostCommand::Finalize {
+                card: SceneFinalize {
+                    id: card.id,
+                    body: stream_body,
+                    html: card.html.clone(),
+                    background: card.background.clone(),
+                    opacity: card.opacity,
+                    visible: card.visible,
+                },
+            },
+            _ => HostCommand::Upsert { card: card.clone() },
+        },
+    )
 }
 
 pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
@@ -180,6 +193,11 @@ fn read_geometry(hwnd: HWND, requested_visible: bool) -> Option<SceneGeometry> {
 }
 
 pub fn remove_window(hwnd: HWND) {
+    let _dispatch = SCENE_DISPATCH.lock().unwrap();
+    remove_window_locked(hwnd);
+}
+
+fn remove_window_locked(hwnd: HWND) {
     let id = hwnd.0 as isize;
     PENDING_GEOMETRY.lock().unwrap().remove(&id);
     if SCENES.lock().unwrap().remove(&id).is_some() {
@@ -431,11 +449,48 @@ fn heartbeat_is_stale(now: u64, last: u64) -> bool {
 mod tests {
     use super::*;
 
+    fn test_card(streaming: bool) -> SceneCard {
+        SceneCard {
+            id: 42,
+            rect: SceneRect {
+                x: 1,
+                y: 2,
+                width: 300,
+                height: 100,
+            },
+            html: "<html><body>result</body></html>".to_string(),
+            background: "#ffffff".to_string(),
+            opacity: 90,
+            visible: true,
+            streaming,
+        }
+    }
+
     #[test]
     fn heartbeat_timeout_uses_saturating_elapsed_time() {
         assert!(!heartbeat_is_stale(5_000, 0));
         assert!(heartbeat_is_stale(5_001, 0));
         assert!(!heartbeat_is_stale(1, 2));
+    }
+
+    #[test]
+    fn identical_completed_sync_is_not_dispatched_again() {
+        let card = test_card(false);
+        assert_eq!(
+            command_for_transition(Some(&card), &card, "result".to_string()),
+            None
+        );
+    }
+
+    #[test]
+    fn streaming_to_completed_transition_is_always_finalize() {
+        let streaming = test_card(true);
+        let completed = test_card(false);
+
+        assert!(matches!(
+            command_for_transition(Some(&streaming), &completed, "result".to_string()),
+            Some(HostCommand::Finalize { .. })
+        ));
     }
 
     #[test]
@@ -494,6 +549,15 @@ mod tests {
         assert!(bridged.contains("lastRevealedIndex"));
         assert!(bridged.contains("targetWordsPerSecond = 40"));
         assert!(bridged.contains("runInlineSizing: true"));
+    }
+
+    #[test]
+    fn auto_fitted_streaming_content_remains_top_anchored() {
+        let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
+
+        assert!(bridged.contains("window.scrollTo({"));
+        assert!(bridged.contains("top: 0"));
+        assert!(!bridged.contains("smoothScroll"));
     }
 
     #[test]
