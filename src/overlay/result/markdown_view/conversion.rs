@@ -2,7 +2,7 @@
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 
-use super::css::{MARKDOWN_CSS, get_font_style, get_theme_css};
+use super::css::{MARKDOWN_CSS, get_compositor_font_style, get_font_style, get_theme_css};
 use super::html_utils::{
     escape_html_text, inject_gridjs, inject_render_diagnostics, inject_scrollbar_css,
     inject_storage_polyfill, is_html_content,
@@ -33,6 +33,40 @@ pub fn markdown_to_html(
     is_refining: bool,
     preset_prompt: &str,
     input_text: &str,
+) -> String {
+    markdown_to_html_with_font_style(
+        markdown,
+        is_refining,
+        preset_prompt,
+        input_text,
+        &get_font_style(),
+        false,
+    )
+}
+
+pub fn markdown_to_html_for_compositor(
+    markdown: &str,
+    is_refining: bool,
+    preset_prompt: &str,
+    input_text: &str,
+) -> String {
+    markdown_to_html_with_font_style(
+        markdown,
+        is_refining,
+        preset_prompt,
+        input_text,
+        &get_compositor_font_style(),
+        true,
+    )
+}
+
+fn markdown_to_html_with_font_style(
+    markdown: &str,
+    is_refining: bool,
+    preset_prompt: &str,
+    input_text: &str,
+    font_style: &str,
+    inject_raw_font: bool,
 ) -> String {
     let is_dark = crate::overlay::is_dark_mode();
     let theme_css = get_theme_css(is_dark);
@@ -70,21 +104,9 @@ pub fn markdown_to_html(
 </head>
 <body>
     {}
-    {}
 </body>
-<script>
-    document.addEventListener('mousedown', (e) => {{
-        if (e.button === 0 && (e.target === document.body || e.target === document.documentElement)) {{
-            window.ipc.postMessage(JSON.stringify({{ action: "broom_drag_start" }}));
-        }}
-    }});
-    </script>
 </html>"#,
-            theme_css,
-            get_font_style(),
-            MARKDOWN_CSS,
-            quote,
-            "" // No extra script
+            theme_css, font_style, MARKDOWN_CSS, quote
         );
 
         return inject_render_diagnostics(
@@ -98,7 +120,12 @@ pub fn markdown_to_html(
     // If input is already HTML, inject localStorage polyfill, Grid.js, and hidden scrollbar styles
     if is_html_content(markdown) {
         let with_storage = inject_storage_polyfill(markdown);
-        let with_grid = inject_gridjs(&with_storage);
+        let with_font = if inject_raw_font {
+            inject_style_into_document(&with_storage, font_style)
+        } else {
+            with_storage
+        };
+        let with_grid = inject_gridjs(&with_font);
         let with_scrollbar = inject_scrollbar_css(&with_grid);
         return inject_render_diagnostics(
             &with_scrollbar,
@@ -211,22 +238,51 @@ pub fn markdown_to_html(
 <body>
     {}
     {}
-    <script>
-    document.addEventListener('mousedown', (e) => {{
-        if (e.button === 0 && (e.target === document.body || e.target === document.documentElement)) {{
-            window.ipc.postMessage(JSON.stringify({{ action: "broom_drag_start" }}));
-        }}
-    }});
-    </script>
 </body>
 </html>"#,
-        theme_css,
-        get_font_style(),
-        MARKDOWN_CSS,
-        gridjs_head,
-        html_output,
-        gridjs_body
+        theme_css, font_style, MARKDOWN_CSS, gridjs_head, html_output, gridjs_body
     );
 
     inject_render_diagnostics(&html, markdown.len(), markdown.trim().len(), "markdown")
+}
+
+fn inject_style_into_document(html: &str, style: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let mut result = html.to_string();
+    if let Some(position) = lower.find("</head>") {
+        result.insert_str(position, style);
+    } else if let Some(position) = lower.find("<body") {
+        result.insert_str(position, style);
+    } else {
+        result.insert_str(0, style);
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::markdown_to_html_for_compositor;
+
+    #[test]
+    fn compositor_markdown_uses_only_its_bundled_font_protocol() {
+        let html = markdown_to_html_for_compositor("hello", false, "", "");
+
+        assert!(html.contains("/font.ttf?v="));
+        assert!(html.contains("html:not(.sgt-font-ready) body"));
+        assert!(!html.contains("127.0.0.1"));
+        assert!(!html.contains("'Segoe UI'"));
+    }
+
+    #[test]
+    fn compositor_raw_html_receives_the_same_font_gate() {
+        let html = markdown_to_html_for_compositor(
+            "<html><head></head><body>hello</body></html>",
+            false,
+            "",
+            "",
+        );
+
+        assert!(html.contains("/font.ttf?v="));
+        assert!(html.contains("html:not(.sgt-font-ready) body"));
+    }
 }

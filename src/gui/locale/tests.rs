@@ -139,7 +139,7 @@ fn locale_leaf_fields_have_one_section_owner() {
             30,
         ),
         ("tool_runtime", include_str!("tool_runtime.rs"), 53),
-        ("overlay", include_str!("overlay.rs"), 23),
+        ("overlay", include_str!("overlay.rs"), 22),
         ("auxiliary", include_str!("auxiliary.rs"), 10),
     ];
     let mut owners = BTreeMap::new();
@@ -155,7 +155,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 529);
+    assert_eq!(owners.len(), 528);
     assert_eq!(owners["cancel_label"], "preset_basics");
     assert_eq!(owners["favorites_keep_open"], "shell");
     assert_eq!(owners["image_creator_btn"], "shell");

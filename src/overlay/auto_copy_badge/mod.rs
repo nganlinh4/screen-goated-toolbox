@@ -87,12 +87,6 @@ pub fn enqueue_notification_with_duration(
     n_type: NotificationType,
     duration_ms: Option<u32>,
 ) {
-    crate::log_info!(
-        "[Badge] Enqueuing: '{}' ({:?}, duration_ms={:?})",
-        title,
-        n_type,
-        duration_ms
-    );
     {
         let mut q = PENDING_QUEUE.lock().unwrap();
         q.push_back(PendingNotification {

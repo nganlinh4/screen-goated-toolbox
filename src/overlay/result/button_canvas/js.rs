@@ -13,17 +13,16 @@ let lastSentRegions = new Map();
 
 // Track cursor position for radius-based opacity
 let cursorX = 0, cursorY = 0;
-let broomDragData = null;
 const activeGrabbingSources = new Set();
 
 // Opacity slider state
 window.opacityValues = {};
 
-function setBroomDraggingCursor(active) {
+function setResultDraggingCursor(active) {
     if (active) {
-        activeGrabbingSources.add("broom");
+        activeGrabbingSources.add("result-handle");
     } else {
-        activeGrabbingSources.delete("broom");
+        activeGrabbingSources.delete("result-handle");
     }
     applyGrabbingCursorState();
 }
@@ -50,7 +49,7 @@ function applyGrabbingCursorState() {
     }
 }
 
-window.setBroomDraggingCursor = setBroomDraggingCursor;
+window.setResultDraggingCursor = setResultDraggingCursor;
 
 window.updateOpacity = function(hwnd, value) {
     value = parseInt(value);
@@ -76,7 +75,7 @@ window.updateCursorPosition = (x, y) => {
 
 function updateButtonOpacity() {
     const groups = document.querySelectorAll('.button-group');
-    let needsUpdate = (broomDragData && broomDragData.moved) || false;
+    let needsUpdate = false;
 
     groups.forEach(group => {
         const rect = group.getBoundingClientRect();
@@ -92,10 +91,6 @@ function updateButtonOpacity() {
 
         const maxRadius = 150;
         let opacity = Math.max(0, Math.min(1, 1 - (dist / maxRadius)));
-
-        if (broomDragData && broomDragData.moved && broomDragData.hwnd === group.dataset.hwnd) {
-            opacity = 1.0;
-        }
 
         group.style.opacity = opacity;
 
@@ -267,12 +262,6 @@ function generateButtonsHTML(hwnd, state, isVertical) {
         </svg>
     </div>`;
 
-    const mdClass = state.isMarkdown ? 'active' : '';
-    const mdIcon = state.isMarkdown ? 'newsmode' : 'notes';
-    buttons += `<div class="btn ${mdClass} ${hideClass}" onclick="action('${hwnd}', 'markdown')" title="${window.L10N.markdown}">
-        ${window.iconSvgs[mdIcon]}
-    </div>`;
-
     buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'download')" title="${window.L10N.download}">
         ${window.iconSvgs.download}
     </div>`;
@@ -283,19 +272,19 @@ function generateButtonsHTML(hwnd, state, isVertical) {
         ${window.iconSvgs[speakerIcon]}
     </div>`;
 
-    buttons += `<div class="btn broom"
-        onmousedown="handleBroomDrag(event, '${hwnd}')"
+    buttons += `<div class="btn result-handle"
+        onmousedown="handleResultDrag(event, '${hwnd}')"
         oncontextmenu="return false;"
-        title="${window.L10N.broom}">
+        title="${window.L10N.result_handle}">
         ${window.iconSvgs.cleaning_services}
     </div>`;
 
     return buttons;
 }
 
-function handleBroomDrag(e, hwnd) {
+function handleResultDrag(e, hwnd) {
     if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
-    setBroomDraggingCursor(true);
+    setResultDraggingCursor(true);
 
     const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
     if (group) {
@@ -304,9 +293,9 @@ function handleBroomDrag(e, hwnd) {
         lastVisibleState.set(hwnd, false);
     }
 
-    let action = 'broom_drag_start';
-    if (e.button === 1) action = 'broom_all_drag_start';
-    else if (e.button === 2) action = 'broom_group_drag_start';
+    let action = 'result_drag_start';
+    if (e.button === 1) action = 'result_all_drag_start';
+    else if (e.button === 2) action = 'result_group_drag_start';
 
     window.ipc.postMessage(JSON.stringify({
         action: action,
@@ -314,10 +303,10 @@ function handleBroomDrag(e, hwnd) {
     }));
 }
 
-window.addEventListener("mouseup", () => setBroomDraggingCursor(false));
-window.addEventListener("blur", () => setBroomDraggingCursor(false));
+window.addEventListener("mouseup", () => setResultDraggingCursor(false));
+window.addEventListener("blur", () => setResultDraggingCursor(false));
 document.addEventListener("visibilitychange", () => {
-    if (document.hidden) setBroomDraggingCursor(false);
+    if (document.hidden) setResultDraggingCursor(false);
 });
 window.addEventListener("pointerup", () => setOpacityDraggingCursor(false));
 window.addEventListener("blur", () => setOpacityDraggingCursor(false));
@@ -333,7 +322,6 @@ document.addEventListener("pointerdown", (event) => {
 });
 
 function action(hwnd, cmd) {
-    if (cmd === 'broom_click' && window.ignoreNextBroomClick) return;
     window.ipc.postMessage(JSON.stringify({ action: cmd, hwnd: hwnd }));
 }
 
@@ -395,8 +383,9 @@ function updateWindows(windowsData) {
             finalX = data.rect.x - actualW - 4;
             finalY = data.rect.y + (data.rect.h - actualH) / 2;
         } else {
-            finalX = data.rect.x + 8;
+            finalX = data.rect.x + data.rect.w - actualW - 8;
             finalY = data.rect.y + data.rect.h - actualH - 8;
+            finalX = Math.max(data.rect.x, finalX);
             finalY = Math.max(data.rect.y, finalY);
         }
 
@@ -405,22 +394,20 @@ function updateWindows(windowsData) {
         finalX = clamp(finalX, actualW, screenW);
         finalY = clamp(finalY, actualH, screenH);
 
-        if (!broomDragData || broomDragData.hwnd !== hwnd) {
-            if (pos.direction === 'bottom' || pos.direction === 'right') {
-                group.style.left = 'auto';
-                group.style.right = (screenW - (finalX + actualW)) + 'px';
-            } else {
-                group.style.left = finalX + 'px';
-                group.style.right = 'auto';
-            }
+        if (pos.direction === 'bottom' || pos.direction === 'right') {
+            group.style.left = 'auto';
+            group.style.right = (screenW - (finalX + actualW)) + 'px';
+        } else {
+            group.style.left = finalX + 'px';
+            group.style.right = 'auto';
+        }
 
-            if (isVertical) {
-                group.style.top = 'auto';
-                group.style.bottom = (screenH - (finalY + actualH)) + 'px';
-            } else {
-                group.style.top = finalY + 'px';
-                group.style.bottom = 'auto';
-            }
+        if (isVertical) {
+            group.style.top = 'auto';
+            group.style.bottom = (screenH - (finalY + actualH)) + 'px';
+        } else {
+            group.style.top = finalY + 'px';
+            group.style.bottom = 'auto';
         }
     }
 

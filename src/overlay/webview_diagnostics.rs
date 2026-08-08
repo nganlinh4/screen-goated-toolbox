@@ -2,8 +2,8 @@ use webview2_com::{
     CoTaskMemPWSTR,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_REASON,
-        ICoreWebView2Environment, ICoreWebView2Environment11, ICoreWebView2ProcessFailedEventArgs,
-        ICoreWebView2ProcessFailedEventArgs2, ICoreWebView2ProcessFailedEventArgs3,
+        ICoreWebView2ProcessFailedEventArgs, ICoreWebView2ProcessFailedEventArgs2,
+        ICoreWebView2ProcessFailedEventArgs3,
     },
     ProcessFailedEventHandler,
 };
@@ -12,19 +12,6 @@ use windows061::core::{Interface, PWSTR};
 use wry::{WebView, WebViewExtWindows};
 
 pub fn attach_webview2_diagnostics(label: &'static str, hwnd: HWND, webview: &WebView) {
-    let env = webview.environment();
-    let version = browser_version(&env).unwrap_or_else(|| "unknown".to_string());
-    let failure_report_dir =
-        failure_report_folder(&env).unwrap_or_else(|| "unavailable".to_string());
-
-    crate::log_info!(
-        "[WebView2Diag] attach label={} hwnd={:?} version={} failure_reports={}",
-        label,
-        hwnd,
-        version,
-        failure_report_dir
-    );
-
     let core = webview.webview();
     let handler = ProcessFailedEventHandler::create(Box::new(move |_sender, args| {
         log_process_failed(label, hwnd, args);
@@ -34,14 +21,7 @@ pub fn attach_webview2_diagnostics(label: &'static str, hwnd: HWND, webview: &We
     let mut token = 0i64;
     unsafe {
         match core.add_ProcessFailed(&handler, &mut token) {
-            Ok(()) => {
-                crate::log_info!(
-                    "[WebView2Diag] process-failed-handler-attached label={} hwnd={:?} token={}",
-                    label,
-                    hwnd,
-                    token
-                );
-            }
+            Ok(()) => {}
             Err(err) => {
                 crate::log_info!(
                     "[WebView2Diag] process-failed-handler-attach-failed label={} hwnd={:?} error={:?}",
@@ -52,15 +32,6 @@ pub fn attach_webview2_diagnostics(label: &'static str, hwnd: HWND, webview: &We
             }
         }
     }
-}
-
-fn browser_version(env: &ICoreWebView2Environment) -> Option<String> {
-    unsafe { read_pwstr(|value| env.BrowserVersionString(value)) }
-}
-
-fn failure_report_folder(env: &ICoreWebView2Environment) -> Option<String> {
-    let env11 = env.cast::<ICoreWebView2Environment11>().ok()?;
-    unsafe { read_pwstr(|value| env11.FailureReportFolderPath(value)) }
 }
 
 unsafe fn read_pwstr<F>(read: F) -> Option<String>

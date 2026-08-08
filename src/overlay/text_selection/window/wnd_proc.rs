@@ -22,7 +22,6 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match msg {
             WM_APP_SHOW => {
-                crate::log_info!("[Badge] WM_APP_SHOW received");
                 TEXT_BADGE_VISIBLE.store(true, Ordering::SeqCst);
                 let _ = KillTimer(Some(hwnd), 1);
 
@@ -39,12 +38,6 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
 
                 let is_continuous = crate::overlay::continuous_mode::is_active();
                 let badge_text = get_localized_badge_text(&lang, is_continuous);
-                crate::log_info!(
-                    "[Badge] WM_APP_SHOW: is_continuous={}, badge_text='{}'",
-                    is_continuous,
-                    badge_text
-                );
-
                 {
                     let state = SELECTION_STATE.lock().unwrap();
                     if let Some(wv) = state.webview.as_ref() {
@@ -58,7 +51,6 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_HIDE => {
-                crate::log_info!("[Badge] WM_APP_HIDE received");
                 TEXT_BADGE_VISIBLE.store(false, Ordering::SeqCst);
                 {
                     let state = SELECTION_STATE.lock().unwrap();
@@ -70,7 +62,6 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_SHOW_IMAGE_BADGE => {
-                crate::log_info!("[Badge] WM_APP_SHOW_IMAGE_BADGE received");
                 let _ = KillTimer(Some(hwnd), 2);
 
                 let mut pt = POINT::default();
@@ -102,7 +93,6 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_HIDE_IMAGE_BADGE => {
-                crate::log_info!("[Badge] WM_APP_HIDE_IMAGE_BADGE received");
                 {
                     let state = SELECTION_STATE.lock().unwrap();
                     if let Some(wv) = state.webview.as_ref() {
@@ -113,10 +103,8 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_UPDATE_CONTINUOUS => {
-                crate::log_info!("[Badge] WM_APP_UPDATE_CONTINUOUS received");
                 if TEXT_BADGE_VISIBLE.load(Ordering::SeqCst) {
                     let continuous_text = get_localized_badge_text(&lang, true);
-                    crate::log_info!("[Badge] Updating text to: '{}'", continuous_text);
                     {
                         let state = SELECTION_STATE.lock().unwrap();
                         if let Some(wv) = state.webview.as_ref() {
@@ -130,7 +118,6 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_RESTORE_AFTER_CAPTURE => {
-                crate::log_info!("[Badge] WM_APP_RESTORE_AFTER_CAPTURE received");
                 let text_visible = TEXT_BADGE_VISIBLE.load(Ordering::SeqCst);
                 let image_visible = IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst);
                 if text_visible || image_visible {

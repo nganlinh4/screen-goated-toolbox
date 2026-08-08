@@ -26,8 +26,7 @@ pub fn warmup() {
 fn internal_create_window_loop() {
     unsafe {
         // Initialize COM for the thread (Critical for WebView2/Wry)
-        let coinit = CoInitialize(None);
-        crate::log_info!("[Badge] Internal Loop Start - CoInit: {:?}", coinit);
+        let _ = CoInitialize(None);
 
         let instance = GetModuleHandleW(None).unwrap_or_default();
         let class_name = w!("SGT_AutoCopyBadgeWebView");
@@ -44,7 +43,6 @@ fn internal_create_window_loop() {
             };
             let _ = RegisterClassW(&wc);
         });
-        crate::log_info!("[Badge] Class Registered");
 
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
@@ -61,8 +59,6 @@ fn internal_create_window_loop() {
             None,
         )
         .unwrap_or_default();
-        crate::log_info!("[Badge] Window created with HWND: {:?}", hwnd);
-
         if hwnd.is_invalid() {
             crate::log_info!("[Badge] Window creation failed, HWND is invalid.");
             IS_WARMING_UP.store(false, Ordering::SeqCst);
@@ -90,16 +86,12 @@ fn internal_create_window_loop() {
                 *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
             }
         });
-        crate::log_info!("[Badge] Starting WebView initialization...");
-
         // Stagger start to avoid global WebView2 init lock contention
         std::thread::sleep(std::time::Duration::from_millis(50));
 
         let webview = {
             // LOCK SCOPE: Only one WebView builds at a time to prevent "Not enough quota"
             let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-            crate::log_info!("[Badge] Acquired init lock. Building...");
-
             let build_res = BADGE_WEB_CONTEXT.with(|ctx| {
                 let mut ctx_ref = ctx.borrow_mut();
                 let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
@@ -142,15 +134,13 @@ fn internal_create_window_loop() {
                     .build(&wrapper)
             });
 
-            crate::log_info!(
-                "[Badge] Build phase finished. Releasing lock. Status: {}",
-                if build_res.is_ok() { "OK" } else { "ERR" }
-            );
+            if let Err(error) = &build_res {
+                crate::log_info!("[Badge] WebView initialization failed: {error:?}");
+            }
             build_res
         };
 
         if let Ok(wv) = webview {
-            crate::log_info!("[Badge] WebView initialization SUCCESSFUL");
             crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
                 "auto-copy-badge",
                 hwnd,

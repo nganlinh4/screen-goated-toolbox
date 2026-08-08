@@ -209,6 +209,31 @@
                         var targetPadTop = parseFloat(body.style.paddingTop) || 0;
                         var targetPadBottom = parseFloat(body.style.paddingBottom) || 0;
 
+                        var lastReportedTarget = window._sgtLastReportedFitTarget;
+                        var targetChanged = !lastReportedTarget
+                            || lastReportedTarget.streaming !== isStreamingFit
+                            || Math.abs(lastReportedTarget.fontSize - targetFontSize) >= 0.1
+                            || Math.abs(lastReportedTarget.fontStretch - targetWdth) >= 0.3;
+                        if (!isStreamingFit || targetChanged) {
+                            postFitDiagnostic({
+                                action: 'fit_target',
+                                phase: fitPhase,
+                                streamingFit: isStreamingFit,
+                                textLen: textLen,
+                                winW: winW,
+                                winH: winH,
+                                fromFontSize: priorDisplayedFontSize,
+                                fontSize: targetFontSize,
+                                fontStretch: targetWdth,
+                                fitDurationMs: performance.now() - _fitStart
+                            });
+                        }
+                        window._sgtLastReportedFitTarget = {
+                            streaming: isStreamingFit,
+                            fontSize: targetFontSize,
+                            fontStretch: targetWdth
+                        };
+
                         var startWdth = hasPriorWdth ? priorDisplayedWdth : 90;
                         var startFontSize = hasPriorFontSize ? priorDisplayedFontSize : targetFontSize;
                         var startPadTop = priorDisplayedPadTop;
@@ -245,11 +270,8 @@
                         // transition is active (removed) so measurements in
                         // future fits read whatever we set here exactly.
                         //
-                        // Final (mouse-enter / settle) fits get a longer,
-                        // more pronounced duration — they usually involve a
-                        // bigger delta (streaming hysteresis'd size → final
-                        // max-fit size after resize) and deserve to be
-                        // visibly smooth.
+                        // Final (mouse-enter / settle) fits can involve a bigger
+                        // delta after the full layout and remain visibly smooth.
                         var fsDelta = Math.abs(targetFontSize - startFontSize);
                         var wDelta = Math.abs(targetWdth - startWdth);
                         // Continuous-flow duration: duration scales linearly
@@ -329,13 +351,26 @@
     }
 
     try {
-        var fontReady = !document.fonts || document.fonts.check('400 16px "Google Sans Flex"');
-        if (fontReady) {
+        if (document.fonts
+            && document.fonts.check('400 16px "Google Sans Flex"')) {
             runFitWhenReady();
         } else {
-            document.fonts.load('400 16px "Google Sans Flex"').then(runFitWhenReady, runFitWhenReady);
+            window._sgtFitting = false;
+            postFitDiagnostic({
+                action: 'render_diagnostics',
+                phase: fitPhase,
+                reason: 'required_font_unavailable',
+                renderMode: 'markdown_fit'
+            });
         }
-    } catch (_err) {
-        runFitWhenReady();
+    } catch (error) {
+        window._sgtFitting = false;
+        postFitDiagnostic({
+            action: 'render_diagnostics',
+            phase: fitPhase,
+            reason: 'required_font_check_failed',
+            renderMode: 'markdown_fit',
+            error: error && error.message ? error.message : String(error)
+        });
     }
 })();

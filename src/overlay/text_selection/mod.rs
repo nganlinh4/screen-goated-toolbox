@@ -83,16 +83,10 @@ pub fn restore_badges_after_capture() {
 }
 
 pub fn cancel_selection() {
-    crate::log_info!("[Badge] cancel_selection() called");
     reset_selection_internal_state();
     let hwnd = valid_tag_hwnd();
-    crate::log_info!(
-        "[Badge] cancel_selection: hwnd_val={}",
-        hwnd.map(|h| h.0 as usize).unwrap_or(0)
-    );
     if let Some(hwnd) = hwnd {
         unsafe {
-            crate::log_info!("[Badge] cancel_selection: posting WM_APP_HIDE");
             let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
         }
     }
@@ -100,7 +94,6 @@ pub fn cancel_selection() {
 
 /// Show or hide the image continuous mode badge
 pub fn set_image_continuous_badge(visible: bool) {
-    crate::log_info!("[Badge] set_image_continuous_badge(visible={})", visible);
     if visible {
         TAG_ABORT_SIGNAL.store(false, Ordering::SeqCst);
     }

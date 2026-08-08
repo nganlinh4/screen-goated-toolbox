@@ -4,7 +4,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::HBITMAP;
 
 // --- HIERARCHICAL CANCEL TOKEN ---
 
@@ -57,81 +56,6 @@ impl ChainCancelToken {
     }
 }
 
-// --- DYNAMIC PARTICLES ---
-pub struct DustParticle {
-    pub x: f32,
-    pub y: f32,
-    pub vx: f32,
-    pub vy: f32,
-    pub life: f32, // 1.0 to 0.0
-    pub size: f32,
-    pub color: u32,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum AnimationMode {
-    Idle, // Normal mouse movement
-}
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum ResizeEdge {
-    None,
-    Left,
-    Right,
-    Top,
-    Bottom,
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-}
-
-#[derive(Clone, PartialEq)]
-pub enum InteractionMode {
-    None,
-    DraggingWindow,
-    DraggingGroup(Vec<(HWND, RECT)>),
-    Resizing(ResizeEdge),
-    ResizingGroup(Vec<(HWND, RECT)>, ResizeEdge),
-}
-
-pub struct CursorPhysics {
-    pub x: f32,
-    pub y: f32,
-
-    // Spring Physics
-    pub current_tilt: f32,  // Current angle in degrees
-    pub tilt_velocity: f32, // Angular velocity
-
-    // Deformation
-    pub squish_factor: f32, // 1.0 = normal, 0.5 = flat
-    pub bristle_bend: f32,  // Lag of bristles
-
-    // Logic
-    pub mode: AnimationMode,
-
-    pub particles: Vec<DustParticle>,
-
-    pub needs_cleanup_repaint: bool, // Flag to trigger one final repaint when entering DragOut
-}
-
-impl Default for CursorPhysics {
-    fn default() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            current_tilt: 0.0,
-            tilt_velocity: 0.0,
-            squish_factor: 1.0,
-            bristle_bend: 0.0,
-            mode: AnimationMode::Idle,
-
-            particles: Vec::new(),
-            needs_cleanup_repaint: false,
-        }
-    }
-}
-
 // Context for Refinement
 #[derive(Clone)]
 pub enum RefineContext {
@@ -141,12 +65,7 @@ pub enum RefineContext {
 }
 
 pub struct WindowState {
-    pub is_hovered: bool,
-    pub on_copy_btn: bool,
     pub copy_success: bool,
-    pub on_edit_btn: bool,
-    pub on_undo_btn: bool,
-    pub on_redo_btn: bool, // Redo button hover state
 
     // Edit Mode
     pub is_editing: bool,            // Is the edit box open?
@@ -159,7 +78,6 @@ pub struct WindowState {
 
     // Refinement State
     pub is_refining: bool,
-    pub animation_offset: f32,
 
     // Streaming state - true when actively receiving chunks (buttons hidden during streaming)
     pub is_streaming_active: bool,
@@ -178,21 +96,6 @@ pub struct WindowState {
 
     pub bg_color: u32,
     pub linked_windows: Vec<HWND>,
-    pub physics: CursorPhysics,
-
-    // --- INTERACTION STATE ---
-    pub interaction_mode: InteractionMode,
-    pub current_resize_edge: ResizeEdge, // Track edge hover state for painting
-    pub drag_start_mouse: POINT,
-    pub drag_start_window_rect: RECT,
-    pub has_moved_significantly: bool, // To distinguish click vs drag
-
-    // --- CACHING & THROTTLING ---
-    pub font_cache_dirty: bool,
-    pub cached_font_size: i32,
-    pub content_bitmap: HBITMAP,
-    pub last_w: i32,
-    pub last_h: i32,
 
     // Handle pending updates to avoid flooding Paint
     pub pending_text: Option<String>,
@@ -200,48 +103,16 @@ pub struct WindowState {
     // Timestamp for throttling text updates (in milliseconds)
     pub last_text_update_time: u32,
 
-    // Resize debounce: timestamp of last resize to skip expensive font calculations during active resize
-    pub last_resize_time: u32,
-
-    // Font recalc throttling: timestamp of last font recalculation (for 200ms streaming throttle)
-    pub last_font_calc_time: u32,
-    // Keep retrying markdown settle-fit for a short window so async JS fitting reaches final scale
-    pub markdown_settle_retry_until_ms: u64,
-    // Next timestamp when a markdown settle-fit retry is allowed (throttles expensive refits)
-    pub markdown_next_settle_fit_ms: u64,
-
-    pub last_webview_update_time: u32,
-
-    // BACKGROUND CACHING
-    pub bg_bitmap: HBITMAP,
-    pub bg_w: i32,
-    pub bg_h: i32,
-
-    // Graphics mode for refining animation (standard vs minimal)
-    pub graphics_mode: String,
-
     // Cancellation token — hierarchical; cancel propagates to descendants
     pub cancellation_token: Option<Arc<ChainCancelToken>>,
     // Chain ID — shared by all windows in the same chain execution
     pub chain_id: Option<String>,
 
-    // Markdown mode state
-    pub is_markdown_mode: bool,      // True when showing markdown view
-    pub is_markdown_streaming: bool, // True when using markdown_stream render mode (uses streaming update)
-    pub on_markdown_btn: bool,       // Hover state for markdown button
-
     // Web Browsing State
     pub is_browsing: bool, // True when user has navigated away from initial content
     pub navigation_depth: usize, // How many pages deep from initial content (0 = at result)
     pub max_navigation_depth: usize, // Max depth reached (to know if forward is possible)
-    pub on_back_btn: bool, // Hover state for back button
-    pub on_forward_btn: bool, // Hover state for forward button
-
-    // Download HTML button state
-    pub on_download_btn: bool, // Hover state for download HTML button
-
-    // Speaker/TTS button state
-    pub on_speaker_btn: bool,      // Hover state for speaker button
+    // Speaker/TTS state
     pub tts_request_id: u64,       // Active TTS request ID (0 = not speaking)
     pub tts_loading: bool,         // True when TTS is loading/connecting (shows spinner)
     pub opacity_percent: u8,       // Transparency level (0-100)
@@ -347,12 +218,4 @@ pub fn get_window_group(hwnd: HWND) -> Vec<(HWND, RECT)> {
     }
 
     group
-}
-
-/// Set the interaction mode for a specific window
-pub fn set_window_interaction_mode(hwnd: HWND, mode: InteractionMode) {
-    let mut states = WINDOW_STATES.lock().unwrap();
-    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-        state.interaction_mode = mode;
-    }
 }

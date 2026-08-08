@@ -8,6 +8,26 @@ pub fn get_font_style() -> String {
     )
 }
 
+/// Font contract for result cards rendered inside the singleton compositor.
+/// The compositor serves this root-relative asset from its in-process protocol.
+pub fn get_compositor_font_style() -> String {
+    format!(
+        r#"<style>
+        @font-face {{
+            font-family: 'Google Sans Flex';
+            font-style: normal;
+            font-weight: 100 1000;
+            font-stretch: 25% 151%;
+            font-display: block;
+            src: url('/font.ttf?v={}') format('truetype');
+        }}
+        html body, html body * {{ font-family: 'Google Sans Flex' !important; }}
+        html:not(.sgt-font-ready) body {{ visibility: hidden !important; }}
+        </style>"#,
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
 /// CSS styling for the markdown content
 pub const MARKDOWN_CSS: &str = r#"
     :root {
@@ -40,7 +60,7 @@ pub const MARKDOWN_CSS: &str = r#"
     }
 
     body {
-        font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, sans-serif;
+        font-family: 'Google Sans Flex';
         font-optical-sizing: auto;
         /* Weight and width split across properties so headings can set their own
            weight (via font-weight) while inheriting the fit algorithm's wdth

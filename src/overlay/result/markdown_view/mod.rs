@@ -1,44 +1,9 @@
-//! Markdown view module - WebView-based markdown rendering
-//!
-//! This module handles rendering markdown content in WebView windows,
-//! including streaming updates, navigation, and file operations.
+//! Markdown-to-HTML rendering shared by the result scene compositor and HTML export.
 
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
-
-// Sub-modules
 pub mod conversion;
 pub mod css;
 pub mod file_ops;
+pub mod fit;
 pub mod html_utils;
-pub mod ipc;
-pub mod navigation;
-pub mod streaming;
-pub mod webview;
 
-// Static state
-/// Store WebViews per parent window - wrapped in thread-local storage to avoid Send issues
-pub(crate) static WEBVIEW_STATES: LazyLock<Mutex<HashMap<isize, bool>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-/// Flag to skip next navigation handler call (set before history.back())
-pub(crate) static SKIP_NEXT_NAVIGATION: LazyLock<Mutex<HashMap<isize, bool>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-// Thread-local storage for WebViews since they're not Send
-thread_local! {
-    pub(crate) static WEBVIEWS: std::cell::RefCell<std::collections::HashMap<isize, wry::WebView>> = std::cell::RefCell::new(std::collections::HashMap::new());
-    /// Shared WebContext for all WebViews on this thread - reduces RAM by sharing browser processes
-    pub(crate) static SHARED_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
-}
-
-// Re-exports for public API
 pub use file_ops::save_html_file;
-pub use navigation::{go_back, go_forward, update_markdown_content, update_markdown_content_ex};
-pub use streaming::{
-    finalize_stream_markdown_content, fit_font_to_window, fit_font_to_window_streaming,
-    init_gridjs, reset_stream_counter, set_body_opacity, stream_markdown_content,
-};
-pub use webview::{
-    create_markdown_webview, destroy_markdown_webview, has_markdown_webview,
-    resize_markdown_webview, show_markdown_webview,
-};

@@ -125,8 +125,6 @@ pub(crate) fn internal_create_window_loop() {
 
         let webview_res = {
             let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-            crate::log_info!("[PresetWheel] Acquired init lock. Building...");
-
             let build_res = WHEEL_WEB_CONTEXT.with(|ctx| {
                 let mut ctx_ref = ctx.borrow_mut();
                 let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
@@ -186,10 +184,9 @@ pub(crate) fn internal_create_window_loop() {
                     })
                     .build(&wrapper)
             });
-            crate::log_info!(
-                "[PresetWheel] Build finished. Status: {}",
-                if build_res.is_ok() { "OK" } else { "ERR" }
-            );
+            if let Err(error) = &build_res {
+                crate::log_info!("[PresetWheel] WebView initialization failed: {error:?}");
+            }
             build_res
         };
 

@@ -286,7 +286,6 @@ fn run_help_request(gemini_key: String, ui_language: String, question: String) {
             start_editing: false,
             preset_prompt: "Ask SGT".to_string(),
             custom_bg_color: crate::overlay::result::get_chain_color(0),
-            render_mode: "markdown",
             initial_text: loading_msg.to_string(),
             preset_id: None,
             is_chain_root: true,

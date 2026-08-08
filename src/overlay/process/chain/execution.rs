@@ -71,11 +71,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     let groq_key = config.api_key.clone();
     let gemini_key = config.gemini_api_key.clone();
 
-    let actual_streaming_enabled = if block.render_mode == "markdown" {
-        false
-    } else {
-        block.streaming_enabled
-    };
+    let actual_streaming_enabled = block.streaming_enabled;
 
     let accumulated = Arc::new(Mutex::new(String::new()));
     let is_first_processing_block = blocks
@@ -383,7 +379,6 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
                     let mut s = WINDOW_STATES.lock().unwrap();
                     if let Some(st) = s.get_mut(&(h.0 as isize)) {
                         st.is_refining = false;
-                        st.font_cache_dirty = true;
                     }
                 }
                 update_window_text(h, &t);
@@ -445,7 +440,6 @@ fn handle_streaming_chunk(
             let mut s = WINDOW_STATES.lock().unwrap();
             if let Some(st) = s.get_mut(&(h.0 as isize)) {
                 st.is_refining = false;
-                st.font_cache_dirty = true;
             }
         }
         update_window_text(h, &t);
@@ -479,7 +473,6 @@ fn handle_execution_result(
                 if let Some(st) = s.get_mut(&(h.0 as isize)) {
                     st.is_refining = false;
                     st.is_streaming_active = false;
-                    st.font_cache_dirty = true;
                     st.pending_text = Some(txt.clone());
                     st.full_text = txt.clone();
                 }
@@ -517,7 +510,6 @@ fn handle_execution_result(
                 if let Some(st) = s.get_mut(&(h.0 as isize)) {
                     st.is_refining = false;
                     st.is_streaming_active = false;
-                    st.font_cache_dirty = true;
                     st.pending_text = Some(err.clone());
                     st.full_text = err.clone();
                 }

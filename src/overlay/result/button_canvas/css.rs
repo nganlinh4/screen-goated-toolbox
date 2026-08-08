@@ -95,10 +95,10 @@ html, body {
     50% { opacity: 0.5; }
 }
 
-.btn.broom {
+.btn.result-handle {
     cursor: grab;
 }
-.btn.broom:active {
+.btn.result-handle:active {
     cursor: grabbing;
 }
 

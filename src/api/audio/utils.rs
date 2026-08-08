@@ -126,11 +126,7 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
         });
 
     let streaming_enabled = audio_block
-        .map(|b| {
-            b.show_overlay
-                && (b.streaming_enabled || b.render_mode == "stream")
-                && b.render_mode != "plain"
-        })
+        .map(|block| block.show_overlay && block.streaming_enabled)
         .unwrap_or(false);
 
     if !streaming_enabled {
@@ -160,10 +156,6 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
             });
 
         let model_id = active_block.map(|b| b.model.clone()).unwrap_or_default();
-        let render_mode = active_block
-            .map(|b| b.render_mode.clone())
-            .unwrap_or_default();
-
         // Get provider
         let model_conf = crate::model_config::get_model_by_id(&model_id);
         let provider = model_conf
@@ -180,7 +172,6 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
             start_editing: false,
             preset_prompt: String::new(),
             custom_bg_color: get_chain_color(0),
-            render_mode: &render_mode,
             initial_text: listening_text.to_string(),
             preset_id: Some(preset_for_thread.id.clone()),
             is_chain_root: true,

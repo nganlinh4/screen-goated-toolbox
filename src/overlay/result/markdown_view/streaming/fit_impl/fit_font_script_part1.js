@@ -6,15 +6,6 @@
     if (window._sgtFitting) return;
     window._sgtFitting = true;
 
-    // Cancel any in-flight smoothing animation so this fit can retarget from
-    // the currently-displayed axes without two animations fighting. Binary
-    // search below writes body.fontSize synchronously for each probe and
-    // reads scrollHeight — we need no CSS transition and no rAF driver
-    // mutating the same values concurrently.
-    if (window._sgtFitAnim) {
-        try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
-        window._sgtFitAnim = null;
-    }
     if (typeof window._sgtCurrentWdth !== 'number') {
         window._sgtCurrentWdth = 90;
     }
@@ -23,7 +14,12 @@
 
     function postFitDiagnostic(payload) {
         try {
-            if (window.ipc && typeof window.ipc.postMessage === 'function') {
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({
+                    type: 'fit_diagnostic',
+                    payload: payload
+                }, '*');
+            } else if (window.ipc && typeof window.ipc.postMessage === 'function') {
                 window.ipc.postMessage(JSON.stringify(payload));
             }
         } catch (_err) {}
@@ -70,15 +66,25 @@
                     var winH = window.innerHeight;
                     var winW = body.clientWidth || window.innerWidth;
 
-                    // Use textContent (not innerText) so visibility:hidden
-                    // words contribute to length/wordcount heuristics. During
-                    // streaming the reveal queue holds words at
-                    // visibility:hidden — they still take layout space
-                    // (scrollHeight reflects them) but innerText excludes
-                    // them, which made hasPathologicalWrap trip on the
-                    // mismatch between "few visible chars" and "many laid
-                    // out lines" and forced bestSize down to minSize=6.
-                    var text = (body.textContent || '').trim();
+                    // Count text nodes that can contribute content, including
+                    // visibility:hidden streaming words. body.textContent also
+                    // includes the inline fitter/bridge source, which has no
+                    // layout and made first/final-only renders look like huge
+                    // documents and collapse to the minimum font size.
+                    function getContentText(root) {
+                        var parts = [];
+                        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                        var node;
+                        while ((node = walker.nextNode())) {
+                            var parent = node.parentElement;
+                            var tag = parent ? parent.tagName : '';
+                            if (tag !== 'SCRIPT' && tag !== 'STYLE' && tag !== 'NOSCRIPT' && tag !== 'TEMPLATE') {
+                                parts.push(node.nodeValue || '');
+                            }
+                        }
+                        return parts.join('').trim();
+                    }
+                    var text = getContentText(body);
                     var textLen = text.length;
 
                     // Helper: body wdth is driven via font-stretch (inherits to
@@ -190,6 +196,18 @@
                                 ? 100
                                 : Math.max(24, Math.min(48, Math.floor(winH / 10)))));
 
+                    // A newer fit may be queued immediately after this invocation.
+                    // Let the active interpolation paint during our two readiness
+                    // frames, then freeze it at the latest displayed value immediately
+                    // before measurement mutates the same axes. Cancelling at function
+                    // entry starved every streaming animation under a fast response:
+                    // queued fits cancelled one another before their first painted
+                    // frame, leaving only the final fit able to visibly shrink.
+                    if (window._sgtFitAnim) {
+                        try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
+                        window._sgtFitAnim = null;
+                    }
+
                     // Capture currently-displayed axes BEFORE Phase 0 resets them.
                     // Using body.style (not window state) is robust to cross-script-
                     // context resets that can clear window globals between streaming
@@ -201,28 +219,6 @@
                     var priorDisplayedPadBottom = parseFloat(body.style.paddingBottom) || 0;
                     var hasPriorFontSize = Number.isFinite(priorDisplayedFontSize) && priorDisplayedFontSize > 0;
                     var hasPriorWdth = Number.isFinite(priorDisplayedWdth) && priorDisplayedWdth > 0;
-
-                    // ===== STREAMING HYSTERESIS =====
-                    // If the prior size still produces a layout within a
-                    // tolerance band of winH, skip the refit entirely — no
-                    // new target, no animation, nothing visually changes.
-                    // This is the "predictable, careful" behavior: chunks 2-N
-                    // mostly inherit chunk 1's size, and the user sees one
-                    // gentle settle at the end instead of N progressive
-                    // shrinks. We only trigger a refit when overflow is
-                    // meaningfully wrong (> 12% over winH) or when content
-                    // is drastically under-filled (> 40% whitespace, which
-                    // means prior size is way too small for current content
-                    // — rare but happens if the response ended up compact).
-                    if (isStreamingFit && hasPriorFontSize && priorDisplayedFontSize >= minSize) {
-                        body.style.fontSize = priorDisplayedFontSize + 'px';
-                        void body.offsetHeight;
-                        var hystScrollH = doc.scrollHeight;
-                        var hystOverRatio = hystScrollH / winH;
-                        if (hystOverRatio <= 1.12 && hystOverRatio >= 0.60) {
-                            return;
-                        }
-                    }
 
                     // ===== PHASE 0: RESET (Start TIGHT like GDI) =====
                     // Long text keeps this compact baseline too, so the final settle-fit
@@ -252,11 +248,10 @@
                     var low = minSize, high = maxSize, bestSize = minSize;
                     var foundFittingSize = false;
 
-                    // Streaming stability: before searching, try the previously-displayed
-                    // font size. If the new chunk still fits, keep the size — avoids the
-                    // tiny per-chunk reflows that cause the wrap-alternation eyesore.
-                    // Each refit then applies hysteresis (below) so several subsequent
-                    // chunks fit without forcing another reflow.
+                    // Streaming stability: keep the displayed size only while the new
+                    // content actually fits. Once it overflows, compute a smaller target
+                    // immediately so fast streams shrink progressively instead of
+                    // rewrapping at an oversized font until finalization.
                     var preservedSize = false;
                     if (isStreamingFit && hasPriorFontSize && priorDisplayedFontSize >= minSize) {
                         body.style.fontSize = priorDisplayedFontSize + 'px';
@@ -365,15 +360,9 @@
                         clearLastMargin();
                     }
 
-                    // Legacy "15% shrink + 4px bucket" block removed. It was
-                    // making streaming land 15% smaller than the actual
-                    // best fit (e.g. 38 -> 32), so the final fit would
-                    // then jump UP to the correct value — exactly the
-                    // streaming-vs-final disagreement the logs exposed.
-                    // The fit-entry hysteresis (tolerates 12% overflow
-                    // before refitting) already provides growth headroom,
-                    // so this shrink is redundant. Streaming now keeps
-                    // Phase-1's true best size, matching final fit.
+                    // Streaming keeps Phase 1's true best size. Growth headroom
+                    // quantization is intentionally absent because it makes the
+                    // streaming target disagree with the identical final DOM.
 
                     // ===== PHASES 2-7: gap filling =====
                     // During active streaming, skip the expansion passes entirely.
