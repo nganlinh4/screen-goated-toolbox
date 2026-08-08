@@ -51,7 +51,6 @@ pub fn get_hotkey_name() -> String {
 
 /// Set the latest hotkey name (called by main loop)
 pub fn set_latest_hotkey_name(name: String) {
-    crate::log_info!("[Continuous] Setting Latest Hotkey Name: '{}'", name);
     *LATEST_HOTKEY_NAME.lock().unwrap() = name;
 }
 

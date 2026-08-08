@@ -1,11 +1,10 @@
 pub mod button_canvas;
 mod event_handler;
 pub mod layout;
-mod logic;
 pub mod markdown_view;
-pub mod paint;
 mod refine;
 mod restore;
+pub mod scene_compositor;
 pub mod state;
 mod window;
 
@@ -100,19 +99,19 @@ pub fn trigger_copy(hwnd: HWND) {
 pub fn trigger_undo(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
 
-    let (prev_text, is_markdown) = {
+    let prev_text = {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&hwnd_key) {
             if let Some(last) = state.text_history.pop() {
                 let current = state.full_text.clone();
                 state.redo_history.push(current);
                 state.full_text = last.clone();
-                (Some(last), state.is_markdown_mode)
+                Some(last)
             } else {
-                (None, false)
+                None
             }
         } else {
-            (None, false)
+            None
         }
     };
 
@@ -126,16 +125,9 @@ pub fn trigger_undo(hwnd: HWND) {
             );
         }
 
-        if is_markdown {
-            unsafe {
-                let _ = PostMessageW(
-                    Some(hwnd),
-                    event_handler::misc::WM_CREATE_WEBVIEW,
-                    WPARAM(0),
-                    LPARAM(0),
-                );
-            }
-        }
+        scene_compositor::sync_window(hwnd, unsafe {
+            windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(hwnd).as_bool()
+        });
 
         // Update canvas
         button_canvas::update_window_position(hwnd);
@@ -146,19 +138,19 @@ pub fn trigger_undo(hwnd: HWND) {
 pub fn trigger_redo(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
 
-    let (next_text, is_markdown) = {
+    let next_text = {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&hwnd_key) {
             if let Some(redo) = state.redo_history.pop() {
                 let current = state.full_text.clone();
                 state.text_history.push(current);
                 state.full_text = redo.clone();
-                (Some(redo), state.is_markdown_mode)
+                Some(redo)
             } else {
-                (None, false)
+                None
             }
         } else {
-            (None, false)
+            None
         }
     };
 
@@ -171,70 +163,12 @@ pub fn trigger_redo(hwnd: HWND) {
             );
         }
 
-        if is_markdown {
-            unsafe {
-                let _ = PostMessageW(
-                    Some(hwnd),
-                    event_handler::misc::WM_CREATE_WEBVIEW,
-                    WPARAM(0),
-                    LPARAM(0),
-                );
-            }
-        }
+        scene_compositor::sync_window(hwnd, unsafe {
+            windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(hwnd).as_bool()
+        });
 
         button_canvas::update_window_position(hwnd);
     }
-}
-
-/// Trigger markdown toggle (switch back to plain text)
-pub fn trigger_markdown_toggle(hwnd: HWND) {
-    let hwnd_key = hwnd.0 as isize;
-
-    // Check if we can toggle
-    let can_toggle = {
-        let states = WINDOW_STATES.lock().unwrap();
-        states
-            .get(&hwnd_key)
-            .map(|s| !s.is_refining && !s.is_streaming_active)
-            .unwrap_or(false)
-    };
-
-    if !can_toggle {
-        return;
-    }
-
-    // Toggle the mode in state
-    let is_now_markdown = {
-        let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get_mut(&hwnd_key) {
-            state.is_markdown_mode = !state.is_markdown_mode;
-            state.is_markdown_mode
-        } else {
-            return;
-        }
-    };
-
-    // Use message passing to update UI on the correct thread
-    unsafe {
-        if is_now_markdown {
-            let _ = PostMessageW(
-                Some(hwnd),
-                event_handler::misc::WM_CREATE_WEBVIEW,
-                WPARAM(0),
-                LPARAM(0),
-            );
-        } else {
-            let _ = PostMessageW(
-                Some(hwnd),
-                event_handler::misc::WM_HIDE_MARKDOWN,
-                WPARAM(0),
-                LPARAM(0),
-            );
-        }
-    }
-
-    // Update canvas to reflect the new state (e.g., active icon state)
-    button_canvas::update_window_position(hwnd);
 }
 
 /// Trigger speaker/TTS

@@ -315,36 +315,3 @@ pub fn inject_render_diagnostics(
 
     result
 }
-
-fn strip_known_helper_scripts(html: &str) -> String {
-    const MARKER: &str = r#"<script data-sgt-render-diag="1">"#;
-    let mut result = html.to_string();
-
-    while let Some(start) = result.find(MARKER) {
-        let after_start = &result[start..];
-        if let Some(end_rel) = after_start.find("</script>") {
-            let end = start + end_rel + "</script>".len();
-            result.replace_range(start..end, "");
-        } else {
-            result.replace_range(start..result.len(), "");
-            break;
-        }
-    }
-
-    result
-}
-
-/// Check if HTML content contains scripts that need full browser capabilities
-/// (localStorage, sessionStorage, IndexedDB, etc.)
-pub fn content_needs_recreation(html: &str) -> bool {
-    let lower = strip_known_helper_scripts(html).to_lowercase();
-    // If content has <script> tags that might use storage APIs, it needs recreation
-    // to get a proper origin instead of the sandboxed document.write context
-    lower.contains("<script")
-        && (lower.contains("localstorage")
-            || lower.contains("sessionstorage")
-            || lower.contains("indexeddb")
-            || lower.contains("const ") // Variable declarations can conflict
-            || lower.contains("let ")
-            || lower.contains("var "))
-}

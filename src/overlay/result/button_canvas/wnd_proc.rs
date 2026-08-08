@@ -291,7 +291,7 @@ unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             CANVAS_WEBVIEW.with(|cell| {
                 if let Some(webview) = cell.borrow().as_ref() {
                     let script = format!(
-                        "window.setBroomDraggingCursor(false);window.updateCursorPosition({}, {});",
+                        "window.setResultDraggingCursor(false);window.updateCursorPosition({}, {});",
                         logical_x, logical_y
                     );
                     let _ = webview.evaluate_script(&script);
@@ -336,7 +336,7 @@ unsafe fn cancel_active_canvas_drag(reason: &str) {
 
         CANVAS_WEBVIEW.with(|cell| {
             if let Some(webview) = cell.borrow().as_ref() {
-                let _ = webview.evaluate_script("window.setBroomDraggingCursor(false);");
+                let _ = webview.evaluate_script("window.setResultDraggingCursor(false);");
             }
         });
         crate::log_info!(
@@ -455,20 +455,9 @@ pub fn send_windows_update() {
 
         let mut data = serde_json::Map::new();
 
-        // Check for any active native interaction (Resizing/Moving)
-        let any_interacting = states.values().any(|s| {
-            matches!(
-                s.interaction_mode,
-                super::super::state::InteractionMode::Resizing(_)
-                    | super::super::state::InteractionMode::ResizingGroup(_, _)
-                    | super::super::state::InteractionMode::DraggingWindow
-                    | super::super::state::InteractionMode::DraggingGroup(_)
-            )
-        });
-
-        // If ANY drag (custom or native) or resize is active, hide ALL buttons
+        // Keep DOM/layout work off both native and canvas drag hot paths.
         let dragging_target = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
-        if dragging_target != 0 || any_interacting {
+        if dragging_target != 0 || IS_DRAGGING_EXTERNAL.load(Ordering::SeqCst) {
             let json = serde_json::to_string(&data).unwrap_or_default();
             CANVAS_WEBVIEW.with(|cell| {
                 if let Some(webview) = cell.borrow().as_ref() {
@@ -490,7 +479,6 @@ pub fn send_windows_update() {
                 "maxNavDepth": state.map(|s| s.max_navigation_depth).unwrap_or(0),
                 "ttsLoading": state.map(|s| s.tts_loading).unwrap_or(false),
                 "ttsSpeaking": state.map(|s| s.tts_request_id != 0 && !s.tts_loading).unwrap_or(false),
-                "isMarkdown": state.map(|s| s.is_markdown_mode).unwrap_or(false),
                 "isBrowsing": state.map(|s| s.is_browsing).unwrap_or(false),
                 "isEditing": state.map(|s| s.is_editing).unwrap_or(false),
                 "inputText": state.map(|s| s.input_text.clone()).unwrap_or_default(),

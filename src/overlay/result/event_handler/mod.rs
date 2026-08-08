@@ -1,13 +1,9 @@
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-pub mod click_actions;
 pub mod misc;
-pub mod mouse_input;
 pub mod timer_tasks;
 
-/// Minimum window size to prevent rendering issues when resizing too small.
-/// Below these dimensions, GDI operations can fail or cause system errors.
 pub const MIN_WINDOW_WIDTH: i32 = 40;
 pub const MIN_WINDOW_HEIGHT: i32 = 30;
 
@@ -19,60 +15,13 @@ pub unsafe extern "system" fn result_wnd_proc(
 ) -> LRESULT {
     unsafe {
         match msg {
-            WM_ERASEBKGND => misc::handle_erase_bkgnd(hwnd, wparam),
-
-            // WM_CTLCOLOREDIT removed (native edit control deprecated)
-            WM_SETCURSOR => mouse_input::handle_set_cursor(hwnd),
-
-            WM_LBUTTONDOWN => {
-                crate::log_info!("[Persistence] WM_LBUTTONDOWN for HWND: {:?}", hwnd);
-                mouse_input::handle_lbutton_down(hwnd, lparam)
-            }
-
-            WM_RBUTTONDOWN => mouse_input::handle_rbutton_down(hwnd, lparam),
-
-            WM_MOUSEMOVE => mouse_input::handle_mouse_move(hwnd, lparam),
-            WM_MBUTTONDOWN => mouse_input::handle_mbutton_down(hwnd, lparam),
-
-            0x02A3 => mouse_input::handle_mouse_leave(hwnd), // WM_MOUSELEAVE
-
-            WM_LBUTTONUP => {
-                crate::log_info!("[Persistence] WM_LBUTTONUP for HWND: {:?}", hwnd);
-                click_actions::handle_lbutton_up(hwnd)
-            }
-
-            WM_RBUTTONUP => click_actions::handle_rbutton_up(hwnd),
-
-            WM_MBUTTONUP => click_actions::handle_mbutton_up(hwnd),
-
-            WM_CAPTURECHANGED | WM_CANCELMODE => {
-                // ReleaseCapture inside a normal button-up sends WM_CAPTURECHANGED synchronously.
-                // Defer cleanup so the button-up handler can first decide click-versus-drag.
-                let _ = PostMessageW(
-                    Some(hwnd),
-                    misc::WM_CANCEL_INTERACTION,
-                    WPARAM(0),
-                    LPARAM(0),
-                );
-                DefWindowProcW(hwnd, msg, wparam, lparam)
-            }
-
-            WM_TIMER => timer_tasks::handle_timer(hwnd, wparam),
-
-            WM_DESTROY => misc::handle_destroy(hwnd),
-
+            WM_ERASEBKGND => LRESULT(1),
             WM_PAINT => misc::handle_paint(hwnd),
-
-            WM_KEYDOWN => misc::handle_keydown(),
-
-            // Handle monitor changes to prevent lost windows
+            WM_NCHITTEST => handle_hit_test(hwnd, lparam),
+            WM_TIMER => timer_tasks::handle_timer(hwnd, wparam),
+            WM_DESTROY => misc::handle_destroy(hwnd),
             WM_DISPLAYCHANGE => misc::handle_display_change(hwnd),
-
-            // A transparent WebView2 child must be created only after its layered
-            // parent has entered the visible/composed window tree.
             WM_SHOWWINDOW => misc::handle_show_window(hwnd, wparam, lparam),
-
-            // Enforce minimum window size to prevent rendering issues
             WM_GETMINMAXINFO => {
                 let mmi = lparam.0 as *mut MINMAXINFO;
                 if !mmi.is_null() {
@@ -81,13 +30,6 @@ pub unsafe extern "system" fn result_wnd_proc(
                 }
                 LRESULT(0)
             }
-
-            // Deferred WebView2 creation - handles the WM_CREATE_WEBVIEW we posted
-            msg if msg == misc::WM_CREATE_WEBVIEW => misc::handle_create_webview(hwnd),
-            msg if msg == misc::WM_SHOW_MARKDOWN => misc::handle_show_markdown(hwnd),
-            msg if msg == misc::WM_HIDE_MARKDOWN => misc::handle_hide_markdown(hwnd),
-            msg if msg == misc::WM_RESIZE_MARKDOWN => misc::handle_resize_markdown(hwnd),
-
             msg if msg == misc::WM_UNDO_CLICK => {
                 crate::overlay::result::trigger_undo(hwnd);
                 LRESULT(0)
@@ -111,104 +53,85 @@ pub unsafe extern "system" fn result_wnd_proc(
                 LRESULT(0)
             }
             msg if msg == misc::WM_DOWNLOAD_CLICK => misc::handle_download_click(hwnd),
-            msg if msg == misc::WM_BROOM_DRAG_START => misc::handle_broom_drag_start(hwnd),
             msg if msg == misc::WM_CLOSE_GROUP_CLICK => misc::handle_close_group_click(hwnd),
-            msg if msg == misc::WM_CANCEL_INTERACTION => misc::handle_cancel_interaction(hwnd),
-
             WM_WINDOWPOSCHANGED => {
-                // Update button canvas position when window moves/resizes
-                crate::overlay::result::button_canvas::register_markdown_window(hwnd);
+                crate::overlay::result::scene_compositor::sync_geometry(
+                    hwnd,
+                    IsWindowVisible(hwnd).as_bool(),
+                );
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
-
             WM_ENTERSIZEMOVE => {
-                // Set interaction mode to Resizing to triggering "Hide All Buttons" logic
-                crate::overlay::result::state::set_window_interaction_mode(
-                    hwnd,
-                    crate::overlay::result::state::InteractionMode::Resizing(
-                        crate::overlay::result::state::ResizeEdge::None,
-                    ),
-                );
-                crate::overlay::result::button_canvas::update_canvas();
+                crate::overlay::result::button_canvas::set_drag_mode(true);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
-
             WM_EXITSIZEMOVE => {
-                crate::log_info!(
-                    "[Persistence] Received WM_EXITSIZEMOVE for HWND: {:?}",
-                    hwnd
-                );
-                // Reset interaction mode to show buttons again
-                crate::overlay::result::state::set_window_interaction_mode(
-                    hwnd,
-                    crate::overlay::result::state::InteractionMode::None,
-                );
-                crate::overlay::result::button_canvas::set_drag_mode(false);
-
-                // Re-trigger markdown view fitting after native resize ends
-                let is_markdown = {
-                    let states = crate::overlay::result::state::WINDOW_STATES.lock().unwrap();
-                    states
-                        .get(&(hwnd.0 as isize))
-                        .map(|s| s.is_markdown_mode)
-                        .unwrap_or(false)
-                };
-                if is_markdown {
-                    crate::overlay::result::markdown_view::resize_markdown_webview(hwnd, false);
-                    crate::overlay::result::markdown_view::fit_font_to_window(hwnd);
-                }
-
-                // PERSISTENCE: Save window geometry to preset if it has a preset_id
                 save_window_geometry(hwnd, "WM_EXITSIZEMOVE");
-
-                crate::overlay::result::button_canvas::update_canvas();
+                crate::overlay::result::button_canvas::update_window_position(hwnd);
+                crate::overlay::result::button_canvas::set_drag_mode(false);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
-
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
     }
 }
 
-/// PERSISTENCE helper: Save current window geometry to its associated preset.
-/// Called when a move/resize operation ends (either natively or via manual drag).
+unsafe fn handle_hit_test(hwnd: HWND, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        let x = (lparam.0 & 0xffff) as i16 as i32;
+        let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
+        let mut rect = RECT::default();
+        let _ = GetWindowRect(hwnd, &mut rect);
+        let left = x < rect.left + 6;
+        let right = x >= rect.right - 6;
+        let top = y < rect.top + 4;
+        let bottom = y >= rect.bottom - 4;
+        let hit = match (left, right, top, bottom) {
+            (true, _, true, _) => HTTOPLEFT,
+            (_, true, true, _) => HTTOPRIGHT,
+            (true, _, _, true) => HTBOTTOMLEFT,
+            (_, true, _, true) => HTBOTTOMRIGHT,
+            (true, _, _, _) => HTLEFT,
+            (_, true, _, _) => HTRIGHT,
+            (_, _, true, _) => HTTOP,
+            (_, _, _, true) => HTBOTTOM,
+            _ => HTCLIENT,
+        };
+        LRESULT(hit as isize)
+    }
+}
+
 pub fn save_window_geometry(hwnd: HWND, _source: &str) {
     unsafe {
-        let (p_id, rect, is_root) = {
+        let (preset_id, rect, is_root) = {
             let states = crate::overlay::result::state::WINDOW_STATES.lock().unwrap();
-            if let Some(s) = states.get(&(hwnd.0 as isize)) {
-                let mut r = RECT::default();
-                let _ = GetWindowRect(hwnd, &mut r);
-                (s.preset_id.clone(), r, s.is_chain_root)
+            if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                let mut rect = RECT::default();
+                let _ = GetWindowRect(hwnd, &mut rect);
+                (state.preset_id.clone(), rect, state.is_chain_root)
             } else {
                 (None, RECT::default(), false)
             }
         };
-
-        if let Some(pid) = p_id {
-            if !is_root {
-                return;
-            }
-
-            let mut app = crate::APP.lock().unwrap();
-            let found_preset = app.config.presets.iter_mut().find(|p| p.id == pid);
-
-            if let Some(preset) = found_preset {
-                // Only save geometry for non-image presets (text, audio, etc)
-                let is_image_category = preset.preset_type == "image";
-                if !is_image_category {
-                    let geom = crate::config::preset::WindowGeometry {
-                        x: rect.left,
-                        y: rect.top,
-                        width: rect.right - rect.left,
-                        height: rect.bottom - rect.top,
-                    };
-                    preset.window_geometry = Some(geom.clone());
-                    crate::config::save_config(&app.config);
-                }
-            } else {
-                // Preset not found (could be a temporary ID or deleted)
-            }
+        let Some(preset_id) = preset_id else { return };
+        if !is_root {
+            return;
+        }
+        let mut app = crate::APP.lock().unwrap();
+        if let Some(preset) = app
+            .config
+            .presets
+            .iter_mut()
+            .find(|preset| preset.id == preset_id)
+            && preset.preset_type != "image"
+        {
+            preset.window_geometry = Some(crate::config::preset::WindowGeometry {
+                x: rect.left,
+                y: rect.top,
+                width: rect.right - rect.left,
+                height: rect.bottom - rect.top,
+            });
+            crate::config::save_config(&app.config);
         }
     }
 }

@@ -95,9 +95,7 @@ pub fn create_canvas_window() {
 
         let webview = {
             let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-            crate::log_info!("[ButtonCanvas] Acquired init lock. Building...");
-
-            let build_res = CANVAS_WEB_CONTEXT.with(|ctx| {
+            CANVAS_WEB_CONTEXT.with(|ctx| {
                 let mut ctx_ref = ctx.borrow_mut();
                 let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
                     WebViewBuilder::new_with_web_context(web_ctx)
@@ -132,17 +130,11 @@ pub fn create_canvas_window() {
                         handle_ipc_message(msg.body());
                     })
                     .build_as_child(&wrapper)
-            });
-            crate::log_info!(
-                "[ButtonCanvas] Build finished. Releasing lock. Status: {}",
-                if build_res.is_ok() { "OK" } else { "ERR" }
-            );
-            build_res
+            })
         };
 
         match webview {
             Ok(wv) => {
-                crate::log_info!("[ButtonCanvas] WebView created successfully!");
                 crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
                     "result-button-canvas",
                     hwnd,
@@ -152,7 +144,6 @@ pub fn create_canvas_window() {
                     *cell.borrow_mut() = Some(wv);
                 });
                 IS_WARMED_UP.store(true, Ordering::SeqCst);
-                crate::log_info!("[ButtonCanvas] Canvas is now warmed up and ready");
             }
             Err(e) => {
                 crate::log_info!("[ButtonCanvas] Failed to create WebView: {:?}", e);

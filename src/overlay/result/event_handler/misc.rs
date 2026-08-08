@@ -1,19 +1,13 @@
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::Graphics::Gdi::{
+    BeginPaint, EndPaint, GetMonitorInfoW, MONITOR_DEFAULTTONULL, MONITOR_DEFAULTTOPRIMARY,
+    MONITORINFO, MonitorFromPoint, PAINTSTRUCT,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::overlay::result::button_canvas;
-use crate::overlay::result::markdown_view;
-use crate::overlay::result::paint;
-use crate::overlay::result::state::{InteractionMode, ResizeEdge, WINDOW_STATES};
-use crate::overlay::result::window;
-use crate::overlay::utils::to_wstring;
-use windows::core::PCWSTR;
+use crate::overlay::result::state::WINDOW_STATES;
 
-pub const WM_CREATE_WEBVIEW: u32 = WM_USER + 200;
-pub const WM_SHOW_MARKDOWN: u32 = WM_USER + 201;
-pub const WM_HIDE_MARKDOWN: u32 = WM_USER + 202;
-pub const WM_RESIZE_MARKDOWN: u32 = WM_USER + 203;
 pub const WM_UNDO_CLICK: u32 = WM_USER + 210;
 pub const WM_REDO_CLICK: u32 = WM_USER + 211;
 pub const WM_COPY_CLICK: u32 = WM_USER + 212;
@@ -22,346 +16,105 @@ pub const WM_BACK_CLICK: u32 = WM_USER + 214;
 pub const WM_FORWARD_CLICK: u32 = WM_USER + 215;
 pub const WM_SPEAKER_CLICK: u32 = WM_USER + 216;
 pub const WM_DOWNLOAD_CLICK: u32 = WM_USER + 217;
-pub const WM_BROOM_DRAG_START: u32 = WM_USER + 218;
 pub const WM_CLOSE_GROUP_CLICK: u32 = WM_USER + 219;
-pub const WM_CANCEL_INTERACTION: u32 = WM_USER + 220;
-
-pub unsafe fn handle_erase_bkgnd(_hwnd: HWND, _wparam: WPARAM) -> LRESULT {
-    LRESULT(1)
-}
-
-// handle_ctl_color_edit removed (was for native edit control)
 
 pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
     unsafe {
-        // Clean up this window's resources only — callers are responsible for
-        // deciding whether to close siblings (group close) or all windows.
-        {
-            let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.remove(&(hwnd.0 as isize)) {
-                // Signal cancellation token to stop this branch's processing
-                if let Some(ref token) = state.cancellation_token {
-                    token.cancel();
-                }
-
-                // Stop TTS if speaking
-                if state.tts_request_id != 0 {
-                    crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
-                }
-
-                // Cleanup GDI resources
-                if !state.content_bitmap.is_invalid() {
-                    let _ = DeleteObject(state.content_bitmap.into());
-                }
-                if !state.bg_bitmap.is_invalid() {
-                    let _ = DeleteObject(state.bg_bitmap.into());
-                }
+        super::super::scene_compositor::remove_window(hwnd);
+        if let Some(state) = WINDOW_STATES.lock().unwrap().remove(&(hwnd.0 as isize)) {
+            if let Some(token) = state.cancellation_token {
+                token.cancel();
+            }
+            if state.tts_request_id != 0 {
+                crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
             }
         }
-
-        // Cleanup markdown webview and timer (outside lock)
-        let _ = KillTimer(Some(hwnd), 2);
-        markdown_view::destroy_markdown_webview(hwnd);
-
-        // Unregister from button canvas (outside lock to prevent deadlock)
+        let _ = KillTimer(Some(hwnd), 3);
         button_canvas::unregister_markdown_window(hwnd);
-
         LRESULT(0)
     }
 }
 
 pub unsafe fn handle_paint(hwnd: HWND) -> LRESULT {
-    paint::paint_window(hwnd);
-    LRESULT(0)
-}
-
-pub unsafe fn handle_keydown() -> LRESULT {
-    LRESULT(0)
-}
-
-pub unsafe fn handle_cancel_interaction(hwnd: HWND) -> LRESULT {
-    let should_save = {
-        let mut states = WINDOW_STATES.lock().unwrap();
-        states.get_mut(&(hwnd.0 as isize)).is_some_and(|state| {
-            let was_interacting = matches!(
-                state.interaction_mode,
-                InteractionMode::Resizing(_)
-                    | InteractionMode::ResizingGroup(_, _)
-                    | InteractionMode::DraggingWindow
-                    | InteractionMode::DraggingGroup(_)
-            );
-            let should_save = was_interacting && state.has_moved_significantly;
-            if was_interacting {
-                state.interaction_mode = InteractionMode::None;
-                state.current_resize_edge = ResizeEdge::None;
-            }
-            should_save
-        })
-    };
-
-    button_canvas::set_drag_mode(false);
-    button_canvas::update_window_position(hwnd);
-    if should_save {
-        super::save_window_geometry(hwnd, "CAPTURE_CANCELLED");
+    unsafe {
+        let mut paint = PAINTSTRUCT::default();
+        let _ = BeginPaint(hwnd, &mut paint);
+        let _ = EndPaint(hwnd, &paint);
+        LRESULT(0)
     }
-    LRESULT(0)
 }
 
 pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT {
     unsafe {
-        // When monitor topology changes, check if window is still on-screen.
-        // If not (e.g. secondary monitor removed), move it to primary monitor.
         let mut rect = RECT::default();
         if GetWindowRect(hwnd, &mut rect).is_ok() {
-            let center_x = (rect.left + rect.right) / 2;
-            let center_y = (rect.top + rect.bottom) / 2;
             let center = POINT {
-                x: center_x,
-                y: center_y,
+                x: (rect.left + rect.right) / 2,
+                y: (rect.top + rect.bottom) / 2,
             };
-
-            // Check if the center point maps to any monitor
-            let h_monitor = MonitorFromPoint(center, MONITOR_DEFAULTTONULL);
-
-            if h_monitor.is_invalid() {
-                // Window is off-screen. Move to Primary Monitor center.
-                let h_primary = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
-                let mut mi = MONITORINFO {
+            if MonitorFromPoint(center, MONITOR_DEFAULTTONULL).is_invalid() {
+                let monitor = MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY);
+                let mut info = MONITORINFO {
                     cbSize: std::mem::size_of::<MONITORINFO>() as u32,
                     ..Default::default()
                 };
-
-                if GetMonitorInfoW(h_primary, &mut mi).as_bool() {
-                    let work = mi.rcWork;
-                    let w = rect.right - rect.left;
-                    let h = rect.bottom - rect.top;
-
-                    // Center on primary monitor work area
-                    let new_x = work.left + (work.right - work.left - w) / 2;
-                    let new_y = work.top + (work.bottom - work.top - h) / 2;
-
+                if GetMonitorInfoW(monitor, &mut info).as_bool() {
+                    let width = rect.right - rect.left;
+                    let height = rect.bottom - rect.top;
+                    let x = info.rcWork.left + (info.rcWork.right - info.rcWork.left - width) / 2;
+                    let y = info.rcWork.top + (info.rcWork.bottom - info.rcWork.top - height) / 2;
                     let _ = SetWindowPos(
                         hwnd,
                         None,
-                        new_x,
-                        new_y,
+                        x,
+                        y,
                         0,
                         0,
                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
                     );
-
-                    // IMPORTANT: Update button canvas about the new position
-                    button_canvas::update_window_position(hwnd);
                 }
             }
         }
         LRESULT(0)
     }
-}
-
-fn should_queue_markdown_creation(
-    showing: bool,
-    is_markdown_mode: bool,
-    has_webview: bool,
-) -> bool {
-    showing && is_markdown_mode && !has_webview
 }
 
 pub unsafe fn handle_show_window(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         let showing = wparam.0 != 0;
-        let is_markdown_mode = showing && {
-            let states = WINDOW_STATES.lock().unwrap();
-            states
-                .get(&(hwnd.0 as isize))
-                .is_some_and(|state| state.is_markdown_mode)
-        };
-        let has_webview = is_markdown_mode && markdown_view::has_markdown_webview(hwnd);
-
-        if should_queue_markdown_creation(showing, is_markdown_mode, has_webview) {
-            // Post instead of creating synchronously: ShowWindow must finish
-            // attaching the layered parent before WebView2 creates its child HWND.
-            let _ = PostMessageW(Some(hwnd), WM_CREATE_WEBVIEW, WPARAM(0), LPARAM(0));
-        }
-
+        super::super::scene_compositor::sync_window(hwnd, showing);
         if showing {
-            // Starting the update timer here also prevents pending initial text
-            // from constructing a WebView while the result window is hidden.
             SetTimer(Some(hwnd), 3, 16, None);
+            button_canvas::register_markdown_window(hwnd);
         }
-
         DefWindowProcW(hwnd, WM_SHOWWINDOW, wparam, lparam)
     }
 }
 
-pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
-    unsafe {
-        let (full_text, is_hovered, bg_color, is_markdown_mode) = {
-            let states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                (
-                    state.full_text.clone(),
-                    state.is_hovered,
-                    state.bg_color,
-                    state.is_markdown_mode,
-                )
-            } else {
-                (String::new(), false, 0, false)
-            }
-        };
-
-        // A rapid second toggle can leave an already-posted create message in the
-        // queue. Never resurrect Markdown after state has returned to plain text.
-        if !is_markdown_mode {
-            return LRESULT(0);
-        }
-
-        // This can also be posted by a rapid toggle. If the parent was hidden
-        // before the message arrived, the next WM_SHOWWINDOW will queue it again.
-        if !IsWindowVisible(hwnd).as_bool() {
-            return LRESULT(0);
-        }
-
-        if markdown_view::has_markdown_webview(hwnd) {
-            window::set_markdown_parent_clipping(hwnd, true);
-            markdown_view::update_markdown_content(hwnd, &full_text);
-            markdown_view::show_markdown_webview(hwnd);
-            markdown_view::resize_markdown_webview(hwnd, is_hovered);
-            markdown_view::fit_font_to_window(hwnd);
-            button_canvas::register_markdown_window(hwnd);
-        } else {
-            // The child is transparent. Remove the last native-text frame before
-            // WS_CLIPCHILDREN makes that part of the parent surface unreachable.
-            window::prepare_markdown_parent(hwnd, bg_color);
-            let result = markdown_view::create_markdown_webview(hwnd, &full_text, is_hovered);
-            if !result {
-                {
-                    let mut states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                        state.is_markdown_mode = false;
-                        state.font_cache_dirty = true;
-                    }
-                }
-                window::set_markdown_parent_clipping(hwnd, false);
-                let wide_text = to_wstring(&full_text);
-                let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
-                let _ = KillTimer(Some(hwnd), 2);
-            } else {
-                markdown_view::resize_markdown_webview(hwnd, is_hovered);
-                markdown_view::fit_font_to_window(hwnd);
-                button_canvas::register_markdown_window(hwnd);
-                SetTimer(Some(hwnd), 2, 30, None);
-            }
-        }
-
-        // IMPORTANT: If refine input is active, resize markdown to leave room for it
-        // AND bring refine input to top so it stays visible
-        // NOTE: Refine input is now part of button_canvas (overlay), so no resizing needed.
-
-        let _ = InvalidateRect(Some(hwnd), None, false);
-        LRESULT(0)
-    }
-}
-
-pub unsafe fn handle_show_markdown(hwnd: HWND) -> LRESULT {
-    unsafe {
-        markdown_view::show_markdown_webview(hwnd);
-        let _ = InvalidateRect(Some(hwnd), None, false);
-        LRESULT(0)
-    }
-}
-
-pub unsafe fn handle_hide_markdown(hwnd: HWND) -> LRESULT {
-    unsafe {
-        // Drop the transparent child instead of retaining a hidden document. A
-        // later toggle then performs exactly one fresh navigation/appearance.
-        markdown_view::destroy_markdown_webview(hwnd);
-        window::set_markdown_parent_clipping(hwnd, false);
-        let _ = KillTimer(Some(hwnd), 2);
-
-        let full_text = {
-            let mut states = WINDOW_STATES.lock().unwrap();
-            states
-                .get_mut(&(hwnd.0 as isize))
-                .map(|state| {
-                    state.font_cache_dirty = true;
-                    state.full_text.clone()
-                })
-                .unwrap_or_default()
-        };
-        let wide_text = to_wstring(&full_text);
-        let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
-        let _ = InvalidateRect(Some(hwnd), None, false);
-        LRESULT(0)
-    }
-}
-
-pub unsafe fn handle_resize_markdown(hwnd: HWND) -> LRESULT {
-    let is_hovered = {
-        let states = WINDOW_STATES.lock().unwrap();
-        states
-            .get(&(hwnd.0 as isize))
-            .map(|s| s.is_hovered)
-            .unwrap_or(false)
-    };
-    markdown_view::resize_markdown_webview(hwnd, is_hovered);
-    markdown_view::fit_font_to_window(hwnd);
-    LRESULT(0)
-}
-
 pub unsafe fn handle_back_click(hwnd: HWND) -> LRESULT {
-    markdown_view::go_back(hwnd);
+    super::super::scene_compositor::go_back(hwnd);
     LRESULT(0)
 }
 
 pub unsafe fn handle_forward_click(hwnd: HWND) -> LRESULT {
-    markdown_view::go_forward(hwnd);
+    super::super::scene_compositor::go_forward(hwnd);
     LRESULT(0)
 }
 
 pub unsafe fn handle_download_click(hwnd: HWND) -> LRESULT {
-    let text = {
-        let states = WINDOW_STATES.lock().unwrap();
-        states
-            .get(&(hwnd.0 as isize))
-            .map(|s| s.full_text.clone())
-            .unwrap_or_default()
-    };
+    let text = WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get(&(hwnd.0 as isize))
+        .map(|state| state.full_text.clone())
+        .unwrap_or_default();
     if !text.is_empty() {
-        markdown_view::save_html_file(&text);
+        super::super::markdown_view::save_html_file(&text);
     }
     LRESULT(0)
-}
-
-pub unsafe fn handle_broom_drag_start(hwnd: HWND) -> LRESULT {
-    unsafe {
-        use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-
-        let _ = ReleaseCapture();
-        let _ = PostMessageW(
-            Some(hwnd),
-            WM_SYSCOMMAND,
-            WPARAM(0xF012), // SC_MOVE (0xF010) + HTCAPTION (2)
-            LPARAM(0),
-        );
-        LRESULT(0)
-    }
 }
 
 pub unsafe fn handle_close_group_click(hwnd: HWND) -> LRESULT {
     crate::overlay::result::trigger_close_group(hwnd);
     LRESULT(0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::should_queue_markdown_creation;
-
-    #[test]
-    fn markdown_creation_waits_for_a_visible_parent() {
-        assert!(!should_queue_markdown_creation(false, true, false));
-        assert!(!should_queue_markdown_creation(true, false, false));
-        assert!(!should_queue_markdown_creation(true, true, true));
-        assert!(should_queue_markdown_creation(true, true, false));
-    }
 }

@@ -1,5 +1,5 @@
 // --- NODE BODY: MODEL SELECTOR & SETTINGS ---
-// Shared model selector, prompt editor, and render mode UI for Special/Process nodes.
+// Shared model selector, prompt editor, and overlay settings for Special/Process nodes.
 
 use std::collections::HashMap;
 
@@ -210,7 +210,29 @@ pub fn show_model_and_settings(
         }
 
         if *show_overlay {
-            show_render_mode_popup(ui, viewer, render_mode, streaming_enabled);
+            let stream_label = if *streaming_enabled {
+                match viewer.ui_language.as_str() {
+                    "vi" => "Stream bật",
+                    "ko" => "스트림 켜짐",
+                    _ => "Stream on",
+                }
+            } else {
+                match viewer.ui_language.as_str() {
+                    "vi" => "Stream tắt",
+                    "ko" => "스트림 꺼짐",
+                    _ => "Stream off",
+                }
+            };
+            let btn_bg = AppTheme::from_ui(ui).node_button_fill();
+            if filled_button(ui, stream_label, btn_bg, egui::Color32::WHITE, 8).clicked() {
+                *streaming_enabled = !*streaming_enabled;
+                *render_mode = if *streaming_enabled {
+                    "markdown_stream".to_string()
+                } else {
+                    "markdown".to_string()
+                };
+                viewer.changed = true;
+            }
         }
 
         // Copy icon toggle
@@ -250,92 +272,4 @@ pub fn show_model_and_settings(
     });
 
     auto_copy_triggered
-}
-
-/// Render mode popup (Normal, Stream, Markdown, MD+Stream)
-fn show_render_mode_popup(
-    ui: &mut egui::Ui,
-    viewer: &mut ChainViewer,
-    render_mode: &mut String,
-    streaming_enabled: &mut bool,
-) {
-    let current_mode_label = match (render_mode.as_str(), *streaming_enabled) {
-        ("markdown_stream", _) => match viewer.ui_language.as_str() {
-            "vi" => "Đẹp+Str",
-            "ko" => "마크다운+스트림",
-            _ => "MD+Stream",
-        },
-        ("markdown", _) => match viewer.ui_language.as_str() {
-            "vi" => "Đẹp",
-            "ko" => "마크다운",
-            _ => "Markdown",
-        },
-        (_, true) => match viewer.ui_language.as_str() {
-            "vi" => "Stream",
-            "ko" => "스트림",
-            _ => "Stream",
-        },
-        (_, false) => match viewer.ui_language.as_str() {
-            "vi" => "Thường",
-            "ko" => "일반",
-            _ => "Normal",
-        },
-    };
-
-    let btn_bg = AppTheme::from_ui(ui).node_button_fill();
-    let btn = filled_button(ui, current_mode_label, btn_bg, egui::Color32::WHITE, 8);
-    let popup_id = btn.id;
-    if btn.clicked() {
-        egui::Popup::toggle_id(ui.ctx(), popup_id);
-    }
-    egui::Popup::from_toggle_button_response(&btn)
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .show(|ui: &mut egui::Ui| {
-            ui.set_min_width(80.0);
-            let (lbl_norm, lbl_stm, lbl_md, lbl_md_stm) = match viewer.ui_language.as_str() {
-                "vi" => ("Thường", "Stream", "Đẹp", "Đẹp+Str"),
-                "ko" => ("일반", "스트림", "마크다운", "마크다운+스트림"),
-                _ => ("Normal", "Stream", "Markdown", "MD+Stream"),
-            };
-
-            if ui
-                .selectable_label(render_mode == "plain" && !*streaming_enabled, lbl_norm)
-                .clicked()
-            {
-                *render_mode = "plain".to_string();
-                *streaming_enabled = false;
-                viewer.changed = true;
-                egui::Popup::close_id(ui.ctx(), popup_id);
-            }
-            if ui
-                .selectable_label(
-                    (render_mode == "stream" || render_mode == "plain") && *streaming_enabled,
-                    lbl_stm,
-                )
-                .clicked()
-            {
-                *render_mode = "stream".to_string();
-                *streaming_enabled = true;
-                viewer.changed = true;
-                egui::Popup::close_id(ui.ctx(), popup_id);
-            }
-            if ui
-                .selectable_label(render_mode == "markdown", lbl_md)
-                .clicked()
-            {
-                *render_mode = "markdown".to_string();
-                *streaming_enabled = false;
-                viewer.changed = true;
-                egui::Popup::close_id(ui.ctx(), popup_id);
-            }
-            if ui
-                .selectable_label(render_mode == "markdown_stream", lbl_md_stm)
-                .clicked()
-            {
-                *render_mode = "markdown_stream".to_string();
-                *streaming_enabled = true;
-                viewer.changed = true;
-                egui::Popup::close_id(ui.ctx(), popup_id);
-            }
-        });
 }

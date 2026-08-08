@@ -253,11 +253,6 @@ pub fn internal_create_tag_thread() {
                             app.config.ui_language.clone()
                         };
                         let badge_text = get_localized_badge_text(&lang, is_continuous);
-                        crate::log_info!(
-                            "[Badge] Visibility transition (visible=true): is_continuous={}, badge_text='{}'",
-                            is_continuous,
-                            badge_text
-                        );
                         let reset_js = format!("updateState(false, '{}')", badge_text);
                         let _ = wv.evaluate_script(&reset_js);
                     }

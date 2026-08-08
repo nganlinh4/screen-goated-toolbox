@@ -3,8 +3,6 @@ mod model_selector;
 use super::node::ChainNode;
 use super::viewer::ChainViewer;
 use crate::gui::icons::{Icon, icon_button};
-use crate::gui::theme::AppTheme;
-use crate::gui::widgets::filled_button;
 use crate::model_config::ModelType;
 use eframe::egui;
 use egui_snarl::{NodeId, Snarl};
@@ -39,7 +37,6 @@ pub fn show_body(
                         auto_copy,
                         auto_speak,
                         show_overlay,
-                        render_mode,
                         ..
                     } => {
                         ui.set_min_width(173.0);
@@ -62,89 +59,6 @@ pub fn show_body(
                             if icon_button(ui, icon).clicked() {
                                 *show_overlay = !*show_overlay;
                                 viewer.changed = true;
-
-                                // When turning ON, auto-set render_mode based on input type
-                                if *show_overlay {
-                                    *render_mode = if actual_type == "text" {
-                                        "plain".to_string()
-                                    } else {
-                                        "markdown".to_string()
-                                    };
-                                }
-                            }
-
-                            if *show_overlay {
-                                // Render Mode Dropdown for input display
-                                let current_mode_label = if render_mode == "markdown"
-                                    || render_mode == "markdown_stream"
-                                {
-                                    // Normalize markdown_stream to markdown for Input nodes (they don't stream)
-                                    if render_mode == "markdown_stream" {
-                                        *render_mode = "markdown".to_string();
-                                    }
-                                    match viewer.ui_language.as_str() {
-                                        "vi" => "Đẹp",
-                                        "ko" => "마크다운",
-                                        _ => "Markdown",
-                                    }
-                                } else {
-                                    // Normalize stream to plain for Input nodes
-                                    if render_mode == "stream" {
-                                        *render_mode = "plain".to_string();
-                                    }
-                                    match viewer.ui_language.as_str() {
-                                        "vi" => "Thường",
-                                        "ko" => "일반",
-                                        _ => "Normal",
-                                    }
-                                };
-
-                                let popup_id = ui.make_persistent_id(format!(
-                                    "input_render_mode_popup_{:?}",
-                                    node_id
-                                ));
-                                let btn_bg = AppTheme::from_ui(ui).node_button_fill();
-                                let btn = filled_button(
-                                    ui,
-                                    current_mode_label,
-                                    btn_bg,
-                                    egui::Color32::WHITE,
-                                    8,
-                                );
-                                if btn.clicked() {
-                                    ui.memory_mut(|mem| mem.toggle_popup(popup_id));
-                                }
-                                egui::popup_below_widget(
-                                    ui,
-                                    popup_id,
-                                    &btn,
-                                    egui::PopupCloseBehavior::CloseOnClickOutside,
-                                    |ui| {
-                                        ui.set_min_width(60.0);
-                                        let (lbl_norm, lbl_md) = match viewer.ui_language.as_str() {
-                                            "vi" => ("Thường", "Đẹp"),
-                                            "ko" => ("일반", "마크다운"),
-                                            _ => ("Normal", "Markdown"),
-                                        };
-
-                                        if ui
-                                            .selectable_label(render_mode == "plain", lbl_norm)
-                                            .clicked()
-                                        {
-                                            *render_mode = "plain".to_string();
-                                            viewer.changed = true;
-                                            ui.memory_mut(|mem| mem.close_popup(popup_id));
-                                        }
-                                        if ui
-                                            .selectable_label(render_mode == "markdown", lbl_md)
-                                            .clicked()
-                                        {
-                                            *render_mode = "markdown".to_string();
-                                            viewer.changed = true;
-                                            ui.memory_mut(|mem| mem.close_popup(popup_id));
-                                        }
-                                    },
-                                );
                             }
                         });
 

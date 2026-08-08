@@ -11,6 +11,14 @@ use arguments::StartupArgs;
 use single_instance::InstanceOutcome;
 
 pub(crate) fn run() -> eframe::Result<()> {
+    if crate::overlay::result::scene_compositor::is_child_process() {
+        if let Err(error) = crate::overlay::result::scene_compositor::run_child() {
+            eprintln!("result compositor failed: {error:#}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     if crate::initialization::setup_console_utf8() {
         println!("[Console] UTF-8 input/output enabled");
     } else {

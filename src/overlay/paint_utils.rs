@@ -28,15 +28,6 @@ pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> u32 {
     (r_u << 16) | (g_u << 8) | b_u
 }
 
-#[inline(always)]
-pub fn sd_rounded_box(px: f32, py: f32, bx: f32, by: f32, r: f32) -> f32 {
-    let qx = px.abs() - bx + r;
-    let qy = py.abs() - by + r;
-    let len_max_q = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt();
-    let min_max_q = qx.max(qy).min(0.0);
-    len_max_q + min_max_q - r
-}
-
 // OPTIMIZED DRAWING: Writes directly to cached buffer
 // Defers expensive atan2 until after visibility check
 pub unsafe fn draw_direct_sdf_glow(

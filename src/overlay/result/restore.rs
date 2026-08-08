@@ -10,8 +10,8 @@ use std::sync::{
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, GetWindowRect, IsWindow, LWA_ALPHA, MSG, SW_SHOWNA,
-    SetLayeredWindowAttributes, ShowWindow, TranslateMessage,
+    DispatchMessageW, GetMessageW, GetWindowRect, IsWindow, MSG, SW_SHOWNA, ShowWindow,
+    TranslateMessage,
 };
 
 const MAX_RESTORE_HISTORY: usize = 5;
@@ -32,8 +32,6 @@ struct RestorableWindowSnapshot {
     opacity_percent: u8,
     preset_id: Option<String>,
     is_chain_root: bool,
-    is_markdown_mode: bool,
-    is_markdown_streaming: bool,
     is_editing: bool,
     input_text: String,
     linked_restore_ids: Vec<u64>,
@@ -153,12 +151,6 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
     std::thread::spawn(move || {
         let coinit = unsafe { CoInitialize(None) };
 
-        let render_mode = if window.is_markdown_mode {
-            "markdown"
-        } else {
-            "text"
-        };
-
         let hwnd = create_result_window(ResultWindowParams {
             target_rect: window.rect,
             win_type: WindowType::Primary,
@@ -169,7 +161,6 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
             start_editing: window.is_editing,
             preset_prompt: window.preset_prompt.clone(),
             custom_bg_color: window.bg_color,
-            render_mode,
             initial_text: window.full_text.clone(),
             preset_id: window.preset_id.clone(),
             is_chain_root: window.is_chain_root,
@@ -199,9 +190,6 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
                 state.was_streaming_active = false;
                 state.bg_color = window.bg_color;
                 state.linked_windows.clear();
-                state.is_markdown_mode = window.is_markdown_mode;
-                state.is_markdown_streaming =
-                    window.is_markdown_mode && window.is_markdown_streaming;
                 state.is_browsing = false;
                 state.navigation_depth = 0;
                 state.max_navigation_depth = 0;
@@ -213,9 +201,7 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
             }
         }
 
-        let alpha = ((window.opacity_percent as f32 / 100.0) * 255.0).round() as u8;
         unsafe {
-            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA);
             let _ = ShowWindow(hwnd, SW_SHOWNA);
         }
         button_canvas::update_window_position(hwnd);
@@ -293,8 +279,6 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
             opacity_percent: state.opacity_percent,
             preset_id: state.preset_id.clone(),
             is_chain_root: state.is_chain_root,
-            is_markdown_mode: state.is_markdown_mode,
-            is_markdown_streaming: state.is_markdown_streaming,
             is_editing: state.is_editing,
             input_text: state.input_text.clone(),
             linked_restore_ids: state

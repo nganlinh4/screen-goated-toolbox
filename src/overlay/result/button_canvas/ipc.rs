@@ -36,17 +36,13 @@ pub fn handle_ipc_message(body: &str) {
             "undo" => handle_undo(hwnd),
             "redo" => handle_redo(hwnd),
             "edit" => handle_edit(hwnd),
-            "markdown" => crate::overlay::result::trigger_markdown_toggle(hwnd),
             "download" => handle_download(hwnd),
             "back" => handle_back(hwnd),
             "forward" => handle_forward(hwnd),
             "speaker" => handle_speaker(hwnd),
-            "broom_click" => handle_broom_click(hwnd),
-            "broom_right" => handle_broom_right(hwnd),
-            "broom_middle" => crate::overlay::result::trigger_close_all(),
-            "broom_drag_start" => handle_broom_drag_start(hwnd, false, false),
-            "broom_group_drag_start" => handle_broom_drag_start(hwnd, true, false),
-            "broom_all_drag_start" => handle_broom_drag_start(hwnd, true, true),
+            "result_drag_start" => handle_result_drag_start(hwnd, false, false),
+            "result_group_drag_start" => handle_result_drag_start(hwnd, true, false),
+            "result_all_drag_start" => handle_result_drag_start(hwnd, true, true),
             "set_opacity" => handle_set_opacity(hwnd, &json),
             "request_update" => update_canvas(),
             "submit_refine" => handle_submit_refine(hwnd, &json),
@@ -192,28 +188,7 @@ fn handle_speaker(hwnd: HWND) {
     }
 }
 
-fn handle_broom_click(hwnd: HWND) {
-    unsafe {
-        if IsWindow(Some(hwnd)).as_bool() {
-            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
-    }
-}
-
-fn handle_broom_right(hwnd: HWND) {
-    unsafe {
-        if IsWindow(Some(hwnd)).as_bool() {
-            let _ = PostMessageW(
-                Some(hwnd),
-                super::super::event_handler::misc::WM_CLOSE_GROUP_CLICK,
-                WPARAM(0),
-                LPARAM(0),
-            );
-        }
-    }
-}
-
-fn handle_broom_drag_start(hwnd: HWND, is_group: bool, is_all: bool) {
+fn handle_result_drag_start(hwnd: HWND, is_group: bool, is_all: bool) {
     unsafe {
         use windows::Win32::UI::Input::KeyboardAndMouse::SetCapture;
 
@@ -255,8 +230,7 @@ fn handle_broom_drag_start(hwnd: HWND, is_group: bool, is_all: bool) {
 
 fn handle_set_opacity(hwnd: HWND, json: &serde_json::Value) {
     if let Some(value) = json.get("value").and_then(|v| v.as_f64()) {
-        let percent = value as u8;
-        let alpha = ((value / 100.0) * 255.0) as u8;
+        let percent = value.clamp(0.0, 100.0).round() as u8;
 
         // Update state so it persists across button canvas refreshes
         {
@@ -266,10 +240,8 @@ fn handle_set_opacity(hwnd: HWND, json: &serde_json::Value) {
             }
         }
 
-        unsafe {
-            use windows::Win32::UI::WindowsAndMessaging::{LWA_ALPHA, SetLayeredWindowAttributes};
-            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA);
-        }
+        let visible = unsafe { IsWindowVisible(hwnd).as_bool() };
+        crate::overlay::result::scene_compositor::sync_window(hwnd, visible);
     }
 }
 

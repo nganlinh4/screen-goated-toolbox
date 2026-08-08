@@ -179,6 +179,13 @@ fn handle_hotkey(id: i32) {
     // Get preset context
     let (preset_type, text_mode, is_audio_stopping, hotkey_name) =
         get_preset_context(id, preset_idx);
+    crate::log_info!(
+        "[Action] hotkey={} preset={} type={} input_mode={}",
+        hotkey_name,
+        preset_idx,
+        preset_type,
+        text_mode
+    );
 
     // Capture target window for paste (unless stopping audio)
     if !is_audio_stopping {
@@ -215,12 +222,6 @@ fn get_preset_context(id: i32, preset_idx: usize) -> (String, String, bool, Stri
         let hk_name = if hk_idx < p.hotkeys.len() {
             let hk = &p.hotkeys[hk_idx];
             if overlay::continuous_mode::supports_continuous_mode(&p_type) {
-                crate::log_info!(
-                    "[Hotkey] Setting current hotkey for hold detection: mods={}, code={}, name='{}'",
-                    hk.modifiers,
-                    hk.code,
-                    hk.name
-                );
                 overlay::continuous_mode::set_current_hotkey(hk.modifiers, hk.code);
                 overlay::continuous_mode::set_latest_hotkey_name(hk.name.clone());
             }
@@ -293,27 +294,13 @@ fn handle_text_preset(
 
 /// Handle text preset in select mode.
 fn handle_text_select_mode(preset_idx: usize, hotkey_name: &str, just_activated_continuous: bool) {
-    let ts_active = overlay::text_selection::is_active();
-    let ts_warming = overlay::text_selection::is_warming_up();
-    let ts_held = overlay::text_selection::is_hotkey_held();
     let cm_active = overlay::continuous_mode::is_active();
 
-    crate::log_info!(
-        "[TextHotkey] Entering text handling: ts_active={}, ts_warming={}, ts_held={}, cm_active={}, just_activated={}",
-        ts_active,
-        ts_warming,
-        ts_held,
-        cm_active,
-        just_activated_continuous
-    );
-
     let is_visible = overlay::text_selection::is_active();
-    crate::log_info!("[TextHotkey] State check: visible={}", is_visible);
 
     if is_visible {
         if !overlay::text_selection::is_hotkey_held() {
             if cm_active {
-                crate::log_info!("[TextHotkey] Continuous mode active - trying instant process");
                 let is_proc = overlay::text_selection::is_processing();
                 if !is_proc {
                     std::thread::spawn(move || {
@@ -332,7 +319,6 @@ fn handle_text_select_mode(preset_idx: usize, hotkey_name: &str, just_activated_
                 if overlay::preset_wheel::is_wheel_active() {
                     return;
                 }
-                crate::log_info!("[TextHotkey] Toggle OFF - cancelling text selection");
                 overlay::text_selection::cancel_selection();
             }
         } else {
@@ -350,12 +336,7 @@ fn handle_text_select_mode(preset_idx: usize, hotkey_name: &str, just_activated_
                     }
                 };
 
-                if is_master {
-                    crate::log_info!(
-                        "[TextHotkey] Held - but master preset, skipping continuous mode"
-                    );
-                } else {
-                    crate::log_info!("[TextHotkey] Held - activating text continuous mode");
+                if !is_master {
                     overlay::continuous_mode::activate(preset_idx, hotkey_name.to_string());
                     overlay::text_selection::update_badge_for_continuous_mode();
 
@@ -377,33 +358,23 @@ fn handle_text_select_mode(preset_idx: usize, hotkey_name: &str, just_activated_
                         );
                     }
                 }
-            } else {
-                crate::log_info!(
-                    "[TextHotkey] Held - updating heartbeat only (continuous already active)"
-                );
             }
             overlay::continuous_mode::update_last_trigger_time();
         }
-    } else if overlay::text_selection::is_warming_up() {
-        crate::log_info!("[TextHotkey] Warming up - waiting");
-        overlay::continuous_mode::update_last_trigger_time();
-    } else if overlay::continuous_mode::is_active()
-        && !just_activated_continuous
-        && !overlay::image_continuous_mode::is_active()
+    } else if overlay::text_selection::is_warming_up()
+        || (overlay::continuous_mode::is_active()
+            && !just_activated_continuous
+            && !overlay::image_continuous_mode::is_active())
     {
         overlay::continuous_mode::update_last_trigger_time();
     } else {
         let is_proc = overlay::text_selection::is_processing();
-        crate::log_info!("[TextHotkey] is_processing={}", is_proc);
         if is_proc {
             return;
         }
 
         std::thread::spawn(move || {
-            crate::log_info!("[TextHotkey] Spawned thread starting");
             overlay::show_text_selection_tag(preset_idx);
-            crate::log_info!("[TextHotkey] Badge show called");
-
             let success = overlay::text_selection::try_instant_process(preset_idx);
 
             if success && !overlay::continuous_mode::is_active() {

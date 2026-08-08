@@ -273,12 +273,7 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
         RefineContext::None
     };
 
-    let stream_en = if block.render_mode == "markdown" || skip_execution {
-        false
-    } else {
-        block.streaming_enabled
-    };
-    let render_md = block.render_mode.clone();
+    let stream_en = block.streaming_enabled && !skip_execution;
     let is_image_block = block.block_type == "image";
     let is_input_adapter_image =
         block.block_type == "input_adapter" && matches!(context, RefineContext::Image(_));
@@ -321,7 +316,6 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
             start_editing: false,
             preset_prompt: prompt_c,
             custom_bg_color: bg_color,
-            render_mode: &render_md,
             initial_text: initial_content_clone,
             preset_id: Some(preset_id_for_window),
             is_chain_root: is_root,
@@ -394,7 +388,6 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
             if let Some(st) = s.get_mut(&(h.0 as isize)) {
                 st.is_refining = false;
                 st.is_streaming_active = false;
-                st.font_cache_dirty = true;
             }
         } else if block.block_type != "image" {
             let mut s = WINDOW_STATES.lock().unwrap();
@@ -403,7 +396,6 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
                 st.is_refining = true;
                 st.is_streaming_active = true;
                 st.was_streaming_active = true;
-                st.font_cache_dirty = true;
             }
         } else {
             let mut s = WINDOW_STATES.lock().unwrap();

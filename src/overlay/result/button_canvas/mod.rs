@@ -206,7 +206,6 @@ fn update_window_position_internal(hwnd: HWND, notify: bool) {
 
     if notify {
         update_canvas();
-        update_canvas();
     }
 }
 
@@ -276,8 +275,10 @@ pub fn set_drag_mode(active: bool) {
     if active {
         IS_DRAGGING_EXTERNAL.store(true, Ordering::SeqCst);
         unsafe {
-            let _ = SetWindowRgn(hwnd, None, true);
+            let empty = CreateRectRgn(0, 0, 0, 0);
+            let _ = SetWindowRgn(hwnd, Some(empty), true);
         }
+        update_canvas();
     } else {
         IS_DRAGGING_EXTERNAL.store(false, Ordering::SeqCst);
 
