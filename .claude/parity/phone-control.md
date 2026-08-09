@@ -599,6 +599,11 @@ device timeout or release a still-running production operation.
   This preserves exact pixels while underlying apps remain interactive. During
   an accessibility-service reconnect, an application-overlay fallback may render
   only at the platform-reported non-obscuring alpha until the trusted host returns.
+- Android follows the shared
+  `parity-fixtures/android-webview-overlays/rendering-contract.json`: the overlay
+  window owns hardware acceleration, latest visual/drag work is conflated to one
+  display-frame dispatch, dragging never relays out the unchanged full-display
+  renderer window, and normalized position is persisted only at gesture end.
 - The renderer's canonical `orbRegion` message is the only capture-exclusion
   geometry. It covers the liquid body, full glow, and current caption. Android
   scales that region from the renderer viewport into display coordinates and
@@ -1571,6 +1576,8 @@ tool plan and capability route.
   `parity-fixtures/phone-control/activation-flow.json`
 - Shared diagnostics and target-recovery fixture:
   `parity-fixtures/phone-control/diagnostics-contract.json`
+- Shared Android WebView rendering fixture:
+  `parity-fixtures/android-webview-overlays/rendering-contract.json`
 - Shared socket lifecycle fixture:
   `parity-fixtures/gemini-live-session/lifecycle.json`
 - Windows acceptance suite:

@@ -16,6 +16,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.FrameLayout
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
+import dev.screengoated.toolbox.mobile.service.overlay.overlayWebViewWindowFlags
 
 internal data class PresetOverlayWindowSpec(
     val width: Int,
@@ -66,7 +67,9 @@ internal class PresetOverlayWindow(
                 spec.width,
                 spec.height,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                buildOverlayWindowFlags(currentFocusable, watchOutsideTouch),
+                overlayWebViewWindowFlags(
+                    buildOverlayWindowFlags(currentFocusable, watchOutsideTouch),
+                ),
                 android.graphics.PixelFormat.TRANSLUCENT,
             ),
         )
@@ -293,7 +296,9 @@ internal class PresetOverlayWindow(
             return
         }
         currentFocusable = focusable
-        layoutParams.flags = buildOverlayWindowFlags(focusable, watchOutsideTouch = watchOutsideTouch)
+        layoutParams.flags = overlayWebViewWindowFlags(
+            buildOverlayWindowFlags(focusable, watchOutsideTouch = watchOutsideTouch),
+        )
         if (focusable) {
             layoutParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN or
                 WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE

@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
-import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -13,6 +12,7 @@ import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.RealtimePaneFontSizes
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
+import dev.screengoated.toolbox.mobile.service.overlay.configureOverlayWebViewRendering
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import org.json.JSONObject
@@ -69,10 +69,7 @@ internal fun buildOverlayWebView(
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
         settings.setSupportZoom(false)
-        // Hardware rendering for backdrop-blur and GPU compositing.
-        // Chrome GPU crash on rapid session restart is mitigated by the
-        // 300ms restart delay in OverlayController.
-        setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        configureOverlayWebViewRendering(this)
         webChromeClient = object : WebChromeClient() {
             override fun onJsAlert(
                 view: WebView?,
