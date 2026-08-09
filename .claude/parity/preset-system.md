@@ -58,6 +58,7 @@
 - Permission-gated image/audio paths fail before capture, explain the required Android permission, and preserve retry state.
 - Image presets support continuous relaunch. Non-image continuous mode remains a documented gap.
 - Result windows are session-owned, precreated in loading state, multi-window, and support markdown streaming or raw HTML according to block render mode.
+- Android result and mini-app WebViews follow [the shared Android overlay rendering contract](../../parity-fixtures/android-webview-overlays/rendering-contract.json): each overlay window owns hardware acceleration and its WebView composes directly without a persistent offscreen hardware layer.
 - Reuse Windows markdown fitting/theme/font/table and button-canvas contracts. Preserve text selection, one-finger window drag, two-finger bidirectional content scroll, navigation recovery, and result geometry ownership.
 - Edit/refine, undo/redo, share/download, and speaker actions are real Android actions. Do not list implemented actions as placeholders.
 - Android still omits the desktop markdown/plain toggle and broom mouse-button variants.
@@ -148,6 +149,7 @@
 - [gemini-live-socket-protocol.json](../../parity-fixtures/preset-system/gemini-live-socket-protocol.json)
 - [node-graph-editor.json](../../parity-fixtures/preset-system/node-graph-editor.json)
 - [result-overlay.json](../../parity-fixtures/preset-system/result-overlay.json)
+- [Android WebView overlay rendering](../../parity-fixtures/android-webview-overlays/rendering-contract.json)
 - [retry-runtime.json](../../parity-fixtures/preset-system/retry-runtime.json)
 - [text-input-overlay.json](../../parity-fixtures/preset-system/text-input-overlay.json)
 - [text-provider-routing.json](../../parity-fixtures/preset-system/text-provider-routing.json)

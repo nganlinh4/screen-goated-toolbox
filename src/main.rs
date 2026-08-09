@@ -12,7 +12,6 @@ mod atomic_json;
 #[cfg(test)]
 mod catalog_benchmark;
 mod config;
-mod creation_feature_availability;
 mod debug_log;
 pub mod gui;
 mod history;
