@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 8,
+  "schemaVersion": 9,
   "feature": "phone-control",
   "canonical_windows_files": [
     "docs/COMPUTER_CONTROL_DEVELOPMENT.md",
@@ -91,6 +91,21 @@
       "user_chars",
       "assistant_chars"
     ]
+  },
+  "assistantActivationDiagnostics": {
+    "requestEvent": "assistant_invocation",
+    "requestFields": [
+      "route",
+      "gateway_task_id",
+      "dispatch_requested"
+    ],
+    "coordinatorAcknowledgementEvents": [
+      "coordinator_open",
+      "coordinator_reentry"
+    ],
+    "coordinatorSourceField": "source",
+    "assistContextPersisted": false,
+    "dispatchRequestedMeansVisible": false
   },
   "toolEvents": {
     "dispatch": "tool_dispatched",

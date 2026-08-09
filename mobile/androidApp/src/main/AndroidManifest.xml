@@ -99,6 +99,21 @@
             android:launchMode="singleTop"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <activity
+            android:name=".phonecontrol.ui.PhoneControlAssistActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/phone_control_title"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".service.LiveTranslateService"
             android:enabled="true"

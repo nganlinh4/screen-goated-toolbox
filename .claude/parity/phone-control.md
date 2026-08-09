@@ -182,6 +182,21 @@ and replies remain multilingual without language-specific routing.
    The card has the same compact **Turn on / Turn off** interaction as Live
    Translate and sits directly beside it in the app carousel; it does not open a
    Phone Control page.
+   Android also exposes one dedicated `ACTION_ASSIST` activity so the package is
+   eligible for the system's default digital-assistant selection. The exported
+   activity is a stateless platform gateway; the activation coordinator remains
+   private. A system assistant invocation starts the same activation flow when
+   Phone Control is stopped, requests capture resume when a live session is
+   capture-suspended, and otherwise preserves the already-running session. It
+   ignores every other action and does not read or persist assist-context extras.
+   Each actionable invocation explicitly re-enters the app-owned coordinator
+   task with new-task, clear-top, and single-top semantics, so an app Settings
+   surface above the stateless gateway cannot hide a later invocation. The
+   gateway records only the structural request and the coordinator records its
+   source acknowledgement; dispatch alone is never treated as proof of visibility.
+   Full and Play declare the same gateway. This follows Android's current
+   [assistant-role qualification](https://developer.android.com/reference/androidx/core/role/RoleManagerCompat#ROLE_ASSISTANT)
+   without adding an always-resident voice-interaction service.
 2. **Turn on** runs one structural activation coordinator. It probes current
    evidence and opens only the next missing app-owned permission request or
    Android-owned settings surface. On return it re-probes and continues. It
@@ -403,6 +418,10 @@ step, user-step presentation and return, Settings app-row opening, observed gran
 bounded return, service start acceptance, and terminal runtime state. These are
 content-free receipts: API keys, transcripts, labels, page content, and Android
 Settings text never enter them.
+System-assistant requests additionally record the structural route, gateway task
+identity, and whether coordinator dispatch was requested. A subsequent
+coordinator open or re-entry carries a bounded source acknowledgement, allowing
+request-versus-arrival diagnosis without persisting assist context.
 
 The activation transition table is machine-readable in
 `parity-fixtures/phone-control/activation-flow.json`. It is capability based,
@@ -1048,7 +1067,12 @@ instead of returning a partial listing as complete, and never exposes arbitrary
 shell interpretation through `list_files`.
 
 `launch_app` resolves its input by structure, not by language or filename
-guessing. Exact installed package/label inputs use the launcher API. Absolute
+guessing. Exact installed package/label inputs use the launcher API. Before
+launcher dispatch, an exact active-and-focused non-controller application
+surface for the resolved package is preserved and returns a proven-no-effect
+receipt. This prevents a redundant launch from restoring unrelated history in
+an already-foreground app; missing or ambiguous foreground evidence continues
+through the normal launcher path and is never reported as preserved. Absolute
 paths, standard-folder paths, `content:` URIs, and `file:` URIs use Android
 resource viewing with a MIME type, temporary read grant where applicable, and
 the platform chooser or owning handler. When `args` is present, it may identify
@@ -1450,6 +1474,10 @@ tool plan and capability route.
   records carry turn, generation, job, elapsed time, capability/provider state,
   observation identity, effect certainty, invalidation, recovery, retry, and
   user-step fields when present.
+- Assistant gateway records contain only route, gateway task identity, and the
+  coordinator-dispatch request bit. Coordinator open/re-entry records carry the
+  structural source acknowledgement. Neither record contains assist extras or
+  claims that a requested dispatch became visible.
 - Tool dispatch records include only sorted argument field names plus aggregate
   field and UTF-8 byte counts, never argument values. Tool receipts retain
   bounded `failure_class` and `provider_route_error` symbols when present so a

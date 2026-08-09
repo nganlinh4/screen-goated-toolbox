@@ -16,7 +16,7 @@ class PhoneControlActivationFlowTest {
     @Test
     fun `activation reducer and launcher contract match the shared fixture`() {
         val fixture = Json.parseToJsonElement(fixtureFile().readText()).jsonObject
-        assertEquals(28L, fixture.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(30L, fixture.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals(
             PhoneControlActivationStep.entries.map(PhoneControlActivationStep::wireName),
             fixture.getValue("requiredOrder").jsonArray.map { it.jsonPrimitive.content },
@@ -26,6 +26,35 @@ class PhoneControlActivationFlowTest {
         assertEquals("apps_card", invariants.string("launcherSurface"))
         assertEquals("adjacent_to_live_translate", invariants.string("launcherPlacement"))
         assertFalse(invariants.boolean("innerSetupScreen"))
+        val assistantEntry = invariants.getValue("systemAssistantEntry").jsonObject
+        assertEquals(
+            "exported_action_assist_activity",
+            assistantEntry.string("eligibility"),
+        )
+        assertEquals("android.intent.action.ASSIST", assistantEntry.string("intentAction"))
+        assertEquals("android.intent.category.DEFAULT", assistantEntry.string("intentCategory"))
+        assertEquals("dedicated_stateless_activity", assistantEntry.string("gateway"))
+        assertEquals("private", assistantEntry.string("activationCoordinator"))
+        assertEquals(
+            "explicit_app_task_new_task_clear_top_single_top",
+            assistantEntry.string("coordinatorDispatch"),
+        )
+        assertEquals(
+            "assistant_request_then_coordinator_source_ack",
+            assistantEntry.string("dispatchReceipt"),
+        )
+        assertEquals(
+            "run_normal_activation_coordinator",
+            assistantEntry.string("stoppedSession"),
+        )
+        assertEquals(
+            "request_capture_resume",
+            assistantEntry.string("captureSuspendedSession"),
+        )
+        assertEquals("preserve", assistantEntry.string("runningSession"))
+        assertEquals("ignore", assistantEntry.string("otherAction"))
+        assertFalse(assistantEntry.boolean("assistContextConsumption"))
+        assertTrue(assistantEntry.boolean("distributionParity"))
         assertEquals("existing_settings_section_with_toast", invariants.string("apiKeySurface"))
         assertTrue(invariants.boolean("opensGeneralSettingsForApiKey"))
         val languageContract = invariants.getValue("languageContract").jsonObject
@@ -95,6 +124,10 @@ class PhoneControlActivationFlowTest {
         assertEquals(
             "restore_normal_conversation_before_new_turn",
             internalAutomation.string("userInterruption"),
+        )
+        assertEquals(
+            "preserve_exact_active_focused_application_surface_with_proven_no_effect_receipt",
+            internalAutomation.string("foregroundPackageRelaunch"),
         )
         val setupBoundary = invariants.getValue("setupSessionBoundary").jsonObject
         assertEquals(

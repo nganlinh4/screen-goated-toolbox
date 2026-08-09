@@ -22,6 +22,7 @@ class PhoneControlDiagnosticsContractTest {
         val bridgeEvents = journal.getValue("authorityBridgeEvents").jsonObject
         val legacyCompaction = journal.getValue("legacyInvalidationCompaction").jsonObject
         val timelineTail = journal.getValue("timelineTail").jsonObject
+        val assistantActivation = root.getValue("assistantActivationDiagnostics").jsonObject
         val toolEvents = root.getValue("toolEvents").jsonObject
         val invalidArguments = root.getValue("invalidArgumentClassification").jsonObject
         val captureRoutes = root.getValue("captureRouteDiagnostics").jsonObject
@@ -30,7 +31,7 @@ class PhoneControlDiagnosticsContractTest {
         val recovery = root.getValue("sameGenerationTargetRecovery").jsonObject
         val postconditions = root.getValue("postconditions").jsonObject
 
-        assertEquals(8L, root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(9L, root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals(
             PhoneControlLog.RECORD_SCHEMA_VERSION.toLong(),
             journal.getValue("recordSchemaVersion").jsonPrimitive.long,
@@ -104,6 +105,20 @@ class PhoneControlDiagnosticsContractTest {
         assertEquals(
             "sorted_names_only_no_values",
             toolEvents.getValue("argumentKeys").jsonPrimitive.content,
+        )
+        assertEquals(
+            listOf("route", "gateway_task_id", "dispatch_requested"),
+            assistantActivation.getValue("requestFields").jsonArray.map {
+                it.jsonPrimitive.content
+            },
+        )
+        assertEquals(
+            "source",
+            assistantActivation.getValue("coordinatorSourceField").jsonPrimitive.content,
+        )
+        assertFalse(assistantActivation.getValue("assistContextPersisted").jsonPrimitive.boolean)
+        assertFalse(
+            assistantActivation.getValue("dispatchRequestedMeansVisible").jsonPrimitive.boolean,
         )
         assertEquals(
             listOf("failure_class", "provider_route_error"),
