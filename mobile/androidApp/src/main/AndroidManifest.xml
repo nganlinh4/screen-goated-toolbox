@@ -146,13 +146,6 @@
             android:exported="false" />
 
         <activity
-            android:name=".service.BubblePermissionActivity"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:excludeFromRecents="true"
-            android:taskAffinity=""
-            android:exported="false" />
-
-        <activity
             android:name=".ProjectionConsentProxyActivity"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true"
