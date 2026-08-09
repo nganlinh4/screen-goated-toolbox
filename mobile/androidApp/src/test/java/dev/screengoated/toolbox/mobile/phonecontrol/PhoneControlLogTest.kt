@@ -103,6 +103,23 @@ class PhoneControlLogTest {
     }
 
     @Test
+    fun `assistant diagnostics distinguish request from coordinator acknowledgement`() {
+        val request = PhoneControlLog.parseDiagnosticEvent(
+            "assistant_invocation route=activate gateway_task_id=81 " +
+                "dispatch_requested=true assist_context=private",
+        )
+        val acknowledgement = PhoneControlLog.parseDiagnosticEvent(
+            "coordinator_reentry mode=activate source=system_assistant",
+        )
+
+        assertEquals("activate", request.fields["route"])
+        assertEquals(81L, request.fields["gateway_task_id"])
+        assertEquals(true, request.fields["dispatch_requested"])
+        assertFalse(request.fields.containsKey("assist_context"))
+        assertEquals("system_assistant", acknowledgement.fields["source"])
+    }
+
+    @Test
     fun `process roles own separate bounded journal pairs`() {
         assertEquals(
             "events.jsonl",

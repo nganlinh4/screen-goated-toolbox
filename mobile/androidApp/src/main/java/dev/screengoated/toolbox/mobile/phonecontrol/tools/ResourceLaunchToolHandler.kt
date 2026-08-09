@@ -14,6 +14,9 @@ import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlProvi
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidAppPackageResolution
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidAppProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidProviderResult
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityObservation
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandResult
@@ -91,7 +94,7 @@ internal class ResourceLaunchToolHandler(
         job: PhoneControlToolJobContext,
         input: ResourceLaunchInput,
     ): PhoneControlToolExecution = when (input) {
-        is ResourceLaunchInput.App -> appResult(job, app.launchApp(input.name))
+        is ResourceLaunchInput.App -> launchApp(job, input.name)
         is ResourceLaunchInput.Content -> openContent(job, input.uri, null)
         is ResourceLaunchInput.Path -> openPath(job, input.file, null)
         is ResourceLaunchInput.Invalid -> failure(
@@ -101,6 +104,42 @@ internal class ResourceLaunchToolHandler(
             code = input.code,
             message = input.message,
         )
+    }
+
+    private suspend fun launchApp(
+        job: PhoneControlToolJobContext,
+        name: String,
+    ): PhoneControlToolExecution {
+        val packageName = when (val resolved = app.resolveExactLaunchablePackage(name)) {
+            is AndroidAppPackageResolution.Failure -> {
+                return appResult(
+                    job,
+                    AndroidProviderResult.Failure(resolved.code, resolved.message),
+                )
+            }
+            is AndroidAppPackageResolution.Resolved -> resolved.packageName
+        }
+        val observation = if (!PhoneControlAccessibilityProvider.isReady) {
+            null
+        } else {
+            when (val observed = PhoneControlAccessibilityProvider.observe()) {
+                is AccessibilityProviderResult.Success -> observed.value
+                is AccessibilityProviderResult.Failure -> null
+            }
+        }
+        if (observation != null && shouldPreserveForegroundLaunch(packageName, observation)) {
+            return appResult(
+                job,
+                AndroidProviderResult.Success(
+                    buildJsonObject {
+                        put("package", packageName)
+                        put("launch_disposition", "preserved_foreground")
+                        put("observation_generation", observation.generation)
+                    },
+                ),
+            )
+        }
+        return appResult(job, app.launchApp(packageName))
     }
 
     private fun openContent(
@@ -293,6 +332,17 @@ private fun invalidFailure(
     mutating = false,
     refreshScreenFrame = false,
 )
+}
+
+internal fun shouldPreserveForegroundLaunch(
+    packageName: String,
+    observation: AccessibilityObservation,
+): Boolean {
+    val foreground = observation.windows.filter { window ->
+        window.type == APPLICATION_WINDOW && window.active && window.focused &&
+            !window.controllerOwned && !window.packageName.isNullOrBlank()
+    }
+    return foreground.singleOrNull()?.packageName == packageName
 }
 
 internal sealed interface ResourceLaunchInput {

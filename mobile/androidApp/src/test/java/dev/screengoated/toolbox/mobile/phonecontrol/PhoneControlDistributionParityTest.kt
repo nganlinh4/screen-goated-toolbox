@@ -9,18 +9,40 @@ import org.w3c.dom.Element
 
 class PhoneControlDistributionParityTest {
     @Test
-    fun `shared manifest gives both distributions private Phone Control components`() {
+    fun `shared manifest keeps setup private behind the stateless assistant gateway`() {
         val manifest = xml("mobile/androidApp/src/main/AndroidManifest.xml")
         val activities = manifest.getElementsByTagName("activity").elements()
         val services = manifest.getElementsByTagName("service").elements()
         val activity = activities.single {
             it.androidAttribute("name").endsWith(".phonecontrol.ui.PhoneControlActivity")
         }
+        val assistantGateway = activities.single {
+            it.androidAttribute("name").endsWith(
+                ".phonecontrol.ui.PhoneControlAssistActivity",
+            )
+        }
         val service = services.single {
             it.androidAttribute("name").endsWith(".phonecontrol.PhoneControlService")
         }
 
         assertEquals("false", activity.androidAttribute("exported"))
+        assertEquals("true", assistantGateway.androidAttribute("exported"))
+        assertEquals("@string/phone_control_title", assistantGateway.androidAttribute("label"))
+        assertEquals("true", assistantGateway.androidAttribute("noHistory"))
+        assertEquals("", assistantGateway.androidAttribute("taskAffinity"))
+        val intentFilter = assistantGateway.getElementsByTagName("intent-filter")
+            .elements()
+            .single()
+        assertEquals(
+            listOf("android.intent.action.ASSIST"),
+            intentFilter.getElementsByTagName("action").elements()
+                .map { it.androidAttribute("name") },
+        )
+        assertEquals(
+            listOf("android.intent.category.DEFAULT"),
+            intentFilter.getElementsByTagName("category").elements()
+                .map { it.androidAttribute("name") },
+        )
         assertEquals("false", service.androidAttribute("exported"))
         assertEquals("true", service.androidAttribute("enabled"))
         assertEquals(

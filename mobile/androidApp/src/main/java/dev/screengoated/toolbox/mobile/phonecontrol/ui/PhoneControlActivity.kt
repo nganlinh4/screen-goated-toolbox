@@ -151,7 +151,7 @@ class PhoneControlActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         mode = intent.mode()
         PhoneControlCoordinatorReentryLauncher.acknowledge(intent, mode.wireName)
-        PhoneControlLog.i(TAG, "coordinator_open mode=${mode.wireName}")
+        PhoneControlLog.i(TAG, intent.phoneControlCoordinatorEvent("coordinator_open", mode.wireName))
         when (mode) {
             Mode.ACTIVATE -> advanceActivation()
             Mode.SGT_ADB -> startSgtAdbSetup()
@@ -175,7 +175,7 @@ class PhoneControlActivity : ComponentActivity() {
         setIntent(intent)
         mode = intent.mode()
         PhoneControlCoordinatorReentryLauncher.acknowledge(intent, mode.wireName)
-        PhoneControlLog.i(TAG, "coordinator_reentry mode=${mode.wireName}")
+        PhoneControlLog.i(TAG, intent.phoneControlCoordinatorEvent("coordinator_reentry", mode.wireName))
         awaitingStep = null
         projectionGrant = null
         when (mode) {

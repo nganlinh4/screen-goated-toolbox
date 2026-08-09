@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 28,
+  "schemaVersion": 30,
   "feature": "phone-control-activation",
   "requiredOrder": [
     "gemini_api",
@@ -13,6 +13,21 @@
     "launcherSurface": "apps_card",
     "launcherPlacement": "adjacent_to_live_translate",
     "innerSetupScreen": false,
+    "systemAssistantEntry": {
+      "eligibility": "exported_action_assist_activity",
+      "intentAction": "android.intent.action.ASSIST",
+      "intentCategory": "android.intent.category.DEFAULT",
+      "gateway": "dedicated_stateless_activity",
+      "activationCoordinator": "private",
+      "coordinatorDispatch": "explicit_app_task_new_task_clear_top_single_top",
+      "dispatchReceipt": "assistant_request_then_coordinator_source_ack",
+      "stoppedSession": "run_normal_activation_coordinator",
+      "captureSuspendedSession": "request_capture_resume",
+      "runningSession": "preserve",
+      "otherAction": "ignore",
+      "assistContextConsumption": false,
+      "distributionParity": true
+    },
     "apiKeySurface": "existing_settings_section_with_toast",
     "opensGeneralSettingsForApiKey": true,
     "languageContract": {
@@ -47,7 +62,8 @@
       "orbPresentation": "preserve_setup_owned_caption_state_and_icon",
       "memory": "exclude_entire_internal_turn",
       "completionFeedback": "localized_structural_state",
-      "userInterruption": "restore_normal_conversation_before_new_turn"
+      "userInterruption": "restore_normal_conversation_before_new_turn",
+      "foregroundPackageRelaunch": "preserve_exact_active_focused_application_surface_with_proven_no_effect_receipt"
     },
     "setupSessionBoundary": {
       "startAnnouncement": "one_localized_app_owned_voice_message",
