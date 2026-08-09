@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "feature": "android_webview_overlay_rendering",
+  "consumers": [
+    "phone_control_orb",
+    "live_translate_pane",
+    "preset_overlay_window"
+  ],
+  "invariants": {
+    "hardwareAccelerationOwner": "window_before_attach",
+    "webViewLayer": "none_direct_window_composition",
+    "rendererPriority": "important",
+    "latestVisualDispatchCadence": "at_most_once_per_display_frame",
+    "gestureGeometryCadence": "at_most_once_per_display_frame",
+    "phoneControlRendererLayoutMutation": "attachment_or_configuration_only",
+    "phoneControlPositionPersistence": "gesture_terminal_only",
+    "visualEffects": "canonical_windows_html_unchanged"
+  }
+}

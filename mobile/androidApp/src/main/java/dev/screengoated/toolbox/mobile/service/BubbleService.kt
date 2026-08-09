@@ -24,7 +24,6 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
-import androidx.core.net.toUri
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
@@ -69,11 +68,7 @@ class BubbleService : Service() {
 
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, uiLocalized().getString(R.string.bubble_overlay_permission_required), Toast.LENGTH_SHORT).show()
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                "package:$packageName".toUri(),
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(intent)
+            Log.i(TAG, "overlay_permission_missing action=${Settings.ACTION_MANAGE_OVERLAY_PERMISSION}")
             stopSelf()
             return
         }
@@ -137,6 +132,7 @@ class BubbleService : Service() {
             attached = true
             presetOverlayController?.updateBubbleBounds(currentBubbleBounds())
             isRunning = true
+            SgtTileService.requestStateRefresh(this)
         }.onFailure {
             Log.e(TAG, "BubbleService failed to start", it)
             Toast.makeText(this, uiLocalized().getString(R.string.bubble_start_failed), Toast.LENGTH_SHORT).show()
@@ -147,6 +143,7 @@ class BubbleService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
+        SgtTileService.requestStateRefresh(this)
         if (resetPositionOnDestroy) {
             resetBubblePosition()
         } else {

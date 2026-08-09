@@ -12,6 +12,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
+import dev.screengoated.toolbox.mobile.service.overlay.configureOverlayWebViewRendering
 import org.json.JSONObject
 
 internal data class PhoneControlOrbPlacement(
@@ -32,6 +33,8 @@ internal class PhoneControlOrbView(
     private var placement: PhoneControlOrbPlacement? = null
     private var appliedVisual: PhoneControlOverlayVisual? = null
     private var appliedPlacement: PhoneControlOrbPlacement? = null
+    private var renderScheduled = false
+    private var dismissAnimating = false
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
@@ -42,8 +45,7 @@ internal class PhoneControlOrbView(
         isHorizontalScrollBarEnabled = false
         isVerticalScrollBarEnabled = false
         overScrollMode = OVER_SCROLL_NEVER
-        setLayerType(LAYER_TYPE_HARDWARE, null)
-        setRendererPriorityPolicy(RENDERER_PRIORITY_IMPORTANT, false)
+        configureOverlayWebViewRendering(this)
         alpha = 0f
         settings.apply {
             javaScriptEnabled = true
@@ -82,11 +84,12 @@ internal class PhoneControlOrbView(
     fun render(next: PhoneControlOverlayVisual, nextPlacement: PhoneControlOrbPlacement) {
         visual = next
         placement = nextPlacement
-        if (ready) applyVisual(next, nextPlacement)
+        scheduleVisualApply()
     }
 
     fun animateDismiss() {
         if (disposed) return
+        dismissAnimating = true
         if (ready) {
             evaluateJavascript("window.cc.hide();", null)
         } else {
@@ -98,6 +101,7 @@ internal class PhoneControlOrbView(
         if (disposed) return
         disposed = true
         ready = false
+        renderScheduled = false
         onVisibleRegionChanged(this, null)
         removeJavascriptInterface(IPC_BRIDGE)
         stopLoading()
@@ -108,10 +112,16 @@ internal class PhoneControlOrbView(
         super.onSizeChanged(width, height, oldWidth, oldHeight)
         if (width == oldWidth && height == oldHeight) return
         appliedPlacement = null
-        if (ready) {
-            val nextVisual = visual ?: return
-            val nextPlacement = placement ?: return
-            applyVisual(nextVisual, nextPlacement)
+        scheduleVisualApply()
+    }
+
+    private fun scheduleVisualApply() {
+        if (disposed || dismissAnimating || !ready || renderScheduled) return
+        renderScheduled = true
+        postOnAnimation {
+            renderScheduled = false
+            if (disposed || dismissAnimating || !ready) return@postOnAnimation
+            applyVisual(visual ?: return@postOnAnimation, placement ?: return@postOnAnimation)
         }
     }
 
@@ -165,11 +175,7 @@ internal class PhoneControlOrbView(
                     if (disposed) return@post
                     ready = true
                     alpha = 1f
-                    val nextVisual = visual
-                    val nextPlacement = placement
-                    if (nextVisual != null && nextPlacement != null) {
-                        applyVisual(nextVisual, nextPlacement)
-                    }
+                    scheduleVisualApply()
                     PhoneControlLog.i(
                         TAG,
                         "renderer_ready source=canonical_windows surface=full_display",

@@ -65,10 +65,10 @@ class LiveSessionRuntime(
         hostScope = scope
         scope.launch {
             stopSession(keepOverlay = false)
-            // Delay before creating hardware-accelerated overlay WebViews. When the
+            // Delay before creating hardware-accelerated overlay windows. When the
             // service is started by ProjectionConsentProxyActivity, the activity's
             // surface is still tearing down. Chrome GPU crashes with a null-deref if
-            // we create LAYER_TYPE_HARDWARE WebViews during that compositor transition.
+            // we attach WebViews during that compositor transition.
             delay(600)
             launchSession(scope, preserveFrozenPrefix = false)
         }

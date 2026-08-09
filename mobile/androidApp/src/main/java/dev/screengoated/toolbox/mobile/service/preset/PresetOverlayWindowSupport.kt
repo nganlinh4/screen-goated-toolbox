@@ -20,6 +20,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.net.toUri
+import dev.screengoated.toolbox.mobile.service.overlay.configureOverlayWebViewRendering
 import org.json.JSONObject
 import java.util.Base64
 
@@ -300,7 +301,7 @@ internal fun configureOverlayWebView(
     webView.settings.useWideViewPort = false
     webView.settings.loadWithOverviewMode = false
     webView.settings.textZoom = 100
-    webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+    configureOverlayWebViewRendering(webView)
 }
 
 private fun isManagedWebViewUrl(url: String): Boolean {

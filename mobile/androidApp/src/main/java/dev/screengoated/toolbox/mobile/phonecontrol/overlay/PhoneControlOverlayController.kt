@@ -21,6 +21,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerChoice
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
 import dev.screengoated.toolbox.mobile.service.DismissAction
 import dev.screengoated.toolbox.mobile.service.DismissBubbleController
+import dev.screengoated.toolbox.mobile.service.overlay.overlayWebViewWindowFlags
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
@@ -67,10 +68,8 @@ internal class PhoneControlOverlayController(
     private var powerPromptVisible = PhoneControlPowerPreferences.current(context) == null
     private var dismissing = false
     private var destroyed = false
-
     @Volatile
     private var interactionBounds: Rect? = null
-
     @Volatile
     private var rendererBounds: Rect? = null
 
@@ -172,7 +171,7 @@ internal class PhoneControlOverlayController(
         orb?.render(renderedVisual, currentPlacement())
         val windowSetChanged = !orbWasAttached || promptWasAttached != (powerPrompt != null)
         if (needsOverlayLayoutUpdate(forceLayout, windowSetChanged)) {
-            updateLayouts()
+            updateLayouts(updateRendererLayout = forceLayout)
         }
         refreshInteractionBounds()
     }
@@ -204,10 +203,10 @@ internal class PhoneControlOverlayController(
         val rendererLayout = overlayLayoutParams(
             width = WindowManager.LayoutParams.MATCH_PARENT,
             height = WindowManager.LayoutParams.MATCH_PARENT,
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            flags = overlayWebViewWindowFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN),
         ).apply {
             alpha = host.rendererAlpha
             configureFullDisplayLayout()
@@ -313,14 +312,19 @@ internal class PhoneControlOverlayController(
         }
     }
 
-    private fun updateLayouts(persistPosition: Boolean = true) {
+    private fun updateLayouts(
+        persistPosition: Boolean = true,
+        updateRendererLayout: Boolean = false,
+    ) {
         val orbView = orb ?: return
         val rendererLayout = orbParams ?: return
         val touchView = touchTarget ?: return
         val targetLayout = touchParams ?: return
         clampAndSavePosition(persistPosition)
-        rendererLayout.configureFullDisplayLayout()
-        runCatching { host.windowManager.updateViewLayout(orbView, rendererLayout) }
+        if (updateRendererLayout) {
+            rendererLayout.configureFullDisplayLayout()
+            runCatching { host.windowManager.updateViewLayout(orbView, rendererLayout) }
+        }
         runCatching { host.windowManager.updateViewLayout(touchView, targetLayout) }
         val renderedVisual = if (powerPromptVisible) visual.copy(caption = "") else visual
         orbView.render(renderedVisual, currentPlacement())
@@ -483,11 +487,7 @@ internal class PhoneControlOverlayController(
 
     private fun overlayLayoutParams(width: Int, height: Int, flags: Int) =
         WindowManager.LayoutParams(
-            width,
-            height,
-            host.windowType,
-            flags,
-            PixelFormat.TRANSLUCENT,
+            width, height, host.windowType, flags, PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START }
 
     private fun WindowManager.LayoutParams.configureFullDisplayLayout() {
@@ -503,11 +503,10 @@ internal class PhoneControlOverlayController(
         }
     }
 
-    private fun screenBounds(): Rect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        host.windowManager.currentWindowMetrics.bounds
-    } else {
-        legacyScreenBounds()
-    }
+    private fun screenBounds(): Rect =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            host.windowManager.currentWindowMetrics.bounds
+        } else legacyScreenBounds()
 
     @Suppress("DEPRECATION")
     private fun legacyScreenBounds(): Rect = Rect().also { bounds ->
@@ -526,6 +525,15 @@ internal class PhoneControlOverlayController(
 
     private inner class OrbTouchListener : View.OnTouchListener {
         private val gesture = PhoneControlOrbDragSession(context.dp(5).toFloat())
+        private var dragLayoutScheduled = false
+        private fun scheduleDragLayout(view: View) {
+            if (dragLayoutScheduled) return
+            dragLayoutScheduled = true
+            view.postOnAnimation {
+                dragLayoutScheduled = false
+                if (gesture.dragging) updateLayouts(persistPosition = false)
+            }
+        }
 
         override fun onTouch(view: View, event: MotionEvent): Boolean {
             val params = touchParams ?: return false
@@ -543,7 +551,7 @@ internal class PhoneControlOverlayController(
                         }
                         params.x = update.windowX
                         params.y = update.windowY
-                        updateLayouts()
+                        scheduleDragLayout(view)
                         dismissBubble.update(
                             dismissBubble.hit(event.rawX, event.rawY, screenBounds()),
                         )

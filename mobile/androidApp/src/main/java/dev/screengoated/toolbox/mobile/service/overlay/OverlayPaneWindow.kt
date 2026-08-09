@@ -41,9 +41,9 @@ internal class OverlayPaneWindow(
                 initialBounds.width,
                 initialBounds.height,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                overlayWebViewWindowFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL),
                 android.graphics.PixelFormat.TRANSLUCENT,
             ),
         )
