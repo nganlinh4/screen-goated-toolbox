@@ -38,8 +38,10 @@ function parseSectionedKotlin(content) {
   const map = new Map();
   const lines = content.split(/\r?\n/);
   const scopes = [];
+  const constructorCounts = new Map();
   let parenthesisDepth = 0;
   const namedCallRe = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[A-Za-z_][A-Za-z0-9_.]*(?:<[^>]+>)?\s*\(/;
+  const constructorCallRe = /^\s*([A-Z][A-Za-z0-9_.]*(?:<[^>]+>)?)\s*\(/;
   const valueRe = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"\s*,?\s*(?:\/\/.*)?$/;
 
   for (let i = 0; i < lines.length; i++) {
@@ -47,6 +49,16 @@ function parseSectionedKotlin(content) {
     const namedCall = line.match(namedCallRe);
     if (namedCall) {
       scopes.push({ key: namedCall[1], depth: parenthesisDepth + 1 });
+    } else {
+      const constructorCall = line.match(constructorCallRe);
+      if (constructorCall) {
+        const constructor = constructorCall[1].split('.').at(-1);
+        const parent = scopes.map((scope) => scope.key).join('.');
+        const countKey = `${parent}.${constructor}`;
+        const ordinal = constructorCounts.get(countKey) ?? 0;
+        constructorCounts.set(countKey, ordinal + 1);
+        scopes.push({ key: `${constructor}[${ordinal}]`, depth: parenthesisDepth + 1 });
+      }
     }
 
     const value = line.match(valueRe);
@@ -178,6 +190,14 @@ return MobileLocaleText(
     ttsSettings = MobileTtsSettingsLocale(
         ttsSettingsTitle = "TTS settings for {}",
     ),
+    tips = listOf(
+        Tip(
+            title = "First",
+        ),
+        Tip(
+            title = "Second",
+        ),
+    ),
 )`;
   const vietnamese = `
 return MobileLocaleText(
@@ -191,6 +211,14 @@ return MobileLocaleText(
     ttsSettings = MobileTtsSettingsLocale(
         ttsSettingsTitle = "Thiết lập giọng đọc",
     ),
+    tips = listOf(
+        Tip(
+            title = "Một",
+        ),
+        Tip(
+            title = "Hai",
+        ),
+    ),
 )`;
   const en = parseSectionedKotlin(english);
   const vi = parseSectionedKotlin(vietnamese);
@@ -198,8 +226,11 @@ return MobileLocaleText(
   const mismatch = result.locales.vi.placeholderMismatch;
   const laterKey = 'ttsSettings.ttsSettingsTitle';
 
-  if (en.size !== 2 || !en.has('appearance.overlay.controls.ttsSettingsTitle')) {
+  if (en.size !== 4 || !en.has('appearance.overlay.controls.ttsSettingsTitle')) {
     throw new Error('Sectioned Kotlin parser did not preserve both duplicate property names');
+  }
+  if (!en.has('tips.Tip[0].title') || !en.has('tips.Tip[1].title')) {
+    throw new Error('Sectioned Kotlin parser did not preserve repeated constructor properties');
   }
   if (mismatch.length !== 1 || mismatch[0].key !== laterKey) {
     throw new Error(`Expected a placeholder mismatch for ${laterKey}`);

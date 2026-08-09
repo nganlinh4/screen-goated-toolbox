@@ -126,7 +126,11 @@ val stageFullCreationRuntimeDelivery by tasks.registering(Sync::class) {
 
 val generatePresetOverlayAssets by tasks.registering {
     val repoRoot = rootProject.projectDir.parentFile
-    val fitSource = repoRoot.resolve("src/overlay/result/markdown_view/streaming/fit_impl.rs")
+    val fitSource = repoRoot.resolve("src/overlay/result/markdown_view/fit.rs")
+    val fitScriptSources = listOf(
+        repoRoot.resolve("src/overlay/result/markdown_view/streaming/fit_impl/fit_font_script_part1.js"),
+        repoRoot.resolve("src/overlay/result/markdown_view/streaming/fit_impl/fit_font_script_part2.js"),
+    )
     val cssSource = repoRoot.resolve("src/overlay/result/markdown_view/css.rs")
     val buttonCanvasCssSource = repoRoot.resolve("src/overlay/result/button_canvas/css.rs")
     val buttonCanvasJsSource = repoRoot.resolve("src/overlay/result/button_canvas/js.rs")
@@ -135,6 +139,7 @@ val generatePresetOverlayAssets by tasks.registering {
     val recordingUiSource = repoRoot.resolve("src/overlay/recording/ui.rs")
     val iconsSource = repoRoot.resolve("src/overlay/html_components/icons.rs")
     inputs.file(fitSource)
+    inputs.files(fitScriptSources)
     inputs.file(cssSource)
     inputs.file(buttonCanvasCssSource)
     inputs.file(buttonCanvasJsSource)
