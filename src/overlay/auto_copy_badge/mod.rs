@@ -24,6 +24,7 @@ pub(super) const WM_APP_PROCESS_QUEUE: u32 = WM_USER + 201;
 pub(super) const WM_APP_UPDATE_PROGRESS: u32 = WM_USER + 202;
 pub(super) const WM_APP_HIDE_PROGRESS: u32 = WM_USER + 203;
 pub(super) const WM_APP_HIDE_BADGE: u32 = WM_USER + 204;
+pub(super) const WM_APP_UPDATE_THEME: u32 = WM_USER + 205;
 
 /// Notification themes
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -79,6 +80,21 @@ pub fn format_locale(template: &str, replacements: &[(&str, &str)]) -> String {
         .fold(template.to_string(), |text, (name, value)| {
             text.replace(&format!("{{{name}}}"), value)
         })
+}
+
+pub fn update_theme(is_dark: bool) {
+    let hwnd_value = BADGE_HWND.load(Ordering::SeqCst);
+    if hwnd_value != 0 {
+        let hwnd = HWND(hwnd_value as *mut std::ffi::c_void);
+        unsafe {
+            let _ = PostMessageW(
+                Some(hwnd),
+                WM_APP_UPDATE_THEME,
+                WPARAM(usize::from(is_dark)),
+                LPARAM(0),
+            );
+        }
+    }
 }
 
 pub fn enqueue_notification_with_duration(

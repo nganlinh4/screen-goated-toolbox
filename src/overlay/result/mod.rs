@@ -14,6 +14,16 @@ pub use state::{
 };
 pub use window::{ResultWindowParams, create_result_window, get_chain_color, update_window_text};
 
+pub fn update_theme(is_dark: bool) {
+    button_canvas::update_theme(is_dark);
+    scene_compositor::update_theme(is_dark);
+}
+
+pub fn raise_window(hwnd: HWND) {
+    scene_compositor::raise_window(hwnd);
+    button_canvas::raise_window(hwnd);
+}
+
 // Trigger functions for button canvas IPC
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};

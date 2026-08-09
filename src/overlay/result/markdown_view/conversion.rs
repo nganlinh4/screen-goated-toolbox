@@ -84,7 +84,7 @@ fn markdown_to_html_with_font_style(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>{}</style>
+    <style id="sgt-theme-css">{}</style>
     {}
     <style>
         {}
@@ -230,7 +230,7 @@ fn markdown_to_html_with_font_style(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>{}</style>
+    <style id="sgt-theme-css">{}</style>
     {}
     <style>{}</style>
     {}

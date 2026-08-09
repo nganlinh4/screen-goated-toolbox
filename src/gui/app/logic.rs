@@ -102,6 +102,12 @@ impl SettingsApp {
             crate::overlay::screen_record::update_settings();
             crate::overlay::translation_gummy::update_settings();
             crate::overlay::tts_playground::update_settings();
+            crate::overlay::prompt_dj::update_settings();
+            crate::overlay::three_d_generator::update_settings();
+            crate::overlay::result::update_theme(effective_dark);
+            crate::overlay::auto_copy_badge::update_theme(effective_dark);
+            crate::overlay::text_input::update_theme(effective_dark);
+            crate::overlay::tray_popup::update_theme(effective_dark);
 
             // E. Update Favorite Bubble + Panel
             unsafe {

@@ -129,6 +129,14 @@ pub(super) unsafe extern "system" fn badge_wnd_proc(
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 LRESULT(0)
             }
+            WM_APP_UPDATE_THEME => {
+                BADGE_WEBVIEW.with(|wv| {
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        push_theme(webview, wparam.0 != 0);
+                    }
+                });
+                LRESULT(0)
+            }
             WM_DESTROY => {
                 PostQuitMessage(0);
                 LRESULT(0)

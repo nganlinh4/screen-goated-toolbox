@@ -16,13 +16,13 @@ use wry::{Rect, WebContext, WebViewBuilder};
 
 use crate::APP;
 
-use super::html::generate_popup_update_script;
+use super::html::{generate_popup_theme_script, generate_popup_update_script};
 use super::render::generate_popup_html;
 use super::{
     BASE_POPUP_HEIGHT, BASE_POPUP_WIDTH, HAS_PENDING_SHOW_ANCHOR, HwndWrapper,
     IGNORE_FOCUS_LOSS_UNTIL, IS_WARMED_UP, IS_WARMING_UP, PENDING_SHOW_ANCHOR_X,
     PENDING_SHOW_ANCHOR_Y, POPUP_HWND, POPUP_SURFACE_INSET, POPUP_WEB_CONTEXT, POPUP_WEBVIEW,
-    REGISTER_POPUP_CLASS, WARMUP_START_TIME, WEBVIEW_INIT_FAILED, WM_APP_SHOW,
+    REGISTER_POPUP_CLASS, WARMUP_START_TIME, WEBVIEW_INIT_FAILED, WM_APP_SHOW, WM_APP_UPDATE_THEME,
     get_scaled_dimension, hide_tray_popup, popup_window_dimensions, set_popup_bounds,
 };
 
@@ -367,6 +367,16 @@ pub(super) unsafe extern "system" fn popup_wnd_proc(
                 // Start focus-polling timer
                 let _ = SetTimer(Some(hwnd), 888, 100, None);
 
+                LRESULT(0)
+            }
+
+            WM_APP_UPDATE_THEME => {
+                let script = generate_popup_theme_script(wparam.0 != 0);
+                POPUP_WEBVIEW.with(|cell| {
+                    if let Some(webview) = cell.borrow().as_ref() {
+                        let _ = webview.evaluate_script(&script);
+                    }
+                });
                 LRESULT(0)
             }
 

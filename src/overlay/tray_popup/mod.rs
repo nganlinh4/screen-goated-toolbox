@@ -40,6 +40,7 @@ static WEBVIEW_INIT_FAILED: std::sync::atomic::AtomicBool =
 
 // Custom window messages
 const WM_APP_SHOW: u32 = WM_APP + 1;
+const WM_APP_UPDATE_THEME: u32 = WM_APP + 2;
 
 thread_local! {
     static POPUP_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
@@ -212,6 +213,20 @@ pub fn hide_tray_popup() {
             // Just hide - don't destroy. Preserves WebView state for instant redisplay.
             let _ = KillTimer(Some(hwnd), 888);
             let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+    }
+}
+
+pub fn update_theme(is_dark: bool) {
+    let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(hwnd_val as *mut std::ffi::c_void)),
+                WM_APP_UPDATE_THEME,
+                WPARAM(usize::from(is_dark)),
+                LPARAM(0),
+            );
         }
     }
 }

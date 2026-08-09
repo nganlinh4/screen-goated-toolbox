@@ -23,6 +23,8 @@ body{font-family:'Google Sans Flex';user-select:none}
 <script>
 const scene = document.getElementById('scene');
 const cards = new Map();
+let currentThemeCss = '';
+let highestStackOrder = 0;
 
 function reportCardDiagnostic(id, entry, phase, details) {
   details = details || {};
@@ -72,6 +74,9 @@ function ensureCard(id) {
     reportCardDiagnostic(id, entry, 'document_loaded', {
       payloadLen: entry.loadedHtml.length
     });
+    if (currentThemeCss) {
+      postCardMessage(entry, { type: 'theme_update', css: currentThemeCss });
+    }
     const flushed = flushPendingContent(entry);
     if (entry.visible && entry.navigationDepth === 0 && !flushed) {
       postCardMessage(entry, { type: 'run_fit', streaming: entry.streaming });
@@ -138,6 +143,18 @@ function applyGeometry(entry, model) {
   entry.card.style.height = (model.rect.height / scale) + 'px';
 }
 
+function applyStacking(entry, stackOrder) {
+  const order = Number(stackOrder || 0);
+  highestStackOrder = Math.max(highestStackOrder, order);
+  entry.card.style.zIndex = String(order);
+}
+
+function raiseCard(entry, stackOrder) {
+  const order = Math.max(highestStackOrder + 1, Number(stackOrder || 0));
+  highestStackOrder = order;
+  entry.card.style.zIndex = String(order);
+}
+
 function applyAppearance(entry, model) {
   const becameVisible = !entry.visible && model.visible;
   entry.card.style.background = model.background;
@@ -162,6 +179,7 @@ function activateCard(entry, becameVisible) {
 function upsertCard(model) {
   const entry = ensureCard(model.id);
   applyGeometry(entry, model);
+  applyStacking(entry, model.stack_order);
   const becameVisible = applyAppearance(entry, model);
   const htmlChanged = entry.html !== model.html;
   entry.html = model.html;
@@ -237,6 +255,16 @@ function removeCard(id) {
   cards.delete(key);
 }
 
+function applyTheme(theme) {
+  currentThemeCss = String(theme.css || '');
+  for (const appearance of theme.cards || []) {
+    const entry = cards.get(String(appearance.id));
+    if (!entry) continue;
+    entry.card.style.background = appearance.background;
+    postCardMessage(entry, { type: 'theme_update', css: currentThemeCss });
+  }
+}
+
 function reportNavigation(id, entry) {
   window.ipc.postMessage(JSON.stringify({
     type: 'navigation',
@@ -267,6 +295,14 @@ window.addEventListener('message', event => {
       });
       return;
     }
+    if (event.data.type === 'card_interaction') {
+      raiseCard(entry);
+      window.ipc.postMessage(JSON.stringify({
+        type: 'interaction',
+        id: Number(id)
+      }));
+      return;
+    }
     if (event.data.type !== 'card_navigation') return;
     entry.navigationUrls.splice(entry.navigationDepth);
     entry.navigationUrls.push(event.data.url);
@@ -289,6 +325,11 @@ window.applyHostCommand = function(command) {
     finalizeCard(command.card);
   } else if (command.type === 'geometry') {
     for (const card of command.cards) updateGeometry(card);
+  } else if (command.type === 'theme') {
+    applyTheme(command.theme);
+  } else if (command.type === 'raise') {
+    const entry = cards.get(String(command.id));
+    if (entry) applyStacking(entry, command.stack_order);
   } else if (command.type === 'remove') {
     removeCard(command.id);
   } else if (command.type === 'navigate_back') {
@@ -400,5 +441,13 @@ mod tests {
         assert!(DOCUMENT.contains("entry.card.style.transform = 'translate3d('"));
         assert!(!DOCUMENT.contains("entry.card.style.left ="));
         assert!(!DOCUMENT.contains("entry.card.style.top ="));
+    }
+
+    #[test]
+    fn theme_and_interaction_updates_do_not_reload_card_documents() {
+        assert!(DOCUMENT.contains("postCardMessage(entry, { type: 'theme_update'"));
+        assert!(DOCUMENT.contains("event.data.type === 'card_interaction'"));
+        assert!(DOCUMENT.contains("command.type === 'raise'"));
+        assert!(!DOCUMENT.contains("function applyTheme(theme) {\n  loadCardDocument"));
     }
 }

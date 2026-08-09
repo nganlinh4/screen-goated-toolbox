@@ -3,8 +3,9 @@
 use super::{
     ACTIVE_DRAG_SNAPSHOT, ACTIVE_DRAG_TARGET, CANVAS_WEBVIEW, CURSOR_POLL_TIMER_ID, DRAG_IS_GROUP,
     IS_DRAGGING_EXTERNAL, LAST_DRAG_POS, LAST_THEME_IS_DARK, MARKDOWN_WINDOWS,
-    PENDING_REFINE_UPDATES, START_DRAG_POS, WM_APP_HIDE_CANVAS, WM_APP_SEND_REFINE_TEXT,
-    WM_APP_SHOW_CANVAS, WM_APP_UPDATE_WINDOWS, get_dpi_scale, theme::get_canvas_theme_css,
+    PENDING_REFINE_UPDATES, START_DRAG_POS, WM_APP_HIDE_CANVAS, WM_APP_RAISE_WINDOW,
+    WM_APP_SEND_REFINE_TEXT, WM_APP_SHOW_CANVAS, WM_APP_UPDATE_THEME, WM_APP_UPDATE_WINDOWS,
+    get_dpi_scale, theme::get_canvas_theme_css,
 };
 use crate::overlay::result::state::WINDOW_STATES;
 use std::sync::atomic::Ordering;
@@ -58,6 +59,16 @@ pub unsafe extern "system" fn canvas_wnd_proc(
 
             WM_APP_SEND_REFINE_TEXT => {
                 handle_send_refine_text(wparam, lparam);
+                LRESULT(0)
+            }
+
+            WM_APP_UPDATE_THEME => {
+                apply_theme(wparam.0 != 0);
+                LRESULT(0)
+            }
+
+            WM_APP_RAISE_WINDOW => {
+                raise_window_buttons(wparam.0 as isize);
                 LRESULT(0)
             }
 
@@ -435,18 +446,7 @@ pub fn send_windows_update() {
     let is_dark = crate::overlay::is_dark_mode();
     let last_dark = LAST_THEME_IS_DARK.load(Ordering::SeqCst);
     if is_dark != last_dark {
-        let new_css = get_canvas_theme_css(is_dark);
-        let content_escaped = new_css.replace('`', "\\`").replace('\\', "\\\\");
-        let script = format!(
-            "var s = document.getElementById('theme-css'); if(s) s.innerHTML = `{}`;",
-            content_escaped
-        );
-        CANVAS_WEBVIEW.with(|cell| {
-            if let Some(webview) = cell.borrow().as_ref() {
-                let _ = webview.evaluate_script(&script);
-            }
-        });
-        LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
+        apply_theme(is_dark);
     }
 
     let windows_data = {
@@ -512,6 +512,27 @@ pub fn send_windows_update() {
     CANVAS_WEBVIEW.with(|cell| {
         if let Some(webview) = cell.borrow().as_ref() {
             let script = format!("window.updateWindows({});", windows_data);
+            let _ = webview.evaluate_script(&script);
+        }
+    });
+}
+
+fn apply_theme(is_dark: bool) {
+    let css = serde_json::to_string(get_canvas_theme_css(is_dark)).unwrap_or_default();
+    let script =
+        format!("var s = document.getElementById('theme-css'); if(s) s.textContent = {css};");
+    CANVAS_WEBVIEW.with(|cell| {
+        if let Some(webview) = cell.borrow().as_ref() {
+            let _ = webview.evaluate_script(&script);
+        }
+    });
+    LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
+}
+
+fn raise_window_buttons(hwnd: isize) {
+    let script = format!("window.raiseWindowButtons?.('{}');", hwnd);
+    CANVAS_WEBVIEW.with(|cell| {
+        if let Some(webview) = cell.borrow().as_ref() {
             let _ = webview.evaluate_script(&script);
         }
     });

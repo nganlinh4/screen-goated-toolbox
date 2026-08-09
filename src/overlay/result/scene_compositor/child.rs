@@ -268,7 +268,10 @@ fn drain_commands(hwnd: HWND) {
 }
 
 fn command_requires_region_redraw(command: &HostCommand) -> bool {
-    !matches!(command, HostCommand::Geometry { .. })
+    !matches!(
+        command,
+        HostCommand::Geometry { .. } | HostCommand::Theme { .. } | HostCommand::Raise { .. }
+    )
 }
 
 fn handle_renderer_event(body: &str) {
@@ -293,6 +296,7 @@ fn handle_renderer_event(body: &str) {
             if let Ok(event) = serde_json::from_str::<ChildEvent>(body) {
                 match event {
                     ChildEvent::Navigation { .. }
+                    | ChildEvent::Interaction { .. }
                     | ChildEvent::FitDiagnostic { .. }
                     | ChildEvent::CardDiagnostic { .. }
                     | ChildEvent::FontReady { .. }
@@ -313,6 +317,8 @@ fn command_name(command: &HostCommand) -> &'static str {
         HostCommand::Stream { .. } => "stream",
         HostCommand::Finalize { .. } => "finalize",
         HostCommand::Geometry { .. } => "geometry",
+        HostCommand::Theme { .. } => "theme",
+        HostCommand::Raise { .. } => "raise",
         HostCommand::Remove { .. } => "remove",
         HostCommand::NavigateBack { .. } => "navigate_back",
         HostCommand::NavigateForward { .. } => "navigate_forward",
@@ -328,7 +334,11 @@ fn command_id(command: &HostCommand) -> Option<isize> {
         HostCommand::Remove { id }
         | HostCommand::NavigateBack { id }
         | HostCommand::NavigateForward { id } => Some(*id),
-        HostCommand::Snapshot { .. } | HostCommand::Geometry { .. } | HostCommand::Shutdown => None,
+        HostCommand::Raise { id, .. } => Some(*id),
+        HostCommand::Snapshot { .. }
+        | HostCommand::Geometry { .. }
+        | HostCommand::Theme { .. }
+        | HostCommand::Shutdown => None,
     }
 }
 
@@ -365,6 +375,18 @@ fn apply_scene_state(command: &HostCommand) {
                     card.rect = update.rect.clone();
                     card.visible = update.visible;
                 }
+            }
+        }
+        HostCommand::Theme { theme } => {
+            for appearance in &theme.cards {
+                if let Some(card) = cards.get_mut(&appearance.id) {
+                    card.background.clone_from(&appearance.background);
+                }
+            }
+        }
+        HostCommand::Raise { id, stack_order } => {
+            if let Some(card) = cards.get_mut(id) {
+                card.stack_order = *stack_order;
             }
         }
         HostCommand::Remove { id } => {
@@ -452,7 +474,7 @@ fn emit_event(event: ChildEvent) {
 mod tests {
     use super::command_requires_region_redraw;
     use crate::overlay::result::scene_compositor::protocol::{
-        HostCommand, SceneGeometry, SceneRect,
+        HostCommand, SceneGeometry, SceneRect, SceneTheme,
     };
 
     #[test]
@@ -471,6 +493,16 @@ mod tests {
         };
 
         assert!(!command_requires_region_redraw(&command));
+        assert!(!command_requires_region_redraw(&HostCommand::Theme {
+            theme: SceneTheme {
+                css: String::new(),
+                cards: Vec::new(),
+            },
+        }));
+        assert!(!command_requires_region_redraw(&HostCommand::Raise {
+            id: 42,
+            stack_order: 9,
+        }));
         assert!(command_requires_region_redraw(&HostCommand::Remove {
             id: 42
         }));

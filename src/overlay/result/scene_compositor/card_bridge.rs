@@ -69,8 +69,19 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
       }
     } else if (event.data.type === 'run_fit') {
       requestFit(event.data.streaming);
+    } else if (event.data.type === 'theme_update') {
+      var themeStyle = document.getElementById('sgt-theme-css');
+      if (!themeStyle) {
+        themeStyle = document.createElement('style');
+        themeStyle.id = 'sgt-theme-css';
+        (document.head || document.documentElement).appendChild(themeStyle);
+      }
+      themeStyle.textContent = String(event.data.css || '');
     }
   });
+  document.addEventListener('pointerdown', function() {
+    window.parent.postMessage({ type: 'card_interaction' }, '*');
+  }, true);
   window.addEventListener('resize', function() {
     clearTimeout(resizeFit);
     resizeFit = setTimeout(function() {

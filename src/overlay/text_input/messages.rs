@@ -277,6 +277,23 @@ pub unsafe extern "system" fn input_wnd_proc(
                 LRESULT(0)
             }
 
+            WM_APP_UPDATE_THEME => {
+                let is_dark = wparam.0 != 0;
+                let css = serde_json::to_string(&get_editor_css(is_dark)).unwrap_or_default();
+                let theme = if is_dark { "dark" } else { "light" };
+                let script = format!(
+                    "const style=document.getElementById('theme-style');\
+                     if(style) style.textContent={css};\
+                     document.documentElement.setAttribute('data-theme','{theme}');"
+                );
+                TEXT_INPUT_WEBVIEW.with(|webview| {
+                    if let Some(webview) = webview.borrow().as_ref() {
+                        let _ = webview.evaluate_script(&script);
+                    }
+                });
+                LRESULT(0)
+            }
+
             WM_APP_HIDE => {
                 PASSIVE_CAPTURE_ENABLED.store(false, std::sync::atomic::Ordering::SeqCst);
                 // Trigger Fade Out Script & Delay Hide

@@ -62,6 +62,7 @@ pub unsafe extern "system" fn result_wnd_proc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_ENTERSIZEMOVE => {
+                crate::overlay::result::raise_window(hwnd);
                 crate::overlay::result::button_canvas::set_drag_mode(true);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }

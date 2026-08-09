@@ -31,6 +31,10 @@ pub fn handle_ipc_message(body: &str) {
 
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
 
+        if !matches!(action, "request_update" | "request_focus" | "set_opacity") {
+            crate::overlay::result::raise_window(hwnd);
+        }
+
         match action {
             "copy" => handle_copy(hwnd),
             "undo" => handle_undo(hwnd),
@@ -51,6 +55,7 @@ pub fn handle_ipc_message(body: &str) {
             "history_down_refine" => handle_history_down(hwnd, &json),
             "mic" => handle_mic(),
             "request_focus" => handle_request_focus(),
+            "interact" => {}
             _ => {}
         }
     }
