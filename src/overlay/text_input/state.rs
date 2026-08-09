@@ -24,6 +24,7 @@ pub const WM_APP_SHOW: u32 = WM_USER + 99;
 pub const WM_APP_SET_TEXT: u32 = WM_USER + 100;
 pub const WM_APP_HIDE: u32 = WM_USER + 101;
 pub const WM_APP_SYNC_PASSIVE_EDITOR: u32 = WM_USER + 102;
+pub const WM_APP_UPDATE_THEME: u32 = WM_USER + 103;
 
 type TextSubmitCallback = Box<dyn Fn(String, HWND) + Send>;
 

@@ -4,7 +4,8 @@ use super::diagnostics::{
     CardDiagnosticLog, log_card_diagnostic, log_fit_diagnostic, log_host_command,
 };
 use super::protocol::{
-    ChildEvent, HostCommand, SceneCard, SceneFinalize, SceneGeometry, SceneRect, SceneStream,
+    ChildEvent, HostCommand, SceneAppearance, SceneCard, SceneFinalize, SceneGeometry, SceneRect,
+    SceneStream, SceneTheme,
 };
 use crate::overlay::result::markdown_view::conversion::markdown_to_html_for_compositor;
 use crate::overlay::result::state::WINDOW_STATES;
@@ -52,6 +53,7 @@ static STARTING: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static LIVE_GENERATION: AtomicU64 = AtomicU64::new(0);
 static LAST_HEARTBEAT_MS: AtomicU64 = AtomicU64::new(0);
+static NEXT_STACK_ORDER: AtomicU64 = AtomicU64::new(1);
 static WATCHDOG: Once = Once::new();
 
 pub fn register_window(hwnd: HWND) {
@@ -89,6 +91,12 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         markdown_to_html_for_compositor(&snapshot.0, snapshot.1, &snapshot.2, &snapshot.3);
     let stream_body = document_body(&rendered);
     let html = with_card_bridge(with_fit(rendered, snapshot.6));
+    let stack_order = SCENES
+        .lock()
+        .unwrap()
+        .get(&hwnd_key)
+        .map(|card| card.stack_order)
+        .unwrap_or_else(|| NEXT_STACK_ORDER.fetch_add(1, Ordering::SeqCst));
     let card = SceneCard {
         id: hwnd_key,
         rect: geometry.rect,
@@ -97,6 +105,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         opacity: snapshot.5,
         visible: geometry.visible,
         streaming: snapshot.6,
+        stack_order,
     };
 
     let previous = SCENES.lock().unwrap().insert(hwnd_key, card.clone());
@@ -219,6 +228,65 @@ pub fn go_forward(hwnd: HWND) {
     });
 }
 
+pub fn raise_window(hwnd: HWND) {
+    raise_window_id(hwnd.0 as isize);
+}
+
+fn raise_window_id(id: isize) {
+    let _dispatch = SCENE_DISPATCH.lock().unwrap();
+    let stack_order = NEXT_STACK_ORDER.fetch_add(1, Ordering::SeqCst);
+    let updated = SCENES.lock().unwrap().get_mut(&id).is_some_and(|card| {
+        card.stack_order = stack_order;
+        true
+    });
+    if updated {
+        send_command(HostCommand::Raise { id, stack_order });
+    }
+}
+
+pub fn update_theme(is_dark: bool) {
+    let _dispatch = SCENE_DISPATCH.lock().unwrap();
+    {
+        let mut states = WINDOW_STATES.lock().unwrap();
+        for state in states.values_mut() {
+            state.bg_color = crate::overlay::result::window::remap_chain_color_for_theme(
+                state.bg_color,
+                is_dark,
+            );
+        }
+    }
+    let theme = theme_command(is_dark);
+    if !theme.cards.is_empty() {
+        send_command(HostCommand::Theme { theme });
+    }
+}
+
+fn theme_command(is_dark: bool) -> SceneTheme {
+    let backgrounds: HashMap<isize, String> = WINDOW_STATES
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, state)| (*id, format!("#{:06x}", state.bg_color & 0x00ff_ffff)))
+        .collect();
+    let mut scenes = SCENES.lock().unwrap();
+    let cards = scenes
+        .values_mut()
+        .map(|card| {
+            if let Some(background) = backgrounds.get(&card.id) {
+                card.background.clone_from(background);
+            }
+            SceneAppearance {
+                id: card.id,
+                background: card.background.clone(),
+            }
+        })
+        .collect();
+    SceneTheme {
+        css: crate::overlay::result::markdown_view::css::get_theme_css(is_dark),
+        cards,
+    }
+}
+
 fn with_fit(mut html: String, streaming: bool) -> String {
     let script = crate::overlay::result::markdown_view::fit::runtime_fit_script();
     let injected = format!(
@@ -313,6 +381,9 @@ fn spawn_process() -> anyhow::Result<()> {
     write_command(&HostCommand::Snapshot {
         cards: scene_snapshot(),
     })?;
+    write_command(&HostCommand::Theme {
+        theme: theme_command(crate::overlay::is_dark_mode()),
+    })?;
     Ok(())
 }
 
@@ -369,6 +440,12 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
                 depth,
                 max_depth,
             } => update_navigation_state(id, depth, max_depth),
+            ChildEvent::Interaction { id } => {
+                raise_window_id(id);
+                crate::overlay::result::button_canvas::raise_window(HWND(
+                    id as *mut std::ffi::c_void,
+                ));
+            }
             ChildEvent::FitDiagnostic { id, payload } => log_fit_diagnostic(id, &payload),
         }
     }
@@ -447,125 +524,5 @@ fn heartbeat_is_stale(now: u64, last: u64) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_card(streaming: bool) -> SceneCard {
-        SceneCard {
-            id: 42,
-            rect: SceneRect {
-                x: 1,
-                y: 2,
-                width: 300,
-                height: 100,
-            },
-            html: "<html><body>result</body></html>".to_string(),
-            background: "#ffffff".to_string(),
-            opacity: 90,
-            visible: true,
-            streaming,
-        }
-    }
-
-    #[test]
-    fn heartbeat_timeout_uses_saturating_elapsed_time() {
-        assert!(!heartbeat_is_stale(5_000, 0));
-        assert!(heartbeat_is_stale(5_001, 0));
-        assert!(!heartbeat_is_stale(1, 2));
-    }
-
-    #[test]
-    fn identical_completed_sync_is_not_dispatched_again() {
-        let card = test_card(false);
-        assert_eq!(
-            command_for_transition(Some(&card), &card, "result".to_string()),
-            None
-        );
-    }
-
-    #[test]
-    fn streaming_to_completed_transition_is_always_finalize() {
-        let streaming = test_card(true);
-        let completed = test_card(false);
-
-        assert!(matches!(
-            command_for_transition(Some(&streaming), &completed, "result".to_string()),
-            Some(HostCommand::Finalize { .. })
-        ));
-    }
-
-    #[test]
-    fn final_fit_remains_callable_after_iframe_resize() {
-        let fitted = with_fit("<html><body>result</body></html>".to_string(), false);
-        let bridged = with_card_bridge(fitted);
-
-        assert!(bridged.contains("window.__SGT_RUN_FIT__=function(streaming)"));
-        assert!(bridged.contains("window.addEventListener('resize'"));
-        assert!(bridged.contains("requestFit(window.__SGT_STREAMING__)"));
-        assert!(bridged.contains("reportCardState('bridge_ready', null)"));
-        assert!(bridged.contains("reportCardState('script_error'"));
-    }
-
-    #[test]
-    fn card_content_stays_hidden_until_the_bundled_font_is_loaded() {
-        let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
-
-        assert!(bridged.contains("if (!fontReady)"));
-        assert!(bridged.contains("document.fonts.load"));
-        assert!(bridged.contains("classList.add('sgt-font-ready')"));
-        assert!(bridged.contains("reportCardState('font_failed'"));
-    }
-
-    #[test]
-    fn card_document_waits_for_activation_before_its_first_fit() {
-        let fitted = with_fit("<html><body>result</body></html>".to_string(), true);
-
-        assert!(fitted.contains("window.__SGT_RUN_FIT__=function(streaming)"));
-        assert!(!fitted.contains("window.__SGT_RUN_FIT__(window.__SGT_STREAMING__)"));
-    }
-
-    #[test]
-    fn streaming_cards_use_the_full_fitter() {
-        let fitted = with_fit("<html><body>result</body></html>".to_string(), true);
-        assert!(fitted.contains("fit_font_to_window_runtime"));
-        assert!(fitted.contains("const isStreamingFit = Boolean(streaming)"));
-        assert!(fitted.contains("window.__SGT_STREAMING__=true"));
-    }
-
-    #[test]
-    fn finalization_reuses_the_loaded_document() {
-        let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
-
-        assert!(bridged.contains("event.data.type === 'finalize'"));
-        assert!(bridged.contains("window.__SGT_APPLY_STREAM_UPDATE__"));
-        assert!(bridged.contains("animateNewWords: false"));
-        assert!(bridged.contains("window.__SGT_INIT_STREAM_GRIDS__()"));
-        assert!(bridged.contains("requestFit(false)"));
-    }
-
-    #[test]
-    fn streaming_keeps_the_legacy_word_reveal_contract() {
-        let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
-
-        assert!(bridged.contains("lastRevealedIndex"));
-        assert!(bridged.contains("targetWordsPerSecond = 40"));
-        assert!(bridged.contains("runInlineSizing: true"));
-    }
-
-    #[test]
-    fn auto_fitted_streaming_content_remains_top_anchored() {
-        let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
-
-        assert!(bridged.contains("window.scrollTo({"));
-        assert!(bridged.contains("top: 0"));
-        assert!(!bridged.contains("smoothScroll"));
-    }
-
-    #[test]
-    fn stream_updates_extract_only_body_markup() {
-        assert_eq!(
-            document_body("<html><body class='result'><p>Hello</p></body></html>"),
-            "<p>Hello</p>"
-        );
-    }
-}
+#[path = "parent_tests.rs"]
+mod tests;

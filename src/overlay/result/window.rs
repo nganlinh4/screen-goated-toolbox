@@ -39,6 +39,22 @@ pub fn get_chain_color(visible_index: usize) -> u32 {
     }
 }
 
+pub fn remap_chain_color_for_theme(color: u32, is_dark: bool) -> u32 {
+    CHAIN_PALETTE
+        .iter()
+        .chain(CHAIN_PALETTE_LIGHT.iter())
+        .position(|candidate| *candidate == color)
+        .map(|position| position % CHAIN_PALETTE.len())
+        .map(|slot| {
+            if is_dark {
+                CHAIN_PALETTE[slot]
+            } else {
+                CHAIN_PALETTE_LIGHT[slot]
+            }
+        })
+        .unwrap_or(color)
+}
+
 static REGISTER_RESULT_CLASS: Once = Once::new();
 
 fn result_window_styles() -> (WINDOW_EX_STYLE, WINDOW_STYLE) {
@@ -220,5 +236,20 @@ mod tests {
     fn streaming_updates_have_one_timer_owned_sync_path() {
         assert!(text_update_waits_for_stream_timer(true));
         assert!(!text_update_waits_for_stream_timer(false));
+    }
+
+    #[test]
+    fn theme_palette_colors_preserve_their_slot_across_theme_changes() {
+        for slot in 0..CHAIN_PALETTE.len() {
+            assert_eq!(
+                remap_chain_color_for_theme(CHAIN_PALETTE[slot], false),
+                CHAIN_PALETTE_LIGHT[slot]
+            );
+            assert_eq!(
+                remap_chain_color_for_theme(CHAIN_PALETTE_LIGHT[slot], true),
+                CHAIN_PALETTE[slot]
+            );
+        }
+        assert_eq!(remap_chain_color_for_theme(0x00123456, true), 0x00123456);
     }
 }

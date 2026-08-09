@@ -39,6 +39,8 @@ const WM_APP_UPDATE_WINDOWS: u32 = WM_APP + 50;
 const WM_APP_SHOW_CANVAS: u32 = WM_APP + 51;
 const WM_APP_HIDE_CANVAS: u32 = WM_APP + 52;
 const WM_APP_SEND_REFINE_TEXT: u32 = WM_APP + 53;
+const WM_APP_UPDATE_THEME: u32 = WM_APP + 54;
+const WM_APP_RAISE_WINDOW: u32 = WM_APP + 55;
 
 // Timer for cursor position polling
 const CURSOR_POLL_TIMER_ID: usize = 1;
@@ -296,6 +298,32 @@ pub fn update_canvas() {
     if let Some(hwnd) = valid_canvas_hwnd() {
         unsafe {
             let _ = PostMessageW(Some(hwnd), WM_APP_UPDATE_WINDOWS, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+pub fn update_theme(is_dark: bool) {
+    if let Some(hwnd) = valid_canvas_hwnd() {
+        unsafe {
+            let _ = PostMessageW(
+                Some(hwnd),
+                WM_APP_UPDATE_THEME,
+                WPARAM(usize::from(is_dark)),
+                LPARAM(0),
+            );
+        }
+    }
+}
+
+pub fn raise_window(target: HWND) {
+    if let Some(hwnd) = valid_canvas_hwnd() {
+        unsafe {
+            let _ = PostMessageW(
+                Some(hwnd),
+                WM_APP_RAISE_WINDOW,
+                WPARAM(target.0 as usize),
+                LPARAM(0),
+            );
         }
     }
 }

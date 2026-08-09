@@ -10,6 +10,7 @@ window.iconSvgs = #ICON_SVGS_JSON#;
 // Track visibility state to minimize IPC calls
 let lastVisibleState = new Map();
 let lastSentRegions = new Map();
+let highestButtonStackOrder = 0;
 
 // Track cursor position for radius-based opacity
 let cursorX = 0, cursorY = 0;
@@ -17,6 +18,13 @@ const activeGrabbingSources = new Set();
 
 // Opacity slider state
 window.opacityValues = {};
+
+window.raiseWindowButtons = function(hwnd) {
+    const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
+    if (!group) return;
+    highestButtonStackOrder += 1;
+    group.style.zIndex = String(highestButtonStackOrder);
+};
 
 function setResultDraggingCursor(active) {
     if (active) {
@@ -316,6 +324,14 @@ document.addEventListener("visibilitychange", () => {
 document.addEventListener("pointerdown", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    const group = target.closest(".button-group[data-hwnd]");
+    if (group) {
+        window.raiseWindowButtons(group.dataset.hwnd);
+        window.ipc.postMessage(JSON.stringify({
+            action: "interact",
+            hwnd: group.dataset.hwnd
+        }));
+    }
     if (target.closest(".opacity-slider-inline")) {
         setOpacityDraggingCursor(true);
     }

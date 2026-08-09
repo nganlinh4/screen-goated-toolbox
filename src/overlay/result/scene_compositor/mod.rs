@@ -5,7 +5,10 @@ mod html;
 mod parent;
 mod protocol;
 
-pub use parent::{go_back, go_forward, register_window, remove_window, sync_geometry, sync_window};
+pub use parent::{
+    go_back, go_forward, raise_window, register_window, remove_window, sync_geometry, sync_window,
+    update_theme,
+};
 
 pub(crate) const CHILD_FLAG: &str = "--internal-result-compositor";
 

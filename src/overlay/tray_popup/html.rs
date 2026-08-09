@@ -208,3 +208,32 @@ pub(super) fn generate_popup_update_script() -> String {
         quit_text
     )
 }
+
+pub(super) fn generate_popup_theme_script(is_dark: bool) -> String {
+    let (background, text, hover, border, separator) = if is_dark {
+        (
+            "#2c2c2c",
+            "#ffffff",
+            "#3c3c3c",
+            "#454545",
+            "rgba(255,255,255,0.08)",
+        )
+    } else {
+        (
+            "#f9f9f9",
+            "#1a1a1a",
+            "#eaeaea",
+            "#dcdcdc",
+            "rgba(0,0,0,0.06)",
+        )
+    };
+
+    format!(
+        "const root=document.documentElement.style;\
+         root.setProperty('--bg-color','{background}');\
+         root.setProperty('--text-color','{text}');\
+         root.setProperty('--hover-bg','{hover}');\
+         root.setProperty('--border-color','{border}');\
+         root.setProperty('--separator-color','{separator}');"
+    )
+}

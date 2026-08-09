@@ -66,6 +66,20 @@ pub fn cancel_input() {
     }
 }
 
+pub fn update_theme(is_dark: bool) {
+    let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(hwnd_val as *mut std::ffi::c_void)),
+                WM_APP_UPDATE_THEME,
+                WPARAM(usize::from(is_dark)),
+                LPARAM(0),
+            );
+        }
+    }
+}
+
 /// Set text content in the webview editor (for paste operations)
 /// This is thread-safe and can be called from any thread
 pub fn set_editor_text(text: &str) {

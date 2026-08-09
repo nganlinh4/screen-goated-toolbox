@@ -18,6 +18,8 @@ pub struct SceneCard {
     pub visible: bool,
     #[serde(default)]
     pub streaming: bool,
+    #[serde(default)]
+    pub stack_order: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -47,6 +49,18 @@ pub struct SceneFinalize {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct SceneAppearance {
+    pub id: isize,
+    pub background: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct SceneTheme {
+    pub css: String,
+    pub cards: Vec<SceneAppearance>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HostCommand {
     Snapshot { cards: Vec<SceneCard> },
@@ -54,6 +68,8 @@ pub enum HostCommand {
     Stream { card: SceneStream },
     Finalize { card: SceneFinalize },
     Geometry { cards: Vec<SceneGeometry> },
+    Theme { theme: SceneTheme },
+    Raise { id: isize, stack_order: u64 },
     Remove { id: isize },
     NavigateBack { id: isize },
     NavigateForward { id: isize },
@@ -89,6 +105,9 @@ pub enum ChildEvent {
         depth: usize,
         max_depth: usize,
     },
+    Interaction {
+        id: isize,
+    },
     FitDiagnostic {
         id: isize,
         payload: serde_json::Value,
@@ -114,6 +133,7 @@ mod tests {
                 background: "#112233".to_string(),
                 opacity: 85,
                 visible: true,
+                stack_order: 7,
                 streaming: false,
             },
         };
@@ -212,5 +232,30 @@ mod tests {
         let encoded = serde_json::to_string(&event).unwrap();
 
         assert_eq!(serde_json::from_str::<ChildEvent>(&encoded).unwrap(), event);
+    }
+
+    #[test]
+    fn theme_and_stacking_commands_cross_the_process_boundary() {
+        let theme = HostCommand::Theme {
+            theme: SceneTheme {
+                css: ":root { --text-color: white; }".to_string(),
+                cards: vec![SceneAppearance {
+                    id: 42,
+                    background: "#112233".to_string(),
+                }],
+            },
+        };
+        let raise = HostCommand::Raise {
+            id: 42,
+            stack_order: 9,
+        };
+
+        for command in [theme, raise] {
+            let encoded = serde_json::to_string(&command).unwrap();
+            assert_eq!(
+                serde_json::from_str::<HostCommand>(&encoded).unwrap(),
+                command
+            );
+        }
     }
 }
