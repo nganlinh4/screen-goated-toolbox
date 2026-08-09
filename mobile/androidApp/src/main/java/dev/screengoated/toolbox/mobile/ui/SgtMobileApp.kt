@@ -61,8 +61,6 @@ import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyScreen
 import dev.screengoated.toolbox.mobile.creation.CreationMiniAppActivity
-import dev.screengoated.toolbox.mobile.creation.CreationTool
-import dev.screengoated.toolbox.mobile.creation.creationToolReleased
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
@@ -126,8 +124,6 @@ internal fun SgtMobileApp(
     var showDownloadedTools by rememberSaveable { mutableStateOf(false) }
     var showDownloader by rememberSaveable { mutableStateOf(false) }
     var showFeatureUnsupported by rememberSaveable { mutableStateOf(false) }
-    var showImageCreatorComingSoon by rememberSaveable { mutableStateOf(false) }
-    var showImageToSvgComingSoon by rememberSaveable { mutableStateOf(false) }
     var showDj by rememberSaveable { mutableStateOf(false) }
     var showTranslationGummy by rememberSaveable { mutableStateOf(false) }
     var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -318,32 +314,8 @@ internal fun SgtMobileApp(
                         onTranslationGummyClick = { showTranslationGummy = true },
                         onImageTo3dClick = {
                             appContext.startActivity(
-                                CreationMiniAppActivity.intent(appContext, CreationTool.IMAGE_TO_3D),
+                                CreationMiniAppActivity.intent(appContext),
                             )
-                        },
-                        onImageToSvgClick = {
-                            if (creationToolReleased(CreationTool.IMAGE_TO_SVG)) {
-                                appContext.startActivity(
-                                    CreationMiniAppActivity.intent(
-                                        appContext,
-                                        CreationTool.IMAGE_TO_SVG,
-                                    ),
-                                )
-                            } else {
-                                showImageToSvgComingSoon = true
-                            }
-                        },
-                        onImageCreatorClick = {
-                            if (creationToolReleased(CreationTool.IMAGE_CREATOR)) {
-                                appContext.startActivity(
-                                    CreationMiniAppActivity.intent(
-                                        appContext,
-                                        CreationTool.IMAGE_CREATOR,
-                                    ),
-                                )
-                            } else {
-                                showImageCreatorComingSoon = true
-                            }
                         },
                         onPresetClick = { presetId -> activePresetId = presetId },
                     ),
@@ -372,33 +344,6 @@ internal fun SgtMobileApp(
             )
         }
 
-        if (showImageCreatorComingSoon) {
-            AlertDialog(
-                modifier = Modifier.testTag("image-creator-coming-soon-dialog"),
-                onDismissRequest = { showImageCreatorComingSoon = false },
-                title = { Text(locale.creationApps.appImageCreatorTitle) },
-                text = { Text(locale.comingSoonLabel) },
-                confirmButton = {
-                    TextButton(onClick = { showImageCreatorComingSoon = false }) {
-                        Text(locale.closeLabel)
-                    }
-                },
-            )
-        }
-
-        if (showImageToSvgComingSoon) {
-            AlertDialog(
-                modifier = Modifier.testTag("image-to-svg-coming-soon-dialog"),
-                onDismissRequest = { showImageToSvgComingSoon = false },
-                title = { Text(locale.creationApps.appImageToSvgTitle) },
-                text = { Text(locale.comingSoonLabel) },
-                confirmButton = {
-                    TextButton(onClick = { showImageToSvgComingSoon = false }) {
-                        Text(locale.closeLabel)
-                    }
-                },
-            )
-        }
 
         // Downloader overlay with container-transform-style animation
         if (showDownloader) {

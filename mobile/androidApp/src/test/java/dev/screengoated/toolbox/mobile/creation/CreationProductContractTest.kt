@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -16,6 +17,27 @@ class CreationProductContractTest {
     private val json = Json { ignoreUnknownKeys = false }
 
     @Test
+    fun `release packages only the active 3d creation capability`() {
+        val active = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
+            .objectAt("runtimeCapabilities")
+            .getValue("deliveredFeatures")
+            .jsonArray
+            .map { it.jsonPrimitive.content }
+        assertEquals(listOf("image_to_3d"), active)
+
+        listOf(
+            "parity-fixtures/image-to-svg/state-contract.json",
+            "parity-fixtures/image-creation-editing/state-contract.json",
+        ).forEach { path ->
+            val release = loadFixture(path).objectAt("releaseAvailability")
+            assertEquals("archived_source_only", release.stringAt("packaging"))
+            assertFalse(release.booleanAt("compiledHostCode"))
+            assertFalse(release.booleanAt("embeddedFrontendAssets"))
+            assertFalse(release.booleanAt("runtimeCapabilityDelivered"))
+        }
+    }
+
+    @Test
     fun `creation distributions expose only shared product delivery invariants`() {
         val expected = setOf(
             "fullSupported",
@@ -25,12 +47,12 @@ class CreationProductContractTest {
             "integrityValidatedBeforeUse",
         )
         val fixtures = listOf(
-            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 33),
-            Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 31),
+            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 34),
+            Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 32),
             Triple(
                 "parity-fixtures/image-creation-editing/state-contract.json",
                 "fixtureVersion",
-                45,
+                46,
             ),
         )
         fixtures.forEach { (path, versionField, version) ->

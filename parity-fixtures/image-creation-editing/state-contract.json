@@ -1,6 +1,6 @@
 {
   "schema": "sgt.creation.image",
-  "fixtureVersion": 45,
+  "fixtureVersion": 46,
   "tool": "image",
   "jobIdPrefix": "image_",
   "operation": "create_image",
@@ -13,7 +13,11 @@
     "startsSurface": false,
     "startsReadiness": false,
     "preservesPreparedCapacity": true,
-    "platforms": ["windows", "android_full", "android_play"]
+    "platforms": ["windows", "android_full", "android_play"],
+    "packaging": "archived_source_only",
+    "compiledHostCode": false,
+    "embeddedFrontendAssets": false,
+    "runtimeCapabilityDelivered": false
   },
   "maximumParallelJobs": 2,
   "maximumJobRuntimeMs": 7200000,

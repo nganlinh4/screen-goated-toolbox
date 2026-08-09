@@ -59,6 +59,7 @@
   - `device` source remains visible even when Android fulfills it through MediaProjection playback capture internally
   - when realtime Read auto-speed is enabled, the visible speed value reflects the current effective playback speed while realtime TTS is actively speaking, not only the saved base slider setting
   - on Android mobile, the transcription and translation panes are separate top-level overlay windows with independent drag and resize behavior
+  - Android pane WebViews follow `parity-fixtures/android-webview-overlays/rendering-contract.json`: their windows own hardware acceleration and the WebViews do not retain continuously invalidated offscreen hardware layers
   - Android mobile keeps the portrait default of transcription on top and translation below, but the panes stay detached after launch
   - dragging either pane into the dismiss bubble must not persist the near-dismiss geometry; reopening should use the last non-dismiss bounds captured during that drag instead of the drag-to-dismiss position
   - on Android mobile, header controls must remain horizontally swipeable when they overflow instead of being truncated
@@ -117,6 +118,7 @@
 ## Fixtures
 - Shared fixtures: [parity-fixtures/live-translate/state-machine.json](../../parity-fixtures/live-translate/state-machine.json)
 - Shared overlay fixture: [parity-fixtures/live-translate/overlay-bootstrap.json](../../parity-fixtures/live-translate/overlay-bootstrap.json)
+- Shared Android WebView rendering fixture: [parity-fixtures/android-webview-overlays/rendering-contract.json](../../parity-fixtures/android-webview-overlays/rendering-contract.json)
 - Shared Gemini Live connection/recovery fixture: [parity-fixtures/gemini-live-session/lifecycle.json](../../parity-fixtures/gemini-live-session/lifecycle.json)
 - Kotlin parity tests must consume the shared fixture file.
 - Rust parity tests must consume the same shared fixture file or validate the same state transitions against `RealtimeState`.

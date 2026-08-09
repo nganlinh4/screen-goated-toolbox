@@ -4,14 +4,16 @@ import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.view.accessibility.AccessibilityManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbBridgeService
+import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
+import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlAssistActivity
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -29,6 +31,10 @@ class PhoneControlPackageCapabilityTest {
         val packageManager = context.packageManager
         val activity = packageManager.getActivityInfo(
             ComponentName(context, PhoneControlActivity::class.java),
+            PackageManager.ComponentInfoFlags.of(0),
+        )
+        val assistantGateway = packageManager.getActivityInfo(
+            ComponentName(context, PhoneControlAssistActivity::class.java),
             PackageManager.ComponentInfoFlags.of(0),
         )
         val service = packageManager.getServiceInfo(
@@ -53,6 +59,15 @@ class PhoneControlPackageCapabilityTest {
         )
 
         assertFalse(activity.exported)
+        assertTrue(assistantGateway.exported)
+        val assistantMatches = packageManager.queryIntentActivities(
+            Intent(Intent.ACTION_ASSIST).setPackage(context.packageName),
+            PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong()),
+        )
+        assertEquals(
+            listOf(PhoneControlAssistActivity::class.java.name),
+            assistantMatches.map { it.activityInfo.name },
+        )
         assertFalse(service.exported)
         assertFalse(adbService.exported)
         assertTrue(adbService.enabled)

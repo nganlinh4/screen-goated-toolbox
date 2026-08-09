@@ -79,13 +79,12 @@ fn delivery_source(path: &Path) -> String {
         "{} repeats a product feature",
         path.display()
     );
-    for required in ["image_to_3d", "image_to_svg", "image_creator"] {
-        assert!(
-            unique_features.contains(required),
-            "{} is missing required product feature {required}",
-            path.display()
-        );
-    }
+    assert_eq!(
+        unique_features,
+        std::collections::HashSet::from(["image_to_3d"]),
+        "{} must deliver only the active Image to 3D capability",
+        path.display()
+    );
     let asset = required_object_string(windows, "asset", path);
     let url = required_object_string(windows, "downloadUrl", path);
     let sha256 = required_object_string(windows, "sha256", path);

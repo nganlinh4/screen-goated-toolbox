@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 33,
+  "schemaVersion": 34,
   "tool": "image-to-3d",
   "names": {
     "en": "Image to 3D",
@@ -255,6 +255,7 @@
   },
   "runtimeCapabilities": {
     "contractVersion": 1,
+    "deliveredFeatures": ["image_to_3d"],
     "strictProductOnlyManifest": true,
     "malformedOrMissingCapabilityFailsClosed": true,
     "optionalInstruction": {

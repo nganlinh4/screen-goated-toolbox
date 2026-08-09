@@ -105,8 +105,11 @@ cargo clippy --all-targets -- -D warnings
 
 Run relevant frontend/mobile tests for changed subsystems. Do not waive failures to cut a release.
 
-For a release containing the creation mini apps, build the separately tracked
-runtime first and point all host builds at its generated delivery manifest:
+For a release containing the Image-to-3D mini app, build the separately tracked
+runtime first and point all host builds at its generated delivery manifest.
+Image-to-SVG and image creation/editing are archived source only: their host
+modules, frontend assets, worker services, and runtime capabilities must not be
+present in Windows or Android release artifacts.
 
 ### Mandatory creation-runtime release checkpoint
 
@@ -117,6 +120,7 @@ Android host builds until every item is complete:
 2. Rebuild both Android creation-runtime distributions from that same source.
 3. Regenerate the Windows, Android, and combined delivery manifests only after
    all runtime artifacts have been rebuilt. Never reuse an earlier manifest.
+   The combined manifest must advertise exactly `image_to_3d`.
 4. Replace every creation-runtime binary and manifest on the existing GitHub
    runtime-bundles release. An Android-only refresh or a local-only build is not
    a completed runtime release.

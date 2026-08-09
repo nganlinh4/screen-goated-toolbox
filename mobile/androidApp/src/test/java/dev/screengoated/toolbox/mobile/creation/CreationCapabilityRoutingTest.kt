@@ -155,13 +155,13 @@ class CreationCapabilityRoutingTest {
     fun `runtime handshake requires version and product capability manifest`() {
         val expected = CreationRuntimeProductDescriptor(
             runtimeVersion = "1",
-            features = setOf("image_to_3d", "image_to_svg", "image_creator"),
+            features = setOf("image_to_3d"),
         )
         val manifest = """
             {
               "contractVersion":1,
               "runtimeVersion":"1",
-              "features":["image_to_3d","image_to_svg","image_creator"],
+              "features":["image_to_3d"],
               "tools":{
                 "image_to_3d":{
                   "generationModes":{
@@ -178,7 +178,10 @@ class CreationCapabilityRoutingTest {
         assertFalse(isCompatibleCreationRuntimeManifest(manifest.replace("\"1\"", "\"2\""), expected))
         assertFalse(
             isCompatibleCreationRuntimeManifest(
-                manifest.replace(",\"image_creator\"", ""),
+                manifest.replace(
+                    "\"features\":[\"image_to_3d\"]",
+                    "\"features\":[\"image_to_3d\",\"image_to_svg\"]",
+                ),
                 expected,
             ),
         )
@@ -204,8 +207,8 @@ class CreationCapabilityRoutingTest {
         assertFalse(
             isCompatibleCreationRuntimeManifest(
                 manifest.replace(
-                    "\"image_to_3d\",\"image_to_svg\",\"image_creator\"",
-                    "\"image_to_3d\",\"image_to_svg\",\"image_creator\",\"image_creator\"",
+                    "\"features\":[\"image_to_3d\"]",
+                    "\"features\":[\"image_to_3d\",\"image_to_3d\"]",
                 ),
                 expected,
             ),
@@ -218,7 +221,7 @@ class CreationCapabilityRoutingTest {
             {
               "contractVersion": 1,
               "runtimeVersion": "1",
-              "features": ["image_to_3d","image_to_svg","image_creator"],
+              "features": ["image_to_3d"],
               "tools": {
                 "image_to_3d": {
                   "generationModes": {

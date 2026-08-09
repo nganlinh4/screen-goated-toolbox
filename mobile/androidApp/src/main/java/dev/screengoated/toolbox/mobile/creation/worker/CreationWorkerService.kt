@@ -225,23 +225,3 @@ internal class ImageTo3dWorker1Service : CreationWorkerService() {
     override val workerTool = CreationTool.IMAGE_TO_3D
     override val executionIndex = 1
 }
-
-internal class ImageToSvgWorker0Service : CreationWorkerService() {
-    override val workerTool = CreationTool.IMAGE_TO_SVG
-    override val executionIndex = 0
-}
-
-internal class ImageToSvgWorker1Service : CreationWorkerService() {
-    override val workerTool = CreationTool.IMAGE_TO_SVG
-    override val executionIndex = 1
-}
-
-internal class ImageCreatorWorker0Service : CreationWorkerService() {
-    override val workerTool = CreationTool.IMAGE_CREATOR
-    override val executionIndex = 0
-}
-
-internal class ImageCreatorWorker1Service : CreationWorkerService() {
-    override val workerTool = CreationTool.IMAGE_CREATOR
-    override val executionIndex = 1
-}

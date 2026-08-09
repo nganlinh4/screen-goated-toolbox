@@ -12,6 +12,10 @@
 
 ## Product Contract
 
+- The shipped creation runtime advertises and delivers only `image_to_3d`.
+  Archived SVG and image-creation capability code and assets are excluded from
+  Windows and Android artifacts.
+
 - The app is named Image to 3D / 이미지를 3D로 / Ảnh sang 3D.
 - Mode appears before topology:
 

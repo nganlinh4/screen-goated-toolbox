@@ -1,5 +1,13 @@
 # Image Creation And Editing Parity
 
+## Archive Status
+
+- The mini app is archived source only. Windows and Android release builds do
+  not compile its host implementation, embed its frontend, declare its worker
+  services, or deliver its runtime capability.
+- Archived source remains available for future restoration, but restoration
+  requires an explicit product-contract and packaging change on both platforms.
+
 ## Canonical Source
 
 - Product contract:

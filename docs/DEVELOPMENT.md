@@ -41,11 +41,12 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
-After frontend assets exist, direct `cargo run` is valid for a checkout without
-the private creation runtime. When that private checkout is present, prefer
-`run-dev.ps1` so its sidecar stays synchronized. Do not use a release build as
-routine validation; release packaging enables LTO/stripping and rebuilds every
-packaged frontend.
+After the active frontend assets exist, direct `cargo run` is valid for a
+checkout without the private Image-to-3D runtime. When that private checkout is
+present, prefer `run-dev.ps1` so its sidecar stays synchronized. Archived
+Image-to-SVG and image creation/editing sources are not built or synchronized.
+Do not use a release build as routine validation; release packaging enables
+LTO/stripping and rebuilds every packaged frontend.
 
 ## Frontend development
 

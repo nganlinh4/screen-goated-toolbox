@@ -238,8 +238,6 @@ pub(crate) fn shared_runtime_path() -> Option<PathBuf> {
 
 fn supported_readiness_tool(tool: &str) -> bool {
     tool == "3d"
-        || tool == "svg" && crate::creation_feature_availability::image_to_svg_release_enabled()
-        || tool == "image" && crate::creation_feature_availability::image_creator_release_enabled()
 }
 
 fn parse_readiness(output: &[u8]) -> Option<String> {

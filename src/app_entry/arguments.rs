@@ -9,8 +9,6 @@ const CREATION_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--creation-webview2-debug-port"
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CreationUiTestApp {
     ThreeD,
-    Image,
-    Svg,
 }
 
 pub(crate) struct StartupArgs {
@@ -85,21 +83,6 @@ impl StartupArgs {
 
     pub(crate) fn configure_creation_ui_test(&self) -> Option<CreationUiTestApp> {
         let app = parse_creation_ui_test_app(self.value(CREATION_UI_TEST_FLAG).as_deref())?;
-        let release_gated = match app {
-            CreationUiTestApp::Image => {
-                !crate::creation_feature_availability::image_creator_release_enabled()
-            }
-            CreationUiTestApp::Svg => {
-                !crate::creation_feature_availability::image_to_svg_release_enabled()
-            }
-            CreationUiTestApp::ThreeD => false,
-        };
-        if release_gated {
-            crate::log_info!(
-                "[CreationUiTest] Release-gated creation entry does not require WebView2 debugging"
-            );
-            return Some(app);
-        }
         let Some(port) = self.value(CREATION_WEBVIEW2_DEBUG_PORT_FLAG) else {
             crate::log_info!("[CreationUiTest] Missing WebView2 debug port");
             return None;
@@ -156,8 +139,6 @@ fn is_valid_webview2_debug_port(port: &str) -> bool {
 fn parse_creation_ui_test_app(value: Option<&str>) -> Option<CreationUiTestApp> {
     match value {
         Some("3d") => Some(CreationUiTestApp::ThreeD),
-        Some("image") => Some(CreationUiTestApp::Image),
-        Some("svg") => Some(CreationUiTestApp::Svg),
         _ => None,
     }
 }
@@ -230,15 +211,14 @@ mod tests {
             parse_creation_ui_test_app(Some("3d")),
             Some(CreationUiTestApp::ThreeD)
         );
-        assert_eq!(
-            parse_creation_ui_test_app(Some("image")),
-            Some(CreationUiTestApp::Image)
-        );
-        assert_eq!(
-            parse_creation_ui_test_app(Some("svg")),
-            Some(CreationUiTestApp::Svg)
-        );
-        for value in [None, Some(""), Some("3D"), Some("unknown")] {
+        for value in [
+            None,
+            Some(""),
+            Some("3D"),
+            Some("image"),
+            Some("svg"),
+            Some("unknown"),
+        ] {
             assert_eq!(parse_creation_ui_test_app(value), None);
         }
     }

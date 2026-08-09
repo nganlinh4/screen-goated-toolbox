@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 31,
+  "schemaVersion": 32,
   "tool": "image-to-svg",
   "releaseAvailability": {
     "enabled": false,
@@ -10,7 +10,11 @@
     "startsSurface": false,
     "startsReadiness": false,
     "preservesPreparedCapacity": true,
-    "platforms": ["windows", "android_full", "android_play"]
+    "platforms": ["windows", "android_full", "android_play"],
+    "packaging": "archived_source_only",
+    "compiledHostCode": false,
+    "embeddedFrontendAssets": false,
+    "runtimeCapabilityDelivered": false
   },
   "states": [
     "draft",

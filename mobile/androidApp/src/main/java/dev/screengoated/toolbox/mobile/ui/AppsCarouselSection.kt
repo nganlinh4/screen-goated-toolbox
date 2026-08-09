@@ -36,8 +36,6 @@ import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlService
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
-import dev.screengoated.toolbox.mobile.creation.CreationTool
-import dev.screengoated.toolbox.mobile.creation.creationToolReleased
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 
@@ -48,8 +46,6 @@ private fun appCardTag(index: Int): String = when (index) {
     3 -> "app-card-video-downloader"
     4 -> "app-card-dj"
     5 -> "app-card-image-to-3d"
-    6 -> "app-card-image-to-svg"
-    7 -> "app-card-image-creator"
     else -> "app-card-placeholder-$index"
 }
 
@@ -60,17 +56,9 @@ internal val appSlots = listOf(
     AppSlot(MaterialShapes.Heart,        { it.appSlotPurple }), // Video Downloader — purple
     AppSlot(MaterialShapes.Cookie4Sided, { it.appSlotAmber }),  // Be a DJ — amber
     AppSlot(MaterialShapes.Cookie4Sided, { it.appSlotTeal }),   // Image to 3D — mint
-    AppSlot(MaterialShapes.Clover4Leaf,  { it.appSlotBlue }),   // Image to SVG — cobalt
-    AppSlot(MaterialShapes.SemiCircle,   { it.appSlotCoral }),  // Create/edit image — coral
 )
 
-internal fun releasedAppSlotIndices(): List<Int> = appSlots.indices.filter { index ->
-    when (index) {
-        6 -> creationToolReleased(CreationTool.IMAGE_TO_SVG)
-        7 -> creationToolReleased(CreationTool.IMAGE_CREATOR)
-        else -> true
-    }
-}
+internal fun releasedAppSlotIndices(): List<Int> = appSlots.indices.toList()
 
 @Composable
 internal fun AppsCarouselSection(
@@ -82,8 +70,6 @@ internal fun AppsCarouselSection(
     onDjClick: () -> Unit = {},
     onTranslationGummyClick: () -> Unit = {},
     onImageTo3dClick: () -> Unit = {},
-    onImageToSvgClick: () -> Unit = {},
-    onImageCreatorClick: () -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
@@ -102,8 +88,6 @@ internal fun AppsCarouselSection(
             onDjClick,
             onTranslationGummyClick,
             onImageTo3dClick,
-            onImageToSvgClick,
-            onImageCreatorClick,
             onPagerSwipeLockChanged,
             sharedTransitionScope,
             animatedVisibilityScope,
@@ -119,8 +103,6 @@ internal fun AppsCarouselSection(
             onDjClick,
             onTranslationGummyClick,
             onImageTo3dClick,
-            onImageToSvgClick,
-            onImageCreatorClick,
             sharedTransitionScope,
             animatedVisibilityScope,
         )
@@ -138,8 +120,6 @@ private fun AppsItemContent(
     onDjClick: () -> Unit,
     onTranslationGummyClick: () -> Unit,
     onImageTo3dClick: () -> Unit,
-    onImageToSvgClick: () -> Unit,
-    onImageCreatorClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -165,8 +145,6 @@ private fun AppsItemContent(
                     }
                     4 -> Modifier.clickable(onClick = onDjClick)
                     5 -> Modifier.clickable(onClick = onImageTo3dClick)
-                    6 -> Modifier.clickable(onClick = onImageToSvgClick)
-                    7 -> Modifier.clickable(onClick = onImageCreatorClick)
                     else -> Modifier
                 },
             ),
@@ -197,8 +175,6 @@ private fun AppsItemContent(
             3 -> AppTile(slot = appSlots[3], title = locale.appVideoDownloaderTitle, drawableRes = R.drawable.ms_movie)
             4 -> AppTile(slot = appSlots[4], title = locale.appDjTitle, drawableRes = R.drawable.ms_album)
             5 -> AppTile(slot = appSlots[5], title = locale.appImageTo3dTitle, drawableRes = R.drawable.ms_deployed_code)
-            6 -> AppTile(slot = appSlots[6], title = locale.appImageToSvgTitle, drawableRes = R.drawable.ms_draw_collage)
-            7 -> AppTile(slot = appSlots[7], title = locale.appImageCreatorTitle, drawableRes = R.drawable.ms_image)
             else -> EmptyAppTile(slot = appSlots[index])
         }
     }
@@ -215,8 +191,6 @@ private fun AppsVerticalCarousel(
     onDjClick: () -> Unit,
     onTranslationGummyClick: () -> Unit,
     onImageTo3dClick: () -> Unit,
-    onImageToSvgClick: () -> Unit,
-    onImageCreatorClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -252,8 +226,6 @@ private fun AppsVerticalCarousel(
                     onDjClick,
                     onTranslationGummyClick,
                     onImageTo3dClick,
-                    onImageToSvgClick,
-                    onImageCreatorClick,
                     sharedTransitionScope,
                     animatedVisibilityScope,
                 )
@@ -275,8 +247,6 @@ private fun AppsHorizontalCarousel(
     onDjClick: () -> Unit,
     onTranslationGummyClick: () -> Unit,
     onImageTo3dClick: () -> Unit,
-    onImageToSvgClick: () -> Unit,
-    onImageCreatorClick: () -> Unit,
     onPagerSwipeLockChanged: (Boolean) -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
@@ -322,8 +292,6 @@ private fun AppsHorizontalCarousel(
                     onDjClick,
                     onTranslationGummyClick,
                     onImageTo3dClick,
-                    onImageToSvgClick,
-                    onImageCreatorClick,
                     sharedTransitionScope,
                     animatedVisibilityScope,
                 )
