@@ -1,20 +1,37 @@
 (function() {
     const fitPhase = "__FIT_PHASE__";
     const isStreamingFit = __STREAMING_MODE__;
+    const fitContext = window.__SGT_FIT_CONTEXT__ || null;
+    const fitState = fitContext ? fitContext.state : window;
+    const fitBody = fitContext ? fitContext.body : document.body;
+    const fitViewport = fitContext ? fitContext.viewport : null;
+    const settleBeforeReveal = Boolean(fitContext && fitContext.settleBeforeReveal);
+    const scheduleFitFrame = fitContext && typeof fitContext.scheduleFrame === 'function'
+        ? fitContext.scheduleFrame
+        : requestAnimationFrame.bind(window);
+    const cancelFitFrame = fitContext && typeof fitContext.cancelFrame === 'function'
+        ? fitContext.cancelFrame
+        : cancelAnimationFrame.bind(window);
+    const fitDocument = fitContext ? {
+        get scrollHeight() { return fitBody ? fitBody.scrollHeight : 0; },
+        get scrollWidth() { return fitBody ? fitBody.scrollWidth : 0; }
+    } : document.documentElement;
 
-    window._sgtFitCallCount = (window._sgtFitCallCount || 0) + 1;
-    if (window._sgtFitting) return;
-    window._sgtFitting = true;
+    fitState._sgtFitCallCount = (fitState._sgtFitCallCount || 0) + 1;
+    if (fitState._sgtFitting) return;
+    fitState._sgtFitting = true;
 
-    if (typeof window._sgtCurrentWdth !== 'number') {
-        window._sgtCurrentWdth = 90;
+    if (typeof fitState._sgtCurrentWdth !== 'number') {
+        fitState._sgtCurrentWdth = 90;
     }
     // _sgtCurrentFontSize is intentionally left undefined on the first fit so
     // that fit snaps to its target (nothing to ease from yet).
 
     function postFitDiagnostic(payload) {
         try {
-            if (window.parent && window.parent !== window) {
+            if (fitContext && typeof fitContext.reportDiagnostic === 'function') {
+                fitContext.reportDiagnostic(payload);
+            } else if (window.parent && window.parent !== window) {
                 window.parent.postMessage({
                     type: 'fit_diagnostic',
                     payload: payload
@@ -28,18 +45,29 @@
     function revealAndUnlock(bodyRef) {
         try {
             if (bodyRef) {
-                bodyRef.style.opacity = '1';
+                if (settleBeforeReveal) {
+                    bodyRef.style.setProperty('opacity', '1', 'important');
+                } else {
+                    bodyRef.style.opacity = '1';
+                }
             }
         } finally {
-            window._sgtFitting = false;
+            fitState._sgtFitting = false;
+            try {
+                if (fitContext && typeof fitContext.complete === 'function') {
+                    fitContext.complete();
+                } else if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({ type: 'fit_complete' }, '*');
+                }
+            } catch (_err) {}
         }
     }
 
     function runFitWhenReady() {
-        requestAnimationFrame(function() {
-            requestAnimationFrame(function() {
-                var body = document.body;
-                var doc = document.documentElement;
+        scheduleFitFrame(function() {
+            scheduleFitFrame(function() {
+                var body = fitBody;
+                var doc = fitDocument;
 
                 try {
                     if (!body || !doc) {
@@ -54,7 +82,7 @@
 
                     // Skip font fitting for image/audio input adapters - detect by checking for slider-container.
                     // These have special fixed layouts that shouldn't be affected by auto-scaling.
-                    if (document.querySelector('.slider-container') || document.querySelector('.audio-player')) {
+                    if (body.querySelector('.slider-container') || body.querySelector('.audio-player')) {
                         return;
                     }
 
@@ -63,8 +91,8 @@
                     // Force layout recalculation before reading dimensions.
                     void body.offsetHeight;
 
-                    var winH = window.innerHeight;
-                    var winW = body.clientWidth || window.innerWidth;
+                    var winH = fitViewport ? fitViewport.clientHeight : window.innerHeight;
+                    var winW = fitViewport ? fitViewport.clientWidth : window.innerWidth;
 
                     // Count text nodes that can contribute content, including
                     // visibility:hidden streaming words. body.textContent also
@@ -97,7 +125,7 @@
                     // can re-trigger fit_font_to_window even when text, window size,
                     // and committed axes are unchanged — wasted ~100ms each time.
                     if (!isStreamingFit) {
-                        var lastFinal = window._sgtLastFinalFit;
+                        var lastFinal = fitState._sgtLastFinalFit;
                         var cachedFs = parseFloat(body.style.fontSize);
                         var cachedStretch = parseFloat(body.style.fontStretch);
                         if (lastFinal
@@ -180,9 +208,9 @@
                     // entry starved every streaming animation under a fast response:
                     // queued fits cancelled one another before their first painted
                     // frame, leaving only the final fit able to visibly shrink.
-                    if (window._sgtFitAnim) {
-                        try { cancelAnimationFrame(window._sgtFitAnim); } catch (_e) {}
-                        window._sgtFitAnim = null;
+                    if (fitState._sgtFitAnim) {
+                        try { cancelFitFrame(fitState._sgtFitAnim); } catch (_e) {}
+                        fitState._sgtFitAnim = null;
                     }
 
                     // Capture currently-displayed axes BEFORE Phase 0 resets them.
@@ -231,8 +259,8 @@
                     // while the exact final fit retains the exhaustive search.
                     var preservedSize = false;
                     if (isStreamingFit) {
-                        var previousTarget = window._sgtLastReportedFitTarget;
-                        var previousTextLen = window._sgtLastStreamingFitTextLen;
+                        var previousTarget = fitState._sgtLastReportedFitTarget;
+                        var previousTextLen = fitState._sgtLastStreamingFitTextLen;
                         var contentOnlyGrew = Number.isFinite(previousTextLen)
                             && textLen >= previousTextLen;
                         var searchHigh = maxSize;
@@ -245,7 +273,7 @@
                                 Math.min(maxSize, previousTarget.fontSize)
                             );
                         }
-                        window._sgtLastStreamingFitTextLen = textLen;
+                        fitState._sgtLastStreamingFitTextLen = textLen;
 
                         body.style.fontSize = searchHigh + 'px';
                         clearLastMargin();

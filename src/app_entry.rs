@@ -54,7 +54,9 @@ pub(crate) fn run() -> eframe::Result<()> {
 
     let screen_record_wry_smoke = startup_args.configure_screen_record_wry_smoke();
     let creation_ui_test = startup_args.configure_creation_ui_test();
-    let isolated_ui_test = screen_record_wry_smoke || creation_ui_test.is_some();
+    let result_compositor_smoke = startup_args.result_compositor_smoke();
+    let isolated_ui_test =
+        screen_record_wry_smoke || creation_ui_test.is_some() || result_compositor_smoke;
     crate::startup_launch::maybe_delay_for_windows_autostart(startup_args.raw());
 
     crate::initialization::cleanup_temporary_files();
@@ -64,6 +66,10 @@ pub(crate) fn run() -> eframe::Result<()> {
     if !crate::runtime_support::webview2_runtime_installed() {
         crate::log_info!("[WebView2] Runtime not detected — starting auto-install in background.");
         crate::runtime_support::start_webview2_runtime_install();
+    } else {
+        // Begin the only result renderer as early as possible and overlap its
+        // WebView/font bootstrap with the rest of application startup.
+        crate::overlay::result::scene_compositor::warmup();
     }
 
     crate::log_info!("Ensuring context menu entry...");
@@ -123,6 +129,10 @@ pub(crate) fn run() -> eframe::Result<()> {
             app.config.clear_webview_on_startup = false;
             crate::config::save_config(&app.config);
         }
+    }
+
+    if result_compositor_smoke {
+        std::process::exit(crate::overlay::result::smoke::run());
     }
 
     crate::runtime_support::show_startup_compatibility_notice_if_needed();

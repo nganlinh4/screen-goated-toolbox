@@ -8,23 +8,16 @@ pub fn get_font_style() -> String {
     )
 }
 
-/// Font contract for result cards rendered inside the singleton compositor.
-/// The compositor serves this root-relative asset from its in-process protocol.
+/// Font contract for isolated result cards rendered inside the singleton compositor.
+/// Raw cards load on the compositor's isolated card origin, including this font resource.
 pub fn get_compositor_font_style() -> String {
+    let font_face = crate::overlay::result::scene_compositor::font::isolated_face_css();
     format!(
         r#"<style>
-        @font-face {{
-            font-family: 'Google Sans Flex';
-            font-style: normal;
-            font-weight: 100 1000;
-            font-stretch: 25% 151%;
-            font-display: block;
-            src: url('/font.ttf?v={}') format('truetype');
-        }}
+        {font_face}
         html body, html body * {{ font-family: 'Google Sans Flex' !important; }}
         html:not(.sgt-font-ready) body {{ visibility: hidden !important; }}
-        </style>"#,
-        env!("CARGO_PKG_VERSION")
+        </style>"#
     )
 }
 

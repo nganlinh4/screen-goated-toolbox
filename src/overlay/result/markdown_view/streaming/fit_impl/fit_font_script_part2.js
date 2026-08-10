@@ -158,7 +158,7 @@
                             probe.style.fontSize = cs.fontSize;
                             probe.style.fontWeight = cs.fontWeight;
                             probe.style.lineHeight = cs.lineHeight;
-                            document.body.appendChild(probe);
+                            body.appendChild(probe);
                             probe.style.fontStretch = '90%';
                             var widthAt90 = probe.getBoundingClientRect().width;
                             probe.style.fontStretch = '55%';
@@ -189,7 +189,7 @@
                                 probeWdthDelta: widthAt90 - widthAt55,
                                 fitDurationMs: performance.now() - _fitStart,
                                 layoutProbes: layoutProbeCount,
-                                fitCallCount: window._sgtFitCallCount || 0,
+                                fitCallCount: fitState._sgtFitCallCount || 0,
                                 streamingFit: isStreamingFit
                             };
                             window.ipc.postMessage(JSON.stringify(payload));
@@ -210,13 +210,13 @@
                         var targetPadTop = parseFloat(body.style.paddingTop) || 0;
                         var targetPadBottom = parseFloat(body.style.paddingBottom) || 0;
 
-                        var lastReportedTarget = window._sgtLastReportedFitTarget;
+                        var lastReportedTarget = fitState._sgtLastReportedFitTarget;
                         var targetChanged = !lastReportedTarget
                             || lastReportedTarget.streaming !== isStreamingFit
                             || Math.abs(lastReportedTarget.fontSize - targetFontSize) >= 0.1
                             || Math.abs(lastReportedTarget.fontStretch - targetWdth) >= 0.3;
                         var paintSampleNow = performance.now();
-                        var previousPaintSample = window._sgtLastFitPaintSample;
+                        var previousPaintSample = fitState._sgtLastFitPaintSample;
                         var paintedShrinkPxPerSec = 0;
                         if (previousPaintSample
                             && Number.isFinite(priorDisplayedFontSize)
@@ -227,7 +227,7 @@
                                 / (paintSampleNow - previousPaintSample.time)
                             );
                         }
-                        window._sgtLastFitPaintSample = {
+                        fitState._sgtLastFitPaintSample = {
                             time: paintSampleNow,
                             fontSize: priorDisplayedFontSize
                         };
@@ -244,10 +244,11 @@
                                 fontStretch: targetWdth,
                                 fitDurationMs: performance.now() - _fitStart,
                                 layoutProbes: layoutProbeCount,
-                                paintedShrinkPxPerSec: paintedShrinkPxPerSec
+                                paintedShrinkPxPerSec: paintedShrinkPxPerSec,
+                                settleBeforeReveal: settleBeforeReveal
                             });
                         }
-                        window._sgtLastReportedFitTarget = {
+                        fitState._sgtLastReportedFitTarget = {
                             streaming: isStreamingFit,
                             fontSize: targetFontSize,
                             fontStretch: targetWdth
@@ -271,7 +272,7 @@
                         // Save signature for the short-circuit at fit entry. Only for
                         // final fits (streaming changes mid-flight and shouldn't cache).
                         if (!isStreamingFit) {
-                            window._sgtLastFinalFit = {
+                            fitState._sgtLastFinalFit = {
                                 textLen: textLen,
                                 winW: winW,
                                 winH: winH,
@@ -289,8 +290,8 @@
                         // transition is active (removed) so measurements in
                         // future fits read whatever we set here exactly.
                         //
-                        // Final (mouse-enter / settle) fits can involve a bigger
-                        // delta after the full layout and remain visibly smooth.
+                        // A hidden final-only render must commit its target before
+                        // reveal. Other final fits can still ease from visible state.
                         var fsDelta = Math.abs(targetFontSize - startFontSize);
                         var wDelta = Math.abs(targetWdth - startWdth);
                         // Streaming fits are retargeted at the model's chunk
@@ -313,11 +314,12 @@
                         // forming the visible "stair-step" between chunks.
                         var snapThreshold = 0.1;
                         var snapWThreshold = 0.3;
-                        if (!hadPriorSize || (fsDelta < snapThreshold && wDelta < snapWThreshold)) {
+                        if (settleBeforeReveal || !hadPriorSize
+                            || (fsDelta < snapThreshold && wDelta < snapWThreshold)) {
                             applyAxes(targetFontSize, targetWdth);
                             applyPadding(targetPadTop, targetPadBottom);
-                            window._sgtCurrentFontSize = targetFontSize;
-                            window._sgtCurrentWdth = targetWdth;
+                            fitState._sgtCurrentFontSize = targetFontSize;
+                            fitState._sgtCurrentWdth = targetWdth;
                         } else {
                             applyAxes(startFontSize, startWdth);
                             applyPadding(startPadTop, startPadBottom);
@@ -333,15 +335,15 @@
                                 var curPB = startPadBottom + (targetPadBottom - startPadBottom) * eased;
                                 applyAxes(curFs, curW);
                                 applyPadding(curPT, curPB);
-                                window._sgtCurrentFontSize = curFs;
-                                window._sgtCurrentWdth = curW;
+                                fitState._sgtCurrentFontSize = curFs;
+                                fitState._sgtCurrentWdth = curW;
                                 if (t < 1) {
-                                    window._sgtFitAnim = requestAnimationFrame(tick);
+                                    fitState._sgtFitAnim = scheduleFitFrame(tick);
                                 } else {
-                                    window._sgtFitAnim = null;
+                                    fitState._sgtFitAnim = null;
                                 }
                             };
-                            window._sgtFitAnim = requestAnimationFrame(tick);
+                            fitState._sgtFitAnim = scheduleFitFrame(tick);
                         }
                     } catch (_err) {}
                 } catch (err) {
@@ -369,11 +371,19 @@
     }
 
     try {
-        if (document.fonts
-            && document.fonts.check('400 16px "Google Sans Flex"')) {
+        if ((fitContext && fitContext.fontReady === true)
+            || (document.fonts
+                && document.fonts.check('400 16px "Google Sans Flex"'))) {
             runFitWhenReady();
         } else {
-            window._sgtFitting = false;
+            fitState._sgtFitting = false;
+            try {
+                if (fitContext && typeof fitContext.complete === 'function') {
+                    fitContext.complete();
+                } else if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({ type: 'fit_complete' }, '*');
+                }
+            } catch (_err) {}
             postFitDiagnostic({
                 action: 'render_diagnostics',
                 phase: fitPhase,
@@ -382,7 +392,14 @@
             });
         }
     } catch (error) {
-        window._sgtFitting = false;
+        fitState._sgtFitting = false;
+        try {
+            if (fitContext && typeof fitContext.complete === 'function') {
+                fitContext.complete();
+            } else if (window.parent && window.parent !== window) {
+                window.parent.postMessage({ type: 'fit_complete' }, '*');
+            }
+        } catch (_err) {}
         postFitDiagnostic({
             action: 'render_diagnostics',
             phase: fitPhase,

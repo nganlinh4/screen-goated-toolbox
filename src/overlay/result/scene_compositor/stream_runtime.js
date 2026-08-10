@@ -54,7 +54,13 @@
 
         var minSize = textLen < 200 ? 6 : 14;
         if (options.runInlineSizing && isNewSession) {
-            var maxPossible = Math.min(isConstrainedWindow ? 40 : 48, winH);
+            var finalMaximum = textLen < 300
+                ? 200
+                : (textLen < 1500 ? 100 : Math.max(24, Math.min(48, Math.floor(winH / 10))));
+            var maxPossible = Math.min(
+                options.finalizing ? finalMaximum : (isConstrainedWindow ? 40 : 48),
+                winH
+            );
             var estimated = Math.sqrt((winW * winH) / (textLen + 1));
             var low = Math.max(minSize, Math.floor(estimated * 0.5));
             var high = Math.min(maxPossible, Math.ceil(estimated * 1.15));
@@ -222,9 +228,37 @@
     };
 
     window.__SGT_INIT_STREAM_GRIDS__ = function() {
-        if (typeof gridjs === 'undefined') return;
+        var tableSelector = 'table:not(.gridjs-table):not([data-processed-table="true"])';
+        if (!document.querySelector(tableSelector)) return;
+        if (typeof gridjs === 'undefined') {
+            if (!window._sgtGridRuntime) {
+                window._sgtGridRuntime = new Promise(function(resolve, reject) {
+                    var stylesheet = document.createElement('link');
+                    stylesheet.rel = 'stylesheet';
+                    stylesheet.href = '__SGT_GRID_CSS_URL__';
+                    document.head.appendChild(stylesheet);
+                    var script = document.createElement('script');
+                    script.src = '__SGT_GRID_JS_URL__';
+                    script.onload = resolve;
+                    script.onerror = function() {
+                        reject(new Error('Grid runtime failed to load'));
+                    };
+                    document.head.appendChild(script);
+                });
+            }
+            window._sgtGridRuntime.then(function() {
+                window.__SGT_INIT_STREAM_GRIDS__();
+            }).catch(function(error) {
+                window.parent.postMessage({
+                    type: 'card_diagnostic',
+                    phase: 'grid_runtime_failed',
+                    error: String(error && error.message ? error.message : error)
+                }, '*');
+            });
+            return;
+        }
         var tables = document.querySelectorAll(
-            'table:not(.gridjs-table):not([data-processed-table="true"])'
+            tableSelector
         );
         var pendingGrids = 0;
 
@@ -250,6 +284,9 @@
                     requestAnimationFrame(poll);
                 } else {
                     shrinkAfterLayout();
+                    if (typeof window.__SGT_REQUEST_FIT__ === 'function') {
+                        window.__SGT_REQUEST_FIT__(false);
+                    }
                 }
             };
             poll();

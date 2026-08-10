@@ -11,6 +11,38 @@ use super::html_utils::{
 const INTERACTIVE_WORD_WRAP_CHAR_LIMIT: usize = 6000;
 const INTERACTIVE_WORD_WRAP_WORD_LIMIT: usize = 900;
 
+pub struct CompositorRender {
+    pub body: String,
+    pub isolated_document: Option<String>,
+}
+
+pub fn render_for_compositor(
+    markdown: &str,
+    is_refining: bool,
+    preset_prompt: &str,
+    input_text: &str,
+) -> CompositorRender {
+    if is_refining && crate::overlay::utils::SHOW_REFINING_CONTEXT_QUOTE {
+        let combined = refining_context(preset_prompt, input_text);
+        return CompositorRender {
+            body: crate::overlay::utils::get_context_quote(&combined),
+            isolated_document: None,
+        };
+    }
+    if is_html_content(markdown) {
+        let document =
+            markdown_to_html_for_compositor(markdown, is_refining, preset_prompt, input_text);
+        return CompositorRender {
+            body: document_body(&document),
+            isolated_document: Some(document),
+        };
+    }
+    CompositorRender {
+        body: render_markdown_body(markdown).0,
+        isolated_document: None,
+    }
+}
+
 fn should_enable_interactive_word_wrap(markdown: &str) -> bool {
     if markdown.len() > INTERACTIVE_WORD_WRAP_CHAR_LIMIT {
         return false;
@@ -72,11 +104,7 @@ fn markdown_to_html_with_font_style(
     let theme_css = get_theme_css(is_dark);
 
     if is_refining && crate::overlay::utils::SHOW_REFINING_CONTEXT_QUOTE {
-        let combined = if input_text.is_empty() {
-            preset_prompt.to_string()
-        } else {
-            format!("{}\n\n{}", preset_prompt, input_text)
-        };
+        let combined = refining_context(preset_prompt, input_text);
         let quote = crate::overlay::utils::get_context_quote(&combined);
         let html = format!(
             r#"<!DOCTYPE html>
@@ -135,6 +163,63 @@ fn markdown_to_html_with_font_style(
         );
     }
 
+    let (html_output, has_table) = render_markdown_body(markdown);
+
+    // Grid.js Integration
+    let gridjs_head = if has_table {
+        let (css_url, js_url) = crate::overlay::html_components::grid_js::get_lib_urls();
+        format!(
+            r#"<link href="{}" rel="stylesheet" />
+            <script src="{}"></script>
+            <style>{}</style>"#,
+            css_url,
+            js_url,
+            crate::overlay::html_components::grid_js::get_css()
+        )
+    } else {
+        String::new()
+    };
+
+    let gridjs_body = if has_table {
+        format!(
+            r#"<script>{}</script>"#,
+            crate::overlay::html_components::grid_js::get_init_script()
+        )
+    } else {
+        String::new()
+    };
+
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style id="sgt-theme-css">{}</style>
+    {}
+    <style>{}</style>
+    {}
+</head>
+<body>
+    {}
+    {}
+</body>
+</html>"#,
+        theme_css, font_style, MARKDOWN_CSS, gridjs_head, html_output, gridjs_body
+    );
+
+    inject_render_diagnostics(&html, markdown.len(), markdown.trim().len(), "markdown")
+}
+
+fn refining_context(preset_prompt: &str, input_text: &str) -> String {
+    if input_text.is_empty() {
+        preset_prompt.to_string()
+    } else {
+        format!("{preset_prompt}\n\n{input_text}")
+    }
+}
+
+fn render_markdown_body(markdown: &str) -> (String, bool) {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
@@ -199,51 +284,23 @@ fn markdown_to_html_with_font_style(
     let mut html_output = String::new();
     html::push_html(&mut html_output, wrapped_parser);
 
-    // Grid.js Integration
     let has_table = html_output.contains("<table");
-    let gridjs_head = if has_table {
-        let (css_url, js_url) = crate::overlay::html_components::grid_js::get_lib_urls();
-        format!(
-            r#"<link href="{}" rel="stylesheet" />
-            <script src="{}"></script>
-            <style>{}</style>"#,
-            css_url,
-            js_url,
-            crate::overlay::html_components::grid_js::get_css()
-        )
-    } else {
-        String::new()
+    (html_output, has_table)
+}
+
+fn document_body(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let Some(body_start) = lower.find("<body") else {
+        return html.to_string();
     };
-
-    let gridjs_body = if has_table {
-        format!(
-            r#"<script>{}</script>"#,
-            crate::overlay::html_components::grid_js::get_init_script()
-        )
-    } else {
-        String::new()
+    let Some(tag_end) = lower[body_start..].find('>') else {
+        return html.to_string();
     };
-
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style id="sgt-theme-css">{}</style>
-    {}
-    <style>{}</style>
-    {}
-</head>
-<body>
-    {}
-    {}
-</body>
-</html>"#,
-        theme_css, font_style, MARKDOWN_CSS, gridjs_head, html_output, gridjs_body
-    );
-
-    inject_render_diagnostics(&html, markdown.len(), markdown.trim().len(), "markdown")
+    let content_start = body_start + tag_end + 1;
+    let Some(content_end) = lower[content_start..].rfind("</body>") else {
+        return html[content_start..].to_string();
+    };
+    html[content_start..content_start + content_end].to_string()
 }
 
 fn inject_style_into_document(html: &str, style: &str) -> String {
@@ -261,16 +318,16 @@ fn inject_style_into_document(html: &str, style: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::markdown_to_html_for_compositor;
+    use super::{markdown_to_html_for_compositor, render_for_compositor};
 
     #[test]
-    fn compositor_markdown_uses_only_its_bundled_font_protocol() {
+    fn compositor_markdown_uses_the_visibility_gated_bundled_font() {
         let html = markdown_to_html_for_compositor("hello", false, "", "");
 
-        assert!(html.contains("/font.ttf?v="));
+        assert!(html.contains("Google Sans Flex"));
         assert!(html.contains("html:not(.sgt-font-ready) body"));
-        assert!(!html.contains("127.0.0.1"));
-        assert!(!html.contains("'Segoe UI'"));
+        assert_eq!(html.matches("data:font/ttf;base64,").count(), 1);
+        assert!(!html.contains("data:font/woff;base64,"));
     }
 
     #[test]
@@ -282,7 +339,31 @@ mod tests {
             "",
         );
 
-        assert!(html.contains("/font.ttf?v="));
+        assert!(html.contains("Google Sans Flex"));
         assert!(html.contains("html:not(.sgt-font-ready) body"));
+        assert_eq!(html.matches("data:font/ttf;base64,").count(), 1);
+    }
+
+    #[test]
+    fn ordinary_compositor_updates_only_build_replaceable_body_markup() {
+        let rendered = render_for_compositor("hello **world**", false, "", "");
+
+        assert!(rendered.isolated_document.is_none());
+        assert!(rendered.body.contains("<strong>"));
+        assert!(!rendered.body.contains("<!DOCTYPE html>"));
+        assert!(!rendered.body.contains("/font.ttf"));
+    }
+
+    #[test]
+    fn raw_html_keeps_an_isolated_compatibility_document() {
+        let rendered = render_for_compositor(
+            "<html><head></head><body><p>hello</p></body></html>",
+            false,
+            "",
+            "",
+        );
+
+        assert_eq!(rendered.body.trim_start(), "<p>hello</p>");
+        assert!(rendered.isolated_document.is_some());
     }
 }

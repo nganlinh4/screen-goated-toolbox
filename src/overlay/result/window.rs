@@ -75,9 +75,10 @@ pub struct ResultWindowParams {
     pub initial_text: String,
     pub preset_id: Option<String>,
     pub is_chain_root: bool,
+    pub latency_trace_id: Option<String>,
 }
 
-pub fn create_result_window(params: ResultWindowParams) -> HWND {
+pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
     let ResultWindowParams {
         target_rect,
         win_type: _win_type,
@@ -91,6 +92,7 @@ pub fn create_result_window(params: ResultWindowParams) -> HWND {
         initial_text,
         preset_id,
         is_chain_root,
+        latency_trace_id,
     } = params;
     unsafe {
         let instance = GetModuleHandleW(None).unwrap();
@@ -150,18 +152,16 @@ pub fn create_result_window(params: ResultWindowParams) -> HWND {
                     redo_history: Vec::new(),
                     is_refining: false,
                     is_streaming_active: streaming_enabled,
-                    was_streaming_active: streaming_enabled,
                     model_id,
                     provider,
                     streaming_enabled,
                     bg_color: custom_bg_color,
                     linked_windows: Vec::new(),
-                    pending_text: Some(initial_text),
-                    last_text_update_time: 0,
                     preset_prompt,
                     input_text: String::new(),
                     cancellation_token: None,
                     chain_id: None,
+                    latency_trace_id: latency_trace_id.clone(),
                     is_browsing: false,
                     navigation_depth: 0,
                     max_navigation_depth: 0,
@@ -173,8 +173,9 @@ pub fn create_result_window(params: ResultWindowParams) -> HWND {
                 },
             );
         }
-
-        super::scene_compositor::register_window(hwnd);
+        if let Some(trace_id) = latency_trace_id.as_deref() {
+            super::latency::mark(trace_id, "window_created");
+        }
 
         // The HWND owns geometry and resize hit-testing only. Rendering and
         // opacity belong exclusively to the scene compositor.
@@ -185,11 +186,19 @@ pub fn create_result_window(params: ResultWindowParams) -> HWND {
             let _ = SetForegroundWindow(hwnd);
         }
 
-        // Always register window with button canvas so floating buttons are available
-        super::button_canvas::register_markdown_window(hwnd);
-
         hwnd
     }
+}
+
+pub(crate) fn initialize_result_window(hwnd: HWND) {
+    super::scene_compositor::register_window(hwnd);
+    super::button_canvas::register_markdown_window(hwnd);
+}
+
+pub fn create_result_window(params: ResultWindowParams) -> HWND {
+    let hwnd = create_result_window_shell(params);
+    initialize_result_window(hwnd);
+    hwnd
 }
 
 pub fn update_window_text(hwnd: HWND, text: &str) {
@@ -197,28 +206,14 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
         return;
     }
 
-    let sync_immediately = {
+    {
         let mut states = WINDOW_STATES.lock().unwrap();
         let Some(state) = states.get_mut(&(hwnd.0 as isize)) else {
             return;
         };
-        if text_update_waits_for_stream_timer(state.is_streaming_active) {
-            state.pending_text = Some(text.to_string());
-            false
-        } else {
-            state.pending_text = None;
-            state.full_text = text.to_string();
-            true
-        }
-    };
-    if sync_immediately {
-        let visible = unsafe { IsWindowVisible(hwnd).as_bool() };
-        super::scene_compositor::sync_window(hwnd, visible);
+        state.full_text = text.to_string();
     }
-}
-
-fn text_update_waits_for_stream_timer(is_streaming_active: bool) -> bool {
-    is_streaming_active
+    super::scene_compositor::queue_window_sync(hwnd);
 }
 
 #[cfg(test)]
@@ -233,9 +228,11 @@ mod tests {
     }
 
     #[test]
-    fn streaming_updates_have_one_timer_owned_sync_path() {
-        assert!(text_update_waits_for_stream_timer(true));
-        assert!(!text_update_waits_for_stream_timer(false));
+    fn streaming_updates_use_the_native_coalescing_scheduler() {
+        let source = include_str!("window.rs");
+        let event_handler = include_str!("event_handler/mod.rs");
+        assert!(source.contains("scene_compositor::queue_window_sync(hwnd)"));
+        assert!(!event_handler.contains("WM_TIMER =>"));
     }
 
     #[test]

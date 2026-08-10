@@ -1,10 +1,12 @@
 pub mod button_canvas;
 mod event_handler;
+pub(crate) mod latency;
 pub mod layout;
 pub mod markdown_view;
 mod refine;
 mod restore;
 pub mod scene_compositor;
+pub(crate) mod smoke;
 pub mod state;
 mod window;
 
@@ -13,6 +15,7 @@ pub use state::{
     ChainCancelToken, RefineContext, WINDOW_STATES, WindowType, close_chain_windows, link_windows,
 };
 pub use window::{ResultWindowParams, create_result_window, get_chain_color, update_window_text};
+pub(crate) use window::{create_result_window_shell, initialize_result_window};
 
 pub fn update_theme(is_dark: bool) {
     button_canvas::update_theme(is_dark);

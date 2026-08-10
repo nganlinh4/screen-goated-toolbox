@@ -19,20 +19,17 @@ pub const WM_DOWNLOAD_CLICK: u32 = WM_USER + 217;
 pub const WM_CLOSE_GROUP_CLICK: u32 = WM_USER + 219;
 
 pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
-    unsafe {
-        super::super::scene_compositor::remove_window(hwnd);
-        if let Some(state) = WINDOW_STATES.lock().unwrap().remove(&(hwnd.0 as isize)) {
-            if let Some(token) = state.cancellation_token {
-                token.cancel();
-            }
-            if state.tts_request_id != 0 {
-                crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
-            }
+    super::super::scene_compositor::remove_window(hwnd);
+    if let Some(state) = WINDOW_STATES.lock().unwrap().remove(&(hwnd.0 as isize)) {
+        if let Some(token) = state.cancellation_token {
+            token.cancel();
         }
-        let _ = KillTimer(Some(hwnd), 3);
-        button_canvas::unregister_markdown_window(hwnd);
-        LRESULT(0)
+        if state.tts_request_id != 0 {
+            crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
+        }
     }
+    button_canvas::unregister_markdown_window(hwnd);
+    LRESULT(0)
 }
 
 pub unsafe fn handle_paint(hwnd: HWND) -> LRESULT {
@@ -84,7 +81,6 @@ pub unsafe fn handle_show_window(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) -> 
         let showing = wparam.0 != 0;
         super::super::scene_compositor::sync_window(hwnd, showing);
         if showing {
-            SetTimer(Some(hwnd), 3, 16, None);
             button_canvas::register_markdown_window(hwnd);
         }
         DefWindowProcW(hwnd, WM_SHOWWINDOW, wparam, lparam)

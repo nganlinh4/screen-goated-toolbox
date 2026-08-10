@@ -4,7 +4,7 @@
 use crate::config::{Config, ProcessingBlock};
 use crate::overlay::result::{
     ChainCancelToken, RefineContext, ResultWindowParams, WINDOW_STATES, WindowType,
-    create_result_window, get_chain_color, link_windows,
+    create_result_window_shell, get_chain_color, initialize_result_window, link_windows,
 };
 use crate::win_types::SendHwnd;
 use std::sync::{Arc, Mutex};
@@ -75,6 +75,8 @@ pub fn run_chain_step(request: ChainStepRequest) {
 
     // Clone the block to avoid borrowing issues when passing blocks to continue_chain
     let block = blocks[block_idx].clone();
+    let trace_id = format!("{chain_id}:{block_idx}");
+    crate::overlay::result::latency::begin(&trace_id);
 
     // 1. Resolve Model & Prompt
     let model_id = block.model.clone();
@@ -154,6 +156,7 @@ pub fn run_chain_step(request: ChainStepRequest) {
             config: &config,
             processing_indicator_hwnd,
             input_hwnd_refocus,
+            trace_id: &trace_id,
         });
         my_hwnd = created_hwnd;
         processing_indicator_hwnd = new_processing_hwnd;
@@ -161,6 +164,7 @@ pub fn run_chain_step(request: ChainStepRequest) {
 
     // 4. Execution (API Call)
     let input_text_for_history = input_text.clone();
+    crate::overlay::result::latency::mark(&trace_id, "provider_dispatch");
     let result_text = execute_block(ExecuteBlockRequest {
         block: &block,
         block_idx,
@@ -178,6 +182,7 @@ pub fn run_chain_step(request: ChainStepRequest) {
         processing_hwnd_shared: processing_indicator_hwnd,
         cancel_token: &cancel_token,
     });
+    crate::overlay::result::latency::mark(&trace_id, "provider_complete");
 
     // Check cancellation after execution — skip post-processing and chain continuation
     if cancel_token.is_cancelled() {
@@ -244,6 +249,7 @@ struct CreateBlockWindowRequest<'a> {
     config: &'a Config,
     processing_indicator_hwnd: Option<SendHwnd>,
     input_hwnd_refocus: Option<SendHwnd>,
+    trace_id: &'a str,
 }
 
 fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, Option<SendHwnd>) {
@@ -266,6 +272,7 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
         config,
         mut processing_indicator_hwnd,
         input_hwnd_refocus,
+        trace_id,
     } = request;
     let ctx_clone = if block.block_type == "input_adapter" || block_idx == 0 {
         context.clone()
@@ -297,16 +304,19 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
     let chain_id_thread = chain_id.to_string();
     let input_hwnd_refocus_thread = input_hwnd_refocus;
     let preset_id_for_window = preset_id.to_string();
+    let trace_id_for_window = trace_id.to_string();
     let m_id = model_id.to_string();
     let prov = provider.to_string();
     let prompt_c = final_prompt.to_string();
 
     let (tx_hwnd, rx_hwnd) = std::sync::mpsc::channel();
+    crate::overlay::result::latency::mark(trace_id, "window_thread_queued");
 
     std::thread::spawn(move || {
+        crate::overlay::result::latency::mark(&trace_id_for_window, "window_thread_started");
         let is_root = visible_count_before == 0;
 
-        let hwnd = create_result_window(ResultWindowParams {
+        let hwnd = create_result_window_shell(ResultWindowParams {
             target_rect: my_rect,
             win_type: WindowType::Primary,
             context: ctx_clone,
@@ -319,6 +329,7 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
             initial_text: initial_content_clone,
             preset_id: Some(preset_id_for_window),
             is_chain_root: is_root,
+            latency_trace_id: Some(trace_id_for_window.clone()),
         });
 
         // Assign cancellation token and chain_id immediately
@@ -336,6 +347,11 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
             link_windows(ph.0, hwnd);
         }
 
+        let _ = tx_hwnd.send(SendHwnd(hwnd));
+        crate::overlay::result::latency::mark(&trace_id_for_window, "window_published");
+        initialize_result_window(hwnd);
+        crate::overlay::result::latency::mark(&trace_id_for_window, "renderer_registered");
+
         if !is_image_block {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_SHOWNA);
@@ -345,8 +361,6 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
                 }
             }
         }
-        let _ = tx_hwnd.send(SendHwnd(hwnd));
-
         unsafe {
             if is_input_adapter_image {
                 use windows::Win32::UI::WindowsAndMessaging::{
@@ -395,15 +409,14 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
                 st.input_text = input_text.to_string();
                 st.is_refining = true;
                 st.is_streaming_active = true;
-                st.was_streaming_active = true;
             }
         } else {
             let mut s = WINDOW_STATES.lock().unwrap();
             if let Some(st) = s.get_mut(&(h.0 as isize)) {
                 st.is_streaming_active = true;
-                st.was_streaming_active = true;
             }
         }
+        crate::overlay::result::scene_compositor::queue_window_sync(h);
     }
 
     // Close old processing overlay for text blocks

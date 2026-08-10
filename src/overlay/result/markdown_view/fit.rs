@@ -39,15 +39,14 @@ mod tests {
     fn queued_fits_allow_the_active_scale_to_paint_before_retargeting() {
         let script = runtime_fit_script();
         let readiness_frame = script.find("function runFitWhenReady()").unwrap();
-        let cancellation = script
-            .find("cancelAnimationFrame(window._sgtFitAnim)")
-            .unwrap();
+        let cancellation = script.find("cancelFitFrame(fitState._sgtFitAnim)").unwrap();
         let displayed_axis_capture = script
             .find("var priorDisplayedFontSize = parseFloat(body.style.fontSize)")
             .unwrap();
 
         assert!(cancellation > readiness_frame);
         assert!(cancellation < displayed_axis_capture);
+        assert!(script.contains("scheduleFitFrame(tick)"));
     }
 
     #[test]
@@ -57,6 +56,16 @@ mod tests {
         assert!(script.contains("var minimumDuration = isStreamingFit ? 16 : 140"));
         assert!(script.contains("var eased = isStreamingFit"));
         assert!(script.contains("? t"));
+    }
+
+    #[test]
+    fn hidden_final_render_commits_its_target_without_interpolation() {
+        let script = runtime_fit_script();
+
+        assert!(script.contains("const settleBeforeReveal = Boolean(fitContext"));
+        assert!(script.contains("if (settleBeforeReveal || !hadPriorSize"));
+        assert!(script.contains("bodyRef.style.setProperty('opacity', '1', 'important')"));
+        assert!(script.contains("settleBeforeReveal: settleBeforeReveal"));
     }
 
     #[test]
