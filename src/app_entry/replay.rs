@@ -1,7 +1,3 @@
-use std::time::Instant;
-
-use anyhow::{Context, Result};
-
 use super::arguments::StartupArgs;
 
 pub(super) const EXPORT_REPLAY_FLAG: &str = "--sr-export-replay";
@@ -12,14 +8,7 @@ pub(crate) fn is_requested(args: &StartupArgs) -> bool {
 }
 
 pub(crate) fn run(args: &StartupArgs) -> Option<i32> {
-    let replay_path = resolve_replay_path(args)?;
-    let payload = match load_replay_payload(&replay_path) {
-        Ok(value) => value,
-        Err(error) => {
-            eprintln!("[Replay] {error}");
-            return Some(2);
-        }
-    };
+    let replay_path = absolute_replay_path(&resolve_replay_path(args)?);
 
     crate::initialization::init_com_and_dpi();
     let bench_runs = args
@@ -30,30 +19,62 @@ pub(crate) fn run(args: &StartupArgs) -> Option<i32> {
 
     if bench_runs.is_none() {
         println!("[Replay] Running native export replay from {replay_path}");
-        return match crate::overlay::screen_record::native_export::start_native_export(payload) {
-            Ok(result) => {
-                println!(
-                    "[Replay] Export replay succeeded: {}",
-                    serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string())
-                );
-                Some(0)
-            }
+        return match crate::overlay::screen_record::run_export_replay(&replay_path, 1, true) {
+            Ok(response) => match replay_runs(&response).first() {
+                Some(run) if run.get("error").is_none() => {
+                    let result = run.get("result").cloned().unwrap_or_default();
+                    println!(
+                        "[Replay] Export replay succeeded: {}",
+                        serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string())
+                    );
+                    Some(0)
+                }
+                Some(run) => {
+                    eprintln!(
+                        "[Replay] Export replay failed: {}",
+                        run.get("error")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("unknown worker error")
+                    );
+                    Some(1)
+                }
+                None => {
+                    eprintln!("[Replay] Export replay failed: worker returned no run");
+                    Some(1)
+                }
+            },
             Err(error) => {
-                eprintln!("[Replay] Export replay failed: {error}");
+                println!("[Replay] Export replay failed: {error:#}");
                 Some(1)
             }
         };
     }
 
     let runs = bench_runs.unwrap_or(1);
+    let runs = u16::try_from(runs).ok().filter(|runs| *runs <= 100);
+    let Some(runs) = runs else {
+        eprintln!("[ReplayBench] run count must be between 1 and 100");
+        return Some(2);
+    };
     println!("[ReplayBench] Running {runs} native export replay run(s) from {replay_path}");
-    let mut successful_wall_secs: Vec<f64> = Vec::with_capacity(runs);
+    let response =
+        match crate::overlay::screen_record::run_export_replay(&replay_path, runs, keep_outputs) {
+            Ok(response) => response,
+            Err(error) => {
+                eprintln!("[ReplayBench] worker failed: {error:#}");
+                return Some(1);
+            }
+        };
+    let returned_runs = replay_runs(&response);
+    let mut successful_wall_secs: Vec<f64> = Vec::with_capacity(runs as usize);
     let mut failed_runs = 0usize;
-    for run_idx in 0..runs {
-        let run_start = Instant::now();
-        match crate::overlay::screen_record::native_export::start_native_export(payload.clone()) {
-            Ok(result) => {
-                let wall_secs = run_start.elapsed().as_secs_f64();
+    for (run_idx, run) in returned_runs.iter().enumerate() {
+        match run.get("result") {
+            Some(result) => {
+                let wall_secs = run
+                    .get("wallSeconds")
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(0.0);
                 successful_wall_secs.push(wall_secs);
                 let status = result
                     .get("status")
@@ -80,21 +101,21 @@ pub(crate) fn run(args: &StartupArgs) -> Option<i32> {
                         output_path
                     }
                 );
-                if !keep_outputs && !output_path.is_empty() {
-                    let _ = std::fs::remove_file(output_path);
-                }
             }
-            Err(error) => {
+            None => {
                 failed_runs += 1;
                 eprintln!(
                     "[ReplayBench] run={}/{} failed: {}",
                     run_idx + 1,
                     runs,
-                    error
+                    run.get("error")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown worker error")
                 );
             }
         }
     }
+    failed_runs += (runs as usize).saturating_sub(returned_runs.len());
 
     if successful_wall_secs.is_empty() {
         eprintln!("[ReplayBench] all runs failed");
@@ -127,7 +148,7 @@ pub(crate) fn run(args: &StartupArgs) -> Option<i32> {
 fn resolve_replay_path(args: &StartupArgs) -> Option<String> {
     args.value(EXPORT_REPLAY_FLAG).or_else(|| {
         if args.has(EXPORT_REPLAY_LAST_FLAG) {
-            crate::overlay::screen_record::native_export::export_replay_args_path()
+            crate::overlay::screen_record::export_replay_args_path()
                 .map(|path| path.to_string_lossy().to_string())
         } else {
             None
@@ -135,11 +156,25 @@ fn resolve_replay_path(args: &StartupArgs) -> Option<String> {
     })
 }
 
-fn load_replay_payload(replay_path: &str) -> Result<serde_json::Value> {
-    let raw = std::fs::read_to_string(replay_path)
-        .with_context(|| format!("Failed to read export replay payload '{replay_path}'"))?;
-    serde_json::from_str::<serde_json::Value>(&raw)
-        .with_context(|| format!("Invalid JSON in export replay payload '{replay_path}'"))
+fn absolute_replay_path(path: &str) -> String {
+    let path = std::path::PathBuf::from(path);
+    if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(path)
+    }
+    .to_string_lossy()
+    .to_string()
+}
+
+fn replay_runs(response: &serde_json::Value) -> &[serde_json::Value] {
+    response
+        .get("runs")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 fn percentile(sorted: &[f64], ratio: f64) -> f64 {

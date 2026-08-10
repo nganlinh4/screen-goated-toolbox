@@ -13,6 +13,10 @@ use serde::{Deserialize, Serialize};
 use super::super::manager::TtsManager;
 use super::super::types::{AudioEvent, QueuedRequest};
 use super::open_weights::{fail_request, stream_pcm_samples};
+use crate::api::realtime_audio::vieneu_assets::{
+    acquire_vieneu_model, download_vieneu_model, get_vieneu_backbone_dir, get_vieneu_decoder_path,
+    get_vieneu_encoder_path, is_vieneu_model_downloaded,
+};
 use crate::api::realtime_audio::vieneu_runtime::{
     download_vieneu_runtime, get_vieneu_python_path, get_vieneu_runtime_entrypoint,
     is_vieneu_runtime_installed_for_variant,
@@ -38,6 +42,8 @@ struct VieneuSidecarRequest {
     output_wav_path: String,
     mode: String,
     backbone_repo: String,
+    decoder_repo: String,
+    encoder_repo: String,
     backbone_device: String,
     codec_device: String,
     backend: String,
@@ -70,6 +76,8 @@ struct VieneuSidecarClient {
     stdin: ChildStdin,
     rx: mpsc::Receiver<String>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
+    _support: super::native_support::NativeSidecarSupport,
+    _model_use: crate::component_registry::models::ModelUse,
 }
 
 impl Drop for VieneuSidecarClient {
@@ -105,7 +113,8 @@ fn ensure_vieneu_runtime(
     request: &QueuedRequest,
     settings: &crate::config::VieneuSettings,
 ) -> Result<()> {
-    if is_vieneu_runtime_installed_for_variant(&settings.variant) {
+    let runtime_installed = is_vieneu_runtime_installed_for_variant(&settings.variant);
+    if runtime_installed && is_vieneu_model_downloaded() {
         return Ok(());
     }
 
@@ -129,7 +138,15 @@ fn ensure_vieneu_runtime(
         }
     });
 
-    let result = download_vieneu_runtime(stop.clone(), true, settings.variant.clone());
+    let result: Result<()> = (|| {
+        if !is_vieneu_model_downloaded() {
+            download_vieneu_model(stop.clone(), true)?;
+        }
+        if !runtime_installed {
+            download_vieneu_runtime(stop.clone(), true, settings.variant.clone())?;
+        }
+        Ok(())
+    })();
     done.store(true, Ordering::SeqCst);
     result?;
     if stop.load(Ordering::SeqCst)
@@ -180,7 +197,9 @@ fn synthesize_vieneu(
         text,
         output_wav_path: output_wav_path.to_string_lossy().to_string(),
         mode: variant.mode.to_string(),
-        backbone_repo: variant.backbone_repo.to_string(),
+        backbone_repo: get_vieneu_backbone_dir().to_string_lossy().to_string(),
+        decoder_repo: get_vieneu_decoder_path().to_string_lossy().to_string(),
+        encoder_repo: get_vieneu_encoder_path().to_string_lossy().to_string(),
         backbone_device: variant.backbone_device.to_string(),
         codec_device: variant.codec_device.to_string(),
         backend: variant.backend.to_string(),
@@ -383,23 +402,37 @@ fn run_sidecar_once(
 }
 
 fn start_sidecar() -> Result<VieneuSidecarClient> {
+    let model_use = acquire_vieneu_model()?;
     let python = get_vieneu_python_path();
     let entrypoint = get_vieneu_runtime_entrypoint()?;
-    let mut child = Command::new(&python)
+    let support = super::native_support::NativeSidecarSupport::ensure()?;
+    let mut command = Command::new(&python);
+    support.configure(&mut command)?;
+    command
         .arg(entrypoint)
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
+        .env("HF_HUB_OFFLINE", "1")
+        .env("TRANSFORMERS_OFFLINE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = command
         .spawn()
         .with_context(|| format!("Failed to start VieNeu sidecar '{}'", python.display()))?;
-    let stdin = child.stdin.take().context("VieNeu sidecar stdin missing")?;
-    let stdout = child
+    let mut pending = super::sidecar::PendingSidecar::new(child);
+    let stdin = pending
+        .child_mut()
+        .stdin
+        .take()
+        .context("VieNeu sidecar stdin missing")?;
+    let stdout = pending
+        .child_mut()
         .stdout
         .take()
         .context("VieNeu sidecar stdout missing")?;
-    let stderr = child
+    let stderr = pending
+        .child_mut()
         .stderr
         .take()
         .context("VieNeu sidecar stderr missing")?;
@@ -427,10 +460,12 @@ fn start_sidecar() -> Result<VieneuSidecarClient> {
         }
     });
     Ok(VieneuSidecarClient {
-        child,
+        child: pending.finish(),
         stdin,
         rx,
         stderr_tail,
+        _support: support,
+        _model_use: model_use,
     })
 }
 

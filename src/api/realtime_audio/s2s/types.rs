@@ -8,7 +8,9 @@ use super::{
 #[derive(Clone, Debug)]
 pub struct S2sBatchSegment {
     pub id: u64,
+    #[cfg(feature = "recorder-worker")]
     pub source_start_sec: f64,
+    #[cfg(feature = "recorder-worker")]
     pub source_end_sec: f64,
     pub source_text: String,
     pub target_text: String,

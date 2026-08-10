@@ -1,6 +1,7 @@
 //! Config I/O operations: load, save, and language utilities.
 
 use std::path::PathBuf;
+#[cfg(not(feature = "recorder-worker"))]
 use std::sync::LazyLock;
 
 use crate::config::config::Config;
@@ -238,6 +239,12 @@ fn normalize_removed_tts_methods(config: &mut Config) {
     if config.tts_playground.method == crate::config::TtsMethod::FishAudioS2Pro {
         config.tts_playground.method = crate::config::TtsMethod::GeminiLive;
     }
+    if config.tts_method == crate::config::TtsMethod::VoxtralTts {
+        config.tts_method = crate::config::TtsMethod::VieneuTts;
+    }
+    if config.tts_playground.method == crate::config::TtsMethod::VoxtralTts {
+        config.tts_playground.method = crate::config::TtsMethod::VieneuTts;
+    }
 }
 
 fn migrate_preset_list(presets: &mut Vec<Preset>, default_presets: &[Preset]) {
@@ -370,6 +377,7 @@ pub fn save_config(config: &Config) {
 // ============================================================================
 
 /// All available language names (sorted, deduplicated)
+#[cfg(not(feature = "recorder-worker"))]
 static ALL_LANGUAGES: LazyLock<Vec<String>> = LazyLock::new(|| {
     let mut languages = Vec::new();
     for i in 0..10000 {
@@ -386,10 +394,15 @@ static ALL_LANGUAGES: LazyLock<Vec<String>> = LazyLock::new(|| {
 });
 
 /// Get all available language names
+#[cfg(not(feature = "recorder-worker"))]
 pub fn get_all_languages() -> &'static Vec<String> {
     &ALL_LANGUAGES
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 #[path = "io_tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(feature = "recorder-worker")))]
+#[path = "io_tts_migration_tests.rs"]
+mod tts_migration_tests;

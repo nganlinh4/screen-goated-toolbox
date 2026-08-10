@@ -5,10 +5,9 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-pub use host::{
-    close_selector_for_owner, is_owner_active, post_preview_update_for_owner, show_selector,
-    update_theme,
-};
+#[cfg(not(feature = "recorder-worker"))]
+pub use host::{close_selector_for_owner, update_theme};
+pub use host::{is_owner_active, post_preview_update_for_owner, show_selector};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SelectorOwner {

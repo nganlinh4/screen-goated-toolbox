@@ -9,6 +9,7 @@ use crate::APP;
 
 mod audio_utils;
 mod gemini;
+mod native_support;
 mod open_weights;
 mod sidecar;
 mod worker_edge;
@@ -17,8 +18,8 @@ mod worker_kokoro;
 mod worker_magpie;
 mod worker_step_audio;
 mod worker_supertonic;
+mod worker_unavailable;
 mod worker_vieneu;
-mod worker_voxtral;
 
 pub(crate) use audio_utils::resample_audio;
 pub use gemini::synthesize_gemini_live_to_wav_cancel;
@@ -53,6 +54,7 @@ pub fn start_warm_up_public(api_key: String) {
     start_warm_up(api_key);
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn synthesize_step_audio_edit_to_wav_cancel(
     source_audio_path: String,
     source_text: String,
@@ -191,8 +193,8 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
                 worker_vieneu::handle_vieneu_tts(manager.clone(), request, tx);
             }
             crate::config::TtsMethod::VoxtralTts => {
-                eprintln!("[TTS Worker] Routing to Mistral Voxtral TTS");
-                worker_voxtral::handle_voxtral_tts(manager.clone(), request, tx);
+                eprintln!("[TTS Worker] Saved provider is no longer available");
+                worker_unavailable::handle_unavailable_legacy_tts(request, tx);
             }
             crate::config::TtsMethod::GeminiLive => {
                 eprintln!("[TTS Worker] Using Gemini TTS");

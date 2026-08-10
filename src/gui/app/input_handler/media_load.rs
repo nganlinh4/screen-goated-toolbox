@@ -5,11 +5,28 @@
 use std::io::Cursor;
 use std::path::Path;
 
+use symphonia::core::codecs::{CodecRegistry, DecoderOptions};
+use symphonia_adapter_libopus::OpusDecoder;
+
+pub(crate) const SUPPORTED_AUDIO_EXTENSIONS: &[&str] = &[
+    "wav", "mp3", "flac", "ogg", "m4a", "m4b", "aac", "alac", "aiff", "aif", "opus",
+];
+
+pub(crate) fn is_supported_audio_extension(extension: &str) -> bool {
+    SUPPORTED_AUDIO_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+}
+
+fn decoder_registry() -> CodecRegistry {
+    let mut registry = CodecRegistry::new();
+    symphonia::default::register_enabled_codecs(&mut registry);
+    registry.register_all::<OpusDecoder>();
+    registry
+}
+
 /// Load an audio file and convert to WAV format using symphonia.
 /// Supports: WAV, MP3, FLAC, OGG, AAC, ALAC, AIFF, etc.
 pub(crate) fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
     use symphonia::core::audio::SampleBuffer;
-    use symphonia::core::codecs::DecoderOptions;
     use symphonia::core::formats::FormatOptions;
     use symphonia::core::io::MediaSourceStream;
     use symphonia::core::meta::MetadataOptions;
@@ -50,7 +67,7 @@ pub(crate) fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
     let channels = codec_params.channels.map(|c| c.count()).unwrap_or(2) as u16;
 
     // Create decoder
-    let mut decoder = symphonia::default::get_codecs()
+    let mut decoder = decoder_registry()
         .make(&codec_params, &DecoderOptions::default())
         .ok()?;
 
@@ -107,4 +124,36 @@ pub(crate) fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
     }
 
     Some(wav_cursor.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use symphonia::core::codecs::{CODEC_TYPE_OPUS, CodecParameters};
+
+    #[test]
+    fn advertised_extensions_are_the_exact_core_audio_contract() {
+        assert_eq!(
+            SUPPORTED_AUDIO_EXTENSIONS,
+            [
+                "wav", "mp3", "flac", "ogg", "m4a", "m4b", "aac", "alac", "aiff", "aif", "opus",
+            ]
+        );
+        assert!(!is_supported_audio_extension("wma"));
+        assert!(is_supported_audio_extension("OPUS"));
+    }
+
+    #[test]
+    fn advertised_opus_has_a_registered_decoder() {
+        let mut params = CodecParameters::new();
+        params
+            .for_codec(CODEC_TYPE_OPUS)
+            .with_sample_rate(48_000)
+            .with_channels(symphonia::core::audio::Channels::FRONT_LEFT);
+        assert!(
+            decoder_registry()
+                .make(&params, &DecoderOptions::default())
+                .is_ok()
+        );
+    }
 }

@@ -63,6 +63,7 @@ pub(super) fn run(
         .with_visible(false)
         .with_transparent(false)
         .with_decorations(true);
+    viewport_builder = crate::gui::window_state::restore(viewport_builder);
 
     let system_dark = gui::utils::is_system_in_dark_mode();
     let effective_dark = match initial_config.theme_mode {

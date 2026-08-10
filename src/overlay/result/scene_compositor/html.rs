@@ -10,8 +10,8 @@ html,body,#scene{position:fixed;inset:0;margin:0;overflow:hidden;background:tran
 body{font-family:'Google Sans Flex';user-select:none}
 #scene{pointer-events:none}
 .font-prewarm{position:absolute;visibility:hidden;pointer-events:none;font:400 16px 'Google Sans Flex'}
-.result-card{position:absolute;overflow:hidden;border-radius:12px;pointer-events:auto;
-  left:0;top:0;box-shadow:0 8px 28px rgba(0,0,0,.22);contain:layout paint style}
+.result-card{position:absolute;overflow:hidden;border-radius:var(--sgt-box-radius,__SGT_BOX_RADIUS_PX__px);pointer-events:auto;
+  left:0;top:0;box-shadow:inset 0 0 0 1px var(--result-outline),0 8px 28px rgba(0,0,0,.22);contain:layout paint style}
 .direct-host,.result-frame{display:block;width:100%;height:100%;border:0;background:transparent}
 </style>
 </head>
@@ -361,7 +361,7 @@ function selectSurface(entry, documentHtml) {
   }
 }
 function applyGeometry(entry, model) {
-  const scale = window.devicePixelRatio || 1;
+  const scale = window.devicePixelRatio || 1; entry.card.style.setProperty('--sgt-box-radius', (__SGT_BOX_RADIUS_PX__ / scale) + 'px');
   const width = model.rect.width / scale;
   const height = model.rect.height / scale;
   const resized = entry.card.clientWidth !== width || entry.card.clientHeight !== height;

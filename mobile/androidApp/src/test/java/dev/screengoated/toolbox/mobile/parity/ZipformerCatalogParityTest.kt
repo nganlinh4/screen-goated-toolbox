@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.parity
 import dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.long
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -46,13 +47,28 @@ class ZipformerCatalogParityTest {
                 entry["downloadBaseUrl"]!!.jsonPrimitive.content,
                 lang.downloadBaseUrl,
             )
+            check(!lang.downloadBaseUrl.endsWith("/main"))
+            check(!lang.downloadBaseUrl.endsWith("/master"))
             assertEquals(
                 "hasNativePunctuation ${lang.code}",
                 entry["hasNativePunctuation"]!!.jsonPrimitive.boolean,
                 lang.hasNativePunctuation,
             )
-            val expectedFiles = entry["modelFiles"]!!.jsonArray.map { it.jsonPrimitive.content }
-            assertEquals("modelFiles ${lang.code}", expectedFiles, lang.modelFiles)
+            val expectedFiles = entry["modelFiles"]!!.jsonArray.map { fileElement ->
+                val file = fileElement.jsonObject
+                Triple(
+                    file["name"]!!.jsonPrimitive.content,
+                    file["byteCount"]!!.jsonPrimitive.long,
+                    file["sha256"]!!.jsonPrimitive.content,
+                )
+            }
+            val actualFiles = lang.modelFileContracts.map { file ->
+                Triple(file.name, file.byteCount, file.sha256)
+            }
+            assertEquals("modelFiles ${lang.code}", expectedFiles, actualFiles)
+            check(actualFiles.all { (_, byteCount, sha256) ->
+                byteCount > 0 && sha256.length == 64 && sha256.all { it.isHexDigit() }
+            })
         }
     }
 
@@ -66,3 +82,5 @@ class ZipformerCatalogParityTest {
             ?: error("Missing zipformer-catalog fixture. Tried: $candidates")
     }
 }
+
+private fun Char.isHexDigit(): Boolean = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'

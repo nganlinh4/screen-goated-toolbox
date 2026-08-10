@@ -38,7 +38,9 @@ pub(super) fn render_frozen_clip(
     let half_height = (selection.bottom - selection.top) as f32 / 2.0;
     let center_x = selection.left as f32 + half_width;
     let center_y = selection.top as f32 + half_height;
-    let radius = 8.0f32.min(half_width).min(half_height);
+    let radius = crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX
+        .min(half_width)
+        .min(half_height);
     let border_left = (selection.left - 10).max(0);
     let border_right = (selection.right + 10).min(width);
     let border_top = (selection.top - 10).max(0);

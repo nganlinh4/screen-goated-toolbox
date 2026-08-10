@@ -1,4 +1,5 @@
 use super::*;
+use sgt_computer_control_protocol::{McpCatalogPlan, McpNormalizedTool, McpQuarantinedTool};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
@@ -58,6 +59,64 @@ fn every_future_integration_tool_is_declared_and_routed_directly() {
             open_world: Some(false),
         }
     ));
+}
+
+#[test]
+fn host_accepts_only_source_indexed_normalized_routes() {
+    let annotations = super::super::client::McpToolAnnotations {
+        read_only: Some(true),
+        ..Default::default()
+    };
+    let snapshot = vec![(
+        "future_provider".to_string(),
+        41,
+        vec![ToolSnapshot {
+            name: "future_capability".to_string(),
+            description: "Future operation".to_string(),
+            input_schema: json!({"type": "object"}),
+            annotations,
+        }],
+    )];
+    let plan = McpCatalogPlan {
+        normalized: vec![McpNormalizedTool {
+            integration_index: 0,
+            tool_index: 0,
+            declaration: json!({
+                "name": "mcp__future_provider__future_capability_h0000000000000001",
+                "description": "Future Provider: Future operation",
+                "parameters": {"type": "object", "properties": {}}
+            }),
+        }],
+        quarantined: Vec::new(),
+    };
+    let (declarations, routes) = normalization::apply_normalized_catalog(&snapshot, plan).unwrap();
+    let name = declarations[0]["name"].as_str().unwrap();
+    assert_eq!(routes[name].integration_id, "future_provider");
+    assert_eq!(routes[name].tool_name, "future_capability");
+    assert_eq!(routes[name].connection_token, 41);
+    assert_eq!(routes[name].annotations, annotations);
+
+    let invalid = McpCatalogPlan {
+        normalized: vec![McpNormalizedTool {
+            integration_index: 1,
+            tool_index: 0,
+            declaration: declarations[0].clone(),
+        }],
+        quarantined: Vec::new(),
+    };
+    assert!(normalization::apply_normalized_catalog(&snapshot, invalid).is_err());
+
+    let unsafe_reason = McpCatalogPlan {
+        normalized: Vec::new(),
+        quarantined: vec![McpQuarantinedTool {
+            integration_index: 0,
+            tool_index: 0,
+            reason: "schema_depth\nforged-event".to_string(),
+            observed: 12,
+            limit: 8,
+        }],
+    };
+    assert!(normalization::apply_normalized_catalog(&snapshot, unsafe_reason).is_err());
 }
 
 #[test]

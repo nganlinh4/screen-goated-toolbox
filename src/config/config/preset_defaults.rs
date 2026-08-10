@@ -214,7 +214,7 @@ fn preset_model_defaults(presets: &[Preset]) -> PresetModelDefaults {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::{builtin_preset_model_defaults, changed_model_slots, preset_model_defaults};
     use crate::config::preset::get_default_presets;

@@ -12,6 +12,13 @@ pub(super) fn convert_mp4_to_gif(
 ) -> Result<(), String> {
     let started_at = Instant::now();
     let download_message = gif_ffmpeg_download_message();
+    #[cfg(not(feature = "recorder-worker"))]
+    let ffmpeg_component = crate::gui::settings_ui::download_manager::ffmpeg_dependency::acquire_ffmpeg_with_badge_message(
+        &download_message,
+    )?;
+    #[cfg(not(feature = "recorder-worker"))]
+    let ffmpeg = ffmpeg_component.executable();
+    #[cfg(feature = "recorder-worker")]
     let ffmpeg = crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge_message(
         &download_message,
     )?;

@@ -1,0 +1,9 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 194fb70..f1272fc 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -12,3 +12,3 @@ categories = ["gui"]
+ 
+ [dependencies]
+-egui = "0.34"
++egui = { version = "0.34", default-features = false }

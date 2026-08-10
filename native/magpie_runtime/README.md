@@ -10,11 +10,10 @@ small frozen launcher, and `sidecar/magpie_sidecar.py`. The app downloads the
 Magpie and NanoCodec `.nemo` checkpoints separately from Hugging Face, with a
 ModelScope fallback.
 
-The app fetches
-`dist/sgt_magpie_runtime.manifest.json` from the repository's `main` branch,
-then downloads, size-checks, SHA-256-checks, joins, and extracts the chunks
-listed there. The manifest is the authority for the current version and
-filenames.
+The signed host embeds the exact runtime version, entrypoint, installed size,
+and chunk URLs/sizes/SHA-256 values. It downloads, verifies, joins, and extracts
+only those chunks; the tracked `dist` manifest is packaging input, not a
+runtime trust source.
 
 ## Sidecar protocol
 
@@ -50,8 +49,7 @@ launcher (`py`), `tar.exe`, and optionally `gh` for upload.
 .\native\magpie_runtime\scripts\build_runtime.ps1
 ```
 
-The script writes chunk files and refreshes the committed manifest in `dist/`.
+The script writes chunk files and refreshes the packaging manifest in `dist/`.
 `-SkipInstall` reuses the existing `build/venv`; it is not a clean-build mode.
-`-Upload` uploads chunks to the selected GitHub release, but the refreshed
-manifest still must be committed and pushed because the app reads it from
-`main`.
+Upload only newly named chunks, verify the remote sizes and hashes, and update
+the host's descriptor. Never replace an asset referenced by a released host.

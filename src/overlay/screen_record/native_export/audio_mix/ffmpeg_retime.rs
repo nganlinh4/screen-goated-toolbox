@@ -68,6 +68,7 @@ fn audio_ffmpeg_download_message() -> String {
         .to_string()
 }
 
+#[cfg(feature = "recorder-worker")]
 fn resolve_ffmpeg(cache: &mut Option<PathBuf>) -> Result<PathBuf, String> {
     if let Some(path) = cache {
         return Ok(path.clone());
@@ -100,6 +101,17 @@ pub(super) fn render_pitch_preserved_source_with_ffmpeg(
         return Ok(None);
     };
 
+    #[cfg(not(feature = "recorder-worker"))]
+    let ffmpeg_component = crate::gui::settings_ui::download_manager::ffmpeg_dependency::acquire_ffmpeg_with_badge_message(
+        &audio_ffmpeg_download_message(),
+    )?;
+    #[cfg(not(feature = "recorder-worker"))]
+    let ffmpeg = {
+        let path = ffmpeg_component.executable();
+        *ffmpeg_path_cache = Some(path.clone());
+        path
+    };
+    #[cfg(feature = "recorder-worker")]
     let ffmpeg = resolve_ffmpeg(ffmpeg_path_cache)?;
     fs::create_dir_all(temp_dir).map_err(|e| format!("Create audio retime temp dir: {e}"))?;
     let out_path = temp_dir.join(format!("{file_stem}_audio_retime_{source_index}.wav"));

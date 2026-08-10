@@ -207,6 +207,7 @@ fn sherpa_dll_dir() -> std::path::PathBuf {
     super::dlls::resolved_sherpa_dll_dir()
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn run_load_probe_process() -> i32 {
     let dir = sherpa_dll_dir();
     let dll_path = dir.join("sherpa-onnx-c-api.dll");
@@ -253,17 +254,18 @@ fn ensure_load_probe_passed() -> Result<()> {
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 fn load_dlls_for_probe(dll_path: &std::path::Path) -> std::result::Result<Library, String> {
     if !dll_path.exists() {
         return Err(format!("sherpa-onnx-c-api.dll not found at {:?}", dll_path));
     }
 
-    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+    crate::unpack_dlls::ensure_native_onnx_runtime()
         .map_err(|error| format!("initialize shared ONNX runtime: {error}"))?;
     let lib = unsafe {
         Library::new(dll_path).map_err(|e| format!("Failed to load sherpa-onnx-c-api.dll: {e}"))?
     };
-    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+    crate::unpack_dlls::ensure_native_onnx_runtime()
         .map_err(|error| format!("verify shared ONNX runtime after Sherpa load: {error}"))?;
     unsafe {
         lib.get::<FnCreateTts>(b"SherpaOnnxCreateOfflineTts")
@@ -295,14 +297,14 @@ fn load_uncached() -> std::result::Result<SherpaTtsLib, String> {
         return Err(format!("sherpa-onnx-c-api.dll not found at {:?}", dll_path));
     }
 
-    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+    crate::unpack_dlls::ensure_native_onnx_runtime()
         .map_err(|error| format!("initialize shared ONNX runtime: {error}"))?;
     ensure_load_probe_passed().map_err(|e| e.to_string())?;
 
     let lib = unsafe {
         Library::new(&dll_path).map_err(|e| format!("Failed to load sherpa-onnx-c-api.dll: {e}"))?
     };
-    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+    crate::unpack_dlls::ensure_native_onnx_runtime()
         .map_err(|error| format!("verify shared ONNX runtime after Sherpa load: {error}"))?;
 
     unsafe {

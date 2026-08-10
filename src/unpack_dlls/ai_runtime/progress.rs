@@ -1,5 +1,11 @@
-use super::{AiRuntimeStatus, AiRuntimeUi, set_status};
+use super::AiRuntimeUi;
 
+#[cfg(not(feature = "recorder-worker"))]
+static BADGE_PROGRESS: std::sync::LazyLock<
+    std::sync::Mutex<Option<crate::overlay::auto_copy_badge::DownloadProgressBadge>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+#[cfg(not(feature = "recorder-worker"))]
 fn post_realtime_download_state(active: bool, title: &str, message: &str, progress: f32) {
     use crate::api::realtime_audio::WM_DOWNLOAD_PROGRESS;
     use crate::overlay::realtime_webview::state::{REALTIME_HWND, REALTIME_STATE};
@@ -25,24 +31,31 @@ fn post_realtime_download_state(active: bool, title: &str, message: &str, progre
     }
 }
 
-pub(super) fn update_progress(ui: AiRuntimeUi, label: &str, progress: f32) {
+pub(super) fn update_progress(ui: AiRuntimeUi, _label: &str, _progress: f32) {
+    #[cfg(not(feature = "recorder-worker"))]
     let badge = crate::overlay::auto_copy_badge::locale_text();
-    set_status(AiRuntimeStatus::Installing {
-        label: label.to_string(),
-        progress,
-    });
-
     match ui {
         AiRuntimeUi::None => {}
+        #[cfg(not(feature = "recorder-worker"))]
         AiRuntimeUi::RealtimeOverlay => {
-            post_realtime_download_state(true, badge.installing_local_ai_runtime, label, progress);
-        }
-        AiRuntimeUi::Badge => {
-            crate::overlay::auto_copy_badge::show_progress_notification(
+            post_realtime_download_state(
+                true,
                 badge.installing_local_ai_runtime,
-                label,
-                progress,
+                _label,
+                _progress,
             );
+        }
+        #[cfg(not(feature = "recorder-worker"))]
+        AiRuntimeUi::Badge => {
+            if let Ok(mut active) = BADGE_PROGRESS.lock() {
+                let progress = active.get_or_insert_with(|| {
+                    crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(
+                        badge.installing_local_ai_runtime,
+                        _label,
+                    )
+                });
+                progress.report(_progress.clamp(0.0, 100.0).round() as u64, 100);
+            }
         }
     }
 }
@@ -50,11 +63,17 @@ pub(super) fn update_progress(ui: AiRuntimeUi, label: &str, progress: f32) {
 pub(super) fn clear_progress(ui: AiRuntimeUi) {
     match ui {
         AiRuntimeUi::None => {}
+        #[cfg(not(feature = "recorder-worker"))]
         AiRuntimeUi::RealtimeOverlay => {
             post_realtime_download_state(false, "", "", 0.0);
         }
+        #[cfg(not(feature = "recorder-worker"))]
         AiRuntimeUi::Badge => {
-            crate::overlay::auto_copy_badge::hide_progress_notification();
+            if let Ok(mut active) = BADGE_PROGRESS.lock()
+                && let Some(progress) = active.take()
+            {
+                progress.finish();
+            }
         }
     }
 }

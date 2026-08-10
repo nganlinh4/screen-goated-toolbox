@@ -167,13 +167,13 @@ fn load_uncached() -> std::result::Result<SherpaLib, String> {
 
     // Sherpa and Rust `ort` share one verified process-wide runtime. Loading
     // another same-named ONNX DLL here makes module identity order-dependent.
-    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+    crate::unpack_dlls::ensure_native_onnx_runtime()
         .map_err(|error| format!("initialize shared ONNX runtime: {error}"))?;
 
     let lib = unsafe {
         Library::new(&dll_path).map_err(|e| format!("Failed to load sherpa-onnx-c-api.dll: {e}"))?
     };
-    crate::unpack_dlls::ensure_onnx_runtime_initialized()
+    crate::unpack_dlls::ensure_native_onnx_runtime()
         .map_err(|error| format!("verify shared ONNX runtime after Sherpa load: {error}"))?;
 
     unsafe {

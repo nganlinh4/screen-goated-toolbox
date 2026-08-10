@@ -1,30 +1,31 @@
-use super::run::{YTDLP_DOWNLOAD_URL, fetch_latest_ytdlp_version, read_local_ytdlp_version};
-use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus, UpdateStatus};
-use super::utils::{download_file, log};
-use super::ytdlp_process::run_ytdlp_download_attempt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 use super::DownloadManager;
+use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus};
+use super::utils::{append_cookie_args, fetch_video_formats, log};
+use super::ytdlp_process::run_ytdlp_download_attempt;
+use crate::component_registry::external_tools::{self, ExternalTool, ExternalToolUse};
 
-fn set_download_stage(state: &Arc<Mutex<DownloadState>>, msg: impl Into<String>) {
-    *state.lock().unwrap() = DownloadState::Downloading(0.0, msg.into());
+fn set_download_stage(state: &Arc<Mutex<DownloadState>>, message: impl Into<String>) {
+    *state.lock().unwrap() = DownloadState::Downloading(0.0, message.into());
 }
 
 fn set_download_finished(state: &Arc<Mutex<DownloadState>>, final_path: Option<PathBuf>) {
-    let path = final_path.unwrap_or_default();
-    *state.lock().unwrap() = DownloadState::Finished(path, "Download Completed!".to_string());
+    *state.lock().unwrap() = DownloadState::Finished(
+        final_path.unwrap_or_default(),
+        "Download Completed!".to_string(),
+    );
 }
 
 fn finish_if_cancelled(
     state: &Arc<Mutex<DownloadState>>,
     logs: &Arc<Mutex<Vec<String>>>,
-    cancel_flag: &Arc<AtomicBool>,
-    error: Option<&str>,
+    cancel: &Arc<AtomicBool>,
+    error: &str,
 ) -> bool {
-    if cancel_flag.load(Ordering::Relaxed) || error == Some("Cancelled") {
+    if cancel.load(Ordering::Relaxed) || error == "Cancelled" {
         *state.lock().unwrap() = DownloadState::Idle;
         log(logs, "Download cancelled.");
         true
@@ -33,120 +34,54 @@ fn finish_if_cancelled(
     }
 }
 
-fn check_update_ytdlp_and_prepare_retry(
-    bin_dir: &Path,
+fn prepare_tool(
+    tool: ExternalTool,
+    status: &Arc<Mutex<InstallStatus>>,
     state: &Arc<Mutex<DownloadState>>,
-    logs: &Arc<Mutex<Vec<String>>>,
-    ytdlp_status: &Arc<Mutex<InstallStatus>>,
-    ytdlp_update_status: &Arc<Mutex<UpdateStatus>>,
-    ytdlp_version: &Arc<Mutex<Option<String>>>,
-    cancel_flag: &Arc<AtomicBool>,
-) -> Result<String, String> {
-    if cancel_flag.load(Ordering::Relaxed) {
+    cancel: &Arc<AtomicBool>,
+) -> Result<ExternalToolUse, String> {
+    if cancel.load(Ordering::Relaxed) {
         return Err("Cancelled".to_string());
     }
-
-    set_download_stage(state, "Download failed. Checking yt-dlp update...");
-    *ytdlp_update_status.lock().unwrap() = UpdateStatus::Checking;
-
-    let ytdlp_path = bin_dir.join("yt-dlp.exe");
-    let local_ver = read_local_ytdlp_version(&ytdlp_path).ok();
-    if let Some(ver) = &local_ver {
-        *ytdlp_version.lock().unwrap() = Some(ver.clone());
-    }
-
-    let remote_ver = match fetch_latest_ytdlp_version() {
-        Ok(ver) => Some(ver),
-        Err(e) => {
-            log(
-                logs,
-                format!(
-                    "Could not confirm latest yt-dlp version, forcing refresh: {}",
-                    e
-                ),
-            );
-            None
+    set_download_stage(state, format!("Preparing pinned {}...", tool.id()));
+    *status.lock().unwrap() = InstallStatus::Downloading(0.0);
+    let badge =
+        crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&localized_tool_name(tool));
+    let progress_status = status.clone();
+    let result = external_tools::ensure(tool, cancel, move |done, total| {
+        badge.report(done, total);
+        *progress_status.lock().unwrap() =
+            InstallStatus::Downloading(done as f32 / total.max(1) as f32);
+    });
+    match result {
+        Ok(component) => {
+            *status.lock().unwrap() = InstallStatus::Installed;
+            Ok(component)
         }
-    };
-
-    if let (Some(local), Some(remote)) = (&local_ver, &remote_ver) {
-        log(
-            logs,
-            format!("yt-dlp auto-fix check: local={}, remote={}", local, remote),
-        );
-        if local == remote {
-            *ytdlp_status.lock().unwrap() = InstallStatus::Installed;
-            *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpToDate;
-            return Ok(format!("yt-dlp is already up to date ({})", local));
+        Err(error) if cancel.load(Ordering::Relaxed) => {
+            *status.lock().unwrap() = InstallStatus::Missing;
+            Err("Cancelled".to_string())
         }
-        *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpdateAvailable(remote.clone());
-    } else if let Some(remote) = &remote_ver {
-        *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpdateAvailable(remote.clone());
-    }
-
-    if cancel_flag.load(Ordering::Relaxed) {
-        return Err("Cancelled".to_string());
-    }
-
-    let stage_msg = if let Some(remote) = &remote_ver {
-        format!("Updating yt-dlp to {}...", remote)
-    } else {
-        "Updating yt-dlp to latest...".to_string()
-    };
-    set_download_stage(state, stage_msg.clone());
-
-    {
-        let mut status = ytdlp_status.lock().unwrap();
-        *status = InstallStatus::Downloading(0.0);
-    }
-
-    match download_file(YTDLP_DOWNLOAD_URL, &ytdlp_path, ytdlp_status, cancel_flag) {
-        Ok(_) => {
-            *ytdlp_status.lock().unwrap() = InstallStatus::Installed;
-
-            let installed_ver = read_local_ytdlp_version(&ytdlp_path)
-                .ok()
-                .or(remote_ver.clone())
-                .unwrap_or_else(|| "latest".to_string());
-            *ytdlp_version.lock().unwrap() = Some(installed_ver.clone());
-
-            if let Some(remote) = remote_ver {
-                if installed_ver == remote {
-                    *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpToDate;
-                } else {
-                    *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpdateAvailable(remote);
-                }
-            } else {
-                *ytdlp_update_status.lock().unwrap() = UpdateStatus::Idle;
-            }
-
-            log(
-                logs,
-                format!("yt-dlp auto-refresh complete: {}", installed_ver),
-            );
-            Ok(format!("yt-dlp updated ({})", installed_ver))
-        }
-        Err(e) => {
-            if e == "Cancelled" {
-                let status = if ytdlp_path
-                    .metadata()
-                    .is_ok_and(|metadata| metadata.len() > 0)
-                {
-                    InstallStatus::Installed
-                } else {
-                    InstallStatus::Missing
-                };
-                *ytdlp_status.lock().unwrap() = status;
-                *ytdlp_update_status.lock().unwrap() = UpdateStatus::Idle;
-                log(logs, "yt-dlp auto-refresh cancelled.");
-                return Err(e);
-            }
-            *ytdlp_status.lock().unwrap() = InstallStatus::Error(e.clone());
-            *ytdlp_update_status.lock().unwrap() = UpdateStatus::Error(e.clone());
-            log(logs, format!("yt-dlp auto-refresh failed: {}", e));
-            Err(e)
+        Err(error) => {
+            let message = format!("Prepare {}: {error:#}", tool.id());
+            *status.lock().unwrap() = InstallStatus::Error(message.clone());
+            Err(message)
         }
     }
+}
+
+fn localized_tool_name(tool: ExternalTool) -> String {
+    let language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    let text = crate::gui::locale::LocaleText::get(&language);
+    match tool {
+        ExternalTool::YtDlp => text.auxiliary.managed_tools.tool_ytdlp,
+        ExternalTool::Ffmpeg => text.auxiliary.managed_tools.tool_ffmpeg,
+        ExternalTool::Deno => text.auxiliary.managed_tools.tool_deno,
+    }
+    .to_string()
 }
 
 impl DownloadManager {
@@ -157,65 +92,53 @@ impl DownloadManager {
             return;
         }
 
-        let bin_dir = self.bin_dir.clone();
         let cookie_browser = self.cookie_browser.clone();
-        let formats_clone = self.sessions[idx].available_formats.clone();
-        let manual_subs_clone = self.sessions[idx].available_subs_manual.clone();
-        let use_subtitles_clone = self.use_subtitles.clone();
+        let formats = self.sessions[idx].available_formats.clone();
+        let manual_subtitles = self.sessions[idx].available_subs_manual.clone();
+        let use_subtitles = self.use_subtitles.clone();
         let is_analyzing = self.sessions[idx].is_analyzing.clone();
-        let error_clone = self.sessions[idx].analysis_error.clone();
+        let error = self.sessions[idx].analysis_error.clone();
 
         self.sessions[idx].last_url_analyzed = url.clone();
         *is_analyzing.lock().unwrap() = true;
-        *error_clone.lock().unwrap() = None;
-
-        // Reset analysis-specific choices for new URL
-        formats_clone.lock().unwrap().clear();
-        manual_subs_clone.lock().unwrap().clear();
+        *error.lock().unwrap() = None;
+        formats.lock().unwrap().clear();
+        manual_subtitles.lock().unwrap().clear();
         self.sessions[idx].selected_format = None;
         self.sessions[idx].selected_subtitle = None;
 
-        use super::utils::fetch_video_formats;
-
-        thread::spawn(
-            move || match fetch_video_formats(&url, &bin_dir, cookie_browser) {
-                Ok((formats, manual, _auto)) => {
-                    *formats_clone.lock().unwrap() = formats;
-                    *manual_subs_clone.lock().unwrap() = manual.clone();
+        std::thread::spawn(move || {
+            match fetch_video_formats(&url, cookie_browser) {
+                Ok((resolved_formats, manual, _automatic)) => {
+                    *formats.lock().unwrap() = resolved_formats;
+                    *manual_subtitles.lock().unwrap() = manual.clone();
                     if manual.is_empty() {
-                        *use_subtitles_clone.lock().unwrap() = false;
+                        *use_subtitles.lock().unwrap() = false;
                     }
-                    *is_analyzing.lock().unwrap() = false;
                 }
-                Err(e) => {
-                    *error_clone.lock().unwrap() = Some(e);
-                    *is_analyzing.lock().unwrap() = false;
-                }
-            },
-        );
+                Err(message) => *error.lock().unwrap() = Some(message),
+            }
+            *is_analyzing.lock().unwrap() = false;
+        });
     }
 
-    pub fn start_media_download(&self, progress_fmt: String) {
+    pub fn start_media_download(&self, progress_format: String) {
         let idx = self.active_idx();
-        let session = match self.sessions.get(idx) {
-            Some(s) => s,
-            None => return,
+        let Some(session) = self.sessions.get(idx) else {
+            return;
         };
         let url = session.input_url.trim().to_string();
         if url.is_empty() {
             return;
         }
 
-        let bin_dir = self.bin_dir.clone();
         let download_type = session.download_type.clone();
         let state = session.download_state.clone();
         let logs = session.logs.clone();
+        let cancel = session.cancel_flag.clone();
         let ytdlp_status = self.ytdlp_status.clone();
-        let ytdlp_update_status = self.ytdlp_update_status.clone();
-        let ytdlp_version = self.ytdlp_version.clone();
-        let cancel_flag = session.cancel_flag.clone();
-
-        // Capture advanced flags
+        let ffmpeg_status = self.ffmpeg_status.clone();
+        let deno_status = self.deno_status.clone();
         let use_metadata = self.use_metadata;
         let use_sponsorblock = self.use_sponsorblock;
         let use_subtitles = *self.use_subtitles.lock().unwrap();
@@ -223,226 +146,120 @@ impl DownloadManager {
         let cookie_browser = self.cookie_browser.clone();
         let selected_format = session.selected_format.clone();
         let selected_subtitle = session.selected_subtitle.clone();
-
         let download_path = self
             .custom_download_path
             .clone()
             .unwrap_or_else(|| dirs::download_dir().unwrap_or(PathBuf::from(".")));
 
         {
-            let mut s = state.lock().unwrap();
-            if matches!(*s, DownloadState::Downloading(_, _)) {
+            let mut current = state.lock().unwrap();
+            if matches!(*current, DownloadState::Downloading(_, _)) {
                 return;
             }
-            cancel_flag.store(false, Ordering::Relaxed);
-            *s = DownloadState::Downloading(0.0, "Starting...".to_string());
+            cancel.store(false, Ordering::Relaxed);
+            *current = DownloadState::Downloading(0.0, "Starting...".to_string());
         }
 
-        thread::spawn(move || {
-            log(&logs, format!("Processing URL: {}", url));
-            let ytdlp_exe = bin_dir.join("yt-dlp.exe");
-
-            let mut args = vec![
-                "--encoding".to_string(),
-                "utf-8".to_string(),
-                "--ffmpeg-location".to_string(),
-                bin_dir.to_string_lossy().to_string(),
-            ];
-
-            let deno_path = bin_dir.join("deno.exe");
-            if deno_path.exists() {
-                args.push("--js-runtimes".to_string());
-                args.push(format!("deno:{}", deno_path.to_string_lossy()));
-            }
-
-            // Progress per line for potential parsing
-            args.push("--newline".to_string());
-            // Always re-download if quality differs (don't skip based on filename)
-            args.push("--force-overwrites".to_string());
-
-            if !use_playlist {
-                args.push("--no-playlist".to_string());
-            } else {
-                args.push("--yes-playlist".to_string());
-            }
-
-            if use_metadata {
-                args.push("--embed-metadata".to_string());
-                args.push("--embed-chapters".to_string());
-                args.push("--embed-thumbnail".to_string());
-            }
-
-            if use_sponsorblock {
-                args.push("--sponsorblock-remove".to_string());
-                args.push("all".to_string());
-            }
-
-            if use_subtitles {
-                args.push("--write-subs".to_string());
-                args.push("--sub-langs".to_string());
-                if let Some(lang) = selected_subtitle {
-                    args.push(lang);
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Option<PathBuf>, String> {
+                log(&logs, format!("Processing URL: {url}"));
+                let ytdlp = prepare_tool(ExternalTool::YtDlp, &ytdlp_status, &state, &cancel)?;
+                let ffmpeg = prepare_tool(ExternalTool::Ffmpeg, &ffmpeg_status, &state, &cancel)?;
+                let deno = if cookie_browser == CookieBrowser::None {
+                    external_tools::acquire_installed(ExternalTool::Deno).ok()
                 } else {
-                    args.push("en.*,vi.*,ko.*".to_string());
-                }
-                args.push("--embed-subs".to_string());
-            }
+                    Some(prepare_tool(
+                        ExternalTool::Deno,
+                        &deno_status,
+                        &state,
+                        &cancel,
+                    )?)
+                };
+                set_download_stage(&state, "Starting pinned yt-dlp...");
 
-            match cookie_browser {
-                CookieBrowser::None => {}
-                CookieBrowser::Chrome => {
-                    args.push("--cookies-from-browser".to_string());
-                    args.push("chrome".to_string());
+                let mut args = vec![
+                    "--encoding".to_string(),
+                    "utf-8".to_string(),
+                    "--ffmpeg-location".to_string(),
+                    ffmpeg.bin_dir().to_string_lossy().to_string(),
+                    "--newline".to_string(),
+                    "--force-overwrites".to_string(),
+                ];
+                if let Some(deno) = deno.as_ref() {
+                    args.push("--js-runtimes".to_string());
+                    args.push(format!("deno:{}", deno.executable().to_string_lossy()));
                 }
-                CookieBrowser::Firefox => {
-                    args.push("--cookies-from-browser".to_string());
-                    args.push("firefox".to_string());
+                args.push(if use_playlist {
+                    "--yes-playlist".to_string()
+                } else {
+                    "--no-playlist".to_string()
+                });
+                if use_metadata {
+                    args.extend(
+                        ["--embed-metadata", "--embed-chapters", "--embed-thumbnail"]
+                            .map(str::to_string),
+                    );
                 }
-                CookieBrowser::Edge => {
-                    args.push("--cookies-from-browser".to_string());
-                    args.push("edge".to_string());
+                if use_sponsorblock {
+                    args.extend(["--sponsorblock-remove", "all"].map(str::to_string));
                 }
-                CookieBrowser::Brave => {
-                    args.push("--cookies-from-browser".to_string());
-                    args.push("brave".to_string());
+                if use_subtitles {
+                    args.extend(["--write-subs", "--sub-langs"].map(str::to_string));
+                    args.push(selected_subtitle.unwrap_or_else(|| "en.*,vi.*,ko.*".to_string()));
+                    args.push("--embed-subs".to_string());
                 }
-                CookieBrowser::Opera => {
-                    args.push("--cookies-from-browser".to_string());
-                    args.push("opera".to_string());
-                }
-                CookieBrowser::Vivaldi => {
-                    args.push("--cookies-from-browser".to_string());
-                    args.push("vivaldi".to_string());
-                }
-                CookieBrowser::Chromium => {
-                    args.push("--cookies-from-browser".to_string());
-                    args.push("chromium".to_string());
-                }
-                CookieBrowser::Whale => {
-                    args.push("--cookies-from-browser".to_string());
-                    args.push("whale".to_string());
-                }
-            }
-
-            match download_type {
-                DownloadType::Video => {
-                    args.push("-f".to_string());
-                    if let Some(fmt_str) = selected_format {
-                        // fmt_str is like "1080p"
-                        let height = fmt_str.trim_end_matches('p');
-                        // Use height<= for best available up to chosen quality
-                        let selector =
-                            format!("bestvideo[height<={0}]+bestaudio/best[height<={0}]", height);
-                        args.push(selector);
-                    } else {
-                        args.push("bestvideo+bestaudio/best".to_string());
+                append_cookie_args(&mut args, cookie_browser);
+                match download_type {
+                    DownloadType::Video => {
+                        args.push("-f".to_string());
+                        args.push(selected_format.map_or_else(
+                            || "bestvideo+bestaudio/best".to_string(),
+                            |format| {
+                                let height = format.trim_end_matches('p');
+                                format!(
+                                    "bestvideo[height<={height}]+bestaudio/best[height<={height}]"
+                                )
+                            },
+                        ));
+                        args.extend(["--merge-output-format", "mp4"].map(str::to_string));
                     }
-                    args.push("--merge-output-format".to_string());
-                    args.push("mp4".to_string());
+                    DownloadType::Audio => {
+                        args.extend(
+                            ["-x", "--audio-format", "mp3", "--audio-quality", "0"]
+                                .map(str::to_string),
+                        );
+                    }
                 }
-                DownloadType::Audio => {
-                    args.push("-x".to_string());
-                    args.push("--audio-format".to_string());
-                    args.push("mp3".to_string());
-                    args.push("--audio-quality".to_string());
-                    args.push("0".to_string());
-                }
-            }
+                args.push("-o".to_string());
+                args.push(
+                    download_path
+                        .join("%(title)s.%(ext)s")
+                        .to_string_lossy()
+                        .to_string(),
+                );
+                args.push(url);
 
-            args.push("-o".to_string());
-            let out_tmpl = download_path.join("%(title)s.%(ext)s");
-            args.push(out_tmpl.to_string_lossy().to_string());
+                // Every selected tool guard remains alive until yt-dlp and its children exit.
+                run_ytdlp_download_attempt(
+                    &ytdlp.executable(),
+                    &args,
+                    &progress_format,
+                    &state,
+                    &logs,
+                    &cancel,
+                    "pinned",
+                )
+            })();
 
-            args.push(url);
-
-            match run_ytdlp_download_attempt(
-                &ytdlp_exe,
-                &args,
-                &progress_fmt,
-                &state,
-                &logs,
-                &cancel_flag,
-                "initial",
-            ) {
+            match result {
                 Ok(final_path) => {
                     set_download_finished(&state, final_path);
                     log(&logs, "Download Finished Successfully.");
                 }
-                Err(first_err) => {
-                    if finish_if_cancelled(&state, &logs, &cancel_flag, Some(&first_err)) {
-                        return;
-                    }
-                    log(
-                        &logs,
-                        format!("Download failed on first attempt: {}", first_err),
-                    );
-
-                    match check_update_ytdlp_and_prepare_retry(
-                        &bin_dir,
-                        &state,
-                        &logs,
-                        &ytdlp_status,
-                        &ytdlp_update_status,
-                        &ytdlp_version,
-                        &cancel_flag,
-                    ) {
-                        Ok(update_msg) => {
-                            if finish_if_cancelled(&state, &logs, &cancel_flag, None) {
-                                return;
-                            }
-                            set_download_stage(
-                                &state,
-                                format!("{} - retrying download...", update_msg),
-                            );
-                            log(&logs, "Retrying download after yt-dlp refresh...");
-
-                            match run_ytdlp_download_attempt(
-                                &ytdlp_exe,
-                                &args,
-                                &progress_fmt,
-                                &state,
-                                &logs,
-                                &cancel_flag,
-                                "retry",
-                            ) {
-                                Ok(final_path) => {
-                                    set_download_finished(&state, final_path);
-                                    log(&logs, "Download recovered after yt-dlp refresh.");
-                                }
-                                Err(retry_err) => {
-                                    if finish_if_cancelled(
-                                        &state,
-                                        &logs,
-                                        &cancel_flag,
-                                        Some(&retry_err),
-                                    ) {
-                                        return;
-                                    }
-                                    let combined_error = format!(
-                                        "{} | Retry after yt-dlp refresh failed: {}",
-                                        first_err, retry_err
-                                    );
-                                    *state.lock().unwrap() =
-                                        DownloadState::Error(combined_error.clone());
-                                    log(
-                                        &logs,
-                                        format!("Download failed after retry: {}", retry_err),
-                                    );
-                                }
-                            }
-                        }
-                        Err(update_err) => {
-                            if finish_if_cancelled(&state, &logs, &cancel_flag, Some(&update_err)) {
-                                return;
-                            }
-                            let combined_error = format!(
-                                "{} | yt-dlp auto-refresh failed: {}",
-                                first_err, update_err
-                            );
-                            *state.lock().unwrap() = DownloadState::Error(combined_error.clone());
-                            log(&logs, format!("Auto-refresh failed: {}", update_err));
-                        }
-                    }
+                Err(error) if finish_if_cancelled(&state, &logs, &cancel, &error) => {}
+                Err(error) => {
+                    *state.lock().unwrap() = DownloadState::Error(error.clone());
+                    log(&logs, format!("Download failed: {error}"));
                 }
             }
         });

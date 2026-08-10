@@ -7,6 +7,7 @@
 //! Supports text, image, and audio inputs with text-only output.
 
 pub mod client_message;
+#[cfg(not(feature = "recorder-worker"))]
 pub mod lifecycle;
 pub mod manager;
 pub mod ready_session;
@@ -17,7 +18,7 @@ pub mod types;
 pub mod websocket;
 pub mod worker;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod lifecycle_tests;
 
 use std::sync::{

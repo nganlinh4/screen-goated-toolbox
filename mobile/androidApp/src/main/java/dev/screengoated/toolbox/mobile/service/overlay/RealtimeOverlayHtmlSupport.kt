@@ -5,10 +5,10 @@ internal fun overlayFontCss(): String {
         @font-face {
             font-family: 'Google Sans Flex';
             font-style: normal;
-            font-weight: 100 1000;
-            font-stretch: 25% 1000%;
-            font-display: swap;
-            src: url('../GoogleSansFlex.ttf') format('truetype');
+            font-weight: 1 1000;
+            font-stretch: 25% 151%;
+            font-display: block;
+            src: url('../GoogleSansFlex.woff') format('woff');
         }
     """.trimIndent()
 }

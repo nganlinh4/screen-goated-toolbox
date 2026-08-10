@@ -7,6 +7,7 @@ use image::codecs::jpeg::JpegEncoder;
 use std::time::Duration;
 
 use super::ready_session::ReadyLiveSession;
+#[cfg(not(feature = "recorder-worker"))]
 use super::server_frame::parse_server_frame;
 use super::setup::{LiveSetupBuilder, MediaResolution, TranscriptionMode};
 use super::types::LiveInputContent;
@@ -126,6 +127,7 @@ fn downscale_live_frame(image: DynamicImage) -> DynamicImage {
 }
 
 /// Check if the message indicates setup is complete
+#[cfg(not(feature = "recorder-worker"))]
 pub fn is_setup_complete(msg: &str) -> bool {
     parse_server_frame(msg)
         .map(|frame| frame.setup_complete)
@@ -133,6 +135,7 @@ pub fn is_setup_complete(msg: &str) -> bool {
 }
 
 /// Check if the message contains an error
+#[cfg(not(feature = "recorder-worker"))]
 pub fn parse_error(msg: &str) -> Option<String> {
     parse_server_frame(msg).ok()?.error
 }

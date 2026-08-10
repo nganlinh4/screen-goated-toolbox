@@ -135,7 +135,7 @@ pub(super) fn render_zipformer_section(
             // Sync disk → status
             {
                 let disk_ok = cached_probe(zipformer_probe_key(lang), move || {
-                    sherpa_onnx::is_model_downloaded(lang)
+                    sherpa_onnx::is_model_payload_present(lang)
                 });
                 let mut s = download_manager.zipformer_lang_statuses[&lang]
                     .lock()
@@ -156,7 +156,13 @@ pub(super) fn render_zipformer_section(
                 .lock()
                 .unwrap()
                 .clone();
-            let label = format!("{} ({})", lang.display_name(), lang.code());
+            let label = format!(
+                "{} ({})",
+                text.auxiliary
+                    .managed_tools
+                    .zipformer_language_name(lang.code()),
+                lang.code()
+            );
 
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&label).strong());

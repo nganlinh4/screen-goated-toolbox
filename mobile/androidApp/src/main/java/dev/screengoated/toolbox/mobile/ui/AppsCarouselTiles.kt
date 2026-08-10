@@ -1,4 +1,8 @@
-@file:OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class, ExperimentalTextApi::class)
+@file:OptIn(
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalMaterial3Api::class,
+    ExperimentalTextApi::class,
+)
 
 package dev.screengoated.toolbox.mobile.ui
 
@@ -30,7 +34,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,13 +98,13 @@ internal fun SessionAppCarouselTile(
         )
         val stretchedFamily = remember {
             FontFamily(
-                androidx.compose.ui.text.font.Font(
-                    resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+                Font(
+                    resId = R.font.google_sans_flex,
                     weight = FontWeight.Black,
-                    variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
-                        androidx.compose.ui.text.font.FontVariation.weight(FontWeight.Black.weight),
-                        androidx.compose.ui.text.font.FontVariation.Setting("ROND", 100f),
-                        androidx.compose.ui.text.font.FontVariation.Setting("wdth", 125f),
+                    variationSettings = FontVariation.Settings(
+                        FontVariation.weight(FontWeight.Black.weight),
+                        FontVariation.Setting("ROND", 100f),
+                        FontVariation.Setting("wdth", 125f),
                     ),
                 ),
             )
@@ -237,13 +243,13 @@ internal fun AppTile(
         )
         val stretchedFamily = remember {
             FontFamily(
-                androidx.compose.ui.text.font.Font(
-                    resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+                Font(
+                    resId = R.font.google_sans_flex,
                     weight = FontWeight.Black,
-                    variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
-                        androidx.compose.ui.text.font.FontVariation.weight(FontWeight.Black.weight),
-                        androidx.compose.ui.text.font.FontVariation.Setting("ROND", 100f),
-                        androidx.compose.ui.text.font.FontVariation.Setting("wdth", 125f),
+                    variationSettings = FontVariation.Settings(
+                        FontVariation.weight(FontWeight.Black.weight),
+                        FontVariation.Setting("ROND", 100f),
+                        FontVariation.Setting("wdth", 125f),
                     ),
                 ),
             )

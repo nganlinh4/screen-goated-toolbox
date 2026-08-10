@@ -11,6 +11,7 @@ mod assets;
 mod atomic_json;
 #[cfg(test)]
 mod catalog_benchmark;
+mod component_registry;
 mod config;
 mod debug_log;
 pub mod gui;

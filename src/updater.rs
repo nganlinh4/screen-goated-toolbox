@@ -21,39 +21,10 @@ fn bump_is_greater(current: &str, new: &str) -> Result<bool, semver::Error> {
 }
 
 fn select_release_asset(assets: &[ReleaseAsset]) -> Option<&ReleaseAsset> {
-    let release_assets = assets
-        .iter()
-        .filter(|asset| {
-            let name = asset.name.to_ascii_lowercase();
-            name.ends_with(".exe") || name.ends_with(".zip")
-        })
-        .collect::<Vec<_>>();
-
-    match crate::runtime_support::current_process_arch() {
-        crate::runtime_support::RuntimeArch::Arm64 => release_assets
-            .iter()
-            .copied()
-            .find(|asset| asset.name.to_ascii_lowercase().contains("arm64"))
-            .or_else(|| {
-                release_assets
-                    .iter()
-                    .copied()
-                    .find(|asset| asset.name.ends_with(".exe"))
-            }),
-        _ => release_assets
-            .iter()
-            .copied()
-            .find(|asset| {
-                let name = asset.name.to_ascii_lowercase();
-                !name.contains("arm64")
-            })
-            .or_else(|| {
-                release_assets
-                    .iter()
-                    .copied()
-                    .find(|asset| asset.name.ends_with(".exe"))
-            }),
-    }
+    assets.iter().find(|asset| {
+        let name = asset.name.to_ascii_lowercase();
+        name.starts_with("screengoatedtoolbox_v") && name.ends_with(".exe")
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -85,16 +56,14 @@ impl Updater {
             // GitHub API requires a User-Agent, and self_update's default might be blocked or rate-limited.
             let url = "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=1&prerelease=false";
 
-            // Use ureq 3.x API - create agent with config
-            let config = ureq::Agent::config_builder()
-                .timeout_global(Some(std::time::Duration::from_secs(10)))
-                .build();
-            let agent: ureq::Agent = config.into();
-
-            let response = agent
+            let request = crate::api::client::UREQ_AGENT
                 .get(url)
-                .header("User-Agent", "screen-goated-toolbox-checker")
-                .call();
+                .header("User-Agent", "screen-goated-toolbox-checker");
+            let response = crate::api::client::with_request_timeout(
+                request,
+                Some(std::time::Duration::from_secs(10)),
+            )
+            .call();
 
             match response {
                 Ok(mut resp) => {
@@ -188,7 +157,7 @@ impl Updater {
             let mut staging_path = exe_dir.join("update_pending.exe");
 
             // Use a custom HTTP request to get the latest release (the one marked as "Latest" on GitHub)
-            let release_json = match ureq::get("https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=1&prerelease=false")
+            let release_json = match crate::api::client::UREQ_AGENT.get("https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=1&prerelease=false")
                 .header("User-Agent", "screen-goated-toolbox-updater")
                 .call()
             {
@@ -283,7 +252,10 @@ impl Updater {
                 }
             };
 
-            match ureq::get(&asset.download_url).call() {
+            match crate::api::client::UREQ_DOWNLOAD_AGENT
+                .get(&asset.download_url)
+                .call()
+            {
                 Ok(response) => {
                     let mut reader = response.into_body().into_reader();
                     if let Err(e) = std::io::copy(&mut reader, &mut file) {

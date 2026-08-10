@@ -66,9 +66,14 @@ pub fn show_audio_app_selector(is_dark: bool, lang: String) {
     }
 
     let locale = crate::gui::locale::LocaleText::get(&lang);
-    let app_names: HashMap<String, String> = candidates
+    let selected_apps: HashMap<String, (u32, String)> = candidates
         .iter()
-        .map(|candidate| (candidate.pid.to_string(), candidate.display_name.clone()))
+        .map(|candidate| {
+            (
+                candidate.pid.to_string(),
+                (candidate.capture_pid, candidate.display_name.clone()),
+            )
+        })
         .collect();
     let entries: Vec<SelectorEntry> = candidates
         .iter()
@@ -89,12 +94,12 @@ pub fn show_audio_app_selector(is_dark: bool, lang: String) {
     let callbacks = SelectorCallbacks::new(
         move |selected_id| {
             if let Ok(pid) = selected_id.parse::<u32>() {
-                let app_name = app_names
+                let (capture_pid, app_name) = selected_apps
                     .get(&selected_id)
                     .cloned()
-                    .unwrap_or_else(|| format!("PID {pid}"));
+                    .unwrap_or_else(|| (pid, format!("PID {pid}")));
                 post_screen_record_script(format!(
-                    "window.dispatchEvent(new CustomEvent('external-recording-audio-app-selected',{{detail:{{pid:{pid},appName:{}}}}}))",
+                    "window.dispatchEvent(new CustomEvent('external-recording-audio-app-selected',{{detail:{{pid:{capture_pid},appName:{}}}}}))",
                     serde_json::to_string(&app_name).unwrap_or_else(|_| "\"\"".to_string())
                 ));
             }

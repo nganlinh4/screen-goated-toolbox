@@ -65,12 +65,6 @@
       "vi": "G Gọn",
       "ko": "G 간결",
       "en": "G Compact"
-    },
-    {
-      "model_id": "groq-llama-3-1-8b-instant-text",
-      "vi": "G Cơ bản",
-      "ko": "G 기본",
-      "en": "G Basic"
     }
   ],
   "performance": {

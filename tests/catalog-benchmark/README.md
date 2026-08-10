@@ -1,6 +1,8 @@
 # Catalog benchmark
 
 Current catalog decision record:
+[`RESULTS-2026-08-10-PROTOCOL9.md`](RESULTS-2026-08-10-PROTOCOL9.md).
+The preceding protocol-7 decision remains in
 [`RESULTS-2026-08-06-PROTOCOL7.md`](RESULTS-2026-08-06-PROTOCOL7.md).
 The immediately preceding text-candidate and vision-tail decisions remain in
 [`RESULTS-2026-08-06-TEXT-CANDIDATES.md`](RESULTS-2026-08-06-TEXT-CANDIDATES.md)
@@ -24,6 +26,17 @@ Normal `cargo test` does not call providers. It validates the manifest, all imag
 ## Live run
 
 At least one matching provider credential must be in the environment or saved app config. A live run requires an explicit opt-in:
+
+Gemini and OpenRouter benchmarks discover indexed credentials and rotate them
+once per provider call in stable numeric order. Keep the existing primary names
+for compatibility and add indexed names such as `GEMINI_API_KEY_2` or
+`OPENROUTER_API_KEY_2`. Blank, duplicate, and noncanonical indexed names are
+ignored. Rotation is benchmark-only; the installed application continues to
+use its single configured credential. Coordinate locate and verification calls
+each advance the pool independently. The benchmark reads these slots directly
+from the repository `.env`; a nonblank process environment value wins over the
+matching file value, and only the primary slot may fall back to saved app
+configuration.
 
 ```powershell
 $env:CATALOG_BENCH_LIVE = "1"
@@ -114,6 +127,17 @@ Protocol 7 supersedes coordinate rows from protocol 6: visual grounding now
 uses strict JSON point collections and catalog-owned structured-output transport,
 and Google vision inputs are image-first. Text and plain-OCR scoring are unchanged,
 but vision request-profile changes require fresh rows.
+Protocol 8 changes the randomly selected translation levels 3, 5, and 10 to
+English-to-Vietnamese, Korean-to-Vietnamese, and Chinese-to-Vietnamese while
+preserving their numeric-fidelity, idiom, and structured-constraint skills. It
+also adds two Vietnamese OCR fixtures covering a photographed sign and a dense
+web crop. Its fixture fingerprint and protocol version intentionally prevent
+earlier results from being selected for the revised suite.
+Protocol 9 supersedes protocol 8 coordinate rows. The shared production
+grounding prompts now spell out the complete strict point-object contract so
+JSON-object, prompt-only, and Live transports receive the same semantics as
+providers that accept a wire-level JSON schema. OCR and translation requests
+are unchanged.
 
 ## Local latest-run history
 

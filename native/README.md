@@ -5,15 +5,15 @@ SGT-owned Windows runtime crates, sidecars, packaging scripts, and manifests liv
 ## Active or Packaged Paths
 
 - [Qwen3-ASR DLL](qwen3_runtime/README.md) — active CUDA transcription backend.
-- [Qwen3 reference sidecar](qwen3_reference_sidecar/README.md) — diagnostic/settings-managed executable, not the active ASR backend.
+- [Qwen3 reference sidecar](qwen3_reference_sidecar/README.md) — archived
+  diagnostic source; it is not shipped or exposed by the app.
 - [Step Audio EditX](step_audio_runtime/README.md) — managed persistent Python sidecar.
 - [NVIDIA Magpie](magpie_runtime/README.md) — managed persistent Python sidecar.
 - [VieNeu](vieneu_runtime/README.md) — managed persistent Python sidecar.
-
-## Incomplete Path
-
-- [Voxtral](voxtral_runtime/README.md) — configured integration without a committed publishable runtime DLL. Do not present clean installation as working.
-- [Shared TTS DLL ABI](README_TTS_RUNTIME_FFI.md) — host ABI and prototype status.
+- [Computer Control engine](computer_control_engine/README.md) — removable x64
+  data-only planning and provider-protocol worker.
+- `language_catalog/` — complete compact ISO 639 lookup crate shared by the
+  signed host and recorder worker; exhaustive tests preserve upstream mappings.
 
 ## Rules
 

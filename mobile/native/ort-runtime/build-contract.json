@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "abi": "arm64-v8a",
+  "androidApi": 29,
+  "ndkVersion": "27.0.12077973",
+  "source": {
+    "repository": "https://github.com/microsoft/onnxruntime.git",
+    "tag": "v1.24.2",
+    "commit": "058787ceead760166e3c50a0a4cba8a833a6f53f",
+    "licenseAsset": "third_party/ort-runtime/onnxruntime-LICENSE.txt",
+    "noticesAsset": "third_party/ort-runtime/onnxruntime-ThirdPartyNotices.txt"
+  },
+  "operatorGeneration": {
+    "configFile": "required-operators.config",
+    "configSha256": "e3f50aecda1f84e133533af927e174e8a1b2a3c9341978dd283ce323e1ba8f33",
+    "downloadedModelsFile": "operator-models.json",
+    "downloadedModelsSha256": "ce59ed8a6b9b21af6bf01907948035763dcc5bd0dbd7c22f8e6a37af7f8aca0a",
+    "embeddedModelsFile": "embedded-models.json",
+    "embeddedModelsSha256": "bb2adc8ded4c1f45ab70eb31557e05ea1a54592c471dd21261705676ecbee1a1"
+  },
+  "proxy": {
+    "cmakeFile": "androidApp/native/ort_proxy/CMakeLists.txt",
+    "cmakeSha256": "1c6e18982923da4aa61223a9b965e017c0941012caa62f247bda23ac68b10c92",
+    "sourceFile": "androidApp/native/ort_proxy/ort_proxy.c",
+    "sourceSha256": "7ff57712f28f2bee91f1ad587876932b194b52aac2fc42537919113961892052"
+  },
+  "packageEntries": ["libonnxruntime.so", "libonnxruntime_real.so"],
+  "realElf": {
+    "soname": "libonnxruntime.so",
+    "exports": ["OrtGetApiBase", "OrtSessionOptionsAppendExecutionProvider_CPU"],
+    "needed": ["libc.so", "libdl.so", "liblog.so", "libm.so"],
+    "maximumByteCount": 8000000
+  },
+  "proxyElf": {
+    "soname": "libonnxruntime.so",
+    "exports": ["OrtGetApiBase"],
+    "needed": ["libc.so", "libdl.so", "liblog.so", "libm.so"],
+    "maximumByteCount": 16384
+  },
+  "releaseGate": {
+    "smokeSource": "native/ort-runtime/smoke/moonshine_smoke.c",
+    "smokeSourceSha256": "a3c34f5123b5b179d7c4aa43060cc0de617adc362b23b5fb8ed0eeb158c679cd",
+    "smokeHeader": "native/ort-runtime/smoke/moonshine-c-api.h",
+    "smokeHeaderSha256": "4e518aa5033533cce5a4cf81b27a5821fc3557de124c70b4e98194576fcfc115",
+    "smokeInputs": "native/ort-runtime/smoke-inputs.json",
+    "smokeInputsSha256": "384f6a556f715f5b7e0ba6eb93f06d39ac4f049673a7354be8aeb20ee7b21fd0",
+    "requiresPhysicalArm64Device": true
+  },
+  "noticeFiles": [
+    "NOTICE.txt",
+    "onnxruntime-LICENSE.txt",
+    "onnxruntime-ThirdPartyNotices.txt"
+  ]
+}

@@ -1,4 +1,8 @@
-const CORNER_RADIUS: f32 = 8.0;
+fn buffer_corner_radius(w: i32, h: i32, physical_to_buffer_scale: f32) -> f32 {
+    (crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX * physical_to_buffer_scale)
+        .min(w as f32 / 2.0)
+        .min(h as f32 / 2.0)
+}
 
 #[inline(always)]
 pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> u32 {
@@ -34,6 +38,7 @@ pub unsafe fn draw_direct_sdf_glow(
     pixels_ptr: *mut u32,
     w: i32,
     h: i32,
+    physical_to_buffer_scale: f32,
     time_offset: f32,
     alpha_mult: f32,
     is_glowing: bool,
@@ -48,7 +53,7 @@ pub unsafe fn draw_direct_sdf_glow(
         let by = (h as f32) / 2.0;
         let center_x = bx;
         let center_y = by;
-        let eff_radius = CORNER_RADIUS.min(bx).min(by);
+        let eff_radius = buffer_corner_radius(w, h, physical_to_buffer_scale);
 
         // ADAPTIVE GLOW SCALING: Scale based on window size to keep center hollow
         // For small windows (e.g., 100px): scales to ~20px glow
@@ -174,6 +179,7 @@ pub unsafe fn draw_minimal_glow(
     pixels_ptr: *mut u32,
     w: i32,
     h: i32,
+    physical_to_buffer_scale: f32,
     time_offset: f32,
     _alpha_mult: f32,
     is_glowing: bool,
@@ -190,18 +196,20 @@ pub unsafe fn draw_minimal_glow(
             *pixel = 0;
         }
 
-        // Draw white border (1 pixel thick)
-        let white: u32 = 0xFFFFFFFF; // ARGB: fully opaque white
+        let radius = buffer_corner_radius(w, h, physical_to_buffer_scale);
 
-        // Top and bottom edges
-        for x in 0..w {
-            pixels[x as usize] = white; // Top row
-            pixels[((h - 1) * w + x) as usize] = white; // Bottom row
-        }
-        // Left and right edges
+        // Draw a one-pixel rounded border. This remains row-based so minimal
+        // mode does not pay for a full-buffer SDF pass.
+        let white: u32 = 0xFFFFFFFF; // ARGB: fully opaque white
         for y in 0..h {
-            pixels[(y * w) as usize] = white; // Left column
-            pixels[(y * w + w - 1) as usize] = white; // Right column
+            let inset = rounded_row_inset(y, h, radius).min((w - 1) / 2);
+            let left = inset;
+            let right = w - 1 - inset;
+            pixels[(y * w + left) as usize] = white;
+            pixels[(y * w + right) as usize] = white;
+            if y == 0 || y == h - 1 {
+                pixels[(y * w + left) as usize..=(y * w + right) as usize].fill(white);
+            }
         }
 
         // Draw bouncing green scan line if glowing (processing)
@@ -221,12 +229,46 @@ pub unsafe fn draw_minimal_glow(
                 for line_offset in 0..2 {
                     let y = scan_y + line_offset;
                     if y > 0 && y < h - 1 {
-                        for x in margin..(w - margin) {
+                        let inset = rounded_row_inset(y, h, radius);
+                        let start = margin.max(inset);
+                        let end = (w - margin).min(w - inset);
+                        for x in start..end {
                             pixels[(y * w + x) as usize] = green;
                         }
                     }
                 }
             }
         }
+    }
+}
+
+fn rounded_row_inset(y: i32, height: i32, radius: f32) -> i32 {
+    let edge_distance = y.min(height - 1 - y) as f32 + 0.5;
+    if edge_distance >= radius {
+        return 0;
+    }
+    let center_distance = radius - edge_distance;
+    let horizontal = (radius * radius - center_distance * center_distance)
+        .max(0.0)
+        .sqrt();
+    (radius - horizontal).ceil() as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glow_buffer_compensates_for_downsampling() {
+        for scale in [1.0, 0.75, 0.5, 1.0 / 3.0] {
+            let buffer_radius = buffer_corner_radius(640, 360, scale);
+            assert!((buffer_radius / scale - 8.0).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn minimal_border_uses_rounded_corner_insets() {
+        assert!(rounded_row_inset(0, 100, 8.0) > 0);
+        assert_eq!(rounded_row_inset(8, 100, 8.0), 0);
     }
 }

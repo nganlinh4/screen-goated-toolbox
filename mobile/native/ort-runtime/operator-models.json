@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "delivery": "external_download_not_packaged",
+  "models": [
+    {
+      "family": "tiny-streaming-en",
+      "baseUrl": "https://download.moonshine.ai/model/tiny-streaming-en/quantized",
+      "files": [
+        {"name": "adapter.ort", "byteCount": 1319440, "sha256": "df13e655b29d279911fcb42d8b91b0e655b8fe32b7ba1f463ece663ce55ae6eb"},
+        {"name": "cross_kv.ort", "byteCount": 1264384, "sha256": "5acfca68f7bb068c68c1960b54e215995ba07ee46b61645b78bff010a14e5a92"},
+        {"name": "decoder_kv.ort", "byteCount": 32403688, "sha256": "6e3828f1db4b634bc525cb8ba1f0b628ec56059168f0336ad060891c7c1c9154"},
+        {"name": "encoder.ort", "byteCount": 7569200, "sha256": "96dde726be90c4429f3bc458d04e3ea5bd1818a5fdcd0152edf4c07b8e405c07"},
+        {"name": "frontend.ort", "byteCount": 8324600, "sha256": "bbdf5edb120cb3df1adf9ebc07c35136539b007a7047fd148c6f2960fc56fcf1"}
+      ]
+    },
+    {
+      "family": "small-streaming-en",
+      "baseUrl": "https://download.moonshine.ai/model/small-streaming-en/quantized",
+      "files": [
+        {"name": "adapter.ort", "byteCount": 2867424, "sha256": "d8493e0ac76a198b309a8be6f74b3101e235f773ffe5d6b378278cd7e4177992"},
+        {"name": "cross_kv.ort", "byteCount": 5298736, "sha256": "6e57d1361717e00d73336a0c3beafedae784b1e537905ad253dee33db4007466"},
+        {"name": "decoder_kv.ort", "byteCount": 81435904, "sha256": "d5adfcfaa6e582144791f1568bd0f683852c7bfbb8c79acad97499da05e4ffcf"},
+        {"name": "encoder.ort", "byteCount": 43853224, "sha256": "3b21d02eff6aa5651524ada4271d37c1d7bba4eb3d256415074f2cfdbaeb526a"},
+        {"name": "frontend.ort", "byteCount": 30984200, "sha256": "e086451043c1c8652a9614e4a4a81d5807221b611584a3cf31f73779d5900003"}
+      ]
+    },
+    {
+      "family": "medium-streaming-en",
+      "baseUrl": "https://download.moonshine.ai/model/medium-streaming-en/quantized",
+      "files": [
+        {"name": "adapter.ort", "byteCount": 3647712, "sha256": "16307442b7f4229f2f1511fc51b545cec9616e55872c588f3a297bbc6f4762ea"},
+        {"name": "cross_kv.ort", "byteCount": 11544952, "sha256": "354b9a955caeb768b528f447f0a36ce4b850ca7b4531900165df304d97904fba"},
+        {"name": "decoder_kv.ort", "byteCount": 146216448, "sha256": "fa67aa87521247f5bf44d3e44d4e4978e58c1f114249c3c6909c882624056715"},
+        {"name": "encoder.ort", "byteCount": 94202872, "sha256": "a5f11167a62eef61787fe8410453257d6ddb8eba90af461a9604e5f2e93d5322"},
+        {"name": "frontend.ort", "byteCount": 47467256, "sha256": "378fe8a5d7090a1b9ab88bbb1fc95bde010cdd64ec23419350d2d23c675636e9"}
+      ]
+    }
+  ]
+}

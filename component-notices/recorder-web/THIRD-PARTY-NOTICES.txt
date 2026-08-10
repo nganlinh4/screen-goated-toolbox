@@ -1,0 +1,14 @@
+SGT Screen Recorder web interface third-party notices
+
+The recorder web interface includes React, Radix UI, Motion, and other
+production packages resolved from screen-record/package-lock.json. Their
+copyright and license terms remain with their respective authors.
+
+THIRD-PARTY-LICENSES.json is a deterministic inventory of the resolved
+production packages plus the complete bytes, names, and SHA-256 digests of
+their packaged license, notice, copying, and copyright files. When a package
+declares a standard license without packaging its own copy, the inventory maps
+it to one complete deduplicated license text from the same resolved dependency
+graph.
+
+This notice does not alter or replace any dependency license.

@@ -4,6 +4,7 @@ use super::*;
 /// `(source_text, target_text, audio_bytes, error)`. Shared by the sequential
 /// and parallel batch paths, which buffer identical event kinds.
 fn drain_segment_events(
+    expected_id: u64,
     event_rx: mpsc::Receiver<S2sEvent>,
 ) -> (String, String, Vec<u8>, Option<String>) {
     let mut source_text = String::new();
@@ -12,14 +13,24 @@ fn drain_segment_events(
     let mut error: Option<String> = None;
     for event in event_rx.try_iter() {
         match event {
-            S2sEvent::InputText { text, .. } => {
+            S2sEvent::InputText { id, text } if id == expected_id => {
                 source_text = text;
             }
-            S2sEvent::OutputText { text, .. } => {
+            S2sEvent::OutputText { id, text } if id == expected_id => {
                 merge_segment_text(&mut target_text, &text);
             }
-            S2sEvent::Audio { bytes, .. } => audio_bytes.extend(bytes),
-            S2sEvent::Error { message, .. } => error = Some(message),
+            S2sEvent::Audio { id, bytes } if id == expected_id => audio_bytes.extend(bytes),
+            S2sEvent::Error { id, message } if id == expected_id => error = Some(message),
+            S2sEvent::Done { id } if id == expected_id => {}
+            S2sEvent::InputText { id, .. }
+            | S2sEvent::OutputText { id, .. }
+            | S2sEvent::Audio { id, .. }
+            | S2sEvent::Done { id }
+            | S2sEvent::Error { id, .. } => {
+                error = Some(format!(
+                    "Gemini Live segment response id {id} did not match request {expected_id}"
+                ));
+            }
             _ => {}
         }
     }
@@ -35,7 +46,9 @@ fn timed_to_batch_segment(
 ) -> S2sBatchSegment {
     S2sBatchSegment {
         id: timed.segment.id,
+        #[cfg(feature = "recorder-worker")]
         source_start_sec: timed.start_sample as f64 / 16_000.0,
+        #[cfg(feature = "recorder-worker")]
         source_end_sec: timed.end_sample as f64 / 16_000.0,
         source_text,
         target_text,
@@ -83,6 +96,7 @@ pub fn default_batch_settings_for_target(
     })
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn run_gemini_live_s2s_batch(
     samples_16k_mono: Vec<i16>,
     batch_settings: S2sBatchSettings,
@@ -91,6 +105,7 @@ pub fn run_gemini_live_s2s_batch(
     run_gemini_live_s2s_batch_with_progress(samples_16k_mono, batch_settings, stop_signal, None)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn run_gemini_live_s2s_batch_with_progress(
     samples_16k_mono: Vec<i16>,
     batch_settings: S2sBatchSettings,
@@ -190,7 +205,7 @@ pub fn run_gemini_live_s2s_batch_with_callbacks(
         let result = run_single_segment_session(0, id + 1, timed.segment.clone(), &resources);
         drop(resources);
         drop(event_tx);
-        let (source_text, target_text, audio_bytes, error) = drain_segment_events(event_rx);
+        let (source_text, target_text, audio_bytes, error) = drain_segment_events(id, event_rx);
         result?;
         if let Some(error) = error {
             return Err(anyhow::anyhow!(error));
@@ -308,7 +323,7 @@ fn run_s2s_timed_segment_without_context(
         );
         drop(resources);
         drop(event_tx);
-        let (source_text, target_text, audio_bytes, error) = drain_segment_events(event_rx);
+        let (source_text, target_text, audio_bytes, error) = drain_segment_events(id, event_rx);
         if let Err(err) = result {
             eprintln!(
                 "[RealtimeS2S] batch-retry segment={} attempt={}/{} reason=session_error error={}",

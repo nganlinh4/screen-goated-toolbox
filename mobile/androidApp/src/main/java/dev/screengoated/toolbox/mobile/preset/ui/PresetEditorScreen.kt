@@ -70,11 +70,11 @@ import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
 
-// Google Sans Flex at wdth=80 — prevents long labels from wrapping in toggle buttons
+// Google Sans Flex at wdth=80 prevents long labels wrapping in toggle buttons.
 internal val condensedButtonFont: androidx.compose.ui.text.font.FontFamily by lazy {
     androidx.compose.ui.text.font.FontFamily(
         androidx.compose.ui.text.font.Font(
-            resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+            resId = R.font.google_sans_flex,
             variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
                 androidx.compose.ui.text.font.FontVariation.Setting("wdth", 80f),
             ),
@@ -339,4 +339,3 @@ fun PresetEditorScreen(
 // =============================================================================
 // Section 1: Header
 // =============================================================================
-

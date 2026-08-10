@@ -4,9 +4,10 @@ mod step_audio;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "recorder-worker")]
+pub use step_audio::StepAudioVoiceConfig;
 pub use step_audio::{
-    StepAudioEditSettings, StepAudioReferenceVoice, StepAudioSettings, StepAudioVoiceConfig,
-    step_audio_tts_text_issue,
+    StepAudioEditSettings, StepAudioReferenceVoice, StepAudioSettings, step_audio_tts_text_issue,
 };
 
 // ============================================================================
@@ -25,7 +26,7 @@ pub enum TtsMethod {
     Kokoro,             // Kokoro 82M v1.0 (Kokoro-FastAPI OpenAI-compat)
     Supertonic,         // Supertonic 3 (local sherpa-onnx)
     VieneuTts,          // VieNeu-TTS v2 (Vietnamese-first local clone TTS)
-    VoxtralTts,         // Mistral Voxtral TTS (open weights / La Plateforme)
+    VoxtralTts,         // Legacy value retained only for config deserialization.
 }
 
 // ============================================================================
@@ -205,8 +206,7 @@ pub fn default_tts_language_conditions() -> Vec<TtsLanguageCondition> {
 //
 // Kokoro 82M v1.0 and Supertonic 3 run through sherpa-onnx. Magpie and Step
 // Audio EditX run through managed Python sidecars because their public
-// checkpoints depend on Python-native inference stacks. Mistral Voxtral is
-// still deferred.
+// checkpoints depend on Python-native inference stacks.
 
 /// Kokoro 82M v1.0 — runs locally via sherpa-onnx OfflineTts using model
 /// files downloaded into `dirs::data_dir()/screen-goated-toolbox/models/kokoro/`.
@@ -422,11 +422,10 @@ pub fn default_magpie_voice_configs() -> Vec<MagpieVoiceConfig> {
     ]
 }
 
-/// Mistral Voxtral TTS — deferred offline. The 4B-param open-weights checkpoint
-/// requires Mistral's reference PyTorch runtime; no ONNX bindings yet.
+/// Settings retained so older saved configuration remains deserializable.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct VoxtralSettings {
-    /// Voice id reserved for the future offline worker.
+    /// Legacy voice id preserved during migration.
     pub voice: String,
 }

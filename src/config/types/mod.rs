@@ -35,10 +35,13 @@ pub use profile::PresetProfile;
 
 pub use restore_defaults::RestoreDefaultsSelection;
 
+#[cfg(feature = "recorder-worker")]
+pub use tts::StepAudioVoiceConfig;
+#[cfg(not(feature = "recorder-worker"))]
+pub use tts::TtsPlaygroundMode;
 pub use tts::{
     EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
-    MagpieVoiceConfig, StepAudioReferenceVoice, StepAudioSettings, StepAudioVoiceConfig,
-    SupertonicSettings, SupertonicVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundMode,
-    TtsPlaygroundSettings, VieneuSettings, VoxtralSettings, default_tts_language_conditions,
-    step_audio_tts_text_issue,
+    MagpieVoiceConfig, StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings,
+    SupertonicVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings, VieneuSettings,
+    VoxtralSettings, default_tts_language_conditions, step_audio_tts_text_issue,
 };

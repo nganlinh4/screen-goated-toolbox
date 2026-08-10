@@ -1,6 +1,7 @@
 //! Shared state for realtime transcription overlay
 
 use crate::api::realtime_audio::{RealtimeState, SharedRealtimeState};
+#[cfg(not(feature = "recorder-worker"))]
 pub use crate::win_types::HwndWrapper;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, Once, atomic::AtomicBool};

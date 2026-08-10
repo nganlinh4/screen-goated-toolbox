@@ -1,0 +1,15 @@
+[package]
+name = "sgt-language-catalog"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+
+[build-dependencies]
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+reference-isolang = { package = "isolang", version = "2.4", features = ["english_names"] }
+
+[dev-dependencies]
+reference-isolang = { package = "isolang", version = "2.4", features = ["english_names"] }

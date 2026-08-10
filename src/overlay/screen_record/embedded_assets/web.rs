@@ -1,58 +1,53 @@
-use super::{EmbeddedAsset, lookup_asset};
+use super::read_asset;
 
-macro_rules! asset {
-    ($path:literal, $mime:literal) => {
-        EmbeddedAsset {
-            path: $path,
-            mime: $mime,
-            bytes: include_bytes!(concat!("../dist/", $path)),
-        }
-    };
-}
-
-pub(in crate::overlay::screen_record) const INDEX_HTML: &[u8] =
-    include_bytes!("../dist/index.html");
-
-const WEB_ASSETS: &[EmbeddedAsset] = &[
-    asset!("assets/index.js", "application/javascript"),
-    asset!("assets/index.css", "text/css"),
-    asset!("assets/vendor.js", "application/javascript"),
+const WEB_ASSETS: &[(&str, &str)] = &[
+    ("assets/index.js", "application/javascript"),
+    ("assets/index.css", "text/css"),
+    ("assets/vendor.js", "application/javascript"),
     // Rolldown (Vite 8) emits a separate runtime chunk that index.js imports;
     // without serving it the whole bundle fails to load and the WebView is blank.
-    asset!("assets/rolldown-runtime.js", "application/javascript"),
-    asset!("bg-warm-abstract.jpg", "image/jpeg"),
-    asset!("bg-cool-abstract.jpg", "image/jpeg"),
-    asset!("bg-deep-abstract.jpg", "image/jpeg"),
-    asset!("bg-vivid-abstract.jpg", "image/jpeg"),
-    asset!("bg-macos-tahoe.jpg", "image/jpeg"),
-    asset!("bg-gdrive-2.jpg", "image/jpeg"),
-    asset!("bg-gdrive-3.jpg", "image/jpeg"),
-    asset!("bg-mojave-dunes.jpg", "image/jpeg"),
-    asset!("bg-catalina.jpg", "image/jpeg"),
-    asset!("bg-big-sur.jpg", "image/jpeg"),
-    asset!("bg-el-capitan.jpg", "image/jpeg"),
-    asset!("bg-beach-aerial.jpg", "image/jpeg"),
-    asset!("bg-sierra-sunset.jpg", "image/jpeg"),
-    asset!("bg-windows-11-3d.jpg", "image/jpeg"),
-    asset!("bg-cerro-torre.jpg", "image/jpeg"),
-    asset!("bg-ipados-orange.jpg", "image/jpeg"),
-    asset!("bg-ipados-blue.jpg", "image/jpeg"),
-    asset!("bg-blue-waves.jpg", "image/jpeg"),
-    asset!("bg-windows-xp.jpg", "image/jpeg"),
-    asset!("bg-antelope-canyon.jpg", "image/jpeg"),
-    asset!("bg-windows-7.jpg", "image/jpeg"),
-    asset!("bg-windows-11-colorful.jpg", "image/jpeg"),
-    asset!("bg-big-sur-iridescence.jpg", "image/jpeg"),
-    asset!("bg-landscape-rocks.jpg", "image/jpeg"),
-    asset!("bg-lake-mountains.jpg", "image/jpeg"),
-    asset!("bg-big-sur-rocks.jpg", "image/jpeg"),
-    asset!("bg-big-sur-waves.jpg", "image/jpeg"),
-    asset!("bg-sierra-glacier.jpg", "image/jpeg"),
-    asset!("bg-monterey-dark.jpg", "image/jpeg"),
+    ("assets/rolldown-runtime.js", "application/javascript"),
+    ("bg-warm-abstract.jpg", "image/jpeg"),
+    ("bg-cool-abstract.jpg", "image/jpeg"),
+    ("bg-deep-abstract.jpg", "image/jpeg"),
+    ("bg-vivid-abstract.jpg", "image/jpeg"),
+    ("bg-macos-tahoe.jpg", "image/jpeg"),
+    ("bg-gdrive-2.jpg", "image/jpeg"),
+    ("bg-gdrive-3.jpg", "image/jpeg"),
+    ("bg-mojave-dunes.jpg", "image/jpeg"),
+    ("bg-catalina.jpg", "image/jpeg"),
+    ("bg-big-sur.jpg", "image/jpeg"),
+    ("bg-el-capitan.jpg", "image/jpeg"),
+    ("bg-beach-aerial.jpg", "image/jpeg"),
+    ("bg-sierra-sunset.jpg", "image/jpeg"),
+    ("bg-windows-11-3d.jpg", "image/jpeg"),
+    ("bg-cerro-torre.jpg", "image/jpeg"),
+    ("bg-ipados-orange.jpg", "image/jpeg"),
+    ("bg-ipados-blue.jpg", "image/jpeg"),
+    ("bg-blue-waves.jpg", "image/jpeg"),
+    ("bg-windows-xp.jpg", "image/jpeg"),
+    ("bg-antelope-canyon.jpg", "image/jpeg"),
+    ("bg-windows-7.jpg", "image/jpeg"),
+    ("bg-windows-11-colorful.jpg", "image/jpeg"),
+    ("bg-big-sur-iridescence.jpg", "image/jpeg"),
+    ("bg-landscape-rocks.jpg", "image/jpeg"),
+    ("bg-lake-mountains.jpg", "image/jpeg"),
+    ("bg-big-sur-rocks.jpg", "image/jpeg"),
+    ("bg-big-sur-waves.jpg", "image/jpeg"),
+    ("bg-sierra-glacier.jpg", "image/jpeg"),
+    ("bg-monterey-dark.jpg", "image/jpeg"),
 ];
+
+pub(in crate::overlay::screen_record) fn index_html() -> Option<Vec<u8>> {
+    read_asset("index.html")
+}
 
 pub(in crate::overlay::screen_record) fn lookup_packaged_web_asset(
     path: &str,
-) -> Option<(&'static [u8], &'static str)> {
-    lookup_asset(WEB_ASSETS, path)
+) -> Option<(Vec<u8>, &'static str)> {
+    let relative = path.strip_prefix('/').unwrap_or(path);
+    WEB_ASSETS
+        .iter()
+        .find(|(candidate, _)| *candidate == relative)
+        .and_then(|(_, mime)| read_asset(relative).map(|bytes| (bytes, *mime)))
 }

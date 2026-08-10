@@ -61,9 +61,12 @@ pub(super) unsafe extern "system" fn badge_wnd_proc(
                             for item in items {
                                 let type_str = match item.n_type {
                                     NotificationType::Success => "success",
+                                    #[cfg(feature = "recorder-worker")]
                                     NotificationType::FileCopy => "file_copy",
+                                    #[cfg(feature = "recorder-worker")]
                                     NotificationType::GifCopy => "gif_copy",
                                     NotificationType::Info => "info",
+                                    #[cfg(not(feature = "recorder-worker"))]
                                     NotificationType::Update => "update",
                                     NotificationType::Error => "error",
                                 };

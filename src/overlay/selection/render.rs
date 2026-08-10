@@ -350,7 +350,7 @@ fn draw_rounded_selection_box(
     r: &RECT,
     effective_alpha: u8,
 ) {
-    let default_radius = 8.0f32;
+    let default_radius = crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX;
     let border_width = 2.0f32;
 
     let l_f = r.left as f32;

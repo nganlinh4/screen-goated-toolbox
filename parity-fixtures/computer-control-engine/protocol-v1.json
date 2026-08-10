@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "providerFrames": [
+    {
+      "id": "combined-lifecycle-frame",
+      "frame": {
+        "setupComplete": {},
+        "serverContent": {
+          "modelTurn": {
+            "parts": [
+              { "inlineData": { "data": "AQI=" } },
+              { "inlineData": { "data": "AwQ=" } },
+              { "text": "private reasoning", "thought": true },
+              { "text": "visible answer" }
+            ]
+          },
+          "inputTranscription": { "text": "user request" },
+          "outputTranscription": { "text": "spoken answer" },
+          "interrupted": true,
+          "generationComplete": true,
+          "turnComplete": true
+        },
+        "toolCall": {
+          "functionCalls": [
+            { "id": "call-1", "name": "future_tool", "args": { "value": 7 } }
+          ]
+        },
+        "toolCallCancellation": { "ids": ["call-2", 3] },
+        "goAway": { "timeLeft": "5s" },
+        "sessionResumptionUpdate": { "newHandle": "resume-1", "resumable": true },
+        "usageMetadata": { "totalTokenCount": 9 },
+        "error": { "message": "provider warning" }
+      },
+      "expected": [
+        { "type": "setup-complete" },
+        { "type": "interrupted" },
+        { "type": "input-transcript", "text": "user request" },
+        { "type": "audio-pcm16", "dataBase64": "AQI=" },
+        { "type": "audio-pcm16", "dataBase64": "AwQ=" },
+        { "type": "thought", "text": "private reasoning" },
+        { "type": "model-text", "text": "visible answer" },
+        { "type": "output-transcript", "text": "spoken answer" },
+        { "type": "tool-call", "id": "call-1", "name": "future_tool", "args": { "value": 7 } },
+        { "type": "tool-cancellation", "ids": ["call-2"] },
+        { "type": "generation-complete" },
+        { "type": "turn-complete" },
+        { "type": "go-away", "timeLeft": "5s" },
+        { "type": "session-resumption", "handle": "resume-1", "resumable": true },
+        { "type": "usage", "metadata": { "totalTokenCount": 9 } },
+        { "type": "other", "summary": "provider warning" }
+      ]
+    },
+    {
+      "id": "tool-before-turn-boundary",
+      "frame": {
+        "serverContent": { "turnComplete": true },
+        "toolCall": {
+          "functionCalls": [
+            { "id": "done-1", "name": "done", "args": { "summary": "complete" } }
+          ]
+        }
+      },
+      "expected": [
+        { "type": "tool-call", "id": "done-1", "name": "done", "args": { "summary": "complete" } },
+        { "type": "turn-complete" }
+      ]
+    },
+    {
+      "id": "malformed-tool-call-fails-closed",
+      "strictOnly": true,
+      "frame": {
+        "toolCall": {
+          "functionCalls": [
+            { "id": "", "name": "run_command", "args": [] },
+            { "id": "call-2", "name": "future-tool", "args": {} }
+          ]
+        }
+      },
+      "expected": [
+        { "type": "other", "summary": "malformed provider tool call rejected" },
+        { "type": "tool-call", "id": "call-2", "name": "future-tool", "args": {} }
+      ]
+    },
+    {
+      "id": "text-is-not-a-protocol-signal",
+      "frame": { "note": "setupComplete toolCall generationComplete turnComplete" },
+      "expected": [
+        { "type": "other", "summary": "{\"note\":\"setupComplete toolCall generationComplete turnComplete\"}" }
+      ]
+    }
+  ],
+  "setupCases": [
+    {
+      "id": "normal-voice-search-standard",
+      "input": {
+        "privilege": "standard",
+        "voiceMode": true,
+        "searchEnabled": true,
+        "integrationDeclarations": []
+      },
+      "expected": {
+        "staticToolCount": 62,
+        "searchEnabled": true,
+        "voiceMode": true,
+        "privilegeMarker": "STANDARD user",
+        "dynamicToolNames": []
+      }
+    },
+    {
+      "id": "headless-no-search-elevated-with-future-tool",
+      "input": {
+        "privilege": "elevated",
+        "voiceMode": false,
+        "searchEnabled": false,
+        "integrationDeclarations": [
+          {
+            "name": "future_integration_tool",
+            "description": "A capability introduced after the host shipped",
+            "parameters": {
+              "type": "object",
+              "properties": { "value": { "type": "string" } }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "staticToolCount": 62,
+        "searchEnabled": false,
+        "voiceMode": false,
+        "privilegeMarker": "ELEVATED",
+        "dynamicToolNames": ["future_integration_tool"]
+      }
+    }
+  ]
+}

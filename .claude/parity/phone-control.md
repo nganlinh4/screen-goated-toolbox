@@ -147,7 +147,8 @@ the user's words.
 Pixel grounding uses the catalog-owned ordered model chain and fallback contract
 in `parity-fixtures/phone-control/model-chain.json`. Windows Computer Control and
 Android Phone Control consume the same generated IDs; neither platform owns a
-second locator-model constant.
+second locator-model constant. The current chain uses Robotics ER2 as the
+strict-accuracy primary and Gemini 3.5 Flash Lite as the faster fallback.
 
 The live control session uses the fixture's exact Gemini Live endpoint and
 bounded `LOW` thinking configuration on both platforms. Silent thought parts

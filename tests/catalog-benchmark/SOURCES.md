@@ -14,10 +14,10 @@ The benchmark keeps the downloaded source image unchanged apart from source-prov
 | `coordinate/08-filter-chip.png` | [ScreenSpot test row 861](https://huggingface.co/datasets/bevaya/ScreenSpot) | Apache-2.0 dataset | Source-provided 2560×1440 image; ground-truth box converted from the normalized dataset box |
 | `coordinate/09-nested-comments.png` | [ScreenSpot test row 1020](https://huggingface.co/datasets/bevaya/ScreenSpot) | Apache-2.0 dataset | Source-provided 2560×1440 image; ground-truth box converted from the normalized dataset box |
 | `coordinate/10-rating-stars.png` | [ScreenSpot test row 1262](https://huggingface.co/datasets/bevaya/ScreenSpot) | Apache-2.0 dataset | Source-provided 2560×1440 image; ground-truth box converted from the normalized dataset box |
-| `ocr/01-poster.jpg` | [The Right to Read poster](https://commons.wikimedia.org/wiki/File:The_Right_to_Read_poster,_1970.jpg) | United States government work, public domain | Wikimedia 500 px thumbnail |
+| `ocr/01-vietnamese-street-sign.jpg` | [Nhà Chung street signs](https://commons.wikimedia.org/wiki/File:Nha_Chung_street_signs.jpg) | CC BY 2.0, Nam-ho Park | Wikimedia 1200 px thumbnail |
 | `ocr/02-receipt.jpg` | [Sample Product Receipt](https://commons.wikimedia.org/wiki/File:Sample_Product_Receipt.jpg) | CC0 | Original file |
 | `ocr/03-multilingual-sign.jpg` | [Nakano Station sign](https://commons.wikimedia.org/wiki/File:A_station_sign_at_Nakano_Station_Tokyo.jpg) | CC0 | Wikimedia 960 px thumbnail |
-| `ocr/04-historic-menu.jpg` | [Pulaski House restaurant menu](https://commons.wikimedia.org/wiki/File:Pulaski_House_restaurant_menu_(April_20,_1857).jpg) | Public domain / freely licensed historic scan | Original file |
+| `ocr/04-vietnamese-wikipedia.jpg` | [Vietnamese Wikipedia main page](https://commons.wikimedia.org/wiki/File:Screenshot_Vietnamese_Wikipedia_main_page_v1-vi-25.jpg) | CC BY-SA 4.0 | Original file; deterministic 760×270 crop |
 | `ocr/05-newspaper.jpg` | [The Sun, January 11, 1920](https://www.loc.gov/resource/sn83030431/1920-01-11/ed-1/?sp=1) | Public-domain historic newspaper via Library of Congress | IIIF 6.25% rendition |
 | `ocr/06-perspective-sign.jpg` | [Street sign 01](https://commons.wikimedia.org/wiki/File:Street_sign_01.JPG) | CC0 | Wikimedia 1200 px thumbnail |
 | `ocr/07-status-bar.png` | [ScreenSpot test row 291](https://huggingface.co/datasets/bevaya/ScreenSpot) | Apache-2.0 dataset | Source-provided 2190×1706 image |

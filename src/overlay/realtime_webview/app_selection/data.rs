@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
+#[cfg(not(feature = "recorder-worker"))]
 use std::sync::{LazyLock, Mutex};
 
 use windows::Win32::Foundation::*;
@@ -19,6 +20,7 @@ use windows_core::{BOOL, Interface};
 
 use super::icons::get_app_icon_data_url;
 
+#[cfg(not(feature = "recorder-worker"))]
 static SELECTED_AUDIO_APP_CANDIDATE: LazyLock<Mutex<Option<AudioAppCandidate>>> =
     LazyLock::new(|| Mutex::new(None));
 
@@ -239,6 +241,7 @@ fn resolve_capture_pid_for_window(
     (window_pid, false)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn refresh_audio_capture_pid(candidate: &AudioAppCandidate) -> u32 {
     let hwnd = HWND(candidate.window_hwnd as *mut std::ffi::c_void);
     let exe_path = get_process_exe_path(candidate.pid);
@@ -272,18 +275,21 @@ pub fn refresh_audio_capture_pid(candidate: &AudioAppCandidate) -> u32 {
     candidate.capture_pid
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn store_selected_audio_app_candidate(candidate: AudioAppCandidate) {
     if let Ok(mut selected) = SELECTED_AUDIO_APP_CANDIDATE.lock() {
         *selected = Some(candidate);
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn clear_selected_audio_app_candidate() {
     if let Ok(mut selected) = SELECTED_AUDIO_APP_CANDIDATE.lock() {
         *selected = None;
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn refresh_selected_audio_capture_pid() -> Option<u32> {
     let candidate = SELECTED_AUDIO_APP_CANDIDATE.lock().ok()?.clone()?;
     Some(refresh_audio_capture_pid(&candidate))

@@ -1,12 +1,9 @@
 package dev.screengoated.toolbox.mobile.downloader
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Environment
-import androidx.core.content.edit
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
-import kotlinx.coroutines.CancellationException
+import dev.screengoated.toolbox.mobile.service.nativelibs.RuntimeLeaseRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,9 +15,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import okhttp3.OkHttpClient
 
 class DownloaderRepository(
     internal val context: Context,
@@ -35,213 +32,39 @@ class DownloaderRepository(
     internal val cancelledDownloadSessionIds = ConcurrentHashMap.newKeySet<Int>()
     internal val activeDownloadPaths = ConcurrentHashMap<Int, String>()
     internal var nextSessionId = 2
+    internal var activeAnalysisProcessId: String? = null
 
     // ── Tool management ──
 
-    internal var initialized = false
+    internal val runtimeDelivery = loadDownloaderRuntimeDelivery(context)
+    internal val runtimeInstaller = runtimeDelivery?.let {
+        DownloaderRuntimeInstaller(context, it, OkHttpClient())
+    }
+    internal val runtimeRemovalPreferences: SharedPreferences = context.getSharedPreferences(
+        "downloader_runtime_state",
+        Context.MODE_PRIVATE,
+    )
+    internal val runtimeLeases = RuntimeLeaseRegistry<DownloaderRuntimeKey> {
+        finishDownloaderRemoval()
+    }
+    internal val processHost = runtimeInstaller?.let { installer ->
+        DownloaderProcessHost(context, installer) { acquireDownloaderRuntimeLease() }
+    }
+    internal var installJob: Job? = null
 
-    internal val nativeZipDir: File = context.getDir("ytdl_native", Context.MODE_PRIVATE)
-
-    fun checkTools() {
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                val hasNativeZips = isNativeZipsDownloaded()
-                val alreadyExtracted = isAlreadyExtracted()
-                android.util.Log.d("SGT-DL", "checkTools: hasNativeZips=$hasNativeZips alreadyExtracted=$alreadyExtracted")
-                // Tools are ready if extracted (zips may have been cleaned up after extraction)
-                val ffmpegPkgDir = File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg")
-                val ffmpegReady = alreadyExtracted && ffmpegPkgDir.exists()
-                val ffmpegState = if (ffmpegReady) {
-                    ToolState(ToolInstallStatus.INSTALLED, version = calculateFfmpegSize())
-                } else {
-                    ToolState(ToolInstallStatus.MISSING)
-                }
-
-                if (alreadyExtracted) {
-                    try {
-                        ensureInit()
-                    } catch (_: Exception) {}
-                    // Clean up stale zips from previous installs
-                    cleanupNativeZips()
-                    _state.update {
-                        it.copy(
-                            ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = calculateYtdlpSize()),
-                            ffmpeg = ffmpegState,
-                        )
-                    }
-                } else {
-                    _state.update {
-                        it.copy(
-                            ytdlp = ToolState(ToolInstallStatus.MISSING),
-                            ffmpeg = ffmpegState,
-                        )
-                    }
-                }
-            }
+    init {
+        if (runtimeRemovalPreferences.getBoolean(REMOVAL_PENDING_KEY, false)) {
+            runtimeLeases.requestRemoval(DownloaderRuntimeKey.RUNTIME)
         }
     }
 
-    fun installTools() {
-        scope.launch {
-            _state.update {
-                it.copy(
-                    ytdlp = ToolState(ToolInstallStatus.DOWNLOADING),
-                    ffmpeg = ToolState(ToolInstallStatus.DOWNLOADING),
-                )
-            }
-            withContext(Dispatchers.IO) {
-                try {
-                    android.util.Log.d("SGT-DL", "installTools: starting, hasZips=${isNativeZipsDownloaded()}")
-                    if (!isNativeZipsDownloaded()) downloadNativeZips()
-                    android.util.Log.d("SGT-DL", "installTools: zips ready, resetting init")
-                    initialized = false
-                    // Force the library to re-extract by resetting its internal state
-                    try {
-                        val field = YoutubeDL::class.java.getDeclaredField("initialized")
-                        field.isAccessible = true
-                        field.setBoolean(YoutubeDL.getInstance(), false)
-                    } catch (_: Exception) {}
-                    try {
-                        val field = FFmpeg::class.java.getDeclaredField("initialized")
-                        field.isAccessible = true
-                        field.setBoolean(FFmpeg.getInstance(), false)
-                    } catch (_: Exception) {}
-                    // Clear version prefs to force fresh extraction from new zip source
-                    try {
-                        context.getSharedPreferences("youtubedl-android", Context.MODE_PRIVATE)
-                            .edit { clear() }
-                    } catch (_: Exception) {}
-                    // Delete old extracted packages so init re-extracts
-                    val packagesDir = File(context.noBackupFilesDir, "youtubedl-android/packages")
-                    packagesDir.deleteRecursively()
+    fun checkTools() = refreshDownloaderTools()
 
-                    ensureInit()
-                    _state.update {
-                        it.copy(
-                            ytdlp = ToolState(ToolInstallStatus.DOWNLOADING, version = "Updating yt-dlp..."),
-                            ytdlpUpdate = UpdateStatus.CHECKING,
-                        )
-                    }
-                    val updated = updateYoutubeDlNightly()
-                    _state.update {
-                        it.copy(
-                            ytdlpUpdate = if (updated) UpdateStatus.UPDATE_AVAILABLE else UpdateStatus.UP_TO_DATE,
-                        )
-                    }
-                    // Clean up downloaded zips after successful extraction — they're no longer needed
-                    cleanupNativeZips()
-                    val extracted = isAlreadyExtracted()
-                    if (!extracted) {
-                        _state.update {
-                            it.copy(ytdlp = ToolState(ToolInstallStatus.ERROR, error = "Extraction failed — restart app"))
-                        }
-                        return@withContext
-                    }
-                    _state.update {
-                        it.copy(
-                            ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = calculateYtdlpSize()),
-                            ffmpeg = ToolState(ToolInstallStatus.INSTALLED, version = calculateFfmpegSize()),
-                        )
-                    }
-                } catch (e: Exception) {
-                    _state.update {
-                        it.copy(ytdlp = ToolState(ToolInstallStatus.ERROR, error = e.message))
-                    }
-                }
-            }
-        }
-    }
+    fun installTools() = startDownloaderInstall()
 
-    fun deleteTools() {
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                initialized = false
-                // Reset library internal state
-                try {
-                    val field = YoutubeDL::class.java.getDeclaredField("initialized")
-                    field.isAccessible = true
-                    field.setBoolean(YoutubeDL.getInstance(), false)
-                } catch (_: Exception) {}
-                try {
-                    val field = FFmpeg::class.java.getDeclaredField("initialized")
-                    field.isAccessible = true
-                    field.setBoolean(FFmpeg.getInstance(), false)
-                } catch (_: Exception) {}
-                // Delete extracted files and downloaded native zips
-                val dirs = listOf(
-                    File(context.noBackupFilesDir, "youtubedl-android"),
-                    File(context.filesDir, "youtubedl-android"),
-                    nativeZipDir,
-                )
-                for (dir in dirs) {
-                    if (dir.exists()) {
-                        try {
-                            Runtime.getRuntime().exec(arrayOf("rm", "-rf", dir.absolutePath)).waitFor()
-                        } catch (_: Exception) {
-                            dir.deleteRecursively()
-                        }
-                    }
-                }
-                removeNativePayload()
-                // Clear the library's SharedPreferences so init() will re-extract next time
-                val prefNames = listOf("youtubedl-android", "com.yausername.youtubedl_android")
-                for (name in prefNames) {
-                    try {
-                        context.getSharedPreferences(name, android.content.Context.MODE_PRIVATE)
-                            .edit { clear() }
-                    } catch (_: Exception) {}
-                }
-                // log:"deleteTools: files + prefs cleared")
-            }
-            _state.update {
-                it.copy(
-                    ytdlp = ToolState(ToolInstallStatus.MISSING),
-                    ffmpeg = ToolState(ToolInstallStatus.MISSING),
-                    ytdlpUpdate = UpdateStatus.IDLE,
-                )
-            }
-        }
-    }
+    fun deleteTools() = requestDownloaderRemoval()
 
-    fun checkUpdates() {
-        scope.launch {
-            _state.update { it.copy(ytdlpUpdate = UpdateStatus.CHECKING) }
-            withContext(Dispatchers.IO) {
-                try {
-                    val updated = updateYoutubeDlNightly()
-                    _state.update {
-                        it.copy(
-                            ytdlpUpdate = if (updated) UpdateStatus.UPDATE_AVAILABLE else UpdateStatus.UP_TO_DATE,
-                        )
-                    }
-                    if (updated) {
-                        _state.update {
-                            it.copy(ytdlp = ToolState(ToolInstallStatus.INSTALLED, version = calculateYtdlpSize()))
-                        }
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("SGT-DL", "checkUpdates failed", e)
-                    _state.update { it.copy(ytdlpUpdate = UpdateStatus.ERROR) }
-                }
-            }
-        }
-    }
-
-    /**
-     * yt-dlp updates require the Python zip payload to exist so YoutubeDL.init()
-     * can succeed before the updater runs. We delete those zips after install to
-     * save space, so the update path must re-download them on demand.
-     */
-    fun calculateTotalDepsSize(): String {
-        val dir1 = File(context.noBackupFilesDir, "youtubedl-android")
-        val dir2 = File(context.filesDir, "youtubedl-android")
-        val dir3 = nativeZipDir
-        val s1 = dirSizeMb(dir1)
-        val s2 = dirSizeMb(dir2)
-        val s3 = nativePayloadSizeMb()
-        android.util.Log.d("SGT-DL", "totalDepsSize: noBackup/ytdl=%.1f MB, files/ytdl=%.1f MB, zips=%.1f MB".format(s1, s2, s3))
-        return "%.0f MB".format(s1 + s2 + s3)
-    }
+    fun calculateTotalDepsSize(): String = calculateDownloaderTotalSize()
 
     // ── Multi-tab ──
 
@@ -295,6 +118,8 @@ class DownloaderRepository(
             )
         }
         android.util.Log.d("SGT-DL", "updateUrl: cancelling old analysis, formats=$oldFormats")
+        activeAnalysisProcessId?.let(::destroyYtDlpProcess)
+        activeAnalysisProcessId = null
         analysisJob?.cancel()
         if (url.isNotBlank()) {
             analysisJob = scope.launch {
@@ -334,7 +159,10 @@ class DownloaderRepository(
         val processId = "download_${session.id}"
 
         android.util.Log.d("SGT-DL", "startDownload: formats=${session.availableFormats.size} phase=${session.phase}")
+        activeAnalysisProcessId?.let(::destroyYtDlpProcess)
+        activeAnalysisProcessId = null
         analysisJob?.cancel()
+        _state.value.sessions.mapNotNull { it.processId }.forEach(::destroyYtDlpProcess)
         downloadJob?.cancel()
         cancelledDownloadSessionIds.remove(session.id)
         activeDownloadPaths.remove(session.id)
@@ -374,42 +202,13 @@ class DownloaderRepository(
                         return@withContext
                     }
 
-                    // Auto-retry: update yt-dlp and try once more
-                    try {
-                        _state.update { it.copy(ytdlpUpdate = UpdateStatus.CHECKING) }
-                        val updated = updateYoutubeDlNightly()
-                        _state.update {
-                            it.copy(ytdlpUpdate = if (updated) UpdateStatus.UPDATE_AVAILABLE else UpdateStatus.UP_TO_DATE)
-                        }
-                        if (isDownloadCancelled(session.id)) throw CancellationException("Download cancelled")
-                        val result = executeDownload(idx, session, processId)
-                        activeDownloadPaths.remove(session.id)
-                        updateSession(idx) {
-                            it.copy(
-                                phase = DownloadPhase.FINISHED,
-                                finishedFilePath = result.filePath,
-                                finishedFileUri = result.contentUri,
-                                processId = null,
-                            )
-                        }
-                    } catch (retryError: Exception) {
-                        if (isDownloadCancelled(session.id, retryError)) {
-                            cleanupCancelledDownload(session.id)
-                            updateSession(idx) {
-                                it.copy(phase = DownloadPhase.IDLE, progress = DownloadProgress(), processId = null)
-                            }
-                            cancelledDownloadSessionIds.remove(session.id)
-                            return@withContext
-                        }
-
-                        activeDownloadPaths.remove(session.id)
-                        updateSession(idx) {
-                            it.copy(
-                                phase = DownloadPhase.ERROR,
-                                errorMessage = retryError.message ?: "Download failed",
-                                processId = null,
-                            )
-                        }
+                    activeDownloadPaths.remove(session.id)
+                    updateSession(idx) {
+                        it.copy(
+                            phase = DownloadPhase.ERROR,
+                            errorMessage = e.message ?: "Download failed",
+                            processId = null,
+                        )
                     }
                 }
             }
@@ -420,8 +219,7 @@ class DownloaderRepository(
         val idx = _state.value.activeTabIndex
         val session = _state.value.activeSession
         cancelledDownloadSessionIds.add(session.id)
-        YoutubeDL.getInstance().destroyProcessById(session.processId ?: "download_${session.id}")
-        YoutubeDL.getInstance().destroyProcessById("download_$idx")
+        destroyYtDlpProcess(session.processId ?: "download_${session.id}")
         cleanupCancelledDownload(session.id)
         downloadJob?.cancel()
         updateSession(idx) { it.copy(phase = DownloadPhase.IDLE, progress = DownloadProgress(), processId = null) }

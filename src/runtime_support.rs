@@ -1,39 +1,19 @@
-use std::fmt;
 use std::fs;
+use std::io::{Read, Write};
+use std::io::{Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use anyhow::{Result, anyhow};
-use windows::Win32::Foundation::HANDLE;
-use windows::Win32::System::Threading::GetCurrentProcess;
+use anyhow::{Context, Result, anyhow, bail};
+use sha2::{Digest, Sha256};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RuntimeArch {
-    X64,
-    Arm64,
-}
-
-impl RuntimeArch {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::X64 => "x64",
-            Self::Arm64 => "arm64",
-        }
-    }
-}
-
-impl fmt::Display for RuntimeArch {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+#[cfg(windows)]
+mod authenticode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CapabilityStatus {
     Supported,
     MissingDependency,
-    UnsupportedPlatform,
-    UnsupportedHardware,
 }
 
 #[derive(Clone, Debug)]
@@ -57,77 +37,8 @@ impl FeatureCapability {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct EnvironmentInfo {
-    pub process_arch: RuntimeArch,
-    pub native_arch: RuntimeArch,
-}
-
-#[derive(Clone, Debug)]
-pub enum WebView2InstallStatus {
-    Installed,
-    Installing,
-    Missing,
-    Error(String),
-}
-
-const WEBVIEW2_BOOTSTRAPPER_URL: &str = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
-const WEBVIEW2_BOOTSTRAPPER_NAME: &str = "MicrosoftEdgeWebview2Setup.exe";
-
-static WEBVIEW2_STATUS: LazyLock<Mutex<WebView2InstallStatus>> =
-    LazyLock::new(|| Mutex::new(WebView2InstallStatus::Missing));
-static STARTUP_NOTICE_SHOWN: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
-
-pub fn current_process_arch() -> RuntimeArch {
-    #[cfg(target_arch = "x86_64")]
-    {
-        RuntimeArch::X64
-    }
-    #[cfg(target_arch = "aarch64")]
-    {
-        RuntimeArch::Arm64
-    }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    {
-        // Windows-only app — the supported targets are x86_64 and aarch64.
-        // Default to X64 on anything else just to keep the type total.
-        RuntimeArch::X64
-    }
-}
-
-pub fn environment_info() -> EnvironmentInfo {
-    let process_arch = current_process_arch();
-    let native_arch = detect_native_arch().unwrap_or(process_arch);
-    EnvironmentInfo {
-        process_arch,
-        native_arch,
-    }
-}
-
-pub fn supports_qwen3_local_runtime() -> FeatureCapability {
-    let env = environment_info();
-    let badge = crate::overlay::auto_copy_badge::locale_text();
-    let unavailable = crate::overlay::auto_copy_badge::format_locale(
-        badge.feature_unavailable_fmt,
-        &[("name", "Qwen3-ASR CUDA Runtime")],
-    );
-    if env.process_arch != RuntimeArch::X64 {
-        return FeatureCapability {
-            status: CapabilityStatus::UnsupportedPlatform,
-            title: unavailable,
-            details: badge.qwen_x64_only.to_string(),
-        };
-    }
-    if env.native_arch == RuntimeArch::Arm64 {
-        return FeatureCapability {
-            status: CapabilityStatus::UnsupportedHardware,
-            title: unavailable,
-            details: badge.qwen_arm_unsupported.to_string(),
-        };
-    }
-
-    FeatureCapability::supported()
-}
+static WEBVIEW2_INSTALLING: AtomicBool = AtomicBool::new(false);
+static WEBVIEW2_DOWNLOAD_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub fn require_webview2(feature_name: &str) -> FeatureCapability {
     if webview2_runtime_installed() {
@@ -163,9 +74,6 @@ pub fn notify_capability_issue(capability: &FeatureCapability) {
         CapabilityStatus::MissingDependency => {
             crate::overlay::auto_copy_badge::NotificationType::Info
         }
-        CapabilityStatus::UnsupportedPlatform | CapabilityStatus::UnsupportedHardware => {
-            crate::overlay::auto_copy_badge::NotificationType::Error
-        }
         CapabilityStatus::Supported => crate::overlay::auto_copy_badge::NotificationType::Success,
     };
     crate::overlay::auto_copy_badge::show_detailed_notification(
@@ -175,110 +83,30 @@ pub fn notify_capability_issue(capability: &FeatureCapability) {
     );
 }
 
-pub fn unsupported_feature_names() -> Vec<&'static str> {
-    let mut unsupported = Vec::new();
-
-    if !supports_qwen3_local_runtime().is_supported() {
-        unsupported.push("Qwen3 local AI");
-    }
-
-    unsupported
-}
-
-pub fn show_startup_compatibility_notice_if_needed() {
-    {
-        let mut shown = STARTUP_NOTICE_SHOWN.lock().unwrap();
-        if *shown {
-            return;
-        }
-        *shown = true;
-    }
-
-    let unsupported = unsupported_feature_names();
-    if unsupported.is_empty() {
-        return;
-    }
-
-    let arch = environment_info().native_arch.to_string();
-    let unsupported = unsupported.join(", ");
-    let badge = crate::overlay::auto_copy_badge::locale_text();
-    let title = crate::overlay::auto_copy_badge::format_locale(
-        badge.unsupported_features_fmt,
-        &[("name", &unsupported), ("arch", &arch)],
-    );
-    crate::overlay::auto_copy_badge::show_timed_detailed_notification(
-        &title,
-        badge.unavailable_features_here,
-        crate::overlay::auto_copy_badge::NotificationType::Info,
-        2500,
-    );
-}
-
 pub fn webview2_runtime_installed() -> bool {
     find_webview2_executable().is_some()
 }
 
-pub fn current_webview2_status() -> WebView2InstallStatus {
-    let current = WEBVIEW2_STATUS.lock().unwrap().clone();
-    match current {
-        WebView2InstallStatus::Installing => current,
-        WebView2InstallStatus::Error(message) => {
-            if webview2_runtime_installed() {
-                WebView2InstallStatus::Installed
-            } else {
-                WebView2InstallStatus::Error(message)
-            }
-        }
-        _ if webview2_runtime_installed() => WebView2InstallStatus::Installed,
-        _ => WebView2InstallStatus::Missing,
-    }
-}
-
 pub fn start_webview2_runtime_install() -> bool {
-    match current_webview2_status() {
-        WebView2InstallStatus::Installed | WebView2InstallStatus::Installing => false,
-        _ => {
-            std::thread::spawn(|| {
-                if let Err(err) = install_webview2_runtime() {
-                    crate::log_info!("[WebView2] Install failed: {err}");
-                }
-            });
-            true
+    if webview2_runtime_installed() {
+        return false;
+    }
+    if WEBVIEW2_INSTALLING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return false;
+    }
+    std::thread::spawn(|| {
+        if let Err(error) = install_webview2_runtime() {
+            crate::log_info!("[WebView2] Install failed: {error:#}");
+            crate::overlay::auto_copy_badge::show_error_notification(
+                crate::overlay::auto_copy_badge::locale_text().webview2_install_failed,
+            );
         }
-    }
-}
-
-pub fn tool_download_arch() -> RuntimeArch {
-    current_process_arch()
-}
-
-#[cfg(target_os = "windows")]
-fn detect_native_arch() -> Option<RuntimeArch> {
-    use windows::Win32::System::SystemInformation::{
-        IMAGE_FILE_MACHINE, IMAGE_FILE_MACHINE_AMD64, IMAGE_FILE_MACHINE_ARM64,
-        IMAGE_FILE_MACHINE_UNKNOWN,
-    };
-    use windows::Win32::System::Threading::IsWow64Process2;
-
-    let process: HANDLE = unsafe { GetCurrentProcess() };
-    let mut process_machine = IMAGE_FILE_MACHINE(IMAGE_FILE_MACHINE_UNKNOWN.0);
-    let mut native_machine = IMAGE_FILE_MACHINE(IMAGE_FILE_MACHINE_UNKNOWN.0);
-    let ok = unsafe { IsWow64Process2(process, &mut process_machine, Some(&mut native_machine)) }
-        .is_ok();
-    if !ok {
-        return None;
-    }
-
-    match native_machine {
-        value if value == IMAGE_FILE_MACHINE_AMD64 => Some(RuntimeArch::X64),
-        value if value == IMAGE_FILE_MACHINE_ARM64 => Some(RuntimeArch::Arm64),
-        _ => None,
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn detect_native_arch() -> Option<RuntimeArch> {
-    None
+        WEBVIEW2_INSTALLING.store(false, Ordering::Release);
+    });
+    true
 }
 
 fn find_webview2_executable() -> Option<PathBuf> {
@@ -326,50 +154,94 @@ fn find_webview2_under(path: &Path) -> Option<PathBuf> {
 }
 
 fn install_webview2_runtime() -> Result<()> {
-    {
-        let mut status = WEBVIEW2_STATUS.lock().unwrap();
-        *status = WebView2InstallStatus::Installing;
-    }
+    let _mutation = crate::component_registry::acquire_mutation_guard()?;
+    let delivery = crate::component_registry::external_tools::webview2_bootstrapper_delivery()?;
+    crate::log_info!(
+        "[WebView2] installing pinned bootstrapper {} ({})",
+        delivery.version,
+        delivery.asset
+    );
     let badge = crate::overlay::auto_copy_badge::locale_text();
-    crate::overlay::auto_copy_badge::show_progress_notification(
+    let progress_badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(
         badge.installing_webview2,
         badge.downloading_webview2_installer,
-        5.0,
     );
+    progress_badge.report(5, 100);
 
-    let installer_path = crate::unpack_dlls::private_bin_dir().join(WEBVIEW2_BOOTSTRAPPER_NAME);
-    let _ = fs::create_dir_all(crate::unpack_dlls::private_bin_dir());
-    let response = ureq::get(WEBVIEW2_BOOTSTRAPPER_URL)
+    let scratch = crate::paths::app_runtime_local_data_dir().join("component-downloads");
+    ensure_regular_directory(&scratch)?;
+    let sequence = WEBVIEW2_DOWNLOAD_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let installer_path = scratch.join(format!(
+        "webview2-bootstrapper-{}-{}-{sequence}.exe",
+        delivery.version,
+        std::process::id()
+    ));
+    let response = crate::api::client::UREQ_DOWNLOAD_AGENT
+        .get(delivery.download_url)
+        .header("User-Agent", "ScreenGoatedToolbox")
         .call()
-        .map_err(|err| anyhow!("Failed to download WebView2 installer: {err}"))?;
+        .map_err(|error| anyhow!("failed to download WebView2 bootstrapper: {error}"))?;
+    if response
+        .headers()
+        .get("content-length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .is_some_and(|size| size != delivery.size_bytes)
+    {
+        bail!("WebView2 bootstrapper size does not match this build");
+    }
     let mut reader = response.into_body().into_reader();
-    let mut file = fs::File::create(&installer_path)
-        .map_err(|err| anyhow!("Failed to create '{}': {err}", installer_path.display()))?;
-    std::io::copy(&mut reader, &mut file)
-        .map_err(|err| anyhow!("Failed to write '{}': {err}", installer_path.display()))?;
+    let mut file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&installer_path)
+        .with_context(|| {
+            format!(
+                "create WebView2 bootstrapper '{}'",
+                installer_path.display()
+            )
+        })?;
+    let cleanup = OwnedBootstrapperDownload::new(installer_path.clone());
+    let download = download_exact(&mut reader, &mut file, delivery.size_bytes, delivery.sha256);
+    if let Err(error) = download {
+        drop(file);
+        return Err(error);
+    }
+    file.flush()?;
+    file.sync_all()?;
+    drop(file);
 
-    crate::overlay::auto_copy_badge::show_progress_notification(
-        badge.installing_webview2,
-        badge.running_webview2_installer,
-        55.0,
-    );
+    progress_badge.report(55, 100);
 
-    let status = std::process::Command::new(&installer_path)
-        .args(["/silent", "/install"])
-        .status()
-        .map_err(|err| anyhow!("Failed to launch WebView2 installer: {err}"))?;
+    let status = with_locked_bootstrapper(
+        &installer_path,
+        delivery.size_bytes,
+        delivery.sha256,
+        |path| {
+            #[cfg(windows)]
+            {
+                authenticode::verify_publisher(path, delivery.expected_publisher)
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = path;
+                bail!("WebView2 bootstrapper is supported only on Windows");
+            }
+        },
+        |path| {
+            std::process::Command::new(path)
+                .args(["/silent", "/install"])
+                .status()
+                .map_err(|error| anyhow!("failed to launch WebView2 installer: {error}"))
+        },
+    )?;
+    drop(cleanup);
 
     if !status.success() && !webview2_runtime_installed() {
-        let message = format!("WebView2 installer exited with status {status}");
-        *WEBVIEW2_STATUS.lock().unwrap() = WebView2InstallStatus::Error(message.clone());
-        crate::overlay::auto_copy_badge::hide_progress_notification();
-        crate::overlay::auto_copy_badge::show_error_notification(badge.webview2_install_failed);
-        return Err(anyhow!(message));
+        bail!("WebView2 installer exited with status {status}");
     }
 
-    let _ = fs::remove_file(&installer_path);
-    *WEBVIEW2_STATUS.lock().unwrap() = WebView2InstallStatus::Installed;
-    crate::overlay::auto_copy_badge::hide_progress_notification();
+    progress_badge.finish();
     crate::overlay::auto_copy_badge::show_detailed_notification(
         badge.webview2_ready,
         badge.webview2_installed_restarting,
@@ -389,4 +261,216 @@ fn install_webview2_runtime() -> Result<()> {
         std::process::exit(0);
     }
     Ok(())
+}
+
+struct OwnedBootstrapperDownload {
+    path: PathBuf,
+}
+
+impl OwnedBootstrapperDownload {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for OwnedBootstrapperDownload {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn verify_locked_identity(
+    file: &mut fs::File,
+    expected_size: u64,
+    expected_sha256: &str,
+) -> Result<()> {
+    file.seek(SeekFrom::Start(0))?;
+    let mut sink = std::io::sink();
+    download_exact(file, &mut sink, expected_size, expected_sha256)
+}
+
+fn with_locked_bootstrapper<T>(
+    path: &Path,
+    expected_size: u64,
+    expected_sha256: &str,
+    verify_signature: impl FnOnce(&Path) -> Result<()>,
+    launch: impl FnOnce(&Path) -> Result<T>,
+) -> Result<T> {
+    let mut locked = open_locked_regular_file(path)?;
+    verify_locked_identity(&mut locked, expected_size, expected_sha256)?;
+    verify_signature(path)?;
+    let result = launch(path);
+    drop(locked);
+    result
+}
+
+fn download_exact(
+    reader: &mut impl Read,
+    output: &mut impl Write,
+    expected_size: u64,
+    expected_sha256: &str,
+) -> Result<()> {
+    let mut hasher = Sha256::new();
+    let mut downloaded = 0_u64;
+    let mut buffer = [0_u8; 128 * 1024];
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        downloaded = downloaded
+            .checked_add(read as u64)
+            .ok_or_else(|| anyhow!("WebView2 bootstrapper is too large"))?;
+        if downloaded > expected_size {
+            bail!("WebView2 bootstrapper exceeds its exact size");
+        }
+        hasher.update(&buffer[..read]);
+        output.write_all(&buffer[..read])?;
+    }
+    if downloaded != expected_size
+        || !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected_sha256)
+    {
+        bail!("WebView2 bootstrapper identity does not match this build");
+    }
+    Ok(())
+}
+
+fn ensure_regular_directory(path: &Path) -> Result<()> {
+    std::fs::create_dir_all(path)?;
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.is_dir() || is_reparse_point(&metadata) {
+        bail!("WebView2 download directory is unsafe");
+    }
+    Ok(())
+}
+
+fn open_locked_regular_file(path: &Path) -> Result<std::fs::File> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.is_file() || is_reparse_point(&metadata) {
+        bail!("WebView2 bootstrapper path is unsafe");
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use windows::Win32::Storage::FileSystem::{FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ};
+        options
+            .share_mode(FILE_SHARE_READ.0)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || is_reparse_point(&metadata) {
+        bail!("WebView2 bootstrapper path is unsafe");
+    }
+    Ok(file)
+}
+
+fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
+}
+
+#[cfg(test)]
+mod delivery_tests {
+    use super::*;
+
+    fn temporary_bootstrapper(label: &str, bytes: &[u8]) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "sgt-webview-{label}-{}-{}.exe",
+            std::process::id(),
+            WEBVIEW2_DOWNLOAD_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn bounded_bootstrapper_download_rejects_size_and_hash_mismatch() {
+        let mut output = Vec::new();
+        assert!(download_exact(&mut &b"bytes"[..], &mut output, 4, "00").is_err());
+        output.clear();
+        assert!(download_exact(&mut &b"data"[..], &mut output, 4, &"0".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn owned_bootstrapper_is_removed_when_locked_open_fails() {
+        let path = temporary_bootstrapper("open-cleanup", b"bootstrapper");
+        fs::remove_file(&path).unwrap();
+        {
+            let _cleanup = OwnedBootstrapperDownload::new(path.clone());
+            assert!(
+                with_locked_bootstrapper(&path, 12, &"0".repeat(64), |_| Ok(()), |_| Ok(()))
+                    .is_err()
+            );
+        }
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn owned_bootstrapper_is_removed_when_signature_fails() {
+        let bytes = b"bootstrapper";
+        let path = temporary_bootstrapper("signature-cleanup", bytes);
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        {
+            let _cleanup = OwnedBootstrapperDownload::new(path.clone());
+            let result: Result<()> = with_locked_bootstrapper(
+                &path,
+                bytes.len() as u64,
+                &digest,
+                |_| bail!("simulated signature failure"),
+                |_| -> Result<()> { panic!("launch must not run after signature failure") },
+            );
+            assert!(result.is_err());
+        }
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn owned_bootstrapper_is_removed_when_launch_fails() {
+        let bytes = b"bootstrapper";
+        let path = temporary_bootstrapper("launch-cleanup", bytes);
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        {
+            let _cleanup = OwnedBootstrapperDownload::new(path.clone());
+            let result: Result<()> = with_locked_bootstrapper(
+                &path,
+                bytes.len() as u64,
+                &digest,
+                |_| Ok(()),
+                |_| bail!("simulated launch failure"),
+            );
+            assert!(result.is_err());
+        }
+        assert!(!path.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bootstrapper_lock_precedes_signature_and_survives_launch() {
+        let bytes = b"bootstrapper";
+        let path = temporary_bootstrapper("lock-lifetime", bytes);
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        let assert_write_locked = |candidate: &Path| {
+            assert!(fs::OpenOptions::new().write(true).open(candidate).is_err());
+            Ok(())
+        };
+        with_locked_bootstrapper(
+            &path,
+            bytes.len() as u64,
+            &digest,
+            assert_write_locked,
+            assert_write_locked,
+        )
+        .unwrap();
+        fs::remove_file(path).unwrap();
+    }
 }

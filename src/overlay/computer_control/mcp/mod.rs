@@ -13,8 +13,10 @@ mod client;
 mod client_protocol;
 mod install;
 mod management;
+mod prose;
 mod registry;
 mod runtime;
+#[cfg(test)]
 mod schema;
 mod smoke;
 mod startup;

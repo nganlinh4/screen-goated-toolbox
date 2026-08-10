@@ -5,7 +5,6 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::Duration;
 
 static HELP_INPUT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -13,12 +12,6 @@ const HELP_INDEX_URL: &str =
     "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/help-index.json";
 const TOP_K: usize = 20;
 
-static HELP_ASSISTANT_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
-    let config = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(900)))
-        .build();
-    config.into()
-});
 /// Cached help index — fetched once, reused across queries.
 static HELP_INDEX_CACHE: LazyLock<Mutex<Option<Vec<ChunkEntry>>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -46,7 +39,7 @@ fn get_help_index() -> Result<Vec<ChunkEntry>, String> {
         }
     }
 
-    let body = HELP_ASSISTANT_AGENT
+    let body = crate::api::client::UREQ_STREAM_AGENT
         .get(HELP_INDEX_URL)
         .call()
         .map_err(|e| format!("Failed to fetch help index: {}", e))?
@@ -164,7 +157,7 @@ fn ask_gemini(
         body["generationConfig"]["thinkingConfig"] = thinking;
     }
 
-    let response = HELP_ASSISTANT_AGENT
+    let response = crate::api::client::UREQ_STREAM_AGENT
         .post(&url)
         .header("Content-Type", "application/json")
         .send(&body.to_string())
@@ -289,6 +282,7 @@ fn run_help_request(gemini_key: String, ui_language: String, question: String) {
             initial_text: loading_msg.to_string(),
             preset_id: None,
             is_chain_root: true,
+            latency_trace_id: None,
         });
 
     unsafe {

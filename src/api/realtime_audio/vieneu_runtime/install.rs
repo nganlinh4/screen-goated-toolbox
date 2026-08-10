@@ -1,5 +1,5 @@
-use super::{MIN_RUNTIME_ABI, RUNTIME_MANIFEST_URL, VieneuRuntimeChunk, VieneuRuntimeManifest};
-use anyhow::{Context, Result, anyhow, bail};
+use super::{VieneuRuntimeChunk, VieneuRuntimeManifest};
+use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Write};
@@ -48,43 +48,37 @@ pub(super) fn install_managed_runtime(stage: &Path, dir: &Path, entrypoint: &str
 }
 
 pub(super) fn fetch_manifest() -> Result<VieneuRuntimeManifest> {
-    let response = ureq::get(RUNTIME_MANIFEST_URL)
-        .header("User-Agent", "ScreenGoatedToolbox")
-        .call()
-        .map_err(|err| anyhow!("Failed to fetch VieNeu runtime manifest: {err}"))?;
-    let mut body = String::new();
-    response
-        .into_body()
-        .into_reader()
-        .read_to_string(&mut body)?;
-    serde_json::from_str(&body)
-        .map_err(|err| anyhow!("Failed to parse VieNeu runtime manifest: {err}"))
+    Ok(delivery_manifest())
 }
 
 pub(super) fn validate_manifest(manifest: &VieneuRuntimeManifest) -> Result<()> {
-    if manifest.abi_version < MIN_RUNTIME_ABI {
-        bail!(
-            "VieNeu runtime ABI {} is older than required ABI {}",
-            manifest.abi_version,
-            MIN_RUNTIME_ABI
-        );
-    }
-    if manifest.entrypoint.trim().is_empty() || manifest.entrypoint.contains("..") {
-        bail!("VieNeu runtime manifest has an unsafe entrypoint");
-    }
-    if manifest.chunks.is_empty() {
-        bail!("VieNeu runtime manifest has no downloadable chunks");
-    }
-    for chunk in &manifest.chunks {
-        if chunk.filename.trim().is_empty()
-            || chunk.filename.contains("..")
-            || chunk.sha256.trim().len() != 64
-            || chunk.size == 0
-        {
-            bail!("VieNeu runtime manifest has an invalid chunk entry");
-        }
+    if manifest != &delivery_manifest() {
+        bail!("VieNeu runtime manifest does not match the host-pinned delivery descriptor");
     }
     Ok(())
+}
+
+fn delivery_manifest() -> VieneuRuntimeManifest {
+    VieneuRuntimeManifest {
+        version: "2026.05.17.cuda5".into(),
+        abi_version: 1,
+        entrypoint: "vieneu-sidecar/vieneu_sidecar.py".into(),
+        installed_size: 6_684_463_567,
+        chunks: vec![
+            VieneuRuntimeChunk {
+                filename: "sgt-vieneu-runtime-2026.05.17.cuda5.zip.part001".into(),
+                url: "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-vieneu-runtime-2026.05.17.cuda5.zip.part001".into(),
+                sha256: "3fa919880e62c2b38380fb8099549bc26fce983e972d30537d9b85865b178c88".into(),
+                size: 1_992_294_400,
+            },
+            VieneuRuntimeChunk {
+                filename: "sgt-vieneu-runtime-2026.05.17.cuda5.zip.part002".into(),
+                url: "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-vieneu-runtime-2026.05.17.cuda5.zip.part002".into(),
+                sha256: "e79f7f463ce27bf9fd2f67eccaba9fda18534e63cd5178bbec841356e29a96a3".into(),
+                size: 1_585_882_016,
+            },
+        ],
+    }
 }
 
 pub(super) fn download_verified_chunk(
@@ -203,4 +197,23 @@ fn sha256_hex(path: &Path) -> Result<String> {
         hasher.update(&buffer[..read]);
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delivery_descriptor_is_exact_and_host_owned() {
+        let manifest = fetch_manifest().unwrap();
+        validate_manifest(&manifest).unwrap();
+        assert_eq!(manifest.chunks.len(), 2);
+        assert!(manifest.chunks.iter().all(|chunk| chunk.url.contains(
+            "/releases/download/sgt-runtime-bundles/sgt-vieneu-runtime-2026.05.17.cuda5"
+        )));
+
+        let mut tampered = manifest;
+        tampered.chunks.push(tampered.chunks[0].clone());
+        assert!(validate_manifest(&tampered).is_err());
+    }
 }

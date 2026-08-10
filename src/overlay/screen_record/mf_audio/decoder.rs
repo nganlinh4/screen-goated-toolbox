@@ -7,6 +7,7 @@ use windows::Win32::Media::MediaFoundation::*;
 
 /// MF-based audio decoder that outputs PCM float samples.
 pub struct MfAudioDecoder {
+    #[cfg(feature = "recorder-worker")]
     sample_rate: u32,
     channels: u32,
     backend: AudioDecoderBackend,
@@ -32,6 +33,7 @@ enum AudioOutputFormat {
 impl MfAudioDecoder {
     /// Open an audio file (or video file with audio track) for decoding.
     /// Outputs 32-bit float PCM at the source sample rate.
+    #[cfg(feature = "recorder-worker")]
     pub fn new(file_path: &str) -> Result<Self, String> {
         Self::new_with_options(file_path, None, None, true)
     }
@@ -47,6 +49,7 @@ impl MfAudioDecoder {
 
     /// Open an audio file with a preferred output format but allow falling back
     /// to a native PCM shape if the exact transform is unavailable.
+    #[cfg(feature = "recorder-worker")]
     pub fn new_with_preferred_output_format(
         file_path: &str,
         target_sample_rate: Option<u32>,
@@ -79,6 +82,7 @@ impl MfAudioDecoder {
                     mf_error
                 );
                 Ok(Self {
+                    #[cfg(feature = "recorder-worker")]
                     sample_rate: symphonia_decoder.sample_rate(),
                     channels: symphonia_decoder.channels(),
                     backend: AudioDecoderBackend::Symphonia(Mutex::new(symphonia_decoder)),
@@ -158,6 +162,7 @@ impl MfAudioDecoder {
         );
 
         Ok(Self {
+            #[cfg(feature = "recorder-worker")]
             sample_rate,
             channels,
             backend: AudioDecoderBackend::Mf(MfBackend {
@@ -179,6 +184,7 @@ impl MfAudioDecoder {
     }
 
     /// Seek to a position in 100ns units.
+    #[cfg(feature = "recorder-worker")]
     pub fn seek(&self, position_100ns: i64) -> Result<(), String> {
         match &self.backend {
             AudioDecoderBackend::Symphonia(decoder) => decoder.lock().seek(position_100ns),
@@ -186,6 +192,7 @@ impl MfAudioDecoder {
         }
     }
 
+    #[cfg(feature = "recorder-worker")]
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
@@ -254,6 +261,7 @@ fn read_samples_mf(backend: &MfBackend) -> Result<Option<(Vec<u8>, i64)>, String
     Ok(Some((normalized, timestamp)))
 }
 
+#[cfg(feature = "recorder-worker")]
 fn seek_mf(backend: &MfBackend, position_100ns: i64) -> Result<(), String> {
     let propvar = mf_decode::make_i64_propvariant(position_100ns);
     unsafe {

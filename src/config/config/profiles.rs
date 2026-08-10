@@ -182,7 +182,7 @@ impl Config {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::{Config, GlobalHotkeyOwner, HotkeyConflict};
     use crate::config::{Hotkey, Preset};

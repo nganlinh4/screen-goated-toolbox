@@ -1,0 +1,3 @@
+Distributable Code for Microsoft Visual Studio (Includes Utilities & BuildServer Files)
+
+For the latest version of this Redist.txt file, please visit https://aka.ms/vs/18/redistribution.

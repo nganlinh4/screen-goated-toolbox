@@ -1,196 +1,96 @@
-use super::run::{
-    FFMPEG_RELEASE_MARKER_FILE, YTDLP_DOWNLOAD_URL, deno_download_url, fetch_btbn_release_label,
-    ffmpeg_download_url, parse_ffmpeg_version, read_local_deno_version, read_local_ytdlp_version,
-};
-use super::types::{InstallStatus, UpdateStatus};
-use super::utils::{download_file, extract_deno, extract_ffmpeg, log};
-use std::fs;
-use std::sync::atomic::Ordering;
-use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use super::DownloadManager;
+use super::run::install_status;
+use super::types::InstallStatus;
+use super::utils::log;
+use crate::component_registry::external_tools::{self, ExternalTool};
 
 impl DownloadManager {
     pub fn start_download_ytdlp(&self) {
-        let bin = self.bin_dir.clone();
-        let status = self.ytdlp_status.clone();
-        let update_status = self.ytdlp_update_status.clone();
-        let logs = self.install_logs.clone();
-        let cancel = self.install_cancel_flag.clone();
-        let bin_clone = bin.clone();
-        let ytdlp_ver_store = self.ytdlp_version.clone();
-
-        {
-            let mut s = status.lock().unwrap();
-            if matches!(
-                *s,
-                InstallStatus::Downloading(_) | InstallStatus::Extracting
-            ) {
-                return;
-            }
-            *s = InstallStatus::Downloading(0.0);
-            cancel.store(false, Ordering::Relaxed);
-        }
-
-        thread::spawn(move || {
-            log(&logs, format!("Starting download: {}", YTDLP_DOWNLOAD_URL));
-
-            let ytdlp_path = bin.join("yt-dlp.exe");
-            match download_file(YTDLP_DOWNLOAD_URL, &ytdlp_path, &status, &cancel) {
-                Ok(_) => {
-                    *status.lock().unwrap() = InstallStatus::Installed;
-                    log(&logs, "yt-dlp installed successfully");
-                    *update_status.lock().unwrap() = UpdateStatus::Idle;
-
-                    // Update version string locally
-                    if let Ok(local_ver) = read_local_ytdlp_version(&bin_clone.join("yt-dlp.exe")) {
-                        *ytdlp_ver_store.lock().unwrap() = Some(local_ver);
-                    }
-                }
-                Err(e) => {
-                    *status.lock().unwrap() = InstallStatus::Error(e.clone());
-                    log(&logs, format!("yt-dlp error: {}", e));
-                }
-            }
-        });
-    }
-
-    pub fn start_download_deno(&self) {
-        let bin = self.bin_dir.clone();
-        let status = self.deno_status.clone();
-        let update_status = self.deno_update_status.clone();
-        let logs = self.install_logs.clone();
-        let cancel = self.install_cancel_flag.clone();
-        let deno_ver_store = self.deno_version.clone();
-
-        {
-            let mut s = status.lock().unwrap();
-            if matches!(
-                *s,
-                InstallStatus::Downloading(_) | InstallStatus::Extracting
-            ) {
-                return;
-            }
-            *s = InstallStatus::Downloading(0.0);
-            cancel.store(false, Ordering::Relaxed);
-        }
-
-        thread::spawn(move || {
-            let download_url = deno_download_url();
-            log(&logs, format!("Starting download: {}", download_url));
-
-            let zip_path = bin.join("deno.zip");
-            let deno_path = bin.join("deno.exe");
-            match download_file(download_url, &zip_path, &status, &cancel) {
-                Ok(_) => {
-                    log(&logs, "Deno download complete. Extracting...");
-                    *status.lock().unwrap() = InstallStatus::Extracting;
-
-                    if cancel.load(Ordering::Relaxed) {
-                        *status.lock().unwrap() = InstallStatus::Error("Cancelled".to_string());
-                        return;
-                    }
-
-                    match extract_deno(&zip_path, &bin) {
-                        Ok(_) => {
-                            *status.lock().unwrap() = InstallStatus::Installed;
-                            *update_status.lock().unwrap() = UpdateStatus::Idle;
-                            let _ = fs::remove_file(zip_path);
-                            log(&logs, "Deno runtime installed successfully");
-
-                            if let Ok(local_ver) = read_local_deno_version(&deno_path) {
-                                *deno_ver_store.lock().unwrap() = Some(local_ver);
-                            }
-                        }
-                        Err(e) => {
-                            *status.lock().unwrap() = InstallStatus::Error(e.clone());
-                            *update_status.lock().unwrap() = UpdateStatus::Error(e.clone());
-                            log(&logs, format!("Deno extract error: {}", e));
-                        }
-                    }
-                }
-                Err(e) => {
-                    *status.lock().unwrap() = InstallStatus::Error(e.clone());
-                    *update_status.lock().unwrap() = UpdateStatus::Error(e.clone());
-                    log(&logs, format!("Deno download error: {}", e));
-                }
-            }
-        });
+        self.start_tool_install(ExternalTool::YtDlp);
     }
 
     pub fn start_download_ffmpeg(&self) {
-        let bin = self.bin_dir.clone();
-        let status = self.ffmpeg_status.clone();
-        let update_status = self.ffmpeg_update_status.clone();
-        let logs = self.install_logs.clone();
-        let cancel = self.install_cancel_flag.clone();
-        let app_bin = bin.clone();
-        let ffmpeg_ver_store = self.ffmpeg_version.clone();
+        self.start_tool_install(ExternalTool::Ffmpeg);
+    }
 
+    pub fn start_download_deno(&self) {
+        self.start_tool_install(ExternalTool::Deno);
+    }
+
+    fn start_tool_install(&self, tool: ExternalTool) {
+        let status = self.status_for(tool).clone();
         {
-            let mut s = status.lock().unwrap();
+            let mut current = status.lock().unwrap();
             if matches!(
-                *s,
+                *current,
                 InstallStatus::Downloading(_) | InstallStatus::Extracting
             ) {
                 return;
             }
-            *s = InstallStatus::Downloading(0.0);
-            cancel.store(false, Ordering::Relaxed);
+            *current = InstallStatus::Downloading(0.0);
         }
-
-        thread::spawn(move || {
-            let url = ffmpeg_download_url();
-            log(&logs, format!("Starting download: {}", url));
-            let remote_release = fetch_btbn_release_label().ok();
-
-            let zip_path = bin.join("ffmpeg.zip");
-            match download_file(url, &zip_path, &status, &cancel) {
-                Ok(_) => {
-                    log(&logs, "Download complete. Extracting...");
-                    *status.lock().unwrap() = InstallStatus::Extracting;
-
-                    if cancel.load(Ordering::Relaxed) {
-                        *status.lock().unwrap() = InstallStatus::Error("Cancelled".to_string());
-                        return;
-                    }
-
-                    match extract_ffmpeg(&zip_path, &bin) {
-                        Ok(_) => {
-                            *status.lock().unwrap() = InstallStatus::Installed;
-                            log(&logs, "ffmpeg installed successfully");
-                            let _ = fs::remove_file(zip_path); // Cleanup
-                            *update_status.lock().unwrap() = UpdateStatus::Idle;
-                            if let Some(label) = remote_release {
-                                let _ = fs::write(bin.join(FFMPEG_RELEASE_MARKER_FILE), label);
-                            }
-
-                            // Update version string
-                            #[cfg(target_os = "windows")]
-                            use std::os::windows::process::CommandExt;
-                            let output = std::process::Command::new(app_bin.join("ffmpeg.exe"))
-                                .arg("-version")
-                                .creation_flags(0x08000000)
-                                .output();
-
-                            if let Ok(out) = output {
-                                let stdout = String::from_utf8_lossy(&out.stdout);
-                                if let Some(local_ver) = parse_ffmpeg_version(&stdout) {
-                                    *ffmpeg_ver_store.lock().unwrap() = Some(local_ver);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            *status.lock().unwrap() = InstallStatus::Error(e.clone());
-                            log(&logs, format!("Extract error: {}", e));
-                        }
-                    }
-                }
-                Err(e) => {
-                    *status.lock().unwrap() = InstallStatus::Error(e.clone());
-                    log(&logs, format!("ffmpeg download error: {}", e));
-                }
-            }
-        });
+        self.install_cancel_flag.store(false, Ordering::Relaxed);
+        let cancel = self.install_cancel_flag.clone();
+        let logs = self.install_logs.clone();
+        std::thread::spawn(move || install_in_background(tool, status, cancel, logs));
     }
+}
+
+fn install_in_background(
+    tool: ExternalTool,
+    status: Arc<Mutex<InstallStatus>>,
+    cancel: Arc<AtomicBool>,
+    logs: Arc<Mutex<Vec<String>>>,
+) {
+    log(&logs, format!("Installing pinned {} component", tool.id()));
+    let component_name = localized_tool_name(tool);
+    let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&component_name);
+    let progress_status = status.clone();
+    let result = external_tools::ensure(tool, &cancel, move |done, total| {
+        badge.report(done, total);
+        let progress = done as f32 / total.max(1) as f32;
+        *progress_status.lock().unwrap() = InstallStatus::Downloading(progress);
+    });
+    match result {
+        Ok(component) => {
+            log(
+                &logs,
+                format!(
+                    "{} ready at {}",
+                    tool.id(),
+                    component.executable().display()
+                ),
+            );
+            drop(component);
+            *status.lock().unwrap() = InstallStatus::Installed;
+        }
+        Err(_) if cancel.load(Ordering::Relaxed) => {
+            log(&logs, format!("{} installation cancelled", tool.id()));
+            *status.lock().unwrap() = install_status(tool);
+        }
+        Err(error) => {
+            log(
+                &logs,
+                format!("{} installation failed: {error:#}", tool.id()),
+            );
+            *status.lock().unwrap() = InstallStatus::Error(error.to_string());
+        }
+    }
+}
+
+fn localized_tool_name(tool: ExternalTool) -> String {
+    let language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    let text = crate::gui::locale::LocaleText::get(&language);
+    match tool {
+        ExternalTool::YtDlp => text.auxiliary.managed_tools.tool_ytdlp,
+        ExternalTool::Ffmpeg => text.auxiliary.managed_tools.tool_ffmpeg,
+        ExternalTool::Deno => text.auxiliary.managed_tools.tool_deno,
+    }
+    .to_string()
 }

@@ -49,6 +49,26 @@ permission logic. Do not silently reroute the model's requested tool.
 - Classify credentials only from explicit provider evidence. Network, quota,
   model, and generic setup failures must not be mislabeled as key failures.
 
+## Engine boundary
+
+- The optional x64 engine owns only data-only planning, the complete static tool
+  catalog, prompt construction, and provider-frame interpretation.
+- The signed host owns credentials and transport, observations and freshness,
+  microphone and playback, job identity and cancellation, confirmation and
+  checkpoints, every effect, action receipts, postconditions, reconnects, and
+  the one-final-response lifecycle.
+- The engine receives no unrestricted effect API, raw command channel, trusted
+  arbitrary path, provider secret, or independently usable network authority.
+- Host and engine communicate over inherited private pipes with a per-launch
+  authentication secret, monotonic request IDs, an exact protocol handshake,
+  and bounded schemas, frames, and deadlines.
+- The host validates the full catalog, dynamic integration declarations,
+  privilege/search/voice policy, and every effect-bearing provider event before
+  using engine output.
+- Engine installation is exact-size and SHA-256 verified. Its lease and locked
+  inventory last for the child process lifetime; removal through Downloaded
+  Tools becomes pending while a session is active.
+
 ## Speech
 
 - Audio belongs to its generation.
@@ -112,5 +132,5 @@ cargo clippy --all-targets -- -D warnings
 git diff --check
 ```
 
-Use `scripts/validate-windows-targets.ps1` for target-sensitive changes. Never
+Use `scripts/validate-windows-targets.ps1` for x64 target-sensitive changes. Never
 run `cargo build --release` during development.

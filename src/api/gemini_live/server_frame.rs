@@ -65,6 +65,7 @@ impl LiveServerFrame {
     }
 
     /// Number of independently deliverable content observations in this frame.
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn content_count(&self) -> usize {
         self.text_parts.len()
             + self.audio_chunks.len()
@@ -242,7 +243,7 @@ fn protocol_error_is_retryable(error: &Value) -> bool {
         )
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::*;
 

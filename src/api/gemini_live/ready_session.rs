@@ -15,9 +15,9 @@ use serde_json::Value;
 use tungstenite::Message;
 
 use super::server_frame::{LiveServerFrame, parse_server_frame};
-use super::transport::{
-    LiveSocket, connect_websocket, connect_websocket_to, is_transient_socket_read_error,
-};
+#[cfg(not(feature = "recorder-worker"))]
+use super::transport::connect_websocket_to;
+use super::transport::{LiveSocket, connect_websocket, is_transient_socket_read_error};
 
 /// Timeouts used while promoting a connected transport into a ready session.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,6 +135,7 @@ impl ConnectedLiveSocket {
 
     /// Connect to an alternate Gemini Live endpoint, primarily for protocol
     /// probes and endpoint-version testing.
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn connect_to(base_url: &str, api_key: &str) -> Result<Self> {
         Ok(Self::from_socket(connect_websocket_to(base_url, api_key)?))
     }
@@ -147,6 +148,7 @@ impl ConnectedLiveSocket {
 
     /// Send setup and wait for its structural acknowledgment using default
     /// timeouts and no cancellation source.
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn activate(self, setup: Value) -> Result<ReadyLiveSession> {
         self.activate_with(setup, OpenOptions::default(), || false)
     }

@@ -10,14 +10,10 @@ use eframe::egui;
 use super::utils::tool_card;
 
 pub(super) fn render_mcp_card(ui: &mut egui::Ui, text: &LocaleText) {
+    let managed = &text.auxiliary.managed_tools;
     tool_card(ui, |ui| {
-        ui.heading("App integrations (MCP)");
-        ui.label(
-            egui::RichText::new(
-                "Curated, consent-gated integrations that drive a specific app's real API instead of clicking its UI.",
-            )
-            .weak(),
-        );
+        ui.heading(managed.tool_mcp_card);
+        ui.label(egui::RichText::new(managed.tool_desc_mcp).weak());
         ui.add_space(6.0);
         for integ in crate::overlay::computer_control::ui_list() {
             ui.horizontal(|ui| {
@@ -26,7 +22,7 @@ pub(super) fn render_mcp_card(ui: &mut egui::Ui, text: &LocaleText) {
                     let theme = AppTheme::from_ui(ui);
                     if integ.installing {
                         ui.spinner();
-                        ui.label("installing…");
+                        ui.label(managed.tool_status_installing);
                     } else if integ.installed {
                         if ui
                             .button(
@@ -40,9 +36,9 @@ pub(super) fn render_mcp_card(ui: &mut egui::Ui, text: &LocaleText) {
                             crate::overlay::computer_control::ui_remove(integ.id);
                         }
                         let label = if integ.connected {
-                            "connected"
+                            managed.tool_status_connected
                         } else {
-                            "installed"
+                            managed.tool_status_installed_plain
                         };
                         ui.label(egui::RichText::new(label).color(theme.success()));
                     } else {
@@ -62,10 +58,8 @@ pub(super) fn render_mcp_card(ui: &mut egui::Ui, text: &LocaleText) {
             ui.label(integ.description);
             if integ.addon_hint.is_some() {
                 ui.label(
-                    egui::RichText::new(
-                        "Needs an in-app connection — the agent sets it up on install.",
-                    )
-                    .color(AppTheme::from_ui(ui).warning()),
+                    egui::RichText::new(managed.tool_mcp_addon_hint)
+                        .color(AppTheme::from_ui(ui).warning()),
                 );
             }
             ui.add_space(8.0);

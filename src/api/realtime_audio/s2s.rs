@@ -1,37 +1,57 @@
-use std::collections::{BTreeMap, VecDeque};
+#[cfg(not(feature = "recorder-worker"))]
+use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     mpsc,
 };
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+#[cfg(not(feature = "recorder-worker"))]
+use std::sync::atomic::AtomicU64;
+#[cfg(not(feature = "recorder-worker"))]
 use windows::Win32::Foundation::HWND;
 
 use crate::APP;
+#[cfg(not(feature = "recorder-worker"))]
 use crate::api::gemini_live::lifecycle::{
     LiveBackoffPolicy, LiveClassifiedError, LiveLifecycleEffect, LiveLifecycleEvent,
     LiveLifecycleFrame, LiveLifecyclePolicy, LiveReconnectReason, LiveSessionLifecycle,
     LiveSessionPhase,
 };
+#[cfg(not(feature = "recorder-worker"))]
+use crate::api::gemini_live::ready_session::LiveSetupServerError;
 use crate::api::gemini_live::ready_session::{
-    ConnectedLiveSocket, LivePoll, LiveSetupServerError, OpenOptions, ReadyLiveSession,
+    ConnectedLiveSocket, LivePoll, OpenOptions, ReadyLiveSession,
 };
 use crate::api::gemini_live::server_frame::LiveServerFrame;
+#[cfg(not(feature = "recorder-worker"))]
 use crate::api::gemini_live::transport::is_recoverable_anyhow_socket_error;
+#[cfg(not(feature = "recorder-worker"))]
 use crate::api::tts::TTS_MANAGER;
+#[cfg(not(feature = "recorder-worker"))]
 use crate::api::tts::types::AudioEvent;
+#[cfg(not(feature = "recorder-worker"))]
 use crate::config::Preset;
+#[cfg(not(feature = "recorder-worker"))]
+use crate::overlay::realtime_webview::SELECTED_APP_PID;
+#[cfg(not(feature = "recorder-worker"))]
 use crate::overlay::realtime_webview::{
-    AUDIO_SOURCE_CHANGE, LANGUAGE_CHANGE, SELECTED_APP_PID, TRANSCRIPTION_MODEL_CHANGE,
+    AUDIO_SOURCE_CHANGE, LANGUAGE_CHANGE, TRANSCRIPTION_MODEL_CHANGE,
 };
 
+#[cfg(not(feature = "recorder-worker"))]
 use super::capture::{start_mic_capture_resilient, start_per_app_capture};
+#[cfg(not(feature = "recorder-worker"))]
 use super::state::SharedRealtimeState;
+#[cfg(not(feature = "recorder-worker"))]
 use super::utils::{update_overlay_text, update_translation_text};
+#[cfg(not(feature = "recorder-worker"))]
 use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 
+#[cfg(not(feature = "recorder-worker"))]
 const SESSION_COUNT: usize = 3;
 const FRAME_SAMPLES: usize = 1600;
 const PREROLL_SAMPLES: usize = 4000;
@@ -44,7 +64,9 @@ const FIRST_AUDIO_SILENT_RETRY_MS: u128 = 3_800;
 const FIRST_AUDIO_ACTIVE_RETRY_MS: u128 = 5_200;
 const S2S_HEDGE_TIMEOUT_MS: u128 = 45_000;
 const S2S_HEDGE_FINAL_TIMEOUT_MS: u128 = 60_000;
+#[cfg(not(feature = "recorder-worker"))]
 const S2S_ORDERED_PENDING_SKIP_MS: u128 = 8_000;
+#[cfg(not(feature = "recorder-worker"))]
 const S2S_ORDERED_TRANSCRIPT_PENDING_SKIP_MS: u128 = 28_000;
 const CONTEXT_SEGMENT_LIMIT: usize = 5;
 const CONTEXT_LINE_CHAR_LIMIT: usize = 240;
@@ -82,24 +104,32 @@ fn grouped_hard_timeout_ms(source_audio_ms: u128, final_attempt: bool) -> u128 {
     (base + source_audio_ms.saturating_mul(4)).min(180_000)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 static S2S_PLAYBACK_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+#[path = "s2s/context.rs"]
 mod context;
 use context::{S2sContextMemory, S2sContextSnapshot};
 
+#[path = "s2s/events.rs"]
 mod events;
 use events::{S2sEvent, S2sRaceEvent, format_s2s_attempt_counts, s2s_attempt_counts};
 
+#[path = "s2s/segment.rs"]
 mod segment;
 use segment::{
     AdaptiveS2sVadSnapshot, AdaptiveS2sVadState, Segment, SegmentOutcome, SegmentSampleMetrics,
     segment_audio_ms, segment_peak_sample,
 };
 
+#[path = "s2s/settings.rs"]
 mod settings;
 pub use settings::S2sBatchSettings;
-use settings::{S2sMode, S2sSettings, load_settings};
+#[cfg(not(feature = "recorder-worker"))]
+use settings::load_settings;
+use settings::{S2sMode, S2sSettings};
 
+#[path = "s2s/types.rs"]
 mod types;
 pub use types::S2sBatchSegment;
 use types::{
@@ -107,32 +137,48 @@ use types::{
     S2sSessionResources, TimedSegment,
 };
 
+#[cfg(not(feature = "recorder-worker"))]
+#[path = "s2s/live/mod.rs"]
 mod live;
+#[cfg(not(feature = "recorder-worker"))]
 pub use live::run_gemini_live_s2s;
 
+#[path = "s2s/batch.rs"]
 mod batch;
 
-pub use batch::{
-    default_batch_settings_for_target, run_gemini_live_s2s_batch,
-    run_gemini_live_s2s_batch_with_callbacks,
-};
+pub use batch::default_batch_settings_for_target;
+#[cfg(not(feature = "recorder-worker"))]
+pub use batch::run_gemini_live_s2s_batch;
+#[cfg(feature = "recorder-worker")]
+pub use batch::run_gemini_live_s2s_batch_with_callbacks;
 
+#[path = "s2s/vad.rs"]
 mod vad;
-use vad::{collect_vad_segments, group_timed_segments, run_vad_loop};
+#[cfg(not(feature = "recorder-worker"))]
+use vad::run_vad_loop;
+use vad::{collect_vad_segments, group_timed_segments};
 
+#[path = "s2s/session.rs"]
 mod session;
-use session::{run_single_segment_session, session_worker};
+use session::run_single_segment_session;
+#[cfg(not(feature = "recorder-worker"))]
+use session::session_worker;
 
+#[path = "s2s/transport.rs"]
 pub(crate) mod transport;
 use transport::{open_fresh_socket_session, process_segment};
 
+#[cfg(not(feature = "recorder-worker"))]
+#[path = "s2s/output.rs"]
 mod output;
+#[cfg(not(feature = "recorder-worker"))]
 use output::{coordinate_output, s2s_backlog_ms};
 
+#[path = "s2s/utils.rs"]
 pub(crate) mod utils;
 use utils::*;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::{
         AdaptiveS2sVadSnapshot, AdaptiveS2sVadState, FRAME_SAMPLES, Segment, SegmentOutcome,

@@ -58,7 +58,8 @@ pub fn load_edge_voices_async() {
     std::thread::spawn(|| {
         let url = "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 
-        match ureq::get(url)
+        match crate::api::client::UREQ_AGENT
+            .get(url)
             .header(
                 "User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -124,6 +125,7 @@ pub fn load_edge_voices_async() {
 
 /// Get all unique languages with their display names
 /// Languages are extracted dynamically from the Edge TTS voice list FriendlyName field
+#[cfg(not(feature = "recorder-worker"))]
 pub fn get_available_languages() -> Vec<(String, String)> {
     let cache = EDGE_VOICE_CACHE.lock().unwrap();
     if !cache.loaded {
@@ -167,6 +169,7 @@ pub fn get_available_languages() -> Vec<(String, String)> {
 }
 
 /// Get voices for a specific language code
+#[cfg(not(feature = "recorder-worker"))]
 pub fn get_voices_for_language(lang_code: &str) -> Vec<EdgeVoice> {
     let cache = EDGE_VOICE_CACHE.lock().unwrap();
     cache

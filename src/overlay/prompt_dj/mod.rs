@@ -2,6 +2,7 @@ use std::sync::Once;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::component_registry::web_assets::WebAssetComponent;
 use crate::win_types::SendHwnd;
 
 mod html;
@@ -59,6 +60,13 @@ pub fn show_prompt_dj() {
         return;
     }
 
+    crate::component_registry::web_assets::launch_when_ready(
+        WebAssetComponent::PromptDj,
+        show_prompt_dj_ready,
+    );
+}
+
+fn show_prompt_dj_ready() {
     unsafe {
         // Initialize on-demand if not warmed up
         if !IS_WARMED_UP {
@@ -90,6 +98,33 @@ pub fn show_prompt_dj() {
             let _ = PostMessageW(Some(hwnd_wrapper.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
         }
     }
+}
+
+pub(crate) fn web_asset_download_title() -> String {
+    crate::component_registry::web_assets::download_title(WebAssetComponent::PromptDj)
+}
+
+pub(crate) fn are_web_assets_installed() -> bool {
+    crate::component_registry::web_assets::is_installed_for_display(WebAssetComponent::PromptDj)
+}
+
+pub(crate) fn web_assets_dir() -> std::path::PathBuf {
+    crate::component_registry::web_assets::component_dir(WebAssetComponent::PromptDj)
+}
+
+pub(crate) fn download_web_assets(
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    use_badge: bool,
+) -> anyhow::Result<()> {
+    crate::component_registry::web_assets::download_from_manager(
+        WebAssetComponent::PromptDj,
+        stop,
+        use_badge,
+    )
+}
+
+pub(crate) fn remove_web_assets() -> anyhow::Result<()> {
+    crate::component_registry::web_assets::remove(WebAssetComponent::PromptDj)
 }
 
 pub fn update_settings() {

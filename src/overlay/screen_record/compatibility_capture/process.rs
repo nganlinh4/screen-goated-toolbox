@@ -19,7 +19,6 @@ use windows::Win32::System::JobObjects::{
 };
 use windows::core::PCWSTR;
 
-const FFMPEG_ENV: &str = "SGT_FFMPEG_PATH";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const STARTUP_GRACE: Duration = Duration::from_millis(400);
 const STDERR_TAIL_LINES: usize = 32;
@@ -70,6 +69,24 @@ pub(super) struct ManagedCaptureProcess {
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
     progress_us: Arc<AtomicU64>,
     job: OwnedHandle,
+}
+
+#[cfg(feature = "recorder-worker")]
+pub(super) type ResolvedFfmpeg = PathBuf;
+
+#[cfg(not(feature = "recorder-worker"))]
+pub(super) struct ResolvedFfmpeg {
+    path: PathBuf,
+    _component: crate::component_registry::external_tools::ExternalToolUse,
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+impl std::ops::Deref for ResolvedFfmpeg {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        &self.path
+    }
 }
 
 impl ManagedCaptureProcess {
@@ -236,34 +253,21 @@ impl Drop for ManagedCaptureProcess {
     }
 }
 
-pub(super) fn resolve_ffmpeg() -> Result<PathBuf> {
-    if let Some(path) = std::env::var_os(FFMPEG_ENV).map(PathBuf::from) {
-        if path.is_file() {
-            return Ok(path);
-        }
-        bail!("{FFMPEG_ENV} does not point to a file: {}", path.display());
-    }
+#[cfg(feature = "recorder-worker")]
+pub(super) fn resolve_ffmpeg() -> Result<ResolvedFfmpeg> {
+    crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge()
+        .map_err(anyhow::Error::new)
+}
 
-    let managed = crate::gui::settings_ui::download_manager::ffmpeg_dependency::ffmpeg_exe_path();
-    if managed.is_file() {
-        return Ok(managed);
-    }
-
-    let path_candidate = PathBuf::from("ffmpeg.exe");
-    let status = Command::new(&path_candidate)
-        .arg("-version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
-        .status();
-    if status.is_ok_and(|status| status.success()) {
-        return Ok(path_candidate);
-    }
-
-    bail!(
-        "FFmpeg is required for compatibility capture; install it in Downloaded Tools or set {FFMPEG_ENV}"
-    )
+#[cfg(not(feature = "recorder-worker"))]
+pub(super) fn resolve_ffmpeg() -> Result<ResolvedFfmpeg> {
+    let component =
+        crate::gui::settings_ui::download_manager::ffmpeg_dependency::acquire_ffmpeg_with_badge()
+            .map_err(anyhow::Error::msg)?;
+    Ok(ResolvedFfmpeg {
+        path: component.executable(),
+        _component: component,
+    })
 }
 
 pub(super) fn build_ffmpeg_args(

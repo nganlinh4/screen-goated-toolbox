@@ -267,7 +267,8 @@ fn tcp_ready(host: &str, port: u16) -> Readiness {
 
 fn fetch_docs(docs_url: &str) -> Result<String, String> {
     let url = validated_docs_url(docs_url)?;
-    let response = ureq::get(url)
+    let response = crate::api::client::UREQ_AGENT
+        .get(url)
         .header(
             "User-Agent",
             concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")),

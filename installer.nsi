@@ -1,23 +1,12 @@
 ; Screen Goated Toolbox Installer
 !include "MUI2.nsh"
 
-!ifndef APP_ARCH
-!define APP_ARCH "x64"
-!endif
-
 !ifndef APP_VERSION
-!define APP_VERSION "1.6"
+!error "APP_VERSION must be provided, for example /DAPP_VERSION=5.4.3"
 !endif
 
-!if "${APP_ARCH}" == "arm64"
-!define VC_REDIST "vc_redist.arm64.exe"
-!define TARGET_SUBDIR "aarch64-pc-windows-msvc\\release"
-!define INSTALLER_NAME "screen-goated-toolbox-installer-arm64.exe"
-!else
-!define VC_REDIST "vc_redist.x64.exe"
 !define TARGET_SUBDIR "x86_64-pc-windows-msvc\\release"
 !define INSTALLER_NAME "screen-goated-toolbox-installer-x64.exe"
-!endif
 
 ; Basic Settings
 Name "Screen Goated Toolbox"
@@ -40,12 +29,6 @@ Section "Install Application"
   
   ; Copy main executable
   File "target\${TARGET_SUBDIR}\screen-goated-toolbox.exe"
-  
-  ; Copy Visual C++ Runtime and install it
-  File "${VC_REDIST}"
-  DetailPrint "Installing Visual C++ Runtime..."
-  ExecWait "$INSTDIR\${VC_REDIST} /quiet /norestart" $0
-  Delete "$INSTDIR\${VC_REDIST}"
   
   ; Create Start Menu shortcut
   CreateDirectory "$SMPROGRAMS\Screen Goated Toolbox"

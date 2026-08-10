@@ -65,7 +65,7 @@ pub(crate) fn render_frozen_with_selection(request: FrozenSelectionRender<'_>) {
     let dim_f = dim_alpha as f32 / 255.0;
 
     // SDF parameters
-    let default_radius = 8.0f32;
+    let default_radius = crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX;
     let border_width = 2.0f32;
     let hw = (right - left) as f32 / 2.0;
     let hh_f = (bottom - top) as f32 / 2.0;
@@ -388,7 +388,7 @@ unsafe fn render_selection_border_transparent(
             }
         }
 
-        let default_radius = 8.0f32;
+        let default_radius = crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX;
         let border_width = 2.0f32;
         let sel_hw = (right - left) as f32 / 2.0;
         let sel_hh = (bottom - top) as f32 / 2.0;

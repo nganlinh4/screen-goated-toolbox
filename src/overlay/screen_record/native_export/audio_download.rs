@@ -271,6 +271,13 @@ fn audio_ffmpeg_download_message() -> String {
 }
 
 fn encode_mp3(input_wav: &Path, output_mp3: &Path) -> Result<(), String> {
+    #[cfg(not(feature = "recorder-worker"))]
+    let ffmpeg_component = crate::gui::settings_ui::download_manager::ffmpeg_dependency::acquire_ffmpeg_with_badge_message(
+        &audio_ffmpeg_download_message(),
+    )?;
+    #[cfg(not(feature = "recorder-worker"))]
+    let ffmpeg = ffmpeg_component.executable();
+    #[cfg(feature = "recorder-worker")]
     let ffmpeg = crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge_message(
         &audio_ffmpeg_download_message(),
     )?;

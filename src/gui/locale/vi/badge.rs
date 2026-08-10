@@ -2,6 +2,13 @@ use crate::gui::locale::BadgeLocaleText;
 
 pub(super) fn get() -> BadgeLocaleText {
     BadgeLocaleText {
+        downloading_component_fmt: "Đang tải {name}",
+        preparing_component_fmt: "Đang chuẩn bị gói {name} đã xác minh...",
+        component_installed_fmt: "Đã cài {name}",
+        component_install_failed_fmt: "Không thể cài {name}",
+        removing_component_fmt: "Đang xoá {name}",
+        component_removed_fmt: "Đã xoá {name}",
+        component_remove_failed_fmt: "Không thể xoá {name}",
         app_restarted_after_recovery: "Ứng dụng đã khởi động lại và khôi phục đầy đủ",
         installing_local_ai_runtime: "Đang cài runtime AI cục bộ",
         preparing_payload_fmt: "Đang chuẩn bị gói {name} {arch}",
@@ -31,9 +38,6 @@ pub(super) fn get() -> BadgeLocaleText {
         webview2_installed_restarting: "Đã cài Microsoft Edge WebView2 Runtime. Ứng dụng đang khởi động lại...",
         export_failed: "Xuất file thất bại",
         subtitles_saved: "Đã lưu phụ đề",
-        feature_unavailable_fmt: "{name} không khả dụng",
-        qwen_x64_only: "Runtime Qwen3 cục bộ hiện chỉ có cho bản Windows x64.",
-        qwen_arm_unsupported: "Runtime Qwen3 cục bộ cần GPU NVIDIA CUDA và chưa hỗ trợ máy ảo Windows on Arm.",
         feature_needs_webview2_fmt: "{name} cần WebView2 Runtime",
         feature_window_selector: "Bộ chọn cửa sổ",
         feature_realtime_overlay: "Lớp phủ thời gian thực",
@@ -43,7 +47,5 @@ pub(super) fn get() -> BadgeLocaleText {
         feature_screen_record: "Trình ghi màn hình",
         feature_markdown_view: "Chế độ xem Markdown",
         install_webview2_hint: "Mở Công cụ đã tải, cài Microsoft Edge WebView2 Runtime rồi thử lại.",
-        unsupported_features_fmt: "{name} không được hỗ trợ trên thiết bị {arch} này",
-        unavailable_features_here: "Một số tính năng cục bộ hoặc phụ thuộc phần cứng không khả dụng trên thiết bị này.",
     }
 }

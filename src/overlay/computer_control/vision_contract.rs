@@ -36,10 +36,12 @@ pub(crate) fn point_request(description: &str, context: &str) -> GroundingReques
     GroundingRequest {
         prompt: format!(
             "{}Find this visible target in the image: {description}\n\
-             Output only JSON matching the supplied schema. Put the target in \
-             points, or put \"target\" in missing when it is not visible. x and y \
-             are integer CENTER coordinates on a 0-1000 grid (x left to right, \
-             y top to bottom).",
+             Output exactly one JSON object with only the keys \"points\" and \
+             \"missing\". When visible, use \
+             {{\"points\":[{{\"id\":\"target\",\"x\":123,\"y\":456,\"label\":\"short visible label\"}}],\"missing\":[]}}. \
+             When not visible, use {{\"points\":[],\"missing\":[\"target\"]}}. \
+             x and y are integer CENTER coordinates on a 0-1000 grid (x left \
+             to right, y top to bottom). Do not add keys, prose, or Markdown.",
             context_prefix(context)
         ),
         response_schema: Some(named_points_schema(&["target"])),
@@ -50,10 +52,12 @@ pub(crate) fn marks_request(description: &str, context: &str) -> GroundingReques
     GroundingRequest {
         prompt: format!(
             "{}Map every distinct visible actionable target relevant to: {description}\n\
-             Output only JSON matching the supplied schema, in reading order, \
-             with at most 30 points. x and y are integer CENTER coordinates on a \
-             0-1000 grid (x left to right, y top to bottom). Use one point per \
-             target and an empty points array when none are visible.",
+             Output exactly one JSON object with only the key \"points\": \
+             {{\"points\":[{{\"x\":123,\"y\":456,\"label\":\"short visible label\"}}]}}. \
+             Return points in reading order with at most 30 entries. x and y are \
+             integer CENTER coordinates on a 0-1000 grid (x left to right, y \
+             top to bottom). Use one point per target and an empty points array \
+             when none are visible. Do not add keys, prose, or Markdown.",
             context_prefix(context)
         ),
         response_schema: Some(open_points_schema()),
@@ -69,10 +73,12 @@ pub(crate) fn drag_request(
         prompt: format!(
             "{}Locate both drag endpoints in this same image.\n\
              Start: {from_description}\nDestination: {to_description}\n\
-             Output only JSON matching the supplied schema. Put each visible \
-             endpoint in points and each non-visible endpoint ID in missing. x \
+             Output exactly one JSON object with only the keys \"points\" and \
+             \"missing\". A fully visible result is \
+             {{\"points\":[{{\"id\":\"from\",\"x\":123,\"y\":456,\"label\":\"short start label\"}},{{\"id\":\"to\",\"x\":789,\"y\":654,\"label\":\"short destination label\"}}],\"missing\":[]}}. \
+             Put each non-visible endpoint ID in missing instead of points. x \
              and y are integer CENTER coordinates on a 0-1000 grid (x left to \
-             right, y top to bottom).",
+             right, y top to bottom). Do not add keys, prose, or Markdown.",
             context_prefix(context)
         ),
         response_schema: Some(named_points_schema(&["from", "to"])),
@@ -406,7 +412,12 @@ mod tests {
     fn point_and_verification_contracts_are_fail_closed() {
         let point = point_request("Save button", "Save the document");
         assert!(point.prompt.contains("Context (for disambiguation only"));
-        assert!(point.prompt.contains("supplied schema"));
+        assert!(
+            point
+                .prompt
+                .contains("only the keys \"points\" and \"missing\"")
+        );
+        assert!(point.prompt.contains("\"id\":\"target\""));
         let point_schema = point.response_schema.expect("point schema");
         assert_eq!(
             point_schema["required"],

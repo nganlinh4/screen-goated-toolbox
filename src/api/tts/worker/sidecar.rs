@@ -5,6 +5,33 @@
 
 use anyhow::{Context, Result, bail};
 
+pub(super) struct PendingSidecar {
+    child: Option<std::process::Child>,
+}
+
+impl PendingSidecar {
+    pub(super) fn new(child: std::process::Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    pub(super) fn child_mut(&mut self) -> &mut std::process::Child {
+        self.child.as_mut().expect("pending sidecar owns its child")
+    }
+
+    pub(super) fn finish(mut self) -> std::process::Child {
+        self.child.take().expect("pending sidecar owns its child")
+    }
+}
+
+impl Drop for PendingSidecar {
+    fn drop(&mut self) {
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 /// Verifies that a sidecar response carries the request id it was issued for.
 /// Identical across every sidecar worker; only the provider name differs.
 pub(super) fn check_response_id(provider: &str, request_id: &str, response_id: &str) -> Result<()> {

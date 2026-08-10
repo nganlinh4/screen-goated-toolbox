@@ -15,10 +15,9 @@ The runtime bundle contains:
 The AWQ model and tokenizer are separate app-managed downloads. End-user
 machines do not run `pip`.
 
-The app fetches `dist/sgt_step_audio_runtime.manifest.json` from the
-repository's `main` branch and verifies every chunk's size and SHA-256 before
-installation. The manifest is the authority for the current version and
-filenames.
+The signed host embeds the exact runtime version, entrypoint, installed size,
+and chunk URLs/sizes/SHA-256 values. The tracked `dist` manifest is packaging
+input only; installation never trusts a runtime-fetched manifest.
 
 The sidecar stays alive and exchanges one JSON object per line over
 stdin/stdout. Responses echo the request `id`; diagnostics use stderr. It
@@ -35,9 +34,10 @@ launcher (`py`), `git`, `tar.exe`, and optionally `gh` for upload.
 ```
 
 `-SkipInstall` reuses the existing `build/venv`; it is not a clean-build mode.
-`-Upload` uploads chunk files to the selected GitHub release. The refreshed
-manifest must still be committed and pushed because the app reads it from
-`main`.
+Upload only newly named chunks to the append-only `sgt-runtime-bundles`
+release, verify their GitHub-recorded size and SHA-256, and update the host's
+embedded descriptor. Never replace or delete bytes referenced by a released
+host.
 
 Run the full checklist before publishing:
 [`TESTING.md`](TESTING.md).

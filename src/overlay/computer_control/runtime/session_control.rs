@@ -94,7 +94,7 @@ pub(super) fn configured_target() -> anyhow::Result<Option<String>> {
 
 pub(super) fn connect_initial_session(key: &str, stop: &Arc<AtomicBool>) -> anyhow::Result<Sock> {
     let mut socket = connect_ws(key)?;
-    let setup_with_search = uia_task::build_setup(None, true, true);
+    let setup_with_search = uia_task::build_setup(None, true, true)?;
     telemetry::record_model_setup(&setup_with_search, "initial_search");
     send(&mut socket, setup_with_search)?;
     if let Err(error) = wait_for_setup(&mut socket, stop) {
@@ -106,7 +106,7 @@ pub(super) fn connect_initial_session(key: &str, stop: &Arc<AtomicBool>) -> anyh
             "(Google Search unavailable on this key; starting without it)".to_string(),
         );
         socket = connect_ws(key)?;
-        let setup_without_search = uia_task::build_setup(None, true, false);
+        let setup_without_search = uia_task::build_setup(None, true, false)?;
         telemetry::record_model_setup(&setup_without_search, "initial_fallback");
         send(&mut socket, setup_without_search)?;
         wait_for_setup(&mut socket, stop)?;
@@ -393,7 +393,7 @@ pub(super) fn wait_for_setup(socket: &mut Sock, stop: &Arc<AtomicBool>) -> anyho
             Err(e) if is_transient_socket_read_error(&e) => continue,
             Err(e) => anyhow::bail!("setup read error: {e}"),
         };
-        if parse_server_message(&text)
+        if parse_server_message(&text)?
             .into_iter()
             .any(|ev| matches!(ev, ServerEvent::SetupComplete))
         {

@@ -7,9 +7,6 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.edit
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,11 +54,17 @@ internal suspend fun DownloaderRepository.analyzeUrl(sessionIdx: Int, url: Strin
     withContext(Dispatchers.IO) {
         try {
             android.util.Log.d("SGT-DL", "analyzeUrl: executing yt-dlp --dump-json")
-            val request = YoutubeDLRequest(url)
+            val request = YtDlpCommand(url)
             request.addOption("--dump-json")
             request.addOption("--no-download")
             request.addOption("--no-playlist")
-            val response = YoutubeDL.getInstance().execute(request)
+            val processId = "analysis_${current.id}_${System.nanoTime()}"
+            activeAnalysisProcessId = processId
+            val response = try {
+                executeYtDlp(request, processId)
+            } finally {
+                if (activeAnalysisProcessId == processId) activeAnalysisProcessId = null
+            }
             val json = JSONObject(response.out)
 
             val heights = mutableSetOf<Int>()
@@ -98,6 +101,8 @@ internal suspend fun DownloaderRepository.analyzeUrl(sessionIdx: Int, url: Strin
                     lastUrlAnalyzed = url,
                 )
             }
+        } catch (_: CancellationException) {
+            return@withContext
         } catch (e: Exception) {
             android.util.Log.d("SGT-DL", "analyzeUrl: ERROR ${e.message}")
             updateSession(sessionIdx) {
@@ -126,7 +131,7 @@ internal fun DownloaderRepository.executeDownload(
     val outputDir = if (usesPublicDefault) getStagingDownloadDir() else getDownloadDir()
     outputDir.mkdirs()
 
-    val request = YoutubeDLRequest(session.inputUrl)
+    val request = YtDlpCommand(session.inputUrl)
 
     // Common args (matching Windows run.rs)
     request.addOption("--encoding", "utf-8")
@@ -181,8 +186,11 @@ internal fun DownloaderRepository.executeDownload(
 
     // Execute with progress callback and process ID for cancellation
     var finalPath: String? = null
-    val response = YoutubeDL.getInstance().execute(request, processId) { progress, eta, line ->
-        if (isDownloadCancelled(session.id)) throw CancellationException("Download cancelled")
+    val response = executeYtDlp(request, processId) { progress, _, line ->
+        if (isDownloadCancelled(session.id)) {
+            destroyYtDlpProcess(processId)
+            return@executeYtDlp
+        }
         val fraction = (progress / 100f).coerceIn(0f, 1f)
         val msg = buildProgressMessage(line, fraction)
         updateSession(sessionIdx) {
@@ -200,7 +208,7 @@ internal fun DownloaderRepository.executeDownload(
     }
 
     // Also check response output for final path
-    response.out?.lines()?.forEach { line ->
+    response.out.lines().forEach { line ->
         val parsed = parseFilePath(line)
         if (parsed != null) {
             finalPath = parsed

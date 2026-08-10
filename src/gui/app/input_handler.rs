@@ -32,11 +32,6 @@ const IMAGE_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "tiff", "tif",
 ];
 
-/// Audio file extensions we support (decoded via symphonia)
-const AUDIO_EXTENSIONS: &[&str] = &[
-    "wav", "mp3", "flac", "ogg", "m4a", "aac", "alac", "aiff", "aif", "wma", "opus",
-];
-
 /// Video file extensions routed to SGT Record.
 const VIDEO_EXTENSIONS: &[&str] = &[
     "mp4", "mov", "mkv", "webm", "avi", "m4v", "wmv", "flv", "mpeg", "mpg", "3gp", "ts", "mts",
@@ -53,7 +48,7 @@ fn is_image_extension(ext: &str) -> bool {
 
 /// Check if a file extension is an audio type
 fn is_audio_extension(ext: &str) -> bool {
-    AUDIO_EXTENSIONS.contains(&ext.to_lowercase().as_str())
+    media_load::is_supported_audio_extension(ext)
 }
 
 /// Check if a file extension is a video type

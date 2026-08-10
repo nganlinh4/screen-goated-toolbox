@@ -107,6 +107,7 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
         .transpose()?;
     super::browser::ensure_started();
     let key = session::load_key()?;
+    let _engine = super::engine::SessionGuard::start(stop)?;
     let target = configured_target()?;
     overlay::set_status("connecting...");
 
@@ -562,7 +563,7 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
             }
         };
         reconnects = 0; // healthy transport read - reset the reconnect budget
-        let events = parse_server_message(&text);
+        let events = parse_server_message(&text)?;
         if events.iter().any(reconnect_gate::generation_progress) {
             last_event = Instant::now();
             state.nudged = false;

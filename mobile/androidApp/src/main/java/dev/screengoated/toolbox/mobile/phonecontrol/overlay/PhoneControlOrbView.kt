@@ -234,7 +234,6 @@ internal class PhoneControlOrbView(
         const val IPC_BRIDGE = "ipc"
         const val LOCAL_ORIGIN = "file:///android_asset/phone_control/"
         const val ANDROID_RENDERER_CSS = """
-            @font-face{font-family:'Google Sans Flex';src:url('../GoogleSansFlex.ttf') format('truetype');font-style:normal;font-weight:100 1000;}
             #c{pointer-events:none!important}
             #cmd{display:none!important}
         """

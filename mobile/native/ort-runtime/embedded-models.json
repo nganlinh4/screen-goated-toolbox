@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "sourceArchive": {
+    "fileName": "moonshine-runtime.zip",
+    "byteCount": 18675064,
+    "sha256": "ab6e297bf42f53db95dfc6f9ffc6fb48bbd7b60acf738b2d1f97f70f489c4e80",
+    "entry": {
+      "fileName": "libmoonshine.so",
+      "byteCount": 21237896,
+      "sha256": "da75b2d513c57b8f5be7eaf32b423c6d3655baa49f78b5ad0ce2f4fbb4bec76d"
+    }
+  },
+  "models": [
+    {
+      "name": "speaker-embedding.ort",
+      "format": "ORT",
+      "fileOffset": 332006,
+      "byteCount": 17639176,
+      "sha256": "0ec8d36d8e19b4a7035f1b71d35e651d9cb8e8cf2e456c559da3d22105c8050d"
+    },
+    {
+      "name": "silero-vad.onnx",
+      "format": "ONNX",
+      "fileOffset": 18907336,
+      "byteCount": 2327524,
+      "sha256": "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3"
+    }
+  ]
+}

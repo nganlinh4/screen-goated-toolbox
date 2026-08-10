@@ -29,14 +29,6 @@
       "thinking_level": "MINIMAL"
     },
     {
-      "name": "gemini_2_5_lite_disables_thinking",
-      "model_id": "google-gemini-2-5-flash-lite-text",
-      "provider": "GOOGLE",
-      "api_model": "gemini-2.5-flash-lite",
-      "supports_search": true,
-      "thinking_budget": 0
-    },
-    {
       "name": "gemma_4_26b_uses_minimal_thinking",
       "model_id": "google-gemma-4-26b-a4b-text",
       "provider": "GOOGLE",

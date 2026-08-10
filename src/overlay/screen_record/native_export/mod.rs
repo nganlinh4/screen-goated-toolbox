@@ -32,7 +32,7 @@ pub use audio_download::start_audio_download;
 pub use composition::start_composition_export;
 pub(crate) use pipeline::run_native_export_with_staged;
 pub use pipeline::start_native_export;
-pub use progress::{export_replay_args_path, persist_export_result};
+pub use progress::persist_export_result;
 
 pub fn prewarm_custom_background(url: &str) -> Result<(), String> {
     overlay::prewarm_custom_background(url)

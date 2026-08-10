@@ -30,15 +30,15 @@ fn desktop_startup_phases_remain_in_dependency_order() {
             "setup_console_utf8",
             "headless::run_pre_boot",
             "setup_crash_handler",
-            "unpack_dlls::unpack_dlls",
-            "headless::run_post_unpack",
+            "headless::run_after_bootstrap",
             "configure_screen_record_wry_smoke",
             "configure_creation_ui_test",
-            "maybe_delay_for_windows_autostart",
-            "start_webview2_runtime_install",
-            "init_com_and_dpi",
             "single_instance::acquire",
             "app_activation::start_listener",
+            "maybe_delay_for_windows_autostart",
+            "resume_pending_removals",
+            "start_webview2_runtime_install",
+            "init_com_and_dpi",
             "run_hotkey_listener",
             "init_tts",
             "init_gemini_live",
@@ -54,6 +54,17 @@ fn desktop_startup_prewarms_the_core_result_compositor_only() {
     assert!(!source.contains("spawn_warmup_thread"));
     assert!(!source.contains("warm_up_orb"));
     assert!(source.contains("result::scene_compositor::warmup"));
+}
+
+#[test]
+fn desktop_startup_does_not_install_or_embed_native_support() {
+    let entry = read_source("src/app_entry.rs");
+    let native_support = read_source("src/unpack_dlls.rs");
+
+    assert!(!entry.contains("unpack_dlls::unpack_dlls"));
+    assert!(!entry.contains("vc_runtime::ensure_component"));
+    assert!(!native_support.contains("include_bytes!"));
+    assert!(!native_support.contains("SetDllDirectory"));
 }
 
 #[test]

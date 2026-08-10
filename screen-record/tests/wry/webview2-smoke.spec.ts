@@ -1,4 +1,4 @@
-import { expect, test, chromium, type Page } from "@playwright/test";
+import { expect, test, chromium, type BrowserContext, type Page } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -27,10 +27,10 @@ async function waitForCdpEndpoint(url: string, timeoutMs: number) {
   throw lastError instanceof Error ? lastError : new Error(`Timed out waiting for ${url}`);
 }
 
-async function findScreenRecordPage(pages: Page[], timeoutMs: number): Promise<Page | null> {
+async function findScreenRecordPage(context: BrowserContext, timeoutMs: number): Promise<Page | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    for (const page of pages) {
+    for (const page of context.pages()) {
       const title = await page.title().catch(() => "");
       if (title.includes("SGT Record") || page.url().startsWith("screenrecord://")) {
         return page;
@@ -70,7 +70,6 @@ async function ensureDebugAppLaunched() {
       detached: true,
       env: {
         ...process.env,
-        WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort} --remote-debugging-address=0.0.0.0`,
         SGT_SCREEN_RECORD_WEBVIEW2_DATA_DIR: path.join(
           repoRoot,
           "target",
@@ -112,12 +111,17 @@ test("connects to the real Wry WebView2 shell over CDP", async () => {
   const browser = await chromium.connectOverCDP(cdpUrl!);
   try {
     const context = browser.contexts()[0];
-    const pages = context?.pages() ?? [];
-    const firstPage = pages[0] ?? await context?.waitForEvent("page", { timeout: 5_000 });
-    const page = await findScreenRecordPage(firstPage ? [firstPage, ...pages] : pages, 10_000);
+    expect(context, "WebView2 browser context should be available").toBeTruthy();
+    const page = await findScreenRecordPage(context!, 15_000);
     expect(page, "WebView2 page should be available").toBeTruthy();
     await expect(page!.locator(".app-container")).toBeVisible();
     await expect.poll(() => page!.evaluate(() => Boolean((window as { isWry?: boolean }).isWry))).toBe(true);
+    await expect.poll(() => page!.evaluate(async () => {
+      const faces = await document.fonts.load("400 16px 'Google Sans Flex'");
+      return faces.some((face) =>
+        face.family.replaceAll("'", "") === "Google Sans Flex" && face.status === "loaded"
+      );
+    })).toBe(true);
   } finally {
     await browser.close();
   }

@@ -68,5 +68,4 @@
 
 - Product/build: `README.md`, `docs/DEVELOPMENT.md`.
 - Release: `docs/RELEASING.md`.
-- Windows ARM64: `docs/WINDOWS_ARM64_SUPPORT.md`.
 - Subsystem details: nearest `README.md`; keep one owner per fact.

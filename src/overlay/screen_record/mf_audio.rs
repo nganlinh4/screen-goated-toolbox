@@ -2,15 +2,18 @@
 // Decodes source audio to PCM float; encodes PCM float to AAC via the SinkWriter.
 
 mod decoder;
+#[cfg(feature = "recorder-worker")]
 mod encoder;
 #[path = "mf_audio_symphonia.rs"]
 mod mf_audio_symphonia;
 mod pcm;
 
 pub use decoder::MfAudioDecoder;
+#[cfg(feature = "recorder-worker")]
 pub use encoder::AudioStream;
 
 /// Configuration for audio processing.
+#[cfg(feature = "recorder-worker")]
 #[derive(Debug, Clone)]
 pub struct AudioConfig {
     pub sample_rate: u32,
@@ -18,6 +21,7 @@ pub struct AudioConfig {
     pub bitrate_kbps: u32,
 }
 
+#[cfg(feature = "recorder-worker")]
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {

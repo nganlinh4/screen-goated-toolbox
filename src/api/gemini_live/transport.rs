@@ -94,11 +94,13 @@ pub fn is_recoverable_io_error(error: &io::Error) -> bool {
         || is_recoverable_socket_error_text(&error.to_string())
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn is_transient_anyhow_io_error(error: &anyhow::Error) -> bool {
     let detail = format!("{error:?}");
     detail.contains("os error 997") || detail.contains("Overlapped I/O operation is in progress")
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn is_recoverable_anyhow_socket_error(error: &anyhow::Error) -> bool {
     if is_transient_anyhow_io_error(error) {
         return true;

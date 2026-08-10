@@ -1,4 +1,5 @@
 /// Centralized model API backed by generated catalog data.
+use std::sync::LazyLock;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ModelType {
@@ -7,6 +8,7 @@ pub enum ModelType {
     Audio,
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModelSource {
     BuiltIn,
@@ -97,11 +99,16 @@ pub struct ModelConfig {
     pub full_name: String,
     pub model_type: ModelType,
     pub enabled: bool,
+    #[cfg(not(feature = "recorder-worker"))]
     pub quota_limit_vi: String,
+    #[cfg(not(feature = "recorder-worker"))]
     pub quota_limit_ko: String,
+    #[cfg(not(feature = "recorder-worker"))]
     pub quota_limit_en: String,
+    #[cfg(not(feature = "recorder-worker"))]
     pub source: ModelSource,
     pub supports_search_override: Option<bool>,
+    #[cfg(not(feature = "recorder-worker"))]
     pub search_tool_enabled_by_default: bool,
     pub intelligence_tier: Option<u8>,
     pub typical_latency_ms: Option<u32>,
@@ -122,11 +129,11 @@ impl ModelConfig {
         full_name: &str,
         model_type: ModelType,
         enabled: bool,
-        quota_limit_vi: &str,
-        quota_limit_ko: &str,
-        quota_limit_en: &str,
+        _quota_limit_vi: &str,
+        _quota_limit_ko: &str,
+        _quota_limit_en: &str,
         supports_search: bool,
-        search_tool_enabled_by_default: bool,
+        _search_tool_enabled_by_default: bool,
         intelligence_tier: u8,
         typical_latency_ms: u32,
         performance_source: &str,
@@ -140,12 +147,17 @@ impl ModelConfig {
             full_name: full_name.to_string(),
             model_type,
             enabled,
-            quota_limit_vi: quota_limit_vi.to_string(),
-            quota_limit_ko: quota_limit_ko.to_string(),
-            quota_limit_en: quota_limit_en.to_string(),
+            #[cfg(not(feature = "recorder-worker"))]
+            quota_limit_vi: _quota_limit_vi.to_string(),
+            #[cfg(not(feature = "recorder-worker"))]
+            quota_limit_ko: _quota_limit_ko.to_string(),
+            #[cfg(not(feature = "recorder-worker"))]
+            quota_limit_en: _quota_limit_en.to_string(),
+            #[cfg(not(feature = "recorder-worker"))]
             source: ModelSource::BuiltIn,
             supports_search_override: Some(supports_search),
-            search_tool_enabled_by_default,
+            #[cfg(not(feature = "recorder-worker"))]
+            search_tool_enabled_by_default: _search_tool_enabled_by_default,
             intelligence_tier: Some(intelligence_tier),
             typical_latency_ms: Some(typical_latency_ms),
             performance_source: Some(performance_source.to_string()),
@@ -162,6 +174,7 @@ impl ModelConfig {
     }
 
     /// Quota label for the given UI language (`vi`/`ko`, else English).
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn localized_quota(&self, lang: &str) -> &str {
         match lang {
             "vi" => &self.quota_limit_vi,
@@ -173,11 +186,19 @@ impl ModelConfig {
 
 include!(concat!(env!("OUT_DIR"), "/model_catalog_generated.rs"));
 
+#[path = "model_config/presentation.rs"]
 mod presentation;
 pub use presentation::sort_models_for_display;
-#[cfg(test)]
+#[path = "model_config/ollama.rs"]
+mod ollama;
+pub use ollama::trigger_ollama_model_scan;
+#[cfg(not(feature = "recorder-worker"))]
+pub use ollama::{is_ollama_scan_in_progress, ollama_cached_model_count};
+#[cfg(all(test, not(feature = "recorder-worker")))]
+#[path = "model_config/realtime_routing_tests.rs"]
 mod realtime_routing_tests;
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
+#[path = "model_config/tests.rs"]
 mod tests;
 
 /// Check if a model is a non-LLM model (doesn't use prompts).
@@ -216,8 +237,7 @@ pub fn get_model_by_id_with_custom(
         return Some(model);
     }
 
-    let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
-    cached.iter().find(|model| model.id == id).cloned()
+    ollama::find_cached_model(id)
 }
 
 pub fn live_endpoint_profile(api_model: &str) -> Option<LiveEndpointProfile> {
@@ -257,6 +277,7 @@ pub fn apply_live_generation_config(generation_config: &mut serde_json::Value, a
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn normalize_realtime_transcription_model_id(model_id: &str) -> String {
     let normalized = generated_normalize_realtime_transcription_model_id(model_id);
     if normalized.starts_with("moonshine-") {
@@ -266,6 +287,7 @@ pub fn normalize_realtime_transcription_model_id(model_id: &str) -> String {
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn realtime_transcription_api_model(model_id: &str) -> String {
     let normalized = normalize_realtime_transcription_model_id(model_id);
     get_all_models()
@@ -275,15 +297,18 @@ pub fn realtime_transcription_api_model(model_id: &str) -> String {
         .unwrap_or_else(|| GEMINI_LIVE_API_MODEL_2_5.to_string())
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn realtime_transcription_live_protocol(model_id: &str) -> Option<&'static str> {
     let api_model = realtime_transcription_api_model(model_id);
     live_endpoint_profile(&api_model).and_then(|profile| profile.protocol)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn is_gemini_live_translate_model_id(model_id: &str) -> bool {
     realtime_transcription_live_protocol(model_id) == Some("live-translate")
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn is_gemini_live_s2s_model_id(model_id: &str) -> bool {
     is_gemini_live_translate_model_id(model_id)
 }
@@ -292,6 +317,7 @@ pub fn tts_gemini_model_options() -> &'static [(&'static str, &'static str)] {
     GENERATED_TTS_GEMINI_MODELS
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn realtime_transcription_model_options() -> &'static [(&'static str, &'static str)] {
     GENERATED_REALTIME_TRANSCRIPTION_OPTIONS
 }
@@ -313,6 +339,7 @@ pub fn default_text_to_text_priority_chain_ids() -> &'static [&'static str] {
 }
 
 /// Get all models including dynamically fetched Ollama models.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
     let custom_models = crate::APP
         .lock()
@@ -335,10 +362,7 @@ pub fn get_all_models_with_custom(
             .filter_map(custom_model_definition_to_config),
     );
 
-    let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
-    for ollama_model in cached.iter() {
-        models.push(ollama_model.clone());
-    }
+    models.extend(ollama::cached_models());
 
     models
 }
@@ -372,11 +396,16 @@ pub fn custom_model_definition_to_config(
         full_name: full_name.to_string(),
         model_type,
         enabled: custom.enabled,
+        #[cfg(not(feature = "recorder-worker"))]
         quota_limit_vi: custom.quota_vi.clone(),
+        #[cfg(not(feature = "recorder-worker"))]
         quota_limit_ko: custom.quota_ko.clone(),
+        #[cfg(not(feature = "recorder-worker"))]
         quota_limit_en: custom.quota_en.clone(),
+        #[cfg(not(feature = "recorder-worker"))]
         source: ModelSource::User,
         supports_search_override: custom.supports_search,
+        #[cfg(not(feature = "recorder-worker"))]
         search_tool_enabled_by_default: false,
         intelligence_tier: None,
         typical_latency_ms: None,
@@ -411,6 +440,7 @@ pub fn model_supports_search_by_id_with_custom(
 ///
 /// This is intentionally separate from provider capability: an endpoint may
 /// support quota-bearing search while ordinary requests keep the tool off.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn model_search_tool_enabled_by_default_by_id(id: &str) -> bool {
     let custom_models = crate::APP
         .lock()
@@ -420,158 +450,11 @@ pub fn model_search_tool_enabled_by_default_by_id(id: &str) -> bool {
     model_search_tool_enabled_by_default_by_id_with_custom(id, &custom_models)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn model_search_tool_enabled_by_default_by_id_with_custom(
     id: &str,
     custom_models: &[crate::config::types::CustomModelDefinition],
 ) -> bool {
     get_model_by_id_with_custom(id, custom_models)
         .is_some_and(|model| model.search_tool_enabled_by_default)
-}
-
-// === OLLAMA MODEL CACHE ===
-
-use std::sync::{
-    LazyLock, Mutex,
-    atomic::{AtomicBool, Ordering},
-};
-
-/// Cached Ollama models (populated by background scan)
-static OLLAMA_MODEL_CACHE: LazyLock<Mutex<Vec<ModelConfig>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
-
-/// Whether a scan is currently in progress
-static OLLAMA_SCAN_IN_PROGRESS: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
-
-/// Last scan time (for debouncing) - initialized to 10s ago so first scan works immediately
-static OLLAMA_LAST_SCAN: LazyLock<Mutex<std::time::Instant>> = LazyLock::new(|| {
-    Mutex::new(
-        std::time::Instant::now()
-            .checked_sub(std::time::Duration::from_secs(10))
-            .unwrap_or_else(std::time::Instant::now),
-    )
-});
-
-/// Check if Ollama model scan is in progress
-pub fn is_ollama_scan_in_progress() -> bool {
-    OLLAMA_SCAN_IN_PROGRESS.load(Ordering::SeqCst)
-}
-
-pub fn ollama_cached_model_count() -> usize {
-    OLLAMA_MODEL_CACHE
-        .lock()
-        .map(|models| models.len())
-        .unwrap_or(0)
-}
-
-/// Trigger background scan for Ollama models (non-blocking)
-/// Returns immediately, models will be populated in cache when ready
-pub fn trigger_ollama_model_scan() {
-    let (use_ollama, base_url) = if let Ok(app) = crate::APP.lock() {
-        (app.config.use_ollama, app.config.ollama_base_url.clone())
-    } else {
-        return;
-    };
-
-    if !use_ollama {
-        return;
-    }
-
-    {
-        let last_scan = OLLAMA_LAST_SCAN.lock().unwrap();
-        if last_scan.elapsed().as_secs() < 5 {
-            return;
-        }
-    }
-
-    if OLLAMA_SCAN_IN_PROGRESS.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
-    {
-        let mut last_scan = OLLAMA_LAST_SCAN.lock().unwrap();
-        *last_scan = std::time::Instant::now();
-    }
-
-    std::thread::spawn(move || {
-        let result = crate::api::ollama::fetch_ollama_models_with_caps(&base_url);
-
-        if let Ok(ollama_models) = result {
-            let mut new_models = Vec::new();
-
-            for ollama_model in ollama_models {
-                let model_id = format!(
-                    "ollama-{}",
-                    ollama_model.name.replace(":", "-").replace("/", "-")
-                );
-                let display_name = format!("{} (Local)", ollama_model.name);
-
-                if ollama_model.has_vision {
-                    new_models.push(ModelConfig {
-                        id: format!("{}-vision", model_id),
-                        provider: "ollama".to_string(),
-                        name_vi: display_name.clone(),
-                        name_ko: display_name.clone(),
-                        name_en: display_name.clone(),
-                        full_name: ollama_model.name.clone(),
-                        model_type: ModelType::Vision,
-                        enabled: true,
-                        quota_limit_vi: "Không giới hạn".to_string(),
-                        quota_limit_ko: "무제한".to_string(),
-                        quota_limit_en: "Unlimited".to_string(),
-                        source: ModelSource::Discovered,
-                        supports_search_override: None,
-                        search_tool_enabled_by_default: false,
-                        intelligence_tier: None,
-                        typical_latency_ms: None,
-                        performance_source: None,
-                    });
-
-                    new_models.push(ModelConfig {
-                        id: model_id,
-                        provider: "ollama".to_string(),
-                        name_vi: display_name.clone(),
-                        name_ko: display_name.clone(),
-                        name_en: display_name.clone(),
-                        full_name: ollama_model.name.clone(),
-                        model_type: ModelType::Text,
-                        enabled: true,
-                        quota_limit_vi: "Không giới hạn".to_string(),
-                        quota_limit_ko: "무제한".to_string(),
-                        quota_limit_en: "Unlimited".to_string(),
-                        source: ModelSource::Discovered,
-                        supports_search_override: None,
-                        search_tool_enabled_by_default: false,
-                        intelligence_tier: None,
-                        typical_latency_ms: None,
-                        performance_source: None,
-                    });
-                } else {
-                    new_models.push(ModelConfig {
-                        id: model_id,
-                        provider: "ollama".to_string(),
-                        name_vi: display_name.clone(),
-                        name_ko: display_name.clone(),
-                        name_en: display_name,
-                        full_name: ollama_model.name,
-                        model_type: ModelType::Text,
-                        enabled: true,
-                        quota_limit_vi: "Không giới hạn".to_string(),
-                        quota_limit_ko: "무제한".to_string(),
-                        quota_limit_en: "Unlimited".to_string(),
-                        source: ModelSource::Discovered,
-                        supports_search_override: None,
-                        search_tool_enabled_by_default: false,
-                        intelligence_tier: None,
-                        typical_latency_ms: None,
-                        performance_source: None,
-                    });
-                }
-            }
-
-            let mut cache = OLLAMA_MODEL_CACHE.lock().unwrap();
-            *cache = new_models;
-        }
-
-        OLLAMA_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
-    });
 }

@@ -4,14 +4,19 @@ version = "5.4.3"
 edition = "2024"
 default-run = "screen-goated-toolbox"
 
+[features]
+default = []
+recorder-worker = []
+
 [build-dependencies]
 winres = "0.1"
 image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
+resvg = { version = "0.47", default-features = false }
 serde_json = "1.0"
 
 [dependencies]
 # Network & Serialization
-ureq = { version = "3.2", features = ["json", "native-tls"] }
+ureq = { version = "3.2", default-features = false, features = ["json", "native-tls", "gzip"] }
 tungstenite = { version = "0.29", features = ["native-tls"] }
 native-tls = "0.2"
 sha2 = "0.10"
@@ -20,21 +25,17 @@ url = "2.5"
 psl2 = "0.1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_path_to_error = "0.1"
 anyhow = "1.0"
 base64 = "0.22"
 semver = "1.0.28"
-zip = "8.2"
+zip = { version = "8.2", default-features = false, features = ["deflate-flate2"] }
 flate2 = "1.1"
-byteorder = "1.5"
-rayon = "1.11"
-quick-xml = "0.38"
 
 # Image Processing
 image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }
 
 # Time
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 
 # System
 dirs = "6.0"
@@ -47,43 +48,36 @@ auto-launch = "0.6"
 urlencoding = "2.1"
 
 # Language Data
-isolang = { version = "2.4", features = ["serde", "english_names"] }
+isolang = { package = "sgt-language-catalog", path = "native/language_catalog" }
 unicode-normalization = "0.1"
 encoding_rs = "0.8"
 
 # GUI & Media
-eframe = { version = "0.34", default-features = false, features = ["wgpu", "persistence"] }
+eframe = { version = "0.34", default-features = false, features = ["wgpu_no_default_features"] }
 egui-snarl = { path = "libs/egui-snarl", features = ["serde"] }
 tray-icon = "0.24.1"
 cpal = "0.18"
 hound = "3.5"
 wasapi = "0.23"
-symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm", "isomp4"] }
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm", "isomp4", "aiff", "vorbis", "adpcm"] }
 symphonia-adapter-libopus = "0.2.6"
 
 # Markdown Rendering
-pulldown-cmark = "0.13"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 wry = "0.55"
 raw-window-handle = "0.6"
 windows-core = "0.62"
-parakeet-rs = { version = "=0.3.6", features = ["directml"] }
-ort = { version = "=2.0.0-rc.12", features = ["directml", "load-dynamic"] }
-ringbuf = "0.5"
-windows-capture = "1.5.0"
-rdev = "0.5.3"
-tiny_http = "0.12"
+sgt-local-asr-protocol = { path = "native/local_asr_protocol" }
+sgt-recorder-protocol = { path = "native/recorder_protocol" }
+sgt-computer-control-protocol = { path = "native/computer_control_protocol" }
 parking_lot = "0.12"
-crossbeam-queue = "0.3"
 libloading = "0.8"
 
-# Vector Graphics Rendering
-resvg = "0.47"
-tiny-skia = "0.12"
-
 # GPU Rendering
-wgpu = "29"
-pollster = "0.4"
-bytemuck = { version = "1.25", features = ["derive"] }
+wgpu = { version = "29", default-features = false, features = ["std", "dx12", "wgsl"] }
+
+[dev-dependencies]
+resvg = { version = "0.47", default-features = false }
 
 [dependencies.windows]
 version = "0.62"
@@ -101,6 +95,10 @@ features = [
     "Win32_System_WinRT_Direct3D11",
     "Win32_System_WinRT_Graphics_Capture",
     "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_Security_Cryptography_Catalog",
+    "Win32_Security_Cryptography_Sip",
+    "Win32_Security_WinTrust",
     "Win32_System_Com",
     "Win32_System_Console",
     "Win32_System_DataExchange",
@@ -151,10 +149,7 @@ debug = "line-tables-only"
 
 [patch.crates-io]
 egui-wgpu = { path = "third_party/egui-wgpu" }
-windows-capture = { path = "third_party/windows-capture" }
-
-[target.'cfg(all(target_os = "windows", target_env = "msvc"))'.dependencies]
-unrar = "0.5.8"
+egui-scale = { path = "libs/egui-scale" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.38.2"

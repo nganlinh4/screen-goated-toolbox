@@ -19,7 +19,9 @@ import java.io.File
  * Full-delivery native libraries are downloaded from the runtime-bundles release
  * and installed only when their exact shared archive identity is verified.
  */
-class NativeLibManager(private val context: Context) {
+class NativeLibManager private constructor(context: Context) {
+
+    private val context = context.applicationContext
 
     enum class Engine(
         val zipName: String,
@@ -52,6 +54,10 @@ class NativeLibManager(private val context: Context) {
         data object Missing : Status()
         data class Downloading(val progress: Float) : Status()
         data class Installed(val sizeBytes: Long) : Status()
+        data class RemovalPending(
+            val message: String,
+            val retryable: Boolean = false,
+        ) : Status()
         data class Error(val message: String) : Status()
     }
 
@@ -63,11 +69,14 @@ class NativeLibManager(private val context: Context) {
 
     private val _statuses = mutableMapOf<Engine, MutableStateFlow<Status>>()
     private val downloadJobs = mutableMapOf<Engine, Job>()
+    private val removalStore = NativeRuntimeRemovalStore(this.context)
+    private val leases = RuntimeLeaseRegistry<Engine>(::finishRemoval)
 
     init {
         for (engine in Engine.entries) {
             _statuses[engine] = MutableStateFlow(computeStatus(engine))
         }
+        Engine.entries.filter { removalStore.isPending(it.name) }.forEach(leases::requestRemoval)
     }
 
     fun status(engine: Engine): StateFlow<Status> =
@@ -79,7 +88,8 @@ class NativeLibManager(private val context: Context) {
 
     fun startDownload(engine: Engine) {
         val flow = _statuses[engine] ?: return
-        if (flow.value is Status.Downloading) return
+        if (flow.value is Status.Downloading || isInstalled(engine) || leases.isRemovalPending(engine)) return
+        val installLease = leases.acquire(listOf(engine)) ?: return
         flow.value = Status.Downloading(0f)
         downloadJobs[engine]?.cancel()
         downloadJobs[engine] = scope.launch {
@@ -94,11 +104,12 @@ class NativeLibManager(private val context: Context) {
                 }
                 flow.value = computeStatus(engine)
             } catch (_: CancellationException) {
-                delete(engine)
+                flow.value = computeStatus(engine)
             } catch (e: Exception) {
                 flow.value = Status.Error(e.message ?: "Download failed")
             } finally {
                 downloadJobs.remove(engine)
+                installLease.close()
             }
         }
     }
@@ -113,11 +124,16 @@ class NativeLibManager(private val context: Context) {
     }
 
     fun delete(engine: Engine) {
-        for (lib in engine.libs) {
-            val f = File(libDir, lib)
-            if (f.exists()) f.delete()
-        }
-        _statuses[engine]?.value = Status.Missing
+        cancelDownload(engine)
+        removalStore.setPending(engine.name, true)
+        _statuses[engine]?.value = Status.RemovalPending(removalMessage(engine))
+        leases.requestRemoval(engine)
+    }
+
+    fun acquireLease(vararg engines: Engine): AutoCloseable? {
+        val requested = engines.distinct()
+        if (requested.any { !isInstalled(it) }) return null
+        return leases.acquire(requested)
     }
 
     /**
@@ -128,7 +144,7 @@ class NativeLibManager(private val context: Context) {
      */
     fun loadEngines(vararg engines: Engine): Boolean {
         for (engine in engines) {
-            if (!isInstalled(engine)) return false
+            if (!isInstalled(engine) || leases.isRemovalPending(engine)) return false
         }
         // Inject our download dir into the classloader's native lib search path.
         // This makes System.loadLibrary() and dlopen DT_NEEDED resolution find
@@ -137,6 +153,7 @@ class NativeLibManager(private val context: Context) {
 
         val needed = engines.flatMap { it.libs }
         val ordered = NativeLibraryLoadContract.orderedDependencies(needed)
+        markLoaded(*engines)
         android.util.Log.i("NativeLibManager", "loadEngines: needed=$needed, dir=${libDir.absolutePath}")
         for (lib in ordered) {
             val f = File(libDir, lib)
@@ -162,12 +179,40 @@ class NativeLibManager(private val context: Context) {
     }
 
     private fun computeStatus(engine: Engine): Status {
-        return if (isInstalled(engine)) {
+        return if (removalStore.isPending(engine.name) || leases.isRemovalPending(engine)) {
+            Status.RemovalPending(removalMessage(engine))
+        } else if (isInstalled(engine)) {
             val bytes = archiveContract(engine).entries.sumOf { it.byteCount }
             Status.Installed(bytes)
         } else {
             Status.Missing
         }
+    }
+
+    private fun finishRemoval(engine: Engine) {
+        if (isLoaded(engine)) {
+            _statuses[engine]?.value = Status.RemovalPending(removalMessage(engine))
+            return
+        }
+        val remaining = engine.libs.filter { library ->
+            File(libDir, library).let { it.exists() && !it.delete() }
+        }
+        if (remaining.isNotEmpty()) {
+            _statuses[engine]?.value = Status.RemovalPending(
+                "Removal could not finish. Restart the app and try again.",
+                retryable = true,
+            )
+            return
+        }
+        removalStore.setPending(engine.name, false)
+        leases.completeRemoval(engine)
+        _statuses[engine]?.value = Status.Missing
+    }
+
+    private fun removalMessage(engine: Engine): String = when {
+        leases.isInUse(engine) -> "Removal pending until the active session stops."
+        isLoaded(engine) -> "Restart the app to finish removing this runtime."
+        else -> "Removal is pending."
     }
 
     private fun downloadAndExtract(engine: Engine, flow: MutableStateFlow<Status>) {
@@ -270,6 +315,11 @@ class NativeLibManager(private val context: Context) {
 
     companion object {
         @Volatile
+        private var instance: NativeLibManager? = null
+
+        private val loadedEngines = mutableSetOf<Engine>()
+
+        @Volatile
         private var dirInjected = false
 
         @Volatile
@@ -278,24 +328,30 @@ class NativeLibManager(private val context: Context) {
         @Volatile
         private var sherpaLoaded = false
 
-        @Volatile
-        private var ortLoaded = false
-
         private const val BASE_URL =
             "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles"
 
-        @Synchronized
-        fun ensureOrtLoaded(context: Context): Boolean {
-            if (ortLoaded) return true
-            if (!NativeLibManager(context).loadEngines(Engine.ORT)) return false
-            ortLoaded = loadJavaOrtBridge()
-            return ortLoaded
+        fun get(context: Context): NativeLibManager = instance ?: synchronized(this) {
+            instance ?: NativeLibManager(context.applicationContext).also { instance = it }
         }
+
+        fun reconcilePendingRemovals(context: Context) {
+            val store = NativeRuntimeRemovalStore(context)
+            if (Engine.entries.any { store.isPending(it.name) }) get(context)
+        }
+
+        @Synchronized
+        private fun markLoaded(vararg engines: Engine) {
+            loadedEngines.addAll(engines)
+        }
+
+        @Synchronized
+        private fun isLoaded(engine: Engine): Boolean = engine in loadedEngines
 
         /** Ensure Moonshine libs are loaded. */
         fun ensureMoonshineLoaded(context: Context): Boolean {
             if (moonshineLoaded) return true
-            val mgr = NativeLibManager(context)
+            val mgr = get(context)
             if (mgr.loadEngines(Engine.ORT, Engine.MOONSHINE)) {
                 moonshineLoaded = true
                 return true
@@ -306,7 +362,7 @@ class NativeLibManager(private val context: Context) {
         /** Ensure Sherpa libs are loaded (self-contained, ORT statically linked). */
         fun ensureSherpaLoaded(context: Context): Boolean {
             if (sherpaLoaded) return true
-            val mgr = NativeLibManager(context)
+            val mgr = get(context)
             if (mgr.loadEngines(Engine.SHERPA)) {
                 sherpaLoaded = true
                 return true
@@ -314,16 +370,5 @@ class NativeLibManager(private val context: Context) {
             return false
         }
 
-        private fun loadJavaOrtBridge(): Boolean = try {
-            System.loadLibrary("onnxruntime4j_jni")
-            true
-        } catch (error: UnsatisfiedLinkError) {
-            if (error.message?.contains("already loaded") == true) {
-                true
-            } else {
-                android.util.Log.e("NativeLibManager", "Failed to load ONNX Java bridge", error)
-                false
-            }
-        }
     }
 }

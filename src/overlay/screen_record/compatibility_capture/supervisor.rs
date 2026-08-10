@@ -6,7 +6,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use super::process::{
-    CaptureEncoder, CaptureProcessConfig, ManagedCaptureProcess, ProcessOutcome, build_ffmpeg_args,
+    CaptureEncoder, CaptureProcessConfig, ManagedCaptureProcess, ProcessOutcome, ResolvedFfmpeg,
+    build_ffmpeg_args,
 };
 
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -31,13 +32,13 @@ struct CompletedSegment {
 pub(super) struct CaptureSupervisor {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<Vec<CompletedSegment>>>,
-    ffmpeg: PathBuf,
+    ffmpeg: ResolvedFfmpeg,
     final_video: PathBuf,
 }
 
 impl CaptureSupervisor {
     pub(super) fn start(
-        ffmpeg: PathBuf,
+        ffmpeg: ResolvedFfmpeg,
         config: CaptureProcessConfig,
         final_video: PathBuf,
         session_started: Instant,
@@ -53,7 +54,7 @@ impl CaptureSupervisor {
         );
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = stop.clone();
-        let thread_ffmpeg = ffmpeg.clone();
+        let thread_ffmpeg = ffmpeg.to_path_buf();
         let thread_final_video = final_video.clone();
         let thread = std::thread::spawn(move || {
             supervise_segments(

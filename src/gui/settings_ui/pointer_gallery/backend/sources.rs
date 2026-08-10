@@ -3,14 +3,15 @@ use super::catalog::{CursorCollectionSpec, REQUIRED_FILES, source_name_for_file}
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read as _, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
-use unrar::Archive;
+mod bsdtar;
 
 const GITHUB_USER_AGENT: &str = "screen-goated-toolbox-pointer-gallery";
+const MAX_CURSOR_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Deserialize)]
 struct GithubContentEntry {
@@ -106,6 +107,7 @@ pub(super) fn preload_missing_from_zip(
     if !archive_path.exists() {
         download_binary(archive_url, &archive_path)?;
     }
+    validate_archive_file(&archive_path)?;
 
     let archive_file = fs::File::open(&archive_path)
         .map_err(|e| format!("Failed opening {:?}: {}", archive_path, e))?;
@@ -160,7 +162,8 @@ pub(super) fn preload_missing_from_zip(
 }
 
 fn fetch_remote_entries(api_url: &str) -> Result<Vec<GithubContentEntry>, String> {
-    let response = ureq::get(api_url)
+    let response = crate::api::client::UREQ_AGENT
+        .get(api_url)
         .header("User-Agent", GITHUB_USER_AGENT)
         .call()
         .map_err(|e| format!("Failed to query collection metadata: {}", e))?;
@@ -196,6 +199,7 @@ pub(super) fn preload_missing_from_rar(
     if !archive_path.exists() {
         download_binary(archive_url, &archive_path)?;
     }
+    validate_archive_file(&archive_path)?;
 
     let mut pending = REQUIRED_FILES
         .iter()
@@ -211,40 +215,29 @@ pub(super) fn preload_missing_from_rar(
     }
 
     let subdir_norm = normalize_archive_path(subdir);
-    let mut archive = Archive::new(&archive_path)
-        .open_for_processing()
-        .map_err(|e| format!("Failed reading rar for '{}': {}", spec.title, e))?;
-
-    while let Some(header) = archive
-        .read_header()
-        .map_err(|e| format!("Failed reading rar headers for '{}': {}", spec.title, e))?
-    {
+    let entries = bsdtar::list_entries(&archive_path, stop_signal)
+        .map_err(|error| format!("Failed reading rar for '{}': {error}", spec.title))?;
+    for entry_name in entries {
         if stop_signal.load(Ordering::Relaxed) {
             return Ok(());
         }
 
-        let entry_name = header.entry().filename.to_string_lossy().into_owned();
         let entry_norm = normalize_archive_path(&entry_name);
         let matching_idx = pending.iter().position(|entry| {
             entry_matches_source(&entry_norm, &subdir_norm, entry.source_norm.as_str())
         });
 
-        if !header.entry().is_file() {
-            archive = header
-                .skip()
-                .map_err(|e| format!("Failed skipping rar folder in '{}': {}", spec.title, e))?;
-            continue;
-        }
-
         if let Some(idx) = matching_idx {
             let entry = pending.swap_remove(idx);
             let local_path = local_dir.join(&entry.local_name);
-            archive = header.extract_to(&local_path).map_err(|e| {
-                format!(
-                    "Failed extracting '{}' in '{}': {}",
-                    entry_name, spec.title, e
-                )
-            })?;
+            bsdtar::extract_entry(&archive_path, &entry_name, &local_path, stop_signal).map_err(
+                |error| {
+                    format!(
+                        "Failed extracting '{}' in '{}': {error}",
+                        entry_name, spec.title
+                    )
+                },
+            )?;
 
             files.insert(entry.local_name.clone(), local_path.clone());
             *downloaded += 1;
@@ -262,10 +255,6 @@ pub(super) fn preload_missing_from_rar(
             if pending.is_empty() {
                 return Ok(());
             }
-        } else {
-            archive = header
-                .skip()
-                .map_err(|e| format!("Failed skipping rar entry in '{}': {}", spec.title, e))?;
         }
     }
 
@@ -372,23 +361,54 @@ fn entry_matches_source(entry_norm: &str, subdir_norm: &str, source_norm: &str) 
         if entry_norm.ends_with(&format!("/{}", source_norm)) && entry_norm.contains(&scoped) {
             return true;
         }
+
+        return false;
     }
 
     entry_norm == source_norm || entry_norm.ends_with(&format!("/{}", source_norm))
 }
 
 fn download_binary(url: &str, destination: &Path) -> Result<(), String> {
-    let response = ureq::get(url)
+    let response = crate::api::client::UREQ_DOWNLOAD_AGENT
+        .get(url)
         .header("User-Agent", GITHUB_USER_AGENT)
         .call()
         .map_err(|e| format!("Failed to download {}: {}", url, e))?;
+    let declared_bytes = response
+        .headers()
+        .get("content-length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok());
+    if declared_bytes.is_some_and(|bytes| bytes > MAX_CURSOR_SOURCE_BYTES) {
+        return Err(format!("Cursor source from {} is larger than allowed", url));
+    }
 
     let temp_path = destination.with_extension("tmp");
+    prepare_download_temp(&temp_path)?;
     let mut reader = response.into_body().into_reader();
-    let mut file = fs::File::create(&temp_path)
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp_path)
         .map_err(|e| format!("Failed to create temp file {:?}: {}", temp_path, e))?;
-    io::copy(&mut reader, &mut file)
-        .map_err(|e| format!("Failed to write {:?}: {}", destination, e))?;
+    let mut downloaded = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|e| format!("Failed to read {}: {}", url, e))?;
+        if read == 0 {
+            break;
+        }
+        downloaded = downloaded.saturating_add(read as u64);
+        if downloaded > MAX_CURSOR_SOURCE_BYTES {
+            drop(file);
+            let _ = fs::remove_file(&temp_path);
+            return Err(format!("Cursor source from {} is larger than allowed", url));
+        }
+        file.write_all(&buffer[..read])
+            .map_err(|e| format!("Failed to write {:?}: {}", destination, e))?;
+    }
     file.flush()
         .map_err(|e| format!("Failed to flush {:?}: {}", destination, e))?;
     drop(file);
@@ -404,8 +424,63 @@ fn download_binary(url: &str, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn prepare_download_temp(path: &Path) -> Result<(), String> {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return Ok(());
+    };
+    if !metadata.is_file() || is_reparse_point(&metadata) {
+        return Err(format!(
+            "Cursor staging path {:?} is not a regular file",
+            path
+        ));
+    }
+    fs::remove_file(path).map_err(|error| format!("Failed to clear {:?}: {error}", path))
+}
+
+fn validate_archive_file(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("Failed to inspect {:?}: {error}", path))?;
+    if !metadata.is_file() || is_reparse_point(&metadata) {
+        return Err(format!("Cursor archive {:?} is not a regular file", path));
+    }
+    if metadata.len() > MAX_CURSOR_SOURCE_BYTES {
+        return Err(format!("Cursor archive {:?} is larger than allowed", path));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt as _;
+    metadata.file_attributes() & 0x400 != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
+}
+
 fn normalize_archive_path(path: &str) -> String {
     path.replace('\\', "/")
         .trim_matches('/')
         .to_ascii_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_matching_is_scoped_and_suffix_tolerant() {
+        assert!(entry_matches_source(
+            "bundle/comix new black/arrow.cur",
+            "comix new black",
+            "arrow.cur",
+        ));
+        assert!(!entry_matches_source(
+            "bundle/comix new white/arrow.cur",
+            "comix new black",
+            "arrow.cur",
+        ));
+    }
 }

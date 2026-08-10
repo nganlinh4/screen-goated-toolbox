@@ -1,0 +1,153 @@
+[package]
+name = "sgt-recorder-worker"
+version = "5.4.3"
+edition = "2024"
+build = "build.rs"
+
+[features]
+default = ["recorder-worker"]
+recorder-worker = []
+
+[build-dependencies]
+serde_json = "1.0"
+
+[dependencies]
+ureq = { version = "3.2", default-features = false, features = ["json", "native-tls", "gzip"] }
+tungstenite = { version = "0.29", features = ["native-tls"] }
+native-tls = "0.2"
+sha2 = "0.10"
+sha1 = "0.10"
+url = "2.5"
+psl2 = "0.1.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_path_to_error = "0.1"
+anyhow = "1.0"
+base64 = "0.22"
+semver = "1.0.28"
+zip = { version = "8.2", default-features = false, features = ["deflate-flate2"] }
+flate2 = "1.1"
+byteorder = "1.5"
+image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+dirs = "6.0"
+getrandom = "0.4"
+open = "5.3"
+sys-locale = "0.3"
+winreg = "0.56"
+auto-launch = "0.6"
+urlencoding = "2.1"
+isolang = { package = "sgt-language-catalog", path = "../language_catalog" }
+unicode-normalization = "0.1"
+encoding_rs = "0.8"
+eframe = { version = "0.34", default-features = false, features = ["wgpu_no_default_features"] }
+egui-snarl = { path = "../../libs/egui-snarl", features = ["serde"] }
+tray-icon = "0.24.1"
+cpal = "0.18"
+hound = "3.5"
+wasapi = "0.23"
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm", "isomp4", "aiff", "vorbis", "adpcm", "mkv"] }
+symphonia-adapter-libopus = "0.2.6"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+wry = "0.55"
+raw-window-handle = "0.6"
+windows-core = "0.62"
+sgt-local-asr-protocol = { path = "../local_asr_protocol" }
+sgt-recorder-protocol = { path = "../recorder_protocol" }
+ringbuf = "0.5"
+windows-capture = "1.5.0"
+tiny_http = "0.12"
+parking_lot = "0.12"
+crossbeam-queue = "0.3"
+libloading = "0.8"
+resvg = { version = "0.47", default-features = false }
+tiny-skia = "0.12"
+wgpu = { version = "29", default-features = false, features = ["std", "dx12", "wgsl"] }
+pollster = "0.4"
+bytemuck = { version = "1.25", features = ["derive"] }
+
+[dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_LibraryLoader",
+    "Win32_Graphics_Dwm",
+    "Win32_UI_HiDpi",
+    "Win32_System_Threading",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_DataExchange",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Kernel",
+    "Win32_System_JobObjects",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_Storage_FileSystem",
+    "Win32_Media",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_SystemInformation",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Accessibility",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Media_MediaFoundation",
+    "Win32_Storage_Xps",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Devices_Enumeration",
+    "Media_Capture",
+    "Media_MediaProperties",
+    "Storage",
+    "Storage_Streams",
+    "Graphics_Capture",
+    "Graphics_DirectX",
+    "Graphics_DirectX_Direct3D11",
+]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.38.2"
+windows061 = { package = "windows", version = "0.61.3", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_WinRT",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_HiDpi",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = "symbols"
+debug = 1
+panic = "abort"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[patch.crates-io]
+egui-wgpu = { path = "../../third_party/egui-wgpu" }
+egui-scale = { path = "../../libs/egui-scale" }
+windows-capture = { path = "../../third_party/windows-capture" }

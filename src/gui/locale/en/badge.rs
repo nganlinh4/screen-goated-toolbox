@@ -2,6 +2,13 @@ use crate::gui::locale::BadgeLocaleText;
 
 pub(super) fn get() -> BadgeLocaleText {
     BadgeLocaleText {
+        downloading_component_fmt: "Downloading {name}",
+        preparing_component_fmt: "Preparing verified {name} package...",
+        component_installed_fmt: "{name} installed",
+        component_install_failed_fmt: "Failed to install {name}",
+        removing_component_fmt: "Removing {name}",
+        component_removed_fmt: "{name} removed",
+        component_remove_failed_fmt: "Failed to remove {name}",
         app_restarted_after_recovery: "The app restarted and fully recovered",
         installing_local_ai_runtime: "Installing local AI runtime",
         preparing_payload_fmt: "Preparing {name} {arch} payload",
@@ -31,9 +38,6 @@ pub(super) fn get() -> BadgeLocaleText {
         webview2_installed_restarting: "Microsoft Edge WebView2 Runtime installed. Restarting the app...",
         export_failed: "Export failed",
         subtitles_saved: "Subtitles saved",
-        feature_unavailable_fmt: "{name} is unavailable",
-        qwen_x64_only: "The current Qwen3 local runtime is available only for x64 Windows builds.",
-        qwen_arm_unsupported: "Qwen3 local runtime requires an NVIDIA CUDA GPU and is not supported on Windows-on-Arm virtual machines.",
         feature_needs_webview2_fmt: "{name} needs WebView2 Runtime",
         feature_window_selector: "Window selector",
         feature_realtime_overlay: "Realtime overlay",
@@ -43,7 +47,5 @@ pub(super) fn get() -> BadgeLocaleText {
         feature_screen_record: "Screen recorder",
         feature_markdown_view: "Markdown view",
         install_webview2_hint: "Open Downloaded Tools, install Microsoft Edge WebView2 Runtime, then try again.",
-        unsupported_features_fmt: "{name} is not supported on this {arch} device",
-        unavailable_features_here: "Some local or hardware-specific features are unavailable here.",
     }
 }

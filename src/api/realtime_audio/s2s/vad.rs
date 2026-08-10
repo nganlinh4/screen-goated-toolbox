@@ -4,6 +4,7 @@ use super::*;
     clippy::too_many_arguments,
     reason = "VAD loop needs the audio buffer, stop signal, senders, overlay, and session/mode context"
 )]
+#[cfg(not(feature = "recorder-worker"))]
 pub(super) fn run_vad_loop(
     audio_buffer: Arc<Mutex<Vec<i16>>>,
     stop_signal: Arc<AtomicBool>,

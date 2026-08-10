@@ -22,8 +22,10 @@ android {
         create("full") { dimension = "distribution" }
         create("play") { dimension = "distribution" }
     }
-    sourceSets.named("main") { jniLibs.srcDir(generatedJni) }
-    packaging.jniLibs.keepDebugSymbols += "**/libsherpa-onnx-jni.so"
+    sourceSets.named("main") {
+        jniLibs.srcDir(generatedJni)
+        assets.srcDir(rootProject.projectDir.resolve("native/sherpa-runtime/assets"))
+    }
 }
 
 tasks.named("preBuild").configure { dependsOn(prepareNativePayload) }

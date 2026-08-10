@@ -1,7 +1,23 @@
+#[path = "build_support/computer_control_delivery.rs"]
+mod computer_control_delivery;
 #[path = "build_support/creation_runtime_delivery.rs"]
 mod creation_runtime_delivery;
+#[path = "build_support/external_tool_delivery.rs"]
+mod external_tool_delivery;
+#[path = "build_support/icon_atlas.rs"]
+mod icon_atlas;
+#[path = "build_support/local_asr_delivery.rs"]
+mod local_asr_delivery;
 #[path = "build_support/model_catalog.rs"]
 mod model_catalog;
+#[path = "build_support/qwen_runtime_delivery.rs"]
+mod qwen_runtime_delivery;
+#[path = "build_support/recorder_delivery.rs"]
+mod recorder_delivery;
+#[path = "build_support/vc_runtime_delivery.rs"]
+mod vc_runtime_delivery;
+#[path = "build_support/web_asset_delivery.rs"]
+mod web_asset_delivery;
 
 use std::fs;
 use std::io::{Cursor, Write};
@@ -20,6 +36,14 @@ fn main() {
         &out_dir.join("model_catalog_generated.rs"),
     );
     creation_runtime_delivery::generate(&manifest_dir, &out_dir);
+    icon_atlas::generate(&manifest_dir, &out_dir);
+    computer_control_delivery::generate(&manifest_dir, &out_dir);
+    external_tool_delivery::generate(&manifest_dir, &out_dir);
+    local_asr_delivery::generate(&manifest_dir, &out_dir);
+    qwen_runtime_delivery::generate(&manifest_dir, &out_dir);
+    recorder_delivery::generate(&manifest_dir, &out_dir);
+    web_asset_delivery::generate(&manifest_dir, &out_dir);
+    vc_runtime_delivery::generate(&manifest_dir, &out_dir);
 
     // Moonshine Voice SDK: loaded dynamically at runtime via libloading
     // to avoid CRT mismatch (Moonshine libs use /MD, project uses /MT).
@@ -74,6 +98,13 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation/presentation.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation/vision.rs");
     println!("cargo:rerun-if-changed=build_support/creation_runtime_delivery.rs");
+    println!("cargo:rerun-if-changed=build_support/icon_atlas.rs");
+    println!("cargo:rerun-if-changed=build_support/computer_control_delivery.rs");
+    println!("cargo:rerun-if-changed=build_support/external_tool_delivery.rs");
+    println!("cargo:rerun-if-changed=build_support/local_asr_delivery.rs");
+    println!("cargo:rerun-if-changed=build_support/qwen_runtime_delivery.rs");
+    println!("cargo:rerun-if-changed=build_support/recorder_delivery.rs");
+    println!("cargo:rerun-if-changed=build_support/vc_runtime_delivery.rs");
     println!("cargo:rerun-if-changed={}", model_manifest_path.display());
 }
 

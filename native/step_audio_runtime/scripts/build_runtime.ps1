@@ -199,7 +199,7 @@ if ($Upload) {
         if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
     }
     $assets = @(Get-ChildItem $DistDir -File -Filter "$ArchiveName.part*" | ForEach-Object { $_.FullName })
-    & gh release upload $ReleaseTag @assets --clobber
+    & gh release upload $ReleaseTag @assets
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed" }
 }
 

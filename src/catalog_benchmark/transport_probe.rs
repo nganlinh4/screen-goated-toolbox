@@ -57,7 +57,7 @@ pub fn run() -> Result<()> {
     manifest.validate()?;
     let credentials = Credentials::load();
     ensure!(
-        !credentials.gemini.trim().is_empty(),
+        credentials.supports("google"),
         "transport probe requires GEMINI_API_KEY"
     );
     let models = selected_google_models()?;
@@ -84,17 +84,19 @@ pub fn run() -> Result<()> {
         for (variant_name, variant) in &variants {
             for model in &models {
                 pacer.wait("google");
-                let attempt = run_google(
-                    model,
-                    case,
-                    mime_type,
-                    &encoded,
-                    &prompt,
-                    *variant,
-                    variant_name,
-                    &credentials.gemini,
-                    timeout,
-                );
+                let attempt = credentials.with_provider_key("google", |gemini_api_key| {
+                    run_google(
+                        model,
+                        case,
+                        mime_type,
+                        &encoded,
+                        &prompt,
+                        *variant,
+                        variant_name,
+                        gemini_api_key,
+                        timeout,
+                    )
+                });
                 serde_json::to_writer(&mut writer, &attempt)?;
                 writer.write_all(b"\n")?;
                 writer.flush()?;

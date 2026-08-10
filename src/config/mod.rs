@@ -44,34 +44,46 @@ pub mod types;
 pub use config::{Config, GlobalHotkeyOwner, HotkeyConflict};
 
 // Preset and ProcessingBlock
-pub use preset::{Preset, ProcessingBlock};
+#[cfg(not(feature = "recorder-worker"))]
+pub use preset::Preset;
+#[cfg(not(feature = "recorder-worker"))]
+pub use preset::ProcessingBlock;
 
 // I/O functions
-pub use io::{get_all_languages, load_config, save_config};
+#[cfg(not(feature = "recorder-worker"))]
+pub use io::get_all_languages;
+pub use io::{load_config, save_config};
 
 // ============================================================================
 // RE-EXPORTS - Types (only what's actually used externally)
 // ============================================================================
 
 // Core enums
+#[cfg(not(feature = "recorder-worker"))]
 pub use types::ThemeMode;
 
 // Hotkey
 pub use types::Hotkey;
 
 // Retry priority types
+#[cfg(not(feature = "recorder-worker"))]
 pub use types::ModelPriorityChains;
 
 // Selective restore-defaults dialog state
+#[cfg(not(feature = "recorder-worker"))]
 pub use types::RestoreDefaultsSelection;
 
 // TTS types
+#[cfg(feature = "recorder-worker")]
+pub use types::StepAudioVoiceConfig;
 pub use types::{
     EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
-    MagpieVoiceConfig, StepAudioReferenceVoice, StepAudioSettings, StepAudioVoiceConfig,
-    SupertonicSettings, SupertonicVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundMode,
-    TtsPlaygroundSettings, VieneuSettings, step_audio_tts_text_issue,
+    MagpieVoiceConfig, StepAudioSettings, SupertonicSettings, SupertonicVoiceConfig,
+    TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings, VieneuSettings,
+    step_audio_tts_text_issue,
 };
+#[cfg(not(feature = "recorder-worker"))]
+pub use types::{StepAudioReferenceVoice, TtsPlaygroundMode};
 
 // Translation Gummy
 pub use types::TranslationGummySettings;

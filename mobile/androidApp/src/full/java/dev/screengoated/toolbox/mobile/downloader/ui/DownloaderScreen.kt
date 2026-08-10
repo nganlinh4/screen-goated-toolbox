@@ -277,6 +277,11 @@ private fun ToolInstallSection(
                     )
                     Text(locale.dlDepsChecking, style = MaterialTheme.typography.bodySmall)
                 }
+                ToolInstallStatus.REMOVAL_PENDING -> Text(
+                    ytdlp.error ?: "Removal pending",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 else -> Unit
             }
         }
@@ -302,6 +307,7 @@ private fun ToolStatusRow(name: String, tool: dev.screengoated.toolbox.mobile.do
                 ToolInstallStatus.DOWNLOADING -> locale.dlDepsDownloading
                 ToolInstallStatus.EXTRACTING -> locale.dlDepsExtracting
                 ToolInstallStatus.CHECKING -> locale.dlDepsChecking
+                ToolInstallStatus.REMOVAL_PENDING -> tool.error ?: "Removal pending"
                 ToolInstallStatus.ERROR -> tool.error ?: locale.dlStatusError
             },
             accent = when (tool.status) {

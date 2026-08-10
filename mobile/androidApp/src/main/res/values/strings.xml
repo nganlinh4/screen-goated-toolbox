@@ -101,6 +101,5 @@
     <string name="feature_asr_ort_name">Moonshine runtime</string>
     <string name="feature_asr_moonshine_name">Moonshine engine</string>
     <string name="feature_asr_sherpa_name">Zipformer engine</string>
-    <string name="feature_native_cpp_name">Native compatibility runtime</string>
     <string name="feature_creation_runtime_name">Creation tools</string>
 </resources>

@@ -378,7 +378,7 @@ mod tests {
             state
                 .preferred_text_model("groq", "gemini", "openrouter", "")
                 .map(|model| model.0),
-            Some("groq-gpt-oss-20b-text".to_string())
+            Some("google-gemini-3-5-flash-lite-text".to_string())
         );
 
         state.use_groq = false;

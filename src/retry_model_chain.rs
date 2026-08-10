@@ -8,10 +8,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
+#[cfg(not(feature = "recorder-worker"))]
 const MODEL_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(300);
 static MODEL_COOLDOWNS: LazyLock<Mutex<HashMap<String, Instant>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+#[cfg(not(feature = "recorder-worker"))]
 fn rate_limit_error(error: &str) -> bool {
     let lower = error.to_ascii_lowercase();
     lower.contains("http 429")
@@ -21,6 +23,7 @@ fn rate_limit_error(error: &str) -> bool {
         || lower.contains("quota exceeded")
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn record_model_failure(model_id: &str, error: &str) {
     if rate_limit_error(error)
         && let Ok(mut cooldowns) = MODEL_COOLDOWNS.lock()
@@ -43,11 +46,13 @@ fn model_cooldown_remaining(model_id: &str) -> Option<Duration> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RetryChainKind {
+    #[cfg(not(feature = "recorder-worker"))]
     ImageToText,
     TextToText,
 }
 
 impl RetryChainKind {
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn from_block_type(block_type: &str) -> Option<Self> {
         match block_type {
             "image" => Some(Self::ImageToText),
@@ -58,6 +63,7 @@ impl RetryChainKind {
 
     pub fn target_model_type(self) -> ModelType {
         match self {
+            #[cfg(not(feature = "recorder-worker"))]
             Self::ImageToText => ModelType::Vision,
             Self::TextToText => ModelType::Text,
         }
@@ -65,6 +71,7 @@ impl RetryChainKind {
 
     pub fn configured_chain(self, config: &Config) -> &[String] {
         match self {
+            #[cfg(not(feature = "recorder-worker"))]
             Self::ImageToText => &config.model_priority_chains.image_to_text,
             Self::TextToText => &config.model_priority_chains.text_to_text,
         }
@@ -283,7 +290,7 @@ fn is_retry_candidate_compatible(
             }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::{
         RetryChainKind, preflight_skip_reason, rate_limit_error, resolve_next_retry_model,

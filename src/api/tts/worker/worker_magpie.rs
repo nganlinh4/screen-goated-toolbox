@@ -15,7 +15,7 @@ use super::super::manager::TtsManager;
 use super::super::types::{AudioEvent, QueuedRequest};
 use super::open_weights::{fail_request, stream_pcm_samples};
 use crate::api::realtime_audio::magpie_assets::{
-    download_magpie_model, get_magpie_checkpoint_path, get_magpie_codec_path,
+    acquire_magpie_model, download_magpie_model, get_magpie_checkpoint_path, get_magpie_codec_path,
     is_magpie_model_downloaded, is_magpie_model_downloading,
 };
 use crate::api::realtime_audio::magpie_runtime::{
@@ -62,6 +62,8 @@ struct MagpieSidecarClient {
     child: Child,
     stdin: ChildStdin,
     rx: mpsc::Receiver<String>,
+    _support: super::native_support::NativeSidecarSupport,
+    _model_use: crate::component_registry::models::ModelUse,
 }
 
 impl Drop for MagpieSidecarClient {
@@ -231,18 +233,28 @@ fn run_sidecar_once(
 }
 
 fn start_sidecar() -> Result<MagpieSidecarClient> {
+    let model_use = acquire_magpie_model()?;
     let entrypoint = get_magpie_runtime_entrypoint()?;
-    let mut child = Command::new(&entrypoint)
+    let support = super::native_support::NativeSidecarSupport::ensure()?;
+    let mut command = Command::new(&entrypoint);
+    support.configure(&mut command)?;
+    command
+        .env("HF_HUB_OFFLINE", "1")
+        .env("TRANSFORMERS_OFFLINE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    let child = command
         .spawn()
         .with_context(|| format!("Failed to start Magpie sidecar '{}'", entrypoint.display()))?;
-    let stdin = child
+    let mut pending = super::sidecar::PendingSidecar::new(child);
+    let stdin = pending
+        .child_mut()
         .stdin
         .take()
         .context("Magpie sidecar stdin was unavailable")?;
-    let stdout = child
+    let stdout = pending
+        .child_mut()
         .stdout
         .take()
         .context("Magpie sidecar stdout was unavailable")?;
@@ -269,7 +281,13 @@ fn start_sidecar() -> Result<MagpieSidecarClient> {
         "[TTS Magpie] persistent sidecar started: {}",
         entrypoint.display()
     );
-    Ok(MagpieSidecarClient { child, stdin, rx })
+    Ok(MagpieSidecarClient {
+        child: pending.finish(),
+        stdin,
+        rx,
+        _support: support,
+        _model_use: model_use,
+    })
 }
 
 fn magpie_temp_wav_path(request_id: u64) -> Result<std::path::PathBuf> {

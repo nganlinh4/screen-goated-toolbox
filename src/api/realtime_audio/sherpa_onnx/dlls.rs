@@ -8,6 +8,7 @@ use anyhow::{Result, anyhow};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
+#[cfg(not(feature = "recorder-worker"))]
 use windows::Win32::Foundation::HWND;
 
 const SHERPA_ONNX_VERSION: &str = "1.13.2";
@@ -97,6 +98,7 @@ fn require_sherpa_runtime_ready() -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn remove_sherpa_dlls() -> Result<()> {
     let _package_guard = lock_sherpa_package();
     let dir = sherpa_bin_dir();
@@ -237,6 +239,7 @@ pub fn download_sherpa_dlls_with_progress(
     Ok(())
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) -> Result<()> {
     let _package_guard = lock_sherpa_package();
     crate::unpack_dlls::ensure_ai_runtime_installed(
@@ -306,7 +309,6 @@ pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) ->
             SHERPA_DLLS_URL,
             &archive_path,
             &stop_signal,
-            false,
         )?;
 
         if stop_signal.load(Ordering::Relaxed) {

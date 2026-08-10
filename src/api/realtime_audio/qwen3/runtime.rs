@@ -1,40 +1,20 @@
 use anyhow::{Context, Result, anyhow, bail};
 use libloading::Library;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::ffi::{c_char, c_void};
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{LazyLock, Mutex};
-use std::time::SystemTime;
 
 static LAST_QWEN3_RUNTIME_NOTICE: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(|| Mutex::new(None));
-static QWEN3_RUNTIME_ABI_CACHE: LazyLock<Mutex<HashMap<PathBuf, RuntimeAbiProbe>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 const QWEN3_RUNTIME_DLL: &str = "sgt_qwen3_runtime.dll";
-const QWEN3_RUNTIME_MANIFEST: &str = "sgt_qwen3_runtime.manifest.json";
 const QWEN3_RUNTIME_ABI_VERSION: u32 = 2;
-const RUNTIME_DLL_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/qwen3_runtime/dist/sgt_qwen3_runtime.dll";
-const RUNTIME_MANIFEST_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/qwen3_runtime/dist/sgt_qwen3_runtime.manifest.json";
-const LIBTORCH_URL: &str =
-    "https://download.pytorch.org/libtorch/cu128/libtorch-win-shared-with-deps-2.7.1%2Bcu128.zip";
 const NATIVE_IMPLEMENTATION: &str = "reference_rust";
 const SGT_QWEN3_STATUS_OK: i32 = 0;
 const KV_CACHE_MODE_DENSE_APPEND: &str = "dense_append";
 const KV_CACHE_MODE_EXPERIMENTAL_TURBOQUANT: &str = "experimental_turboquant";
 const KV_CACHE_MODE_LEGACY_PAGED_INT8: &str = "paged_int8";
-const QWEN3_RUNTIME_REQUIRED_DLLS: &[&str] = &[
-    QWEN3_RUNTIME_DLL,
-    "torch_cpu.dll",
-    "torch_cuda.dll",
-    "c10.dll",
-    "c10_cuda.dll",
-];
-const QWEN3_LIBTORCH_REQUIRED_DLLS: &[&str] =
-    &["torch_cpu.dll", "torch_cuda.dll", "c10.dll", "c10_cuda.dll"];
-
 pub const QWEN3_RUNTIME_KV_MODE_EXPERIMENTAL_TURBOQUANT: &str =
     KV_CACHE_MODE_EXPERIMENTAL_TURBOQUANT;
 
@@ -66,6 +46,8 @@ struct RuntimeInner {
     _preloaded_cuda: (Option<Library>, Option<Library>),
     exports: RuntimeExports,
     handle: *mut c_void,
+    _component_use: crate::component_registry::qwen_runtime::QwenRuntimeLoadUse,
+    _model_use: crate::component_registry::models::ModelUse,
 }
 
 pub struct Qwen3Runtime {
@@ -123,20 +105,6 @@ struct ProbeResponse {
     cuda_devices: usize,
 }
 
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
-struct RuntimeDownloadManifest {
-    sha256: String,
-    abi_version: u32,
-    size: u64,
-}
-
-#[derive(Debug, Clone)]
-struct RuntimeAbiProbe {
-    size: u64,
-    modified: Option<SystemTime>,
-    abi_version: Option<u32>,
-}
-
 impl Drop for RuntimeInner {
     fn drop(&mut self) {
         crate::log_info!("[Qwen3Runtime] RuntimeInner drop begin");
@@ -151,7 +119,7 @@ impl Drop for RuntimeInner {
         let aggressive_cuda_reset = should_aggressively_reset_cuda_on_drop();
         if aggressive_cuda_reset {
             crate::log_info!("[Qwen3Runtime] aggressive cudaDeviceReset enabled for teardown");
-            reset_cuda_device();
+            reset_cuda_device(self._component_use.bin_dir());
             crate::log_info!("[Qwen3Runtime] aggressive cudaDeviceReset complete");
         } else {
             crate::log_info!("[Qwen3Runtime] skipping cudaDeviceReset on drop");
@@ -184,13 +152,13 @@ fn set_runtime_notice(message: impl Into<String>) {
 }
 
 #[cfg(target_os = "windows")]
-fn reset_cuda_device() {
+fn reset_cuda_device(runtime_dir: &std::path::Path) {
     type CudaDeviceFn = unsafe extern "C" fn() -> i32;
 
     unsafe {
         unsafe extern "system" {
             fn GetModuleHandleA(lp_module_name: *const u8) -> *mut c_void;
-            fn LoadLibraryA(lp_lib_file_name: *const u8) -> *mut c_void;
+            fn LoadLibraryW(lp_lib_file_name: *const u16) -> *mut c_void;
             fn FreeLibrary(h_module: *mut c_void) -> i32;
             fn GetProcAddress(h_module: *mut c_void, lp_proc_name: *const u8) -> *mut c_void;
         }
@@ -198,7 +166,13 @@ fn reset_cuda_device() {
         let mut module = GetModuleHandleA(c"cudart64_12.dll".as_ptr() as *const u8);
         let loaded_here = module.is_null();
         if loaded_here {
-            module = LoadLibraryA(c"cudart64_12.dll".as_ptr() as *const u8);
+            let path: Vec<u16> = runtime_dir
+                .join("cudart64_12.dll")
+                .to_string_lossy()
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            module = LoadLibraryW(path.as_ptr());
         }
         if !module.is_null() {
             let sync_proc = GetProcAddress(module, c"cudaDeviceSynchronize".as_ptr() as *const u8);
@@ -219,7 +193,7 @@ fn reset_cuda_device() {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn reset_cuda_device() {}
+fn reset_cuda_device(_runtime_dir: &std::path::Path) {}
 
 fn should_aggressively_reset_cuda_on_drop() -> bool {
     std::env::var("SGT_QWEN3_AGGRESSIVE_CUDA_RESET_ON_DROP")
@@ -240,25 +214,34 @@ fn runtime_locale() -> crate::gui::locale::LocaleText {
     crate::gui::locale::LocaleText::get(&ui_language)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn current_qwen3_runtime_notice() -> Option<String> {
     LAST_QWEN3_RUNTIME_NOTICE.lock().ok()?.clone()
 }
 
+#[path = "runtime/install.rs"]
 mod install;
+#[path = "runtime/loader.rs"]
 mod loader;
 
+pub use install::download_qwen3_runtime;
+#[cfg(not(feature = "recorder-worker"))]
 pub use install::{
-    download_qwen3_runtime, is_qwen3_runtime_downloading, is_qwen3_runtime_managed_installed,
-    qwen3_runtime_installed_size, remove_qwen3_runtime,
+    is_qwen3_runtime_downloading, is_qwen3_runtime_installed_for_display,
+    is_qwen3_runtime_managed_installed, qwen3_runtime_installed_size,
+    qwen3_runtime_installed_size_for_display, remove_qwen3_runtime,
 };
-pub use loader::{active_qwen3_runtime_dir, has_discoverable_qwen3_runtime};
+pub use loader::has_discoverable_qwen3_runtime;
+#[cfg(not(feature = "recorder-worker"))]
+pub use loader::{active_qwen3_runtime_dir, active_qwen3_runtime_dir_for_display};
 use loader::{
-    decode_json_ptr, ensure_cuda_driver_loaded, load_symbol, resolve_requested_kv_cache_mode,
-    runtime_config_json, runtime_dll_path, session_config_json, status_to_result,
+    decode_json_ptr, ensure_cuda_driver_loaded, load_component_library, load_symbol,
+    resolve_requested_kv_cache_mode, runtime_config_json, session_config_json, status_to_result,
     validate_probe_capabilities,
 };
 
 impl Qwen3Runtime {
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn load(model_dir: &std::path::Path) -> Result<Self> {
         Self::load_with_kv_cache_mode(model_dir, None)
     }
@@ -267,6 +250,12 @@ impl Qwen3Runtime {
         model_dir: &std::path::Path,
         kv_cache_mode_override: Option<&str>,
     ) -> Result<Self> {
+        let model_use =
+            crate::component_registry::models::acquire_for_path(model_dir).map_err(|error| {
+                let message = format!("Qwen3 model is not ready: {error}");
+                set_runtime_notice(&message);
+                anyhow!(message)
+            })?;
         if let Err(err) = ensure_cuda_driver_loaded() {
             set_runtime_notice(
                 "NVIDIA CUDA driver not available. Qwen3 requires an NVIDIA GPU on Windows.",
@@ -284,37 +273,28 @@ impl Qwen3Runtime {
             }
         };
 
-        let dll_path = runtime_dll_path()?;
-        if !dll_path.exists() {
-            let message = format!("Missing Qwen3 runtime DLL: {}", dll_path.display());
-            set_runtime_notice(&message);
-            return Err(anyhow!(message));
-        }
+        let component_use = crate::component_registry::qwen_runtime::acquire_installed()
+            .and_then(|runtime| runtime.preload_dependencies())
+            .map_err(|error| {
+                let message = format!("Qwen3 runtime is not ready: {error}");
+                set_runtime_notice(&message);
+                anyhow!(message)
+            })?;
+        let dll_path = component_use.bin_dir().join(QWEN3_RUNTIME_DLL);
 
         // Pre-load libtorch CUDA DLLs before loading our runtime DLL. Libtorch
         // caches CUDA availability during initialization; if torch_cuda.dll is
         // already in-process, it will be found via GetModuleHandle rather than a
         // LoadLibrary call that can fail under the loader lock.
-        let _preloaded_cuda = if let Some(dll_dir) = dll_path.parent() {
-            let dir_wide: Vec<u16> = dll_dir
-                .to_string_lossy()
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-            unsafe {
-                use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
-                let _ = SetDllDirectoryW(windows::core::PCWSTR(dir_wide.as_ptr()));
-            }
-            // Pre-load torch_cuda + c10_cuda so they're in-process before libtorch init
-            let c10_cuda = unsafe { Library::new(dll_dir.join("c10_cuda.dll")) }.ok();
-            let torch_cuda = unsafe { Library::new(dll_dir.join("torch_cuda.dll")) }.ok();
-            (c10_cuda, torch_cuda)
-        } else {
-            (None, None)
-        };
+        let dll_dir = component_use.bin_dir();
+        let c10_cuda = unsafe { load_component_library(&dll_dir.join("c10_cuda.dll")) }
+            .context("Failed to preload Qwen3 c10 CUDA support")?;
+        let torch_cuda = unsafe { load_component_library(&dll_dir.join("torch_cuda.dll")) }
+            .context("Failed to preload Qwen3 torch CUDA support")?;
+        let _preloaded_cuda = (Some(c10_cuda), Some(torch_cuda));
 
         let library = unsafe {
-            Library::new(&dll_path).map_err(|err| {
+            load_component_library(&dll_path).map_err(|err| {
                 let message = format!(
                     "Failed to load Qwen3 runtime '{}': {}",
                     dll_path.display(),
@@ -367,7 +347,7 @@ impl Qwen3Runtime {
             "[Qwen3Runtime] CUDA ready, kv_cache_mode={}",
             requested_kv_cache_mode
         );
-        let config_json = runtime_config_json(model_dir, &requested_kv_cache_mode);
+        let config_json = runtime_config_json(model_use.root(), &requested_kv_cache_mode);
         let mut runtime_handle = std::ptr::null_mut();
         let create_status = unsafe {
             (exports.create_runtime)(config_json.as_ptr(), config_json.len(), &mut runtime_handle)
@@ -386,10 +366,13 @@ impl Qwen3Runtime {
                 _preloaded_cuda,
                 exports,
                 handle: runtime_handle,
+                _component_use: component_use,
+                _model_use: model_use,
             }),
         })
     }
 
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn create_session(
         &self,
         chunk_ms: u32,

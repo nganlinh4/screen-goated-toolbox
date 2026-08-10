@@ -40,7 +40,7 @@ pub(crate) fn run_pre_boot(args: &StartupArgs) -> Option<i32> {
         .then(crate::api::realtime_audio::sherpa_onnx::ffi_tts::run_load_probe_process)
 }
 
-pub(crate) fn run_post_unpack(args: &StartupArgs) -> Option<i32> {
+pub(crate) fn run_after_bootstrap(args: &StartupArgs) -> Option<i32> {
     // Keep this dispatch order aligned with the historical entrypoint: when
     // callers pass multiple mode flags, the first matching mode owns the process.
     if let Some(input_wav) = args.value(GT_NARRATION_TEST_FLAG) {

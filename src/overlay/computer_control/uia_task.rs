@@ -63,8 +63,6 @@ pub(super) use snapshot::{SnapshotFrame, snapshot};
 use vision::*;
 use vision_verify::*;
 
-const SYS: &str = include_str!("uia_task/prompt_core.txt");
-
 /// What a socket read yielded: a frame to process, nothing (skip), or an
 /// unexpected close/error that should trigger a resumption reconnect.
 enum ReadOutcome {
@@ -82,7 +80,7 @@ pub(super) fn reconnect(
     reconnect_context: Option<&str>,
 ) -> Result<Sock> {
     let mut s = connect_ws(key).context("reconnect")?;
-    let setup = prompt::build_setup_with_context(resume, voice, search, reconnect_context);
+    let setup = prompt::build_setup_with_context(resume, voice, search, reconnect_context)?;
     super::telemetry::record_model_setup(&setup, "reconnect");
     send(&mut s, setup)?;
     wait_for_setup(&mut s)?;
@@ -215,7 +213,7 @@ pub fn run(task: &str) -> Result<()> {
 
     let key = session::load_key()?;
     let mut socket = connect_ws(&key).context("connect")?;
-    let setup = build_setup(None, false, false);
+    let setup = build_setup(None, false, false)?;
     super::telemetry::record_model_setup(&setup, "initial");
     send(&mut socket, setup)?;
     wait_for_setup(&mut socket)?;
@@ -314,7 +312,7 @@ state shown below.\n{}",
                 continue;
             }
         };
-        for ev in parse_server_message(&frame) {
+        for ev in parse_server_message(&frame)? {
             match ev {
                 ServerEvent::ModelText(t) | ServerEvent::OutputTranscript(t) => {
                     reasoning.push_str(&t)

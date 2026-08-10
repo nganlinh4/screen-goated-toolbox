@@ -1,5 +1,6 @@
 //! Shared state for realtime transcription and translation
 
+#[path = "state/impls.rs"]
 mod impls;
 
 use std::sync::{Arc, Mutex};

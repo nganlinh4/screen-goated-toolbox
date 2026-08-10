@@ -1,5 +1,4 @@
 use super::*;
-use crate::overlay::computer_control::protocol::parse_server_message;
 use serde_json::json;
 use std::sync::mpsc;
 
@@ -231,8 +230,14 @@ fn first_real_output_clears_only_recovery_debt() {
 fn done_with_coalesced_boundary_cannot_enable_late_tools() {
     let mut state = Reader::default();
     let (exec_tx, _exec_rx) = mpsc::channel();
-    let raw = r#"{"serverContent":{"turnComplete":true},"toolCall":{"functionCalls":[{"id":"done-call","name":"done","args":{"summary":"complete"}}]}}"#;
-    let events = parse_server_message(raw);
+    let events = vec![
+        ServerEvent::ToolCall {
+            id: "done-call".to_string(),
+            name: "done".to_string(),
+            args: serde_json::json!({"summary": "complete"}),
+        },
+        ServerEvent::TurnComplete,
+    ];
     super::super::reader_policy::begin_terminal_drain(&mut state, true, false);
     for event in events
         .into_iter()

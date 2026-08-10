@@ -1,55 +1,74 @@
+#[cfg(not(feature = "recorder-worker"))]
 use windows::Win32::Foundation::HWND;
+#[cfg(not(feature = "recorder-worker"))]
 use windows::Win32::Graphics::Gdi::InvalidateRect;
+#[cfg(not(feature = "recorder-worker"))]
 use windows::Win32::Media::Audio::*;
+#[cfg(not(feature = "recorder-worker"))]
 use windows::Win32::System::Com::*;
 
+#[cfg(not(feature = "recorder-worker"))]
 use crate::overlay::result::state::WINDOW_STATES;
 
 /// Clear the TTS loading state for a window and trigger repaint
 pub fn clear_tts_loading_state(hwnd: isize) {
-    // Skip window state management for hwnd=0 (no associated window, e.g. auto-speak without overlay)
-    if hwnd == 0 {
-        return;
-    }
-
+    #[cfg(feature = "recorder-worker")]
     {
-        let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get_mut(&hwnd) {
-            state.tts_loading = false;
+        let _ = hwnd;
+    }
+    #[cfg(not(feature = "recorder-worker"))]
+    {
+        // Skip window state management for hwnd=0 (no associated window, e.g. auto-speak without overlay)
+        if hwnd == 0 {
+            return;
         }
-    }
 
-    // Trigger repaint to update button appearance
-    unsafe {
-        let _ = InvalidateRect(Some(HWND(hwnd as *mut std::ffi::c_void)), None, false);
-    }
+        {
+            let mut states = WINDOW_STATES.lock().unwrap();
+            if let Some(state) = states.get_mut(&hwnd) {
+                state.tts_loading = false;
+            }
+        }
 
-    // Notify button canvas that state has changed
-    crate::overlay::result::button_canvas::update_canvas();
+        // Trigger repaint to update button appearance
+        unsafe {
+            let _ = InvalidateRect(Some(HWND(hwnd as *mut std::ffi::c_void)), None, false);
+        }
+
+        // Notify button canvas that state has changed
+        crate::overlay::result::button_canvas::update_canvas();
+    }
 }
 
 /// Clear TTS state completely when speech ends
 pub fn clear_tts_state(hwnd: isize) {
-    // Skip window state management for hwnd=0 (no associated window, e.g. auto-speak without overlay)
-    if hwnd == 0 {
-        return;
-    }
-
+    #[cfg(feature = "recorder-worker")]
     {
-        let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get_mut(&hwnd) {
-            state.tts_loading = false;
-            state.tts_request_id = 0;
+        let _ = hwnd;
+    }
+    #[cfg(not(feature = "recorder-worker"))]
+    {
+        // Skip window state management for hwnd=0 (no associated window, e.g. auto-speak without overlay)
+        if hwnd == 0 {
+            return;
         }
-    }
 
-    // Trigger repaint to update button appearance
-    unsafe {
-        let _ = InvalidateRect(Some(HWND(hwnd as *mut std::ffi::c_void)), None, false);
-    }
+        {
+            let mut states = WINDOW_STATES.lock().unwrap();
+            if let Some(state) = states.get_mut(&hwnd) {
+                state.tts_loading = false;
+                state.tts_request_id = 0;
+            }
+        }
 
-    // Notify button canvas that state has changed
-    crate::overlay::result::button_canvas::update_canvas();
+        // Trigger repaint to update button appearance
+        unsafe {
+            let _ = InvalidateRect(Some(HWND(hwnd as *mut std::ffi::c_void)), None, false);
+        }
+
+        // Notify button canvas that state has changed
+        crate::overlay::result::button_canvas::update_canvas();
+    }
 }
 
 /// Detect language of text and get matching TTS instruction from config conditions
@@ -125,6 +144,7 @@ pub fn resolve_edge_voice_for_language(
 }
 
 /// List available audio output devices (ID, Name)
+#[cfg(not(feature = "recorder-worker"))]
 pub fn get_output_devices() -> Vec<(String, String)> {
     let mut devices = Vec::new();
     unsafe {

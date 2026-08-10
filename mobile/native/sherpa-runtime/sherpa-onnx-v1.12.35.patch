@@ -1,0 +1,320 @@
+diff --git a/sherpa-onnx/csrc/online-recognizer-impl.cc b/sherpa-onnx/csrc/online-recognizer-impl.cc
+index 1c0e45a..4c4f306 100644
+--- a/sherpa-onnx/csrc/online-recognizer-impl.cc
++++ b/sherpa-onnx/csrc/online-recognizer-impl.cc
+@@ -22,75 +22,18 @@
+ #include "fst/extensions/far/far.h"
+ #include "kaldifst/csrc/kaldi-fst-io.h"
+ #include "sherpa-onnx/csrc/macros.h"
+-#include "sherpa-onnx/csrc/online-recognizer-ctc-impl.h"
+-#include "sherpa-onnx/csrc/online-recognizer-paraformer-impl.h"
+ #include "sherpa-onnx/csrc/online-recognizer-transducer-impl.h"
+-#include "sherpa-onnx/csrc/online-recognizer-transducer-nemo-impl.h"
+-#include "sherpa-onnx/csrc/onnx-utils.h"
+ #include "sherpa-onnx/csrc/text-utils.h"
+ 
+-#if SHERPA_ONNX_ENABLE_RKNN
+-#include "sherpa-onnx/csrc/rknn/online-recognizer-ctc-rknn-impl.h"
+-#include "sherpa-onnx/csrc/rknn/online-recognizer-transducer-rknn-impl.h"
+-#endif
+-
+ namespace sherpa_onnx {
+ 
+ std::unique_ptr<OnlineRecognizerImpl> OnlineRecognizerImpl::Create(
+     const OnlineRecognizerConfig &config) {
+-  if (config.model_config.provider_config.provider == "rknn") {
+-#if SHERPA_ONNX_ENABLE_RKNN
+-    if (config.model_config.transducer.encoder.empty() &&
+-        config.model_config.zipformer2_ctc.model.empty()) {
+-      SHERPA_ONNX_LOGE(
+-          "Only Zipformer transducers and CTC models are currently supported "
+-          "by rknn. Fallback to CPU. Make sure you pass an onnx model");
+-    } else if (!config.model_config.transducer.encoder.empty()) {
+-      return std::make_unique<OnlineRecognizerTransducerRknnImpl>(config);
+-    } else if (!config.model_config.zipformer2_ctc.model.empty()) {
+-      return std::make_unique<OnlineRecognizerCtcRknnImpl>(config);
+-    }
+-#else
+-    SHERPA_ONNX_LOGE(
+-        "Please rebuild sherpa-onnx with -DSHERPA_ONNX_ENABLE_RKNN=ON if you "
+-        "want to use rknn.");
+-    SHERPA_ONNX_EXIT(-1);
+-    return nullptr;
+-#endif
+-  }
+-
+   if (!config.model_config.transducer.encoder.empty()) {
+-    Ort::Env env(ORT_LOGGING_LEVEL_ERROR);
+-
+-    Ort::SessionOptions sess_opts;
+-    sess_opts.SetIntraOpNumThreads(1);
+-    sess_opts.SetInterOpNumThreads(1);
+-
+-    auto decoder_model = ReadFile(config.model_config.transducer.decoder);
+-    auto sess = std::make_unique<Ort::Session>(env, decoder_model.data(),
+-                                               decoder_model.size(), sess_opts);
+-
+-    size_t node_count = sess->GetOutputCount();
+-
+-    if (node_count == 1) {
+-      return std::make_unique<OnlineRecognizerTransducerImpl>(config);
+-    } else {
+-      return std::make_unique<OnlineRecognizerTransducerNeMoImpl>(config);
+-    }
+-  }
+-
+-  if (!config.model_config.paraformer.encoder.empty()) {
+-    return std::make_unique<OnlineRecognizerParaformerImpl>(config);
+-  }
+-
+-  if (!config.model_config.wenet_ctc.model.empty() ||
+-      !config.model_config.zipformer2_ctc.model.empty() ||
+-      !config.model_config.nemo_ctc.model.empty() ||
+-      !config.model_config.t_one_ctc.model.empty()) {
+-    return std::make_unique<OnlineRecognizerCtcImpl>(config);
++    return std::make_unique<OnlineRecognizerTransducerImpl>(config);
+   }
+ 
+-  SHERPA_ONNX_LOGE("Please specify a model");
++  SHERPA_ONNX_LOGE("This runtime requires a transducer model");
+   SHERPA_ONNX_EXIT(-1);
+   return nullptr;
+ }
+@@ -98,60 +41,11 @@ std::unique_ptr<OnlineRecognizerImpl> OnlineRecognizerImpl::Create(
+ template <typename Manager>
+ std::unique_ptr<OnlineRecognizerImpl> OnlineRecognizerImpl::Create(
+     Manager *mgr, const OnlineRecognizerConfig &config) {
+-  if (config.model_config.provider_config.provider == "rknn") {
+-#if SHERPA_ONNX_ENABLE_RKNN
+-    if (config.model_config.transducer.encoder.empty() &&
+-        config.model_config.zipformer2_ctc.model.empty()) {
+-      SHERPA_ONNX_LOGE(
+-          "Only Zipformer transducers and CTC models are currently supported "
+-          "by rknn. Fallback to CPU");
+-    } else if (!config.model_config.transducer.encoder.empty()) {
+-      return std::make_unique<OnlineRecognizerTransducerRknnImpl>(mgr, config);
+-    } else if (!config.model_config.zipformer2_ctc.model.empty()) {
+-      return std::make_unique<OnlineRecognizerCtcRknnImpl>(mgr, config);
+-    }
+-#else
+-    SHERPA_ONNX_LOGE(
+-        "Please rebuild sherpa-onnx with -DSHERPA_ONNX_ENABLE_RKNN=ON if you "
+-        "want to use rknn.");
+-    SHERPA_ONNX_EXIT(-1);
+-    return nullptr;
+-#endif
+-  }
+-
+   if (!config.model_config.transducer.encoder.empty()) {
+-    Ort::Env env(ORT_LOGGING_LEVEL_ERROR);
+-
+-    Ort::SessionOptions sess_opts;
+-    sess_opts.SetIntraOpNumThreads(1);
+-    sess_opts.SetInterOpNumThreads(1);
+-
+-    auto decoder_model = ReadFile(mgr, config.model_config.transducer.decoder);
+-    auto sess = std::make_unique<Ort::Session>(env, decoder_model.data(),
+-                                               decoder_model.size(), sess_opts);
+-
+-    size_t node_count = sess->GetOutputCount();
+-
+-    if (node_count == 1) {
+-      return std::make_unique<OnlineRecognizerTransducerImpl>(mgr, config);
+-    } else {
+-      return std::make_unique<OnlineRecognizerTransducerNeMoImpl>(mgr, config);
+-    }
+-  }
+-
+-  if (!config.model_config.paraformer.encoder.empty()) {
+-    return std::make_unique<OnlineRecognizerParaformerImpl>(mgr, config);
+-  }
+-
+-  if (!config.model_config.wenet_ctc.model.empty() ||
+-      !config.model_config.zipformer2_ctc.model.empty() ||
+-      !config.model_config.nemo_ctc.model.empty() ||
+-      !config.model_config.t_one_ctc.model.empty()) {
+-    return std::make_unique<OnlineRecognizerCtcImpl>(mgr, config);
++    return std::make_unique<OnlineRecognizerTransducerImpl>(mgr, config);
+   }
+ 
+-  SHERPA_ONNX_LOGE("Please specify a model");
++  SHERPA_ONNX_LOGE("This runtime requires a transducer model");
+   SHERPA_ONNX_EXIT(-1);
+   return nullptr;
+ }
+diff --git a/sherpa-onnx/csrc/online-transducer-model.cc b/sherpa-onnx/csrc/online-transducer-model.cc
+index 157350f..057334d 100644
+--- a/sherpa-onnx/csrc/online-transducer-model.cc
++++ b/sherpa-onnx/csrc/online-transducer-model.cc
+@@ -21,9 +21,6 @@
+ 
+ #include "sherpa-onnx/csrc/file-utils.h"
+ #include "sherpa-onnx/csrc/macros.h"
+-#include "sherpa-onnx/csrc/online-conformer-transducer-model.h"
+-#include "sherpa-onnx/csrc/online-ebranchformer-transducer-model.h"
+-#include "sherpa-onnx/csrc/online-lstm-transducer-model.h"
+ #include "sherpa-onnx/csrc/online-zipformer-transducer-model.h"
+ #include "sherpa-onnx/csrc/online-zipformer2-transducer-model.h"
+ #include "sherpa-onnx/csrc/onnx-utils.h"
+@@ -31,9 +28,6 @@
+ namespace {
+ 
+ enum class ModelType : std::uint8_t {
+-  kConformer,
+-  kEbranchformer,
+-  kLstm,
+   kZipformer,
+   kZipformer2,
+   kUnknown,
+@@ -75,13 +69,7 @@ static ModelType GetModelType(char *model_data, size_t model_data_length,
+     return ModelType::kUnknown;
+   }
+ 
+-  if (model_type == "conformer") {
+-    return ModelType::kConformer;
+-  } else if (model_type == "ebranchformer") {
+-    return ModelType::kEbranchformer;
+-  } else if (model_type == "lstm") {
+-    return ModelType::kLstm;
+-  } else if (model_type == "zipformer") {
++  if (model_type == "zipformer") {
+     return ModelType::kZipformer;
+   } else if (model_type == "zipformer2") {
+     return ModelType::kZipformer2;
+@@ -95,13 +83,7 @@ std::unique_ptr<OnlineTransducerModel> OnlineTransducerModel::Create(
+     const OnlineModelConfig &config) {
+   if (!config.model_type.empty()) {
+     const auto &model_type = config.model_type;
+-    if (model_type == "conformer") {
+-      return std::make_unique<OnlineConformerTransducerModel>(config);
+-    } else if (model_type == "ebranchformer") {
+-      return std::make_unique<OnlineEbranchformerTransducerModel>(config);
+-    } else if (model_type == "lstm") {
+-      return std::make_unique<OnlineLstmTransducerModel>(config);
+-    } else if (model_type == "zipformer") {
++    if (model_type == "zipformer") {
+       return std::make_unique<OnlineZipformerTransducerModel>(config);
+     } else if (model_type == "zipformer2") {
+       return std::make_unique<OnlineZipformer2TransducerModel>(config);
+@@ -120,12 +102,6 @@ std::unique_ptr<OnlineTransducerModel> OnlineTransducerModel::Create(
+   }
+ 
+   switch (model_type) {
+-    case ModelType::kConformer:
+-      return std::make_unique<OnlineConformerTransducerModel>(config);
+-    case ModelType::kEbranchformer:
+-      return std::make_unique<OnlineEbranchformerTransducerModel>(config);
+-    case ModelType::kLstm:
+-      return std::make_unique<OnlineLstmTransducerModel>(config);
+     case ModelType::kZipformer:
+       return std::make_unique<OnlineZipformerTransducerModel>(config);
+     case ModelType::kZipformer2:
+@@ -178,13 +154,7 @@ std::unique_ptr<OnlineTransducerModel> OnlineTransducerModel::Create(
+     Manager *mgr, const OnlineModelConfig &config) {
+   if (!config.model_type.empty()) {
+     const auto &model_type = config.model_type;
+-    if (model_type == "conformer") {
+-      return std::make_unique<OnlineConformerTransducerModel>(mgr, config);
+-    } else if (model_type == "ebranchformer") {
+-      return std::make_unique<OnlineEbranchformerTransducerModel>(mgr, config);
+-    } else if (model_type == "lstm") {
+-      return std::make_unique<OnlineLstmTransducerModel>(mgr, config);
+-    } else if (model_type == "zipformer") {
++    if (model_type == "zipformer") {
+       return std::make_unique<OnlineZipformerTransducerModel>(mgr, config);
+     } else if (model_type == "zipformer2") {
+       return std::make_unique<OnlineZipformer2TransducerModel>(mgr, config);
+@@ -199,12 +169,6 @@ std::unique_ptr<OnlineTransducerModel> OnlineTransducerModel::Create(
+   auto model_type = GetModelType(buffer.data(), buffer.size(), config.debug);
+ 
+   switch (model_type) {
+-    case ModelType::kConformer:
+-      return std::make_unique<OnlineConformerTransducerModel>(mgr, config);
+-    case ModelType::kEbranchformer:
+-      return std::make_unique<OnlineEbranchformerTransducerModel>(mgr, config);
+-    case ModelType::kLstm:
+-      return std::make_unique<OnlineLstmTransducerModel>(mgr, config);
+     case ModelType::kZipformer:
+       return std::make_unique<OnlineZipformerTransducerModel>(mgr, config);
+     case ModelType::kZipformer2:
+diff --git a/sherpa-onnx/jni/CMakeLists.txt b/sherpa-onnx/jni/CMakeLists.txt
+index 3996afb..526f640 100644
+--- a/sherpa-onnx/jni/CMakeLists.txt
++++ b/sherpa-onnx/jni/CMakeLists.txt
+@@ -11,48 +11,26 @@ if(NOT DEFINED ANDROID_ABI)
+ endif()
+ 
+ set(sources
+-  audio-tagging.cc
+-  common.cc
+-  jni.cc
+-  keyword-spotter.cc
+-  offline-punctuation.cc
+-  offline-recognizer.cc
+-  offline-speech-denoiser.cc
+-  offline-stream.cc
+-  online-speech-denoiser.cc
+-  online-punctuation.cc
+   online-recognizer.cc
+   online-stream.cc
+-  speaker-embedding-extractor.cc
+-  speaker-embedding-manager.cc
+-  speech-denoiser.cc
+-  spoken-language-identification.cc
+-  version.cc
+-  voice-activity-detector.cc
+-  wave-reader.cc
+-  wave-writer.cc
+ )
+ 
+-if(SHERPA_ONNX_ENABLE_TTS)
+-  list(APPEND sources
+-    offline-tts.cc
+-  )
+-endif()
+-
+-if(SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION)
+-  list(APPEND sources
+-    offline-speaker-diarization.cc
+-  )
+-endif()
+-
+ add_library(sherpa-onnx-jni SHARED ${sources})
+ 
++target_compile_options(sherpa-onnx-jni PRIVATE
++  -Oz
++  -ffunction-sections
++  -fdata-sections
++  -fvisibility=hidden
++  -fvisibility-inlines-hidden
++)
++
+ target_compile_definitions(sherpa-onnx-jni PRIVATE SHERPA_ONNX_BUILD_SHARED_LIBS=1)
+ target_compile_definitions(sherpa-onnx-jni PRIVATE SHERPA_ONNX_BUILD_MAIN_LIB=1)
+ 
+ if(ANDROID OR (UNIX AND NOT APPLE))
+   set_target_properties(sherpa-onnx-jni PROPERTIES
+-    LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/sherpa-onnx-symbols.lds"
++    LINK_FLAGS "-Wl,--gc-sections,--icf=safe,--exclude-libs,ALL,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/sherpa-onnx-symbols.lds"
+   )
+ elseif(APPLE)
+   set_target_properties(sherpa-onnx-jni PROPERTIES
+diff --git a/sherpa-onnx/jni/sherpa-onnx-symbols.lds b/sherpa-onnx/jni/sherpa-onnx-symbols.lds
+index 4931fa0..c93ec37 100644
+--- a/sherpa-onnx/jni/sherpa-onnx-symbols.lds
++++ b/sherpa-onnx/jni/sherpa-onnx-symbols.lds
+@@ -1,6 +1,13 @@
+ {
+   global:
+-    Java_com_k2fsa_sherpa_onnx*;
++    Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_newFromFile;
++    Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_delete;
++    Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_createStream;
++    Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_isReady;
++    Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_decode;
++    Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_getResult;
++    Java_com_k2fsa_sherpa_onnx_OnlineStream_acceptWaveform;
++    Java_com_k2fsa_sherpa_onnx_OnlineStream_delete;
+   local:
+     *;
+ };

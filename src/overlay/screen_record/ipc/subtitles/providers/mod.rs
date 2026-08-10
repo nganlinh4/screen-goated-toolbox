@@ -14,7 +14,6 @@ use crate::APP;
 use crate::api::realtime_audio::parakeet_tdt_assets;
 use crate::api::realtime_audio::qwen3::{Qwen3ModelVariant, assets, runtime};
 use crate::model_config::get_model_by_id;
-use crate::runtime_support::{RuntimeArch, environment_info};
 use crate::unpack_dlls::{self, AiRuntimeStatus};
 
 use super::media::PreparedSubtitleMedia;
@@ -105,29 +104,10 @@ fn qwen_local_capability(
     method: SubtitleGenerationMethod,
     variant: Qwen3ModelVariant,
 ) -> SubtitleMethodCapability {
-    let env = environment_info();
     let model_label = match variant {
         Qwen3ModelVariant::Small => "Qwen3-ASR 0.6B",
         Qwen3ModelVariant::Large => "Qwen3-ASR 1.7B",
     };
-    if env.process_arch != RuntimeArch::X64 {
-        return SubtitleMethodCapability {
-            method,
-            available: false,
-            reason: Some(
-                "Qwen Local subtitles currently require the x64 Windows build.".to_string(),
-            ),
-        };
-    }
-    if env.native_arch == RuntimeArch::Arm64 {
-        return SubtitleMethodCapability {
-            method,
-            available: false,
-            reason: Some(
-                "Qwen Local subtitles are not supported on Windows-on-Arm yet.".to_string(),
-            ),
-        };
-    }
     let model_downloaded = match variant {
         Qwen3ModelVariant::Small => assets::is_qwen3_model_downloaded(),
         Qwen3ModelVariant::Large => assets::is_qwen3_1_7b_model_downloaded(),
@@ -160,13 +140,16 @@ fn qwen_local_capability(
 
 fn parakeet_tdt_capability() -> SubtitleMethodCapability {
     let method = SubtitleGenerationMethod::ParakeetTdt0_6BV3;
-    let env = environment_info();
-    if env.process_arch != RuntimeArch::X64 {
+    let worker_status = crate::component_registry::local_asr::current_status(
+        crate::component_registry::local_asr::ComponentKind::Worker,
+    );
+    if !crate::component_registry::local_asr::status_is_ready(&worker_status) {
         return SubtitleMethodCapability {
             method,
             available: false,
             reason: Some(
-                "Parakeet TDT subtitles currently require the x64 Windows build.".to_string(),
+                "Install the local speech recognition engine from Downloaded Tools to use Parakeet subtitles."
+                    .to_string(),
             ),
         };
     }
@@ -182,7 +165,7 @@ fn parakeet_tdt_capability() -> SubtitleMethodCapability {
     }
     if !matches!(
         unpack_dlls::current_ai_runtime_status(),
-        AiRuntimeStatus::Installed { .. }
+        AiRuntimeStatus::Installed
     ) {
         return SubtitleMethodCapability {
             method,

@@ -78,7 +78,10 @@ pub(super) fn resolve_image_url(url: &str) -> Result<String, String> {
               (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
     // Strategy 1: Fetch the page and look for og:image or lh3 URLs in the HTML/JS
-    if let Ok(response) = ureq::get(url).header("User-Agent", ua).call()
+    if let Ok(response) = crate::api::client::UREQ_AGENT
+        .get(url)
+        .header("User-Agent", ua)
+        .call()
         && let Ok(body) = response.into_body().read_to_string()
     {
         // Try og:image meta tag
@@ -113,7 +116,11 @@ pub(super) fn resolve_image_url(url: &str) -> Result<String, String> {
         if !photo_id.is_empty() {
             let direct = format!("https://lh3.googleusercontent.com/pw/{photo_id}=w2560-h2560");
             // Verify it returns an image (HEAD request)
-            if let Ok(resp) = ureq::head(&direct).header("User-Agent", ua).call() {
+            if let Ok(resp) = crate::api::client::UREQ_AGENT
+                .head(&direct)
+                .header("User-Agent", ua)
+                .call()
+            {
                 let ct = resp
                     .headers()
                     .get("Content-Type")

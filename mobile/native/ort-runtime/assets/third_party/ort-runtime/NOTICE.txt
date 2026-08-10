@@ -1,0 +1,15 @@
+Screen Goated Toolbox reduced ONNX Runtime for Android
+
+This optional binary is built from ONNX Runtime v1.24.2 at commit
+058787ceead760166e3c50a0a4cba8a833a6f53f. The source repository is:
+
+  https://github.com/microsoft/onnxruntime
+
+The build is limited to the CPU operators required by the supported Moonshine
+streaming models and the models embedded in the Moonshine runtime. It retains
+the public ONNX Runtime C API used by Moonshine and is delivered independently
+from the self-contained Sherpa runtime.
+
+ONNX Runtime is distributed under the MIT License. See
+onnxruntime-LICENSE.txt. Its complete upstream third-party attribution file is
+included as onnxruntime-ThirdPartyNotices.txt.

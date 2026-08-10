@@ -518,7 +518,7 @@ pub fn send_windows_update() {
 }
 
 fn apply_theme(is_dark: bool) {
-    let css = serde_json::to_string(get_canvas_theme_css(is_dark)).unwrap_or_default();
+    let css = serde_json::to_string(&get_canvas_theme_css(is_dark)).unwrap_or_default();
     let script =
         format!("var s = document.getElementById('theme-css'); if(s) s.textContent = {css};");
     CANVAS_WEBVIEW.with(|cell| {

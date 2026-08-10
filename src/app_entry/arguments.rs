@@ -60,14 +60,8 @@ impl StartupArgs {
             return smoke_enabled;
         }
 
-        let remote_arg =
-            format!("--remote-debugging-port={port} --remote-debugging-address=0.0.0.0");
-        let next_args = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
-            Ok(existing) if !existing.trim().is_empty() => format!("{existing} {remote_arg}"),
-            _ => remote_arg,
-        };
         unsafe {
-            std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", next_args);
+            std::env::set_var("SGT_RECORDER_WEBVIEW2_DEBUG_PORT", &port);
             if std::env::var("SGT_SCREEN_RECORD_WEBVIEW2_DATA_DIR").is_err() {
                 std::env::set_var(
                     "SGT_SCREEN_RECORD_WEBVIEW2_DATA_DIR",

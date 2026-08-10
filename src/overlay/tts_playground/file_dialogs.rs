@@ -2,7 +2,9 @@
 //! WAV / MP3). Promoted here from the now-retiring egui module so the WRY
 //! mini-app + any other callers don't have to depend on the old GUI tree.
 
-use std::path::{Path, PathBuf};
+#[cfg(not(feature = "recorder-worker"))]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Picks an existing audio file (WAV / FLAC / OGG / AIFF…) via the Windows
 /// system open-file dialog. Returns `Ok(None)` when the user cancels.
@@ -20,6 +22,7 @@ pub fn pick_audio_file_dialog() -> Result<Option<PathBuf>, String> {
 /// Writes the WAV bytes for a TTS Playground clip to a user-chosen path and
 /// returns the path. Cancel returns Err("Save cancelled") so callers can
 /// distinguish cancel from real I/O errors.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn save_wav(default_filename: &str, wav_bytes: &[u8]) -> Result<PathBuf, String> {
     let path = save_file_dialog(default_filename, "WAV Audio (*.wav)", "*.wav", "wav")?;
     std::fs::write(&path, wav_bytes).map_err(|err| err.to_string())?;
@@ -29,14 +32,15 @@ pub fn save_wav(default_filename: &str, wav_bytes: &[u8]) -> Result<PathBuf, Str
 /// Transcodes WAV bytes to MP3 using ffmpeg and writes the result to a
 /// user-chosen path. Uses the FFmpeg dependency manager so an automatic
 /// download happens if missing.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn save_mp3(default_filename: &str, wav_bytes: &[u8], clip_id: u64) -> Result<PathBuf, String> {
     let ffmpeg =
-        crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge()?;
+        crate::gui::settings_ui::download_manager::ffmpeg_dependency::acquire_ffmpeg_with_badge()?;
     let output_path = save_file_dialog(default_filename, "MP3 Audio (*.mp3)", "*.mp3", "mp3")?;
     let temp_wav = std::env::temp_dir().join(format!("sgt_tts_playground_{clip_id}.wav"));
     std::fs::write(&temp_wav, wav_bytes).map_err(|err| err.to_string())?;
 
-    let output = std::process::Command::new(&ffmpeg)
+    let output = std::process::Command::new(ffmpeg.executable())
         .args([
             "-y",
             "-i",
@@ -59,6 +63,7 @@ pub fn save_mp3(default_filename: &str, wav_bytes: &[u8], clip_id: u64) -> Resul
     Ok(output_path)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 fn save_file_dialog(
     default_name: &str,
     filter_name: &str,
@@ -146,7 +151,7 @@ fn pick_audio_file_dialog_windows() -> Result<Option<PathBuf>, String> {
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "recorder-worker")))]
 fn save_file_dialog_windows(
     default_name: &str,
     filter_name: &str,

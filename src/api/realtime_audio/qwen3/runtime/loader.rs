@@ -1,7 +1,7 @@
 use super::{
     KV_CACHE_MODE_DENSE_APPEND, KV_CACHE_MODE_EXPERIMENTAL_TURBOQUANT,
-    KV_CACHE_MODE_LEGACY_PAGED_INT8, NATIVE_IMPLEMENTATION, ProbeResponse, QWEN3_RUNTIME_DLL,
-    RuntimeExports, SGT_QWEN3_STATUS_OK, install::qwen3_runtime_dir_is_usable, set_runtime_notice,
+    KV_CACHE_MODE_LEGACY_PAGED_INT8, NATIVE_IMPLEMENTATION, ProbeResponse, RuntimeExports,
+    SGT_QWEN3_STATUS_OK, set_runtime_notice,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use libloading::Library;
@@ -9,89 +9,39 @@ use serde_json::json;
 use std::ffi::{c_char, c_void};
 use std::path::{Path, PathBuf};
 
-pub(super) fn runtime_dll_path() -> Result<PathBuf> {
-    if let Some(dir) = active_qwen3_runtime_dir() {
-        return Ok(dir.join(QWEN3_RUNTIME_DLL));
-    }
-
-    let exe = std::env::current_exe().map_err(|err| {
-        anyhow!("Failed to locate current executable for Qwen3 runtime lookup: {err}")
-    })?;
-    let parent = exe
-        .parent()
-        .ok_or_else(|| anyhow!("Current executable has no parent directory"))?;
-    Ok(parent.join(QWEN3_RUNTIME_DLL))
+pub fn active_qwen3_runtime_dir() -> Option<PathBuf> {
+    crate::component_registry::qwen_runtime::active_bin_dir()
 }
 
-pub fn active_qwen3_runtime_dir() -> Option<PathBuf> {
-    runtime_dll_candidates()
-        .ok()?
-        .into_iter()
-        .filter_map(|path| path.parent().map(|parent| parent.to_path_buf()))
-        .find(|dir| qwen3_runtime_dir_is_usable(dir))
+#[cfg(not(feature = "recorder-worker"))]
+pub fn active_qwen3_runtime_dir_for_display() -> Option<PathBuf> {
+    crate::component_registry::qwen_runtime::active_bin_dir_for_display()
 }
 
 pub fn has_discoverable_qwen3_runtime() -> bool {
     active_qwen3_runtime_dir().is_some()
 }
 
-fn runtime_dll_candidates() -> Result<Vec<PathBuf>> {
-    let mut candidates = Vec::new();
-
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(parent) = exe.parent()
+pub(super) unsafe fn load_component_library(path: &Path) -> Result<Library> {
+    #[cfg(target_os = "windows")]
     {
-        candidates.push(parent.join(QWEN3_RUNTIME_DLL));
-    }
-
-    candidates.push(crate::unpack_dlls::private_bin_dir().join(QWEN3_RUNTIME_DLL));
-
-    if let Ok(repo_root) = repo_root() {
-        candidates.push(
-            repo_root
-                .join("native")
-                .join("qwen3_runtime")
-                .join("target")
-                .join("release")
-                .join(QWEN3_RUNTIME_DLL),
-        );
-        candidates.push(
-            repo_root
-                .join("dist")
-                .join("qwen3-runtime-windows-x64")
-                .join(QWEN3_RUNTIME_DLL),
-        );
-    }
-
-    Ok(candidates)
-}
-
-fn repo_root() -> Result<PathBuf> {
-    let mut seeds = Vec::new();
-    if let Ok(dir) = std::env::current_dir() {
-        seeds.push(dir);
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(parent) = exe.parent()
-    {
-        seeds.push(parent.to_path_buf());
-    }
-
-    for seed in seeds {
-        let mut dir = seed;
-        loop {
-            if dir.join("Cargo.toml").exists() && dir.join(".claude").exists() {
-                return Ok(dir);
-            }
-            if !dir.pop() {
-                break;
-            }
+        use libloading::os::windows::{
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32,
+        };
+        unsafe {
+            libloading::os::windows::Library::load_with_flags(
+                path,
+                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
+            )
+            .map(Library::from)
+            .with_context(|| format!("Failed to load native library '{}'", path.display()))
         }
     }
-
-    Err(anyhow!(
-        "Failed to discover repository root for Qwen3 runtime lookup"
-    ))
+    #[cfg(not(target_os = "windows"))]
+    unsafe {
+        Library::new(path)
+            .with_context(|| format!("Failed to load native library '{}'", path.display()))
+    }
 }
 
 pub(super) fn ensure_cuda_driver_loaded() -> Result<()> {

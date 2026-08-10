@@ -406,7 +406,7 @@ pub(super) fn wait_for_setup(socket: &mut Sock) -> Result<()> {
             Err(e) if is_transient_socket_read_error(&e) => continue,
             Err(e) => anyhow::bail!("setup read error: {e}"),
         };
-        for ev in parse_server_message(&text) {
+        for ev in parse_server_message(&text)? {
             if matches!(ev, ServerEvent::SetupComplete) {
                 return Ok(());
             }

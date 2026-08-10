@@ -38,15 +38,21 @@ pub fn update_translation_text(hwnd: HWND, text: &str) {
 }
 
 pub fn request_realtime_egui_repaint() {
-    use std::sync::atomic::Ordering;
+    #[cfg(feature = "recorder-worker")]
+    return;
 
-    if !crate::overlay::realtime_egui::MINIMAL_ACTIVE.load(Ordering::SeqCst) {
-        return;
-    }
-    if let Ok(guard) = crate::gui::GUI_CONTEXT.lock()
-        && let Some(ctx) = guard.as_ref()
+    #[cfg(not(feature = "recorder-worker"))]
     {
-        ctx.request_repaint();
+        use std::sync::atomic::Ordering;
+
+        if !crate::overlay::realtime_egui::MINIMAL_ACTIVE.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Ok(guard) = crate::gui::GUI_CONTEXT.lock()
+            && let Some(ctx) = guard.as_ref()
+        {
+            ctx.request_repaint();
+        }
     }
 }
 

@@ -13,7 +13,7 @@ use windows::core::Interface;
 use super::{import_normalize, recordings_dir};
 
 const SUPPORTED_AUDIO_EXTENSIONS: &[&str] = &[
-    "wav", "mp3", "flac", "ogg", "m4a", "aac", "alac", "aiff", "aif", "wma", "opus", "mka",
+    "wav", "mp3", "flac", "ogg", "m4a", "aac", "alac", "aiff", "aif", "opus", "mka",
 ];
 
 pub(super) fn managed_import_audio_path(
@@ -178,4 +178,22 @@ pub fn import_audio_path_to_managed_media_file(
     );
 
     Ok((output_path.to_string_lossy().to_string(), duration_sec))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_audio_import_contract_matches_explicit_probes() {
+        assert_eq!(
+            SUPPORTED_AUDIO_EXTENSIONS,
+            [
+                "wav", "mp3", "flac", "ogg", "m4a", "aac", "alac", "aiff", "aif", "opus", "mka",
+            ]
+        );
+        assert_eq!(normalized_audio_extension("WMA"), "mp3");
+        assert_eq!(normalized_audio_extension("MKA"), "mka");
+        assert_eq!(normalized_audio_extension("OPUS"), "opus");
+    }
 }

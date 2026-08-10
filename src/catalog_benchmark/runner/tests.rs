@@ -146,7 +146,7 @@ fn non_streaming_response_reports_completion_as_first_output() {
 fn attempts_fingerprint_the_current_production_reasoning_policy() {
     let cases = [
         ("google-gemini-3-5-flash-lite-text", "gemini-level:minimal"),
-        ("google-gemini-2-5-flash-lite-text", "gemini-budget:0"),
+        ("google-gemini-robotics-er-1-6-text", "gemini-budget:0"),
         ("groq-qwen-3-6-27b-vision", "openai-effort:none"),
         ("cerebras-gpt-oss-120b-text", "openai-effort:low"),
     ];

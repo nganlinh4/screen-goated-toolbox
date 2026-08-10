@@ -222,22 +222,24 @@ fn call_model(
     };
     let started = Instant::now();
     let mut events = Vec::new();
-    let result = translate_image_streaming(
-        TranslateImageRequest {
-            groq_api_key: &credentials.groq,
-            gemini_api_key: &credentials.gemini,
-            prompt: request.prompt,
-            model: model.full_name.clone(),
-            provider: model.provider.clone(),
-            image,
-            original_bytes: Some(image_bytes.to_vec()),
-            streaming_enabled: GROUNDING_STREAMING_ENABLED,
-            response_schema: request.response_schema,
-            cancel_token: None,
-            request_timeout: timeout,
-        },
-        |chunk| events.push((started.elapsed().as_millis(), chunk.to_string())),
-    );
+    let result = credentials.with_provider_key(&model.provider, |gemini_api_key| {
+        translate_image_streaming(
+            TranslateImageRequest {
+                groq_api_key: &credentials.groq,
+                gemini_api_key,
+                prompt: request.prompt,
+                model: model.full_name.clone(),
+                provider: model.provider.clone(),
+                image,
+                original_bytes: Some(image_bytes.to_vec()),
+                streaming_enabled: GROUNDING_STREAMING_ENABLED,
+                response_schema: request.response_schema,
+                cancel_token: None,
+                request_timeout: timeout,
+            },
+            |chunk| events.push((started.elapsed().as_millis(), chunk.to_string())),
+        )
+    });
     let elapsed = started.elapsed().as_millis();
     let timing = match &result {
         Ok(response) => TimingMetrics::for_response(elapsed, &events, response),
@@ -322,7 +324,11 @@ mod tests {
     #[test]
     fn coordinate_benchmark_uses_the_exact_production_contract() {
         let request = point_request("the fourth star", "Give a four-star rating");
-        assert!(request.prompt.contains("supplied schema"));
+        assert!(
+            request
+                .prompt
+                .contains("only the keys \"points\" and \"missing\"")
+        );
         assert!(request.response_schema.is_some());
         assert_eq!(
             request.response_schema,

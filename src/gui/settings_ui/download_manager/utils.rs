@@ -1,9 +1,12 @@
-use super::types::InstallStatus;
-use std::fs;
-use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::process::Command;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt as _;
+
+use super::types::CookieBrowser;
+use crate::component_registry::external_tools::{self, ExternalTool};
 
 type VideoFormatLists = (Vec<String>, Vec<String>, Vec<String>);
 
@@ -11,225 +14,34 @@ pub fn log(logs: &Arc<Mutex<Vec<String>>>, msg: impl Into<String>) {
     logs.lock().unwrap().push(msg.into());
 }
 
-pub fn download_file(
-    url: &str,
-    path: &PathBuf,
-    status: &Arc<Mutex<InstallStatus>>,
-    cancel: &Arc<AtomicBool>,
-) -> Result<(), String> {
-    let resp = ureq::get(url).call().map_err(|e| e.to_string())?;
-
-    let total_size = resp
-        .headers()
-        .get("Content-Length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(0);
-
-    // Download to temp file first
-    let temp_path = path.with_extension("tmp");
-    let mut reader = resp.into_body().into_reader();
-    let mut file = fs::File::create(&temp_path).map_err(|e| e.to_string())?;
-
-    let mut buffer = [0; 8192];
-    let mut downloaded: u64 = 0;
-
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            // Cleanup temp file on cancel
-            drop(file);
-            let _ = fs::remove_file(&temp_path);
-            return Err("Cancelled".to_string());
-        }
-        let bytes_read = reader.read(&mut buffer).map_err(|e| e.to_string())?;
-        if bytes_read == 0 {
-            break;
-        }
-        file.write_all(&buffer[..bytes_read])
-            .map_err(|e| e.to_string())?;
-        downloaded += bytes_read as u64;
-
-        if total_size > 0 {
-            let progress = downloaded as f32 / total_size as f32;
-            *status.lock().unwrap() = InstallStatus::Downloading(progress);
-        }
-    }
-
-    // Ensure file is flushed and closed before rename
-    drop(file);
-
-    // Rename temp file to final path
-    fs::rename(&temp_path, path).map_err(|e| {
-        let _ = fs::remove_file(&temp_path);
-        format!("Failed to rename temp file: {}", e)
-    })?;
-
-    Ok(())
-}
-
-pub fn extract_ffmpeg(zip_path: &PathBuf, bin_dir: &Path) -> Result<(), String> {
-    let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
-    let stage_dir = bin_dir.join("_ffmpeg_extract_tmp");
-    let _ = fs::remove_dir_all(&stage_dir);
-    fs::create_dir_all(&stage_dir).map_err(|e| e.to_string())?;
-
-    let mut found_ffmpeg = false;
-    let mut found_ffprobe = false;
-
-    let result = (|| -> Result<(), String> {
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-            let name = file.name().to_string();
-
-            // Extract ffmpeg.exe
-            if name.ends_with("ffmpeg.exe") {
-                let mut out_file =
-                    fs::File::create(stage_dir.join("ffmpeg.exe")).map_err(|e| e.to_string())?;
-                io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
-                found_ffmpeg = true;
-            }
-
-            // Extract ffprobe.exe (needed for video dimension probing)
-            if name.ends_with("ffprobe.exe") {
-                let mut out_file =
-                    fs::File::create(stage_dir.join("ffprobe.exe")).map_err(|e| e.to_string())?;
-                io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
-                found_ffprobe = true;
-            }
-
-            if found_ffmpeg && found_ffprobe {
-                break;
-            }
-        }
-
-        if !found_ffmpeg {
-            return Err("ffmpeg.exe not found in archive".to_string());
-        }
-        if !found_ffprobe {
-            return Err("ffprobe.exe not found in archive".to_string());
-        }
-
-        install_staged_file(&stage_dir.join("ffmpeg.exe"), &bin_dir.join("ffmpeg.exe"))?;
-        install_staged_file(&stage_dir.join("ffprobe.exe"), &bin_dir.join("ffprobe.exe"))?;
-        Ok(())
-    })();
-
-    let _ = fs::remove_dir_all(stage_dir);
-    result
-}
-
-pub fn extract_deno(zip_path: &PathBuf, bin_dir: &Path) -> Result<(), String> {
-    let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
-    let stage_dir = bin_dir.join("_deno_extract_tmp");
-    let _ = fs::remove_dir_all(&stage_dir);
-    fs::create_dir_all(&stage_dir).map_err(|e| e.to_string())?;
-
-    let result = (|| -> Result<(), String> {
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-            let name = file.name().to_string();
-            if name.ends_with("deno.exe") {
-                let mut out_file =
-                    fs::File::create(stage_dir.join("deno.exe")).map_err(|e| e.to_string())?;
-                io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
-                install_staged_file(&stage_dir.join("deno.exe"), &bin_dir.join("deno.exe"))?;
-                return Ok(());
-            }
-        }
-
-        Err("deno.exe not found in archive".to_string())
-    })();
-
-    let _ = fs::remove_dir_all(stage_dir);
-    result
-}
-
-fn install_staged_file(source: &Path, destination: &Path) -> Result<(), String> {
-    if !has_nonempty_file(source) {
-        return Err(format!(
-            "Extracted file '{}' is missing or empty",
-            source.display()
-        ));
-    }
-    fs::rename(source, destination)
-        .or_else(|_| {
-            fs::copy(source, destination)?;
-            fs::remove_file(source)
-        })
-        .map_err(|e| format!("Failed to install '{}': {}", destination.display(), e))
-}
-
-pub fn has_nonempty_file(path: &Path) -> bool {
-    fs::metadata(path)
-        .map(|metadata| metadata.is_file() && metadata.len() > 0)
-        .unwrap_or(false)
-}
-
-use super::types::CookieBrowser;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-use std::process::Command;
-
 pub fn fetch_video_formats(
     url: &str,
-    bin_dir: &Path,
     cookie_browser: CookieBrowser,
 ) -> Result<VideoFormatLists, String> {
-    let ytdlp_path = bin_dir.join("yt-dlp.exe");
-    if !ytdlp_path.exists() {
-        return Err("yt-dlp is missing".to_string());
-    }
+    let cancelled = AtomicBool::new(false);
+    let ytdlp = external_tools::ensure(ExternalTool::YtDlp, &cancelled, |_, _| {})
+        .map_err(|error| format!("Prepare pinned yt-dlp: {error:#}"))?;
+    let deno = if cookie_browser == CookieBrowser::None {
+        external_tools::acquire_installed(ExternalTool::Deno).ok()
+    } else {
+        Some(
+            external_tools::ensure(ExternalTool::Deno, &cancelled, |_, _| {})
+                .map_err(|error| format!("Prepare pinned Deno: {error:#}"))?,
+        )
+    };
 
     let mut args = vec!["--dump-json".to_string(), "--no-playlist".to_string()];
 
-    let deno_path = bin_dir.join("deno.exe");
-    if deno_path.exists() {
+    if let Some(deno) = deno.as_ref() {
         args.push("--js-runtimes".to_string());
-        args.push(format!("deno:{}", deno_path.to_string_lossy()));
+        args.push(format!("deno:{}", deno.executable().to_string_lossy()));
     }
 
-    // Add cookie args
-    match cookie_browser {
-        CookieBrowser::None => {}
-        CookieBrowser::Chrome => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("chrome".to_string());
-        }
-        CookieBrowser::Firefox => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("firefox".to_string());
-        }
-        CookieBrowser::Edge => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("edge".to_string());
-        }
-        CookieBrowser::Brave => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("brave".to_string());
-        }
-        CookieBrowser::Opera => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("opera".to_string());
-        }
-        CookieBrowser::Vivaldi => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("vivaldi".to_string());
-        }
-        CookieBrowser::Chromium => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("chromium".to_string());
-        }
-        CookieBrowser::Whale => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("whale".to_string());
-        }
-    }
+    append_cookie_args(&mut args, cookie_browser);
 
     args.push(url.to_string());
 
-    let mut cmd = Command::new(ytdlp_path);
+    let mut cmd = Command::new(ytdlp.executable());
     cmd.args(&args);
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
@@ -310,4 +122,42 @@ pub fn fetch_video_formats(
     sorted_auto.sort();
 
     Ok((format_results, sorted_manual, sorted_auto))
+}
+
+pub(super) fn append_cookie_args(args: &mut Vec<String>, cookie_browser: CookieBrowser) {
+    match cookie_browser {
+        CookieBrowser::None => {}
+        CookieBrowser::Chrome => {
+            args.push("--cookies-from-browser".to_string());
+            args.push("chrome".to_string());
+        }
+        CookieBrowser::Firefox => {
+            args.push("--cookies-from-browser".to_string());
+            args.push("firefox".to_string());
+        }
+        CookieBrowser::Edge => {
+            args.push("--cookies-from-browser".to_string());
+            args.push("edge".to_string());
+        }
+        CookieBrowser::Brave => {
+            args.push("--cookies-from-browser".to_string());
+            args.push("brave".to_string());
+        }
+        CookieBrowser::Opera => {
+            args.push("--cookies-from-browser".to_string());
+            args.push("opera".to_string());
+        }
+        CookieBrowser::Vivaldi => {
+            args.push("--cookies-from-browser".to_string());
+            args.push("vivaldi".to_string());
+        }
+        CookieBrowser::Chromium => {
+            args.push("--cookies-from-browser".to_string());
+            args.push("chromium".to_string());
+        }
+        CookieBrowser::Whale => {
+            args.push("--cookies-from-browser".to_string());
+            args.push("whale".to_string());
+        }
+    }
 }

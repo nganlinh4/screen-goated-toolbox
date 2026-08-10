@@ -17,7 +17,7 @@ use super::utils::{
 pub(super) struct ModelRowSpec {
     pub(super) model_probe: &'static str,
     pub(super) model_title: &'static str,
-    pub(super) model_download_title: &'static str,
+    pub(super) model_download_title: String,
     pub(super) model_notice: fn() -> Option<String>,
     pub(super) is_model_downloaded: fn() -> bool,
     pub(super) model_dir: fn() -> PathBuf,
@@ -40,7 +40,7 @@ pub(super) fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &Mode
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_downloading = REALTIME_STATE
                 .lock()
-                .map(|s| s.is_downloading && s.download_title == spec.model_download_title)
+                .map(|s| s.is_downloading && s.download_title == spec.model_download_title.as_str())
                 .unwrap_or(false);
             if is_downloading {
                 let progress = REALTIME_STATE
@@ -79,7 +79,7 @@ pub(super) fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &Mode
                     let stop_signal = Arc::new(AtomicBool::new(false));
                     let download_model = spec.download_model;
                     thread::spawn(move || {
-                        let _ = download_model(stop_signal, false);
+                        let _ = download_model(stop_signal, true);
                     });
                 }
                 ui.label(

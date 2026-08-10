@@ -1,10 +1,9 @@
 package dev.screengoated.toolbox.mobile.downloader
 
 import kotlinx.serialization.Serializable
-import java.util.concurrent.atomic.AtomicBoolean
 
 enum class ToolInstallStatus {
-    CHECKING, MISSING, DOWNLOADING, EXTRACTING, INSTALLED, ERROR
+    CHECKING, MISSING, DOWNLOADING, EXTRACTING, INSTALLED, REMOVAL_PENDING, ERROR
 }
 
 data class ToolState(
@@ -12,6 +11,7 @@ data class ToolState(
     val progress: Float = 0f,
     val version: String? = null,
     val error: String? = null,
+    val retryable: Boolean = false,
 )
 
 enum class DownloadPhase {
@@ -20,10 +20,6 @@ enum class DownloadPhase {
 
 @Serializable
 enum class DownloadType { VIDEO, AUDIO }
-
-enum class UpdateStatus {
-    IDLE, CHECKING, UPDATE_AVAILABLE, UP_TO_DATE, ERROR
-}
 
 data class DownloadProgress(
     val fraction: Float = 0f,
@@ -68,7 +64,6 @@ data class DownloaderSettings(
 data class DownloaderUiState(
     val ytdlp: ToolState = ToolState(),
     val ffmpeg: ToolState = ToolState(),
-    val ytdlpUpdate: UpdateStatus = UpdateStatus.IDLE,
     val sessions: List<DownloadSessionState> = listOf(
         DownloadSessionState(id = 1, tabName = "Tab 1"),
     ),
@@ -76,7 +71,8 @@ data class DownloaderUiState(
     val settings: DownloaderSettings = DownloaderSettings(),
 ) {
     val toolsReady: Boolean
-        get() = ytdlp.status == ToolInstallStatus.INSTALLED
+        get() = ytdlp.status == ToolInstallStatus.INSTALLED ||
+            ytdlp.status == ToolInstallStatus.REMOVAL_PENDING
     val activeSession: DownloadSessionState
         get() = sessions[activeTabIndex.coerceIn(sessions.indices)]
 }

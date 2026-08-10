@@ -367,21 +367,19 @@ private class PresetImageSelectionView(
         } else {
             null
         }
-        val metricsLooksUsable = metrics?.let(::hasVisibleInsets) == true
-        if (metricsLooksUsable) {
+        if (metrics != null && hasVisibleInsets(metrics)) {
             return ViewportInsets(
-                contentInsets = metrics ?: Rect(),
+                contentInsets = metrics,
                 runtimeInsets = root ?: Rect(),
-                metricsInsets = metrics ?: Rect(),
+                metricsInsets = metrics,
                 estimatedInsets = estimated,
                 source = "window_metrics",
             )
         }
-        val rootLooksUsable = root?.let(::hasVisibleInsets) == true
-        if (rootLooksUsable) {
+        if (root != null && hasVisibleInsets(root)) {
             return ViewportInsets(
-                contentInsets = root ?: Rect(),
-                runtimeInsets = root ?: Rect(),
+                contentInsets = root,
+                runtimeInsets = root,
                 metricsInsets = metrics ?: Rect(),
                 estimatedInsets = estimated,
                 source = "root_insets",

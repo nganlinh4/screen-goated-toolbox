@@ -8,10 +8,10 @@ The bundle contains a Python 3.11 environment, CUDA PyTorch, the VieNeu SDK,
 and `vieneu_sidecar.py`. Model data is cached separately by the SDK under
 `%LOCALAPPDATA%\screen-goated-toolbox\models\vieneu_hf`.
 
-The app fetches `sgt_vieneu_runtime.manifest.json` from the
-`sgt-runtime-bundles` GitHub release. It verifies chunk size and SHA-256,
-reassembles the archive, validates the entrypoint and bundled Python, then
-installs under `%LOCALAPPDATA%\screen-goated-toolbox\bin\vieneu_runtime`.
+The signed host embeds the exact chunk URLs, sizes, SHA-256 values, entrypoint,
+and installed size. It reassembles only those verified chunks, validates the
+entrypoint and bundled Python, then installs under
+`%LOCALAPPDATA%\screen-goated-toolbox\bin\vieneu_runtime`.
 
 The sidecar stays alive and exchanges one JSON object per line. Responses echo
 the request `id`; diagnostics use stderr. The host can request a built-in voice
@@ -37,7 +37,6 @@ $Version = "YYYY.MM.DD"
 .\native\vieneu_runtime\scripts\build_runtime.ps1 -Version $Version -SkipInstall -Upload
 ```
 
-Unlike the Magpie and Step Audio installers, VieNeu reads its manifest from the
-release asset. `-Upload` therefore uploads both the manifest and every chunk.
-Verify all uploaded names, sizes, and hashes before treating the runtime as
-published.
+Upload only newly named chunks to the append-only release, verify their remote
+sizes and hashes, then update the host's embedded descriptor. The host never
+fetches or trusts a manifest at runtime.

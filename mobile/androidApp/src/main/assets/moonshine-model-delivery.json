@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "releaseTag": "sgt-runtime-bundles",
+  "modelContractSha256": "7cc3e58a06f2a47f75090f25c21cc00eec8f1ea288e638aca41f083665d77185",
+  "notices": [
+    {
+      "path": "LICENSE.txt",
+      "sizeBytes": 13555,
+      "sha256": "ea4ac570b8b03bf8cca9ce7738c9699c438e43e751d980cf628e5c27612f2152"
+    },
+    {
+      "path": "NOTICE.txt",
+      "sizeBytes": 804,
+      "sha256": "c0e4a412979778a9255ec0b737368905c4347adb738d57ebfbd4eb40795e5ef7"
+    }
+  ],
+  "variants": [
+    {
+      "id": "tiny-streaming-en",
+      "asset": "sgt-moonshine-model-tiny-streaming-en-8986b80e4966a0b2.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-moonshine-model-tiny-streaming-en-8986b80e4966a0b2.zip",
+      "sizeBytes": 33009890,
+      "sha256": "8986b80e4966a0b264737d440939c1431045923fb5cf7450f956691659199ee2"
+    },
+    {
+      "id": "small-streaming-en",
+      "asset": "sgt-moonshine-model-small-streaming-en-a6bc75fd079929b7.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-moonshine-model-small-streaming-en-a6bc75fd079929b7.zip",
+      "sizeBytes": 104842799,
+      "sha256": "a6bc75fd079929b7bdb4f21220f4eeded5a0d5ce7136f232cadb46de65c4f557"
+    },
+    {
+      "id": "medium-streaming-en",
+      "asset": "sgt-moonshine-model-medium-streaming-en-dd67214ebfc7577a.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-moonshine-model-medium-streaming-en-dd67214ebfc7577a.zip",
+      "sizeBytes": 201786507,
+      "sha256": "dd67214ebfc7577a707a40b7c3e5bd193c37c76fca0a3eda7f15ba1feaea92c7"
+    }
+  ]
+}

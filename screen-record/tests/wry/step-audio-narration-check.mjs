@@ -88,8 +88,6 @@ const app = spawn(
     detached: true,
     env: {
       ...process.env,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:
-        `--remote-debugging-port=${cdpPort} --remote-debugging-address=0.0.0.0`,
       SGT_SCREEN_RECORD_WEBVIEW2_DATA_DIR: dataDir,
       SGT_SCREEN_RECORD_TEST_HARNESS: "1",
     },

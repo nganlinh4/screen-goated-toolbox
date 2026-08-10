@@ -4,11 +4,15 @@ use std::path::Path;
 use symphonia::core::audio::{Channels, Layout, SampleBuffer};
 use symphonia::core::codecs::{CODEC_TYPE_NULL, CODEC_TYPE_OPUS, CodecRegistry, DecoderOptions};
 use symphonia::core::errors::Error as SymphoniaError;
-use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
+use symphonia::core::formats::{FormatOptions, FormatReader};
+#[cfg(feature = "recorder-worker")]
+use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
-use symphonia::core::units::{Time, TimeBase};
+#[cfg(feature = "recorder-worker")]
+use symphonia::core::units::Time;
+use symphonia::core::units::TimeBase;
 use symphonia_adapter_libopus::OpusDecoder;
 
 pub(super) struct SymphoniaAudioDecoder {
@@ -104,6 +108,7 @@ impl SymphoniaAudioDecoder {
         Ok(decoder)
     }
 
+    #[cfg(feature = "recorder-worker")]
     pub(super) fn sample_rate(&self) -> u32 {
         self.target_sample_rate
     }
@@ -120,6 +125,7 @@ impl SymphoniaAudioDecoder {
         self.decode_next_sample()
     }
 
+    #[cfg(feature = "recorder-worker")]
     pub(super) fn seek(&mut self, position_100ns: i64) -> Result<(), String> {
         let position_100ns = position_100ns.max(0);
         let seek_time = Time::new(
@@ -352,7 +358,11 @@ fn convert_interleaved_f32(
         remapped
     };
 
-    bytemuck::cast_slice(&resampled).to_vec()
+    let mut bytes = Vec::with_capacity(resampled.len() * std::mem::size_of::<f32>());
+    for sample in resampled {
+        bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    bytes
 }
 
 fn remap_channels(samples: &[f32], source_channels: usize, target_channels: usize) -> Vec<f32> {

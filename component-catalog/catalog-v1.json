@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "components": [
+    {
+      "id": "creation-3d-runtime",
+      "displayName": "3D Creation engine",
+      "kind": "sidecar",
+      "capabilities": ["image_to_3d"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "onnx-directml-runtime",
+      "displayName": "Local AI runtime",
+      "kind": "native-runtime",
+      "capabilities": ["local_inference"],
+      "dependencies": ["vc14-x64-runtime"],
+      "removable": true
+    },
+    {
+      "id": "vc14-x64-runtime",
+      "displayName": "Microsoft VC runtime support",
+      "kind": "native-runtime",
+      "capabilities": ["native_worker_support"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "qwen3-cuda-runtime",
+      "displayName": "Qwen3 CUDA runtime",
+      "kind": "native-runtime",
+      "capabilities": ["qwen3_local_asr"],
+      "dependencies": ["vc14-x64-runtime"],
+      "removable": true
+    },
+    {
+      "id": "local-asr-worker",
+      "displayName": "Local speech recognition engine",
+      "kind": "sidecar",
+      "capabilities": ["local_asr"],
+      "dependencies": ["onnx-directml-runtime"],
+      "removable": true
+    },
+    {
+      "id": "recorder-web",
+      "displayName": "Screen Recorder interface",
+      "kind": "web-assets",
+      "capabilities": ["screen_recorder_ui"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "recorder-worker",
+      "displayName": "Screen Recorder engine",
+      "kind": "sidecar",
+      "capabilities": ["screen_recording"],
+      "dependencies": ["recorder-web"],
+      "removable": true
+    },
+    {
+      "id": "creation-3d-web",
+      "displayName": "3D Creation interface",
+      "kind": "web-assets",
+      "capabilities": ["image_to_3d_ui"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "prompt-dj-web",
+      "displayName": "PromptDJ interface",
+      "kind": "web-assets",
+      "capabilities": ["prompt_dj_ui"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "tts-playground-web",
+      "displayName": "TTS Playground interface",
+      "kind": "web-assets",
+      "capabilities": ["tts_playground_ui"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "computer-control-engine",
+      "displayName": "Computer Control engine",
+      "kind": "sidecar",
+      "capabilities": ["computer_control_planning"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "yt-dlp-x64",
+      "displayName": "yt-dlp",
+      "kind": "external-tool",
+      "capabilities": ["media_download"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "ffmpeg-x64",
+      "displayName": "FFmpeg",
+      "kind": "external-tool",
+      "capabilities": ["media_transcode"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "deno-x64",
+      "displayName": "Deno",
+      "kind": "external-tool",
+      "capabilities": ["media_download_javascript"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "qwen3-asr-0-6b-model",
+      "displayName": "Qwen3 ASR 0.6B model",
+      "kind": "model",
+      "capabilities": ["qwen3_local_asr"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "qwen3-asr-1-7b-model",
+      "displayName": "Qwen3 ASR 1.7B model",
+      "kind": "model",
+      "capabilities": ["qwen3_local_asr"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "step-audio-editx-model",
+      "displayName": "Step Audio EditX model",
+      "kind": "model",
+      "capabilities": ["step_audio_tts"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "magpie-multilingual-357m-model",
+      "displayName": "Magpie Multilingual 357M model",
+      "kind": "model",
+      "capabilities": ["magpie_tts"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "kokoro-82m-v1-model",
+      "displayName": "Kokoro 82M v1 model",
+      "kind": "model",
+      "capabilities": ["kokoro_tts"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "supertonic-3-model",
+      "displayName": "Supertonic 3 model",
+      "kind": "model",
+      "capabilities": ["supertonic_tts"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
+      "id": "vieneu-v2-turbo-model",
+      "displayName": "VieNeu v2 Turbo model",
+      "kind": "model",
+      "capabilities": ["vieneu_tts"],
+      "dependencies": [],
+      "removable": true
+    }
+  ]
+}

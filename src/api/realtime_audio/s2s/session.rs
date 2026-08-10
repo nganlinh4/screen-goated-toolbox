@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(super) fn session_worker(
     session_index: usize,
     segment_rx: mpsc::Receiver<Segment>,

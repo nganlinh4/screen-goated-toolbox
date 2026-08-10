@@ -1,10 +1,12 @@
 //! Shared TTS provider and Kokoro option metadata.
 
+#[cfg(feature = "recorder-worker")]
 use crate::config::TtsMethod;
 
 pub use super::tts_catalog_gemini::{GEMINI_VOICES, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES};
 
 #[derive(Clone, Debug)]
+#[cfg(feature = "recorder-worker")]
 pub struct TtsProviderInfo {
     pub method: TtsMethod,
     pub id: &'static str,
@@ -42,12 +44,12 @@ pub struct SupertonicVoiceOption {
 pub struct VieneuVariantOption {
     pub id: &'static str,
     pub mode: &'static str,
-    pub backbone_repo: &'static str,
     pub backbone_device: &'static str,
     pub codec_device: &'static str,
     pub backend: &'static str,
 }
 
+#[cfg(feature = "recorder-worker")]
 pub const TTS_PROVIDERS: &[TtsProviderInfo] = &[
     TtsProviderInfo {
         method: TtsMethod::GeminiLive,
@@ -102,7 +104,6 @@ pub const TTS_PROVIDERS: &[TtsProviderInfo] = &[
 pub const VIENEU_VARIANTS: &[VieneuVariantOption] = &[vieneu_variant(
     "v2-turbo-gpu",
     "turbo_gpu",
-    "pnnbao-ump/VieNeu-TTS-v2-Turbo",
     "cuda",
     "cpu",
     "standard",
@@ -197,6 +198,7 @@ pub const KOKORO_VOICES: &[KokoroVoiceOption] = &[
     voice("zm_yunyang", "Yunyang", "zh"),
 ];
 
+#[cfg(not(feature = "recorder-worker"))]
 pub const KOKORO_VOICE_LANGUAGES: &[(&str, &str)] = &[
     ("eng", "English"),
     ("cmn", "Mandarin Chinese"),
@@ -210,6 +212,7 @@ pub const KOKORO_VOICE_LANGUAGES: &[(&str, &str)] = &[
 
 /// Canonical human-readable summary of the languages Supertonic supports.
 /// Shared by the TTS settings modal and the downloaded-tools model card.
+#[cfg(not(feature = "recorder-worker"))]
 pub const SUPERTONIC_LANGUAGE_SUMMARY: &str = "Supports English, Korean, Japanese, Arabic, Bulgarian, Czech, Danish, German, Greek, Spanish, Estonian, Finnish, French, Hindi, Croatian, Hungarian, Indonesian, Italian, Lithuanian, Latvian, Dutch, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Swedish, Turkish, Ukrainian, and Vietnamese.";
 
 pub const SUPERTONIC_LANGUAGES: &[SupertonicLanguageOption] = &[
@@ -294,7 +297,6 @@ const fn supertonic_voice(
 const fn vieneu_variant(
     id: &'static str,
     mode: &'static str,
-    backbone_repo: &'static str,
     backbone_device: &'static str,
     codec_device: &'static str,
     backend: &'static str,
@@ -302,13 +304,13 @@ const fn vieneu_variant(
     VieneuVariantOption {
         id,
         mode,
-        backbone_repo,
         backbone_device,
         codec_device,
         backend,
     }
 }
 
+#[cfg(feature = "recorder-worker")]
 pub fn tts_method_id(method: &TtsMethod) -> &'static str {
     TTS_PROVIDERS
         .iter()
@@ -317,6 +319,7 @@ pub fn tts_method_id(method: &TtsMethod) -> &'static str {
         .unwrap_or("GeminiLive")
 }
 
+#[cfg(feature = "recorder-worker")]
 pub fn narration_tts_providers() -> impl Iterator<Item = &'static TtsProviderInfo> {
     TTS_PROVIDERS
         .iter()
@@ -435,6 +438,7 @@ pub fn supertonic_voice_by_id(id: &str) -> Option<&'static SupertonicVoiceOption
         .find(|voice| voice.id.eq_ignore_ascii_case(id.trim()))
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn normalize_supertonic_voice(value: &str) -> String {
     supertonic_voice_by_id(value)
         .map(|voice| voice.id.to_string())
@@ -484,6 +488,7 @@ pub fn kokoro_language_for_voice(voice: &str) -> Option<&'static str> {
     kokoro_voice_by_id(voice).map(|option| option.language_code)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn kokoro_voice_language_for_condition(language_code: &str) -> Option<&'static str> {
     match language_code.trim().to_ascii_lowercase().as_str() {
         "eng" | "en" | "en-us" => Some("en-us"),

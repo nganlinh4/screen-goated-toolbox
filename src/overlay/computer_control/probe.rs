@@ -52,7 +52,7 @@ pub fn run(tasks: &[String]) -> Result<()> {
         crate::api::gemini_live::setup::LiveSetupBuilder::new(&model).build()
     } else if std::env::var("CC_PROBE_FULL").is_ok() {
         eprintln!("[cc-probe] using full production Computer Control toolkit");
-        super::uia_task::build_setup(None, false, false)
+        super::uia_task::build_setup(None, false, false)?
     } else {
         build_setup(SYSTEM_INSTRUCTION)
     };
@@ -110,7 +110,7 @@ pub fn run(tasks: &[String]) -> Result<()> {
                 break;
             }
         };
-        for ev in parse_server_message(&text) {
+        for ev in parse_server_message(&text)? {
             match ev {
                 ServerEvent::Audio(pcm) => audio_bytes += pcm.len(),
                 ServerEvent::ToolCall { id, name, args } => {
@@ -188,7 +188,7 @@ fn wait_for_setup(socket: &mut Sock) -> Result<()> {
             Err(e) if is_transient_socket_read_error(&e) => continue,
             Err(e) => anyhow::bail!("setup read error: {e}"),
         };
-        for ev in parse_server_message(&text) {
+        for ev in parse_server_message(&text)? {
             if matches!(ev, ServerEvent::SetupComplete) {
                 eprintln!("[cc-probe] setupComplete");
                 return Ok(());
