@@ -1,5 +1,7 @@
 use super::CHILD_FLAG;
 use super::card_bridge::with_card_bridge;
+use super::card_document::with_fit;
+use super::delivery::{request_restart, send_command};
 use super::diagnostics::{
     CardDiagnosticLog, log_card_diagnostic, log_fit_diagnostic, log_host_command,
 };
@@ -7,7 +9,7 @@ use super::protocol::{
     ChildEvent, HostCommand, SceneAppearance, SceneCard, SceneFinalize, SceneGeometry, SceneRect,
     SceneStream, SceneTheme,
 };
-use crate::overlay::result::markdown_view::conversion::markdown_to_html_for_compositor;
+use crate::overlay::result::markdown_view::conversion::render_for_compositor;
 use crate::overlay::result::state::WINDOW_STATES;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -52,9 +54,25 @@ static PROCESS: LazyLock<Mutex<Option<RendererProcess>>> = LazyLock::new(|| Mute
 static STARTING: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static LIVE_GENERATION: AtomicU64 = AtomicU64::new(0);
+static READY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static LAST_HEARTBEAT_MS: AtomicU64 = AtomicU64::new(0);
 static NEXT_STACK_ORDER: AtomicU64 = AtomicU64::new(1);
 static WATCHDOG: Once = Once::new();
+pub fn warmup() {
+    super::delivery::warmup();
+}
+
+pub(crate) fn wait_until_ready(timeout: Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        let live = LIVE_GENERATION.load(Ordering::SeqCst);
+        if live != 0 && READY_GENERATION.load(Ordering::SeqCst) == live {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
 
 pub fn register_window(hwnd: HWND) {
     sync_window(hwnd, false);
@@ -81,40 +99,48 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
             state.bg_color,
             state.opacity_percent,
             state.is_streaming_active,
+            state.streaming_enabled,
         )
     };
 
+    let rendered = render_for_compositor(&snapshot.0, snapshot.1, &snapshot.2, &snapshot.3);
+    let body = rendered.body;
+    let document = rendered
+        .isolated_document
+        .map(|document| with_card_bridge(with_fit(document)));
     let Some(geometry) = read_geometry(hwnd, requested_visible) else {
         return;
     };
-    let rendered =
-        markdown_to_html_for_compositor(&snapshot.0, snapshot.1, &snapshot.2, &snapshot.3);
-    let stream_body = document_body(&rendered);
-    let html = with_card_bridge(with_fit(rendered, snapshot.6));
-    let stack_order = SCENES
-        .lock()
-        .unwrap()
+    let mut scenes = SCENES.lock().unwrap();
+    let stack_order = scenes
         .get(&hwnd_key)
         .map(|card| card.stack_order)
         .unwrap_or_else(|| NEXT_STACK_ORDER.fetch_add(1, Ordering::SeqCst));
     let card = SceneCard {
         id: hwnd_key,
         rect: geometry.rect,
-        html,
+        body: body.clone(),
+        document,
+        refining: snapshot.1,
         background: format!("#{:06x}", snapshot.4 & 0x00ff_ffff),
         opacity: snapshot.5,
         visible: geometry.visible,
         streaming: snapshot.6,
+        streaming_enabled: snapshot.7,
         stack_order,
     };
 
-    let previous = SCENES.lock().unwrap().insert(hwnd_key, card.clone());
-    let Some(command) = command_for_transition(previous.as_ref(), &card, stream_body) else {
+    let previous = scenes.insert(hwnd_key, card.clone());
+    drop(scenes);
+    let Some(command) = command_for_transition(previous.as_ref(), &card, body) else {
         return;
     };
     start_watchdog();
     log_host_command(&command, snapshot.0.chars().count());
     send_command(command);
+    if !snapshot.0.is_empty() {
+        crate::overlay::result::latency::mark_window(hwnd, "compositor_command_queued");
+    }
 }
 
 fn command_for_transition(
@@ -131,19 +157,24 @@ fn command_for_transition(
                 card: SceneStream {
                     id: card.id,
                     body: stream_body.clone(),
+                    document: card.document.clone(),
+                    refining: card.refining,
                     background: card.background.clone(),
                     opacity: card.opacity,
                     visible: card.visible,
+                    streaming_enabled: card.streaming_enabled,
                 },
             },
             (Some(true), false) => HostCommand::Finalize {
                 card: SceneFinalize {
                     id: card.id,
                     body: stream_body,
-                    html: card.html.clone(),
+                    document: card.document.clone(),
+                    refining: card.refining,
                     background: card.background.clone(),
                     opacity: card.opacity,
                     visible: card.visible,
+                    streaming_enabled: card.streaming_enabled,
                 },
             },
             _ => HostCommand::Upsert { card: card.clone() },
@@ -233,7 +264,6 @@ pub fn raise_window(hwnd: HWND) {
 }
 
 fn raise_window_id(id: isize) {
-    let _dispatch = SCENE_DISPATCH.lock().unwrap();
     let stack_order = NEXT_STACK_ORDER.fetch_add(1, Ordering::SeqCst);
     let updated = SCENES.lock().unwrap().get_mut(&id).is_some_and(|card| {
         card.stack_order = stack_order;
@@ -287,45 +317,7 @@ fn theme_command(is_dark: bool) -> SceneTheme {
     }
 }
 
-fn with_fit(mut html: String, streaming: bool) -> String {
-    let script = crate::overlay::result::markdown_view::fit::runtime_fit_script();
-    let injected = format!(
-        "<script>window.__SGT_STREAMING__={streaming};window.__SGT_RUN_FIT__=function(streaming){{{script}}};</script>"
-    );
-    if let Some(position) = html.to_ascii_lowercase().rfind("</body>") {
-        html.insert_str(position, &injected);
-    } else {
-        html.push_str(&injected);
-    }
-    html
-}
-
-fn document_body(html: &str) -> String {
-    let lower = html.to_ascii_lowercase();
-    let Some(body_start) = lower.find("<body") else {
-        return html.to_string();
-    };
-    let Some(tag_end) = lower[body_start..].find('>') else {
-        return html.to_string();
-    };
-    let content_start = body_start + tag_end + 1;
-    let Some(content_end) = lower[content_start..].rfind("</body>") else {
-        return html[content_start..].to_string();
-    };
-    html[content_start..content_start + content_end].to_string()
-}
-
-fn send_command(command: HostCommand) {
-    ensure_process();
-    if write_command(&command).is_err() {
-        restart_process();
-        let _ = write_command(&HostCommand::Snapshot {
-            cards: scene_snapshot(),
-        });
-    }
-}
-
-fn write_command(command: &HostCommand) -> anyhow::Result<()> {
+pub(super) fn write_command(command: &HostCommand) -> anyhow::Result<()> {
     let mut process = PROCESS.lock().unwrap();
     let renderer = process
         .as_mut()
@@ -340,7 +332,7 @@ fn scene_snapshot() -> Vec<SceneCard> {
     SCENES.lock().unwrap().values().cloned().collect()
 }
 
-fn ensure_process() {
+pub(super) fn ensure_process() {
     if PROCESS.lock().unwrap().is_some() || STARTING.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -368,6 +360,7 @@ fn spawn_process() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("renderer stdout was not created"))?;
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     LIVE_GENERATION.store(generation, Ordering::SeqCst);
+    READY_GENERATION.store(0, Ordering::SeqCst);
     LAST_HEARTBEAT_MS.store(now_ms(), Ordering::SeqCst);
 
     *PROCESS.lock().unwrap() = Some(RendererProcess {
@@ -405,6 +398,7 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
         match event {
             ChildEvent::Ready => {
                 LAST_HEARTBEAT_MS.store(now_ms(), Ordering::SeqCst);
+                READY_GENERATION.store(generation, Ordering::SeqCst);
                 crate::log_info!("[ResultCompositor] renderer ready generation={generation}");
             }
             ChildEvent::Heartbeat => LAST_HEARTBEAT_MS.store(now_ms(), Ordering::SeqCst),
@@ -421,17 +415,20 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
                 text_len,
                 opacity,
                 error,
-            } => log_card_diagnostic(CardDiagnosticLog {
-                id,
-                phase,
-                revision,
-                visible,
-                ready,
-                payload_len,
-                text_len,
-                opacity,
-                error,
-            }),
+            } => {
+                crate::overlay::result::latency::mark_card_phase(id, &phase, payload_len, text_len);
+                log_card_diagnostic(CardDiagnosticLog {
+                    id,
+                    phase,
+                    revision,
+                    visible,
+                    ready,
+                    payload_len,
+                    text_len,
+                    opacity,
+                    error,
+                });
+            }
             ChildEvent::CommandError { command, id, error } => crate::log_info!(
                 "[ResultCompositor] command_failed command={command} id={id:?} error={error}"
             ),
@@ -453,6 +450,9 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
         .compare_exchange(generation, 0, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
     {
+        READY_GENERATION
+            .compare_exchange(generation, 0, Ordering::SeqCst, Ordering::SeqCst)
+            .ok();
         crate::log_info!("[ResultCompositor] renderer process disconnected");
     }
 }
@@ -492,17 +492,20 @@ fn start_watchdog() {
                             "[ResultCompositor] heartbeat timed out; restarting renderer"
                         );
                     }
-                    restart_process();
+                    request_restart();
                 }
             }
         });
     });
 }
 
-fn restart_process() {
+pub(super) fn restart_process_now() {
     let mut old = PROCESS.lock().unwrap().take();
     if let Some(renderer) = old.as_mut() {
         LIVE_GENERATION
+            .compare_exchange(renderer.generation, 0, Ordering::SeqCst, Ordering::SeqCst)
+            .ok();
+        READY_GENERATION
             .compare_exchange(renderer.generation, 0, Ordering::SeqCst, Ordering::SeqCst)
             .ok();
         let _ = renderer.child.kill();

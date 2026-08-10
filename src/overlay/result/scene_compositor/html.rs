@@ -3,45 +3,63 @@ pub const DOCUMENT: &str = r#"<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="preload" href="/font.ttf?v=__SGT_FONT_VERSION__" as="font" type="font/ttf" crossorigin>
+<style id="sgt-theme-css"></style>
 <style>
-@font-face{font-family:'Google Sans Flex';font-style:normal;font-weight:100 1000;
-  font-stretch:25% 151%;font-display:block;
-  src:url('/font.ttf?v=__SGT_FONT_VERSION__') format('truetype')}
+__SGT_FONT_FACE__
 html,body,#scene{position:fixed;inset:0;margin:0;overflow:hidden;background:transparent}
 body{font-family:'Google Sans Flex';user-select:none}
 #scene{pointer-events:none}
 .font-prewarm{position:absolute;visibility:hidden;pointer-events:none;font:400 16px 'Google Sans Flex'}
 .result-card{position:absolute;overflow:hidden;border-radius:12px;pointer-events:auto;
   left:0;top:0;box-shadow:0 8px 28px rgba(0,0,0,.22);contain:layout paint style}
-.result-frame{display:block;width:100%;height:100%;border:0;background:transparent}
+.direct-host,.result-frame{display:block;width:100%;height:100%;border:0;background:transparent}
 </style>
 </head>
 <body>
 <span class="font-prewarm" aria-hidden="true">SGT</span>
 <main id="scene"></main>
+<script>__SGT_DIRECT_RUNTIME__</script>
 <script>
+window.__SGT_RUN_FIT__ = function(streaming) { __SGT_FIT_RUNTIME__ };
 const scene = document.getElementById('scene');
+const isolatedOrigin = __SGT_ISOLATED_ORIGIN_JSON__;
 const cards = new Map();
+const cardStyleText = __SGT_CARD_CSS_JSON__;
 let currentThemeCss = '';
 let highestStackOrder = 0;
-
+let activeFit = null;
+const pendingFits = new Map();
+let sharedCardSheet = null;
 function reportCardDiagnostic(id, entry, phase, details) {
   details = details || {};
   window.ipc.postMessage(JSON.stringify({
     type: 'card_diagnostic',
     id: Number(id),
     phase: phase,
-    revision: entry ? entry.revision : 0,
+    revision: Number(details.revision === undefined
+      ? (entry ? entry.contentRevision : 0)
+      : details.revision),
     visible: entry ? entry.visible : false,
     ready: entry ? entry.ready : false,
     payload_len: Number(details.payloadLen || 0),
     text_len: Number(details.textLen || 0),
     opacity: String(details.opacity || ''),
-    error: details.error ? String(details.error) : null
+    error: details.error ? String(details.error.message || details.error) : null
   }));
 }
-
+function installCardStyles(shadow) {
+  if (typeof CSSStyleSheet !== 'undefined' && 'adoptedStyleSheets' in shadow) {
+    if (!sharedCardSheet) {
+      sharedCardSheet = new CSSStyleSheet();
+      sharedCardSheet.replaceSync(cardStyleText);
+    }
+    shadow.adoptedStyleSheets = [sharedCardSheet];
+    return;
+  }
+  const style = document.createElement('style');
+  style.textContent = cardStyleText;
+  shadow.appendChild(style);
+}
 function ensureCard(id) {
   const key = String(id);
   let entry = cards.get(key);
@@ -49,70 +67,242 @@ function ensureCard(id) {
   const card = document.createElement('section');
   card.className = 'result-card';
   card.dataset.id = key;
+  const directHost = document.createElement('div');
+  directHost.className = 'direct-host';
+  const shadow = directHost.attachShadow({ mode: 'open' });
+  installCardStyles(shadow);
+  const bodyElement = document.createElement('div');
+  bodyElement.className = 'result-body';
+  bodyElement.dataset.sgtMode = 'result';
+  shadow.appendChild(bodyElement);
   const frame = document.createElement('iframe');
   frame.className = 'result-frame';
-  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups');
+  frame.hidden = true;
+  frame.referrerPolicy = 'no-referrer';
+  card.appendChild(directHost);
   card.appendChild(frame);
   scene.appendChild(card);
   entry = {
-    card,
-    frame,
-    html: null,
-    loadedHtml: null,
-    ready: false,
+    card: card,
+    directHost: directHost,
+    bodyElement: bodyElement,
+    frame: frame,
+    body: '',
+    document: null,
+    loadedDocument: 'shared',
+    mode: 'direct',
+    ready: true,
+    fontReady: true,
     pendingContent: null,
+    commandPort: null,
     contentPhase: 'document',
     streaming: false,
     visible: false,
     navigationDepth: 0,
     navigationUrls: [],
-    revision: 0
-  };
-  frame.addEventListener('load', function() {
-    if (entry.loadedHtml === null) return;
-    entry.ready = true;
-    reportCardDiagnostic(id, entry, 'document_loaded', {
-      payloadLen: entry.loadedHtml.length
-    });
-    if (currentThemeCss) {
-      postCardMessage(entry, { type: 'theme_update', css: currentThemeCss });
+    refining: false, streamingEnabled: true,
+    contentRevision: 0, revision: 0, resizeFit: 0,
+    awaitingSettledReveal: false, settledRevealRevision: 0,
+    pendingSettledPaint: null,
+    directState: {
+      wordCount: 0,
+      renderCount: 0,
+      overflowObserver: null,
+      reveal: { queue: [], active: false, lastRevealedIndex: -1, lastTick: 0, credits: 0 },
+      fit: {}
     }
-    const flushed = flushPendingContent(entry);
-    if (entry.visible && entry.navigationDepth === 0 && !flushed) {
-      postCardMessage(entry, { type: 'run_fit', streaming: entry.streaming });
+  };
+  entry.directRuntime = window.__SGT_CREATE_DIRECT_RUNTIME__(entry, {
+    requestFit: function(streaming) { queueFit(entry, streaming); },
+    diagnostic: function(phase, error) {
+      reportCardDiagnostic(id, entry, phase, { error: error });
     }
   });
+  function activateIsolatedBridge() {
+    if (entry.mode !== 'isolated') return;
+    if (entry.ready || entry.navigationDepth !== 0) return;
+    entry.ready = true;
+    entry.fontReady = true;
+    if (currentThemeCss) postCardMessage(entry, { type: 'theme_update', css: currentThemeCss });
+    postCardMessage(entry, { type: 'activate_font' });
+    const flushed = flushPendingContent(entry);
+    if (entry.visible && entry.navigationDepth === 0 && !flushed) {
+      queueFit(entry, entry.streaming);
+    }
+  }
+  entry.activateIsolatedBridge = activateIsolatedBridge;
+  frame.addEventListener('load', function() {
+    if (entry.mode !== 'isolated') return;
+    reportCardDiagnostic(id, entry, 'document_loaded', {
+      payloadLen: entry.document ? entry.document.length : 0
+    });
+    activateIsolatedBridge();
+  });
+  card.addEventListener('pointerdown', function() {
+    raiseCard(entry);
+    window.ipc.postMessage(JSON.stringify({ type: 'interaction', id: Number(id) }));
+  }, true);
+  shadow.addEventListener('click', function(event) {
+    const path = event.composedPath ? event.composedPath() : [];
+    const anchor = path.find(node => node && node.tagName === 'A' && node.href);
+    if (!anchor || anchor.target === '_blank' || event.defaultPrevented) return;
+    if (!/^https?:\/\//i.test(anchor.href)) return;
+    event.preventDefault();
+    navigateTo(entry, anchor.href);
+  }, true);
   cards.set(key, entry);
+  reportCardDiagnostic(id, entry, 'shared_surface_ready', {});
   return entry;
 }
-
 function postCardMessage(entry, message) {
-  if (!entry.ready || !entry.frame.contentWindow) return false;
-  entry.frame.contentWindow.postMessage(message, '*');
+  if (entry.mode !== 'isolated' || !entry.ready || entry.navigationDepth !== 0) return false;
+  message.card_id = entry.card.dataset.id;
+  if (entry.commandPort) entry.commandPort.postMessage(message);
+  else if (entry.frame.contentWindow) entry.frame.contentWindow.postMessage(message, '*');
+  else return false;
   return true;
 }
-
+function cancelActiveFit(entry) {
+  pendingFits.delete(entry.card.dataset.id);
+  if (!activeFit || activeFit.entry !== entry) return;
+  clearTimeout(activeFit.timeout);
+  activeFit = null;
+  scheduleFit();
+}
+function queueFit(entry, streaming) {
+  if (!entry.ready || !entry.fontReady || !entry.visible || entry.navigationDepth !== 0 || !String(entry.body || '').trim()) return;
+  const key = entry.card.dataset.id;
+  const current = pendingFits.get(key);
+  const next = {
+    entry: entry,
+    streaming: Boolean(streaming),
+    revision: entry.revision,
+    contentRevision: entry.contentRevision,
+    priority: streaming ? 1 : 2
+  };
+  if (!current || next.priority >= current.priority || next.revision > current.revision) {
+    pendingFits.set(key, next);
+  }
+  scheduleFit();
+}
+function runDirectFit(entry, streaming, settleBeforeReveal) {
+  window.__SGT_FIT_CONTEXT__ = {
+    state: entry.directState.fit,
+    body: entry.bodyElement,
+    viewport: entry.card,
+    fontReady: true,
+    settleBeforeReveal: Boolean(settleBeforeReveal),
+    reportDiagnostic: function(payload) {
+      window.ipc.postMessage(JSON.stringify({
+        type: 'fit_diagnostic', id: Number(entry.card.dataset.id), payload: payload
+      }));
+    },
+    complete: function() { completeFit(entry); }
+  };
+  try {
+    window.__SGT_RUN_FIT__(Boolean(streaming));
+  } catch (error) {
+    reportCardDiagnostic(entry.card.dataset.id, entry, 'fit_failed', { error: error });
+    completeFit(entry);
+  } finally {
+    window.__SGT_FIT_CONTEXT__ = null;
+  }
+}
+function scheduleFit() {
+  if (activeFit || pendingFits.size === 0) return;
+  requestAnimationFrame(function() {
+    if (activeFit) return;
+    let selectedKey = null;
+    let selected = null;
+    for (const [key, candidate] of pendingFits) {
+      if (!selected || candidate.priority > selected.priority) {
+        selectedKey = key;
+        selected = candidate;
+      }
+    }
+    if (!selected) return;
+    pendingFits.delete(selectedKey);
+    const entry = selected.entry;
+    if (!entry.ready || !entry.fontReady || !entry.visible || entry.navigationDepth !== 0
+        || selected.revision !== entry.revision
+        || selected.contentRevision !== entry.contentRevision) {
+      scheduleFit();
+      return;
+    }
+    const settleBeforeReveal = !selected.streaming && entry.awaitingSettledReveal
+      && entry.settledRevealRevision === selected.contentRevision;
+    activeFit = {
+      entry: entry,
+      streaming: selected.streaming,
+      contentRevision: selected.contentRevision,
+      timeout: setTimeout(function() {
+        reportCardDiagnostic(entry.card.dataset.id, entry, 'fit_timeout', {});
+        revealSettledContent(entry, selected.contentRevision);
+        activeFit = null;
+        scheduleFit();
+      }, 2000)
+    };
+    if (entry.mode === 'direct') runDirectFit(entry, selected.streaming, settleBeforeReveal);
+    else postCardMessage(entry, { type: 'run_fit', streaming: selected.streaming,
+      settle_before_reveal: settleBeforeReveal });
+  });
+}
+function completeFit(entry) {
+  if (!activeFit || activeFit.entry !== entry) return;
+  const completed = activeFit;
+  if (!completed.streaming && completed.contentRevision === entry.contentRevision) {
+    reportCardDiagnostic(entry.card.dataset.id, entry, 'final_fit_completed', {});
+    revealSettledContent(entry, completed.contentRevision);
+  }
+  clearTimeout(completed.timeout);
+  activeFit = null;
+  scheduleFit();
+}
+function applyDirectContent(entry, message) {
+  try {
+    entry.directRuntime.apply({
+      html: message.html,
+      runInlineSizing: true,
+      finalizing: message.type === 'finalize',
+      animateNewWords: message.type === 'stream_update',
+      settleBeforeReveal: Boolean(message.settle_before_reveal)
+    });
+    entry.bodyElement.dataset.sgtMode = message.refining ? 'refining' : 'result';
+    reportCardDiagnostic(entry.card.dataset.id, entry,
+      message.type === 'finalize' ? 'finalize_applied' : 'stream_applied', {
+        revision: message.content_revision,
+        payloadLen: message.html.length,
+        textLen: (entry.bodyElement.innerText || '').trim().length
+      });
+    reportOrDeferPaint(entry,
+      message.type === 'finalize' ? 'final' : 'stream', message.content_revision);
+    if (message.type === 'finalize') entry.directRuntime.initGrids();
+    queueFit(entry, message.type === 'stream_update');
+    return true;
+  } catch (error) {
+    reportCardDiagnostic(entry.card.dataset.id, entry,
+      message.type === 'finalize' ? 'finalize_failed' : 'stream_failed', { error: error });
+    return false;
+  }
+}
 function queueCardContent(entry, message) {
   const priority = message.type === 'finalize' ? 2 : 1;
   const current = entry.pendingContent;
-  if (current && current.revision === entry.revision && current.priority > priority) {
-    reportCardDiagnostic(entry.card.dataset.id, entry, 'stale_content_ignored', {
-      payloadLen: message.html.length
-    });
-    return false;
-  }
+  if (current && current.revision === entry.revision && current.priority > priority) return false;
   entry.pendingContent = {
     type: message.type,
     html: message.html,
+    refining: Boolean(message.refining),
+    content_revision: ++entry.contentRevision,
     revision: entry.revision,
     priority: priority
   };
   reportCardDiagnostic(entry.card.dataset.id, entry, 'content_queued', {
+    revision: entry.contentRevision,
     payloadLen: message.html.length
   });
   return true;
 }
-
 function flushPendingContent(entry) {
   const message = entry.pendingContent;
   if (!message || !entry.ready || !entry.visible) return false;
@@ -120,41 +310,81 @@ function flushPendingContent(entry) {
     entry.pendingContent = null;
     return false;
   }
-  if (!postCardMessage(entry, message)) return false;
-  entry.pendingContent = null;
-  return true;
+  const applied = entry.mode === 'direct'
+    ? applyDirectContent(entry, message)
+    : postCardMessage(entry, message);
+  if (applied) entry.pendingContent = null;
+  return applied;
 }
-
-function loadCardDocument(entry, html) {
-  entry.ready = false;
+function documentKey(documentHtml) {
+  return documentHtml === null ? 'shared' : 'inline:' + documentHtml;
+}
+function useDirectSurface(entry) {
+  if (entry.mode === 'direct') return;
+  cancelActiveFit(entry);
+  entry.mode = 'direct';
+  entry.ready = true;
+  entry.fontReady = true;
   entry.revision++;
-  entry.loadedHtml = html;
-  reportCardDiagnostic(entry.card.dataset.id, entry, 'document_load_requested', {
-    payloadLen: html.length
-  });
-  entry.frame.srcdoc = html;
+  entry.loadedDocument = 'shared';
+  if (entry.commandPort) entry.commandPort.close();
+  entry.commandPort = null;
+  entry.frame.hidden = true;
+  entry.directHost.hidden = false;
+  reportCardDiagnostic(entry.card.dataset.id, entry, 'shared_surface_ready', {});
 }
-
+function loadIsolatedDocument(entry, documentHtml) {
+  cancelActiveFit(entry);
+  entry.mode = 'isolated';
+  entry.ready = false;
+  entry.fontReady = false;
+  entry.revision++;
+  entry.loadedDocument = documentKey(documentHtml);
+  if (entry.commandPort) entry.commandPort.close();
+  entry.commandPort = null;
+  entry.directHost.hidden = true;
+  entry.frame.hidden = false;
+  reportCardDiagnostic(entry.card.dataset.id, entry, 'document_load_requested', {
+    payloadLen: documentHtml ? documentHtml.length : 0
+  });
+  entry.frame.removeAttribute('srcdoc');
+  entry.frame.src = isolatedOrigin + '/card/' +
+    encodeURIComponent(entry.card.dataset.id) + '?revision=' + entry.revision;
+}
+function selectSurface(entry, documentHtml) {
+  const changed = documentKey(entry.document) !== documentKey(documentHtml);
+  entry.document = documentHtml;
+  if (documentHtml === null) {
+    if (entry.mode !== 'direct') useDirectSurface(entry);
+  } else if (entry.mode !== 'isolated' || changed || entry.navigationDepth > 0) {
+    loadIsolatedDocument(entry, documentHtml);
+  }
+}
 function applyGeometry(entry, model) {
   const scale = window.devicePixelRatio || 1;
+  const width = model.rect.width / scale;
+  const height = model.rect.height / scale;
+  const resized = entry.card.clientWidth !== width || entry.card.clientHeight !== height;
   entry.card.style.transform = 'translate3d(' + (model.rect.x / scale) + 'px,' +
     (model.rect.y / scale) + 'px,0)';
-  entry.card.style.width = (model.rect.width / scale) + 'px';
-  entry.card.style.height = (model.rect.height / scale) + 'px';
+  entry.card.style.width = width + 'px';
+  entry.card.style.height = height + 'px';
+  if (resized && entry.ready && entry.visible) {
+    clearTimeout(entry.resizeFit);
+    entry.resizeFit = setTimeout(function() { queueFit(entry, entry.streaming); }, 40);
+  }
 }
-
 function applyStacking(entry, stackOrder) {
   const order = Number(stackOrder || 0);
   highestStackOrder = Math.max(highestStackOrder, order);
-  entry.card.style.zIndex = String(order);
+  const current = Number(entry.card.style.zIndex || 0);
+  if (order >= current) entry.card.style.zIndex = String(order);
 }
-
 function raiseCard(entry, stackOrder) {
   const order = Math.max(highestStackOrder + 1, Number(stackOrder || 0));
   highestStackOrder = order;
   entry.card.style.zIndex = String(order);
 }
-
 function applyAppearance(entry, model) {
   const becameVisible = !entry.visible && model.visible;
   entry.card.style.background = model.background;
@@ -163,80 +393,53 @@ function applyAppearance(entry, model) {
   entry.card.hidden = !model.visible;
   return becameVisible;
 }
-
 function activateCard(entry, becameVisible) {
   if (!entry.visible || entry.navigationDepth !== 0) return;
-  if (entry.loadedHtml === null && entry.html !== null) {
-    loadCardDocument(entry, entry.html);
-    return;
-  }
   if (flushPendingContent(entry)) return;
-  if (becameVisible && entry.ready) {
-    postCardMessage(entry, { type: 'run_fit', streaming: entry.streaming });
-  }
+  if (becameVisible && entry.ready) queueFit(entry, entry.streaming);
 }
-
+function applyContentModel(entry, model, type) {
+  const becameVisible = applyAppearance(entry, model);
+  entry.body = model.body;
+  entry.streaming = type !== 'finalize';
+  entry.streamingEnabled = Boolean(model.streaming_enabled);
+  entry.refining = Boolean(model.refining);
+  if (type === 'finalize') entry.contentPhase = 'finalized';
+  else if (entry.contentPhase !== 'finalized') entry.contentPhase = 'streaming';
+  if (type !== 'finalize' && entry.contentPhase === 'finalized') return;
+  const nextDocument = model.document === undefined ? null : model.document;
+  const surfaceChanged = documentKey(entry.document) !== documentKey(nextDocument);
+  if (surfaceChanged) entry.pendingContent = null;
+  selectSurface(entry, nextDocument);
+  const settleBeforeReveal = type === 'finalize' && !entry.streamingEnabled;
+  queueCardContent(entry, { type: type, html: model.body, refining: model.refining,
+    settle_before_reveal: settleBeforeReveal });
+  if (settleBeforeReveal) {
+    prepareSettledReveal(entry, entry.contentRevision);
+  }
+  activateCard(entry, becameVisible);
+}
 function upsertCard(model) {
   const entry = ensureCard(model.id);
   applyGeometry(entry, model);
   applyStacking(entry, model.stack_order);
-  const becameVisible = applyAppearance(entry, model);
-  const htmlChanged = entry.html !== model.html;
-  entry.html = model.html;
-  entry.streaming = Boolean(model.streaming);
-  if (htmlChanged && entry.loadedHtml !== model.html) {
-    entry.pendingContent = null;
-    entry.contentPhase = entry.streaming ? 'streaming' : 'document';
-    loadCardDocument(entry, model.html);
-    return;
-  }
-  if (entry.streaming) entry.contentPhase = 'streaming';
-  activateCard(entry, becameVisible);
+  entry.contentPhase = 'document';
+  applyContentModel(entry, model, model.streaming ? 'stream_update' : 'finalize');
 }
-
 function streamCard(model) {
   const entry = cards.get(String(model.id));
-  if (!entry) {
-    reportCardDiagnostic(model.id, null, 'stream_missing_card', {
-      payloadLen: model.body.length
-    });
-    return;
-  }
-  const becameVisible = applyAppearance(entry, model);
+  if (!entry) return;
   if (entry.contentPhase === 'finalized') {
-    reportCardDiagnostic(model.id, entry, 'stale_stream_ignored', {
-      payloadLen: model.body.length
-    });
+    reportCardDiagnostic(model.id, entry, 'stale_stream_ignored', { payloadLen: model.body.length });
     return;
   }
-  entry.streaming = true;
-  entry.contentPhase = 'streaming';
-  queueCardContent(entry, { type: 'stream_update', html: model.body });
-  activateCard(entry, becameVisible);
+  applyContentModel(entry, model, 'stream_update');
 }
-
 function finalizeCard(model) {
   const entry = cards.get(String(model.id));
-  if (!entry) {
-    reportCardDiagnostic(model.id, null, 'finalize_missing_card', {
-      payloadLen: model.body.length
-    });
-    return;
-  }
-  const becameVisible = applyAppearance(entry, model);
-  entry.html = model.html;
-  entry.streaming = false;
-  entry.contentPhase = 'finalized';
-  if (entry.loadedHtml === null) {
-    entry.pendingContent = null;
-    activateCard(entry, becameVisible);
-    return;
-  }
-  entry.loadedHtml = model.html;
-  queueCardContent(entry, { type: 'finalize', html: model.body });
-  activateCard(entry, becameVisible);
+  if (!entry) return;
+  applyContentModel(entry, model, 'finalize');
 }
-
 function updateGeometry(model) {
   const entry = cards.get(String(model.id));
   if (!entry) return;
@@ -246,17 +449,21 @@ function updateGeometry(model) {
   entry.card.hidden = !model.visible;
   activateCard(entry, becameVisible);
 }
-
 function removeCard(id) {
   const key = String(id);
   const entry = cards.get(key);
   if (!entry) return;
+  cancelActiveFit(entry);
+  clearTimeout(entry.resizeFit);
+  entry.directRuntime.destroy();
+  if (entry.commandPort) entry.commandPort.close();
   entry.card.remove();
   cards.delete(key);
 }
 
 function applyTheme(theme) {
   currentThemeCss = String(theme.css || '');
+  document.getElementById('sgt-theme-css').textContent = currentThemeCss;
   for (const appearance of theme.cards || []) {
     const entry = cards.get(String(appearance.id));
     if (!entry) continue;
@@ -267,49 +474,79 @@ function applyTheme(theme) {
 
 function reportNavigation(id, entry) {
   window.ipc.postMessage(JSON.stringify({
-    type: 'navigation',
-    id: Number(id),
-    depth: entry.navigationDepth,
+    type: 'navigation', id: Number(id), depth: entry.navigationDepth,
     max_depth: entry.navigationUrls.length
   }));
 }
 
-window.addEventListener('message', event => {
-  if (!event.data) return;
-  for (const [id, entry] of cards) {
-    if (event.source !== entry.frame.contentWindow) continue;
+function navigateTo(entry, url) {
+  cancelActiveFit(entry);
+  entry.navigationUrls.splice(entry.navigationDepth);
+  entry.navigationUrls.push(url);
+  entry.navigationDepth = entry.navigationUrls.length;
+  entry.mode = 'isolated';
+  entry.ready = false;
+  if (entry.commandPort) entry.commandPort.close();
+  entry.commandPort = null;
+  entry.directHost.hidden = true;
+  entry.frame.hidden = false;
+  entry.frame.removeAttribute('srcdoc');
+  entry.frame.src = url;
+  reportNavigation(entry.card.dataset.id, entry);
+}
+
+window.addEventListener('message', function(event) {
+  if (!event.data || event.origin !== isolatedOrigin) return;
+  const id = String(event.data.card_id || '');
+  const entry = cards.get(id);
+  if (!entry || entry.mode !== 'isolated') return;
+  if (Number(event.data.document_revision || 0) !== entry.revision) return;
     if (event.data.type === 'fit_diagnostic') {
-      window.ipc.postMessage(JSON.stringify({
-        type: 'fit_diagnostic',
-        id: Number(id),
-        payload: event.data.payload
-      }));
-      return;
-    }
-    if (event.data.type === 'card_diagnostic') {
-      reportCardDiagnostic(id, entry, event.data.phase || 'bridge_unknown', {
-        payloadLen: event.data.payload_len,
-        textLen: event.data.text_len,
-        opacity: event.data.opacity,
-        error: event.data.error
+      window.ipc.postMessage(JSON.stringify({ type: 'fit_diagnostic', id: Number(id), payload: event.data.payload }));
+    } else if (event.data.type === 'frame_request') {
+      const handle = Number(event.data.handle || 0);
+      const documentRevision = entry.revision;
+      requestAnimationFrame(function(timestamp) {
+        if (entry.revision !== documentRevision) return;
+        postCardMessage(entry, { type: 'frame_tick', handle: handle, timestamp: timestamp });
       });
-      return;
-    }
-    if (event.data.type === 'card_interaction') {
+    } else if (event.data.type === 'fit_request') {
+      queueFit(entry, event.data.streaming);
+    } else if (event.data.type === 'fit_complete') {
+      completeFit(entry);
+    } else if (event.data.type === 'card_diagnostic') {
+      const revision = Number(event.data.content_revision || 0);
+      if (event.data.phase === 'bridge_ready') {
+        entry.commandPort = event.ports && event.ports[0] ? event.ports[0] : null;
+        if (entry.commandPort) entry.commandPort.start();
+        entry.activateIsolatedBridge();
+      }
+      if (String(event.data.phase || '').startsWith('font_ready_')) {
+        entry.fontReady = true;
+        const flushed = flushPendingContent(entry);
+        if (entry.visible && entry.navigationDepth === 0 && !flushed) {
+          queueFit(entry, entry.streaming);
+        }
+      }
+      if (!revision || revision === entry.contentRevision) {
+        const phase = event.data.phase || 'bridge_unknown';
+        const details = {
+          revision: revision || entry.contentRevision,
+          payloadLen: event.data.payload_len,
+          textLen: event.data.text_len,
+          opacity: event.data.opacity,
+          error: event.data.error
+        };
+        if (!deferIsolatedSettledPaint(entry, phase, details)) {
+          reportCardDiagnostic(id, entry, phase, details);
+        }
+      }
+    } else if (event.data.type === 'card_interaction') {
       raiseCard(entry);
-      window.ipc.postMessage(JSON.stringify({
-        type: 'interaction',
-        id: Number(id)
-      }));
-      return;
+      window.ipc.postMessage(JSON.stringify({ type: 'interaction', id: Number(id) }));
+    } else if (event.data.type === 'card_navigation') {
+      navigateTo(entry, event.data.url);
     }
-    if (event.data.type !== 'card_navigation') return;
-    entry.navigationUrls.splice(entry.navigationDepth);
-    entry.navigationUrls.push(event.data.url);
-    entry.navigationDepth = entry.navigationUrls.length;
-    reportNavigation(id, entry);
-    return;
-  }
 });
 
 window.applyHostCommand = function(command) {
@@ -317,29 +554,29 @@ window.applyHostCommand = function(command) {
     const incoming = new Set(command.cards.map(card => String(card.id)));
     for (const key of cards.keys()) if (!incoming.has(key)) removeCard(key);
     for (const card of command.cards) upsertCard(card);
-  } else if (command.type === 'upsert') {
-    upsertCard(command.card);
-  } else if (command.type === 'stream') {
-    streamCard(command.card);
-  } else if (command.type === 'finalize') {
-    finalizeCard(command.card);
-  } else if (command.type === 'geometry') {
+  } else if (command.type === 'upsert') upsertCard(command.card);
+  else if (command.type === 'stream') streamCard(command.card);
+  else if (command.type === 'finalize') finalizeCard(command.card);
+  else if (command.type === 'geometry') {
     for (const card of command.cards) updateGeometry(card);
-  } else if (command.type === 'theme') {
-    applyTheme(command.theme);
-  } else if (command.type === 'raise') {
+  } else if (command.type === 'theme') applyTheme(command.theme);
+  else if (command.type === 'raise') {
     const entry = cards.get(String(command.id));
     if (entry) applyStacking(entry, command.stack_order);
-  } else if (command.type === 'remove') {
-    removeCard(command.id);
-  } else if (command.type === 'navigate_back') {
+  } else if (command.type === 'remove') removeCard(command.id);
+  else if (command.type === 'navigate_back') {
     const entry = cards.get(String(command.id));
     if (entry && entry.navigationDepth > 0) {
       entry.navigationDepth--;
       if (entry.navigationDepth === 0) {
-        entry.pendingContent = null;
-        entry.contentPhase = 'document';
-        loadCardDocument(entry, entry.html);
+        if (entry.document === null) {
+          useDirectSurface(entry);
+          activateCard(entry, true);
+        } else {
+          entry.pendingContent = null;
+          loadIsolatedDocument(entry, entry.document);
+          queueCardContent(entry, { type: 'finalize', html: entry.body, refining: entry.refining });
+        }
       } else {
         entry.ready = false;
         entry.frame.src = entry.navigationUrls[entry.navigationDepth - 1];
@@ -349,105 +586,15 @@ window.applyHostCommand = function(command) {
   } else if (command.type === 'navigate_forward') {
     const entry = cards.get(String(command.id));
     if (entry && entry.navigationDepth < entry.navigationUrls.length) {
-      entry.ready = false;
-      entry.frame.src = entry.navigationUrls[entry.navigationDepth];
-      entry.navigationDepth++;
-      reportNavigation(command.id, entry);
+      navigateTo(entry, entry.navigationUrls[entry.navigationDepth]);
     }
   }
 };
 
-setInterval(() => window.ipc.postMessage('renderer_heartbeat'), 1000);
-const rendererFontStarted = performance.now();
-document.fonts.load("400 16px 'Google Sans Flex'").then(faces => {
-  if (!faces.length || !document.fonts.check("400 16px 'Google Sans Flex'")) {
-    throw new Error('Google Sans Flex did not enter the loaded font set');
-  }
-  window.ipc.postMessage(JSON.stringify({
-    type: 'font_ready',
-    duration_ms: performance.now() - rendererFontStarted
-  }));
-  window.ipc.postMessage('renderer_ready');
-}).catch(error => {
-  window.ipc.postMessage(JSON.stringify({
-    type: 'command_error',
-    command: 'font_bootstrap',
-    id: null,
-    error: String(error && error.message ? error.message : error)
-  }));
-});
-</script>
+</script><script>__SGT_SETTLED_REVEAL_RUNTIME__</script><script>__SGT_RENDERER_BOOTSTRAP__</script>
 </body>
 </html>"#;
 
 #[cfg(test)]
-mod tests {
-    use super::DOCUMENT;
-
-    #[test]
-    fn hidden_cards_preload_before_activation() {
-        assert!(DOCUMENT.contains("if (htmlChanged && entry.loadedHtml !== model.html)"));
-        assert!(!DOCUMENT.contains("if (entry.visible && htmlChanged"));
-        assert!(DOCUMENT.contains("activateCard(entry, becameVisible)"));
-    }
-
-    #[test]
-    fn stream_and_final_updates_wait_for_frame_readiness() {
-        assert!(DOCUMENT.contains("queueCardContent(entry, { type: 'stream_update'"));
-        assert!(DOCUMENT.contains("queueCardContent(entry, { type: 'finalize'"));
-        assert!(DOCUMENT.contains("frame.addEventListener('load'"));
-    }
-
-    #[test]
-    fn fitting_cannot_replace_content_waiting_for_document_load() {
-        let post_start = DOCUMENT.find("function postCardMessage").unwrap();
-        let post_end = DOCUMENT[post_start..]
-            .find("function queueCardContent")
-            .map(|offset| post_start + offset)
-            .unwrap();
-        let post_function = &DOCUMENT[post_start..post_end];
-
-        assert!(!post_function.contains("pendingContent ="));
-        assert!(DOCUMENT.contains("if (becameVisible && entry.ready)"));
-        assert!(DOCUMENT.contains("const priority = message.type === 'finalize' ? 2 : 1"));
-    }
-
-    #[test]
-    fn finalized_cards_reject_late_stream_updates() {
-        assert!(DOCUMENT.contains("if (entry.contentPhase === 'finalized')"));
-        assert!(DOCUMENT.contains("'stale_stream_ignored'"));
-        assert!(DOCUMENT.contains("entry.contentPhase = 'finalized'"));
-    }
-
-    #[test]
-    fn card_lifecycle_crosses_the_renderer_boundary() {
-        assert!(DOCUMENT.contains("'document_load_requested'"));
-        assert!(DOCUMENT.contains("'document_loaded'"));
-        assert!(DOCUMENT.contains("event.data.type === 'card_diagnostic'"));
-        assert!(DOCUMENT.contains("type: 'card_diagnostic'"));
-    }
-
-    #[test]
-    fn renderer_readiness_is_gated_on_the_bundled_font() {
-        assert!(DOCUMENT.contains("rel=\"preload\" href=\"/font.ttf"));
-        assert!(DOCUMENT.contains("document.fonts.load"));
-        assert!(DOCUMENT.contains("type: 'font_ready'"));
-        assert!(DOCUMENT.contains("window.ipc.postMessage('renderer_ready')"));
-        assert!(!DOCUMENT.contains("'Segoe UI'"));
-    }
-
-    #[test]
-    fn position_updates_move_the_composited_card_without_relaying_out_its_frame() {
-        assert!(DOCUMENT.contains("entry.card.style.transform = 'translate3d('"));
-        assert!(!DOCUMENT.contains("entry.card.style.left ="));
-        assert!(!DOCUMENT.contains("entry.card.style.top ="));
-    }
-
-    #[test]
-    fn theme_and_interaction_updates_do_not_reload_card_documents() {
-        assert!(DOCUMENT.contains("postCardMessage(entry, { type: 'theme_update'"));
-        assert!(DOCUMENT.contains("event.data.type === 'card_interaction'"));
-        assert!(DOCUMENT.contains("command.type === 'raise'"));
-        assert!(!DOCUMENT.contains("function applyTheme(theme) {\n  loadCardDocument"));
-    }
-}
+#[path = "html_tests.rs"]
+mod tests;

@@ -2,7 +2,6 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub mod misc;
-pub mod timer_tasks;
 
 pub const MIN_WINDOW_WIDTH: i32 = 40;
 pub const MIN_WINDOW_HEIGHT: i32 = 30;
@@ -18,7 +17,6 @@ pub unsafe extern "system" fn result_wnd_proc(
             WM_ERASEBKGND => LRESULT(1),
             WM_PAINT => misc::handle_paint(hwnd),
             WM_NCHITTEST => handle_hit_test(hwnd, lparam),
-            WM_TIMER => timer_tasks::handle_timer(hwnd, wparam),
             WM_DESTROY => misc::handle_destroy(hwnd),
             WM_DISPLAYCHANGE => misc::handle_display_change(hwnd),
             WM_SHOWWINDOW => misc::handle_show_window(hwnd, wparam, lparam),

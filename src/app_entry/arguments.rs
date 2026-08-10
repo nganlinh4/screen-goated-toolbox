@@ -5,6 +5,7 @@ const SCREEN_RECORD_WRY_SMOKE_FLAG: &str = "--screen-record-wry-smoke";
 const SCREEN_RECORD_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--screen-record-webview2-debug-port";
 const CREATION_UI_TEST_FLAG: &str = "--creation-ui-test";
 const CREATION_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--creation-webview2-debug-port";
+const RESULT_COMPOSITOR_SMOKE_FLAG: &str = "--result-compositor-smoke";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CreationUiTestApp {
@@ -112,6 +113,10 @@ impl StartupArgs {
         }
         crate::log_info!("[CreationUiTest] Enabled WebView2 remote debugging on port {port}");
         Some(app)
+    }
+
+    pub(crate) fn result_compositor_smoke(&self) -> bool {
+        self.has(RESULT_COMPOSITOR_SMOKE_FLAG)
     }
 }
 

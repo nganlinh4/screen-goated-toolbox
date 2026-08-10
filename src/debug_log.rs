@@ -1,9 +1,18 @@
 use chrono::Local;
-use std::fs::OpenOptions;
-use std::io::Write;
+use std::fs::{File, OpenOptions};
+use std::io::{BufWriter, Write};
 use std::sync::LazyLock;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::time::Duration;
 
-static LOG_MUTEX: LazyLock<std::sync::Mutex<()>> = LazyLock::new(|| std::sync::Mutex::new(()));
+static LOG_SENDER: LazyLock<Sender<String>> = LazyLock::new(|| {
+    let (sender, receiver) = channel();
+    std::thread::Builder::new()
+        .name("sgt-log-writer".to_string())
+        .spawn(move || writer_loop(receiver))
+        .expect("failed to start SGT log writer");
+    sender
+});
 
 pub fn print_line(msg: &str) {
     #[cfg(windows)]
@@ -32,15 +41,61 @@ fn write_console_line(msg: &str) -> bool {
 }
 
 pub fn log_debug(msg: &str) {
-    let _lock = LOG_MUTEX.lock().unwrap();
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    let _ = LOG_SENDER.send(format!("[{timestamp}] {msg}"));
+}
+
+fn writer_loop(receiver: Receiver<String>) {
     let mut path = crate::paths::app_sgt_dir();
     path.push("logs");
     let _ = std::fs::create_dir_all(&path);
     path.push("session.log");
 
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-        let _ = writeln!(file, "[{}] {}", timestamp, msg);
+    let mut writer = open_writer(&path);
+    loop {
+        match receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok(line) => {
+                write_line(&path, &mut writer, &line);
+                while let Ok(line) = receiver.try_recv() {
+                    write_line(&path, &mut writer, &line);
+                }
+                if let Some(writer) = writer.as_mut() {
+                    let _ = writer.flush();
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                if let Some(writer) = writer.as_mut() {
+                    let _ = writer.flush();
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                if let Some(writer) = writer.as_mut() {
+                    let _ = writer.flush();
+                }
+                return;
+            }
+        }
+    }
+}
+
+fn open_writer(path: &std::path::Path) -> Option<BufWriter<File>> {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .ok()
+        .map(BufWriter::new)
+}
+
+fn write_line(path: &std::path::Path, writer: &mut Option<BufWriter<File>>, line: &str) {
+    if writer.is_none() {
+        *writer = open_writer(path);
+    }
+    let failed = writer
+        .as_mut()
+        .is_none_or(|writer| writeln!(writer, "{line}").is_err());
+    if failed {
+        *writer = None;
     }
 }
 

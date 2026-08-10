@@ -164,6 +164,7 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
             initial_text: window.full_text.clone(),
             preset_id: window.preset_id.clone(),
             is_chain_root: window.is_chain_root,
+            latency_trace_id: None,
         });
 
         if hwnd.is_invalid() {
@@ -180,14 +181,12 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                 state.full_text = window.full_text.clone();
-                state.pending_text = Some(window.full_text.clone());
                 state.text_history = window.text_history.clone();
                 state.redo_history = window.redo_history.clone();
                 state.input_text = window.input_text.clone();
                 state.is_editing = window.is_editing;
                 state.is_refining = false;
                 state.is_streaming_active = false;
-                state.was_streaming_active = false;
                 state.bg_color = window.bg_color;
                 state.linked_windows.clear();
                 state.is_browsing = false;

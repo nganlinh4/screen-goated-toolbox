@@ -375,6 +375,7 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
             }
 
             if let Some(h) = my_hwnd {
+                crate::overlay::result::latency::mark_window(h, "provider_first_output");
                 {
                     let mut s = WINDOW_STATES.lock().unwrap();
                     if let Some(st) = s.get_mut(&(h.0 as isize)) {
@@ -420,6 +421,7 @@ fn handle_streaming_chunk(
     }
 
     if let Some(h) = my_hwnd {
+        crate::overlay::result::latency::mark_window(h, "provider_first_output");
         // Show window on first chunk for image blocks
         {
             let mut shown = window_shown.lock().unwrap();
@@ -469,13 +471,15 @@ fn handle_execution_result(
     match res {
         Ok(txt) => {
             if let Some(h) = my_hwnd {
-                let mut s = WINDOW_STATES.lock().unwrap();
-                if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                    st.is_refining = false;
-                    st.is_streaming_active = false;
-                    st.pending_text = Some(txt.clone());
-                    st.full_text = txt.clone();
+                crate::overlay::result::latency::mark_window(h, "provider_first_output");
+                {
+                    let mut s = WINDOW_STATES.lock().unwrap();
+                    if let Some(st) = s.get_mut(&(h.0 as isize)) {
+                        st.is_refining = false;
+                        st.is_streaming_active = false;
+                    }
                 }
+                update_window_text(h, &txt);
             }
             txt
         }
@@ -490,6 +494,7 @@ fn handle_execution_result(
                 Some(model_full_name),
             );
             if let Some(h) = my_hwnd {
+                crate::overlay::result::latency::mark_window(h, "provider_first_output");
                 // Show window if hidden (image blocks)
                 {
                     let mut shown = window_shown.lock().unwrap();
@@ -506,13 +511,14 @@ fn handle_execution_result(
                         }
                     }
                 }
-                let mut s = WINDOW_STATES.lock().unwrap();
-                if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                    st.is_refining = false;
-                    st.is_streaming_active = false;
-                    st.pending_text = Some(err.clone());
-                    st.full_text = err.clone();
+                {
+                    let mut s = WINDOW_STATES.lock().unwrap();
+                    if let Some(st) = s.get_mut(&(h.0 as isize)) {
+                        st.is_refining = false;
+                        st.is_streaming_active = false;
+                    }
                 }
+                update_window_text(h, &err);
             }
             String::new()
         }

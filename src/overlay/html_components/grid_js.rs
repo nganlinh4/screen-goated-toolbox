@@ -5,7 +5,7 @@ pub fn get_css() -> &'static str {
 
     .gridjs-container {
         color: var(--text-color, #e0e0e0);
-        font-family: 'Google Sans Flex', 'Segoe UI', sans-serif !important;
+        font-family: 'Google Sans Flex' !important;
         background: var(--table-bg, rgba(0,0,0,0.2)) !important;
         padding: 0 !important;
         border-radius: 8px;

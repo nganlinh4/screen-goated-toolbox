@@ -38,23 +38,20 @@ pub fn trigger_refine_submit(hwnd: HWND, text: &str) {
             state.redo_history.clear();
             state.input_text = text_to_refine;
             state.full_text = String::new();
-            state.pending_text = Some(String::new());
             should_trigger_refine = true;
         }
     }
 
     if should_trigger_refine {
-        start_refinement(hwnd, text);
-    }
-
-    {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&hwnd_key) {
             state.is_editing = false;
             state.is_refining = true;
             state.is_streaming_active = true;
-            state.was_streaming_active = true;
         }
+        drop(states);
+        super::update_window_text(hwnd, "");
+        start_refinement(hwnd, text);
     }
     button_canvas::update_window_position(hwnd);
 }
@@ -143,63 +140,67 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
                     return;
                 }
 
-                let mut states = WINDOW_STATES.lock().unwrap();
-                if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
-                    if first_chunk {
+                if first_chunk {
+                    let mut states = WINDOW_STATES.lock().unwrap();
+                    if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
                         state.is_refining = false;
-                        first_chunk = false;
                     }
-
-                    if let Some(wiped) = chunk.strip_prefix(crate::api::WIPE_SIGNAL) {
-                        acc_text.clear();
-                        acc_text.push_str(wiped);
-                    } else {
-                        acc_text.push_str(chunk);
-                    }
-                    state.pending_text = Some(acc_text.clone());
-                    state.full_text = acc_text.clone();
+                    first_chunk = false;
                 }
+
+                if let Some(wiped) = chunk.strip_prefix(crate::api::WIPE_SIGNAL) {
+                    acc_text.clear();
+                    acc_text.push_str(wiped);
+                } else {
+                    acc_text.push_str(chunk);
+                }
+                super::update_window_text(capture_hwnd, &acc_text);
             },
         );
 
-        let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
-            state.is_refining = false;
-            state.is_streaming_active = false;
-            let accumulated_len = state.full_text.len();
-            match result {
-                Ok(final_text) => {
-                    if final_text.trim().is_empty() {
-                        crate::log_info!(
-                            "[MarkdownDiag] blank_model_result hwnd={} provider={} model={} final_len={} accumulated_len={}",
-                            capture_hwnd.0 as isize,
-                            provider,
-                            model_id,
-                            final_text.len(),
-                            accumulated_len
-                        );
-                    }
-                    state.full_text = final_text.clone();
-                    state.pending_text = Some(final_text);
-                }
-                Err(e) => {
-                    let (lang, model_full_name) = {
-                        let app = crate::APP.lock().unwrap();
-                        let full_name = crate::model_config::get_model_by_id(&model_id)
-                            .map(|m| m.full_name)
-                            .unwrap_or_else(|| model_id.to_string());
-                        (app.config.ui_language.clone(), full_name)
-                    };
-                    crate::overlay::utils::show_api_key_error_notification(&e.to_string(), &lang);
-                    let err_msg = crate::overlay::utils::get_error_message(
-                        &e.to_string(),
-                        &lang,
-                        Some(&model_full_name),
+        let accumulated_len = WINDOW_STATES
+            .lock()
+            .unwrap()
+            .get(&(capture_hwnd.0 as isize))
+            .map(|state| state.full_text.len())
+            .unwrap_or(0);
+        let final_text = match result {
+            Ok(final_text) => {
+                if final_text.trim().is_empty() {
+                    crate::log_info!(
+                        "[MarkdownDiag] blank_model_result hwnd={} provider={} model={} final_len={} accumulated_len={}",
+                        capture_hwnd.0 as isize,
+                        provider,
+                        model_id,
+                        final_text.len(),
+                        accumulated_len
                     );
-                    state.pending_text = Some(err_msg.clone());
-                    state.full_text = err_msg;
                 }
+                final_text
+            }
+            Err(e) => {
+                let (lang, model_full_name) = {
+                    let app = crate::APP.lock().unwrap();
+                    let full_name = crate::model_config::get_model_by_id(&model_id)
+                        .map(|m| m.full_name)
+                        .unwrap_or_else(|| model_id.to_string());
+                    (app.config.ui_language.clone(), full_name)
+                };
+                crate::overlay::utils::show_api_key_error_notification(&e.to_string(), &lang);
+                crate::overlay::utils::get_error_message(
+                    &e.to_string(),
+                    &lang,
+                    Some(&model_full_name),
+                )
+            }
+        };
+        {
+            let mut states = WINDOW_STATES.lock().unwrap();
+            if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
+                state.is_refining = false;
+                state.is_streaming_active = false;
             }
         }
+        super::update_window_text(capture_hwnd, &final_text);
     });
 }

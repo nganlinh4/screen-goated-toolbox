@@ -12,12 +12,16 @@ pub struct SceneRect {
 pub struct SceneCard {
     pub id: isize,
     pub rect: SceneRect,
-    pub html: String,
+    pub body: String,
+    pub document: Option<String>,
+    pub refining: bool,
     pub background: String,
     pub opacity: u8,
     pub visible: bool,
     #[serde(default)]
     pub streaming: bool,
+    #[serde(default)]
+    pub streaming_enabled: bool,
     #[serde(default)]
     pub stack_order: u64,
 }
@@ -33,19 +37,26 @@ pub struct SceneGeometry {
 pub struct SceneStream {
     pub id: isize,
     pub body: String,
+    pub document: Option<String>,
+    pub refining: bool,
     pub background: String,
     pub opacity: u8,
     pub visible: bool,
+    #[serde(default)]
+    pub streaming_enabled: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SceneFinalize {
     pub id: isize,
     pub body: String,
-    pub html: String,
+    pub document: Option<String>,
+    pub refining: bool,
     pub background: String,
     pub opacity: u8,
     pub visible: bool,
+    #[serde(default)]
+    pub streaming_enabled: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -129,12 +140,15 @@ mod tests {
                     width: 640,
                     height: 240,
                 },
-                html: "<p>line one</p>\n<script>const x = `quoted`;</script>".to_string(),
+                body: "<p>line one</p>".to_string(),
+                document: Some("<p>line one</p>\n<script>const x = `quoted`;</script>".to_string()),
+                refining: false,
                 background: "#112233".to_string(),
                 opacity: 85,
                 visible: true,
                 stack_order: 7,
                 streaming: false,
+                streaming_enabled: false,
             },
         };
 
@@ -174,14 +188,18 @@ mod tests {
             card: SceneStream {
                 id: 42,
                 body: "<p>latest words</p>".to_string(),
+                document: None,
+                refining: false,
                 background: "#112233".to_string(),
                 opacity: 75,
                 visible: true,
+                streaming_enabled: true,
             },
         };
 
         let encoded = serde_json::to_string(&command).unwrap();
         assert!(!encoded.contains("__SGT_RUN_FIT__"));
+        assert!(encoded.contains("\"document\":null"));
         assert_eq!(
             serde_json::from_str::<HostCommand>(&encoded).unwrap(),
             command
@@ -194,10 +212,12 @@ mod tests {
             card: SceneFinalize {
                 id: 42,
                 body: "<p>final body</p>".to_string(),
-                html: "<html><body><p>final body</p></body></html>".to_string(),
+                document: Some("<html><body><p>final body</p></body></html>".to_string()),
+                refining: false,
                 background: "#112233".to_string(),
                 opacity: 90,
                 visible: true,
+                streaming_enabled: false,
             },
         };
 

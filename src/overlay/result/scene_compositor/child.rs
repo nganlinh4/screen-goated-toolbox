@@ -1,4 +1,4 @@
-use super::html::DOCUMENT;
+use super::card_document::compositor_document;
 use super::protocol::{ChildEvent, HostCommand, SceneCard};
 use crate::win_types::HwndWrapper;
 use std::borrow::Cow;
@@ -109,6 +109,8 @@ fn create_webview(hwnd: HWND) -> anyhow::Result<WebView> {
         .join("webview_data")
         .join("result-compositor");
     let wrapper = HwndWrapper(hwnd);
+    let isolated_origin = super::isolated_server::start()?;
+    let compositor_html = compositor_document(&isolated_origin);
     WEB_CONTEXT.with(|slot| {
         *slot.borrow_mut() = Some(WebContext::new(Some(data_dir)));
         let mut context = slot.borrow_mut();
@@ -119,24 +121,25 @@ fn create_webview(hwnd: HWND) -> anyhow::Result<WebView> {
             })
             .with_transparent(true)
             .with_focused(false)
-            .with_custom_protocol("sgtresult".to_string(), |_id, request| {
+            .with_custom_protocol("sgtresult".to_string(), move |_id, request| {
                 let path = request.uri().path();
+                if path == "/" || path == "/index.html" {
+                    return compositor_response(
+                        200,
+                        "text/html; charset=utf-8",
+                        Cow::Owned(compositor_html.as_bytes().to_vec()),
+                        "no-store",
+                    );
+                }
                 if path == "/font.ttf" {
                     return compositor_response(
                         200,
                         "font/ttf",
-                        Cow::Borrowed(crate::assets::GOOGLE_SANS_FLEX),
+                        Cow::Borrowed(super::font::bytes()),
+                        "public, max-age=31536000, immutable",
                     );
                 }
-                if path == "/" || path == "/index.html" {
-                    let html = DOCUMENT.replace("__SGT_FONT_VERSION__", env!("CARGO_PKG_VERSION"));
-                    return compositor_response(
-                        200,
-                        "text/html; charset=utf-8",
-                        Cow::Owned(html.into_bytes()),
-                    );
-                }
-                compositor_response(404, "text/plain", Cow::Borrowed(b"Not Found"))
+                compositor_response(404, "text/plain", Cow::Borrowed(b"Not Found"), "no-store")
             })
             .with_url("sgtresult://localhost/index.html")
             .with_ipc_handler(|request: wry::http::Request<String>| {
@@ -147,16 +150,25 @@ fn create_webview(hwnd: HWND) -> anyhow::Result<WebView> {
     })
 }
 
+pub(super) fn document_for_card(id: isize) -> Option<String> {
+    CARDS
+        .lock()
+        .unwrap()
+        .get(&id)
+        .and_then(|card| card.document.clone())
+}
+
 fn compositor_response(
     status: u16,
     mime: &'static str,
     body: Cow<'static, [u8]>,
+    cache_control: &'static str,
 ) -> Response<Cow<'static, [u8]>> {
     Response::builder()
         .status(status)
         .header("Content-Type", mime)
         .header("Access-Control-Allow-Origin", "*")
-        .header("Cache-Control", "public, max-age=31536000, immutable")
+        .header("Cache-Control", cache_control)
         .body(body)
         .unwrap_or_else(|_| Response::new(Cow::Borrowed(b"Internal Error")))
 }
@@ -354,6 +366,9 @@ fn apply_scene_state(command: &HostCommand) {
         }
         HostCommand::Stream { card: update } => {
             if let Some(card) = cards.get_mut(&update.id) {
+                card.body.clone_from(&update.body);
+                card.document.clone_from(&update.document);
+                card.refining = update.refining;
                 card.background.clone_from(&update.background);
                 card.opacity = update.opacity;
                 card.visible = update.visible;
@@ -362,7 +377,9 @@ fn apply_scene_state(command: &HostCommand) {
         }
         HostCommand::Finalize { card: update } => {
             if let Some(card) = cards.get_mut(&update.id) {
-                card.html.clone_from(&update.html);
+                card.body.clone_from(&update.body);
+                card.document.clone_from(&update.document);
+                card.refining = update.refining;
                 card.background.clone_from(&update.background);
                 card.opacity = update.opacity;
                 card.visible = update.visible;
