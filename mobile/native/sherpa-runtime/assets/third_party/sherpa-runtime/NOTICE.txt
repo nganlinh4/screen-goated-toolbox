@@ -1,0 +1,23 @@
+Screen Goated Toolbox reduced Sherpa Android runtime
+
+This binary is a modified, statically linked build of sherpa-onnx v1.12.35
+(commit 21473b6bd2f3ed317426b05f27bab09fd160d0a0) and ONNX Runtime v1.23.2
+(commit a83fc4d58cb48eb68890dd689f94f28288cf2278). Source repositories:
+
+  https://github.com/k2-fsa/sherpa-onnx
+  https://github.com/microsoft/onnxruntime
+
+The modifications narrow the JNI entry points and supported online model
+factories to the streaming Zipformer surface used by this application. The
+complete patch and build inputs are shipped in the source repository under
+mobile/native/sherpa-runtime.
+
+sherpa-onnx and its sherpa-owned dependency graph are distributed under the
+Apache License 2.0; see sherpa-onnx-LICENSE.txt. Statically linked components
+include kaldi-native-fbank, kaldi-decoder, kaldifst, OpenFst,
+simple-sentencepiece, kissfft, Eigen, and nlohmann/json. Their upstream license
+files are included alongside this notice.
+
+ONNX Runtime is distributed under the MIT License; see
+onnxruntime-LICENSE.txt. Its complete upstream third-party attribution file is
+included as onnxruntime-ThirdPartyNotices.txt.

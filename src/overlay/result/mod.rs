@@ -17,6 +17,14 @@ pub use state::{
 pub use window::{ResultWindowParams, create_result_window, get_chain_color, update_window_text};
 pub(crate) use window::{create_result_window_shell, initialize_result_window};
 
+pub(crate) fn subtle_outline_color(is_dark: bool) -> &'static str {
+    if is_dark {
+        "rgba(255, 255, 255, 0.1)"
+    } else {
+        "rgba(0, 0, 0, 0.08)"
+    }
+}
+
 pub fn update_theme(is_dark: bool) {
     button_canvas::update_theme(is_dark);
     scene_compositor::update_theme(is_dark);

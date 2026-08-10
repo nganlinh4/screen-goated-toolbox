@@ -2,8 +2,12 @@ use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use crate::overlay::screen_record::bg_download;
 use eframe::egui;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use super::utils::{format_size, tool_card};
+
+static BADGE_MONITOR_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &LocaleText) {
     let summary = bg_download::downloadable_background_summary();
@@ -44,14 +48,14 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                         .button(text.auxiliary.managed_tools.tool_bg_action_download_all)
                         .clicked()
                     {
-                        let _ = bg_download::start_download_all_missing();
+                        start_missing_with_badge(text);
                     }
                 } else if summary.downloaded_count < summary.total_count {
                     if ui
                         .button(text.auxiliary.managed_tools.tool_bg_action_download_rest)
                         .clicked()
                     {
-                        let _ = bg_download::start_download_all_missing();
+                        start_missing_with_badge(text);
                     }
                     if ui
                         .button(
@@ -99,5 +103,30 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                 ui.label(egui::RichText::new(count_text).color(color));
             });
         });
+    });
+}
+
+fn start_missing_with_badge(text: &LocaleText) {
+    if bg_download::start_download_all_missing() == 0
+        || BADGE_MONITOR_ACTIVE.swap(true, Ordering::AcqRel)
+    {
+        return;
+    }
+    let name = text
+        .auxiliary
+        .managed_tools
+        .tool_downloadable_backgrounds
+        .to_string();
+    std::thread::spawn(move || {
+        let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&name);
+        loop {
+            let summary = bg_download::downloadable_background_summary();
+            badge.report(summary.downloaded_count as u64, summary.total_count as u64);
+            if summary.downloading_count == 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        BADGE_MONITOR_ACTIVE.store(false, Ordering::Release);
     });
 }

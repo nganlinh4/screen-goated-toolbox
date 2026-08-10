@@ -165,8 +165,8 @@ if ($Upload) {
         & gh release create $ReleaseTag --title "SGT Runtime Bundles" --notes "Runtime bundles for downloadable local engines."
         if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
     }
-    $assets = @($ManifestPath) + @(Get-ChildItem $DistDir -File -Filter "$ArchiveName.part*" | ForEach-Object { $_.FullName })
-    & gh release upload $ReleaseTag @assets --clobber
+    $assets = @(Get-ChildItem $DistDir -File -Filter "$ArchiveName.part*" | ForEach-Object { $_.FullName })
+    & gh release upload $ReleaseTag @assets
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed" }
 }
 

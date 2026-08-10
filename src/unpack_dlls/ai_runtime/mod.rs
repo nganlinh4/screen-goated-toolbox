@@ -1,146 +1,100 @@
-use anyhow::{Result, anyhow};
-use std::fs;
+use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock, Mutex};
 
-mod install;
-mod onnx_runtime;
-mod packages;
+mod native_loader;
 mod progress;
 
-pub(crate) use onnx_runtime::ensure_onnx_runtime_initialized;
+use progress::{clear_progress, update_progress};
 
-use install::install_runtime;
-use packages::{
-    DIRECTML_DLL, DIRECTML_VERSION, ONNX_DLL, ONNX_RUNTIME_VERSION, ONNX_SHARED_DLL,
-    RUNTIME_VERSION_MARKER, core_runtime_present, has_runtime_artifacts, runtime_arch,
-    runtime_bytes, runtime_health_issue,
-};
-use progress::clear_progress;
+pub(crate) use native_loader::ensure_native_onnx_runtime;
 
+#[cfg(feature = "recorder-worker")]
 #[derive(Clone, Debug)]
 pub enum AiRuntimeStatus {
     Missing,
-    Installing { label: String, progress: f32 },
-    Installed { bytes: u64 },
-    Error(String),
+    Installing,
+    Installed,
+    Error,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AiRuntimeUi {
     None,
+    #[cfg(not(feature = "recorder-worker"))]
     RealtimeOverlay,
+    #[cfg(not(feature = "recorder-worker"))]
     Badge,
 }
 
-static INSTALL_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-static STATUS: LazyLock<Mutex<AiRuntimeStatus>> =
-    LazyLock::new(|| Mutex::new(AiRuntimeStatus::Missing));
 static LAST_ACTION_ERROR: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
-pub(super) fn set_status(status: AiRuntimeStatus) {
-    *STATUS.lock().unwrap() = status;
-}
-
-fn set_last_action_error(message: impl Into<String>) {
-    *LAST_ACTION_ERROR.lock().unwrap() = Some(message.into());
-}
-
-fn clear_last_action_error() {
-    *LAST_ACTION_ERROR.lock().unwrap() = None;
-}
-
-pub fn current_ai_runtime_notice() -> Option<String> {
-    LAST_ACTION_ERROR.lock().unwrap().clone()
-}
-
 pub fn is_ai_runtime_installed() -> bool {
-    core_runtime_present(&super::private_bin_dir())
-}
-
-fn current_ai_runtime_usage_bytes() -> u64 {
-    runtime_bytes(&super::private_bin_dir())
-}
-
-pub fn current_ai_runtime_status() -> AiRuntimeStatus {
-    let status = STATUS.lock().unwrap().clone();
-    let bin_dir = super::private_bin_dir();
-
-    match status {
-        AiRuntimeStatus::Installing { .. } => status,
-        _ if core_runtime_present(&bin_dir) => AiRuntimeStatus::Installed {
-            bytes: runtime_bytes(&bin_dir),
-        },
-        _ if has_runtime_artifacts(&bin_dir) => AiRuntimeStatus::Error(
-            runtime_health_issue(&bin_dir)
-                .unwrap_or_else(|| "Local AI runtime is invalid. Reinstall required.".to_string()),
+    #[cfg(feature = "recorder-worker")]
+    return matches!(
+        crate::component_registry::local_asr::current_status(
+            crate::component_registry::local_asr::ComponentKind::Runtime
         ),
-        AiRuntimeStatus::Error(message) => AiRuntimeStatus::Error(message),
-        _ => AiRuntimeStatus::Missing,
-    }
-}
-
-pub fn ai_runtime_version_label() -> String {
-    format!(
-        "ONNX Runtime {} + DirectML {} ({})",
-        ONNX_RUNTIME_VERSION,
-        DIRECTML_VERSION,
-        runtime_arch()
+        crate::component_registry::local_asr::ComponentStatus::Installed
+    );
+    #[cfg(not(feature = "recorder-worker"))]
+    matches!(
+        crate::component_registry::local_asr::current_status(
+            crate::component_registry::local_asr::ComponentKind::Runtime
+        ),
+        crate::component_registry::local_asr::ComponentStatus::Installed { .. }
     )
 }
 
-pub fn remove_ai_runtime() -> Result<()> {
-    let _guard = INSTALL_MUTEX.lock().unwrap();
-    let bin_dir = super::private_bin_dir();
-
-    for name in [
-        ONNX_DLL,
-        ONNX_SHARED_DLL,
-        DIRECTML_DLL,
-        RUNTIME_VERSION_MARKER,
-    ] {
-        let path = bin_dir.join(name);
-        if path.exists()
-            && let Err(err) = fs::remove_file(&path)
-        {
-            let message = format!("Failed to remove '{}': {}", path.display(), err);
-            set_last_action_error(message.clone());
-            return Err(anyhow!(message));
-        }
+#[cfg(feature = "recorder-worker")]
+pub fn current_ai_runtime_status() -> AiRuntimeStatus {
+    use crate::component_registry::local_asr::{ComponentKind, ComponentStatus};
+    let status = crate::component_registry::local_asr::current_status(ComponentKind::Runtime);
+    if crate::component_registry::local_asr::status_is_ready(&status) {
+        return AiRuntimeStatus::Installed;
     }
+    match status {
+        ComponentStatus::Installing => AiRuntimeStatus::Installing,
+        ComponentStatus::Missing | ComponentStatus::Unavailable => AiRuntimeStatus::Missing,
+        ComponentStatus::Error => AiRuntimeStatus::Error,
+        ComponentStatus::Installed => AiRuntimeStatus::Installed,
+        #[cfg(debug_assertions)]
+        ComponentStatus::Development => AiRuntimeStatus::Installed,
+    }
+}
 
-    clear_last_action_error();
-    set_status(AiRuntimeStatus::Missing);
-    Ok(())
+#[cfg(not(feature = "recorder-worker"))]
+pub fn remove_ai_runtime() -> Result<()> {
+    let result = crate::component_registry::local_asr::remove(
+        crate::component_registry::local_asr::ComponentKind::Runtime,
+    );
+    if let Err(error) = &result {
+        *LAST_ACTION_ERROR.lock().unwrap() = Some(error.to_string());
+    } else {
+        *LAST_ACTION_ERROR.lock().unwrap() = None;
+    }
+    result
 }
 
 pub fn ensure_ai_runtime_installed(stop_signal: Arc<AtomicBool>, ui: AiRuntimeUi) -> Result<()> {
     if is_ai_runtime_installed() {
-        clear_last_action_error();
-        set_status(AiRuntimeStatus::Installed {
-            bytes: current_ai_runtime_usage_bytes(),
-        });
+        *LAST_ACTION_ERROR.lock().unwrap() = None;
         return Ok(());
     }
-
-    let _guard = INSTALL_MUTEX.lock().unwrap();
-    if is_ai_runtime_installed() {
-        clear_last_action_error();
-        set_status(AiRuntimeStatus::Installed {
-            bytes: current_ai_runtime_usage_bytes(),
+    let result =
+        crate::component_registry::local_asr::ensure_runtime(&stop_signal, |done, total| {
+            let progress = done
+                .saturating_mul(100)
+                .checked_div(total.max(1))
+                .unwrap_or(0) as f32;
+            update_progress(ui, "Installing local ONNX/DirectML runtime", progress);
         });
-        return Ok(());
-    }
-
-    let result = install_runtime(&stop_signal, ui);
     clear_progress(ui);
-
     match result {
-        Ok(()) => {
-            clear_last_action_error();
-            set_status(AiRuntimeStatus::Installed {
-                bytes: current_ai_runtime_usage_bytes(),
-            });
+        Ok(runtime) => {
+            drop(runtime);
+            *LAST_ACTION_ERROR.lock().unwrap() = None;
+            #[cfg(not(feature = "recorder-worker"))]
             if ui == AiRuntimeUi::Badge {
                 let badge = crate::overlay::auto_copy_badge::locale_text();
                 crate::overlay::auto_copy_badge::show_detailed_notification(
@@ -151,12 +105,10 @@ pub fn ensure_ai_runtime_installed(stop_signal: Arc<AtomicBool>, ui: AiRuntimeUi
             }
             Ok(())
         }
-        Err(err) => {
-            if err.to_string().contains("cancelled") {
-                set_status(AiRuntimeStatus::Missing);
-            } else {
-                set_last_action_error(err.to_string());
-                set_status(AiRuntimeStatus::Error(err.to_string()));
+        Err(error) => {
+            if !error.to_string().contains("cancelled") {
+                *LAST_ACTION_ERROR.lock().unwrap() = Some(error.to_string());
+                #[cfg(not(feature = "recorder-worker"))]
                 if ui != AiRuntimeUi::None {
                     let badge = crate::overlay::auto_copy_badge::locale_text();
                     crate::overlay::auto_copy_badge::show_error_notification(
@@ -164,26 +116,14 @@ pub fn ensure_ai_runtime_installed(stop_signal: Arc<AtomicBool>, ui: AiRuntimeUi
                     );
                 }
             }
-            Err(err)
+            Err(error)
         }
     }
 }
 
+#[cfg(feature = "recorder-worker")]
 pub fn start_ai_runtime_install() -> bool {
-    if is_ai_runtime_installed()
-        || matches!(
-            current_ai_runtime_status(),
-            AiRuntimeStatus::Installing { .. }
-        )
-    {
-        return false;
-    }
-
-    std::thread::spawn(|| {
-        let stop_signal = Arc::new(AtomicBool::new(false));
-        if let Err(err) = ensure_ai_runtime_installed(stop_signal, AiRuntimeUi::Badge) {
-            crate::log_info!("[AI Runtime] Install failed: {err}");
-        }
-    });
-    true
+    crate::component_registry::local_asr::start_install(
+        crate::component_registry::local_asr::ComponentKind::Runtime,
+    )
 }

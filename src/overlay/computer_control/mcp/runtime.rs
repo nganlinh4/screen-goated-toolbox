@@ -2,13 +2,18 @@ use super::catalog;
 use super::client::{McpClient, McpTool};
 use super::client_protocol::{ClientLifecycleEvents, ClientLifecycleKind};
 use super::registry;
+#[cfg(test)]
 use super::schema::{bounded_prose, sanitize_schema, unique_decl_name};
 use super::startup::{StartupAttempt, StartupCatalog};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(test)]
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
+
+mod normalization;
 
 /// A connected integration: its live client + the tool list it advertised.
 struct Connected {
@@ -387,7 +392,8 @@ pub(in crate::overlay::computer_control) fn disconnect_all() {
 /// Declare every tool exposed by every live connection. The model receives the
 /// complete capability catalog and owns semantic selection; Rust only namespaces
 /// names, sanitizes wire schemas, and records exact dispatch routes.
-pub(in crate::overlay::computer_control) fn active_tool_declarations() -> Vec<Value> {
+pub(in crate::overlay::computer_control) fn active_tool_declarations() -> anyhow::Result<Vec<Value>>
+{
     let mut manager = manager().lock();
     manager.routes.clear();
     // Snapshot to avoid borrowing `connected` and `routes` at once.
@@ -412,11 +418,12 @@ pub(in crate::overlay::computer_control) fn active_tool_declarations() -> Vec<Va
             )
         })
         .collect();
-    let (declarations, routes) = direct_declarations(&snapshot);
+    let (declarations, routes) = normalization::engine_declarations(&snapshot)?;
     manager.routes = routes;
-    declarations
+    Ok(declarations)
 }
 
+#[cfg(test)]
 fn direct_declarations(snapshot: &ConnSnapshot) -> (Vec<Value>, HashMap<String, ToolRoute>) {
     let tool_count = snapshot.iter().map(|(_, _, tools)| tools.len()).sum();
     let mut declarations = Vec::with_capacity(tool_count);

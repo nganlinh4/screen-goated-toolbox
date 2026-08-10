@@ -62,6 +62,22 @@ struct QwenDirectSubtitleBackend {
     model_label: &'static str,
 }
 
+fn log_final_runtime_metadata(model_label: &str, result: &runtime::RuntimeTranscriptionResult) {
+    if !result.language.trim().is_empty() {
+        crate::log_info!(
+            "[SubtitleGen][Qwen] final-language model={} language={}",
+            model_label,
+            result.language
+        );
+    }
+    if !result.is_final {
+        crate::log_info!(
+            "[SubtitleGen][Qwen] final checkpoint was not marked final by runtime model={}",
+            model_label
+        );
+    }
+}
+
 fn qwen_model_info(variant: Qwen3ModelVariant) -> (std::path::PathBuf, bool, &'static str) {
     match variant {
         Qwen3ModelVariant::Small => (
@@ -420,6 +436,7 @@ impl SubtitleBackend for QwenDirectSubtitleBackend {
             let final_transcript = session.step().map_err(|err| {
                 format!("Final Qwen Local subtitle checkpoint step failed: {err}")
             })?;
+            log_final_runtime_metadata(self.model_label, &final_transcript);
             let final_snapshot = transcript_state.ingest(&final_transcript);
             let final_text = final_snapshot.committed_text.clone();
             let fallback_start_sec = final_text_fallback_start(
@@ -507,6 +524,7 @@ impl SubtitleBackend for QwenDirectSubtitleBackend {
             let final_transcript = session
                 .step()
                 .map_err(|err| format!("Final Qwen Local subtitle step failed: {err}"))?;
+            log_final_runtime_metadata(self.model_label, &final_transcript);
             let final_snapshot = transcript_state.ingest(&final_transcript);
             let final_text = final_snapshot.committed_text;
             let end_time_sec = total_samples as f64 / SAMPLE_RATE_SEC;

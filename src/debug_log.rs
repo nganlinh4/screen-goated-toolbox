@@ -15,15 +15,23 @@ static LOG_SENDER: LazyLock<Sender<String>> = LazyLock::new(|| {
 });
 
 pub fn print_line(msg: &str) {
-    #[cfg(windows)]
-    if write_console_line(msg) {
-        return;
+    #[cfg(feature = "recorder-worker")]
+    {
+        eprintln!("{msg}");
     }
-    let mut stdout = std::io::stdout().lock();
-    let _ = writeln!(stdout, "{msg}");
+
+    #[cfg(not(feature = "recorder-worker"))]
+    {
+        #[cfg(windows)]
+        if write_console_line(msg) {
+            return;
+        }
+        let mut stdout = std::io::stdout().lock();
+        let _ = writeln!(stdout, "{msg}");
+    }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "recorder-worker")))]
 fn write_console_line(msg: &str) -> bool {
     use windows::Win32::System::Console::{
         CONSOLE_MODE, GetConsoleMode, GetStdHandle, STD_OUTPUT_HANDLE, WriteConsoleW,

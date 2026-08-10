@@ -189,6 +189,11 @@
 - Android uses the shared native Material 3 Expressive creation shell and the
   same settings order, limits, stage mapping, preview math, and result metadata
   as Windows.
+- Windows and Android present validated results with the same versioned WebView
+  viewer document. Each host exposes only the revalidated, app-owned GLB through
+  an app-controlled local origin; the viewer cannot fetch external resources.
+  Platform glue owns lifecycle, input routing, and safe-area sizing only. A
+  platform-native renderer or silent fallback is not a supported deviation.
 - Viewer controls cover orbit, zoom, pan, grid, wireframe, auto-rotate, toon,
   and outline. Wireframe and outline remain independent.
 - Filled Material Symbols Rounded come from the shared SGT icon catalog; the
@@ -254,7 +259,7 @@
 - Both platforms default to the bounded app-managed creation library. Windows
   may export to a selected filesystem folder; Android may export through
   MediaStore or a persisted Storage Access Framework directory.
-- Each platform may use its native rendering primitive while preserving the
-  same adaptive result-surface behavior.
+- Both platforms use the shared viewer document; only the WebView host and
+  app-owned result-delivery adapter are platform-specific.
 - Platform delivery differs, but product settings, progress, cancellation,
   artifact, continuation, and history behavior remains identical.

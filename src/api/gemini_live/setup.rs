@@ -8,6 +8,7 @@ use serde_json::{Map, Value, json};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MediaResolution {
     Low,
+    #[cfg(not(feature = "recorder-worker"))]
     High,
 }
 
@@ -15,6 +16,7 @@ impl MediaResolution {
     fn api_value(self) -> &'static str {
         match self {
             Self::Low => "MEDIA_RESOLUTION_LOW",
+            #[cfg(not(feature = "recorder-worker"))]
             Self::High => "MEDIA_RESOLUTION_HIGH",
         }
     }
@@ -24,6 +26,7 @@ impl MediaResolution {
 pub enum TranscriptionMode {
     #[default]
     None,
+    #[cfg(not(feature = "recorder-worker"))]
     Input,
     Output,
     Both,
@@ -65,6 +68,7 @@ impl LiveSetupBuilder {
         self
     }
 
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn thinking_override(mut self, thinking_config: Value) -> Self {
         self.generation["thinkingConfig"] = thinking_config;
         self
@@ -76,7 +80,12 @@ impl LiveSetupBuilder {
     }
 
     pub fn transcription(mut self, mode: TranscriptionMode) -> Self {
-        if matches!(mode, TranscriptionMode::Input | TranscriptionMode::Both) {
+        #[cfg(feature = "recorder-worker")]
+        let input_transcription = matches!(mode, TranscriptionMode::Both);
+        #[cfg(not(feature = "recorder-worker"))]
+        let input_transcription =
+            matches!(mode, TranscriptionMode::Input | TranscriptionMode::Both);
+        if input_transcription {
             self.setup
                 .insert("inputAudioTranscription".to_string(), json!({}));
         }
@@ -103,6 +112,7 @@ impl LiveSetupBuilder {
         self
     }
 
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn setup_field(mut self, name: &str, value: Value) -> Self {
         self.setup.insert(name.to_string(), value);
         self
@@ -123,7 +133,7 @@ impl LiveSetupBuilder {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::*;
     use crate::model_config::{GEMINI_LIVE_API_MODEL_2_5, GEMINI_LIVE_API_MODEL_3_1};

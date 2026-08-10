@@ -1,5 +1,16 @@
 /target
 Cargo.lock
+!/native/recorder_worker/Cargo.lock
+/native/recorder_worker/target/
+/native/recorder_protocol/target/
+!/native/local_asr_worker/Cargo.lock
+/native/local_asr_protocol/target/
+/native/local_asr_worker/target/
+!/native/computer_control_engine/Cargo.lock
+!/native/computer_control_protocol/Cargo.lock
+/native/computer_control_engine/target/
+/native/computer_control_protocol/target/
+/native/language_catalog/target/
 .env
 .DS_Store
 *.swp
@@ -30,6 +41,7 @@ screen-goated-toolbox-*.exe
 
 # Patched dependencies (cloned by scripts/setup-egui-snarl.ps1)
 libs/egui-snarl/
+libs/egui-scale/
 
 # lang-detect cdylib build artifacts
 libs/lang-detect/target/
@@ -59,6 +71,8 @@ dist/
 
 # Screen Record artifacts
 src/overlay/screen_record/dist/
+/screen-record/test-results/
+/screen-record/playwright-report/
 target_replay
 target_bench
 

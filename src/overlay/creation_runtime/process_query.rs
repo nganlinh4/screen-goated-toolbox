@@ -8,11 +8,14 @@ pub(super) struct BoundedOutput {
     pub(super) truncated: bool,
 }
 
-struct RuntimeProcessGuard(u32);
+struct RuntimeProcessGuard {
+    pid: u32,
+    _component_lease: crate::component_registry::ComponentLease,
+}
 
 impl Drop for RuntimeProcessGuard {
     fn drop(&mut self) {
-        super::unregister_runtime_process(self.0);
+        super::unregister_runtime_process(self.pid);
     }
 }
 
@@ -48,12 +51,16 @@ pub(super) fn run_cancellable(
         Stdio::null()
     });
     super::hide_command_window(command);
+    let component_lease = crate::component_registry::acquire("creation-3d-runtime").ok()?;
     let mut child = command.spawn().ok()?;
     if !super::register_runtime_process(child.id()) {
         terminate_and_reap(&mut child);
         return None;
     }
-    let _process_guard = RuntimeProcessGuard(child.id());
+    let _process_guard = RuntimeProcessGuard {
+        pid: child.id(),
+        _component_lease: component_lease,
+    };
     if let Some(input) = input {
         let write_result = child
             .stdin

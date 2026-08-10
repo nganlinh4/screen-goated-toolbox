@@ -1,0 +1,416 @@
+// --- SCREEN RECORD WORKER MODULE ---
+// Screen recording overlay with WebView interface.
+
+pub(crate) mod bg_download;
+mod embedded_assets;
+mod ipc;
+pub(crate) use ipc::run_gt_narration_test_cli;
+mod raw_video;
+mod webview_setup;
+mod window_proc;
+mod worker_control;
+
+use crate::win_types::HwndWrapper;
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Once, OnceLock};
+use windows::Win32::Foundation::*;
+use windows::Win32::UI::WindowsAndMessaging::*;
+use wry::WebContext;
+
+use crate::win_types::SendHwnd;
+
+pub mod audio_engine;
+pub mod audio_source_selection;
+pub mod capture_border;
+mod compatibility_capture;
+mod d3d_interop;
+pub mod engine;
+pub mod gpu_export;
+mod gpu_pipeline;
+pub mod input_capture;
+pub mod mf_audio;
+mod mf_decode;
+mod mf_encode;
+pub mod native_export;
+mod webcam_capture;
+mod window_capture_eligibility;
+pub mod window_selection;
+
+// Re-exports
+pub(crate) use ipc::capture_window_thumbnail;
+use ipc::handle_ipc_command;
+pub(crate) use worker_control::run as run_worker;
+
+// --- CONSTANTS ---
+const WM_APP_SHOW: u32 = WM_USER + 110;
+const WM_APP_TOGGLE: u32 = WM_USER + 111;
+const WM_APP_RUN_SCRIPT: u32 = WM_USER + 112;
+const WM_APP_UPDATE_SETTINGS: u32 = WM_USER + 113;
+const EXTERNAL_AUDIO_CAPTURE_RESET_DELAY_MS: u64 = 7000;
+
+// --- STATE ---
+static REGISTER_SR_CLASS: Once = Once::new();
+pub static mut SR_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
+/// Saved window rect before entering video fullscreen, to restore on exit.
+static PRE_FULLSCREEN_RECT: std::sync::Mutex<Option<(i32, i32, i32, i32)>> =
+    std::sync::Mutex::new(None);
+static mut IS_WARMED_UP: bool = false;
+static mut IS_INITIALIZING: bool = false;
+
+thread_local! {
+    static SR_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
+    static SR_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = const { std::cell::RefCell::new(None) };
+}
+
+pub static SERVER_PORT: LazyLock<std::sync::atomic::AtomicU16> =
+    LazyLock::new(|| std::sync::atomic::AtomicU16::new(0));
+/// Per-process secret gate token for the local media HTTP server. Minted once
+/// when the server starts; required (via header or query param) on every
+/// request so other processes / browser tabs cannot reach the server even
+/// though it binds a scannable loopback port. Delivered to the frontend only
+/// over the secure custom-IPC bridge (`get_media_server_port`).
+pub static MEDIA_SERVER_TOKEN: LazyLock<std::sync::OnceLock<String>> =
+    LazyLock::new(std::sync::OnceLock::new);
+static PENDING_VIDEO_DROP_ACTIONS: LazyLock<std::sync::Mutex<Vec<VideoDropAction>>> =
+    LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+static PENDING_AUDIO_DROP_ACTIONS: LazyLock<std::sync::Mutex<Vec<AudioDropAction>>> =
+    LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+static PENDING_SUBTITLE_DROP_ACTIONS: LazyLock<std::sync::Mutex<Vec<SubtitleDropAction>>> =
+    LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct AudioDropAction {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct SubtitleDropAction {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct VideoDropAction {
+    pub path: String,
+    pub action: String,
+}
+
+static REPO_ROOT_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+fn is_repo_root(path: &Path) -> bool {
+    path.join("Cargo.toml").exists()
+        && path.join("screen-record").exists()
+        && path.join("src").exists()
+}
+
+pub(crate) fn repo_root() -> Option<PathBuf> {
+    REPO_ROOT_CACHE
+        .get_or_init(|| {
+            let mut dir = std::env::current_dir().ok()?;
+            for _ in 0..8 {
+                if is_repo_root(&dir) {
+                    return Some(dir);
+                }
+                if !dir.pop() {
+                    break;
+                }
+            }
+            None
+        })
+        .clone()
+}
+
+/// Resolve the dist/public mirror pair for a relative cursor asset path.
+/// Returns `[dist, public]` (dist first) — the read side returns the first
+/// readable file and the write side updates all that exist, so this order is
+/// the source of truth for both.
+pub(crate) fn cursor_asset_target_paths(repo_root: &Path, rel: &str) -> [PathBuf; 2] {
+    [
+        repo_root
+            .join("src")
+            .join("overlay")
+            .join("screen_record")
+            .join("dist")
+            .join(rel),
+        repo_root.join("screen-record").join("public").join(rel),
+    ]
+}
+
+/// Serve downloaded background images from %LOCALAPPDATA%/screen-goated-toolbox/backgrounds/
+/// Path format: /bg-downloaded/{filename}  e.g. /bg-downloaded/warm-abstract.png
+fn try_read_downloaded_bg(path: &str) -> Option<(Vec<u8>, &'static str)> {
+    let prefix = "/bg-downloaded/";
+    let rel = path.strip_prefix(prefix)?;
+    let rel = rel
+        .split_once('?')
+        .map(|(p, _)| p)
+        .unwrap_or(rel)
+        .split_once('#')
+        .map(|(p, _)| p)
+        .unwrap_or(rel);
+    if rel.is_empty() || rel.contains("..") || rel.contains('/') || rel.contains('\\') {
+        return None;
+    }
+    let dir = dirs::data_local_dir()?
+        .join("screen-goated-toolbox")
+        .join("backgrounds");
+    let file_path = dir.join(rel);
+    let bytes = std::fs::read(&file_path).ok()?;
+    let mime = if rel.ends_with(".jpg") || rel.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if rel.ends_with(".webp") {
+        "image/webp"
+    } else if rel.ends_with(".svg") {
+        "image/svg+xml"
+    } else {
+        "image/png"
+    };
+    Some((bytes, mime))
+}
+
+fn try_read_runtime_cursor_svg(path: &str) -> Option<Vec<u8>> {
+    if !path.ends_with(".svg") {
+        return None;
+    }
+
+    let rel = path.trim_start_matches('/');
+    if rel.is_empty() || rel.contains("..") || rel.contains('\\') {
+        return None;
+    }
+    if !(rel.starts_with("cursor-") || rel.starts_with("cursors/")) {
+        return None;
+    }
+
+    let root = repo_root()?;
+    let candidates = cursor_asset_target_paths(&root, rel);
+
+    for candidate in candidates {
+        if let Ok(bytes) = std::fs::read(&candidate) {
+            return Some(bytes);
+        }
+    }
+    None
+}
+
+#[derive(Deserialize)]
+struct IpcRequest {
+    id: String,
+    cmd: String,
+    #[serde(default)]
+    args: serde_json::Value,
+}
+
+// --- HWND WRAPPER ---
+
+fn wnd_http_response(
+    status: u16,
+    content_type: &str,
+    body: Cow<'static, [u8]>,
+) -> wry::http::Response<Cow<'static, [u8]>> {
+    wry::http::Response::builder()
+        .status(status)
+        .header("Content-Type", content_type)
+        .header("Access-Control-Allow-Origin", "*")
+        .body(body)
+        .unwrap_or_else(|_| {
+            wry::http::Response::builder()
+                .status(500)
+                .body(Cow::Borrowed(b"Internal Error".as_slice()))
+                .unwrap()
+        })
+}
+
+// --- PUBLIC API ---
+
+pub fn show_screen_record() {
+    crate::log_info!("[ScreenRecord] show_screen_record requested");
+    let capability = crate::runtime_support::require_webview2("Screen record");
+    if !capability.is_supported() {
+        crate::log_info!("[ScreenRecord] WebView2 capability unavailable");
+        crate::runtime_support::notify_capability_issue(&capability);
+        return;
+    }
+
+    unsafe {
+        if !IS_WARMED_UP {
+            if !IS_INITIALIZING {
+                IS_INITIALIZING = true;
+                crate::log_info!("[ScreenRecord] starting WebView thread");
+                std::thread::spawn(|| {
+                    webview_setup::internal_create_sr_loop();
+                });
+            }
+
+            std::thread::spawn(|| {
+                for _ in 0..100 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    let hwnd_wrapper = std::ptr::addr_of!(SR_HWND).read();
+                    if IS_WARMED_UP && !hwnd_wrapper.is_invalid() {
+                        let _ =
+                            PostMessageW(Some(hwnd_wrapper.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+                        return;
+                    }
+                }
+            });
+            return;
+        }
+
+        let hwnd_wrapper = std::ptr::addr_of!(SR_HWND).read();
+        if !hwnd_wrapper.is_invalid() {
+            let _ = PostMessageW(Some(hwnd_wrapper.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+pub(crate) fn is_screen_record_visible() -> bool {
+    unsafe {
+        let hwnd = std::ptr::addr_of!(SR_HWND).read();
+        IS_WARMED_UP && !hwnd.is_invalid() && IsWindowVisible(hwnd.0).as_bool()
+    }
+}
+
+pub fn queue_video_drop_action(path: String, action: String) {
+    PENDING_VIDEO_DROP_ACTIONS
+        .lock()
+        .unwrap()
+        .push(VideoDropAction { path, action });
+}
+
+pub(crate) fn take_pending_video_drop_actions() -> Vec<VideoDropAction> {
+    std::mem::take(&mut *PENDING_VIDEO_DROP_ACTIONS.lock().unwrap())
+}
+
+pub fn queue_audio_drop_action(path: String) {
+    PENDING_AUDIO_DROP_ACTIONS
+        .lock()
+        .unwrap()
+        .push(AudioDropAction { path });
+}
+
+pub(crate) fn take_pending_audio_drop_actions() -> Vec<AudioDropAction> {
+    std::mem::take(&mut *PENDING_AUDIO_DROP_ACTIONS.lock().unwrap())
+}
+
+pub fn queue_subtitle_drop_action(path: String) {
+    PENDING_SUBTITLE_DROP_ACTIONS
+        .lock()
+        .unwrap()
+        .push(SubtitleDropAction { path });
+}
+
+pub(crate) fn take_pending_subtitle_drop_actions() -> Vec<SubtitleDropAction> {
+    std::mem::take(&mut *PENDING_SUBTITLE_DROP_ACTIONS.lock().unwrap())
+}
+
+pub fn toggle_recording() {
+    unsafe {
+        let hwnd_wrapper = std::ptr::addr_of!(SR_HWND).read();
+
+        if hwnd_wrapper.is_invalid() {
+            show_screen_record();
+        } else if IsWindowVisible(hwnd_wrapper.0).as_bool() {
+            let _ = PostMessageW(Some(hwnd_wrapper.0), WM_APP_TOGGLE, WPARAM(0), LPARAM(0));
+        } else {
+            show_screen_record();
+        }
+    }
+}
+
+pub fn update_settings() {
+    unsafe {
+        let hwnd = std::ptr::addr_of!(SR_HWND).read();
+        if !hwnd.is_invalid() {
+            let _ = PostMessageW(Some(hwnd.0), WM_APP_UPDATE_SETTINGS, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+pub fn post_script(script: String) -> bool {
+    unsafe {
+        let hwnd = std::ptr::addr_of!(SR_HWND).read();
+        if hwnd.is_invalid() {
+            return false;
+        }
+
+        let raw_script = Box::into_raw(Box::new(script));
+        if let Err(error) = PostMessageW(
+            Some(hwnd.0),
+            WM_APP_RUN_SCRIPT,
+            WPARAM(0),
+            LPARAM(raw_script as isize),
+        ) {
+            println!("[ScreenRecord][MediaReset] dispatch failed: {error:?}");
+            let _ = Box::from_raw(raw_script);
+            return false;
+        }
+        true
+    }
+}
+
+pub fn notify_external_audio_capture_released(reason: &str) {
+    let reason = reason.to_string();
+    println!("[ScreenRecord][MediaReset] scheduling after external audio capture: {reason}");
+    std::thread::spawn(move || {
+        let delay_ms = EXTERNAL_AUDIO_CAPTURE_RESET_DELAY_MS;
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        let reason_json = serde_json::to_string(&reason)
+            .unwrap_or_else(|_| "\"external-audio-capture\"".to_string());
+        println!("[ScreenRecord][MediaReset] dispatch reason={reason} delay_ms={delay_ms}");
+        let _ = post_script(format!(
+            "window.dispatchEvent(new CustomEvent('sr-reset-media-pipeline', {{ detail: {{ reason: {}, delayMs: {} }} }}));",
+            reason_json, delay_ms
+        ));
+    });
+}
+
+/// Best-effort cleanup used before process exit or when the recorder UI is
+/// closed while capture is still active.
+pub fn cleanup_on_app_exit() {
+    capture_border::hide_capture_border();
+    compatibility_capture::abort();
+
+    engine::SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
+    engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
+    engine::IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
+    engine::ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    input_capture::stop_capture_and_drain();
+
+    if let Some(control) = engine::ACTIVE_CAPTURE_CONTROL.lock().take() {
+        control.stop();
+    }
+    if let Some(control) = engine::EXTERNAL_CAPTURE_CONTROL.lock().take() {
+        let _ = control.stop();
+    }
+}
+
+fn push_settings_to_webview() {
+    let (lang, theme_mode) = {
+        let app = crate::APP.lock().unwrap();
+        (
+            app.config.ui_language.clone(),
+            app.config.theme_mode.clone(),
+        )
+    };
+
+    let theme_str = theme_mode.as_web_str();
+
+    // Update window icon based on theme
+    unsafe {
+        let hwnd = std::ptr::addr_of!(SR_HWND).read();
+        if !hwnd.is_invalid() {
+            crate::gui::utils::set_window_icon(hwnd.0, theme_str == "dark");
+        }
+    }
+
+    SR_WEBVIEW.with(|wv| {
+        if let Some(webview) = wv.borrow().as_ref() {
+            let script = format!(
+                "window.postMessage({{ type: 'sr-set-settings', theme: '{}', lang: '{}' }}, '*');",
+                theme_str, lang
+            );
+            let _ = webview.evaluate_script(&script);
+        }
+    });
+}

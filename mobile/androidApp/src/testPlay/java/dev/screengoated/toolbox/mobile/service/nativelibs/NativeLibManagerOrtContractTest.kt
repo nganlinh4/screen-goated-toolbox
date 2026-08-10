@@ -5,19 +5,19 @@ import org.junit.Test
 
 class NativeLibManagerOrtContractTest {
     @Test
-    fun `play ORT delivery requires the proxy real runtime and shared native module`() {
+    fun `play ORT delivery requires only the proxy and real runtime feature`() {
         val engine = NativeLibManager.Engine.ORT
 
         assertEquals(
-            setOf("libc++_shared.so", "libonnxruntime_real.so", "libonnxruntime.so"),
+            setOf("libonnxruntime_real.so", "libonnxruntime.so"),
             engine.libs.toSet(),
         )
         assertEquals(
-            setOf("feature_asr_ort", "feature_native_cpp"),
+            setOf("feature_asr_ort"),
             requiredModulesForPlay(engine).toSet(),
         )
         assertEquals(
-            listOf("libc++_shared.so", "libonnxruntime_real.so"),
+            listOf("libonnxruntime_real.so"),
             NativeLibraryLoadContract.orderedDependencies(engine.libs),
         )
     }

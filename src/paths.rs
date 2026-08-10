@@ -52,6 +52,7 @@ pub fn app_config_dir() -> PathBuf {
 /// Mutable config-shaped state for an isolated runtime. Normal launches share
 /// [`app_config_dir`]; a run with `SGT_RUNTIME_STATE_ROOT` writes under that
 /// root while remaining free to read the user's existing configuration.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn app_runtime_config_dir() -> PathBuf {
     if let Some(root) = runtime_state_root() {
         return root.join("roaming-state").join("screen-goated-toolbox");
@@ -70,7 +71,7 @@ pub fn app_data_dir() -> PathBuf {
 }
 
 /// `%APPDATA%/screen-goated-toolbox/models` — root for all downloaded model packs
-/// (Kokoro, Parakeet, Qwen3, Sherpa/Zipformer, Supertonic, Voxtral, …).
+/// (Kokoro, Parakeet, Qwen3, Sherpa/Zipformer, Supertonic, …).
 pub fn app_models_dir() -> PathBuf {
     app_data_dir().join("models")
 }

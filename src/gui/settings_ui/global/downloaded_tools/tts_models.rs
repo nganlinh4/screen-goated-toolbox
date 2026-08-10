@@ -4,7 +4,7 @@ use crate::api::realtime_audio::magpie_assets::{
 };
 use crate::api::realtime_audio::magpie_runtime::{
     current_magpie_runtime_notice, download_magpie_runtime, is_magpie_runtime_downloading,
-    is_magpie_runtime_installed, magpie_runtime_installed_size, remove_magpie_runtime,
+    is_magpie_runtime_present_for_display, magpie_runtime_installed_size, remove_magpie_runtime,
 };
 use crate::api::realtime_audio::step_audio_assets::{
     current_step_audio_notice, download_step_audio_model, get_step_audio_model_dir,
@@ -14,6 +14,9 @@ use crate::api::realtime_audio::step_audio_runtime::{
     current_step_audio_runtime_notice, download_step_audio_runtime,
     is_step_audio_runtime_downloading, is_step_audio_runtime_installed, remove_step_audio_runtime,
     step_audio_runtime_installed_size,
+};
+use crate::api::realtime_audio::vieneu_assets::{
+    download_vieneu_model, get_vieneu_model_dir, is_vieneu_model_downloaded, remove_vieneu_model,
 };
 use crate::api::realtime_audio::vieneu_runtime::{
     current_vieneu_runtime_notice, download_vieneu_runtime, is_vieneu_runtime_downloading,
@@ -36,14 +39,15 @@ const PROBE_STEP_AUDIO: &str = "downloaded-tools:step-audio-editx";
 const PROBE_MAGPIE: &str = "downloaded-tools:magpie-multilingual";
 const PROBE_STEP_RUNTIME: &str = "downloaded-tools:step-audio-runtime";
 const PROBE_MAGPIE_RUNTIME: &str = "downloaded-tools:magpie-runtime";
+const PROBE_VIENEU_MODEL: &str = "downloaded-tools:vieneu-v2-turbo";
 const PROBE_VIENEU_RUNTIME: &str = "downloaded-tools:vieneu-runtime";
 
 pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
     tool_card(ui, |ui| {
         let spec = ModelRowSpec {
             model_probe: PROBE_STEP_AUDIO,
-            model_title: "Step Audio AWQ model + tokenizer",
-            model_download_title: text.tool_runtime.step_audio_downloading_title,
+            model_title: text.auxiliary.managed_tools.tool_step_audio_model,
+            model_download_title: text.tool_runtime.step_audio_downloading_title.to_string(),
             model_notice: current_step_audio_notice,
             is_model_downloaded: is_step_audio_model_downloaded,
             model_dir: get_step_audio_model_dir,
@@ -66,8 +70,8 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
     tool_card(ui, |ui| {
         let spec = ModelRowSpec {
             model_probe: PROBE_MAGPIE,
-            model_title: "Magpie model + NanoCodec",
-            model_download_title: text.tool_runtime.magpie_downloading_title,
+            model_title: text.auxiliary.managed_tools.tool_magpie_model,
+            model_download_title: text.tool_runtime.magpie_downloading_title.to_string(),
             model_notice: current_magpie_notice,
             is_model_downloaded: is_magpie_model_downloaded,
             model_dir: get_magpie_model_dir,
@@ -88,6 +92,10 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
 
 fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
     let theme = AppTheme::from_ui(ui);
+    let download_title = crate::overlay::auto_copy_badge::format_locale(
+        text.badge.downloading_runtime_fmt,
+        &[("name", "Step Audio")],
+    );
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new(text.auxiliary.managed_tools.tool_step_audio_runtime).strong(),
@@ -96,9 +104,7 @@ fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
             let is_downloading = is_step_audio_runtime_downloading()
                 || REALTIME_STATE
                     .lock()
-                    .map(|s| {
-                        s.is_downloading && s.download_title == "Downloading Step Audio runtime"
-                    })
+                    .map(|s| s.is_downloading && s.download_title == download_title)
                     .unwrap_or(false);
             if is_downloading {
                 let progress = REALTIME_STATE
@@ -139,7 +145,7 @@ fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                 {
                     let stop_signal = Arc::new(AtomicBool::new(false));
                     thread::spawn(move || {
-                        let _ = download_step_audio_runtime(stop_signal, false);
+                        let _ = download_step_audio_runtime(stop_signal, true);
                     });
                 }
                 ui.label(
@@ -162,6 +168,23 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
         ui.add_space(4.0);
         ui.label(text.auxiliary.managed_tools.tool_desc_vieneu);
         ui.add_space(6.0);
+        render_model_row(
+            ui,
+            text,
+            &ModelRowSpec {
+                model_probe: PROBE_VIENEU_MODEL,
+                model_title: text.auxiliary.managed_tools.tool_vieneu_model,
+                model_download_title: text.tool_runtime.vieneu_model_downloading_title.to_string(),
+                model_notice: || None,
+                is_model_downloaded: is_vieneu_model_downloaded,
+                model_dir: get_vieneu_model_dir,
+                download_model: download_vieneu_model,
+                remove_model: remove_vieneu_model,
+                description: None,
+                space_before_notice: false,
+            },
+        );
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(text.auxiliary.managed_tools.tool_vieneu_runtime).strong(),
@@ -220,7 +243,7 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                         let install_variant =
                             crate::config::tts_catalog::default_vieneu_variant_id().to_string();
                         thread::spawn(move || {
-                            let _ = download_vieneu_runtime(stop_signal, false, install_variant);
+                            let _ = download_vieneu_runtime(stop_signal, true, install_variant);
                         });
                     }
                     ui.label(
@@ -239,13 +262,17 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
 
 fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
     let theme = AppTheme::from_ui(ui);
+    let download_title = crate::overlay::auto_copy_badge::format_locale(
+        text.badge.downloading_runtime_fmt,
+        &[("name", "Magpie")],
+    );
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.auxiliary.managed_tools.tool_magpie_runtime).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let is_downloading = is_magpie_runtime_downloading()
                 || REALTIME_STATE
                     .lock()
-                    .map(|s| s.is_downloading && s.download_title == "Downloading Magpie runtime")
+                    .map(|s| s.is_downloading && s.download_title == download_title)
                     .unwrap_or(false);
             if is_downloading {
                 let progress = REALTIME_STATE
@@ -254,7 +281,7 @@ fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                     .unwrap_or(0.0);
                 ui.label(format!("{progress:.0}%"));
                 ui.spinner();
-            } else if cached_probe(PROBE_MAGPIE_RUNTIME, is_magpie_runtime_installed) {
+            } else if cached_probe(PROBE_MAGPIE_RUNTIME, is_magpie_runtime_present_for_display) {
                 if ui
                     .button(
                         egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
@@ -286,7 +313,7 @@ fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                 {
                     let stop_signal = Arc::new(AtomicBool::new(false));
                     thread::spawn(move || {
-                        let _ = download_magpie_runtime(stop_signal, false);
+                        let _ = download_magpie_runtime(stop_signal, true);
                     });
                 }
                 ui.label(

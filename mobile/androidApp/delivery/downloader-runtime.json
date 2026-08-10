@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "version": "2026.07.04-android-0.18.1",
+  "abi": "arm64-v8a",
+  "artifacts": [
+    {
+      "role": "yt_dlp",
+      "asset": "yt-dlp",
+      "downloadUrl": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp",
+      "sizeBytes": 3071553,
+      "sha256": "495be29ff4d9d4e9be7eabdfef225221e5d5282e77f2f505abc6dca80349f3fd"
+    },
+    {
+      "role": "python",
+      "asset": "sgt-downloader-python-arm64-0.18.1-0210b1223ec8.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-downloader-python-arm64-0.18.1-0210b1223ec8.zip",
+      "sizeBytes": 11698164,
+      "sha256": "0210b1223ec8895a0b76679e643e777d37b4c6e4912ea6a95a0759e20bb0ae50",
+      "entryCount": 1024,
+      "uncompressedBytes": 32056306,
+      "requiredPaths": [
+        "usr/lib/libpython3.11.so.1.0",
+        "usr/etc/tls/cert.pem"
+      ]
+    },
+    {
+      "role": "ffmpeg",
+      "asset": "sgt-downloader-ffmpeg-arm64-0.18.1-5e6af9c7a04f.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-downloader-ffmpeg-arm64-0.18.1-5e6af9c7a04f.zip",
+      "sizeBytes": 38592092,
+      "sha256": "5e6af9c7a04f5c1e054b5782afba42549711662b5a98886f0409304825dcd39d",
+      "entryCount": 172,
+      "uncompressedBytes": 89988132,
+      "requiredPaths": [
+        "usr/lib/libffmpeg_real.so",
+        "usr/lib/libffprobe_real.so"
+      ]
+    }
+  ]
+}

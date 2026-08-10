@@ -1,12 +1,12 @@
 //! Theme CSS generation for button canvas
 
 /// Get theme-specific CSS variables
-pub fn get_canvas_theme_css(is_dark: bool) -> &'static str {
-    if is_dark {
+pub fn get_canvas_theme_css(is_dark: bool) -> String {
+    let css = if is_dark {
         r#"
         :root {
             --btn-bg: rgba(30, 30, 30, 0.85);
-            --btn-border: rgba(255, 255, 255, 0.1);
+            --btn-border: __SGT_SUBTLE_OUTLINE__;
             --btn-color: rgba(255, 255, 255, 0.8);
             --btn-hover-bg: rgba(60, 60, 60, 0.95);
             --btn-hover-color: #4fc3f7;
@@ -29,7 +29,7 @@ pub fn get_canvas_theme_css(is_dark: bool) -> &'static str {
         r#"
         :root {
             --btn-bg: rgba(255, 255, 255, 0.92);
-            --btn-border: rgba(0, 0, 0, 0.08);
+            --btn-border: __SGT_SUBTLE_OUTLINE__;
             --btn-color: rgba(0, 0, 0, 0.7);
             --btn-hover-bg: #ffffff;
             --btn-hover-color: #0277bd;
@@ -48,5 +48,25 @@ pub fn get_canvas_theme_css(is_dark: bool) -> &'static str {
             --mic-fill: #0288d1;
         }
         "#
+    };
+    css.replace(
+        "__SGT_SUBTLE_OUTLINE__",
+        crate::overlay::result::subtle_outline_color(is_dark),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_canvas_theme_css;
+
+    #[test]
+    fn button_and_result_outlines_share_the_same_theme_token() {
+        for is_dark in [true, false] {
+            let color = crate::overlay::result::subtle_outline_color(is_dark);
+            assert!(get_canvas_theme_css(is_dark).contains(color));
+            assert!(
+                crate::overlay::result::markdown_view::css::get_theme_css(is_dark).contains(color)
+            );
+        }
     }
 }

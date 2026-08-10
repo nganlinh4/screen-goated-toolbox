@@ -106,24 +106,26 @@ fn run_text(
     );
     let started = Instant::now();
     let mut callback_events = Vec::new();
-    let result = translate_text_streaming(
-        TranslateTextRequest {
-            groq_api_key: &credentials.groq,
-            gemini_api_key: &credentials.gemini,
-            text: case.input.clone(),
-            instruction,
-            model: model.full_name.clone(),
-            provider: model.provider.clone(),
-            streaming_enabled: true,
-            use_json_format: false,
-            search_label: None,
-            ui_language: "en",
-            cancel_token: None,
-            request_timeout: timeout,
-            target_language: Some(case.target_language.clone()),
-        },
-        |chunk| callback_events.push((started.elapsed().as_millis(), chunk.to_string())),
-    );
+    let result = credentials.with_provider_key(&model.provider, |gemini_api_key| {
+        translate_text_streaming(
+            TranslateTextRequest {
+                groq_api_key: &credentials.groq,
+                gemini_api_key,
+                text: case.input.clone(),
+                instruction,
+                model: model.full_name.clone(),
+                provider: model.provider.clone(),
+                streaming_enabled: true,
+                use_json_format: false,
+                search_label: None,
+                ui_language: "en",
+                cancel_token: None,
+                request_timeout: timeout,
+                target_language: Some(case.target_language.clone()),
+            },
+            |chunk| callback_events.push((started.elapsed().as_millis(), chunk.to_string())),
+        )
+    });
     let latency_ms = started.elapsed().as_millis();
     match result {
         Ok(response) if !response.trim().is_empty() => {
@@ -217,22 +219,24 @@ fn run_ocr(
     let prompt = case.instruction.clone();
     let started = Instant::now();
     let mut callback_events = Vec::new();
-    let result = translate_image_streaming(
-        TranslateImageRequest {
-            groq_api_key: &credentials.groq,
-            gemini_api_key: &credentials.gemini,
-            prompt,
-            model: model.full_name.clone(),
-            provider: model.provider.clone(),
-            image,
-            original_bytes: Some(original_bytes),
-            streaming_enabled: false,
-            response_schema: None,
-            cancel_token: None,
-            request_timeout: timeout,
-        },
-        |chunk| callback_events.push((started.elapsed().as_millis(), chunk.to_string())),
-    );
+    let result = credentials.with_provider_key(&model.provider, |gemini_api_key| {
+        translate_image_streaming(
+            TranslateImageRequest {
+                groq_api_key: &credentials.groq,
+                gemini_api_key,
+                prompt,
+                model: model.full_name.clone(),
+                provider: model.provider.clone(),
+                image,
+                original_bytes: Some(original_bytes),
+                streaming_enabled: false,
+                response_schema: None,
+                cancel_token: None,
+                request_timeout: timeout,
+            },
+            |chunk| callback_events.push((started.elapsed().as_millis(), chunk.to_string())),
+        )
+    });
     let latency_ms = started.elapsed().as_millis();
     match result {
         Ok(response) if !response.trim().is_empty() => {

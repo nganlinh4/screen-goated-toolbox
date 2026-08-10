@@ -65,17 +65,19 @@ Use the equivalent package directory for another mini app. Packaged assets are c
 
 Recorder-specific architecture and tests: [`../screen-record/README.md`](../screen-record/README.md).
 
-## Windows targets
+Optional runtime, worker, model, and WebView-package changes must follow the
+[component delivery contract](COMPONENT_DELIVERY.md). Keep first-use packages
+independent, integrity-pinned, registry-owned, and removable.
 
-Validate MSVC targets through the repository wrapper:
+## Windows x64 target
+
+Validate the supported MSVC target through the repository wrapper:
 
 ```powershell
-.\scripts\validate-windows-targets.ps1 -Arch x64
-.\scripts\validate-windows-targets.ps1 -Arch arm64
-.\scripts\validate-windows-targets.ps1 -Arch all
+.\scripts\validate-windows-targets.ps1
 ```
 
-ARM64 validation needs LLVM `clang` under `C:\Program Files\LLVM\bin`. Logs are written to `target/validation-*.log`. Runtime limitations are tracked in [`WINDOWS_ARM64_SUPPORT.md`](WINDOWS_ARM64_SUPPORT.md).
+The validation log is written to `target/validation-x86_64_pc_windows_msvc.log`.
 
 ## Android
 

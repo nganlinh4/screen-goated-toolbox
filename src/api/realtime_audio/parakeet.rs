@@ -1,7 +1,6 @@
 use super::state::{RealtimeState, TranscriptionMethod};
 use crate::config::Preset;
 use anyhow::Result;
-use parakeet_rs::{ExecutionConfig, ExecutionProvider, ParakeetEOU};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::HWND;
@@ -13,30 +12,30 @@ use super::utils::request_realtime_egui_repaint;
 use super::{REALTIME_RMS, WM_REALTIME_UPDATE, WM_VOLUME_UPDATE};
 use crate::overlay::realtime_webview::AUDIO_SOURCE_CHANGE;
 
-/// 160ms chunk at 16kHz = 2560 samples (recommended by parakeet-rs)
+/// 160 ms of mono 16 kHz audio, fixed by the worker protocol.
 const CHUNK_SIZE: usize = 2560;
-
-fn parakeet_execution_config() -> ExecutionConfig {
-    ExecutionConfig::new().with_execution_provider(ExecutionProvider::DirectML)
-}
 
 fn load_parakeet_model_with_repair(
     stop_signal: &Arc<AtomicBool>,
     use_badge: bool,
-) -> Result<ParakeetEOU> {
-    crate::unpack_dlls::ensure_onnx_runtime_initialized()?;
+) -> Result<super::local_asr_worker::LocalAsrClient> {
     let model_dir = super::model_loader::get_parakeet_model_dir();
-    let initial_attempt =
-        ParakeetEOU::from_pretrained(&model_dir, Some(parakeet_execution_config()));
+    let initial_attempt = super::local_asr_worker::LocalAsrClient::start(
+        super::local_asr_worker::LocalAsrMode::RealtimeEou,
+        &model_dir,
+        stop_signal,
+    );
 
     match initial_attempt {
-        Ok(model) => Ok(model),
+        Ok(worker) => Ok(worker),
         Err(first_err) => {
-            if stop_signal.load(Ordering::Relaxed) {
-                return Ok(ParakeetEOU::from_pretrained(
-                    &model_dir,
-                    Some(parakeet_execution_config()),
-                )?);
+            if stop_signal.load(Ordering::Relaxed)
+                || (!first_err
+                    .to_string()
+                    .contains("load the realtime EOU model")
+                    && !first_err.to_string().contains("local ASR model file"))
+            {
+                return Err(first_err);
             }
 
             super::model_loader::redownload_parakeet_model(stop_signal.clone(), use_badge)
@@ -52,15 +51,16 @@ fn load_parakeet_model_with_repair(
                 return Err(anyhow::anyhow!("Parakeet model repair was cancelled"));
             }
 
-            ParakeetEOU::from_pretrained(&model_dir, Some(parakeet_execution_config())).map_err(
-                |retry_err| {
-                    anyhow::anyhow!(
-                        "Failed to load Parakeet model after repair: initial={:?}, retry={:?}",
-                        first_err,
-                        retry_err
-                    )
-                },
+            super::local_asr_worker::LocalAsrClient::start(
+                super::local_asr_worker::LocalAsrMode::RealtimeEou,
+                &model_dir,
+                stop_signal,
             )
+            .map_err(|retry_err| {
+                    anyhow::anyhow!(
+                        "Failed to load Parakeet worker after model repair: initial={first_err:#}, retry={retry_err:#}"
+                    )
+                })
         }
     }
 }
@@ -139,18 +139,11 @@ where
         auto_stop_recording,
     } = options;
 
-    let runtime_ui = if use_badge {
-        crate::unpack_dlls::AiRuntimeUi::Badge
-    } else {
-        crate::unpack_dlls::AiRuntimeUi::RealtimeOverlay
-    };
-
-    // 1. Check/Download Local Runtime
-    if let Err(e) = crate::unpack_dlls::ensure_ai_runtime_installed(stop_signal.clone(), runtime_ui)
-    {
+    // 1. Install the worker and its registry-owned native dependencies before model download.
+    if let Err(e) = super::local_asr_worker::LocalAsrClient::prepare(&stop_signal) {
         let err_msg = e.to_string();
         if err_msg.contains("cancelled") || stop_signal.load(Ordering::Relaxed) {
-            println!("Local AI runtime install was cancelled by user");
+            println!("Local ASR engine install was cancelled by user");
             return Ok(());
         }
         return Err(e);
@@ -175,7 +168,7 @@ where
     }
 
     // 3. Load Model
-    let mut parakeet = load_parakeet_model_with_repair(&stop_signal, use_badge)?;
+    let mut worker = load_parakeet_model_with_repair(&stop_signal, use_badge)?;
 
     // 4. Audio Setup
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
@@ -312,7 +305,7 @@ where
         while sample_accumulator.len() >= CHUNK_SIZE {
             let chunk: Vec<f32> = sample_accumulator.drain(..CHUNK_SIZE).collect();
 
-            match parakeet.transcribe(&chunk, false) {
+            match worker.transcribe_eou(&chunk, &stop_signal) {
                 Ok(text) => {
                     if !text.is_empty() {
                         let processed = process_sentencepiece_text(&text);
@@ -336,8 +329,9 @@ where
 
     // Flush
     let silence = vec![0.0f32; CHUNK_SIZE];
+    let never_cancelled = AtomicBool::new(false);
     for _ in 0..3 {
-        if let Ok(text) = parakeet.transcribe(&silence, false)
+        if let Ok(text) = worker.transcribe_eou(&silence, &never_cancelled)
             && !text.is_empty()
         {
             let processed = process_sentencepiece_text(&text);
@@ -347,9 +341,8 @@ where
         }
     }
 
-    // Explicitly drop model to release GPU/DirectML memory before
-    // switching to another transcription method.
-    drop(parakeet);
+    // Dropping the worker terminates the isolated process and releases all component leases.
+    drop(worker);
 
     Ok(())
 }

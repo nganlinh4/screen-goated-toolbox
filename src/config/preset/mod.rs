@@ -13,7 +13,9 @@ pub mod defaults;
 mod preset;
 
 pub use block::{BlockBuilder, ProcessingBlock};
-pub use preset::{Preset, PresetBuilder, WindowGeometry};
+#[cfg(not(feature = "recorder-worker"))]
+pub use preset::WindowGeometry;
+pub use preset::{Preset, PresetBuilder};
 
 // Re-export default preset functions for convenience
 pub use defaults::get_default_presets;

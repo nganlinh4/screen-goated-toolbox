@@ -25,7 +25,6 @@ fn content_type_for_path(media_path_str: &str) -> String {
         "ogg" | "oga" => "audio/ogg",
         "opus" => "audio/ogg",
         "aiff" | "aif" => "audio/aiff",
-        "wma" => "audio/x-ms-wma",
         "alac" => "audio/mp4",
         "mka" => "audio/x-matroska",
         "gif" => "image/gif",

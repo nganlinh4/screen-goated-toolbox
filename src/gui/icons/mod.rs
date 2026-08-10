@@ -1,12 +1,13 @@
 // --- ICON RENDERER ---
-// Renders curated Material Symbols Rounded glyphs. Each icon is a tiny
-// white-filled SVG (see `svg/`); it is rasterized once per (icon, pixel size)
-// via resvg, cached as a GPU texture, and recolored to the requested color by
-// tinting the white texture. Replaces the old hand-drawn vector art.
+// Renders curated Material Symbols Rounded glyphs from deterministic build-time
+// alpha atlases. Runtime code only decodes PNG pages, caches GPU textures, and
+// tints the white masks; the signed host contains no SVG parser or rasterizer.
 
 use eframe::egui;
+use image::ImageDecoder;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io::Cursor;
 
 /// Standard icon sizes (logical px). Reference these instead of magic numbers so
 /// the icon scale stays consistent and is tunable in ONE place.
@@ -115,120 +116,92 @@ pub enum Icon {
     Restore,
 }
 
-/// White-filled Material Symbols Rounded SVG for an icon. Some icons share art
-/// (rendered at different sizes / with an overlay).
-fn icon_svg_bytes(icon: Icon) -> &'static [u8] {
-    match icon {
-        Icon::Settings => include_bytes!("svg/settings.svg"),
-        Icon::EyeOpen => include_bytes!("svg/eye_open.svg"),
-        Icon::EyeClosed => include_bytes!("svg/eye_closed.svg"),
-        Icon::Microphone => include_bytes!("svg/microphone.svg"),
-        Icon::Image => include_bytes!("svg/image.svg"),
-        Icon::Text => include_bytes!("svg/text.svg"),
-        Icon::Delete | Icon::DeleteLarge => include_bytes!("svg/delete.svg"),
-        Icon::Folder => include_bytes!("svg/folder.svg"),
-        Icon::Copy | Icon::CopySmall | Icon::CopyDisabled => include_bytes!("svg/copy.svg"),
-        Icon::Close => include_bytes!("svg/close.svg"),
-        Icon::Plus => include_bytes!("svg/plus.svg"),
-        Icon::Edit => include_bytes!("svg/edit.svg"),
-        Icon::TextSelect => include_bytes!("svg/format_italic.svg"),
-        Icon::Keyboard => include_bytes!("svg/keyboard.svg"),
-        Icon::Speaker => include_bytes!("svg/speaker.svg"),
-        Icon::SpeakerDisabled => include_bytes!("svg/speaker_disabled.svg"),
-        Icon::Lightbulb => include_bytes!("svg/lightbulb.svg"),
-        Icon::Realtime => include_bytes!("svg/realtime.svg"),
-        Icon::Rtt => include_bytes!("svg/rtt.svg"),
-        Icon::Star => include_bytes!("svg/star.svg"),
-        Icon::StarFilled => include_bytes!("svg/star_filled.svg"),
-        Icon::Sun => include_bytes!("svg/sun.svg"),
-        Icon::Moon => include_bytes!("svg/moon.svg"),
-        Icon::Device => include_bytes!("svg/device.svg"),
-        Icon::History => include_bytes!("svg/history.svg"),
-        Icon::Priority => include_bytes!("svg/priority.svg"),
-        Icon::Pointer => include_bytes!("svg/pointer.svg"),
-        Icon::Album => include_bytes!("svg/album.svg"),
-        Icon::Movie => include_bytes!("svg/movie.svg"),
-        Icon::Videocam => include_bytes!("svg/videocam.svg"),
-        Icon::AutoStories => include_bytes!("svg/auto_stories.svg"),
-        Icon::BarChart => include_bytes!("svg/bar_chart.svg"),
-        Icon::Download => include_bytes!("svg/download.svg"),
-        Icon::SettingsVoice => include_bytes!("svg/settings_voice.svg"),
-        Icon::BreakfastDining => include_bytes!("svg/breakfast_dining.svg"),
-        Icon::DeployedCode => include_bytes!("svg/deployed_code.svg"),
-        Icon::DrawCollage => include_bytes!("svg/draw_collage.svg"),
-        Icon::ElectricBolt => include_bytes!("svg/electric_bolt.svg"),
-        Icon::Whatshot => include_bytes!("svg/whatshot.svg"),
-        Icon::AutoAwesome => include_bytes!("svg/auto_awesome.svg"),
-        Icon::Translate => include_bytes!("svg/translate.svg"),
-        Icon::Terminal => include_bytes!("svg/terminal.svg"),
-        Icon::Public => include_bytes!("svg/public.svg"),
-        Icon::QrCode => include_bytes!("svg/qr_code.svg"),
-        Icon::SpeechToText => include_bytes!("svg/speech_to_text.svg"),
-        Icon::Rocket => include_bytes!("svg/rocket.svg"),
-        Icon::Search => include_bytes!("svg/search.svg"),
-        Icon::Stat3 => include_bytes!("svg/stat_3.svg"),
-        Icon::Stat2 => include_bytes!("svg/stat_2.svg"),
-        Icon::Stat1 => include_bytes!("svg/stat_1.svg"),
-        Icon::StatMinus1 => include_bytes!("svg/stat_minus_1.svg"),
-        Icon::StatMinus2 => include_bytes!("svg/stat_minus_2.svg"),
-        Icon::StatMinus3 => include_bytes!("svg/stat_minus_3.svg"),
-        Icon::ArrowUp => include_bytes!("svg/keyboard_arrow_up.svg"),
-        Icon::ArrowDown => include_bytes!("svg/keyboard_arrow_down.svg"),
-        Icon::ArrowRight => include_bytes!("svg/keyboard_arrow_right.svg"),
-        Icon::ArrowRightAlt => include_bytes!("svg/arrow_right_alt.svg"),
-        Icon::LineEndArrowNotch => include_bytes!("svg/line_end_arrow_notch.svg"),
-        Icon::SmartToy => include_bytes!("svg/smart_toy.svg"),
-        Icon::Key => include_bytes!("svg/key.svg"),
-        Icon::Upgrade => include_bytes!("svg/upgrade.svg"),
-        Icon::CheckCircle => include_bytes!("svg/check_circle.svg"),
-        Icon::Warning => include_bytes!("svg/warning.svg"),
-        Icon::PottedPlant => include_bytes!("svg/potted_plant.svg"),
-        Icon::Minimize => include_bytes!("svg/remove.svg"),
-        Icon::Maximize => include_bytes!("svg/maximize.svg"),
-        Icon::Restore => include_bytes!("svg/restore.svg"),
-    }
+#[derive(Clone, Copy)]
+struct AtlasPage {
+    pixels: u32,
+    width: u32,
+    height: u32,
+    png: &'static [u8],
 }
+
+include!(concat!(env!("OUT_DIR"), "/icon_atlas_generated.rs"));
 
 thread_local! {
-    /// (svg pointer, physical px) -> cached texture. egui rendering is
-    /// single-threaded per context, so a thread-local cache is sufficient.
-    static ICON_TEXTURES: RefCell<HashMap<(usize, u32), egui::TextureHandle>> =
-        RefCell::new(HashMap::new());
+    /// Physical raster size -> atlas texture. egui rendering is single-threaded
+    /// per context, so a thread-local cache avoids synchronization overhead.
+    static ICON_TEXTURES: RefCell<HashMap<u32, egui::TextureHandle>> = RefCell::new(HashMap::new());
 }
 
-/// Rasterize a white SVG into a premultiplied-RGBA image at `px` square.
-fn rasterize(bytes: &[u8], px: u32) -> egui::ColorImage {
-    let tree = resvg::usvg::Tree::from_data(bytes, &resvg::usvg::Options::default())
-        .expect("bundled icon svg is valid");
-    let size = tree.size();
-    let mut pixmap = tiny_skia::Pixmap::new(px, px).expect("icon pixmap allocation");
-    let scale = px as f32 / size.width().max(size.height());
-    resvg::render(
-        &tree,
-        tiny_skia::Transform::from_scale(scale, scale),
-        &mut pixmap.as_mut(),
-    );
-    egui::ColorImage::from_rgba_premultiplied([px as usize, px as usize], pixmap.data())
+fn nearest_atlas_page(target: u32) -> &'static AtlasPage {
+    ICON_ATLAS_PAGES
+        .iter()
+        .min_by(|left, right| {
+            left.pixels
+                .abs_diff(target)
+                .cmp(&right.pixels.abs_diff(target))
+                .then_with(|| right.pixels.cmp(&left.pixels))
+        })
+        .expect("icon atlas has at least one page")
 }
 
-/// (Cached) texture id for an icon at a given physical pixel size.
-fn icon_texture(ctx: &egui::Context, icon: Icon, px: u32) -> egui::TextureId {
-    let bytes = icon_svg_bytes(icon);
-    let key = (bytes.as_ptr() as usize, px);
-    ICON_TEXTURES.with(|cache| {
-        if let Some(id) = cache.borrow().get(&key).map(egui::TextureHandle::id) {
+fn decode_atlas(page: &AtlasPage) -> egui::ColorImage {
+    let decoder = image::codecs::png::PngDecoder::new(Cursor::new(page.png))
+        .expect("generated icon atlas is a valid PNG");
+    assert_eq!(decoder.dimensions(), (page.width, page.height));
+    assert_eq!(decoder.color_type(), image::ColorType::L8);
+    let mut alpha = vec![0; decoder.total_bytes() as usize];
+    decoder
+        .read_image(&mut alpha)
+        .expect("generated icon atlas decodes");
+    let mut rgba = Vec::with_capacity(alpha.len() * 4);
+    for value in alpha {
+        rgba.extend_from_slice(&[value, value, value, value]);
+    }
+    egui::ColorImage::from_rgba_premultiplied([page.width as usize, page.height as usize], &rgba)
+}
+
+fn icon_texture(ctx: &egui::Context, icon: Icon, target: u32) -> (egui::TextureId, egui::Rect) {
+    let page = nearest_atlas_page(target);
+    let texture = ICON_TEXTURES.with(|cache| {
+        if let Some(id) = cache
+            .borrow()
+            .get(&page.pixels)
+            .map(egui::TextureHandle::id)
+        {
             return id;
         }
-        let image = rasterize(bytes, px);
         let handle = ctx.load_texture(
-            format!("icon::{:x}::{px}", key.0),
-            image,
+            format!("icon-atlas::{}", page.pixels),
+            decode_atlas(page),
             egui::TextureOptions::LINEAR,
         );
         let id = handle.id();
-        cache.borrow_mut().insert(key, handle);
+        cache.borrow_mut().insert(page.pixels, handle);
         id
-    })
+    });
+    let cell = page.pixels + ICON_ATLAS_GUTTER * 2;
+    let index = icon.sprite_index() as u32;
+    assert!((index as usize) < ICON_SPRITE_COUNT);
+    let x = (index % ICON_ATLAS_COLUMNS) * cell + ICON_ATLAS_GUTTER;
+    let y = (index / ICON_ATLAS_COLUMNS) * cell + ICON_ATLAS_GUTTER;
+    let uv = egui::Rect::from_min_max(
+        egui::pos2(x as f32 / page.width as f32, y as f32 / page.height as f32),
+        egui::pos2(
+            (x + page.pixels) as f32 / page.width as f32,
+            (y + page.pixels) as f32 / page.height as f32,
+        ),
+    );
+    (texture, uv)
+}
+
+fn resolved_color(icon: Icon, dark_mode: bool, requested: egui::Color32) -> egui::Color32 {
+    if icon == Icon::StarFilled {
+        egui::Color32::from_rgb(255, 193, 7)
+    } else if icon == Icon::Star && !dark_mode {
+        egui::Color32::from_rgb(110, 110, 110)
+    } else {
+        requested
+    }
 }
 
 /// Paint `icon`, recolored to `color`, centered in `rect`.
@@ -237,13 +210,7 @@ fn render_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egu
     // A filled favorite star is conventionally gold, regardless of widget state.
     // The outline (non-favorite) star is a thin frame that washes out on a light
     // background, so give it a darker, more visible shade in light mode.
-    let color = if icon == Icon::StarFilled {
-        egui::Color32::from_rgb(255, 193, 7)
-    } else if icon == Icon::Star && !ctx.global_style().visuals.dark_mode {
-        egui::Color32::from_rgb(110, 110, 110)
-    } else {
-        color
-    };
+    let color = resolved_color(icon, ctx.global_style().visuals.dark_mode, color);
     let ppp = ctx.pixels_per_point().max(0.01);
     // Material Symbols' "filled" glyphs fill their box more heavily than the old
     // thin line-art, so draw them inside ~84% of the allocated rect to keep the
@@ -253,24 +220,18 @@ fn render_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egu
     if target <= 0.5 {
         return;
     }
-    // Crispness: rasterize at an EXACT whole number of physical pixels, then draw
-    // the texture 1:1 at a pixel-snapped position. Drawing at a fractional size or
-    // a sub-pixel offset makes egui bilinear-sample between texels -> the icon
-    // looks blurry. Snapping the min corner to the physical grid fixes it.
+    // Select the closest build-time raster, draw at a whole number of physical
+    // pixels, and snap the destination to the physical grid. Every standard
+    // 100-400% Windows scaling target has an exact pre-rasterized page.
     let px = (target * ppp).round().clamp(6.0, 512.0);
     let side = px / ppp;
-    let tex = icon_texture(ctx, icon, px as u32);
+    let (texture, uv) = icon_texture(ctx, icon, px as u32);
     let mut min = rect.center() - egui::vec2(side, side) * 0.5;
     min.x = (min.x * ppp).round() / ppp;
     min.y = (min.y * ppp).round() / ppp;
     let icon_rect = egui::Rect::from_min_size(min, egui::vec2(side, side));
     // Tint the white glyph -> `color` (white * color = color, alpha preserved).
-    painter.image(
-        tex,
-        icon_rect,
-        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-        color,
-    );
+    painter.image(texture, icon_rect, uv, color);
     // No dedicated "copy-off" Material symbol exists — overlay a slash.
     if icon == Icon::CopyDisabled {
         let r = icon_rect.shrink(side * 0.1);
@@ -365,5 +326,89 @@ pub fn provider_icon(provider: &str) -> Icon {
         "parakeet" | "qwen3" => Icon::SpeechToText,
         "taalas" => Icon::Rocket,
         _ => Icon::Settings,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    const WINDOWS_DPI_TARGETS: &[u32] = &[
+        11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 33, 34, 35, 38,
+        40, 41, 42, 44, 45, 47, 50, 53, 54, 59, 60, 67,
+    ];
+
+    #[test]
+    fn generated_mapping_is_exhaustive_and_preserves_aliases() {
+        assert_eq!(ALL_ICONS.len(), 70);
+        let indices = ALL_ICONS
+            .iter()
+            .map(|icon| icon.sprite_index())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(indices, (0..ICON_SPRITE_COUNT).collect());
+        assert_eq!(Icon::Copy.sprite_index(), Icon::CopySmall.sprite_index());
+        assert_eq!(Icon::Copy.sprite_index(), Icon::CopyDisabled.sprite_index());
+        assert_eq!(
+            Icon::Delete.sprite_index(),
+            Icon::DeleteLarge.sprite_index()
+        );
+    }
+
+    #[test]
+    fn atlas_pages_cover_standard_windows_scaling() {
+        assert!(
+            ICON_ATLAS_PAGES
+                .windows(2)
+                .all(|pages| pages[0].pixels < pages[1].pixels)
+        );
+        for &target in WINDOWS_DPI_TARGETS {
+            let selected = nearest_atlas_page(target).pixels;
+            assert_eq!(selected, target);
+        }
+    }
+
+    #[test]
+    fn every_generated_cell_has_pixels_and_a_clear_gutter() {
+        let total_png_bytes = ICON_ATLAS_PAGES
+            .iter()
+            .map(|page| page.png.len())
+            .sum::<usize>();
+        assert!(total_png_bytes < 400_000);
+        for page in ICON_ATLAS_PAGES {
+            let image = decode_atlas(page);
+            let cell = page.pixels + ICON_ATLAS_GUTTER * 2;
+            for index in 0..ICON_SPRITE_COUNT as u32 {
+                let x = (index % ICON_ATLAS_COLUMNS) * cell + ICON_ATLAS_GUTTER;
+                let y = (index / ICON_ATLAS_COLUMNS) * cell + ICON_ATLAS_GUTTER;
+                let alpha = |x: u32, y: u32| image.pixels[(y * page.width + x) as usize].a();
+                assert!(
+                    (y..y + page.pixels)
+                        .any(|row| { (x..x + page.pixels).any(|column| alpha(column, row) != 0) })
+                );
+                assert!((x..x + page.pixels).all(|column| {
+                    alpha(column, y - 1) == 0 && alpha(column, y + page.pixels) == 0
+                }));
+                assert!(
+                    (y..y + page.pixels)
+                        .all(|row| { alpha(x - 1, row) == 0 && alpha(x + page.pixels, row) == 0 })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn star_colors_and_copy_disabled_art_remain_stable() {
+        let requested = egui::Color32::from_rgb(12, 34, 56);
+        assert_eq!(
+            resolved_color(Icon::StarFilled, true, requested),
+            egui::Color32::from_rgb(255, 193, 7)
+        );
+        assert_eq!(
+            resolved_color(Icon::Star, false, requested),
+            egui::Color32::from_rgb(110, 110, 110)
+        );
+        assert_eq!(resolved_color(Icon::Star, true, requested), requested);
+        assert_eq!(Icon::CopyDisabled.sprite_index(), Icon::Copy.sprite_index());
     }
 }

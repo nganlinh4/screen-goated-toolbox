@@ -4,6 +4,7 @@ use anyhow::Result;
 use std::net::TcpStream;
 
 /// Send session setup message to configure transcription mode
+#[cfg(not(feature = "recorder-worker"))]
 pub fn send_setup_message(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,
     model: &str,
@@ -84,6 +85,7 @@ pub fn pcm_bytes_to_i16(bytes: &[u8]) -> Vec<i16> {
 }
 
 /// Parse inputTranscription from WebSocket message (what the user said)
+#[cfg(not(feature = "recorder-worker"))]
 pub fn parse_input_transcription(msg: &str) -> Option<String> {
     crate::api::gemini_live::server_frame::parse_server_frame(msg)
         .ok()?
@@ -91,6 +93,7 @@ pub fn parse_input_transcription(msg: &str) -> Option<String> {
 }
 
 /// Parse outputTranscription from WebSocket message (what the model said).
+#[cfg(not(feature = "recorder-worker"))]
 pub fn parse_output_transcription(msg: &str) -> Option<String> {
     crate::api::gemini_live::server_frame::parse_server_frame(msg)
         .ok()?
@@ -163,6 +166,17 @@ fn normalize_bcp47_code(code: &str) -> String {
 mod tests {
     use super::live_translate_target_language_code;
     use serde::Deserialize;
+    use std::path::Path;
+
+    fn parity_fixture(relative: &str) -> String {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let repository = manifest
+            .ancestors()
+            .find(|root| root.join("parity-fixtures").is_dir())
+            .expect("repository with parity fixtures");
+        std::fs::read_to_string(repository.join("parity-fixtures").join(relative))
+            .expect("fixture file")
+    }
 
     #[derive(Deserialize)]
     struct Doc {
@@ -178,13 +192,9 @@ mod tests {
     /// the Android side asserts too. See .claude/parity/gemini-s2s-vad.md.
     #[test]
     fn target_language_codes_match_parity_fixture() {
-        let doc: Doc = serde_json::from_str(
-            &std::fs::read_to_string(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/parity-fixtures/gemini-s2s-language/target-language-codes.json"
-            ))
-            .expect("fixture file"),
-        )
+        let doc: Doc = serde_json::from_str(&parity_fixture(
+            "gemini-s2s-language/target-language-codes.json",
+        ))
         .expect("fixture json");
         for c in doc.cases {
             assert_eq!(
@@ -214,14 +224,9 @@ mod tests {
             target_language: String,
         }
 
-        let doc: Doc = serde_json::from_str(
-            &std::fs::read_to_string(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/parity-fixtures/gemini-s2s-setup/live-translate.json"
-            ))
-            .expect("fixture file"),
-        )
-        .expect("fixture json");
+        let doc: Doc =
+            serde_json::from_str(&parity_fixture("gemini-s2s-setup/live-translate.json"))
+                .expect("fixture json");
 
         let actual = build_live_translate_setup_value(&doc.input.model, &doc.input.target_language);
         assert_eq!(actual, doc.expect);

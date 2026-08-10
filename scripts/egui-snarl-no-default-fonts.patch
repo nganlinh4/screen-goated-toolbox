@@ -1,0 +1,13 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 02b7865..0ec45bc 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -8,7 +8,7 @@ documentation = "https://docs.rs/egui-snarl"
+ repository = "https://github.com/zakarumych/egui-snarl"
+ 
+ [workspace.dependencies]
+-egui = { version = "0.34" }
++egui = { version = "0.34", default-features = false }
+ eframe = { version = "0.34" }
+ egui_extras = { version = "0.34" }
+ syn = { version = "2" }

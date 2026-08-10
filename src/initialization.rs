@@ -76,21 +76,8 @@ pub fn cleanup_temporary_files() {
         }
     }
 
-    // 2. Clean up partial downloads in the app's bin directory
-    let bin_dir = crate::paths::app_local_data_dir().join("bin");
-
-    if bin_dir.exists()
-        && let Ok(entries) = std::fs::read_dir(&bin_dir)
-    {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "tmp") {
-                let _ = std::fs::remove_file(&path);
-            }
-        }
-    }
-
-    // 3. Clean up any update-related files in current directory
+    // 2. Clean up the updater's exact staging name. Component installers
+    // reconcile only their own generated staging namespaces.
     if let Ok(exe_path) = std::env::current_exe()
         && let Some(exe_dir) = exe_path.parent()
     {

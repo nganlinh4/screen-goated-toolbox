@@ -11,8 +11,9 @@ mod ipc;
 mod runtime;
 mod window;
 
+use crate::component_registry::web_assets::WebAssetComponent;
 pub(crate) use crate::overlay::creation_runtime::{
-    DOWNLOAD_TITLE as RUNTIME_DOWNLOAD_TITLE, download_runtime, is_runtime_installed,
+    download_runtime, download_title as runtime_download_title, is_runtime_installed,
     remove_runtime, runtime_bundle_dir,
 };
 use std::sync::Once;
@@ -45,7 +46,37 @@ pub fn show_three_d_generator() {
         crate::runtime_support::notify_capability_issue(&capability);
         return;
     }
-    window::show();
+    crate::component_registry::web_assets::launch_when_ready(
+        WebAssetComponent::Creation3d,
+        window::show,
+    );
+}
+
+pub(crate) fn web_asset_download_title() -> String {
+    crate::component_registry::web_assets::download_title(WebAssetComponent::Creation3d)
+}
+
+pub(crate) fn are_web_assets_installed() -> bool {
+    crate::component_registry::web_assets::is_installed_for_display(WebAssetComponent::Creation3d)
+}
+
+pub(crate) fn web_assets_dir() -> std::path::PathBuf {
+    crate::component_registry::web_assets::component_dir(WebAssetComponent::Creation3d)
+}
+
+pub(crate) fn download_web_assets(
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    use_badge: bool,
+) -> anyhow::Result<()> {
+    crate::component_registry::web_assets::download_from_manager(
+        WebAssetComponent::Creation3d,
+        stop,
+        use_badge,
+    )
+}
+
+pub(crate) fn remove_web_assets() -> anyhow::Result<()> {
+    crate::component_registry::web_assets::remove(WebAssetComponent::Creation3d)
 }
 
 pub(super) fn current_ui_language() -> String {

@@ -28,6 +28,14 @@ contract.
 
 Both derive `versionName` and default `versionCode` from root `Cargo.toml`.
 
+The Full downloader keeps only Android's required native executable launchers in
+the APK. Its pinned yt-dlp, Python, and FFmpeg payloads install on first use from
+`androidApp/delivery/downloader-runtime.json`; every response is accepted only
+at the declared byte count and SHA-256. The manifest uses an immutable official
+yt-dlp release and uniquely named Python/FFmpeg assets on the append-only
+`sgt-runtime-bundles` release. Mutable latest, nightly, and main-channel updates
+are not part of the runtime contract.
+
 ## Prerequisites
 
 - JDK 17.
@@ -128,7 +136,8 @@ its ADB private key non-exportable in Android Keystore, discovers only the
 device-local wireless-debugging services, and runs its bounded command client in
 a private app process; it never opens a LAN command listener. The compact orb
 prompt also exposes an explicit pairing-forget action. Its transport uses
-`libadb-android` 3.1.1 and Conscrypt 2.5.3. Upstream states that libadb has not
+`libadb-android` 3.1.1 with Android's platform TLS 1.3 provider (the app's
+minimum API level is 29). Upstream states that libadb has not
 received a security audit, so the dependency threat model remains an explicit
 release-review item even though real-device pairing, reconnect, cancellation,
 revoke, projection-resume, and credentialed Chrome CDP target
@@ -187,15 +196,62 @@ Copied outputs:
 - `target/release/ScreenGoatedToolbox_v<VERSION>.apk`
 - `target/release/ScreenGoatedToolbox_v<VERSION>.aab` when `-IncludeAab` is used.
 
+Before publishing a Full build whose downloader manifest changes, prepare the
+two custom archives and upload the printed, uniquely named files without
+replacing an existing runtime-bundles asset:
+
+```powershell
+.\mobile\scripts\prepare-downloader-runtime-bundles.ps1
+```
+
+The script verifies its source archives against the build manifest before it
+copies anything. Full asset merging fails when the delivery manifest is absent
+or violates the immutable URL/identity contract.
+
+### Moonshine model delivery checkpoint
+
+Moonshine Tiny, Small, and Medium models are optional downloads. The app first
+requests the exact content-addressed SGT bundle pinned in the packaged
+`androidApp/src/main/assets/moonshine-model-delivery.json`; the upstream
+per-file endpoint is a fallback transport only, and every accepted file must
+match the build-pinned size and SHA-256 contract.
+
+Prepare the three deterministic bundles from an audited model directory, then
+verify their entries locally:
+
+```powershell
+py -3 .\mobile\scripts\package-moonshine-models.py --models-dir <model-directory>
+py -3 .\mobile\scripts\verify-moonshine-model-release.py --local-only
+```
+
+Upload only the three newly named ZIPs to the existing append-only
+`sgt-runtime-bundles` release. Never replace an existing asset. Before building
+the release that publishes this manifest, read every uploaded asset back and
+verify its size, archive hash, exact seven model files, and notices:
+
+```powershell
+py -3 .\mobile\scripts\verify-moonshine-model-release.py
+```
+
+Do not publish when the remote verification fails. If model bytes or notices
+change, regenerate the source contract, bundles, asset identities, and pinned
+delivery manifest together.
+
 ## Play on-demand native delivery
 
 The `play` bundle keeps large native payloads out of the base module and delivers
-the ASR/ORT engines and shared C++ runtime through on-demand dynamic features
+the ASR/ORT engines through on-demand dynamic features
 under `feature_*`. The `full` artifact downloads those exact native runtime
 archives from the SGT runtime-bundles release and verifies their declared size
 and SHA-256 before installation. Phone Control has no
 flavor-specific grounding runtime; both distributions use the same current-frame
 vision contract, catalog, provider routes, and authority.
+
+The Image-to-3D result viewer is built from the canonical Windows viewer source
+with `npm run build:viewer` in `3d-generator-ui/`. Its deterministic
+`viewer-dist/creation_model_viewer` output stays in the base module for both
+flavors so saved models remain viewable after the removable creation runtime is
+uninstalled. The large generation runtime remains outside the base module.
 
 Build or install a locally deliverable Play debug bundle with:
 

@@ -48,14 +48,14 @@
     {
       "engine": "sherpa",
       "fileName": "sherpa-runtime.zip",
-      "byteCount": 8057968,
-      "sha256": "2a66f857b62e53c12527fb154aca160b590a729a8f3fc2e3eb5435893cc55bea",
+      "byteCount": 3430818,
+      "sha256": "56712f2419434b3358df4f1feaa2aa626772318a4fab861e944d7cdc8ad32875",
       "fullDelivery": "verified_download",
       "entries": [
         {
           "fileName": "libsherpa-onnx-jni.so",
-          "byteCount": 22161112,
-          "sha256": "350b91b239601b1b27a48d287217f810dec5ac6acc3aa5cdc536f4c16b60f9ab"
+          "byteCount": 8566536,
+          "sha256": "0e71ad7d3c77c0f18bf67e9dcfb9f4970b10ab90d7b1cebed671552c5576f726"
         }
       ]
     }

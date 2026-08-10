@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,12 +30,15 @@ internal class CreationRuntimeProvider(private val context: Context) {
     }
     private val mutableStatus = MutableStateFlow(computeStatus())
     private var installJob: Job? = null
+    private var removalJob: Job? = null
     @Volatile private var loadedFactory: CreationRuntimeFactory? = null
 
     val status: StateFlow<CreationRuntimeStatus> = mutableStatus.asStateFlow()
 
     fun startInstall() {
-        if (factory() != null || installJob?.isActive == true) return
+        if (mutableStatus.value is CreationRuntimeStatus.RemovalPending ||
+            factory() != null || installJob?.isActive == true || removalJob?.isActive == true
+        ) return
         if (delivery == null) {
             mutableStatus.value = CreationRuntimeStatus.Failed(CREATION_RUNTIME_INSTALL_FAILURE)
             return
@@ -57,6 +61,7 @@ internal class CreationRuntimeProvider(private val context: Context) {
     }
 
     fun factory(): CreationRuntimeFactory? {
+        if (mutableStatus.value is CreationRuntimeStatus.RemovalPending) return null
         loadedFactory?.let { return it }
         if (!installedFilesAreValid()) return null
         return loadFactory()?.also {
@@ -66,13 +71,31 @@ internal class CreationRuntimeProvider(private val context: Context) {
     }
 
     fun delete() {
-        installJob?.cancel()
-        installJob = null
+        if (removalJob?.isActive == true) return
+        val activeInstall = installJob
+        activeInstall?.cancel()
         loadedFactory = null
-        deleteRuntimeTree(context.filesDir, runtimeRoot())
-        deleteRuntimeTree(context.codeCacheDir, optimizedRoot())
-        bundlePartial().delete()
-        mutableStatus.value = computeStatus()
+        mutableStatus.value = CreationRuntimeStatus.RemovalPending(
+            "Removal pending while Creation workers stop.",
+        )
+        removalJob = scope.launch {
+            activeInstall?.cancelAndJoin()
+            try {
+                deleteRuntimeTree(context.filesDir, runtimeRoot())
+                deleteRuntimeTree(context.codeCacheDir, optimizedRoot())
+                check(!bundlePartial().exists() || bundlePartial().delete()) {
+                    "Creation runtime partial download could not be removed"
+                }
+                mutableStatus.value = computeStatus()
+            } catch (error: Throwable) {
+                mutableStatus.value = CreationRuntimeStatus.RemovalPending(
+                    error.message ?: "Creation runtime removal failed. Try again.",
+                    retryable = true,
+                )
+            } finally {
+                removalJob = null
+            }
+        }
     }
 
     private fun computeStatus(): CreationRuntimeStatus = if (installedFilesAreValid()) {

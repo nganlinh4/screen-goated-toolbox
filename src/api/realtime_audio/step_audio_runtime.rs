@@ -10,16 +10,14 @@ use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-const RUNTIME_MANIFEST_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/step_audio_runtime/dist/sgt_step_audio_runtime.manifest.json";
 const MANAGED_MANIFEST_FILE: &str = "sgt_step_audio_runtime.manifest.json";
-const MIN_RUNTIME_ABI: u32 = 1;
 
 static LAST_STEP_AUDIO_RUNTIME_NOTICE: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(|| Mutex::new(None));
 
 static STEP_AUDIO_RUNTIME_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StepAudioRuntimeManifest {
     pub version: String,
@@ -30,7 +28,7 @@ pub struct StepAudioRuntimeManifest {
     pub chunks: Vec<StepAudioRuntimeChunk>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StepAudioRuntimeChunk {
     pub filename: String,
@@ -47,6 +45,7 @@ fn clear_notice() {
     *LAST_STEP_AUDIO_RUNTIME_NOTICE.lock().unwrap() = None;
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn current_step_audio_runtime_notice() -> Option<String> {
     LAST_STEP_AUDIO_RUNTIME_NOTICE.lock().ok()?.clone()
 }
@@ -87,6 +86,7 @@ fn manifest_path() -> PathBuf {
     get_step_audio_runtime_dir().join(MANAGED_MANIFEST_FILE)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn step_audio_runtime_installed_size() -> u64 {
     fn dir_size(path: &Path) -> u64 {
         let Ok(entries) = fs::read_dir(path) else {
@@ -155,6 +155,7 @@ pub fn is_step_audio_runtime_installed() -> bool {
     get_step_audio_runtime_entrypoint().is_ok()
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn remove_step_audio_runtime() -> Result<()> {
     let dir = get_step_audio_runtime_dir();
     if dir.exists() {
@@ -220,13 +221,12 @@ fn download_step_audio_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) 
         state.download_progress = 0.0;
     }
     post_download_state();
-    if use_badge {
-        crate::overlay::auto_copy_badge::show_progress_notification(
+    let progress_badge = use_badge.then(|| {
+        crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(
             &download_title,
             loc.badge.fetching_runtime_manifest,
-            0.0,
-        );
-    }
+        )
+    });
 
     let result = (|| {
         let manifest = fetch_manifest()?;
@@ -262,11 +262,12 @@ fn download_step_audio_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) 
                 if let Ok(mut state) = REALTIME_STATE.lock() {
                     state.download_progress = progress;
                 }
-                if use_badge {
-                    crate::overlay::auto_copy_badge::show_progress_notification(
-                        &download_title,
-                        &downloading_file,
-                        progress,
+                if let Some(progress_badge) = &progress_badge {
+                    progress_badge.report(
+                        downloaded_total
+                            .saturating_add(downloaded)
+                            .saturating_mul(75),
+                        total.saturating_mul(100),
                     );
                 }
                 post_download_state();
@@ -280,6 +281,9 @@ fn download_step_audio_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) 
             state.download_progress = 80.0;
         }
         post_download_state();
+        if let Some(progress_badge) = &progress_badge {
+            progress_badge.report(80, 100);
+        }
         concatenate_chunks(&chunk_paths, &archive)?;
         extract_runtime_archive(&archive, &stage)?;
         for chunk_path in &chunk_paths {
@@ -313,50 +317,44 @@ fn download_step_audio_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) 
             state.download_message = loc.tool_runtime.step_audio_downloading_message.to_string();
         }
     }
-    if use_badge {
-        crate::overlay::auto_copy_badge::hide_progress_notification();
+    if let Some(progress_badge) = &progress_badge {
+        progress_badge.finish();
     }
     result
 }
 
 fn fetch_manifest() -> Result<StepAudioRuntimeManifest> {
-    let response = ureq::get(RUNTIME_MANIFEST_URL)
-        .header("User-Agent", "ScreenGoatedToolbox")
-        .call()
-        .map_err(|err| anyhow!("Failed to fetch Step Audio runtime manifest: {err}"))?;
-    let mut body = String::new();
-    response
-        .into_body()
-        .into_reader()
-        .read_to_string(&mut body)?;
-    serde_json::from_str(&body)
-        .map_err(|err| anyhow!("Failed to parse Step Audio runtime manifest: {err}"))
+    Ok(delivery_manifest())
 }
 
 fn validate_manifest(manifest: &StepAudioRuntimeManifest) -> Result<()> {
-    if manifest.abi_version < MIN_RUNTIME_ABI {
-        bail!(
-            "Step Audio runtime ABI {} is older than required ABI {}",
-            manifest.abi_version,
-            MIN_RUNTIME_ABI
-        );
-    }
-    if manifest.entrypoint.trim().is_empty() || manifest.entrypoint.contains("..") {
-        bail!("Step Audio runtime manifest has an unsafe entrypoint");
-    }
-    if manifest.chunks.is_empty() {
-        bail!("Step Audio runtime manifest has no downloadable chunks");
-    }
-    for chunk in &manifest.chunks {
-        if chunk.filename.trim().is_empty()
-            || chunk.filename.contains("..")
-            || chunk.sha256.trim().len() != 64
-            || chunk.size == 0
-        {
-            bail!("Step Audio runtime manifest has an invalid chunk entry");
-        }
+    if manifest != &delivery_manifest() {
+        bail!("Step Audio runtime manifest does not match the host-pinned delivery descriptor");
     }
     Ok(())
+}
+
+fn delivery_manifest() -> StepAudioRuntimeManifest {
+    StepAudioRuntimeManifest {
+        version: "2026.05.15".into(),
+        abi_version: 1,
+        entrypoint: "step-audio-sidecar/step-audio-sidecar.exe".into(),
+        installed_size: 5_512_741_765,
+        chunks: vec![
+            StepAudioRuntimeChunk {
+                filename: "sgt-step-audio-runtime-2026.05.15.zip.part001".into(),
+                url: "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-step-audio-runtime-2026.05.15.zip.part001".into(),
+                sha256: "898ed58c7684053ba7a2f9a72871d010c0457301f86bbfbef187a989f9044063".into(),
+                size: 1_992_294_400,
+            },
+            StepAudioRuntimeChunk {
+                filename: "sgt-step-audio-runtime-2026.05.15.zip.part002".into(),
+                url: "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-step-audio-runtime-2026.05.15.zip.part002".into(),
+                sha256: "217bc3a09baee8c808f423f071b1a3a3d0cc1d7278306eb85b7fc5d7be7162be".into(),
+                size: 1_263_102_044,
+            },
+        ],
+    }
 }
 
 fn download_verified_chunk(
@@ -500,5 +498,26 @@ fn sidecar_exe_name() -> &'static str {
         "step-audio-sidecar.exe"
     } else {
         "step-audio-sidecar"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delivery_descriptor_is_exact_and_host_owned() {
+        let manifest = fetch_manifest().unwrap();
+        validate_manifest(&manifest).unwrap();
+        assert_eq!(manifest.chunks.len(), 2);
+        assert!(manifest.chunks.iter().all(|chunk| {
+            chunk.url.contains(
+                "/releases/download/sgt-runtime-bundles/sgt-step-audio-runtime-2026.05.15",
+            )
+        }));
+
+        let mut tampered = manifest;
+        tampered.chunks[0].size += 1;
+        assert!(validate_manifest(&tampered).is_err());
     }
 }

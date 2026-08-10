@@ -12,11 +12,18 @@ model that installs on one platform installs and runs on the other. The shared
 fixture locks the fields that MUST stay in sync:
 - `code` — stable language id (`en`/`ko`/`zh`/`fr`/`de`/`es`/`ru`/`all-8`).
 - `modelName` — the on-disk model directory name.
-- `downloadBaseUrl` — HuggingFace/ModelScope base URL the model files download from.
+- `downloadBaseUrl` — immutable HuggingFace/ModelScope revision URL. Moving
+  branch names such as `resolve/main` and `resolve/master` are forbidden.
 - `hasNativePunctuation` — whether the model emits punctuation (drives the
   offline-ASR commit machine's Case 1/2 vs Case 3 — see
   [offline-asr-stream.md](offline-asr-stream.md)).
-- `modelFiles` — the exact list of files to download per model.
+- `modelFiles` — the exact file name, byte count, and SHA-256 identity for each
+  downloaded model/tokenizer file.
+
+Both managers reject pre-existing files that differ from the identity contract,
+stream downloads into a temporary file with a hard byte ceiling, verify SHA-256,
+and only then replace the final path. A cancelled or failed download never
+materializes an unverified final file.
 
 Neither platform may change any of these without updating the fixture (which makes
 the other platform's test fail until it is reconciled).
@@ -36,7 +43,7 @@ the other platform's test fail until it is reconciled).
   from the fixture and the divergence is documented here.
 
 ## Fixtures
-- Catalog fixture: [parity-fixtures/zipformer-catalog/catalog.json](../../parity-fixtures/zipformer-catalog/catalog.json) — 8 `{ code, modelName, downloadBaseUrl, hasNativePunctuation, modelFiles }` entries in Windows order.
+- Catalog fixture: [parity-fixtures/zipformer-catalog/catalog.json](../../parity-fixtures/zipformer-catalog/catalog.json) — 8 `{ code, modelName, downloadBaseUrl, hasNativePunctuation, modelFiles: [{ name, byteCount, sha256 }] }` entries in Windows order.
 - Rust assertion: `windows_zipformer_catalog_matches_parity_fixture` in [src/api/realtime_audio/sherpa_onnx/mod.rs](../../src/api/realtime_audio/sherpa_onnx/mod.rs).
 - Android assertion: [mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/ZipformerCatalogParityTest.kt](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/ZipformerCatalogParityTest.kt).
 

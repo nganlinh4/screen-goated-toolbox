@@ -1,4 +1,11 @@
 pub struct BadgeLocaleText {
+    pub downloading_component_fmt: &'static str,
+    pub preparing_component_fmt: &'static str,
+    pub component_installed_fmt: &'static str,
+    pub component_install_failed_fmt: &'static str,
+    pub removing_component_fmt: &'static str,
+    pub component_removed_fmt: &'static str,
+    pub component_remove_failed_fmt: &'static str,
     pub app_restarted_after_recovery: &'static str,
     pub installing_local_ai_runtime: &'static str,
     pub preparing_payload_fmt: &'static str,
@@ -28,9 +35,6 @@ pub struct BadgeLocaleText {
     pub webview2_installed_restarting: &'static str,
     pub export_failed: &'static str,
     pub subtitles_saved: &'static str,
-    pub feature_unavailable_fmt: &'static str,
-    pub qwen_x64_only: &'static str,
-    pub qwen_arm_unsupported: &'static str,
     pub feature_needs_webview2_fmt: &'static str,
     pub feature_window_selector: &'static str,
     pub feature_realtime_overlay: &'static str,
@@ -40,6 +44,4 @@ pub struct BadgeLocaleText {
     pub feature_screen_record: &'static str,
     pub feature_markdown_view: &'static str,
     pub install_webview2_hint: &'static str,
-    pub unsupported_features_fmt: &'static str,
-    pub unavailable_features_here: &'static str,
 }

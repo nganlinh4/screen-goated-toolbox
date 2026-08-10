@@ -65,11 +65,15 @@ pub fn handle_prepare_parakeet_tdt_subtitles(
     crate::gui::request_open_downloaded_tools();
 
     let missing_model = !parakeet_tdt_assets::is_parakeet_tdt_model_downloaded();
+    let worker_status = crate::component_registry::local_asr::current_status(
+        crate::component_registry::local_asr::ComponentKind::Worker,
+    );
+    let missing_worker = !crate::component_registry::local_asr::status_is_ready(&worker_status);
     let missing_runtime = !matches!(
         unpack_dlls::current_ai_runtime_status(),
-        AiRuntimeStatus::Installed { .. }
+        AiRuntimeStatus::Installed
     );
-    let started_downloads = missing_model || missing_runtime;
+    let started_downloads = missing_model || missing_runtime || missing_worker;
 
     if started_downloads
         && PARAKEET_TDT_PREPARE_IN_PROGRESS
@@ -84,7 +88,11 @@ pub fn handle_prepare_parakeet_tdt_subtitles(
             if missing_runtime {
                 let _ = unpack_dlls::start_ai_runtime_install();
             }
-            crate::overlay::auto_copy_badge::hide_progress_notification();
+            if missing_worker {
+                let _ = crate::component_registry::local_asr::start_install(
+                    crate::component_registry::local_asr::ComponentKind::Worker,
+                );
+            }
             PARAKEET_TDT_PREPARE_IN_PROGRESS.store(false, Ordering::SeqCst);
         });
     }

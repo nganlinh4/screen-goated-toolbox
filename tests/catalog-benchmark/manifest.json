@@ -25,13 +25,13 @@
     {
       "id": "text-03-numeric-fidelity",
       "difficulty": 3,
-      "source_language": "German",
-      "target_language": "English",
-      "input": "Der Sensor meldete 1,05 °C, nicht 1,5 °C; der Grenzwert bleibt bei −2 °C.",
-      "reference": "The sensor reported 1.05 °C, not 1.5 °C; the threshold remains at −2 °C.",
-      "required_terms": ["sensor", "threshold"],
-      "required_exact": ["1.05", "1.5", "°C"],
-      "required_exact_any": [["−2", "-2"]],
+      "source_language": "English",
+      "target_language": "Vietnamese",
+      "input": "The sensor reported 1.05 °C, not 1.5 °C; the threshold remains at −2 °C.",
+      "reference": "Cảm biến ghi nhận 1,05 °C, không phải 1,5 °C; ngưỡng vẫn là −2 °C.",
+      "required_terms": ["cảm biến", "ngưỡng"],
+      "required_exact": ["°C"],
+      "required_exact_any": [["1,05", "1.05"], ["1,5", "1.5"], ["−2", "-2"]],
       "rubric": ["Keeps 1.05 distinct from 1.5", "Preserves the negative two-degree threshold", "Does not convert or drop the unit"]
     },
     {
@@ -51,11 +51,11 @@
       "id": "text-05-idiom",
       "difficulty": 5,
       "source_language": "Korean",
-      "target_language": "English",
+      "target_language": "Vietnamese",
       "input": "그 제안은 겉보기에는 좋아도 막상 뚜껑을 열어 보면 문제가 한두 가지가 아니다.",
-      "reference": "The proposal may look good on the surface, but once you examine it, it has more than a few problems.",
-      "required_terms": ["proposal", "problems"],
-      "forbidden_terms": ["lid"],
+      "reference": "Đề xuất đó nhìn bề ngoài có vẻ tốt, nhưng khi xem xét kỹ thì vấn đề không chỉ có một hai chuyện.",
+      "required_terms": ["đề xuất", "vấn đề"],
+      "forbidden_terms": ["nắp"],
       "rubric": ["Renders the idiom naturally rather than mentioning a literal lid", "Preserves the contrast between appearance and closer inspection", "Conveys that there are many problems"]
     },
     {
@@ -104,15 +104,15 @@
     {
       "id": "text-10-structured-constraints",
       "difficulty": 10,
-      "source_language": "English",
-      "target_language": "Korean",
-      "input": "Status: **DO NOT DEPLOY**\n- Keep ${BUILD_ID} unchanged.\n- Restore only files modified after 23:40 UTC+9; do not restore the archive.\n- “May” means permission, not probability.",
-      "reference": "상태: **배포 금지**\n- ${BUILD_ID}는 변경하지 마세요.\n- UTC+9 기준 23:40 이후에 수정된 파일만 복원하고, 아카이브는 복원하지 마세요.\n- “May”는 가능성이 아니라 허가를 뜻합니다.",
-      "required_terms": ["배포 금지", "파일만", "아카이브", "허가"],
+      "source_language": "Simplified Chinese",
+      "target_language": "Vietnamese",
+      "input": "状态：**禁止部署**\n- 保持 ${BUILD_ID} 不变。\n- 仅恢复 UTC+9 23:40 之后修改的文件；不要恢复归档。\n- “可以”表示许可，不表示可能性。",
+      "reference": "Trạng thái: **KHÔNG ĐƯỢC TRIỂN KHAI**\n- Giữ nguyên ${BUILD_ID}.\n- Chỉ khôi phục các tệp được sửa sau 23:40 UTC+9; không khôi phục tệp lưu trữ.\n- “Có thể” biểu thị sự cho phép, không phải khả năng.",
+      "required_terms": ["KHÔNG ĐƯỢC TRIỂN KHAI", "Chỉ", "lưu trữ", "cho phép"],
       "required_exact": ["**", "${BUILD_ID}", "23:40", "UTC+9"],
-      "required_exact_any": [["“May”", "\"May\""]],
+      "required_exact_any": [["“Có thể”", "\"Có thể\""]],
       "expected_line_count": 4,
-      "rubric": ["Preserves the Markdown structure and placeholder", "Keeps the deployment prohibition emphatic", "Restores only post-23:40 files and explicitly excludes the archive", "Explains May as permission rather than probability"]
+      "rubric": ["Preserves the Markdown structure and placeholder", "Keeps the deployment prohibition emphatic", "Restores only post-23:40 files and explicitly excludes the archive", "Explains 可以 as permission rather than probability"]
     }
   ],
   "coordinate_cases": [
@@ -199,12 +199,12 @@
   ],
   "ocr_cases": [
     {
-      "id": "ocr-01-headlines",
+      "id": "ocr-01-vietnamese-street-sign",
       "difficulty": 1,
-      "image": "images/ocr/01-poster.jpg",
+      "image": "images/ocr/01-vietnamese-street-sign.jpg",
       "input_mode": "screen-crop-png",
-      "instruction": "Transcribe the two large headline lines only, in top-to-bottom order. Output ONLY those two lines.",
-      "reference": "THE RIGHT TO READ\nTARGET FOR THE 70'S"
+      "instruction": "Transcribe all text on the blue street sign, in top-to-bottom order. Output ONLY the text.",
+      "reference": "HÀ NỘI\nPHỐ\nNHÀ CHUNG"
     },
     {
       "id": "ocr-02-table",
@@ -224,15 +224,15 @@
       "reference": "JB\n07\nT\n01\nNakano\n中野\n나카노"
     },
     {
-      "id": "ocr-04-historic-menu",
+      "id": "ocr-04-vietnamese-web-layout",
       "difficulty": 5,
-      "image": "images/ocr/04-historic-menu.jpg",
+      "image": "images/ocr/04-vietnamese-wikipedia.jpg",
       "input_mode": "screen-crop-png",
-      "crop_px": [165, 360, 270, 132],
+      "crop_px": [314, 285, 760, 270],
       "instruction": "Extract all text from this image exactly as it appears. Output ONLY the text.",
-      "reference": "SOUP.\nOx Cheek Soup.\nROAST.                 BOILED.\nBeef.                       Ham.\nPork, Apple Sauce.       Tongue.\nMutton.                    Corned Beef and Greens.\nTurkey.                     Leg of Mutton, Caper Sauce.",
+      "reference": "WIKIPEDIA TIẾNG VIỆT\nBạn chính là tác giả của Wikipedia\nBài viết: Tra cứu · Bài mới · Hỏi đáp · Thỉnh cầu · Thư viện",
       "accepted_references": [
-        "SOUP.\nOx Cheek Soup.\nROAST.\nBeef.\nPork, Apple Sauce.\nMutton.\nTurkey.\nBOILED.\nHam.\nTongue.\nCorned Beef and Greens.\nLeg of Mutton, Caper Sauce."
+        "WIKIPEDIA TIẾNG VIỆT\nBạn chính là tác giả của Wikipedia\nBài viết:\nTra cứu · Bài mới · Hỏi đáp · Thỉnh cầu · Thư viện"
       ]
     },
     {

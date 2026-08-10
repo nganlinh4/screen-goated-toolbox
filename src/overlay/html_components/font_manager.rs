@@ -1,7 +1,7 @@
-//! Font Manager - Bundles Google Sans Flex variable font
+//! Shared local-page host and product-font contract for WebView surfaces.
 //!
-//! Serves both HTML pages and fonts from a local HTTP server.
-//! This ensures same-origin access, bypassing CORS/PNA restrictions.
+//! Serves HTML pages and the original Google Sans Flex variable face from the same
+//! local HTTP origin, avoiding CORS and private-network restrictions.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -10,14 +10,26 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, Once};
 use wry::WebViewBuilder;
 
-/// Google Sans Flex variable font - bundled at compile time (~5MB)
-static GOOGLE_SANS_FLEX_TTF: &[u8] = crate::assets::GOOGLE_SANS_FLEX;
-
 static START_SERVER_ONCE: Once = Once::new();
 static PAGE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+#[cfg(not(feature = "recorder-worker"))]
+static PRODUCT_FONT_TTF: &[u8] = crate::assets::GOOGLE_SANS_FLEX;
+#[cfg(not(feature = "recorder-worker"))]
+static FONT_ROUTE_TOKEN: LazyLock<Option<String>> = LazyLock::new(|| {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).ok()?;
+    Some(
+        bytes
+            .iter()
+            .fold(String::with_capacity(32), |mut token, byte| {
+                use std::fmt::Write as _;
+                let _ = write!(token, "{byte:02x}");
+                token
+            }),
+    )
+});
 
-// Session-based cache buster - generated once at startup to prevent cache corruption
-// This fixes ERR_CACHE_READ_FAILURE in persistent WebViews like preset_wheel
+#[cfg(not(feature = "recorder-worker"))]
 static SESSION_CACHE_BUSTER: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{:x}",
@@ -88,25 +100,13 @@ fn handle_request(stream: &mut std::net::TcpStream) -> std::io::Result<()> {
     // Route requests - strip query params for path matching
     let path_without_query = path.split('?').next().unwrap_or(path);
 
-    if path_without_query == "/font/GoogleSansFlex.ttf" {
-        // Serve font with reduced cache time to prevent cache corruption
-        // The cache buster query param ensures fresh fetch each session
-        let headers = format!(
-            "HTTP/1.1 200 OK\r\n\
-             Content-Type: font/ttf\r\n\
-             Content-Length: {}\r\n\
-             {cors_headers}\
-             Cache-Control: max-age=3600\r\n\
-             Connection: close\r\n\r\n",
-            GOOGLE_SANS_FLEX_TTF.len()
-        );
-        stream.write_all(headers.as_bytes())?;
-        if method != "HEAD" {
-            stream.write_all(GOOGLE_SANS_FLEX_TTF)?;
-        }
-    } else if path.starts_with("/page/") {
+    if serve_product_font(stream, method, path_without_query, cors_headers)? {
+        return Ok(());
+    }
+
+    if path_without_query.starts_with("/page/") {
         // Serve stored HTML page
-        let id_str = path.strip_prefix("/page/").unwrap_or("0");
+        let id_str = path_without_query.strip_prefix("/page/").unwrap_or("0");
         let page_id: u64 = id_str.parse().unwrap_or(0);
 
         let html = PENDING_PAGES
@@ -146,6 +146,45 @@ fn handle_request(stream: &mut std::net::TcpStream) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg(not(feature = "recorder-worker"))]
+fn serve_product_font(
+    stream: &mut std::net::TcpStream,
+    method: &str,
+    path: &str,
+    cors_headers: &str,
+) -> std::io::Result<bool> {
+    let font_path = FONT_ROUTE_TOKEN
+        .as_ref()
+        .map(|token| format!("/font/{token}/GoogleSansFlex.ttf"));
+    if font_path.as_deref() != Some(path) {
+        return Ok(false);
+    }
+    let headers = format!(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: font/ttf\r\n\
+         Content-Length: {}\r\n\
+         {cors_headers}\
+         Cache-Control: max-age=3600\r\n\
+         Connection: close\r\n\r\n",
+        PRODUCT_FONT_TTF.len()
+    );
+    stream.write_all(headers.as_bytes())?;
+    if method != "HEAD" {
+        stream.write_all(PRODUCT_FONT_TTF)?;
+    }
+    Ok(true)
+}
+
+#[cfg(feature = "recorder-worker")]
+fn serve_product_font(
+    _stream: &mut std::net::TcpStream,
+    _method: &str,
+    _path: &str,
+    _cors_headers: &str,
+) -> std::io::Result<bool> {
+    Ok(false)
+}
+
 /// Get the server base URL, waiting if necessary
 fn get_server_url() -> Option<String> {
     // Ensure server is started
@@ -180,22 +219,156 @@ pub fn configure_webview(builder: WebViewBuilder) -> WebViewBuilder {
     builder
 }
 
-/// Returns the CSS @font-face rule using the local server
+/// Return the real product face for local WebView pages.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn get_font_css() -> String {
-    let base_url = get_server_url().unwrap_or_else(|| "http://127.0.0.1:0".to_string());
-    let cache_buster = SESSION_CACHE_BUSTER.as_str();
-
+    let font_url = product_font_url().unwrap_or_else(|| "about:blank".to_string());
     format!(
         r#"
         @font-face {{
             font-family: 'Google Sans Flex';
             font-style: normal;
-            font-weight: 100 1000;
-            font-stretch: 25% 1000%;
+            font-weight: 1 1000;
+            font-stretch: 25% 151%;
             font-display: swap;
-            src: url('{}/font/GoogleSansFlex.ttf?v={}') format('truetype');
+            src: url('{font_url}') format('truetype');
         }}
-    "#,
-        base_url, cache_buster
+    "#
     )
+}
+
+/// Return a session-scoped loopback URL that child WebViews can use without
+/// carrying another copy of the product font.
+#[cfg(not(feature = "recorder-worker"))]
+pub fn product_font_url() -> Option<String> {
+    let base_url = get_server_url()?;
+    let token = FONT_ROUTE_TOKEN.as_ref()?;
+    Some(format!(
+        "{base_url}/font/{token}/GoogleSansFlex.ttf?v={}",
+        SESSION_CACHE_BUSTER.as_str()
+    ))
+}
+
+#[cfg(feature = "recorder-worker")]
+pub fn get_font_css() -> String {
+    let Some(css) = std::env::var("SGT_PRODUCT_FONT_URL")
+        .ok()
+        .and_then(|raw| child_product_font_css(&raw))
+    else {
+        eprintln!("Recorder product-font URL is unavailable or invalid");
+        return String::new();
+    };
+    css
+}
+
+#[cfg(feature = "recorder-worker")]
+fn child_product_font_css(raw: &str) -> Option<String> {
+    let url = url::Url::parse(raw).ok()?;
+    if url.scheme() != "http"
+        || url.host_str() != Some("127.0.0.1")
+        || url.port().is_none_or(|port| port == 0)
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let segments = url.path_segments()?.collect::<Vec<_>>();
+    if segments.len() != 3
+        || segments[0] != "font"
+        || segments[1].len() != 32
+        || !segments[1].bytes().all(|byte| byte.is_ascii_hexdigit())
+        || segments[2] != "GoogleSansFlex.ttf"
+        || url.query_pairs().count() != 1
+        || !url
+            .query_pairs()
+            .any(|(key, value)| key == "v" && !value.is_empty())
+    {
+        return None;
+    }
+    Some(format!(
+        r#"
+        @font-face {{
+            font-family: 'Google Sans Flex';
+            font-style: normal;
+            font-weight: 1 1000;
+            font-stretch: 25% 151%;
+            font-display: swap;
+            src: url('{raw}') format('truetype');
+        }}
+    "#
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(feature = "recorder-worker"))]
+    #[test]
+    fn product_font_css_uses_the_embedded_variable_face() {
+        let css = get_font_css();
+        assert!(css.contains("/font/"));
+        assert!(css.contains("/GoogleSansFlex.ttf?v="));
+        assert!(css.contains("font-weight: 1 1000"));
+        assert!(css.contains("font-stretch: 25% 151%"));
+        assert!(!css.contains("local('Segoe UI"));
+    }
+
+    #[cfg(not(feature = "recorder-worker"))]
+    #[test]
+    fn windows_webviews_use_the_original_product_font_bytes() {
+        assert_eq!(PRODUCT_FONT_TTF, crate::assets::GOOGLE_SANS_FLEX);
+    }
+
+    #[cfg(not(feature = "recorder-worker"))]
+    #[test]
+    fn child_font_url_is_loopback_and_session_scoped() {
+        let raw = product_font_url().unwrap();
+        let url = url::Url::parse(&raw).unwrap();
+        assert_eq!(url.scheme(), "http");
+        assert_eq!(url.host_str(), Some("127.0.0.1"));
+        assert!(url.port().is_some_and(|port| port > 0));
+        let segments = url.path_segments().unwrap().collect::<Vec<_>>();
+        assert_eq!(segments.len(), 3);
+        assert_eq!(segments[0], "font");
+        assert_eq!(segments[1].len(), 32);
+        assert!(segments[1].bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(segments[2], "GoogleSansFlex.ttf");
+
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", url.port().unwrap())).unwrap();
+        let request = format!(
+            "GET {}?{} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+            url.path(),
+            url.query().unwrap()
+        );
+        stream.write_all(request.as_bytes()).unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        let body_offset = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        assert!(response.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        assert_eq!(&response[body_offset..], PRODUCT_FONT_TTF);
+    }
+
+    #[cfg(feature = "recorder-worker")]
+    #[test]
+    fn recorder_accepts_only_the_parent_font_route_contract() {
+        let valid =
+            "http://127.0.0.1:43129/font/0123456789abcdef0123456789abcdef/GoogleSansFlex.ttf?v=abc";
+        assert!(child_product_font_css(valid).unwrap().contains(valid));
+        for raw in [
+            "https://127.0.0.1:43129/font/0123456789abcdef0123456789abcdef/GoogleSansFlex.ttf?v=abc",
+            "http://localhost:43129/font/0123456789abcdef0123456789abcdef/GoogleSansFlex.ttf?v=abc",
+            "http://127.0.0.1:43129/font/short/GoogleSansFlex.ttf?v=abc",
+            "http://127.0.0.1:43129/font/0123456789abcdef0123456789abcdef/other.ttf?v=abc",
+            "http://127.0.0.1:43129/font/0123456789abcdef0123456789abcdef/GoogleSansFlex.ttf",
+            "http://user@127.0.0.1:43129/font/0123456789abcdef0123456789abcdef/GoogleSansFlex.ttf?v=abc",
+        ] {
+            assert!(child_product_font_css(raw).is_none(), "accepted {raw}");
+        }
+    }
 }

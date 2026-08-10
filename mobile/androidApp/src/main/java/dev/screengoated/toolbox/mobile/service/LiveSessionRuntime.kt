@@ -131,11 +131,13 @@ class LiveSessionRuntime(
         )
 
         sessionJob = scope.launch {
+            var nativeRuntimeLease: AutoCloseable? = null
             repository.markStarting(preserveFrozenPrefix = preserveFrozenPrefix)
 
             // Auto-download native runtimes on demand (all engines).
             if (useMoonshine) {
-                val nativeLibMgr = dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager(context)
+                val nativeLibMgr =
+                    dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.get(context)
                 downloadCancelAction = { nativeLibMgr.cancelAllDownloads() }
                 val isMoonshineModel = useMoonshine && (modelId.startsWith("moonshine-") || modelId == "moonshine")
                 val isZipformer = useMoonshine && (modelId == "zipformer" || modelId.startsWith("zipformer-"))
@@ -173,13 +175,14 @@ class LiveSessionRuntime(
                             withContext(Dispatchers.IO) {
                                 while (
                                     flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Installed &&
-                                    flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Error
+                                    flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Error &&
+                                    flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.RemovalPending
                                 ) {
                                     kotlinx.coroutines.delay(200)
                                 }
                             }
                             progressJob.cancel()
-                            if (flow.value is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Error) {
+                            if (flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Installed) {
                                 overlayController.hideDownloadModal()
                                 repository.fail("Failed to download ${engine.name} runtime.")
                                 return@launch
@@ -194,11 +197,20 @@ class LiveSessionRuntime(
                     }
                 }
 
-                // Always load before session
+                val lease = nativeLibMgr.acquireLease(*engines.toTypedArray())
+                if (lease == null) {
+                    repository.fail("ASR runtime removal is pending. Restart or install it before retrying.")
+                    return@launch
+                }
+                // Keep every requested runtime leased until the ASR session has
+                // released its Java/native engine objects.
                 if (!nativeLibMgr.loadEngines(*engines.toTypedArray())) {
+                    lease.close()
                     repository.fail("Failed to load ASR runtime libraries.")
                     return@launch
                 }
+                nativeRuntimeLease = lease
+                currentCoroutineContext()[Job]?.invokeOnCompletion { lease.close() }
             }
 
             if (useGeminiS2s) {
@@ -239,6 +251,7 @@ class LiveSessionRuntime(
                 repository.fail(error.message ?: "Live transcription stopped unexpectedly.")
             } finally {
                 translationJob?.cancel()
+                nativeRuntimeLease?.close()
             }
         }
     }

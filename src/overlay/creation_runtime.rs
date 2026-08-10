@@ -31,7 +31,40 @@ struct RuntimeDelivery {
 
 include!(concat!(env!("OUT_DIR"), "/creation_runtime_delivery.rs"));
 
-pub(crate) const DOWNLOAD_TITLE: &str = "Downloading creation engine";
+const COMPONENT_ID: &str = "creation-3d-runtime";
+
+pub(crate) fn download_title() -> String {
+    let name = localized_component_name();
+    let badge = crate::overlay::auto_copy_badge::locale_text();
+    crate::overlay::auto_copy_badge::format_locale(
+        badge.downloading_component_fmt,
+        &[("name", &name)],
+    )
+}
+
+fn localized_component_name() -> String {
+    let language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    crate::gui::locale::LocaleText::get(&language)
+        .auxiliary
+        .managed_tools
+        .tool_creation_engine
+        .to_string()
+}
+
+fn runtime_version() -> &'static str {
+    RUNTIME_DELIVERY
+        .as_ref()
+        .map(|delivery| delivery.version)
+        .unwrap_or("not-included")
+}
+
+fn runtime_component_root() -> PathBuf {
+    crate::component_registry::component_version_root(COMPONENT_ID, runtime_version())
+        .expect("creation runtime component identity is static and valid")
+}
 
 #[cfg(windows)]
 struct VerifiedInstalledRuntime {
@@ -44,9 +77,22 @@ static VERIFIED_INSTALLED_RUNTIME: LazyLock<Mutex<Option<VerifiedInstalledRuntim
     LazyLock::new(|| Mutex::new(None));
 
 pub(crate) fn runtime_bundle_dir() -> PathBuf {
-    crate::paths::app_local_data_dir()
-        .join("3d-generator-runtime")
-        .join("bin")
+    runtime_component_root().join("bin")
+}
+
+fn ensure_runtime_bundle_dir() -> Result<PathBuf> {
+    let root = crate::component_registry::ensure_version_root(COMPONENT_ID, runtime_version())?;
+    let bin = root.join("bin");
+    match std::fs::create_dir(&bin) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    let metadata = std::fs::symlink_metadata(&bin)?;
+    if !metadata.is_dir() || is_reparse_point(&metadata) {
+        bail!("Creation engine directory is not a regular directory.");
+    }
+    Ok(bin)
 }
 
 pub(crate) fn runtime_exe_path() -> PathBuf {
@@ -103,6 +149,7 @@ fn validate_runtime(path: &Path) -> Result<()> {
 }
 
 fn verified_installed_runtime_path() -> Result<PathBuf> {
+    migrate_legacy_runtime()?;
     #[cfg(not(windows))]
     {
         let path = runtime_exe_path();
@@ -128,6 +175,54 @@ fn verified_installed_runtime_path() -> Result<PathBuf> {
     }
 }
 
+fn write_runtime_receipt() -> Result<()> {
+    let delivery = RUNTIME_DELIVERY
+        .as_ref()
+        .ok_or_else(|| anyhow!("Creation engine is not included in this build."))?;
+    crate::component_registry::write_receipt(
+        &runtime_component_root(),
+        &crate::component_registry::ComponentReceipt {
+            schema_version: 1,
+            id: COMPONENT_ID.to_string(),
+            version: delivery.version.to_string(),
+            architecture: "x64".to_string(),
+            dependencies: Vec::new(),
+            files: vec![crate::component_registry::OwnedComponentFile {
+                path: PathBuf::from("bin").join("sgt_creation_runtime.exe"),
+                size_bytes: delivery.size_bytes,
+                sha256: delivery.sha256.to_string(),
+            }],
+        },
+    )
+}
+
+fn migrate_legacy_runtime() -> Result<()> {
+    let target = runtime_exe_path();
+    if target.is_file() || RUNTIME_DELIVERY.is_none() {
+        return Ok(());
+    }
+    let legacy = crate::paths::app_local_data_dir()
+        .join("3d-generator-runtime")
+        .join("bin")
+        .join("sgt_creation_runtime.exe");
+    if !legacy.is_file() || validate_runtime(&legacy).is_err() {
+        return Ok(());
+    }
+    ensure_runtime_bundle_dir()?;
+    std::fs::rename(&legacy, &target)?;
+    if let Err(error) = write_runtime_receipt() {
+        let _ = std::fs::rename(&target, &legacy);
+        return Err(error);
+    }
+    if let Some(bin) = legacy.parent() {
+        let _ = std::fs::remove_dir(bin);
+        if let Some(root) = bin.parent() {
+            let _ = std::fs::remove_dir(root);
+        }
+    }
+    Ok(())
+}
+
 fn invalidate_verified_runtime() {
     #[cfg(windows)]
     {
@@ -144,10 +239,22 @@ pub(crate) fn is_runtime_installed() -> bool {
 
 pub(crate) fn remove_runtime() -> Result<()> {
     invalidate_verified_runtime();
-    let dir = runtime_bundle_dir();
-    cleanup_runtime_files(true)?;
-    if dir.is_dir() {
-        let _ = std::fs::remove_dir(&dir);
+    match crate::component_registry::request_remove(COMPONENT_ID)? {
+        crate::component_registry::RemovalOutcome::Missing => cleanup_runtime_files(true)?,
+        crate::component_registry::RemovalOutcome::Removed
+        | crate::component_registry::RemovalOutcome::Pending => {}
+        crate::component_registry::RemovalOutcome::RequiredBy(dependents) => {
+            bail!(
+                "Creation engine is still required by {} installed component(s).",
+                dependents.len()
+            );
+        }
+        crate::component_registry::RemovalOutcome::PreservedModified(paths) => {
+            bail!(
+                "Creation engine contains {} modified managed file(s); they were preserved.",
+                paths.len()
+            );
+        }
     }
     Ok(())
 }
@@ -488,69 +595,4 @@ fn hide_command_window(command: &mut Command) {
 fn hide_command_window(_command: &mut Command) {}
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn readiness_parser_accepts_only_the_public_state_contract() {
-        assert!(!supported_readiness_tool("image"));
-        assert!(!supported_readiness_tool("svg"));
-        assert!(supported_readiness_tool("3d"));
-        assert_eq!(
-            parse_readiness(br#"{"ok":true,"result":{"state":"ready"}}"#).as_deref(),
-            Some("ready")
-        );
-        assert_eq!(
-            parse_readiness(
-                br#"{"event":"progress"}
-{"ok":true,"result":{"state":"preparing"}}"#,
-            )
-            .as_deref(),
-            Some("preparing")
-        );
-        assert!(parse_readiness(br#"{"ok":true,"result":{"state":"ready","extra":1}}"#).is_none());
-        assert!(parse_readiness(br#"{"ok":true,"result":{"state":"unknown"}}"#).is_none());
-    }
-
-    #[test]
-    fn accepted_demand_expands_only_the_bounded_warm_reserve() {
-        assert_eq!(desired_readiness_capacity(0), 4);
-        assert_eq!(desired_readiness_capacity(2), 4);
-        assert_eq!(desired_readiness_capacity(3), 5);
-        assert_eq!(desired_readiness_capacity(4), 6);
-        assert_eq!(desired_readiness_capacity(100), 6);
-    }
-
-    #[test]
-    fn partial_cleanup_accepts_only_confined_runtime_file_names() {
-        assert!(is_known_partial_name(
-            "sgt_creation_runtime-windows-x64.exe.download"
-        ));
-        assert!(!is_known_partial_name("../sgt_creation_runtime.download"));
-        assert!(!is_known_partial_name("unrelated.download"));
-        assert!(!is_known_partial_name(
-            "sgt_creation_runtime.download/child"
-        ));
-    }
-
-    #[test]
-    fn an_old_readiness_worker_cannot_remove_its_replacement() {
-        let task = |stopped| {
-            Arc::new(ReadinessTask {
-                stop: Arc::new(AtomicBool::new(stopped)),
-                desired: AtomicUsize::new(4),
-                install_if_missing: AtomicBool::new(false),
-            })
-        };
-        let previous = task(true);
-        let replacement = task(false);
-        let mut in_flight =
-            std::collections::HashMap::from([("image".to_string(), replacement.clone())]);
-
-        remove_readiness_if_current(&mut in_flight, "image", &previous);
-        assert!(Arc::ptr_eq(in_flight.get("image").unwrap(), &replacement));
-
-        remove_readiness_if_current(&mut in_flight, "image", &replacement);
-        assert!(!in_flight.contains_key("image"));
-    }
-}
+mod tests;

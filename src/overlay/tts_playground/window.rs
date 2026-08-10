@@ -217,7 +217,18 @@ unsafe fn internal_create_loop() {
         "#
     );
 
-    let inlined_html = super::assets::build_inlined_html();
+    let (inlined_html, _web_asset_pack) = match super::assets::build_inlined_html() {
+        Ok(assets) => assets,
+        Err(error) => {
+            crate::log_info!("[TTS Playground] Could not open interface assets: {error}");
+            unsafe {
+                let _ = DestroyWindow(hwnd);
+                super::WINDOW_HWND = crate::win_types::SendHwnd::default();
+                super::IS_INITIALIZING = false;
+            }
+            return;
+        }
+    };
     let page_url = crate::overlay::html_components::font_manager::store_html_page(inlined_html);
 
     super::WEB_CONTEXT.with(|context| {

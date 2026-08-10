@@ -437,7 +437,6 @@ internal class MorphDismissZone(
     }
 }
 
-/** Load Google Sans Flex with condensed rounded settings. Shared with PresetImageSelectionUiSupport. */
 private fun condensedRoundedTypeface(context: Context): android.graphics.Typeface? {
     return androidx.core.content.res.ResourcesCompat.getFont(
         context,

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "model": {
+    "family": "tiny-streaming-en",
+    "baseUrl": "https://download.moonshine.ai/model/tiny-streaming-en/quantized",
+    "files": [
+      {"name": "adapter.ort", "byteCount": 1319440, "sha256": "df13e655b29d279911fcb42d8b91b0e655b8fe32b7ba1f463ece663ce55ae6eb"},
+      {"name": "cross_kv.ort", "byteCount": 1264384, "sha256": "5acfca68f7bb068c68c1960b54e215995ba07ee46b61645b78bff010a14e5a92"},
+      {"name": "decoder_kv.ort", "byteCount": 32403688, "sha256": "6e3828f1db4b634bc525cb8ba1f0b628ec56059168f0336ad060891c7c1c9154"},
+      {"name": "encoder.ort", "byteCount": 7569200, "sha256": "96dde726be90c4429f3bc458d04e3ea5bd1818a5fdcd0152edf4c07b8e405c07"},
+      {"name": "frontend.ort", "byteCount": 8324600, "sha256": "bbdf5edb120cb3df1adf9ebc07c35136539b007a7047fd148c6f2960fc56fcf1"},
+      {"name": "streaming_config.json", "byteCount": 509, "sha256": "74fe5ddebd63b17caf59e8a3b18c17547ff7bce1642050edbb1c3962674f8950"},
+      {"name": "tokenizer.bin", "byteCount": 249974, "sha256": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d"}
+    ]
+  },
+  "audio": {
+    "url": "https://raw.githubusercontent.com/moonshine-ai/moonshine/e3c05a691ae0a88f80957d2284e889a0fb347eaa/test-assets/two_cities.wav",
+    "byteCount": 4260326,
+    "sha256": "f3348494d77cb74a02862f5e685ed09faf3e75832c5cc5c80703282c2cd8b52e"
+  },
+  "expectedTranscript": "best of times"
+}

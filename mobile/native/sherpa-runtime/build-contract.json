@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "abi": "arm64-v8a",
+  "androidApi": 21,
+  "ndkVersion": "27.0.12077973",
+  "sources": {
+    "sherpaOnnx": {
+      "repository": "https://github.com/k2-fsa/sherpa-onnx.git",
+      "tag": "v1.12.35",
+      "commit": "21473b6bd2f3ed317426b05f27bab09fd160d0a0",
+      "licenseAsset": "third_party/sherpa-runtime/sherpa-onnx-LICENSE.txt"
+    },
+    "onnxRuntime": {
+      "repository": "https://github.com/microsoft/onnxruntime.git",
+      "tag": "v1.23.2",
+      "commit": "a83fc4d58cb48eb68890dd689f94f28288cf2278",
+      "licenseAsset": "third_party/sherpa-runtime/onnxruntime-LICENSE.txt",
+      "noticesAsset": "third_party/sherpa-runtime/onnxruntime-ThirdPartyNotices.txt"
+    },
+    "staticBundleRecipe": {
+      "repository": "https://github.com/csukuangfj/onnxruntime-build.git",
+      "commit": "feefbbfd6f8a064376ef3a1b766fcd9370639f2d"
+    }
+  },
+  "operatorGeneration": {
+    "optimizationLevel": "Fixed",
+    "configFile": "required-operators.config",
+    "configSha256": "2eda0b9d95a3269d1a5de40aace1b8b743571770304659096adecf6c22c901c4",
+    "modelsFile": "operator-models.json",
+    "modelsSha256": "82a4c1eeb332e37a1d57c581de42c31bd020987f113d0ba4634e6da1b1963ac3",
+    "catalogRevisions": {
+      "en": "572aaf4e2e0c603c3fc2a574d096e755a178faa1",
+      "ko": "e5a1c5c5e52de4577aeddd4689f8b3844af36c7d",
+      "zh": "ad658fa0201659a09ea3c176129a191c77ecae8f",
+      "fr": "08b84b7b7cf519be9817e9c16919d96a7a8bad91",
+      "de": "887db3d083240198c2d2b99fb66cfcfe6948ced8",
+      "es": "20cf7a4921613397841d31168796cade5b866585",
+      "ru": "b26590f0f87c179d5ea76ed08aa017ad5a8ae8b3",
+      "all-8": "c6726c1147387ad2a11148b33973135d92a55e6c"
+    },
+    "modelRoles": ["encoder", "decoder", "joiner"]
+  },
+  "sourcePatch": {
+    "file": "sherpa-onnx-v1.12.35.patch",
+    "sha256": "5eb10061daca647fe1dad8744833391d879afc27b30adfd8458abc18ab44568f"
+  },
+  "javaUse": {
+    "source": "androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/LiveSessionRuntimeOfflineAsr.kt",
+    "types": [
+      "OnlineModelConfig",
+      "OnlineRecognizer",
+      "OnlineRecognizerConfig",
+      "OnlineTransducerModelConfig"
+    ],
+    "recognizerMethods": ["createStream", "decode", "getResult", "isReady", "release"],
+    "streamMethods": ["acceptWaveform", "release"]
+  },
+  "jniExports": [
+    "Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_createStream",
+    "Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_decode",
+    "Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_delete",
+    "Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_getResult",
+    "Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_isReady",
+    "Java_com_k2fsa_sherpa_onnx_OnlineRecognizer_newFromFile",
+    "Java_com_k2fsa_sherpa_onnx_OnlineStream_acceptWaveform",
+    "Java_com_k2fsa_sherpa_onnx_OnlineStream_delete"
+  ],
+  "elf": {
+    "needed": ["libandroid.so", "libc.so", "libdl.so", "liblog.so", "libm.so"],
+    "forbiddenNeeded": ["libc++_shared.so", "libonnxruntime.so"],
+    "maximumByteCount": 9000000
+  },
+  "noticeFiles": [
+    "NOTICE.txt",
+    "eigen-COPYING.APACHE.txt",
+    "eigen-COPYING.BSD.txt",
+    "eigen-COPYING.MINPACK.txt",
+    "eigen-COPYING.MPL2.txt",
+    "eigen-COPYING.README.txt",
+    "kaldi-decoder-LICENSE.txt",
+    "kaldi-native-fbank-LICENSE.txt",
+    "kaldifst-LICENSE.txt",
+    "kissfft-COPYING.txt",
+    "nlohmann-json-LICENSE.txt",
+    "onnxruntime-LICENSE.txt",
+    "onnxruntime-ThirdPartyNotices.txt",
+    "openfst-AUTHORS.txt",
+    "openfst-COPYING.txt",
+    "sherpa-onnx-LICENSE.txt",
+    "simple-sentencepiece-LICENSE.txt"
+  ],
+  "artifact": {
+    "fileName": "libsherpa-onnx-jni.so",
+    "byteCount": 8566536,
+    "sha256": "0e71ad7d3c77c0f18bf67e9dcfb9f4970b10ab90d7b1cebed671552c5576f726"
+  }
+}

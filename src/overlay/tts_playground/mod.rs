@@ -15,6 +15,7 @@ mod runtime_sources;
 mod state;
 mod window;
 
+#[cfg(feature = "recorder-worker")]
 pub use file_dialogs::pick_audio_file_dialog as pick_step_audio_reference_audio;
 
 use std::sync::Once;
@@ -23,6 +24,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::WebContext;
 
+use crate::component_registry::web_assets::WebAssetComponent;
 use crate::win_types::SendHwnd;
 
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 401;
@@ -49,7 +51,39 @@ pub fn show_tts_playground() {
         crate::runtime_support::notify_capability_issue(&capability);
         return;
     }
-    window::show();
+    crate::component_registry::web_assets::launch_when_ready(
+        WebAssetComponent::TtsPlayground,
+        window::show,
+    );
+}
+
+pub(crate) fn web_asset_download_title() -> String {
+    crate::component_registry::web_assets::download_title(WebAssetComponent::TtsPlayground)
+}
+
+pub(crate) fn are_web_assets_installed() -> bool {
+    crate::component_registry::web_assets::is_installed_for_display(
+        WebAssetComponent::TtsPlayground,
+    )
+}
+
+pub(crate) fn web_assets_dir() -> std::path::PathBuf {
+    crate::component_registry::web_assets::component_dir(WebAssetComponent::TtsPlayground)
+}
+
+pub(crate) fn download_web_assets(
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    use_badge: bool,
+) -> anyhow::Result<()> {
+    crate::component_registry::web_assets::download_from_manager(
+        WebAssetComponent::TtsPlayground,
+        stop,
+        use_badge,
+    )
+}
+
+pub(crate) fn remove_web_assets() -> anyhow::Result<()> {
+    crate::component_registry::web_assets::remove(WebAssetComponent::TtsPlayground)
 }
 
 pub(super) fn current_ui_language() -> String {

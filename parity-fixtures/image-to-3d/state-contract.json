@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 34,
+  "schemaVersion": 35,
   "tool": "image-to-3d",
   "names": {
     "en": "Image to 3D",
@@ -352,6 +352,11 @@
     "iconFamily": "Material Symbols Rounded",
     "iconFill": 1,
     "sharedIconCatalog": true,
+    "resultRenderer": "shared_webview",
+    "sharedViewerDocument": true,
+    "appControlledResultOrigin": true,
+    "externalViewerResourcesAllowed": false,
+    "platformNativeRendererFallbackAllowed": false,
     "unchangedStatusRefreshPreservesSessionList": true,
     "hoveredSelectionTargetSurvivesStatusRefresh": true,
     "pointerSequenceSurvivesStatusRefresh": true,

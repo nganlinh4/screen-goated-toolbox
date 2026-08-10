@@ -311,7 +311,8 @@ internal class CreationNativeViewModel(
     }
 
     suspend fun previewFile(path: String, extension: String) = previews.materialize(path, extension)
-    suspend fun wireframePreviewFile(path: String) = previews.wireframe(path)
+    suspend fun viewerModelFile(path: String) = previews.viewerModel(path)
+    fun releaseViewerModelFile(file: java.io.File) = previews.releaseViewerModel(file)
     suspend fun readSvg(path: String) = previews.readSvg(path)
     suspend fun saveSvg(path: String, svg: String) = previews.saveSvg(path, svg)
 

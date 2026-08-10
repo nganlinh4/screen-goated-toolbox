@@ -1,6 +1,8 @@
+#[cfg(not(feature = "recorder-worker"))]
+use super::s2s_backlog_ms;
 use super::{
-    analyze_segment_samples, s2s_backlog_ms, samples_to_ms, segment_speech_confidence,
-    segment_speech_like_ratio, segment_speech_ratio,
+    analyze_segment_samples, samples_to_ms, segment_speech_confidence, segment_speech_like_ratio,
+    segment_speech_ratio,
 };
 
 #[derive(Clone)]
@@ -62,7 +64,11 @@ pub(super) struct AdaptiveS2sVadState {
 }
 
 impl AdaptiveS2sVadState {
+    #[cfg(not(feature = "recorder-worker"))]
     pub(super) fn snapshot(&self) -> AdaptiveS2sVadSnapshot {
+        #[cfg(feature = "recorder-worker")]
+        let backlog_pressure = 0.0_f32;
+        #[cfg(not(feature = "recorder-worker"))]
         let backlog_pressure = (s2s_backlog_ms() as f32 / 30_000.0).clamp(0.0, 0.55);
         AdaptiveS2sVadSnapshot {
             strictness: self.strictness.max(backlog_pressure),

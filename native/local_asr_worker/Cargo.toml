@@ -1,0 +1,19 @@
+[package]
+name = "sgt-local-asr-worker"
+version = "1.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1.0"
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "directml", "load-dynamic"] }
+parakeet-rs = { version = "=0.3.6", default-features = false, features = ["directml"] }
+sgt-local-asr-protocol = { path = "../local_asr_protocol" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+debug = 0

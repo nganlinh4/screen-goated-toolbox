@@ -279,15 +279,18 @@ pub(super) fn handle_s2s_frame(
 
 #[derive(Default)]
 pub(crate) struct S2sParsedUpdate {
+    #[cfg(feature = "recorder-worker")]
     pub(crate) setup_complete: bool,
     pub(crate) input_transcript: Option<String>,
     pub(crate) output_transcript: Option<String>,
     pub(crate) audio_chunks: Vec<Vec<u8>>,
+    #[cfg(feature = "recorder-worker")]
     pub(crate) turn_complete: bool,
     pub(crate) interrupted: bool,
     pub(crate) error: Option<String>,
 }
 
+#[cfg(feature = "recorder-worker")]
 pub(crate) fn parse_s2s_update(message: &str) -> S2sParsedUpdate {
     let Ok(frame) = crate::api::gemini_live::server_frame::parse_server_frame(message) else {
         return S2sParsedUpdate::default();
@@ -296,12 +299,15 @@ pub(crate) fn parse_s2s_update(message: &str) -> S2sParsedUpdate {
 }
 
 fn parsed_update_from_frame(frame: LiveServerFrame) -> S2sParsedUpdate {
+    #[cfg(feature = "recorder-worker")]
     let turn_complete = frame.response_complete();
     S2sParsedUpdate {
+        #[cfg(feature = "recorder-worker")]
         setup_complete: frame.setup_complete,
         input_transcript: trimmed_non_empty(frame.input_transcript),
         output_transcript: trimmed_non_empty(frame.output_transcript),
         audio_chunks: frame.audio_chunks,
+        #[cfg(feature = "recorder-worker")]
         turn_complete,
         interrupted: frame.interrupted,
         error: frame.error,

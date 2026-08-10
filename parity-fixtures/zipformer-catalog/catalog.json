@@ -1,61 +1,104 @@
 {
-  "_comment": "Cross-platform lock for the streaming-Zipformer ASR model catalog. Windows (src/api/realtime_audio/sherpa_onnx/mod.rs ZipformerLanguage) is canonical; Android (ZipformerLanguage.kt) must match these fields exactly. Asserted by a Rust test and an Android unit test so the catalogs cannot silently drift. Two fields are DELIBERATELY excluded — see .claude/parity/zipformer-catalog.md: the All-8 displayName (Android adds spaces for readability) and sherpaModelType (Windows sets zipformer2 for the Kroko EN/FR/DE/ES models, Android defaults to auto-detect; reconciling needs on-device validation).",
+  "_comment": "Cross-platform lock for the streaming-Zipformer ASR model catalog. Windows is canonical; Android must match every immutable URL and per-file identity. Display-only names and the separately documented sherpaModelType deviation are excluded.",
   "languages": [
     {
       "code": "en",
       "modelName": "streaming-zipformer-en-kroko",
-      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06/resolve/main",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06/resolve/572aaf4e2e0c603c3fc2a574d096e755a178faa1",
       "hasNativePunctuation": true,
-      "modelFiles": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
+      "modelFiles": [
+        {"name": "encoder.onnx", "byteCount": 70092599, "sha256": "d4881c57449d581e0770fd53fa66c2fdc6cd167d92ece7c715e603defc96d9d4"},
+        {"name": "decoder.onnx", "byteCount": 617488, "sha256": "455ba38466fce8d5a57e7db68a323b684079ca4d9e1dd93a740d9b2429aae3b1"},
+        {"name": "joiner.onnx", "byteCount": 336817, "sha256": "d406f616736350e2a7df3e39398b78eb2fc1a2ca6973a19d3853fa3227e25b52"},
+        {"name": "tokens.txt", "byteCount": 6310, "sha256": "396dbeb5f4858875690716084f54e90d339679d0ba3e6b5b584f3d7589254d2d"}
+      ]
     },
     {
       "code": "ko",
       "modelName": "streaming-zipformer-korean",
-      "downloadBaseUrl": "https://modelscope.cn/models/k2-fsa/sherpa-onnx-streaming-zipformer-korean-2024-06-16/resolve/master",
+      "downloadBaseUrl": "https://modelscope.cn/models/k2-fsa/sherpa-onnx-streaming-zipformer-korean-2024-06-16/resolve/e5a1c5c5e52de4577aeddd4689f8b3844af36c7d",
       "hasNativePunctuation": true,
-      "modelFiles": ["encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx", "joiner-epoch-99-avg-1.int8.onnx", "tokens.txt", "bpe.model"]
+      "modelFiles": [
+        {"name": "encoder-epoch-99-avg-1.int8.onnx", "byteCount": 126968852, "sha256": "8d0b1aa24fbedd4e3948564ab7facd151b8ce9b0c48fc987c541de2de3af5697"},
+        {"name": "decoder-epoch-99-avg-1.onnx", "byteCount": 11309084, "sha256": "b29cfb4575141e50a30a22b2c4579934f3d4f45b83c9c8c08c3aef5a3fa7abfc"},
+        {"name": "joiner-epoch-99-avg-1.int8.onnx", "byteCount": 2581421, "sha256": "128b80a66a1f718488af8560f9d15895109b99ff3e573f0a0130e03774ef1ced"},
+        {"name": "tokens.txt", "byteCount": 60246, "sha256": "016bdf0965029263b7ad01b742366ee542ef0bef38261510e8176ff6f2e9e668"},
+        {"name": "bpe.model", "byteCount": 314212, "sha256": "1491bc92c47dfda4225f5b8930fba3cfa34c3b1ccd25e7d96c630a262f3e918d"}
+      ]
     },
     {
       "code": "zh",
       "modelName": "streaming-zipformer-zh",
-      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/ad658fa0201659a09ea3c176129a191c77ecae8f",
       "hasNativePunctuation": false,
-      "modelFiles": ["encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx", "tokens.txt"]
+      "modelFiles": [
+        {"name": "encoder.int8.onnx", "byteCount": 161141793, "sha256": "5ac51e27981bb4dab01bb9be4958453ba50c3b61c063ddda0eab23fd3671aa4f"},
+        {"name": "decoder.onnx", "byteCount": 5165083, "sha256": "06522ad63cec0fdf6809f4e1db9bb4f7d710c34582e3b35db62ac60eccafac7e"},
+        {"name": "joiner.int8.onnx", "byteCount": 1033416, "sha256": "b34584dc6f561089e1d747fedebb3765f2caa72c927ef54d7ca55e5ae40a814b"},
+        {"name": "tokens.txt", "byteCount": 20628, "sha256": "6193c7ea1c96d0d9a1e9652789b40d13a8a913b434a5451e93158f5a09fd6652"}
+      ]
     },
     {
       "code": "fr",
       "modelName": "streaming-zipformer-fr-kroko",
-      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-fr-kroko-2025-08-06/resolve/main",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-fr-kroko-2025-08-06/resolve/08b84b7b7cf519be9817e9c16919d96a7a8bad91",
       "hasNativePunctuation": true,
-      "modelFiles": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
+      "modelFiles": [
+        {"name": "encoder.onnx", "byteCount": 70092599, "sha256": "e02facae1daf6f1f13da67ea3ace7c722516d0868d1768d78c0580bc22cc0c5b"},
+        {"name": "decoder.onnx", "byteCount": 617488, "sha256": "6aed547570e3ab5afc05429a017cedd3a056c16df3baa5703f02461cefa25bac"},
+        {"name": "joiner.onnx", "byteCount": 336817, "sha256": "a51eec759bcdcaae2614686fa2a8b57417b2d420dd55a5a5558b388d35a9b2b6"},
+        {"name": "tokens.txt", "byteCount": 5415, "sha256": "fedfb9c844bfb2bf14171f8184863e3d617b815a8667bdd9fc9a3149fde73298"}
+      ]
     },
     {
       "code": "de",
       "modelName": "streaming-zipformer-de-kroko",
-      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/main",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8",
       "hasNativePunctuation": true,
-      "modelFiles": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
+      "modelFiles": [
+        {"name": "encoder.onnx", "byteCount": 70091557, "sha256": "6e83993d6967ec7a3498b055b7e85ace85b5d64d1b1e8773cb29a43a11f5edb5"},
+        {"name": "decoder.onnx", "byteCount": 617489, "sha256": "94a29592b403c53fa2231b478637da1ab4abcef7f5e46e432098416a4a3ed562"},
+        {"name": "joiner.onnx", "byteCount": 336817, "sha256": "28356bff070aea51ab1d725a3278e81d19f9300f860d3248a7014292264df15a"},
+        {"name": "tokens.txt", "byteCount": 5606, "sha256": "86e8370994ff2c01149ba8c4f8709aa93cdc18914b27a717e291e96faf39a6eb"}
+      ]
     },
     {
       "code": "es",
       "modelName": "streaming-zipformer-es-kroko",
-      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06/resolve/main",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06/resolve/20cf7a4921613397841d31168796cade5b866585",
       "hasNativePunctuation": true,
-      "modelFiles": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
+      "modelFiles": [
+        {"name": "encoder.onnx", "byteCount": 154878102, "sha256": "2d9f5ef87d1a5257f8a6687e21501c56f3aa2fcbfcfab9364dcc4ce4e06ae81b"},
+        {"name": "decoder.onnx", "byteCount": 617488, "sha256": "d4ce176b94b25f7acc88717bc3f704fcf5d6e131aaac2e0cabab3885541181ee"},
+        {"name": "joiner.onnx", "byteCount": 336817, "sha256": "dae35df88d676e320fcdb99217328e66dcf722bf11b0f2459e14ddb5b982ded5"},
+        {"name": "tokens.txt", "byteCount": 6385, "sha256": "1be5e0a58e05d06d327df4c6b7b5e4f8aba01da6981eb016fcaceafc6a56680f"}
+      ]
     },
     {
       "code": "ru",
       "modelName": "streaming-zipformer-small-ru-vosk",
-      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ru-vosk-2025-08-16/resolve/main",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ru-vosk-2025-08-16/resolve/b26590f0f87c179d5ea76ed08aa017ad5a8ae8b3",
       "hasNativePunctuation": false,
-      "modelFiles": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt", "bpe.model"]
+      "modelFiles": [
+        {"name": "encoder.onnx", "byteCount": 90994145, "sha256": "e9c27453e618bc97cf8a10169f34c104bd478166522907fcd122a46a88c78c69"},
+        {"name": "decoder.onnx", "byteCount": 2093080, "sha256": "89b3088a9e20e1ef7f2e85ce1a3478afe6a9c4ac57369cabcc4beb8e95328ea0"},
+        {"name": "joiner.onnx", "byteCount": 1026462, "sha256": "dde0c7f3be0a16113a3e042c79a492c48667c07a8c1e9422ffe81c768aad4838"},
+        {"name": "tokens.txt", "byteCount": 6388, "sha256": "93bbbc0bae6b78c0bbb743d4aa9fded3bb5ff3aac5f0200e3a769a5a05e0fdf6"},
+        {"name": "bpe.model", "byteCount": 246184, "sha256": "c7a756aeb3550417d6b2ed3efde9a7aa3eea54787d4eac011e9cce6090c9c64a"}
+      ]
     },
     {
       "code": "all-8",
       "modelName": "streaming-zipformer-multilingual-8lang",
-      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10/resolve/main",
+      "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10/resolve/c6726c1147387ad2a11148b33973135d92a55e6c",
       "hasNativePunctuation": false,
-      "modelFiles": ["encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx", "decoder-epoch-75-avg-11-chunk-16-left-128.onnx", "joiner-epoch-75-avg-11-chunk-16-left-128.int8.onnx", "tokens.txt", "bpe.model"]
+      "modelFiles": [
+        {"name": "encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx", "byteCount": 296583597, "sha256": "f9001ed7a9e46d0294438c1a30cd7c72d1cc4bdd4e7880edbcda36f67081e32e"},
+        {"name": "decoder-epoch-75-avg-11-chunk-16-left-128.onnx", "byteCount": 33837085, "sha256": "7ebc63f34b21c8efb4a41a5a2eee7fe1448829ce0230ecc5369e67fc14d90d48"},
+        {"name": "joiner-epoch-75-avg-11-chunk-16-left-128.int8.onnx", "byteCount": 8257421, "sha256": "db88e3172323551abaa99b91b18fb422a27ea4a834fd0db10389f9478816f917"},
+        {"name": "tokens.txt", "byteCount": 195244, "sha256": "784f24950f6bcce1b0021035632dd60fd4617ecd8ca0581ab57d7b39d77ba5ab"},
+        {"name": "bpe.model", "byteCount": 476049, "sha256": "027731f33cff7266f2878c6fb7e478cf4af983962e311bb565112792794c13cd"}
+      ]
     }
   ]
 }

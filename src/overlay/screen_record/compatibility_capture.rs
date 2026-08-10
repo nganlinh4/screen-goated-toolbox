@@ -147,11 +147,7 @@ fn start_inner(args: &Value) -> Result<Value> {
         .requested_fps
         .unwrap_or_else(|| engine::encoder_utils::select_target_fps(monitor.hz));
     let paths = prepare_paths()?;
-    let ffmpeg = resolve_ffmpeg().or_else(|resolve_error| {
-        eprintln!("[DisplayCapture] FFmpeg unavailable locally: {resolve_error:#}");
-        crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge()
-            .map_err(anyhow::Error::msg)
-    })?;
+    let ffmpeg = resolve_ffmpeg()?;
     let process_config = CaptureProcessConfig {
         monitor_index: request.monitor_index,
         fps,

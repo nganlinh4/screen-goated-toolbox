@@ -100,7 +100,6 @@ pub fn handle_prepare_qwen_local_subtitles(
                 }
                 Ok(())
             })();
-            crate::overlay::auto_copy_badge::hide_progress_notification();
             QWEN_LOCAL_PREPARE_IN_PROGRESS.store(false, Ordering::SeqCst);
         });
     }

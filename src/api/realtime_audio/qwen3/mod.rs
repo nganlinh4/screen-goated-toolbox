@@ -1,6 +1,5 @@
 pub mod assets;
 pub mod runtime;
-pub mod server;
 
 use super::capture::{
     start_device_loopback_capture_resilient, start_mic_capture_resilient, start_per_app_capture,
@@ -47,12 +46,6 @@ pub fn run_qwen3_transcription_variant(
             .unwrap_or_else(|_| "en".to_string());
         crate::gui::locale::LocaleText::get(&ui_language)
     };
-    let capability = crate::runtime_support::supports_qwen3_local_runtime();
-    if !capability.is_supported() {
-        crate::runtime_support::notify_capability_issue(&capability);
-        return Err(anyhow::anyhow!(capability.details));
-    }
-
     if let Ok(mut s) = state.lock() {
         s.set_transcription_method(TranscriptionMethod::Qwen3Local);
     }

@@ -389,7 +389,7 @@ pub struct Config {
     #[serde(default = "default_vieneu_settings")]
     pub vieneu_settings: VieneuSettings,
 
-    /// Mistral Voxtral TTS settings (deferred local runtime).
+    /// Legacy TTS settings retained for config migration.
     #[serde(default = "default_voxtral_settings")]
     pub voxtral_settings: VoxtralSettings,
 

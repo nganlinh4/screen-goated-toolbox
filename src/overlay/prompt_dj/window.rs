@@ -199,7 +199,16 @@ pub(super) unsafe fn internal_create_pdj_loop() {
 
         // Build inlined HTML and serve via the shared font server
         // so this WebView joins the shared browser process (same user data dir + origin)
-        let inlined_html = html::build_inlined_html();
+        let (inlined_html, _web_asset_pack) = match html::build_inlined_html() {
+            Ok(assets) => assets,
+            Err(error) => {
+                crate::log_info!("[PromptDJ] Could not open interface assets: {error}");
+                let _ = DestroyWindow(hwnd);
+                PDJ_HWND = SendHwnd::default();
+                IS_INITIALIZING = false;
+                return;
+            }
+        };
         let page_url = crate::overlay::html_components::font_manager::store_html_page(inlined_html);
 
         PDJ_WEB_CONTEXT.with(|ctx| {

@@ -6,9 +6,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::{Result, anyhow, bail};
 
 use super::{
-    DOWNLOAD_TITLE, RUNTIME_DELIVERY, cleanup_runtime_files, invalidate_verified_runtime,
-    is_reparse_point, is_runtime_installed, runtime_bundle_dir, runtime_exe_path,
-    runtime_shutting_down, validate_runtime, verified_installed_runtime_path,
+    RUNTIME_DELIVERY, cleanup_runtime_files, download_title, ensure_runtime_bundle_dir,
+    invalidate_verified_runtime, is_reparse_point, is_runtime_installed, localized_component_name,
+    runtime_bundle_dir, runtime_exe_path, runtime_shutting_down, validate_runtime,
+    verified_installed_runtime_path, write_runtime_receipt,
 };
 
 fn download_delivery_file(
@@ -18,7 +19,8 @@ fn download_delivery_file(
     stop: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<()> {
-    let response = ureq::get(url)
+    let response = crate::api::client::UREQ_DOWNLOAD_AGENT
+        .get(url)
         .header("User-Agent", "ScreenGoatedToolbox")
         .call()
         .map_err(|error| anyhow!("Creation engine download failed: {error}"))?;
@@ -62,8 +64,8 @@ fn download_delivery_file(
 
 pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
     use crate::overlay::auto_copy_badge::{
-        NotificationType, hide_progress_notification, show_detailed_notification,
-        show_error_notification, show_progress_notification,
+        DownloadProgressBadge, NotificationType, show_detailed_notification,
+        show_error_notification,
     };
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
 
@@ -81,7 +83,7 @@ pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result
 
     let path = runtime_exe_path();
     let partial = runtime_bundle_dir().join(format!("{}.download", delivery.asset));
-    std::fs::create_dir_all(runtime_bundle_dir())?;
+    ensure_runtime_bundle_dir()?;
     let runtime_dir_metadata = std::fs::symlink_metadata(runtime_bundle_dir())?;
     if !runtime_dir_metadata.is_dir() || is_reparse_point(&runtime_dir_metadata) {
         bail!("Creation engine folder is not a regular directory.");
@@ -96,23 +98,19 @@ pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result
     }
 
     let badge = crate::overlay::auto_copy_badge::locale_text();
-    let title = crate::overlay::auto_copy_badge::format_locale(
-        badge.downloading_runtime_fmt,
-        &[("name", "Creation tools")],
-    );
+    let component_name = localized_component_name();
+    let title = download_title();
     let preparing = crate::overlay::auto_copy_badge::format_locale(
-        badge.preparing_runtime_fmt,
-        &[("name", "Creation tools")],
+        badge.preparing_component_fmt,
+        &[("name", &component_name)],
     );
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = DOWNLOAD_TITLE.to_string();
+        state.download_title = title.clone();
         state.download_message = preparing.clone();
         state.download_progress = 0.0;
     }
-    if use_badge {
-        show_progress_notification(&title, &preparing, 0.0);
-    }
+    let progress_badge = use_badge.then(|| DownloadProgressBadge::with_text(&title, &preparing));
 
     let result = download_delivery_file(
         delivery.download_url,
@@ -129,8 +127,8 @@ pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result
                 state.download_message = title.clone();
                 state.download_progress = progress;
             }
-            if use_badge {
-                show_progress_notification(&title, &title, progress);
+            if let Some(progress_badge) = &progress_badge {
+                progress_badge.report(downloaded, total);
             }
         },
     )
@@ -139,6 +137,7 @@ pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result
         std::fs::rename(&partial, &path)
             .map_err(|error| anyhow!("Could not install creation engine: {error}"))
     })
+    .and_then(|()| write_runtime_receipt())
     .and_then(|()| verified_installed_runtime_path().map(|_| ()));
 
     if result.is_err() {
@@ -148,22 +147,20 @@ pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result
         state.is_downloading = false;
         state.download_progress = if result.is_ok() { 100.0 } else { 0.0 };
     }
+    if let Some(progress_badge) = &progress_badge {
+        progress_badge.finish();
+    }
     if use_badge {
-        hide_progress_notification();
         if result.is_ok() {
-            let ready = crate::overlay::auto_copy_badge::format_locale(
-                badge.model_ready_fmt,
-                &[("name", "Creation tools")],
-            );
             let installed = crate::overlay::auto_copy_badge::format_locale(
-                badge.model_installed_fmt,
-                &[("name", "Creation engine")],
+                badge.component_installed_fmt,
+                &[("name", &component_name)],
             );
-            show_detailed_notification(&ready, &installed, NotificationType::Success);
+            show_detailed_notification(&installed, &component_name, NotificationType::Success);
         } else {
             let failed = crate::overlay::auto_copy_badge::format_locale(
-                badge.model_download_failed_fmt,
-                &[("name", "Creation engine")],
+                badge.component_install_failed_fmt,
+                &[("name", &component_name)],
             );
             show_error_notification(&failed);
         }

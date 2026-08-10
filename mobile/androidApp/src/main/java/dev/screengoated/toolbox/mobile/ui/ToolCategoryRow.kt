@@ -57,11 +57,11 @@ import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 import kotlinx.coroutines.launch
 
-/** Font family at a specific wdth axis value. */
+/** Google Sans Flex family at a specific width-axis value. */
 private fun flexFontFamily(wdth: Int): FontFamily {
     return FontFamily(
         androidx.compose.ui.text.font.Font(
-            resId = dev.screengoated.toolbox.mobile.R.font.google_sans_flex,
+            resId = R.font.google_sans_flex,
             weight = FontWeight.Medium,
             variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(
                 androidx.compose.ui.text.font.FontVariation.weight(FontWeight.Medium.weight),
@@ -72,12 +72,12 @@ private fun flexFontFamily(wdth: Int): FontFamily {
     )
 }
 
-/** Condense steps: 100 → 90 → 80 → 70 → 62 (Google Sans Flex minimum). */
+/** Condense steps: 100 → 90 → 80 → 70 → 62. */
 internal val condensedFontSteps: List<Pair<Int, FontFamily>> by lazy {
     listOf(100, 90, 80, 70, 62).map { wdth -> wdth to flexFontFamily(wdth) }
 }
 
-/** Stretch steps: 100 → 110 → 120 → 125 (Google Sans Flex maximum). */
+/** Stretch steps: 100 → 110 → 120 → 125. */
 private val stretchedFontSteps: List<Pair<Int, FontFamily>> by lazy {
     listOf(100, 110, 120, 125).map { wdth -> wdth to flexFontFamily(wdth) }
 }

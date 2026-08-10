@@ -22,7 +22,10 @@ android {
         create("full") { dimension = "distribution" }
         create("play") { dimension = "distribution" }
     }
-    sourceSets.named("main") { jniLibs.srcDir(generatedJni) }
+    sourceSets.named("main") {
+        jniLibs.srcDir(generatedJni)
+        assets.srcDir(rootProject.projectDir.resolve("native/ort-runtime/assets"))
+    }
     packaging.jniLibs.keepDebugSymbols += setOf(
         "**/libonnxruntime.so",
         "**/libonnxruntime_real.so",

@@ -7,8 +7,9 @@
     "dev": "vite",
     "postinstall": "node ../scripts/ensure-rollup-native.mjs",
     "prebuild": "node ../scripts/ensure-rollup-native.mjs",
-    "build": "tsc --noEmit && vite build",
-    "test": "node --test ../ui-shared/creation-history-order.test.ts src/durable-dispatch.test.ts src/latest-only-lane.test.ts src/model-display.test.ts src/recovery-settings.test.ts src/segmented-geometry.test.ts src/submission-policy.test.ts",
+    "build": "tsc --noEmit && vite build && vite build --config viewer.vite.config.ts",
+    "build:viewer": "tsc --noEmit && vite build --config viewer.vite.config.ts",
+    "test": "node --test ../ui-shared/creation-history-order.test.ts src/durable-dispatch.test.ts src/latest-only-lane.test.ts src/model-display.test.ts src/recovery-settings.test.ts src/segmented-geometry.test.ts src/submission-policy.test.ts src/viewer-document-contract.test.ts",
     "preview": "vite preview"
   },
   "devDependencies": {

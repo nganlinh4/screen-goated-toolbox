@@ -102,27 +102,12 @@ val generatedNativeRuntimeContractAssets =
     layout.buildDirectory.dir("generated/nativeRuntimeContractAssets")
 val generatedFullCreationRuntimeDeliveryAssets =
     layout.buildDirectory.dir("generated/fullCreationRuntimeDeliveryAssets")
-val nativeRuntimeContractSource = rootProject.projectDir.parentFile
-    .resolve("parity-fixtures/phone-control/native-runtime-contract.json")
-val creationRuntimeDeliveryManifest = System.getenv("SGT_CREATION_RUNTIME_DELIVERY_MANIFEST")
-    ?.takeIf { it.isNotBlank() }
-    ?.let { file(it) }
-    ?: rootProject.projectDir.parentFile.resolve(
-        "local-runtime-bundles/sgt_creation_runtime/sgt_creation_runtime.delivery.json",
-    )
-
-val stageNativeRuntimeContract by tasks.registering(Sync::class) {
-    dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
-    from(nativeRuntimeContractSource) { rename { "contract.json" } }
-    into(generatedNativeRuntimeContractAssets.map { it.dir("native-runtime") })
-}
-
-val stageFullCreationRuntimeDelivery by tasks.registering(Sync::class) {
-    if (creationRuntimeDeliveryManifest.isFile) {
-        from(creationRuntimeDeliveryManifest) { rename { "delivery.json" } }
-    }
-    into(generatedFullCreationRuntimeDeliveryAssets.map { it.dir("creation-runtime") })
-}
+val generatedFullDownloaderRuntimeDeliveryAssets =
+    layout.buildDirectory.dir("generated/fullDownloaderRuntimeDeliveryAssets")
+val generatedFullDownloaderLauncherJniLibs =
+    layout.buildDirectory.dir("generated/fullDownloaderLauncherJniLibs")
+val sharedCreationModelViewerAssets = rootProject.projectDir.parentFile
+    .resolve("3d-generator-ui/viewer-dist")
 
 val generatePresetOverlayAssets by tasks.registering {
     val repoRoot = rootProject.projectDir.parentFile
@@ -206,8 +191,6 @@ val generatePresetOverlayAssets by tasks.registering {
                 "pub fn get_init_script() -> &'static str {",
             ),
         )
-        // Font dedup: skip copying — preset_overlay loads from ../GoogleSansFlex.ttf
-
         val staticAssetsDir = projectDir.resolve("src/main/assets/preset_overlay_static")
         if (staticAssetsDir.isDirectory) {
             staticAssetsDir.listFiles()?.forEach { file ->
@@ -347,7 +330,6 @@ android {
         ":feature_asr_ort",
         ":feature_asr_moonshine",
         ":feature_asr_sherpa",
-        ":feature_native_cpp",
         ":feature_creation_runtime",
     )
     compileSdk = 36
@@ -456,13 +438,11 @@ android {
             useLegacyPackaging = true
             // Only the multi-MB zip payloads are fetched at runtime. The tiny python/ffmpeg
             // wrapper binaries must stay in the APK: from Android 10 exec() is only allowed
-            // out of the real nativeLibraryDir, never app-writable storage. (Sideload only —
-            // the `play` flavor has no youtubedl dependency, so it has none of these.)
+            // out of the real nativeLibraryDir, never app-writable storage. They are staged
+            // only for Full, so Play has no downloader launchers or dependency payload.
             excludes += "**/libpython.zip.so"
             excludes += "**/libffmpeg.zip.so"
-            // The ORT core is distribution-delivered by NativeLibManager. Keep the
-            // Maven AAR's small libonnxruntime4j_jni.so bridge in the base for the
-            // shared Phone Control detector; ensureOrtLoaded loads core before it.
+            // Native ASR runtimes are distribution-delivered by NativeLibManager.
             excludes += "**/libonnxruntime.so"
             excludes += "**/libc++_shared.so"
             excludes += "**/libmoonshine.so"
@@ -473,10 +453,19 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             // okhttp 5's logging-interceptor and jspecify both ship this stub.
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            // Orphaned Bouncy Castle resources retained through libadb's transitive
+            // graph even though the corresponding providers are absent after R8.
+            excludes += "/org/bouncycastle/pqc/crypto/picnic/lowmcL1.bin.properties"
+            excludes += "/org/bouncycastle/pqc/crypto/picnic/lowmcL3.bin.properties"
+            excludes += "/org/bouncycastle/pqc/crypto/picnic/lowmcL5.bin.properties"
+            excludes += "/org/bouncycastle/x509/CertPathReviewerMessages.properties"
+            excludes += "/org/bouncycastle/x509/CertPathReviewerMessages_de.properties"
         }
     }
 
     sourceSets.named("main") {
+        // Saved models remain viewable after the removable creation runtime is uninstalled.
+        assets.srcDir(sharedCreationModelViewerAssets)
         assets.srcDir(generatedPresetOverlayAssets)
         java.srcDir(generatedPresetModelCatalogSources)
         assets.srcDir(generatedPhoneControlContract.map { it.dir("assets") })
@@ -484,7 +473,12 @@ android {
         assets.srcDir(generatedNativeRuntimeContractAssets)
     }
     sourceSets.named("full") {
+        assets.srcDir(rootProject.projectDir.resolve("native/sherpa-runtime/assets"))
+        assets.srcDir(rootProject.projectDir.resolve("native/ort-runtime/assets"))
+        assets.srcDir(rootProject.projectDir.resolve("native/moonshine-runtime/assets"))
         assets.srcDir(generatedFullCreationRuntimeDeliveryAssets)
+        assets.srcDir(generatedFullDownloaderRuntimeDeliveryAssets)
+        jniLibs.srcDir(generatedFullDownloaderLauncherJniLibs)
     }
     sourceSets.maybeCreate("testFullDebug").java.srcDir("src/testDebug/java")
     sourceSets.maybeCreate("testPlayDebug").java.srcDir("src/testDebug/java")
@@ -492,16 +486,10 @@ android {
 
 tasks.matching {
     it.name != generatePresetOverlayAssets.name &&
+        it.name != "verifyCreationModelViewerAssets" &&
         it.name.contains("Assets", ignoreCase = false)
 }.configureEach {
     dependsOn(generatePresetOverlayAssets)
-    dependsOn(stageNativeRuntimeContract)
-}
-
-tasks.matching {
-    it.name.startsWith("mergeFull") && it.name.endsWith("Assets")
-}.configureEach {
-    dependsOn(stageFullCreationRuntimeDelivery)
 }
 
 tasks.matching {
@@ -524,10 +512,6 @@ tasks.matching {
 }.configureEach {
     dependsOn(generatePresetOverlayAssets)
     dependsOn(generatePresetModelCatalog)
-    dependsOn(stageNativeRuntimeContract)
-    if (name.contains("Full")) {
-        dependsOn(stageFullCreationRuntimeDelivery)
-    }
 }
 
 dependencies {
@@ -553,13 +537,11 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.security.crypto.ktx)
-    implementation(libs.sceneview)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.jsoup)
-    implementation(libs.onnxruntime.android)
     implementation(libs.moonshine.voice)
     implementation(files("libs/sherpa-onnx-static-1.12.35.aar"))
     implementation(libs.androidx.media3.session)
@@ -568,14 +550,9 @@ dependencies {
     implementation(libs.commonmark.ext.gfm.tables)
     implementation(libs.commonmark.ext.gfm.strikethrough)
     implementation(libs.commonmark.ext.task.list.items)
-    // Sideload only. Keeping these off the `play` flavor is what leaves the bundled yt-dlp
-    // resource and the Python/FFmpeg payloads out of the Play artifact entirely.
-    "fullImplementation"(libs.youtubedl.android.library)
-    "fullImplementation"(libs.youtubedl.android.ffmpeg)
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
     implementation(libs.libadb.android)
-    implementation(libs.conscrypt.android)
     // Google Play In-App Updates (used by the `play` flavor; no-ops on sideload installs).
     implementation(libs.play.app.update.ktx)
     implementation(libs.play.feature.delivery)
@@ -595,4 +572,5 @@ dependencies {
     androidTestImplementation(libs.androidx.uiautomator)
 }
 
+apply(from = "gradle/runtime-delivery.gradle.kts")
 apply(from = "gradle/play-compliance.gradle.kts")

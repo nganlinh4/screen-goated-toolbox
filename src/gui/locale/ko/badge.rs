@@ -2,6 +2,13 @@ use crate::gui::locale::BadgeLocaleText;
 
 pub(super) fn get() -> BadgeLocaleText {
     BadgeLocaleText {
+        downloading_component_fmt: "{name} 다운로드 중",
+        preparing_component_fmt: "검증된 {name} 패키지 준비 중...",
+        component_installed_fmt: "{name} 설치 완료",
+        component_install_failed_fmt: "{name} 설치 실패",
+        removing_component_fmt: "{name} 제거 중",
+        component_removed_fmt: "{name} 제거 완료",
+        component_remove_failed_fmt: "{name} 제거 실패",
         app_restarted_after_recovery: "앱이 다시 시작되어 완전히 복구되었습니다",
         installing_local_ai_runtime: "로컬 AI 런타임 설치 중",
         preparing_payload_fmt: "{name} {arch} 패키지 준비 중",
@@ -31,9 +38,6 @@ pub(super) fn get() -> BadgeLocaleText {
         webview2_installed_restarting: "Microsoft Edge WebView2 Runtime 설치 완료. 앱을 다시 시작하는 중...",
         export_failed: "내보내기 실패",
         subtitles_saved: "자막 저장 완료",
-        feature_unavailable_fmt: "{name}을 사용할 수 없습니다",
-        qwen_x64_only: "현재 Qwen3 로컬 런타임은 Windows x64 빌드에서만 제공됩니다.",
-        qwen_arm_unsupported: "Qwen3 로컬 런타임에는 NVIDIA CUDA GPU가 필요하며 Windows on Arm 가상 머신은 지원하지 않습니다.",
         feature_needs_webview2_fmt: "{name}에 WebView2 Runtime이 필요합니다",
         feature_window_selector: "창 선택기",
         feature_realtime_overlay: "실시간 오버레이",
@@ -43,7 +47,5 @@ pub(super) fn get() -> BadgeLocaleText {
         feature_screen_record: "화면 녹화",
         feature_markdown_view: "Markdown 보기",
         install_webview2_hint: "다운로드한 도구를 열어 Microsoft Edge WebView2 Runtime을 설치한 후 다시 시도하세요.",
-        unsupported_features_fmt: "{name}은 이 {arch} 장치에서 지원되지 않습니다",
-        unavailable_features_here: "일부 로컬 또는 하드웨어 전용 기능은 이 장치에서 사용할 수 없습니다.",
     }
 }

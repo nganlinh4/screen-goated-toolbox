@@ -244,6 +244,7 @@ tasks.register("verifyPlayReleaseCompliance") {
             "libc++_shared.so",
             "libonnxruntime.so",
             "libonnxruntime_real.so",
+            "libonnxruntime4j_jni.so",
             "libmoonshine.so",
             "libmoonshine-jni.so",
             "libsherpa-onnx-jni.so",
@@ -267,7 +268,6 @@ tasks.register("verifyPlayReleaseCompliance") {
             "feature_asr_moonshine",
             "feature_asr_sherpa",
             "feature_creation_runtime",
-            "feature_native_cpp",
         )
         val requiredNativeOwners = mapOf(
             "libonnxruntime.so" to "feature_asr_ort/lib/arm64-v8a/libonnxruntime.so",
@@ -278,7 +278,6 @@ tasks.register("verifyPlayReleaseCompliance") {
             "libmoonshine.so" to "feature_asr_moonshine/lib/arm64-v8a/libmoonshine.so",
             "libsherpa-onnx-jni.so" to
                 "feature_asr_sherpa/lib/arm64-v8a/libsherpa-onnx-jni.so",
-            "libc++_shared.so" to "feature_native_cpp/lib/arm64-v8a/libc++_shared.so",
         )
         val nativeRuntimeContractFile = rootProject.projectDir.parentFile
             .resolve("parity-fixtures/phone-control/native-runtime-contract.json")
@@ -290,11 +289,26 @@ tasks.register("verifyPlayReleaseCompliance") {
             (nativeRuntimeContract["archives"] as List<Map<String, Any?>>)
                 .flatMap { archive -> archive["entries"] as List<Map<String, Any?>> }
                 .associateBy { entry -> entry["fileName"] as String }
-        require(nativeRuntimeEntries.keys == requiredNativeOwners.keys) {
+        require(nativeRuntimeEntries.keys - "libc++_shared.so" == requiredNativeOwners.keys) {
             "Play native owners differ from the shared runtime contract"
         }
+        require("libc++_shared.so" in nativeRuntimeEntries) {
+            "Full-delivery runtime contract is missing its compatibility library"
+        }
         val nativeRuntimeContractAsset = "base/assets/native-runtime/contract.json"
-        val forbiddenBaseResources = listOf("base/res/raw/ytdlp")
+        val sherpaRuntimeSpecDir = rootProject.projectDir.resolve("native/sherpa-runtime")
+        @Suppress("UNCHECKED_CAST")
+        val sherpaBuildContract = JsonSlurper().parse(
+            sherpaRuntimeSpecDir.resolve("build-contract.json"),
+        ) as Map<String, Any?>
+        @Suppress("UNCHECKED_CAST")
+        val sherpaNoticeNames =
+            (sherpaBuildContract["noticeFiles"] as List<String>).toSet()
+        val sherpaNoticePrefix = "feature_asr_sherpa/assets/third_party/sherpa-runtime/"
+        val forbiddenBaseResources = listOf(
+            "base/res/raw/ytdlp",
+            "base/assets/downloader-runtime/delivery.json",
+        )
         val creationRuntimeDeliveryAsset =
             "feature_creation_runtime/assets/creation-runtime/delivery.json"
 
@@ -374,6 +388,26 @@ tasks.register("verifyPlayReleaseCompliance") {
                     "Play native checksum mismatch for $fileName: $actualSha256"
                 }
             }
+            val packagedSherpaNotices = entries
+                .map { it.name }
+                .filter { it.startsWith(sherpaNoticePrefix) }
+                .map { it.removePrefix(sherpaNoticePrefix) }
+                .toSet()
+            require(packagedSherpaNotices == sherpaNoticeNames) {
+                "Play Sherpa notices differ: expected=$sherpaNoticeNames " +
+                    "actual=$packagedSherpaNotices"
+            }
+            sherpaNoticeNames.forEach { noticeName ->
+                val packaged = requireNotNull(
+                    zip.getEntry("$sherpaNoticePrefix$noticeName"),
+                )
+                val canonical = sherpaRuntimeSpecDir
+                    .resolve("assets/third_party/sherpa-runtime/$noticeName")
+                    .readBytes()
+                require(zip.getInputStream(packaged).use { it.readBytes() }.contentEquals(canonical)) {
+                    "Play Sherpa notice differs from canonical source: $noticeName"
+                }
+            }
             for (contractEntry in creationRuntimeContract.featureEntries) {
                 val packaged = requireNotNull(zip.getEntry(contractEntry.bundlePath)) {
                     "Play creation runtime feature is missing ${contractEntry.bundlePath}"
@@ -396,9 +430,6 @@ tasks.register("verifyPlayReleaseCompliance") {
                 require(actualSha256 == contractEntry.sha256) {
                     "Play creation runtime checksum mismatch for ${contractEntry.bundlePath}"
                 }
-            }
-            require(zip.getEntry("base/lib/arm64-v8a/libonnxruntime4j_jni.so") != null) {
-                "Play base is missing the Java ORT JNI bridge"
             }
             val packagedRuntimeContract = requireNotNull(zip.getEntry(nativeRuntimeContractAsset)) {
                 "Play base is missing the shared native runtime contract"

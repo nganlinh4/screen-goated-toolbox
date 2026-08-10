@@ -1,9 +1,7 @@
 use crate::api::audio::extract_pcm_from_wav;
+use crate::api::realtime_audio::local_asr_worker::{LocalAsrClient, LocalAsrMode, TimedToken};
 use crate::api::realtime_audio::parakeet_tdt_assets::get_parakeet_tdt_model_dir;
 use crate::overlay::screen_record::ipc::subtitles::types::CompactSubtitleSegment;
-use parakeet_rs::{
-    ExecutionConfig, ExecutionProvider, ParakeetTDT, TimedToken, TimestampMode, Transcriber,
-};
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
@@ -23,40 +21,37 @@ const MAX_SEGMENT_CHARS: usize = 96;
 const MAX_SEGMENT_WORDS: usize = 16;
 
 pub struct ParakeetTdtSubtitleBackend {
-    model: Option<ParakeetTDT>,
+    worker: Option<LocalAsrClient>,
 }
 
 impl ParakeetTdtSubtitleBackend {
     pub fn new() -> Self {
-        Self { model: None }
+        Self { worker: None }
     }
 
-    fn model(&mut self) -> Result<&mut ParakeetTDT, String> {
-        if self.model.is_none() {
-            crate::unpack_dlls::ensure_onnx_runtime_initialized()
-                .map_err(|err| format!("Initialize local ONNX runtime: {err}"))?;
+    fn worker(
+        &mut self,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<&mut LocalAsrClient, String> {
+        if self.worker.is_none() {
             let model_dir = get_parakeet_tdt_model_dir();
             let started = Instant::now();
             crate::log_info!(
                 "[SubtitleGen][ParakeetTDT] model-load-start dir={}",
                 model_dir.display()
             );
-            let config = ExecutionConfig::new()
-                .with_execution_provider(ExecutionProvider::DirectML)
-                .with_intra_threads(4)
-                .with_inter_threads(1);
-            self.model = Some(
-                ParakeetTDT::from_pretrained(&model_dir, Some(config))
-                    .map_err(|err| format!("Load Parakeet TDT subtitle model: {err}"))?,
+            self.worker = Some(
+                LocalAsrClient::start(LocalAsrMode::SubtitleTdt, &model_dir, cancelled)
+                    .map_err(|err| format!("Start Parakeet TDT subtitle worker: {err:#}"))?,
             );
             crate::log_info!(
                 "[SubtitleGen][ParakeetTDT] model-load-complete elapsed_ms={:.0}",
                 started.elapsed().as_secs_f64() * 1000.0
             );
         }
-        self.model
+        self.worker
             .as_mut()
-            .ok_or_else(|| "Parakeet TDT model failed to initialize".to_string())
+            .ok_or_else(|| "Parakeet TDT worker failed to initialize".to_string())
     }
 }
 
@@ -122,11 +117,11 @@ impl SubtitleBackend for ParakeetTdtSubtitleBackend {
                 audio.len()
             );
             let transcribed = self
-                .model()?
-                .transcribe_samples(audio, SAMPLE_RATE_HZ as u32, 1, Some(TimestampMode::Words))
+                .worker(&request.cancel_token)?
+                .transcribe_tdt(audio, &request.cancel_token)
                 .map_err(|err| format!("Transcribe Parakeet TDT chunk: {err}"))?;
 
-            let chunk_segments = words_to_segments(&transcribed.tokens, chunk_offset_sec);
+            let chunk_segments = words_to_segments(&transcribed, chunk_offset_sec);
             let chunk_segment_count = chunk_segments.len();
             all_segments.extend(chunk_segments);
             crate::log_info!(
@@ -134,7 +129,7 @@ impl SubtitleBackend for ParakeetTdtSubtitleBackend {
                 chunk_index + 1,
                 total_chunks,
                 chunk_started.elapsed().as_secs_f64() * 1000.0,
-                transcribed.tokens.len(),
+                transcribed.len(),
                 chunk_segment_count,
                 all_segments.len()
             );

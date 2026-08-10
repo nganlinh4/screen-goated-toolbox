@@ -10,6 +10,10 @@ internal sealed interface CreationRuntimeStatus {
     data object Missing : CreationRuntimeStatus
     data class Downloading(val progress: Float) : CreationRuntimeStatus
     data class Ready(val sizeBytes: Long) : CreationRuntimeStatus
+    data class RemovalPending(
+        val message: String,
+        val retryable: Boolean = false,
+    ) : CreationRuntimeStatus
     data class Failed(val message: String) : CreationRuntimeStatus
 }
 
@@ -34,7 +38,9 @@ internal class CreationRuntimeManager private constructor(context: Context) {
         delivery.startInstall()
         val terminal = withTimeoutOrNull(RUNTIME_WAIT_MS) {
             status.first {
-                it is CreationRuntimeStatus.Ready || it is CreationRuntimeStatus.Failed
+                it is CreationRuntimeStatus.Ready ||
+                    it is CreationRuntimeStatus.Failed ||
+                    it is CreationRuntimeStatus.RemovalPending
             }
         } ?: return null
         return if (terminal is CreationRuntimeStatus.Ready) factory() else null

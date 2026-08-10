@@ -40,8 +40,9 @@ internal suspend fun LiveSessionRuntime.runMoonshineSession() {
         val zipLang = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage.fromCode(langCode)
             ?: dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage.ENGLISH
         Log.i("Sherpa", "Resolved to: ${zipLang.name} (${zipLang.modelName})")
-        val moonshineManager = dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager(context)
-        if (!moonshineManager.isZipformerInstalled(zipLang)) {
+        val moonshineManager =
+            dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager.get(context)
+        if (!withContext(Dispatchers.IO) { moonshineManager.isZipformerInstalled(zipLang) }) {
             downloadCancelAction = { sessionJob?.cancel() }
             overlayController.showDownloadModal("Zipformer ${zipLang.displayName}")
             try {
@@ -66,23 +67,30 @@ internal suspend fun LiveSessionRuntime.runMoonshineSession() {
                 throw e
             }
             // Guard: download may have failed internally (DownloadState.Error) without throwing
-            if (!moonshineManager.isZipformerInstalled(zipLang)) {
+            if (!withContext(Dispatchers.IO) { moonshineManager.isZipformerInstalled(zipLang) }) {
                 val state = moonshineManager.downloadState.value
                 val msg = if (state is dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager.DownloadState.Error)
                     state.message else "Download failed for ${zipLang.displayName}"
                 error(msg)
             }
         }
-        runSherpaSession(zipLang, moonshineManager)
+        val modelLease = withContext(Dispatchers.IO) { moonshineManager.acquireZipformer(zipLang) }
+            ?: error("${zipLang.displayName} model removal is pending")
+        try {
+            runSherpaSession(zipLang, moonshineManager)
+        } finally {
+            modelLease.close()
+        }
         return
     }
 
     // Moonshine models (English-only, pick variant by model ID)
     val lang = dev.screengoated.toolbox.mobile.service.moonshine.MoonshineLanguage.forModelId(modelId)
-    val moonshineManager = dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager(context)
+    val moonshineManager =
+        dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager.get(context)
 
     // Download model if needed
-    if (!moonshineManager.isInstalled(lang)) {
+    if (!withContext(Dispatchers.IO) { moonshineManager.isInstalled(lang) }) {
         downloadCancelAction = { sessionJob?.cancel() }
         overlayController.showDownloadModal("Moonshine ${lang.displayName}")
         try {
@@ -110,7 +118,7 @@ internal suspend fun LiveSessionRuntime.runMoonshineSession() {
             downloadCancelAction = null
             throw e
         }
-        if (!moonshineManager.isInstalled(lang)) {
+        if (!withContext(Dispatchers.IO) { moonshineManager.isInstalled(lang) }) {
             val state = moonshineManager.downloadState.value
             val message = if (state is dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager.DownloadState.Error) {
                 state.message
@@ -121,7 +129,10 @@ internal suspend fun LiveSessionRuntime.runMoonshineSession() {
         }
     }
 
-    withContext(Dispatchers.IO) {
+    val modelLease = withContext(Dispatchers.IO) { moonshineManager.acquireMoonshine(lang) }
+        ?: error("${lang.displayName} model removal is pending")
+    try {
+        withContext(Dispatchers.IO) {
         // Create Moonshine Transcriber and load from filesystem
         val transcriber = ai.moonshine.voice.Transcriber()
         val modelPath = moonshineManager.modelDir(lang).absolutePath
@@ -264,6 +275,9 @@ internal suspend fun LiveSessionRuntime.runMoonshineSession() {
         } finally {
             transcriber.stop()
         }
+        }
+    } finally {
+        modelLease.close()
     }
 }
 

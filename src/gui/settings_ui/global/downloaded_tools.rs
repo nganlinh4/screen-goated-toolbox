@@ -6,30 +6,38 @@ use std::time::{Duration, Instant};
 
 mod ai_runtime;
 mod backgrounds;
+mod computer_control;
 mod mcp;
 mod model_card;
 mod model_sections;
 mod pointer_packs;
+mod recorder;
 mod three_d_generator;
 mod tts_models;
 mod utils;
 mod video_downloader;
+mod web_apps;
 mod zipformer;
 
 use self::{
     backgrounds::render_background_downloads_section,
+    computer_control::render_computer_control_card,
     mcp::render_mcp_card,
     model_sections::{
         render_kokoro_card, render_parakeet_card, render_qwen3_card, render_supertonic_card,
     },
     pointer_packs::render_pointer_pack_downloads_section,
+    recorder::render_recorder_card,
     three_d_generator::render_three_d_generator_card,
     tts_models::{render_magpie_card, render_step_audio_card, render_vieneu_card},
     utils::clear_downloaded_tools_caches,
     video_downloader::render_video_downloader_card,
+    web_apps::render_web_apps_card,
     zipformer::render_zipformer_section,
 };
-use crate::gui::settings_ui::download_manager::{InstallStatus, UpdateStatus};
+use crate::component_registry::RemovalOutcome;
+use crate::component_registry::external_tools::ExternalTool;
+use crate::gui::settings_ui::download_manager::InstallStatus;
 
 const SECTION_TIMING_WARN_MS: f64 = 12.0;
 const SECTION_TIMING_LOG_INTERVAL: Duration = Duration::from_secs(2);
@@ -152,11 +160,23 @@ pub fn render_downloaded_tools_modal(
                                 time_downloaded_tools_section("mcp-integrations", || {
                                     render_mcp_card(ui, text)
                                 });
+                                ui.add_space(8.0);
+                                time_downloaded_tools_section("computer-control", || {
+                                    render_computer_control_card(ui, text)
+                                });
                             });
 
                             columns[1].vertical(|ui| {
                                 time_downloaded_tools_section("video-downloader", || {
                                     render_video_downloader_card(ui, download_manager, text)
+                                });
+                                ui.add_space(8.0);
+                                time_downloaded_tools_section("web-app-interfaces", || {
+                                    render_web_apps_card(ui, text)
+                                });
+                                ui.add_space(8.0);
+                                time_downloaded_tools_section("screen-recorder", || {
+                                    render_recorder_card(ui, text)
                                 });
                                 ui.add_space(8.0);
                                 time_downloaded_tools_section("zipformer", || {
@@ -192,21 +212,38 @@ pub fn render_downloaded_tools_modal(
 }
 
 fn clean_all_downloaded_tools(download_manager: &mut DownloadManager) {
-    let bin_dir = &download_manager.bin_dir;
-
-    for name in [
-        "yt-dlp.exe",
-        "ffmpeg.exe",
-        "ffprobe.exe",
-        "ffmpeg.zip",
-        "ffmpeg_release_source.txt",
-        "deno.exe",
-        "deno.zip",
-        "yt-dlp.tmp",
-        "ffmpeg.tmp",
-        "deno.tmp",
-    ] {
-        let _ = std::fs::remove_file(bin_dir.join(name));
+    if let Err(error) = crate::component_registry::recorder::remove_all() {
+        crate::log_info!("[Downloaded Tools] recorder cleanup failed: {error:#}");
+    }
+    let managed_outcomes = match crate::component_registry::clean_all() {
+        Ok(outcomes) => Some(outcomes),
+        Err(error) => {
+            crate::log_info!("[Downloaded Tools] managed component cleanup failed: {error}");
+            None
+        }
+    };
+    match crate::component_registry::external_tools::clean_all_recoveries() {
+        Ok(outcomes) => {
+            for outcome in outcomes {
+                if outcome.preserved_paths.is_empty() {
+                    crate::log_info!(
+                        "[Downloaded Tools] removed {} verified recovery file(s) from {}",
+                        outcome.removed_files,
+                        outcome.path.display()
+                    );
+                } else {
+                    for path in outcome.preserved_paths {
+                        crate::log_info!(
+                            "[Downloaded Tools] preserved recovery path {}",
+                            path.display()
+                        );
+                    }
+                }
+            }
+        }
+        Err(error) => {
+            crate::log_info!("[Downloaded Tools] recovery cleanup failed: {error:#}");
+        }
     }
 
     let _ = crate::unpack_dlls::remove_ai_runtime();
@@ -214,10 +251,17 @@ fn clean_all_downloaded_tools(download_manager: &mut DownloadManager) {
     let _ = crate::api::realtime_audio::parakeet_tdt_assets::remove_parakeet_tdt_model();
     let _ = crate::api::realtime_audio::qwen3::assets::remove_qwen3_model();
     let _ = crate::api::realtime_audio::qwen3::assets::remove_qwen3_1_7b_model();
-    let _ = crate::api::realtime_audio::qwen3::server::remove_qwen3_server();
+    remove_archived_qwen_server();
     let _ = crate::api::realtime_audio::qwen3::runtime::remove_qwen3_runtime();
     let _ = crate::api::realtime_audio::supertonic_assets::remove_supertonic_model();
+    let _ = crate::api::realtime_audio::kokoro_assets::remove_kokoro_model();
+    let _ = crate::api::realtime_audio::step_audio_assets::remove_step_audio_model();
+    let _ = crate::api::realtime_audio::step_audio_runtime::remove_step_audio_runtime();
+    let _ = crate::api::realtime_audio::magpie_assets::remove_magpie_model();
+    let _ = crate::api::realtime_audio::magpie_runtime::remove_magpie_runtime();
+    let _ = crate::api::realtime_audio::vieneu_assets::remove_vieneu_model();
     let _ = crate::api::realtime_audio::vieneu_runtime::remove_vieneu_runtime();
+    let _ = crate::overlay::creation_runtime::remove_runtime();
     crate::overlay::computer_control::ui_remove_all(); // uninstall + forget MCP integrations
     let _ =
         std::fs::remove_dir_all(crate::api::realtime_audio::sherpa_onnx::dlls::sherpa_bin_dir());
@@ -238,36 +282,63 @@ fn clean_all_downloaded_tools(download_manager: &mut DownloadManager) {
     let _ = crate::overlay::screen_record::bg_download::delete_all_downloaded();
     let _ = crate::gui::settings_ui::pointer_gallery::delete_downloaded_collections();
 
-    set_install_status_missing(&download_manager.ytdlp_status);
-    set_install_status_missing(&download_manager.ffmpeg_status);
-    set_install_status_missing(&download_manager.deno_status);
+    if let Some(outcomes) = managed_outcomes.as_deref() {
+        apply_external_tool_cleanup_status(download_manager, outcomes);
+    } else {
+        download_manager.check_status();
+    }
     set_install_status_missing(&download_manager.zipformer_dlls_status);
     for status in download_manager.zipformer_lang_statuses.values() {
         set_install_status_missing(status);
     }
-    set_update_status_idle(&download_manager.ytdlp_update_status);
-    set_update_status_idle(&download_manager.ffmpeg_update_status);
-    set_update_status_idle(&download_manager.deno_update_status);
-    if let Ok(mut version) = download_manager.ytdlp_version.lock() {
-        *version = None;
-    }
-    if let Ok(mut version) = download_manager.ffmpeg_version.lock() {
-        *version = None;
-    }
-    if let Ok(mut version) = download_manager.deno_version.lock() {
-        *version = None;
-    }
     clear_downloaded_tools_caches();
+}
+
+fn apply_external_tool_cleanup_status(
+    download_manager: &DownloadManager,
+    outcomes: &[(String, RemovalOutcome)],
+) {
+    for tool in ExternalTool::ALL {
+        let outcome = outcomes
+            .iter()
+            .find_map(|(id, outcome)| (id == tool.id()).then_some(outcome));
+        let status = match outcome {
+            None
+            | Some(RemovalOutcome::Missing | RemovalOutcome::Removed | RemovalOutcome::Pending) => {
+                InstallStatus::Missing
+            }
+            Some(RemovalOutcome::RequiredBy(dependents)) => InstallStatus::Error(format!(
+                "{} is still required by: {}",
+                tool.id(),
+                dependents.join(", ")
+            )),
+            Some(RemovalOutcome::PreservedModified(paths)) => InstallStatus::Error(format!(
+                "{} preserved {} modified or unknown file(s)",
+                tool.id(),
+                paths.len()
+            )),
+        };
+        let slot = match tool {
+            ExternalTool::YtDlp => &download_manager.ytdlp_status,
+            ExternalTool::Ffmpeg => &download_manager.ffmpeg_status,
+            ExternalTool::Deno => &download_manager.deno_status,
+        };
+        if let Ok(mut current) = slot.lock() {
+            *current = status;
+        }
+    }
+}
+
+fn remove_archived_qwen_server() {
+    let directory = crate::paths::app_data_dir()
+        .join("bin")
+        .join("qwen3_asr_reference");
+    let _ = std::fs::remove_file(directory.join("asr-server.exe"));
+    let _ = std::fs::remove_dir(directory);
 }
 
 fn set_install_status_missing(status: &std::sync::Arc<std::sync::Mutex<InstallStatus>>) {
     if let Ok(mut status) = status.lock() {
         *status = InstallStatus::Missing;
-    }
-}
-
-fn set_update_status_idle(status: &std::sync::Arc<std::sync::Mutex<UpdateStatus>>) {
-    if let Ok(mut status) = status.lock() {
-        *status = UpdateStatus::Idle;
     }
 }

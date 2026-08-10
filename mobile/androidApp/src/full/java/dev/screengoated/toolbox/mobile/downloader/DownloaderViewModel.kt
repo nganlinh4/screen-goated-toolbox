@@ -11,13 +11,12 @@ class DownloaderViewModel(
     val state: StateFlow<DownloaderUiState> = repository.state
 
     init {
-        repository.checkTools() // fast file check, no init()
+        repository.installTools()
     }
 
     // Tool management
     fun installTools() = repository.installTools()
     fun deleteTools() = repository.deleteTools()
-    fun checkUpdates() = repository.checkUpdates()
     fun totalDepsSize() = repository.calculateTotalDepsSize()
 
     // Multi-tab

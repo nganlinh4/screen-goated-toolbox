@@ -1,192 +1,204 @@
 package dev.screengoated.toolbox.mobile.downloader
 
-import android.content.Context
-import android.os.Environment
 import androidx.core.content.edit
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
+import dev.screengoated.toolbox.mobile.service.nativelibs.RuntimeLeaseRegistry
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.io.File
-import java.util.concurrent.ConcurrentHashMap
 
-// Tool/deps (yt-dlp + ffmpeg native binaries) management for standalone distributions.
-private const val GH_RELEASE =
-    "https://github.com/nganlinh4/youtubedl-android/releases/download/v0.18.1-sgt"
-private val NATIVE_ZIP_FILES = listOf(
-    "libpython.zip.so" to "$GH_RELEASE/libpython.zip.so",
-    "libffmpeg.zip.so" to "$GH_RELEASE/libffmpeg.zip.so",
-)
-
-internal fun DownloaderRepository.isNativeZipsDownloaded(): Boolean {
-    return File(nativeZipDir, "libpython.zip.so").exists() &&
-        File(nativeZipDir, "libffmpeg.zip.so").exists()
+internal enum class DownloaderRuntimeKey {
+    RUNTIME,
 }
 
-internal fun DownloaderRepository.ensureInit() {
-    if (!initialized) {
-        val hasZips = isNativeZipsDownloaded()
-        val zipDir = if (hasZips) nativeZipDir else null
-        android.util.Log.d("SGT-DL", "ensureInit hasZips=$hasZips zipDir=$zipDir")
-        YoutubeDL.getInstance().init(context, zipDir)
-        FFmpeg.getInstance().init(context, zipDir)
-        initialized = true
-        android.util.Log.d("SGT-DL", "ensureInit done")
+internal fun DownloaderRepository.refreshDownloaderTools() {
+    scope.launch {
+        val state = withContext(Dispatchers.IO) { runtimeToolStates() }
+        _state.update { it.copy(ytdlp = state.first, ffmpeg = state.second) }
     }
 }
 
-internal fun DownloaderRepository.isAlreadyExtracted(): Boolean {
-    val ytdlDir = File(context.noBackupFilesDir, "youtubedl-android")
-    val ytdlpExists = File(ytdlDir, "yt-dlp").exists()
-    val pythonExists = File(ytdlDir, "packages/python").exists()
-    return ytdlpExists && pythonExists
-}
-
-
-internal fun DownloaderRepository.downloadNativeZips() {
-    nativeZipDir.mkdirs()
-    val client = okhttp3.OkHttpClient.Builder()
-        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
-    val totalFiles = NATIVE_ZIP_FILES.size
-    for ((fileIdx, entry) in NATIVE_ZIP_FILES.withIndex()) {
-        val (filename, url) = entry
-        val target = File(nativeZipDir, filename)
-        if (target.exists()) continue
-
+internal fun DownloaderRepository.startDownloaderInstall() {
+    val installer = runtimeInstaller
+    if (installer == null) {
+        setRuntimeError("Downloader runtime delivery is unavailable in this build.")
+        return
+    }
+    if (installJob?.isActive == true || installer.isInstalled() ||
+        runtimeLeases.isRemovalPending(DownloaderRuntimeKey.RUNTIME)
+    ) return
+    val lease = runtimeLeases.acquire(listOf(DownloaderRuntimeKey.RUNTIME)) ?: return
+    installJob = scope.launch {
         _state.update {
-            it.copy(ytdlp = ToolState(
-                ToolInstallStatus.DOWNLOADING,
-                version = "Downloading ${fileIdx + 1}/$totalFiles: $filename",
-            ))
+            it.copy(
+                ytdlp = ToolState(ToolInstallStatus.DOWNLOADING),
+                ffmpeg = ToolState(ToolInstallStatus.DOWNLOADING),
+            )
         }
-
-        val request = okhttp3.Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 SGT-Mobile").build()
-        val response = client.newCall(request).execute()
-        if (!response.isSuccessful) throw Exception("HTTP ${response.code} downloading $filename")
-        val body = response.body
-        val totalBytes = body.contentLength()
-        val tmpFile = File(nativeZipDir, "$filename.tmp")
-
-        body.byteStream().use { input ->
-            java.io.FileOutputStream(tmpFile).use { output ->
-                val buffer = ByteArray(8192)
-                var downloaded = 0L
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read == -1) break
-                    output.write(buffer, 0, read)
-                    downloaded += read
-                    if (totalBytes > 0 && downloaded % (64 * 1024) < 8192) {
-                        val pct = (downloaded * 100 / totalBytes).toInt()
-                        _state.update {
-                            it.copy(ytdlp = ToolState(
-                                ToolInstallStatus.DOWNLOADING,
-                                version = "$filename: $pct%",
-                            ))
-                        }
-                    }
-                }
+        try {
+            withContext(Dispatchers.IO) {
+                installer.install { progress -> updateInstallProgress(progress) }
             }
+            val states = withContext(Dispatchers.IO) { runtimeToolStates() }
+            _state.update { it.copy(ytdlp = states.first, ffmpeg = states.second) }
+        } catch (cancelled: CancellationException) {
+            if (!runtimeLeases.isRemovalPending(DownloaderRuntimeKey.RUNTIME)) {
+                val states = withContext(Dispatchers.IO) { runtimeToolStates() }
+                _state.update { it.copy(ytdlp = states.first, ffmpeg = states.second) }
+            }
+        } catch (error: Throwable) {
+            if (!runtimeLeases.isRemovalPending(DownloaderRuntimeKey.RUNTIME)) {
+                setRuntimeError(error.message ?: "Downloader runtime installation failed.")
+            }
+        } finally {
+            installJob = null
+            lease.close()
         }
-        if (!tmpFile.exists() || tmpFile.length() == 0L) {
-            tmpFile.delete()
-            throw Exception("Failed to download $filename")
-        }
-        tmpFile.renameTo(target)
-    }
-
-    _state.update {
-        it.copy(ytdlp = ToolState(ToolInstallStatus.DOWNLOADING, version = "Extracting..."))
     }
 }
 
+internal fun DownloaderRepository.requestDownloaderRemoval() {
+    installJob?.cancel()
+    runtimeRemovalPreferences.edit { putBoolean(REMOVAL_PENDING_KEY, true) }
+    setRemovalPendingState()
+    runtimeLeases.requestRemoval(DownloaderRuntimeKey.RUNTIME)
+}
 
-internal fun DownloaderRepository.prepareYoutubeDlUpdate() {
-    if (!isNativeZipsDownloaded()) {
-        android.util.Log.d("SGT-DL", "prepareYoutubeDlUpdate: re-downloading native zips")
-        downloadNativeZips()
-    }
-    initialized = false
+internal fun DownloaderRepository.finishDownloaderRemoval() {
     try {
-        val field = YoutubeDL::class.java.getDeclaredField("initialized")
-        field.isAccessible = true
-        field.setBoolean(YoutubeDL.getInstance(), false)
-    } catch (_: Exception) {}
-    try {
-        val field = FFmpeg::class.java.getDeclaredField("initialized")
-        field.isAccessible = true
-        field.setBoolean(FFmpeg.getInstance(), false)
-    } catch (_: Exception) {}
-    ensureInit()
-}
-
-internal fun DownloaderRepository.updateYoutubeDlNightly(): Boolean {
-    prepareYoutubeDlUpdate()
-    val status = YoutubeDL.getInstance().updateYoutubeDL(
-        context,
-        com.yausername.youtubedl_android.YoutubeDL.UpdateChannel.NIGHTLY,
-    )
-    return status == com.yausername.youtubedl_android.YoutubeDL.UpdateStatus.DONE
-}
-
-/** Delete downloaded zip files after extraction — they're just wasting disk space. */
-internal fun DownloaderRepository.cleanupNativeZips() {
-    for (name in listOf("libpython.zip.so", "libffmpeg.zip.so")) {
-        val f = File(nativeZipDir, name)
-        if (f.exists()) {
-            android.util.Log.d("SGT-DL", "cleanupNativeZips: deleting $name (${f.length() / 1024 / 1024} MB)")
-            f.delete()
+        val removed = runtimeInstaller?.remove() ?: true
+        check(removed) { "Downloader files could not be removed. Try again." }
+        runtimeRemovalPreferences.edit { putBoolean(REMOVAL_PENDING_KEY, false) }
+        runtimeLeases.completeRemoval(DownloaderRuntimeKey.RUNTIME)
+        _state.update {
+            it.copy(
+                ytdlp = ToolState(ToolInstallStatus.MISSING),
+                ffmpeg = ToolState(ToolInstallStatus.MISSING),
+            )
+        }
+    } catch (error: Throwable) {
+        val message = error.message ?: "Downloader removal failed. Try again."
+        _state.update {
+            it.copy(
+                ytdlp = ToolState(
+                    ToolInstallStatus.REMOVAL_PENDING,
+                    error = message,
+                    retryable = true,
+                ),
+                ffmpeg = ToolState(
+                    ToolInstallStatus.REMOVAL_PENDING,
+                    error = message,
+                    retryable = true,
+                ),
+            )
         }
     }
 }
 
-internal fun DownloaderRepository.removeNativePayload() = Unit
+internal fun DownloaderRepository.acquireDownloaderRuntimeLease(): AutoCloseable? {
+    val installer = runtimeInstaller ?: return null
+    if (!installer.isInstalled()) return null
+    return runtimeLeases.acquire(listOf(DownloaderRuntimeKey.RUNTIME))
+}
 
-internal fun DownloaderRepository.nativePayloadSizeMb(): Double = dirSizeMb(nativeZipDir)
+internal fun DownloaderRepository.executeYtDlp(
+    request: YtDlpCommand,
+    processId: String? = null,
+    callback: ((Float, Long, String) -> Unit)? = null,
+): YtDlpProcessResult = requireNotNull(processHost) {
+    "Downloader runtime delivery is unavailable in this build"
+}.execute(request, processId, callback)
+
+internal fun DownloaderRepository.destroyYtDlpProcess(processId: String): Boolean =
+    processHost?.destroy(processId) ?: false
 
 internal fun DownloaderRepository.calculateYtdlpSize(): String {
-    // yt-dlp + Python extracted content (excludes FFmpeg subdir to avoid double-counting)
-    val ytdlDir = File(context.noBackupFilesDir, "youtubedl-android")
-    val ffmpegPkgPath = File(ytdlDir, "packages/ffmpeg").absolutePath
-    var total = 0L
-    if (ytdlDir.exists()) {
-        ytdlDir.walkTopDown().forEach { f ->
-            if (f.isFile && !f.absolutePath.startsWith(ffmpegPkgPath)) {
-                total += f.length()
-            }
+    val installer = runtimeInstaller ?: return "0 MB"
+    val bytes = installer.componentBytes(DownloaderArtifactRole.YT_DLP) +
+        installer.componentBytes(DownloaderArtifactRole.PYTHON)
+    val version = runtimeDelivery?.version?.substringBefore("-android-")
+    val size = formatMegabytes(bytes)
+    return if (version == null) size else "$version ($size)"
+}
+
+internal fun DownloaderRepository.calculateFfmpegSize(): String =
+    formatMegabytes(runtimeInstaller?.componentBytes(DownloaderArtifactRole.FFMPEG) ?: 0L)
+
+internal fun DownloaderRepository.calculateDownloaderTotalSize(): String =
+    formatMegabytes(runtimeInstaller?.installedBytes() ?: 0L, decimals = 0)
+
+private fun DownloaderRepository.runtimeToolStates(): Pair<ToolState, ToolState> {
+    if (runtimeLeases.isRemovalPending(DownloaderRuntimeKey.RUNTIME) ||
+        runtimeRemovalPreferences.getBoolean(REMOVAL_PENDING_KEY, false)
+    ) {
+        val message = removalPendingMessage()
+        return ToolState(ToolInstallStatus.REMOVAL_PENDING, error = message) to
+            ToolState(ToolInstallStatus.REMOVAL_PENDING, error = message)
+    }
+    val installer = runtimeInstaller
+        ?: return ToolState(
+            ToolInstallStatus.ERROR,
+            error = "Downloader runtime delivery is unavailable in this build.",
+        ) to ToolState(
+            ToolInstallStatus.ERROR,
+            error = "Downloader runtime delivery is unavailable in this build.",
+        )
+    return if (installer.isInstalled()) {
+        ToolState(ToolInstallStatus.INSTALLED, version = calculateYtdlpSize()) to
+            ToolState(ToolInstallStatus.INSTALLED, version = calculateFfmpegSize())
+    } else {
+        ToolState(ToolInstallStatus.MISSING) to ToolState(ToolInstallStatus.MISSING)
+    }
+}
+
+private fun DownloaderRepository.updateInstallProgress(progress: DownloaderInstallProgress) {
+    val percent = (progress.fraction.coerceIn(0f, 1f) * 100).toInt()
+    val status = if (progress.extracting) ToolInstallStatus.EXTRACTING
+    else ToolInstallStatus.DOWNLOADING
+    val label = if (progress.extracting) "Extracting ${progress.role.wireName}"
+    else "${progress.role.wireName}: $percent%"
+    _state.update { current ->
+        when (progress.role) {
+            DownloaderArtifactRole.FFMPEG -> current.copy(
+                ffmpeg = ToolState(status, version = label),
+            )
+            DownloaderArtifactRole.YT_DLP,
+            DownloaderArtifactRole.PYTHON -> current.copy(
+                ytdlp = ToolState(status, version = label),
+            )
         }
     }
-    val sizeMb = total / (1024.0 * 1024.0)
-    val version = try { YoutubeDL.getInstance().version(context) } catch (_: Exception) { null }
-    return if (version != null) "$version (%.1f MB)".format(sizeMb) else "%.1f MB".format(sizeMb)
 }
 
-internal fun DownloaderRepository.calculateFfmpegSize(): String {
-    val sizeMb = dirSizeMb(File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg"))
-    return "%.1f MB".format(sizeMb)
+private fun DownloaderRepository.setRuntimeError(message: String) {
+    _state.update {
+        it.copy(
+            ytdlp = ToolState(ToolInstallStatus.ERROR, error = message),
+            ffmpeg = ToolState(ToolInstallStatus.ERROR, error = message),
+        )
+    }
 }
 
-internal fun DownloaderRepository.dirSizeMb(dir: File): Double {
-    if (!dir.exists()) return 0.0
-    var total = 0L
-    dir.walkTopDown().forEach { if (it.isFile) total += it.length() }
-    return total / (1024.0 * 1024.0)
+private fun DownloaderRepository.setRemovalPendingState() {
+    val message = removalPendingMessage()
+    _state.update {
+        it.copy(
+            ytdlp = ToolState(ToolInstallStatus.REMOVAL_PENDING, error = message),
+            ffmpeg = ToolState(ToolInstallStatus.REMOVAL_PENDING, error = message),
+        )
+    }
 }
 
-/** Total size of all deletable downloaded dependencies. */
+private fun DownloaderRepository.removalPendingMessage(): String =
+    if (runtimeLeases.isInUse(DownloaderRuntimeKey.RUNTIME)) {
+        "Removal pending until active downloader work stops."
+    } else {
+        "Downloader removal is pending."
+    }
+
+private fun formatMegabytes(bytes: Long, decimals: Int = 1): String =
+    String.format(Locale.US, "%.${decimals}f MB", bytes / (1024.0 * 1024.0))
+
+internal const val REMOVAL_PENDING_KEY = "removal_pending"

@@ -102,6 +102,7 @@ pub fn close_selector() {
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn close_selector_for_owner(owner: SelectorOwner) {
     if is_owner_active(owner) {
         close_selector();
@@ -142,6 +143,7 @@ pub fn post_preview_update_for_owner(owner: SelectorOwner, entry_id: &str, data_
     post_script(format!("window.updateThumb({id_json}, {url_json});"));
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn update_theme(is_dark: bool) {
     if selector_is_closed() {
         return;

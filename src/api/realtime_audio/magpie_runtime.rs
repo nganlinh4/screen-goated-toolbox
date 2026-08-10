@@ -11,16 +11,14 @@ use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-const RUNTIME_MANIFEST_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/native/magpie_runtime/dist/sgt_magpie_runtime.manifest.json";
 const MANAGED_MANIFEST_FILE: &str = "sgt_magpie_runtime.manifest.json";
-const MIN_RUNTIME_ABI: u32 = 1;
 
 static LAST_MAGPIE_RUNTIME_NOTICE: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(|| Mutex::new(None));
 
 static MAGPIE_RUNTIME_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MagpieRuntimeManifest {
     pub version: String,
@@ -31,7 +29,7 @@ pub struct MagpieRuntimeManifest {
     pub chunks: Vec<MagpieRuntimeChunk>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MagpieRuntimeChunk {
     pub filename: String,
@@ -48,6 +46,7 @@ fn clear_notice() {
     *LAST_MAGPIE_RUNTIME_NOTICE.lock().unwrap() = None;
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn current_magpie_runtime_notice() -> Option<String> {
     LAST_MAGPIE_RUNTIME_NOTICE.lock().ok()?.clone()
 }
@@ -88,6 +87,7 @@ fn manifest_path() -> PathBuf {
     get_magpie_runtime_dir().join(MANAGED_MANIFEST_FILE)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn magpie_runtime_installed_size() -> u64 {
     fn dir_size(path: &Path) -> u64 {
         let Ok(entries) = fs::read_dir(path) else {
@@ -196,6 +196,21 @@ pub fn is_magpie_runtime_installed() -> bool {
     get_magpie_runtime_entrypoint().is_ok()
 }
 
+#[cfg(not(feature = "recorder-worker"))]
+pub fn is_magpie_runtime_present_for_display() -> bool {
+    if local_sidecar_candidate().is_some_and(|path| path.is_file()) {
+        return true;
+    }
+    let direct = default_managed_entrypoint();
+    if direct.is_file() {
+        return true;
+    }
+    read_installed_manifest()
+        .ok()
+        .is_some_and(|manifest| get_magpie_runtime_dir().join(manifest.entrypoint).is_file())
+}
+
+#[cfg(not(feature = "recorder-worker"))]
 pub fn remove_magpie_runtime() -> Result<()> {
     let dir = get_magpie_runtime_dir();
     if dir.exists() {
@@ -261,13 +276,12 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
         state.download_progress = 0.0;
     }
     post_download_state();
-    if use_badge {
-        crate::overlay::auto_copy_badge::show_progress_notification(
+    let progress_badge = use_badge.then(|| {
+        crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(
             &download_title,
             loc.badge.fetching_runtime_manifest,
-            0.0,
-        );
-    }
+        )
+    });
 
     let result = (|| {
         let manifest = fetch_manifest()?;
@@ -303,11 +317,12 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
                 if let Ok(mut state) = REALTIME_STATE.lock() {
                     state.download_progress = progress;
                 }
-                if use_badge {
-                    crate::overlay::auto_copy_badge::show_progress_notification(
-                        &download_title,
-                        &downloading_file,
-                        progress,
+                if let Some(progress_badge) = &progress_badge {
+                    progress_badge.report(
+                        downloaded_total
+                            .saturating_add(downloaded)
+                            .saturating_mul(75),
+                        total.saturating_mul(100),
                     );
                 }
                 post_download_state();
@@ -321,6 +336,9 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
             state.download_progress = 80.0;
         }
         post_download_state();
+        if let Some(progress_badge) = &progress_badge {
+            progress_badge.report(80, 100);
+        }
         concatenate_chunks(&chunk_paths, &archive)?;
         extract_runtime_archive(&archive, &stage)?;
         for chunk_path in &chunk_paths {
@@ -354,50 +372,44 @@ fn download_magpie_runtime_inner(stop_signal: &AtomicBool, use_badge: bool) -> R
             state.download_message = loc.tool_runtime.magpie_downloading_message.to_string();
         }
     }
-    if use_badge {
-        crate::overlay::auto_copy_badge::hide_progress_notification();
+    if let Some(progress_badge) = &progress_badge {
+        progress_badge.finish();
     }
     result
 }
 
 fn fetch_manifest() -> Result<MagpieRuntimeManifest> {
-    let response = ureq::get(RUNTIME_MANIFEST_URL)
-        .header("User-Agent", "ScreenGoatedToolbox")
-        .call()
-        .map_err(|err| anyhow!("Failed to fetch Magpie runtime manifest: {err}"))?;
-    let mut body = String::new();
-    response
-        .into_body()
-        .into_reader()
-        .read_to_string(&mut body)?;
-    serde_json::from_str(&body)
-        .map_err(|err| anyhow!("Failed to parse Magpie runtime manifest: {err}"))
+    Ok(delivery_manifest())
 }
 
 fn validate_manifest(manifest: &MagpieRuntimeManifest) -> Result<()> {
-    if manifest.abi_version < MIN_RUNTIME_ABI {
-        bail!(
-            "Magpie runtime ABI {} is older than required ABI {}",
-            manifest.abi_version,
-            MIN_RUNTIME_ABI
-        );
-    }
-    if manifest.entrypoint.trim().is_empty() || manifest.entrypoint.contains("..") {
-        bail!("Magpie runtime manifest has an unsafe entrypoint");
-    }
-    if manifest.chunks.is_empty() {
-        bail!("Magpie runtime manifest has no downloadable chunks");
-    }
-    for chunk in &manifest.chunks {
-        if chunk.filename.trim().is_empty()
-            || chunk.filename.contains("..")
-            || chunk.sha256.trim().len() != 64
-            || chunk.size == 0
-        {
-            bail!("Magpie runtime manifest has an invalid chunk entry");
-        }
+    if manifest != &delivery_manifest() {
+        bail!("Magpie runtime manifest does not match the host-pinned delivery descriptor");
     }
     Ok(())
+}
+
+fn delivery_manifest() -> MagpieRuntimeManifest {
+    MagpieRuntimeManifest {
+        version: "2026.05.15".into(),
+        abi_version: 1,
+        entrypoint: "magpie-sidecar/magpie-sidecar.exe".into(),
+        installed_size: 5_616_638_783,
+        chunks: vec![
+            MagpieRuntimeChunk {
+                filename: "sgt-magpie-runtime-2026.05.15.zip.part001".into(),
+                url: "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-magpie-runtime-2026.05.15.zip.part001".into(),
+                sha256: "f2ed9cc78b80edc76bffc67a5fc282a363ed8d2a0c96a474626806761c9e971c".into(),
+                size: 1_992_294_400,
+            },
+            MagpieRuntimeChunk {
+                filename: "sgt-magpie-runtime-2026.05.15.zip.part002".into(),
+                url: "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-magpie-runtime-2026.05.15.zip.part002".into(),
+                sha256: "3ae8536b4cf7f1333c6a5fb494387f42ff03327b7e52ac3b9d7ef93d9b430bfb".into(),
+                size: 1_180_269_646,
+            },
+        ],
+    }
 }
 
 fn download_verified_chunk(
@@ -540,5 +552,26 @@ fn sidecar_exe_name() -> &'static str {
         "magpie-sidecar.exe"
     } else {
         "magpie-sidecar"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delivery_descriptor_is_exact_and_host_owned() {
+        let manifest = fetch_manifest().unwrap();
+        validate_manifest(&manifest).unwrap();
+        assert_eq!(manifest.chunks.len(), 2);
+        assert!(manifest.chunks.iter().all(|chunk| {
+            chunk
+                .url
+                .contains("/releases/download/sgt-runtime-bundles/sgt-magpie-runtime-2026.05.15")
+        }));
+
+        let mut tampered = manifest;
+        tampered.chunks[0].sha256.replace_range(..1, "0");
+        assert!(validate_manifest(&tampered).is_err());
     }
 }

@@ -10,7 +10,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -18,7 +17,6 @@ import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.downloader.DownloaderHolder
 import dev.screengoated.toolbox.mobile.downloader.DownloaderViewModel
 import dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus
-import dev.screengoated.toolbox.mobile.downloader.UpdateStatus
 import dev.screengoated.toolbox.mobile.downloader.ui.DownloaderScreen
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
@@ -47,6 +45,8 @@ internal fun DownloaderToolsCard(
                 ToolInstallStatus.DOWNLOADING -> locale.dlDepsDownloading
                 ToolInstallStatus.EXTRACTING -> locale.dlDepsExtracting
                 ToolInstallStatus.CHECKING -> locale.dlDepsChecking
+                ToolInstallStatus.REMOVAL_PENDING ->
+                    downloaderState.ytdlp.error ?: "Removal pending"
                 ToolInstallStatus.ERROR -> downloaderState.ytdlp.error ?: locale.dlStatusError
                 ToolInstallStatus.MISSING -> locale.dlDepsNotInstalled
             },
@@ -70,8 +70,6 @@ internal fun DownloaderToolsCard(
             } else {
                 null
             },
-            updateText = downloaderUpdateText(downloaderState.ytdlpUpdate, locale),
-            updateColor = downloaderUpdateColor(downloaderState.ytdlpUpdate),
             action = when (downloaderState.ytdlp.status) {
                 ToolInstallStatus.MISSING,
                 ToolInstallStatus.ERROR -> ToolAction(
@@ -80,11 +78,19 @@ internal fun DownloaderToolsCard(
                     onClick = { downloaderRepository.installTools() },
                 )
                 ToolInstallStatus.INSTALLED -> ToolAction(
-                    text = if (downloaderState.ytdlpUpdate == UpdateStatus.CHECKING) "..." else locale.downloader.toolUpdate,
-                    role = ToolActionRole.TONAL,
-                    enabled = downloaderState.ytdlpUpdate != UpdateStatus.CHECKING,
-                    onClick = { downloaderRepository.checkUpdates() },
+                    text = locale.downloader.toolDelete,
+                    role = ToolActionRole.DESTRUCTIVE,
+                    onClick = { downloaderRepository.deleteTools() },
                 )
+                ToolInstallStatus.REMOVAL_PENDING -> downloaderState.ytdlp
+                    .takeIf { it.retryable }
+                    ?.let {
+                        ToolAction(
+                            text = locale.downloader.toolDelete,
+                            role = ToolActionRole.DESTRUCTIVE,
+                            onClick = { downloaderRepository.deleteTools() },
+                        )
+                    }
                 else -> null
             },
         )
@@ -93,6 +99,8 @@ internal fun DownloaderToolsCard(
             icon = R.drawable.ms_display_settings,
             statusText = if (downloaderState.ffmpeg.status == ToolInstallStatus.INSTALLED) {
                 downloaderState.ffmpeg.version ?: locale.dlDepsReady
+            } else if (downloaderState.ffmpeg.status == ToolInstallStatus.REMOVAL_PENDING) {
+                downloaderState.ffmpeg.error ?: "Removal pending"
             } else {
                 locale.dlDepsNotInstalled
             },
@@ -112,14 +120,28 @@ internal fun DownloaderToolsCard(
             } else {
                 null
             },
-            action = if (downloaderState.ffmpeg.status == ToolInstallStatus.MISSING) {
-                ToolAction(
+            action = when (downloaderState.ffmpeg.status) {
+                ToolInstallStatus.MISSING,
+                ToolInstallStatus.ERROR -> ToolAction(
                     text = locale.dlDepsInstall,
                     role = ToolActionRole.TONAL,
                     onClick = { downloaderRepository.installTools() },
                 )
-            } else {
-                null
+                ToolInstallStatus.INSTALLED -> ToolAction(
+                    text = locale.downloader.toolDelete,
+                    role = ToolActionRole.DESTRUCTIVE,
+                    onClick = { downloaderRepository.deleteTools() },
+                )
+                ToolInstallStatus.REMOVAL_PENDING -> downloaderState.ffmpeg
+                    .takeIf { it.retryable }
+                    ?.let {
+                        ToolAction(
+                            text = locale.downloader.toolDelete,
+                            role = ToolActionRole.DESTRUCTIVE,
+                            onClick = { downloaderRepository.deleteTools() },
+                        )
+                    }
+                else -> null
             },
         )
     }
@@ -133,24 +155,4 @@ internal fun DownloaderScreenWrapper(locale: MobileLocaleText, onBack: () -> Uni
         factory = DownloaderViewModel.factory(DownloaderHolder.get(context)),
     )
     DownloaderScreen(viewModel = vm, locale = locale, onBack = onBack)
-}
-
-private fun downloaderUpdateText(
-    status: UpdateStatus,
-    locale: MobileLocaleText,
-): String? = when (status) {
-    UpdateStatus.UPDATE_AVAILABLE -> locale.downloader.toolUpdated
-    UpdateStatus.UP_TO_DATE -> locale.downloader.toolUpToDate
-    UpdateStatus.CHECKING -> locale.downloader.toolUpdating
-    UpdateStatus.ERROR -> locale.downloader.toolUpdateFailed
-    else -> null
-}
-
-@Composable
-private fun downloaderUpdateColor(
-    status: UpdateStatus,
-): Color = when (status) {
-    UpdateStatus.UPDATE_AVAILABLE -> MaterialTheme.colorScheme.primary
-    UpdateStatus.ERROR -> MaterialTheme.colorScheme.error
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }

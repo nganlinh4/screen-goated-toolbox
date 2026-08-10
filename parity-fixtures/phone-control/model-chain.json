@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "live_session": {
     "api_model": "gemini-3.1-flash-live-preview",
     "thinking_config": {
@@ -24,8 +24,8 @@
   "grounding": {
     "catalog_chain": "computer_control_grounding",
     "models": [
-      "google-gemini-3-5-flash-lite-vision",
-      "google-gemini-3-1-flash-lite-vision"
+      "google-gemini-robotics-er-2-vision",
+      "google-gemini-3-5-flash-lite-vision"
     ],
     "environment_override": "CC_VISION_MODEL",
     "override_replaces_default_chain": true,

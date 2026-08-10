@@ -201,8 +201,7 @@ mod tests {
             ..StreamingTranscript::default()
         };
 
-        let payload =
-            result_payload(&transcript, "the previous suffix", 2, 0, false, 0, 0, 0);
+        let payload = result_payload(&transcript, "the previous suffix", 2, 0, false, 0, 0, 0);
         assert!(payload.contains(r#""fixed_text":"then""#));
     }
 
@@ -215,8 +214,7 @@ mod tests {
             ..StreamingTranscript::default()
         };
 
-        let (local_text, local_fixed, local_draft) =
-            local_transcript_fields(&transcript, "the");
+        let (local_text, local_fixed, local_draft) = local_transcript_fields(&transcript, "the");
         assert_eq!(local_text, "re was more");
         assert_eq!(local_fixed, "re");
         assert_eq!(local_draft, " was more");

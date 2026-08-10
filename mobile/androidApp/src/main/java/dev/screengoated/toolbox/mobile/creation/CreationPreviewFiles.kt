@@ -9,6 +9,8 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
 internal class CreationPreviewFiles(private val files: CreationFileStore) {
+    private val viewerModels = CreationViewerModelFiles(files)
+
     suspend fun materialize(path: String, extension: String): File = withContext(Dispatchers.IO) {
         if (extension.equals("glb", ignoreCase = true)) {
             creationModelPreviewLane.withLock {
@@ -22,21 +24,14 @@ internal class CreationPreviewFiles(private val files: CreationFileStore) {
         }
     }
 
-    suspend fun wireframe(path: String): File = withContext(Dispatchers.IO) {
+    suspend fun viewerModel(path: String): File = withContext(Dispatchers.IO) {
         creationModelPreviewLane.withLock {
             coroutineContext.ensureActive()
-            val source = files.materializePreview(path, "glb")
-            val target = File(source.parentFile, "${source.nameWithoutExtension}.wireframe.glb")
-            if (!target.isFile ||
-                target.length() == 0L ||
-                target.lastModified() < source.lastModified()
-            ) {
-                CreationWireframeGlb.create(source, target)
-            }
-            coroutineContext.ensureActive()
-            target
+            viewerModels.materialize(path).also { coroutineContext.ensureActive() }
         }
     }
+
+    fun releaseViewerModel(file: File): Boolean = viewerModels.release(file)
 
     suspend fun readSvg(path: String): String = withContext(Dispatchers.IO) {
         files.readBytes(path, CreationContract.MAXIMUM_SVG_ARTIFACT_BYTES).decodeToString()

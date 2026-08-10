@@ -1,9 +1,11 @@
+#[cfg(not(feature = "recorder-worker"))]
 use std::time::Instant;
 
 use super::SegmentOutcome;
 
 #[derive(Clone)]
 pub(super) enum S2sEvent {
+    #[cfg(not(feature = "recorder-worker"))]
     Queued {
         id: u64,
         audio_ms: usize,
@@ -28,6 +30,7 @@ pub(super) enum S2sEvent {
         id: u64,
         message: String,
     },
+    #[cfg(not(feature = "recorder-worker"))]
     LiveText {
         source_full: String,
         source_committed_len: usize,

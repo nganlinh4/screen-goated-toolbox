@@ -100,7 +100,7 @@ Confirm `help-index.json` changed for the intended source tree and contains no l
 ```powershell
 cargo test
 cargo clippy --all-targets -- -D warnings
-.\scripts\validate-windows-targets.ps1 -Arch x64
+.\scripts\validate-windows-targets.ps1
 ```
 
 Run relevant frontend/mobile tests for changed subsystems. Do not waive failures to cut a release.
@@ -121,9 +121,11 @@ Android host builds until every item is complete:
 3. Regenerate the Windows, Android, and combined delivery manifests only after
    all runtime artifacts have been rebuilt. Never reuse an earlier manifest.
    The combined manifest must advertise exactly `image_to_3d`.
-4. Replace every creation-runtime binary and manifest on the existing GitHub
-   runtime-bundles release. An Android-only refresh or a local-only build is not
-   a completed runtime release.
+4. Upload every rebuilt runtime under a new, uniquely versioned asset name on
+   the existing GitHub runtime-bundles release. Never replace or delete an asset
+   referenced by a released host; older signed hosts must keep resolving the
+   exact bytes they were built to verify. An Android-only refresh or a
+   local-only build is not a completed runtime release.
 5. Query the GitHub release again and verify every uploaded asset's name, size,
    and checksum against the newly generated manifests.
 6. Use that exact verified combined delivery manifest for all subsequent
@@ -136,6 +138,7 @@ gitignored `local-runtime-bundles/sgt_creation_runtime/`.
 ```powershell
 .\native\sgt_3d_generator_runtime\scripts\build_exe.ps1
 .\native\sgt_3d_generator_runtime\scripts\build_android_runtime.ps1 -CopyToBundleDirectory
+py -3 .\scripts\verify_creation_runtime_release.py
 $env:SGT_CREATION_RUNTIME_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_creation_runtime\sgt_creation_runtime.delivery.json'
 ```
 
@@ -148,6 +151,186 @@ and Android Play. It supplies private delivery locations and integrity metadata
 at build time; never copy those values into tracked host source, fixtures,
 tests, or documentation. A host built without the manifest must fail closed and
 report that the creation engine is not included.
+
+The `sgt-runtime-bundles` tag is an append-only artifact store. Every executable,
+native library, model, or WebView pack uses a unique asset name and an exact
+size/SHA-256 recorded in the signed host build. HTTPS is transport, not trust:
+hosts reject bytes that do not match the pinned delivery record. Release
+automation must fail if an upload would overwrite an existing asset.
+
+### Mandatory Windows mini-app web-pack checkpoint
+
+The 3D Creation, PromptDJ, and TTS Playground interfaces ship as optional,
+removable Windows components rather than bytes embedded in the desktop host.
+Complete this checkpoint before `build.ps1`:
+
+1. Build the three reviewed frontends and create deterministic ZIP packages.
+2. Upload every newly generated, content-addressed ZIP to the existing
+   `sgt-runtime-bundles` release. Never replace or delete an older pack.
+3. Read the release back and generate delivery metadata only after the remote
+   names, sizes, and SHA-256 values match the local packages.
+4. Keep the verified delivery manifest at the path below. `build.ps1` rebuilds
+   the packs and stops if the frontend bytes differ from that manifest.
+
+```powershell
+.\scripts\build-web-asset-packs.ps1
+# Upload only the new ZIP files listed in the generated packages manifest.
+py -3 .\scripts\verify_web_asset_release.py
+$env:SGT_WEB_ASSET_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_web_assets\sgt_web_assets.delivery.json'
+```
+
+The verifier is read-only: it downloads the published assets and hashes their
+actual bytes before emitting host delivery data. A build without verified
+delivery data keeps core startup working but reports the affected interface as
+unavailable on first use; it never guesses a download location.
+
+### Mandatory Windows external-tool checkpoint
+
+yt-dlp, FFmpeg/ffprobe, and Deno are independently removable x64 components.
+The WebView2 Evergreen bootstrapper is also pinned here, but the Microsoft-managed
+WebView2 Runtime it installs is shared system software and is never removed by SGT.
+Reproduce the reviewed packages, upload only the new content-addressed FFmpeg and
+WebView2 assets, then read every remote byte back before building the host:
+
+```powershell
+.\scripts\build-external-tool-packs.ps1
+# Upload only the new SGT assets listed by sgt_external_tools.packages.json.
+# yt-dlp and Deno remain on their immutable upstream version tags.
+py -3 .\scripts\verify_external_tool_release.py
+$env:SGT_EXTERNAL_TOOL_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_external_tools\sgt_external_tools.delivery.json'
+```
+
+The verifier checks exact archive and installed-file inventories. It additionally
+requires the reviewed WebView2 file version, Microsoft publisher, and valid
+Authenticode signature. `build.ps1` stops before compiling when the read-back
+manifest is absent, targets another host version, or differs from the reviewed
+local artifacts.
+
+Microsoft's [Evergreen distribution guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/evergreen-vs-fixed-version)
+explicitly permits downloading the Evergreen bootstrapper and packaging it with
+an app. SGT uses that redistribution option for the exact verified bootstrapper
+copy only. The bootstrapper installs Microsoft's shared, automatically serviced
+Runtime; SGT does not package or uninstall that system Runtime.
+
+### Mandatory Windows model-delivery checkpoint
+
+Windows model payloads are independent removable components. Use
+`scripts/package_windows_models.py` with the reviewed source directory to
+produce the canonical ignored package directory, regenerate the tracked
+delivery file deterministically, then verify both the local inventories and
+their immutable remote objects:
+
+```powershell
+py -3 .\scripts\generate_windows_model_delivery.py --package-manifest .\local-runtime-bundles\sgt_windows_models\sgt_windows_model_packages.json --output .\model-delivery\windows-v1.json
+py -3 .\scripts\verify_windows_model_release.py --package-manifest .\local-runtime-bundles\sgt_windows_models\sgt_windows_model_packages.json --delivery-manifest .\model-delivery\windows-v1.json --remote
+$env:SGT_WINDOWS_MODEL_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_windows_models\sgt_windows_model_packages.json'
+```
+
+The canonical build repeats deterministic generation comparison and hashes
+every local archive and installed-file entry before compilation. Remote
+verification is a separate mandatory release checkpoint because some immutable
+model objects are too large to download again during every host build.
+
+### Mandatory Windows VC support checkpoint
+
+The shared x64 VC support package is independently versioned and removable.
+Prepare and verify it with the same append-only release rule before a Windows
+release build:
+
+```powershell
+.\scripts\build-vc-runtime-pack.ps1
+# Upload only the new ZIP named by sgt_vc_runtime.packages.json.
+py -3 .\scripts\verify_vc_runtime_release.py
+$env:SGT_VC_RUNTIME_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_vc_runtime\sgt_vc_runtime.delivery.json'
+```
+
+The pack contains an exact per-file size/SHA-256 contract as well as the
+archive size/SHA-256. `build.ps1` rejects a local pack that differs from the
+read-back-verified delivery record. The statically linked host embeds no VC
+payload and does not download one during startup. Each optional native feature
+ensures this component at first use and retains its lease for the full native or
+worker lifetime.
+
+### Mandatory Qwen3 CUDA runtime checkpoint
+
+Qwen3 uses one small runtime/notices pack and two content-addressed libtorch
+packs, each below GitHub's per-asset limit. The selected runtime inventory and
+all required notices are exact files in the delivery manifest.
+
+```powershell
+.\scripts\build-qwen3-runtime-pack.ps1
+# Upload only the three new ZIPs listed in sgt_qwen3_runtime.packages.json.
+py -3 .\scripts\verify_qwen3_runtime_release.py
+$env:SGT_QWEN3_RUNTIME_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json'
+```
+
+The verifier hashes the uploaded bytes before emitting host delivery data.
+Never replace either split libtorch pack, even when a newer host stops using it.
+
+### Mandatory local ASR checkpoint
+
+Local ASR ships a standalone x64 worker and a separate ONNX/DirectML runtime;
+the latter depends on the VC component. Build and package them explicitly, then
+upload only their new content-addressed ZIPs and read them back before building
+the host:
+
+```powershell
+.\scripts\build-local-asr-packs.ps1
+# Upload only the two new ZIPs listed in sgt_local_asr.packages.json.
+py -3 .\scripts\verify_local_asr_release.py
+$env:SGT_LOCAL_ASR_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_local_asr\sgt_local_asr.delivery.json'
+```
+
+`build.ps1` never builds or embeds these native packages. It requires the
+read-back-verified manifest and fails before compiling the host when it is
+absent.
+
+### Mandatory Screen Recorder checkpoint
+
+Screen Recorder ships as two independently removable x64 components: the
+standalone native worker and its frontend. Reproduce the content-addressed
+packages, upload only those new immutable ZIPs, then verify the remote bytes:
+
+```powershell
+.\scripts\build-recorder-component-packs.ps1
+# Upload only the two new ZIPs listed in sgt_recorder.packages.json.
+py -3 .\scripts\verify_recorder_release.py
+$env:SGT_RECORDER_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_recorder\sgt_recorder.delivery.json'
+```
+
+The worker package includes its exact third-party license inventory. The host
+build fails closed when either remote package is missing or differs from the
+read-back-verified size, SHA-256, or file inventory. Never replace an existing
+runtime-bundles asset.
+
+### Mandatory Computer Control engine checkpoint
+
+Computer Control keeps credentials, provider transport, audio, observations,
+confirmations, effects, receipts, and process supervision in the signed host.
+Its data-only planning and provider-protocol engine is a separate removable x64
+component. Reproduce it, upload only its new content-addressed ZIP, then verify
+the published bytes:
+
+```powershell
+.\scripts\build-computer-control-engine-pack.ps1
+# Upload only the new ZIP named by sgt_computer_control.packages.json.
+py -3 .\scripts\verify_computer_control_release.py
+$env:SGT_COMPUTER_CONTROL_DELIVERY_MANIFEST = (Resolve-Path '.\local-runtime-bundles\sgt_computer_control\sgt_computer_control.delivery.json').Path
+```
+
+The component contains the x64 engine plus its complete resolved third-party
+license inventory and notices. `build.ps1` rebuilds the engine and fails closed
+unless the result exactly matches the asset that the verifier downloaded from
+the append-only runtime-bundles release.
+
+### Mandatory host-carried notice checkpoint
+
+The compact language catalog remains host-carried data even though the upstream
+runtime crate is no longer linked. Keep
+`native/language_catalog/THIRD-PARTY-NOTICES.txt` with the release source and
+verify its isolang 2.4.0 Apache-2.0 attribution before signing. Do not restore
+the upstream language-table payload; the derived catalog parity tests must
+continue to cover all mappings.
 
 ## 6. Build Windows
 

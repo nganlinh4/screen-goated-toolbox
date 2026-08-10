@@ -39,11 +39,8 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     private val leases = CreationWorkerLeaseRegistry()
     private val preparationFailures = CreationPreparationFailureRegistry()
     private val leaseLock = Any()
-    private val startupQueue = ArrayDeque(CreationTool.entries.filter(::creationToolReleased))
     private val surfacePriority = ArrayDeque<CreationTool>()
-    private var startupActive: CreationTool? = null
     private var activePreparationTool: CreationTool? = null
-    private var startupStarted = false
     @Volatile private var runtimeAwaiting = false
     @Volatile private var preparationStateListener: (() -> Unit)? = null
 
@@ -51,10 +48,8 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         if (!creationToolReleased(tool)) return
         synchronized(leaseLock) {
             leases.acquire(tool, owner)
-            if (owner != STARTUP_LEASE) {
-                surfacePriority.remove(tool)
-                surfacePriority.addFirst(tool)
-            }
+            surfacePriority.remove(tool)
+            surfacePriority.addFirst(tool)
         }
         schedulePreparation()
     }
@@ -80,20 +75,6 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         preparationStateListener = listener
     }
 
-    fun startOneShotPreparation() {
-        synchronized(leaseLock) {
-            if (startupStarted) return
-            startupStarted = true
-        }
-        handler.postDelayed(
-            {
-                val start = synchronized(leaseLock) { nextStartupToolLocked() }
-                start?.let { acquire(it, STARTUP_LEASE) }
-            },
-            STARTUP_PREPARATION_DELAY_MS,
-        )
-    }
-
     private fun schedulePreparation() {
         if (runtime.factory() == null) {
             runtime.startInstall()
@@ -112,7 +93,6 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                 preparationFailures.available(leases.retainedTools()),
                 ready,
                 surfacePriority.toList(),
-                startupActive,
             )
             activePreparationTool = next
             next to previous?.takeIf { it != next }
@@ -142,6 +122,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             is CreationRuntimeStatus.Downloading -> return "busy"
             is CreationRuntimeStatus.Missing,
             is CreationRuntimeStatus.Failed,
+            is CreationRuntimeStatus.RemovalPending,
             -> return "unavailable"
             is CreationRuntimeStatus.Ready -> Unit
         }
@@ -443,25 +424,18 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                     matching.indexOf(worker),
                 )
             }
-            val failedStartup = synchronized(leaseLock) {
-                if (hasAlternative) return@synchronized false
-                preparationFailures.markFailed(worker.tool)
-                activePreparationTool = activeCreationPreparationAfterFailure(
-                    activePreparationTool,
-                    worker.tool,
-                )
-                (startupActive == worker.tool).also { failed ->
-                    if (failed) startupActive = null
+            if (!hasAlternative) {
+                synchronized(leaseLock) {
+                    preparationFailures.markFailed(worker.tool)
+                    activePreparationTool = activeCreationPreparationAfterFailure(
+                        activePreparationTool,
+                        worker.tool,
+                    )
                 }
             }
             handleWorkerLoss(worker, call.epoch, reschedule = !hasAlternative)
             if (hasAlternative) {
                 handler.postDelayed(::schedulePreparation, PREPARATION_RETRY_DELAY_MS)
-            }
-            if (failedStartup) {
-                release(worker.tool, STARTUP_LEASE)
-                val next = synchronized(leaseLock) { nextStartupToolLocked() }
-                next?.let { acquire(it, STARTUP_LEASE) }
             }
             preparationStateListener?.invoke()
         }
@@ -475,27 +449,13 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             schedulePreparation()
             return
         }
-        val startupCompleted = synchronized(leaseLock) {
+        synchronized(leaseLock) {
             if (activePreparationTool != tool) return
             activePreparationTool = null
             surfacePriority.remove(tool)
-            if (startupActive == tool) {
-                startupActive = null
-                true
-            } else {
-                false
-            }
-        }
-        if (startupCompleted) {
-            release(tool, STARTUP_LEASE)
-            val next = synchronized(leaseLock) { nextStartupToolLocked() }
-            next?.let { acquire(it, STARTUP_LEASE) }
         }
         schedulePreparation()
     }
-
-    private fun nextStartupToolLocked(): CreationTool? =
-        startupQueue.removeFirstOrNull()?.also { startupActive = it }
 
     private fun callback(
         worker: Worker,
@@ -577,9 +537,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
 
     companion object {
         private const val TAG = "CreationWorkerPool"
-        private const val STARTUP_LEASE = "startup"
         private const val PREPARATION_RETRY_DELAY_MS = 15_000L
-        private const val STARTUP_PREPARATION_DELAY_MS = 2_000L
         private val TERMINAL_EVENTS = setOf("success", "failure", "cancelled")
         @Volatile private var instance: CreationWorkerPool? = null
 

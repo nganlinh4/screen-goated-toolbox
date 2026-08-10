@@ -1,6 +1,4 @@
 param(
-    [ValidateSet("x64", "arm64", "all")]
-    [string]$Arch = "all",
     [switch]$SkipSetup
 )
 
@@ -26,23 +24,14 @@ function Ensure-RustTarget([string]$Target) {
     }
 }
 
-function Ensure-LlvmOnPath() {
-    $llvmBin = "C:\Program Files\LLVM\bin"
-    if (!(Test-Path (Join-Path $llvmBin "clang.exe"))) {
-        throw "clang.exe not found under $llvmBin. Install LLVM first."
-    }
-    if (-not (($env:Path -split ';') -contains $llvmBin)) {
-        $env:Path = "$llvmBin;$env:Path"
-    }
-}
-
-function Invoke-CargoCheck([string]$Target, [string]$DevArch) {
+function Invoke-CargoCheck() {
+    $Target = "x86_64-pc-windows-msvc"
     $cmdPath = Join-Path $env:TEMP "sgt-validate-$($Target.Replace('-', '_')).cmd"
     $logPath = Join-Path $repoRoot "target\validation-$($Target.Replace('-', '_')).log"
 
     $lines = @(
         "@echo off",
-        "call `"$vsPath\Common7\Tools\VsDevCmd.bat`" -arch=$DevArch -host_arch=x64",
+        "call `"$vsPath\Common7\Tools\VsDevCmd.bat`" -arch=amd64 -host_arch=x64",
         "cd /d `"$repoRoot`"",
         "cargo check --target $Target > `"$logPath`" 2>&1",
         "exit /b %ERRORLEVEL%"
@@ -61,21 +50,9 @@ function Invoke-CargoCheck([string]$Target, [string]$DevArch) {
 }
 
 if (-not $SkipSetup) {
-    if ($Arch -eq "x64" -or $Arch -eq "all") {
-        Ensure-RustTarget "x86_64-pc-windows-msvc"
-    }
-    if ($Arch -eq "arm64" -or $Arch -eq "all") {
-        Ensure-RustTarget "aarch64-pc-windows-msvc"
-        Ensure-LlvmOnPath
-    }
+    Ensure-RustTarget "x86_64-pc-windows-msvc"
 }
 
-if ($Arch -eq "x64" -or $Arch -eq "all") {
-    Invoke-CargoCheck -Target "x86_64-pc-windows-msvc" -DevArch "amd64"
-}
+Invoke-CargoCheck
 
-if ($Arch -eq "arm64" -or $Arch -eq "all") {
-    Invoke-CargoCheck -Target "aarch64-pc-windows-msvc" -DevArch "arm64"
-}
-
-Write-Host "All requested Windows target checks passed."
+Write-Host "Windows x64 target check passed."

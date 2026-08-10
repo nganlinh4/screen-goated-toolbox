@@ -18,8 +18,8 @@ use super::super::manager::TtsManager;
 use super::super::types::{AudioEvent, QueuedRequest};
 use super::open_weights::{fail_request, stream_pcm_samples};
 use crate::api::realtime_audio::step_audio_assets::{
-    download_step_audio_model, get_step_audio_editx_dir, get_step_audio_tokenizer_dir,
-    is_step_audio_model_downloaded, is_step_audio_model_downloading,
+    acquire_step_audio_model, download_step_audio_model, get_step_audio_editx_dir,
+    get_step_audio_tokenizer_dir, is_step_audio_model_downloaded, is_step_audio_model_downloading,
 };
 use crate::api::realtime_audio::step_audio_runtime::{
     download_step_audio_runtime, get_step_audio_runtime_entrypoint,
@@ -84,6 +84,8 @@ struct StepAudioSidecarClient {
     stdin: ChildStdin,
     rx: mpsc::Receiver<String>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
+    _support: super::native_support::NativeSidecarSupport,
+    _model_use: crate::component_registry::models::ModelUse,
 }
 
 impl Drop for StepAudioSidecarClient {
@@ -109,6 +111,7 @@ impl StepAudioCancel {
         }
     }
 
+    #[cfg(not(feature = "recorder-worker"))]
     fn for_token(cancel: Option<Arc<AtomicBool>>) -> Self {
         Self {
             manager: None,
@@ -255,6 +258,7 @@ fn resolve_reference_voice(settings: &crate::config::StepAudioSettings) -> (Stri
     (String::new(), String::new())
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn synthesize_step_audio_edit_to_wav(
     source_audio_path: String,
     source_text: String,
@@ -297,6 +301,7 @@ pub fn synthesize_step_audio_edit_to_wav(
     })
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 fn ensure_step_audio_ready() -> Result<()> {
     if !is_step_audio_model_downloaded() {
         bail!("Step Audio EditX model and tokenizer are not installed");
@@ -409,27 +414,36 @@ fn run_sidecar_once(
 }
 
 fn start_sidecar() -> Result<StepAudioSidecarClient> {
+    let model_use = acquire_step_audio_model()?;
     let entrypoint = get_step_audio_runtime_entrypoint()?;
-    let mut child = Command::new(&entrypoint)
+    let support = super::native_support::NativeSidecarSupport::ensure()?;
+    let mut command = Command::new(&entrypoint);
+    support.configure(&mut command)?;
+    command
+        .env("HF_HUB_OFFLINE", "1")
+        .env("TRANSFORMERS_OFFLINE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| {
-            format!(
-                "Failed to start Step Audio sidecar '{}'",
-                entrypoint.display()
-            )
-        })?;
-    let stdin = child
+        .stderr(Stdio::piped());
+    let child = command.spawn().with_context(|| {
+        format!(
+            "Failed to start Step Audio sidecar '{}'",
+            entrypoint.display()
+        )
+    })?;
+    let mut pending = super::sidecar::PendingSidecar::new(child);
+    let stdin = pending
+        .child_mut()
         .stdin
         .take()
         .context("Step Audio sidecar stdin was unavailable")?;
-    let stdout = child
+    let stdout = pending
+        .child_mut()
         .stdout
         .take()
         .context("Step Audio sidecar stdout was unavailable")?;
-    let stderr = child
+    let stderr = pending
+        .child_mut()
         .stderr
         .take()
         .context("Step Audio sidecar stderr was unavailable")?;
@@ -476,10 +490,12 @@ fn start_sidecar() -> Result<StepAudioSidecarClient> {
         })
         .context("Failed to spawn Step Audio stderr reader")?;
     Ok(StepAudioSidecarClient {
-        child,
+        child: pending.finish(),
         stdin,
         rx,
         stderr_tail,
+        _support: support,
+        _model_use: model_use,
     })
 }
 

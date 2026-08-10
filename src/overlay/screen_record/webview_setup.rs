@@ -15,7 +15,6 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::WebViewBuilderExtWindows;
 use wry::{Rect, WebContext, WebViewBuilder};
 
-use crate::assets::GOOGLE_SANS_FLEX;
 use crate::win_types::SendHwnd;
 
 use super::window_proc::sr_wnd_proc;
@@ -135,16 +134,10 @@ pub(super) unsafe fn internal_create_sr_loop() {
 
         std::thread::sleep(std::time::Duration::from_millis(100));
 
-        let font_style_tag = r#"<style id="sgt-font-face">
-        @font-face {
-            font-family: 'Google Sans Flex';
-            src: url('/font.ttf') format('truetype');
-            font-weight: 100 1000;
-            font-style: normal;
-            font-display: swap;
-        }
-    </style>"#
-            .to_string();
+        let font_style_tag = format!(
+            "<style id=\"sgt-font-face\">{}</style>",
+            crate::overlay::html_components::font_manager::get_font_css()
+        );
 
         // Read initial theme/lang from config
         let (init_lang, init_theme_mode) = {
@@ -291,9 +284,6 @@ unsafe fn build_webview(
                 let themed_html_root = themed_html_root.clone();
                 move |_id, request| {
                     let path = request.uri().path();
-                    if path == "/font.ttf" {
-                        return wnd_http_response(200, "font/ttf", Cow::Borrowed(GOOGLE_SANS_FLEX));
-                    }
                     if let Some(bytes) = try_read_runtime_cursor_svg(path) {
                         return wnd_http_response(200, "image/svg+xml", Cow::Owned(bytes));
                     }
@@ -302,14 +292,21 @@ unsafe fn build_webview(
                     }
                     let (content, mime) = if path == "/" || path == "/index.html" {
                         // Inject initial theme class and font CSS into HTML <head> before React mounts.
-                        let html = String::from_utf8_lossy(embedded_assets::INDEX_HTML);
+                        let Some(index_html) = embedded_assets::index_html() else {
+                            return wnd_http_response(
+                                503,
+                                "text/plain",
+                                Cow::Borrowed(b"Recorder interface unavailable".as_slice()),
+                            );
+                        };
+                        let html = String::from_utf8_lossy(&index_html);
                         let themed = html.replace("<html lang=\"en\">", &themed_html_root);
                         let modified =
                             themed.replace("</head>", &format!("{font_style_tag}</head>"));
                         (Cow::Owned(modified.into_bytes()), "text/html")
                     } else if let Some((bytes, mime)) = embedded_assets::lookup_packaged_asset(path)
                     {
-                        (Cow::Borrowed(bytes), mime)
+                        (Cow::Owned(bytes), mime)
                     } else {
                         return wnd_http_response(
                             404,
@@ -329,14 +326,17 @@ unsafe fn build_webview(
             })
             .with_url("screenrecord://localhost/index.html");
 
-        if let Ok(extra_args) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS")
-            && !extra_args.trim().is_empty() {
-                let args = format!(
-                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required {extra_args}",
-                );
-                crate::log_info!("[ScreenRecord] WebView2 additional args: {args}");
-                builder = builder.with_additional_browser_args(args);
-            }
+        if let Some(port) = std::env::var("SGT_RECORDER_WEBVIEW2_DEBUG_PORT")
+            .ok()
+            .and_then(|raw| raw.parse::<u16>().ok())
+            .filter(|port| *port > 0)
+        {
+            let args = format!(
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --remote-debugging-port={port} --remote-debugging-address=127.0.0.1",
+            );
+            crate::log_info!("[ScreenRecord] WebView2 smoke debugging enabled on port {port}");
+            builder = builder.with_additional_browser_args(args);
+        }
 
         builder = crate::overlay::html_components::font_manager::configure_webview(builder);
         builder.build_as_child(wrapper)

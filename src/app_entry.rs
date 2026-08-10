@@ -18,6 +18,7 @@ pub(crate) fn run() -> eframe::Result<()> {
         }
         return Ok(());
     }
+    crate::component_registry::embedded_catalog();
 
     if crate::initialization::setup_console_utf8() {
         println!("[Console] UTF-8 input/output enabled");
@@ -46,9 +47,7 @@ pub(crate) fn run() -> eframe::Result<()> {
     };
     crate::initialization::setup_crash_handler(crash_report_mode);
 
-    crate::unpack_dlls::unpack_dlls();
-
-    if let Some(exit_code) = headless::run_post_unpack(&startup_args) {
+    if let Some(exit_code) = headless::run_after_bootstrap(&startup_args) {
         std::process::exit(exit_code);
     }
 
@@ -57,13 +56,34 @@ pub(crate) fn run() -> eframe::Result<()> {
     let result_compositor_smoke = startup_args.result_compositor_smoke();
     let isolated_ui_test =
         screen_record_wry_smoke || creation_ui_test.is_some() || result_compositor_smoke;
+
+    let _ = crate::RESTORE_EVENT.as_ref();
+    // Establish process ownership before cleanup, installation, registry edits,
+    // or update application. Component operations also hold their own named
+    // mutation mutex for headless/test processes that intentionally bypass the
+    // desktop singleton.
+    let primary_instance = match single_instance::acquire(&startup_args, isolated_ui_test) {
+        InstanceOutcome::Primary(instance) => instance,
+        InstanceOutcome::SecondaryNotified => return Ok(()),
+    };
+    let _single_instance_mutex = primary_instance.guard;
+    if primary_instance.owns_activation {
+        crate::app_activation::start_listener();
+    }
+
     crate::startup_launch::maybe_delay_for_windows_autostart(startup_args.raw());
 
     crate::initialization::cleanup_temporary_files();
+    if let Err(error) = crate::component_registry::resume_pending_removals() {
+        crate::log_info!("[Components] Pending removal maintenance failed: {error}");
+    }
+    if let Err(error) = crate::component_registry::external_tools::reconcile_interrupted_installs()
+    {
+        crate::log_info!("[Components] External-tool staging maintenance failed: {error}");
+    }
 
-    // Preserve the existing ordering: installer startup happens before the
-    // single-instance decision and may spawn its background worker.
-    if !crate::runtime_support::webview2_runtime_installed() {
+    let webview2_ready = crate::runtime_support::webview2_runtime_installed();
+    if !webview2_ready {
         crate::log_info!("[WebView2] Runtime not detected — starting auto-install in background.");
         crate::runtime_support::start_webview2_runtime_install();
     } else {
@@ -79,20 +99,6 @@ pub(crate) fn run() -> eframe::Result<()> {
     crate::initialization::init_com_and_dpi();
     crate::initialization::enable_dark_mode_for_app();
     crate::initialization::apply_pending_updates();
-
-    let _ = crate::RESTORE_EVENT.as_ref();
-
-    // The handle must remain alive through the full eframe loop. Moving this
-    // guard inside `single_instance::acquire` would silently disable enforcement.
-    let primary_instance = match single_instance::acquire(&startup_args, isolated_ui_test) {
-        InstanceOutcome::Primary(instance) => instance,
-        InstanceOutcome::SecondaryNotified => return Ok(()),
-    };
-    let _single_instance_mutex = primary_instance.guard;
-
-    if primary_instance.owns_activation {
-        crate::app_activation::start_listener();
-    }
 
     if !isolated_ui_test {
         std::thread::spawn(crate::hotkey::run_hotkey_listener);
@@ -134,8 +140,6 @@ pub(crate) fn run() -> eframe::Result<()> {
     if result_compositor_smoke {
         std::process::exit(crate::overlay::result::smoke::run());
     }
-
-    crate::runtime_support::show_startup_compatibility_notice_if_needed();
 
     settings_window::run(screen_record_wry_smoke, creation_ui_test, pending_file_path)
 }

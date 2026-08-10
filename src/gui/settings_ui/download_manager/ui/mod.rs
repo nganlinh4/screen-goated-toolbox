@@ -7,12 +7,10 @@ mod ui_action;
 mod ui_main;
 
 use super::DownloadManager;
-use super::utils::has_nonempty_file;
 
 impl DownloadManager {
     fn has_deno_runtime(&self) -> bool {
-        has_nonempty_file(&self.bin_dir.join("deno.exe"))
-            || matches!(*self.deno_status.lock().unwrap(), InstallStatus::Installed)
+        matches!(*self.deno_status.lock().unwrap(), InstallStatus::Installed)
     }
 
     pub(super) fn set_cookie_browser_with_deno_guard(&mut self, browser: CookieBrowser) {

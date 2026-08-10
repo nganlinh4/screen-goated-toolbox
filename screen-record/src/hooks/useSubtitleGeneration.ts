@@ -52,6 +52,7 @@ import type {
   UseSubtitleGenerationParams,
 } from './subtitleGenerationTypes';
 import { useSubtitleResultApplication } from './useSubtitleResultApplication';
+import { useSubtitleSourceAvailability } from './useSubtitleSourceAvailability';
 import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
 import {
   clearResumableRun,
@@ -206,34 +207,17 @@ export function useSubtitleGeneration({
     clearQueuedSubtitleResults();
   }, [clearQueuedSubtitleResults, projectResetKey]);
 
-  const canUseVideoSource = useMemo(() => {
-    if (composition && getEffectiveCompositionMode(composition) === 'unified') {
-      return composition.clips.some((clip) => !!clip.rawVideoPath);
-    }
-    return !!currentRawVideoPath;
-  }, [composition, currentRawVideoPath]);
-
-  const canUseMicSource = useMemo(() => {
-    if (composition && getEffectiveCompositionMode(composition) === 'unified') {
-      return composition.clips.some((clip) => !!clip.rawMicAudioPath);
-    }
-    return !!currentRawMicAudioPath;
-  }, [composition, currentRawMicAudioPath]);
-
-  const canUseAudioSource = useMemo(() => {
-    return (composition?.audioSegments?.length ?? 0) > 0;
-  }, [composition]);
-
-  useEffect(() => {
-    if (sourceType.startsWith('audio:')) {
-      const id = sourceType.slice('audio:'.length);
-      if (!composition?.audioSegments?.some((segment) => segment.id === id)) {
-        setSourceType(composition?.audioSegments?.length ? 'audio' : 'video');
-      }
-    } else if (sourceType === 'audio' && !canUseAudioSource) {
-      setSourceType(canUseVideoSource ? 'video' : canUseMicSource ? 'mic' : 'video');
-    }
-  }, [canUseMicSource, canUseAudioSource, canUseVideoSource, composition?.audioSegments, sourceType]);
+  const {
+    canUseAudioSource,
+    canUseMicSource,
+    canUseVideoSource,
+  } = useSubtitleSourceAvailability({
+    composition,
+    currentRawMicAudioPath,
+    currentRawVideoPath,
+    setSourceType,
+    sourceType,
+  });
 
   const updateMethodCapability = useCallback((
     method: SubtitleMethod,

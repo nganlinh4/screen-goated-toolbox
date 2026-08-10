@@ -102,6 +102,11 @@ internal fun CreationActiveWorkbench(
     } else {
         item?.status?.outputName
     }
+    val outputSegmented = if (state.tab == CreationNativeTab.RESULTS) {
+        history?.metadata?.get("isSegmented")?.jsonPrimitive?.booleanOrNull
+    } else {
+        item?.status?.isSegmented
+    } ?: false
     val referencePaths = if (tool == CreationTool.IMAGE_CREATOR) {
         if (state.tab == CreationNativeTab.RESULTS && history != null) {
             CreationImageSessions.historyReferences(history)
@@ -129,9 +134,9 @@ internal fun CreationActiveWorkbench(
                     Box(Modifier.fillMaxSize()) {
                         CreationModelViewer(
                             outputPath = outputPath,
+                            segmented = outputSegmented,
                             viewModel = viewModel,
                             strings = locale.creationApps.model3d,
-                            accent = accent,
                         )
                         if (item?.stage in setOf(
                                 CreationNativeStage.QUEUED,

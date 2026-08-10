@@ -1,0 +1,16 @@
+Microsoft Visual C++ Runtime
+================================
+
+This component contains unmodified x64 Visual C++ runtime files from the
+Microsoft Visual Studio 2026 redistributable directory. Redistribution is
+subject to the Microsoft Visual Studio license terms held by the distributor.
+
+Distributable-code list:
+https://learn.microsoft.com/visualstudio/releases/2026/redistribution
+
+Supported Visual C++ redistributable downloads:
+https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist
+
+The runtime files remain Microsoft property. Screen Goated Toolbox claims no
+ownership of them and does not grant rights beyond Microsoft's applicable
+terms.

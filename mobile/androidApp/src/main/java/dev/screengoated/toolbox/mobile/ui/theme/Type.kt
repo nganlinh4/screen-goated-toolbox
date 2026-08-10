@@ -21,8 +21,6 @@ private fun roundedGoogleSansFlex(weight: FontWeight): Font {
         variationSettings = FontVariation.Settings(
             FontVariation.weight(weight.weight),
             FontVariation.Setting("ROND", 100f),
-            FontVariation.Setting("ROUN", 100f),
-            FontVariation.Setting("RNDS", 100f),
         ),
     )
 }

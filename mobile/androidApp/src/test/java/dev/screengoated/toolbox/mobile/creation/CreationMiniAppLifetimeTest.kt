@@ -158,16 +158,24 @@ class CreationMiniAppLifetimeTest {
     }
 
     @Test
-    fun `surface priority preempts remaining sequential startup preparation`() {
-        val selected = selectCreationPreparationTool(
-            active = null,
-            retained = CreationTool.entries.toSet(),
-            ready = setOf(CreationTool.IMAGE_TO_3D),
-            surfacePriority = listOf(CreationTool.IMAGE_CREATOR),
-            startup = CreationTool.IMAGE_TO_SVG,
+    fun `creation preparation starts only after a first use lease`() {
+        assertNull(
+            selectCreationPreparationTool(
+                active = null,
+                retained = emptySet(),
+                ready = emptySet(),
+                surfacePriority = listOf(CreationTool.IMAGE_CREATOR),
+            ),
         )
 
-        assertEquals(CreationTool.IMAGE_CREATOR, selected)
+        val selected = selectCreationPreparationTool(
+            active = null,
+            retained = setOf(CreationTool.IMAGE_TO_3D),
+            ready = emptySet(),
+            surfacePriority = listOf(CreationTool.IMAGE_TO_3D),
+        )
+
+        assertEquals(CreationTool.IMAGE_TO_3D, selected)
         assertEquals(2, CreationContract.maximumParallelJobs(requireNotNull(selected)))
         assertEquals(
             CreationTool.IMAGE_CREATOR,
@@ -176,17 +184,6 @@ class CreationMiniAppLifetimeTest {
                 retained = CreationTool.entries.toSet(),
                 ready = emptySet(),
                 surfacePriority = listOf(CreationTool.IMAGE_CREATOR),
-                startup = CreationTool.IMAGE_TO_3D,
-            ),
-        )
-        assertEquals(
-            CreationTool.IMAGE_CREATOR,
-            selectCreationPreparationTool(
-                active = CreationTool.IMAGE_TO_3D,
-                retained = CreationTool.entries.toSet(),
-                ready = emptySet(),
-                surfacePriority = listOf(CreationTool.IMAGE_CREATOR),
-                startup = CreationTool.IMAGE_TO_SVG,
             ),
         )
     }

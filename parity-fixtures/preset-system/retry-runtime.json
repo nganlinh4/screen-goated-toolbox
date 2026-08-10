@@ -30,26 +30,24 @@
   "model_priority_chains": {
     "image_to_text": [
       "google-gemini-3-5-flash-lite-vision",
-      "groq-qwen-3-6-27b-vision",
-      "openrouter-nemotron-3-nano-omni-30b-a3b-vision",
       "google-gemini-3-1-flash-lite-vision",
+      "groq-qwen-3-6-27b-vision",
+      "google-gemini-robotics-er-2-vision",
       "cerebras-gemma-4-31b-vision",
+      "openrouter-nemotron-3-nano-omni-30b-a3b-vision",
       "google-gemma-4-31b-vision",
+      "google-gemma-4-26b-a4b-vision",
       "google-gemini-3-flash-vision",
-      "google-gemini-3-6-flash-vision",
-      "google-gemini-2-5-flash-lite-vision",
-      "google-gemma-4-26b-a4b-vision"
+      "google-gemini-3-6-flash-vision"
     ],
     "text_to_text": [
       "cerebras-zai-glm-4-7-text",
-      "groq-gpt-oss-20b-text",
-      "groq-llama-3-1-8b-instant-text",
       "cerebras-gpt-oss-120b-text",
-      "groq-gpt-oss-120b-text",
-      "groq-llama-3-3-70b-text",
       "google-gemini-3-5-flash-lite-text",
-      "openrouter-nemotron-3-nano-omni-30b-a3b-text",
+      "groq-gpt-oss-20b-text",
+      "groq-gpt-oss-120b-text",
       "google-gemini-3-1-flash-lite-text",
+      "openrouter-nemotron-3-nano-omni-30b-a3b-text",
       "google-gemma-4-31b-text",
       "google-gemma-4-26b-a4b-text"
     ]

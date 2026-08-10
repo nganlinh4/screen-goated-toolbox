@@ -1,7 +1,10 @@
+#[cfg(not(feature = "recorder-worker"))]
 use anyhow::Result;
 
+#[cfg(not(feature = "recorder-worker"))]
 use crate::APP;
 
+#[cfg(not(feature = "recorder-worker"))]
 use super::utils::tts_instruction_for_target;
 
 #[derive(Clone, Debug)]
@@ -41,6 +44,7 @@ impl S2sMode {
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(super) fn load_settings() -> Result<S2sSettings> {
     let app = APP.lock().unwrap();
     let api_key = app.config.gemini_api_key.trim().to_string();

@@ -54,14 +54,14 @@ internal fun DownloadedToolsDialog(
     val context = LocalContext.current
 
     // Moonshine + Zipformer
-    val moonshineManager = remember { MoonshineModelManager(context) }
+    val moonshineManager = remember { MoonshineModelManager.get(context) }
     val moonshineStatuses by moonshineManager.moonshineStatuses.collectAsState()
     val zipformerStatuses by moonshineManager.zipformerStatuses.collectAsState()
     val creationRuntimeManager = remember { CreationRuntimeManager.get(context) }
     val creationRuntimeStatus by creationRuntimeManager.status.collectAsState()
 
     // Per-engine native runtimes
-    val nativeLibManager = remember { NativeLibManager(context) }
+    val nativeLibManager = remember { NativeLibManager.get(context) }
     val ortStatus by nativeLibManager.status(NativeLibManager.Engine.ORT).collectAsState()
     val moonshineRtStatus by nativeLibManager.status(NativeLibManager.Engine.MOONSHINE).collectAsState()
     val sherpaRtStatus by nativeLibManager.status(NativeLibManager.Engine.SHERPA).collectAsState()
@@ -139,6 +139,8 @@ internal fun DownloadedToolsDialog(
                                 downloadingStatus(locale, status.progress)
                             is MoonshineModelManager.MoonshineLangStatus.Installed ->
                                 installedStatus(locale, status.sizeBytes)
+                            is MoonshineModelManager.MoonshineLangStatus.RemovalPending ->
+                                status.message
                             is MoonshineModelManager.MoonshineLangStatus.Error ->
                                 status.message
                         },
@@ -170,6 +172,14 @@ internal fun DownloadedToolsDialog(
                                 role = ToolActionRole.DESTRUCTIVE,
                                 onClick = { moonshineManager.deleteMoonshine(lang) },
                             )
+                            is MoonshineModelManager.MoonshineLangStatus.RemovalPending ->
+                                status.takeIf { it.retryable }?.let {
+                                    ToolAction(
+                                        text = locale.downloader.toolDelete,
+                                        role = ToolActionRole.DESTRUCTIVE,
+                                        onClick = { moonshineManager.deleteMoonshine(lang) },
+                                    )
+                                }
                             else -> null
                         },
                     )
@@ -209,6 +219,8 @@ internal fun DownloadedToolsDialog(
                                 downloadingStatus(locale, status.progress)
                             is MoonshineModelManager.ZipformerLangStatus.Installed ->
                                 installedStatus(locale, status.sizeBytes)
+                            is MoonshineModelManager.ZipformerLangStatus.RemovalPending ->
+                                status.message
                             is MoonshineModelManager.ZipformerLangStatus.Error ->
                                 status.message
                         },
@@ -240,6 +252,14 @@ internal fun DownloadedToolsDialog(
                                 role = ToolActionRole.DESTRUCTIVE,
                                 onClick = { moonshineManager.deleteZipformer(lang) },
                             )
+                            is MoonshineModelManager.ZipformerLangStatus.RemovalPending ->
+                                status.takeIf { it.retryable }?.let {
+                                    ToolAction(
+                                        text = locale.downloader.toolDelete,
+                                        role = ToolActionRole.DESTRUCTIVE,
+                                        onClick = { moonshineManager.deleteZipformer(lang) },
+                                    )
+                                }
                             else -> null
                         },
                     )
@@ -261,6 +281,7 @@ internal fun DownloadedToolsDialog(
                             downloadingStatus(locale, status.progress)
                         is CreationRuntimeStatus.Ready ->
                             installedStatus(locale, status.sizeBytes)
+                        is CreationRuntimeStatus.RemovalPending -> status.message
                         is CreationRuntimeStatus.Failed -> status.message
                     },
                     statusColor = when (creationRuntimeStatus) {
@@ -275,7 +296,7 @@ internal fun DownloadedToolsDialog(
                     },
                     progressFraction = (creationRuntimeStatus as? CreationRuntimeStatus.Downloading)
                         ?.progress,
-                    action = when (creationRuntimeStatus) {
+                    action = when (val status = creationRuntimeStatus) {
                         CreationRuntimeStatus.Missing,
                         is CreationRuntimeStatus.Failed -> ToolAction(
                             text = locale.dlDepsInstall,
@@ -287,6 +308,14 @@ internal fun DownloadedToolsDialog(
                             role = ToolActionRole.DESTRUCTIVE,
                             onClick = { CreationJobManager.get(context).removeRuntime() },
                         )
+                        is CreationRuntimeStatus.RemovalPending ->
+                            status.takeIf { it.retryable }?.let {
+                                ToolAction(
+                                    text = locale.downloader.toolDelete,
+                                    role = ToolActionRole.DESTRUCTIVE,
+                                    onClick = { CreationJobManager.get(context).removeRuntime() },
+                                )
+                            }
                         is CreationRuntimeStatus.Downloading -> null
                     },
                 )
@@ -421,6 +450,7 @@ private fun NativeRuntimeRow(
                 downloadingStatus(locale, status.progress)
             is NativeLibManager.Status.Installed ->
                 installedStatus(locale, status.sizeBytes)
+            is NativeLibManager.Status.RemovalPending -> status.message
             is NativeLibManager.Status.Error -> status.message
         },
         statusColor = when (status) {
@@ -447,6 +477,13 @@ private fun NativeRuntimeRow(
                 role = ToolActionRole.DESTRUCTIVE,
                 onClick = onDelete,
             )
+            is NativeLibManager.Status.RemovalPending -> status.takeIf { it.retryable }?.let {
+                ToolAction(
+                    text = locale.downloader.toolDelete,
+                    role = ToolActionRole.DESTRUCTIVE,
+                    onClick = onDelete,
+                )
+            }
             else -> null
         },
     )

@@ -8,7 +8,7 @@ use super::catalog::LaunchSpec;
 use super::client_protocol::{
     ClientLifecycleEvents, ClientLifecycleSignal, lifecycle_channel, reader_loop,
 };
-use super::schema::bounded_prose;
+use super::prose::bounded_prose;
 use anyhow::{Result, anyhow, bail};
 use parking_lot::Mutex;
 use serde_json::{Value, json};

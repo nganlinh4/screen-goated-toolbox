@@ -10,7 +10,10 @@ use wry::{WebContext, WebView};
 #[path = "../auto_copy_badge_html.rs"]
 mod html;
 mod messages;
+mod progress;
 mod window;
+
+pub use progress::DownloadProgressBadge;
 
 pub(super) static REGISTER_BADGE_CLASS: Once = Once::new();
 
@@ -29,12 +32,15 @@ pub(super) const WM_APP_UPDATE_THEME: u32 = WM_USER + 205;
 /// Notification themes
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NotificationType {
-    Success,  // Green - auto copied
+    Success, // Green - auto copied
+    #[cfg(feature = "recorder-worker")]
     FileCopy, // Cyan - copied media file
-    GifCopy,  // Pink - copied GIF file
-    Info,     // Yellow - loading/warming up
-    Update,   // Blue - update available (longer duration)
-    Error,    // Red - error (e.g., no writable area for auto-paste)
+    #[cfg(feature = "recorder-worker")]
+    GifCopy, // Pink - copied GIF file
+    Info,    // Yellow - loading/warming up
+    #[cfg(not(feature = "recorder-worker"))]
+    Update, // Blue - update available (longer duration)
+    Error,   // Red - error (e.g., no writable area for auto-paste)
 }
 
 #[derive(Clone, Debug)]
@@ -82,6 +88,7 @@ pub fn format_locale(template: &str, replacements: &[(&str, &str)]) -> String {
         })
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn update_theme(is_dark: bool) {
     let hwnd_value = BADGE_HWND.load(Ordering::SeqCst);
     if hwnd_value != 0 {
@@ -119,6 +126,7 @@ fn enqueue_notification(title: String, snippet: String, n_type: NotificationType
     enqueue_notification_with_duration(title, snippet, n_type, None);
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn show_auto_copy_badge_text(text: &str) {
     let app = APP.lock().unwrap();
     let ui_lang = app.config.ui_language.clone();
@@ -132,6 +140,7 @@ pub fn show_auto_copy_badge_text(text: &str) {
     enqueue_notification(title, snippet, NotificationType::Success);
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn show_auto_copy_badge_image() {
     let app = APP.lock().unwrap();
     let ui_lang = app.config.ui_language.clone();
@@ -143,6 +152,7 @@ pub fn show_auto_copy_badge_image() {
     enqueue_notification(title, snippet, NotificationType::Success);
 }
 
+#[cfg(feature = "recorder-worker")]
 pub fn show_auto_copy_badge_media_file(file_path: &str) {
     let app = APP.lock().unwrap();
     let ui_lang = app.config.ui_language.clone();
@@ -173,11 +183,13 @@ pub fn show_auto_copy_badge_media_file(file_path: &str) {
 }
 
 /// Show a loading/info notification with just a title (yellow theme)
+#[cfg(not(feature = "recorder-worker"))]
 pub fn show_notification(title: &str) {
     enqueue_notification(title.to_string(), String::new(), NotificationType::Info);
 }
 
 /// Show an update available notification (blue theme, longer duration)
+#[cfg(not(feature = "recorder-worker"))]
 pub fn show_update_notification(title: &str) {
     enqueue_notification(title.to_string(), String::new(), NotificationType::Update);
 }
@@ -192,6 +204,7 @@ pub fn show_detailed_notification(title: &str, snippet: &str, n_type: Notificati
     enqueue_notification(title.to_string(), snippet.to_string(), n_type);
 }
 
+#[cfg(feature = "recorder-worker")]
 pub fn show_timed_detailed_notification(
     title: &str,
     snippet: &str,
@@ -206,7 +219,7 @@ pub fn show_timed_detailed_notification(
     );
 }
 
-pub fn show_progress_notification(title: &str, snippet: &str, progress: f32) {
+fn show_progress_notification(title: &str, snippet: &str, progress: f32) {
     {
         let mut active = ACTIVE_PROGRESS.lock().unwrap();
         *active = Some(ProgressNotification {
@@ -218,12 +231,44 @@ pub fn show_progress_notification(title: &str, snippet: &str, progress: f32) {
     ensure_window_and_post(WM_APP_UPDATE_PROGRESS);
 }
 
-pub fn hide_progress_notification() {
-    {
+fn update_progress_notification_if_owned(title: &str, snippet: &str, progress: f32) {
+    let updated = {
         let mut active = ACTIVE_PROGRESS.lock().unwrap();
-        *active = None;
+        let Some(current) = active.as_mut() else {
+            return;
+        };
+        if !progress_is_owned(Some(current), title) {
+            false
+        } else {
+            current.snippet = snippet.to_string();
+            current.progress = progress.clamp(0.0, 100.0);
+            true
+        }
+    };
+    if updated {
+        ensure_window_and_post(WM_APP_UPDATE_PROGRESS);
     }
-    ensure_window_and_post(WM_APP_HIDE_PROGRESS);
+}
+
+/// Hide only the progress notification owned by `title`. A completed download
+/// must not dismiss a newer concurrent download's badge.
+fn hide_progress_notification_for(title: &str) {
+    let removed = {
+        let mut active = ACTIVE_PROGRESS.lock().unwrap();
+        if progress_is_owned(active.as_ref(), title) {
+            *active = None;
+            true
+        } else {
+            false
+        }
+    };
+    if removed {
+        ensure_window_and_post(WM_APP_HIDE_PROGRESS);
+    }
+}
+
+fn progress_is_owned(active: Option<&ProgressNotification>, title: &str) -> bool {
+    active.is_some_and(|progress| progress.title == title)
 }
 
 pub(super) fn escape_js_text(text: &str) -> String {
@@ -261,5 +306,22 @@ fn ensure_window_and_post(msg: u32) {
         }
     } else {
         println!("[Badge] Invalid HWND: {:?}", hwnd);
+    }
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::{ProgressNotification, progress_is_owned};
+
+    #[test]
+    fn a_completed_download_cannot_hide_a_newer_progress_owner() {
+        let active = ProgressNotification {
+            title: "new download".to_string(),
+            snippet: "working".to_string(),
+            progress: 25.0,
+        };
+        assert!(progress_is_owned(Some(&active), "new download"));
+        assert!(!progress_is_owned(Some(&active), "old download"));
+        assert!(!progress_is_owned(None, "new download"));
     }
 }

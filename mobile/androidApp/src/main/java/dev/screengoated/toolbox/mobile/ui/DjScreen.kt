@@ -193,7 +193,7 @@ private fun djAssetPathFor(path: String): String? {
     return when {
         normalized == "promptdj/index.html" -> normalized
         normalized.startsWith("promptdj/assets/") -> normalized
-        normalized == "GoogleSansFlex.ttf" -> normalized
+        normalized == "GoogleSansFlex.woff" -> normalized
         else -> null
     }
 }
@@ -203,7 +203,7 @@ private fun mimeTypeForAsset(path: String): String {
         "html" -> "text/html"
         "js" -> "application/javascript"
         "css" -> "text/css"
-        "ttf" -> "font/ttf"
+        "woff" -> "font/woff"
         else -> "application/octet-stream"
     }
 }

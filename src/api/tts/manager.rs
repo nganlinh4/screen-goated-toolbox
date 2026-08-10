@@ -1,6 +1,7 @@
 use super::types::{
     AudioEvent, QueuedRequest, SOURCE_SAMPLE_RATE, TtsCollectedAudio, TtsRequest, TtsRequestProfile,
 };
+#[cfg(not(feature = "recorder-worker"))]
 use super::utils;
 use std::collections::VecDeque;
 use std::sync::{Arc, mpsc};
@@ -9,13 +10,15 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests;
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+#[cfg(not(feature = "recorder-worker"))]
 type PlaybackRequest = (mpsc::Receiver<AudioEvent>, isize, u64, u64, bool);
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn next_request_id_for_internal_use() -> u64 {
     REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
@@ -31,17 +34,21 @@ pub struct TtsManager {
     pub work_signal: Condvar,
 
     /// Queue for Player: (Input Channel, Window Handle, Request ID, Generation ID, IsRealtime)
+    #[cfg(not(feature = "recorder-worker"))]
     pub playback_queue: Mutex<VecDeque<PlaybackRequest>>,
     /// Signal for Player
+    #[cfg(not(feature = "recorder-worker"))]
     pub playback_signal: Condvar,
 
     /// Generation counter for interrupts (incrementing this invalidates old jobs)
     pub interrupt_generation: AtomicU64,
 
     /// Separate generation for the render thread to clear already-buffered audio.
+    #[cfg(not(feature = "recorder-worker"))]
     pub buffer_clear_generation: AtomicU64,
 
     /// Flag to indicate if audio is currently playing (set by player thread)
+    #[cfg(not(feature = "recorder-worker"))]
     pub is_playing: AtomicBool,
 
     /// Flag to shutdown the manager
@@ -60,33 +67,41 @@ impl TtsManager {
             _is_ready: AtomicBool::new(false),
             work_queue: Mutex::new(VecDeque::new()),
             work_signal: Condvar::new(),
+            #[cfg(not(feature = "recorder-worker"))]
             playback_queue: Mutex::new(VecDeque::new()),
+            #[cfg(not(feature = "recorder-worker"))]
             playback_signal: Condvar::new(),
             interrupt_generation: AtomicU64::new(0),
+            #[cfg(not(feature = "recorder-worker"))]
             buffer_clear_generation: AtomicU64::new(0),
+            #[cfg(not(feature = "recorder-worker"))]
             is_playing: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
         }
     }
 
     /// Check if TTS is ready to accept requests
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn _is_ready(&self) -> bool {
         self._is_ready.load(Ordering::SeqCst)
     }
 
     /// Request TTS for the given text. Appends to queue (sequential playback).
     /// Returns the request ID.
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn speak(&self, text: &str, hwnd: isize) -> u64 {
         self.speak_internal(text, hwnd, false, None)
     }
 
     /// Request TTS for realtime translation. Uses REALTIME_TTS_SPEED and auto-catchup.
     /// Returns the request ID.
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn speak_realtime(&self, text: &str, hwnd: isize) -> u64 {
         self.speak_internal(text, hwnd, true, None)
     }
 
     /// Request TTS with a sandboxed per-request profile.
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn speak_interrupt_with_profile(
         &self,
         text: &str,
@@ -97,7 +112,7 @@ impl TtsManager {
     }
 
     /// Generate a full TTS artifact without enqueueing it for immediate playback.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "recorder-worker")))]
     pub fn synthesize_to_wav_with_profile(
         &self,
         text: &str,
@@ -191,6 +206,7 @@ impl TtsManager {
     }
 
     /// Replay collected 24kHz mono PCM from a sample offset.
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn play_pcm_interrupt(&self, pcm_samples: Vec<i16>, start_sample: usize) -> u64 {
         let new_gen = self.interrupt_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -246,6 +262,7 @@ impl TtsManager {
     }
 
     /// Internal speak implementation
+    #[cfg(not(feature = "recorder-worker"))]
     fn speak_internal(
         &self,
         text: &str,
@@ -302,10 +319,12 @@ impl TtsManager {
 
     /// Request TTS for the given text, interrupting any current speech.
     /// Clears the queue and stops current playback immediately.
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn speak_interrupt(&self, text: &str, hwnd: isize) -> u64 {
         self.speak_interrupt_internal(text, hwnd, None)
     }
 
+    #[cfg(not(feature = "recorder-worker"))]
     fn speak_interrupt_internal(
         &self,
         text: &str,
@@ -314,6 +333,7 @@ impl TtsManager {
     ) -> u64 {
         // Increment generation to invalidate all currently running/queued work
         let new_gen = self.interrupt_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        #[cfg(not(feature = "recorder-worker"))]
         self.buffer_clear_generation.fetch_add(1, Ordering::SeqCst);
         let id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
 
@@ -361,6 +381,7 @@ impl TtsManager {
     /// Stop the current speech or cancel pending request
     pub fn stop(&self) {
         self.interrupt_generation.fetch_add(1, Ordering::SeqCst);
+        #[cfg(not(feature = "recorder-worker"))]
         self.buffer_clear_generation.fetch_add(1, Ordering::SeqCst);
 
         // Clear queues
@@ -368,27 +389,32 @@ impl TtsManager {
             let mut wq = self.work_queue.lock().unwrap();
             wq.clear();
         }
+        #[cfg(not(feature = "recorder-worker"))]
         {
             let mut pq = self.playback_queue.lock().unwrap();
             pq.clear();
         }
 
         // Wake up player to realize it should stop
+        #[cfg(not(feature = "recorder-worker"))]
         self.playback_signal.notify_all();
     }
 
     /// Stop speech for a specific request ID (only if it's the current one)
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn stop_if_active(&self, _request_id: u64) {
         // Simplified to just stop
         self.stop();
     }
 
     /// Check if this request ID is currently active
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn is_speaking(&self, _request_id: u64) -> bool {
         self.has_pending_audio()
     }
 
     /// Check if there's any pending TTS audio (in work queue, playback queue, or currently playing)
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn has_pending_audio(&self) -> bool {
         // Check if actively playing first (most common case when user wants to stop)
         if self.is_playing.load(Ordering::SeqCst) {
@@ -408,6 +434,7 @@ impl TtsManager {
     }
 
     /// Shutdown the TTS manager
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn _shutdown(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
         self.interrupt_generation.fetch_add(1, Ordering::SeqCst);
@@ -416,6 +443,7 @@ impl TtsManager {
     }
 
     /// List available audio output devices (ID, Name)
+    #[cfg(not(feature = "recorder-worker"))]
     pub fn get_output_devices() -> Vec<(String, String)> {
         utils::get_output_devices()
     }

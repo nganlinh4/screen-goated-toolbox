@@ -8,8 +8,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 
 // Audio extensions supported by input handler
 const AUDIO_EXTENSIONS: &[&str] = &[
-    ".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".alac", ".aiff", ".aif", ".wma", ".opus",
-    ".m4b",
+    ".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".alac", ".aiff", ".aif", ".opus", ".m4b",
 ];
 
 // Expanded Text/Code extensions list

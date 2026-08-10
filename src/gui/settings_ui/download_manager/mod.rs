@@ -9,9 +9,7 @@ pub mod ui;
 pub mod utils;
 mod ytdlp_process;
 
-pub use self::types::{
-    CookieBrowser, DownloadSession, DownloadState, DownloadType, InstallStatus, UpdateStatus,
-};
+pub use self::types::{CookieBrowser, DownloadSession, DownloadState, DownloadType, InstallStatus};
 use crate::api::realtime_audio::sherpa_onnx::{self, ZipformerLanguage};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -23,14 +21,6 @@ pub struct DownloadManager {
     pub ffmpeg_status: Arc<Mutex<InstallStatus>>,
     pub ytdlp_status: Arc<Mutex<InstallStatus>>,
     pub deno_status: Arc<Mutex<InstallStatus>>,
-    pub ffmpeg_update_status: Arc<Mutex<UpdateStatus>>,
-    pub ytdlp_update_status: Arc<Mutex<UpdateStatus>>,
-    pub deno_update_status: Arc<Mutex<UpdateStatus>>,
-    pub ffmpeg_version: Arc<Mutex<Option<String>>>,
-    pub ytdlp_version: Arc<Mutex<Option<String>>>,
-    pub deno_version: Arc<Mutex<Option<String>>>,
-    pub is_checking_updates: Arc<AtomicBool>,
-    pub bin_dir: PathBuf,
     // Logs and cancel for tool installation (ffmpeg/ytdlp/deno), not per-session
     pub install_logs: Arc<Mutex<Vec<String>>>,
     pub install_cancel_flag: Arc<AtomicBool>,
@@ -65,8 +55,6 @@ impl Default for DownloadManager {
 
 impl DownloadManager {
     pub fn new() -> Self {
-        let bin_dir = crate::paths::app_local_data_dir().join("bin");
-
         let available_browsers = detection::detect_installed_browsers();
         let config = persistence::load_config();
 
@@ -84,14 +72,6 @@ impl DownloadManager {
             ffmpeg_status: Arc::new(Mutex::new(InstallStatus::Checking)),
             ytdlp_status: Arc::new(Mutex::new(InstallStatus::Checking)),
             deno_status: Arc::new(Mutex::new(InstallStatus::Checking)),
-            ffmpeg_update_status: Arc::new(Mutex::new(UpdateStatus::Idle)),
-            ytdlp_update_status: Arc::new(Mutex::new(UpdateStatus::Idle)),
-            deno_update_status: Arc::new(Mutex::new(UpdateStatus::Idle)),
-            ffmpeg_version: Arc::new(Mutex::new(None)),
-            ytdlp_version: Arc::new(Mutex::new(None)),
-            deno_version: Arc::new(Mutex::new(None)),
-            is_checking_updates: Arc::new(AtomicBool::new(false)),
-            bin_dir,
             install_logs: Arc::new(Mutex::new(Vec::new())),
             install_cancel_flag: Arc::new(AtomicBool::new(false)),
             zipformer_dlls_status: Arc::new(Mutex::new(InstallStatus::Checking)),
@@ -190,8 +170,10 @@ impl DownloadManager {
         *status.lock().unwrap() = InstallStatus::Downloading(0.0);
         let stop = Arc::new(AtomicBool::new(false));
         std::thread::spawn(move || {
+            let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new("sherpa-onnx");
             let status_cb = status.clone();
             let result = sherpa_onnx::dlls::download_sherpa_dlls_with_progress(stop, move |p| {
+                badge.report((p * 100.0).round() as u64, 100);
                 *status_cb.lock().unwrap() = InstallStatus::Downloading(p);
             });
             let s = status_after_result(result);
@@ -205,13 +187,26 @@ impl DownloadManager {
         *status.lock().unwrap() = InstallStatus::Downloading(0.0);
         let stop = Arc::new(AtomicBool::new(false));
         std::thread::spawn(move || {
+            let language = crate::APP
+                .lock()
+                .map(|app| app.config.ui_language.clone())
+                .unwrap_or_else(|_| "en".to_string());
+            let language_name = crate::gui::locale::LocaleText::get(&language)
+                .auxiliary
+                .managed_tools
+                .zipformer_language_name(lang.code());
+            let badge = Arc::new(crate::overlay::auto_copy_badge::DownloadProgressBadge::new(
+                &format!("Zipformer {language_name}"),
+            ));
             let result = (|| -> anyhow::Result<()> {
                 if !sherpa_onnx::dlls::is_sherpa_runtime_ready() {
                     *dll_status.lock().unwrap() = InstallStatus::Downloading(0.0);
                     let dll_status_cb = dll_status.clone();
+                    let dll_badge = badge.clone();
                     sherpa_onnx::dlls::download_sherpa_dlls_with_progress(
                         stop.clone(),
                         move |p| {
+                            dll_badge.report((p * 50.0).round() as u64, 100);
                             *dll_status_cb.lock().unwrap() = InstallStatus::Downloading(p);
                         },
                     )?;
@@ -219,7 +214,9 @@ impl DownloadManager {
                 }
 
                 let status_cb = status.clone();
+                let model_badge = badge.clone();
                 sherpa_onnx::download_model_with_progress(lang, &stop, move |p| {
+                    model_badge.report(50 + (p * 50.0).round() as u64, 100);
                     *status_cb.lock().unwrap() = InstallStatus::Downloading(p);
                 })
             })();

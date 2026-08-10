@@ -1,3 +1,4 @@
+#[path = "vieneu_runtime/install.rs"]
 mod install;
 
 use crate::api::realtime_audio::WM_DOWNLOAD_PROGRESS;
@@ -14,16 +15,14 @@ use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-const RUNTIME_MANIFEST_URL: &str = "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt_vieneu_runtime.manifest.json";
 const MANAGED_MANIFEST_FILE: &str = "sgt_vieneu_runtime.manifest.json";
-const MIN_RUNTIME_ABI: u32 = 1;
 
 static LAST_VIENEU_RUNTIME_NOTICE: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(|| Mutex::new(None));
 
 static VIENEU_RUNTIME_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VieneuRuntimeManifest {
     pub version: String,
@@ -34,7 +33,7 @@ pub struct VieneuRuntimeManifest {
     pub chunks: Vec<VieneuRuntimeChunk>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VieneuRuntimeChunk {
     pub filename: String,
@@ -53,6 +52,7 @@ fn manifest_path() -> PathBuf {
     get_vieneu_runtime_dir().join(MANAGED_MANIFEST_FILE)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn current_vieneu_runtime_notice() -> Option<String> {
     LAST_VIENEU_RUNTIME_NOTICE.lock().ok()?.clone()
 }
@@ -123,6 +123,7 @@ pub fn is_vieneu_runtime_installed_for_variant(_variant_id: &str) -> bool {
     python_for_entrypoint(&entrypoint).is_file()
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn vieneu_runtime_installed_size() -> u64 {
     fn dir_size(path: &Path) -> u64 {
         let Ok(entries) = fs::read_dir(path) else {
@@ -156,6 +157,7 @@ pub fn read_installed_manifest() -> Result<VieneuRuntimeManifest> {
     Ok(manifest)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn remove_vieneu_runtime() -> Result<()> {
     let dir = get_vieneu_runtime_dir();
     if dir.exists() {
@@ -212,11 +214,16 @@ fn download_vieneu_runtime_inner(
     variant_id: &str,
 ) -> Result<()> {
     let loc = locale();
+    let progress_badge = use_badge.then(|| {
+        crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(
+            loc.tool_runtime.vieneu_runtime_downloading_title,
+            loc.tool_runtime.vieneu_runtime_fetching_manifest,
+        )
+    });
     set_progress(
         loc.tool_runtime.vieneu_runtime_downloading_title,
         loc.tool_runtime.vieneu_runtime_fetching_manifest,
         0.0,
-        use_badge,
     );
 
     let result = (|| {
@@ -250,8 +257,13 @@ fn download_vieneu_runtime_inner(
                 } else {
                     0.0
                 },
-                use_badge,
             );
+            if let Some(progress_badge) = &progress_badge {
+                progress_badge.report(
+                    downloaded_total.saturating_mul(75),
+                    total.saturating_mul(100),
+                );
+            }
             download_verified_chunk(chunk, &chunk_path, stop_signal, |downloaded| {
                 let progress = if total > 0 {
                     ((downloaded_total + downloaded) as f32 / total as f32) * 75.0
@@ -262,8 +274,15 @@ fn download_vieneu_runtime_inner(
                     loc.tool_runtime.vieneu_runtime_downloading_title,
                     &message,
                     progress,
-                    use_badge,
                 );
+                if let Some(progress_badge) = &progress_badge {
+                    progress_badge.report(
+                        downloaded_total
+                            .saturating_add(downloaded)
+                            .saturating_mul(75),
+                        total.saturating_mul(100),
+                    );
+                }
             })?;
             downloaded_total = downloaded_total.saturating_add(chunk.size);
             chunk_paths.push(chunk_path);
@@ -273,8 +292,10 @@ fn download_vieneu_runtime_inner(
             loc.tool_runtime.vieneu_runtime_downloading_title,
             loc.tool_runtime.vieneu_runtime_preparing_runtime,
             80.0,
-            use_badge,
         );
+        if let Some(progress_badge) = &progress_badge {
+            progress_badge.report(80, 100);
+        }
         concatenate_chunks(&chunk_paths, &archive).with_context(|| {
             format!("Failed to assemble VieNeu archive '{}'", archive.display())
         })?;
@@ -282,8 +303,10 @@ fn download_vieneu_runtime_inner(
             loc.tool_runtime.vieneu_runtime_downloading_title,
             loc.tool_runtime.vieneu_runtime_extracting,
             88.0,
-            use_badge,
         );
+        if let Some(progress_badge) = &progress_badge {
+            progress_badge.report(88, 100);
+        }
         extract_runtime_archive(&archive, &stage).with_context(|| {
             format!(
                 "Failed to extract VieNeu archive into '{}'",
@@ -335,15 +358,12 @@ fn download_vieneu_runtime_inner(
             loc.tool_runtime.vieneu_runtime_downloading_title,
             loc.tool_runtime.vieneu_runtime_ready,
             100.0,
-            use_badge,
         );
     } else {
-        clear_progress(
-            loc.tool_runtime.vieneu_runtime_downloading_title,
-            "",
-            0.0,
-            use_badge,
-        );
+        clear_progress(loc.tool_runtime.vieneu_runtime_downloading_title, "", 0.0);
+    }
+    if let Some(progress_badge) = &progress_badge {
+        progress_badge.finish();
     }
     result
 }
@@ -356,7 +376,7 @@ fn locale() -> crate::gui::locale::LocaleText {
     crate::gui::locale::LocaleText::get(&ui_language)
 }
 
-fn set_progress(title: &str, message: &str, progress: f32, use_badge: bool) {
+fn set_progress(title: &str, message: &str, progress: f32) {
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
@@ -364,22 +384,16 @@ fn set_progress(title: &str, message: &str, progress: f32, use_badge: bool) {
         state.download_message = message.to_string();
         state.download_progress = progress;
     }
-    if use_badge {
-        crate::overlay::auto_copy_badge::show_progress_notification(title, message, progress);
-    }
     post_download_state();
 }
 
-fn clear_progress(title: &str, message: &str, progress: f32, use_badge: bool) {
+fn clear_progress(title: &str, message: &str, progress: f32) {
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = false;
         state.download_title = title.to_string();
         state.download_message = message.to_string();
         state.download_progress = progress;
-    }
-    if use_badge {
-        crate::overlay::auto_copy_badge::hide_progress_notification();
     }
     post_download_state();
 }

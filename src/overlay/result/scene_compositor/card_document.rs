@@ -48,6 +48,10 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
 
     DOCUMENT
         .replace("__SGT_FONT_FACE__", &super::font::face_css("/font.ttf"))
+        .replace(
+            "__SGT_BOX_RADIUS_PX__",
+            &crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX.to_string(),
+        )
         .replace("__SGT_CARD_CSS_JSON__", &card_css_json)
         .replace("__SGT_DIRECT_RUNTIME__", &direct_runtime)
         .replace(
@@ -79,6 +83,10 @@ mod tests {
         assert!(document.contains("src:url('/font.ttf')"));
         assert!(!document.contains("Segoe UI"));
         assert!(!document.contains("__SGT_FONT_FACE__"));
+        assert!(!document.contains("__SGT_BOX_RADIUS_PX__"));
+        assert!(document.contains("border-radius:var(--sgt-box-radius,8px)"));
+        assert!(document.contains("('--sgt-box-radius', (8 / scale) + 'px')"));
+        assert!(document.contains("inset 0 0 0 1px var(--result-outline)"));
         assert!(!document.contains("__SGT_CARD_CSS_JSON__"));
         assert!(!document.contains("__SGT_DIRECT_RUNTIME__"));
         assert!(!document.contains("__SGT_SETTLED_REVEAL_RUNTIME__"));

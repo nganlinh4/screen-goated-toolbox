@@ -175,6 +175,7 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
             initial_text: listening_text.to_string(),
             preset_id: Some(preset_for_thread.id.clone()),
             is_chain_root: true,
+            latency_trace_id: None,
         });
 
         unsafe {

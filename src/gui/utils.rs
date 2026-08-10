@@ -79,12 +79,10 @@ pub fn is_system_in_dark_mode() -> bool {
 pub fn configure_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
-    let gs_font_name = "google_sans_flex";
-    // Use large byte array from centralized assets
-    let gs_data = crate::assets::GOOGLE_SANS_FLEX;
+    let product_font_name = "google_sans_flex";
     fonts.font_data.insert(
-        gs_font_name.to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(gs_data)),
+        product_font_name.to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(crate::assets::GOOGLE_SANS_FLEX)),
     );
 
     let viet_font_name = "segoe_ui";
@@ -100,6 +98,11 @@ pub fn configure_fonts(ctx: &egui::Context) {
     let korean_font_path = font_dir.join("malgun.ttf");
     let korean_data = std::fs::read(&korean_font_path);
 
+    let mono_font_name = "consolas";
+    let mono_data = std::fs::read(font_dir.join("consola.ttf"));
+    let emoji_font_name = "segoe_emoji";
+    let emoji_data = std::fs::read(font_dir.join("seguiemj.ttf"));
+
     if let Ok(data) = viet_data {
         fonts.font_data.insert(
             viet_font_name.to_owned(),
@@ -108,10 +111,12 @@ pub fn configure_fonts(ctx: &egui::Context) {
         if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
             vec.insert(0, viet_font_name.to_owned());
         }
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-            vec.insert(0, viet_font_name.to_owned());
-        }
     }
+    fonts
+        .families
+        .get_mut(&egui::FontFamily::Proportional)
+        .expect("proportional family exists")
+        .insert(0, product_font_name.to_owned());
     if let Ok(data) = korean_data {
         fonts.font_data.insert(
             korean_font_name.to_owned(),
@@ -125,19 +130,46 @@ pub fn configure_fonts(ctx: &egui::Context) {
             };
             vec.insert(idx, korean_font_name.to_owned());
         }
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-            let idx = if vec.contains(&viet_font_name.to_string()) {
-                1
-            } else {
-                0
-            };
-            vec.insert(idx, korean_font_name.to_owned());
+    }
+    if let Ok(data) = mono_data {
+        fonts.font_data.insert(
+            mono_font_name.to_owned(),
+            std::sync::Arc::new(egui::FontData::from_owned(data)),
+        );
+        fonts
+            .families
+            .get_mut(&egui::FontFamily::Monospace)
+            .expect("monospace family exists")
+            .push(mono_font_name.to_owned());
+    }
+    if let Ok(data) = emoji_data {
+        fonts.font_data.insert(
+            emoji_font_name.to_owned(),
+            std::sync::Arc::new(egui::FontData::from_owned(data)),
+        );
+        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            fonts
+                .families
+                .get_mut(&family)
+                .expect("built-in family exists")
+                .push(emoji_font_name.to_owned());
         }
     }
-
-    // Force Google Sans Flex to front
-    if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-        vec.insert(0, gs_font_name.to_owned());
+    if let Some(fallback) = fonts
+        .families
+        .get(&egui::FontFamily::Proportional)
+        .and_then(|family| family.first())
+        .cloned()
+        && fonts
+            .families
+            .get(&egui::FontFamily::Monospace)
+            .is_some_and(Vec::is_empty)
+    {
+        fonts
+            .families
+            .get_mut(&egui::FontFamily::Monospace)
+            .expect("monospace family exists")
+            .push(fallback);
     }
 
     ctx.set_fonts(fonts);

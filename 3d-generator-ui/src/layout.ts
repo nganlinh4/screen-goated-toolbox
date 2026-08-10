@@ -1,4 +1,5 @@
 import { MATERIAL_SYMBOLS } from "../../ui-shared/material-symbols";
+import { viewerToolbarMarkup } from "./viewer-toolbar";
 
 export const ICONS = {
   model: MATERIAL_SYMBOLS.deployedCode,
@@ -10,13 +11,6 @@ export const ICONS = {
   minimize: MATERIAL_SYMBOLS.remove,
   check: MATERIAL_SYMBOLS.check,
   add: MATERIAL_SYMBOLS.add,
-  palette: MATERIAL_SYMBOLS.palette,
-  toon: MATERIAL_SYMBOLS.texture,
-  outline: MATERIAL_SYMBOLS.outline,
-  rotate: MATERIAL_SYMBOLS.rotate360,
-  grid: MATERIAL_SYMBOLS.gridOn,
-  wire: MATERIAL_SYMBOLS.viewInAr,
-  fit: MATERIAL_SYMBOLS.fitScreen,
   rename: MATERIAL_SYMBOLS.edit,
   trash: MATERIAL_SYMBOLS.delete,
 };
@@ -59,19 +53,7 @@ export function appMarkup() {
           </header>
           <div class="reference-preview-image"><img id="referencePreviewImage" alt="" /></div>
         </aside>
-        <div class="viewer-toolbar" id="viewerToolbar">
-          <span class="tool-segment" role="group">
-            <button class="view-tool shading-tool" type="button" data-shading="original" data-i18n-title="originalMaterials">${ICONS.model}</button>
-            <button class="view-tool shading-tool" type="button" data-shading="toon" data-i18n-title="toonOutline">${ICONS.toon}</button>
-            <button class="view-tool shading-tool" type="button" data-shading="parts" data-i18n-title="partColors">${ICONS.palette}</button>
-          </span>
-          <span class="tool-divider"></span>
-          <button class="view-tool active" id="outlineButton" type="button" data-i18n-title="toggleOutline">${ICONS.outline}</button>
-          <button class="view-tool" id="rotateButton" type="button" data-i18n-title="toggleRotation">${ICONS.rotate}</button>
-          <button class="view-tool" id="gridButton" type="button" data-i18n-title="toggleGrid">${ICONS.grid}</button>
-          <button class="view-tool" id="wireButton" type="button" data-i18n-title="toggleWireframe">${ICONS.wire}</button>
-          <button class="view-tool" id="fitButton" type="button" data-i18n-title="resetView">${ICONS.fit}</button>
-        </div>
+        ${viewerToolbarMarkup()}
         <div class="stage-status" id="stageStatus" aria-live="polite">
           <span class="status-mark" id="statusMark">${ICONS.sparkle}</span>
           <span class="status-copy">

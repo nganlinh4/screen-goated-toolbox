@@ -15,7 +15,7 @@ use super::open_weights::{fail_request, stream_pcm_samples};
 use crate::APP;
 use crate::api::realtime_audio::sherpa_onnx::{dlls, ffi_tts};
 use crate::api::realtime_audio::supertonic_assets::{
-    download_supertonic_model, get_supertonic_model_dir, is_supertonic_model_downloaded,
+    acquire_supertonic_model, download_supertonic_model, is_supertonic_model_downloaded,
 };
 use crate::config::tts_catalog::{
     default_supertonic_voice_for_lang, normalize_supertonic_lang, supertonic_speaker_id_for_voice,
@@ -33,6 +33,7 @@ struct SupertonicSession {
     handle: *const ffi_tts::SherpaOnnxOfflineTts,
     destroy_fn: unsafe extern "C" fn(*const ffi_tts::SherpaOnnxOfflineTts),
     num_threads: i32,
+    _model_use: crate::component_registry::models::ModelUse,
 }
 
 unsafe impl Send for SupertonicSession {}
@@ -60,14 +61,13 @@ pub(super) fn handle_supertonic_tts(
             badge.required_for_offline_tts_fmt,
             &[("name", "Supertonic 3")],
         );
+        let progress_badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(
+            badge.downloading_sherpa_runtime,
+            &required,
+        );
         if let Err(err) = dlls::download_sherpa_dlls_with_progress(stop, |progress| {
-            crate::overlay::auto_copy_badge::show_progress_notification(
-                badge.downloading_sherpa_runtime,
-                &required,
-                progress * 100.0,
-            );
+            progress_badge.report((progress * 100.0).round() as u64, 100);
         }) {
-            crate::overlay::auto_copy_badge::hide_progress_notification();
             fail_request(
                 PROVIDER,
                 hwnd,
@@ -76,7 +76,7 @@ pub(super) fn handle_supertonic_tts(
             );
             return;
         }
-        crate::overlay::auto_copy_badge::hide_progress_notification();
+        progress_badge.finish();
     }
 
     if !is_supertonic_model_downloaded() {
@@ -447,8 +447,9 @@ fn build_session_with_timeout(
 fn build_session(
     settings: &crate::config::SupertonicSettings,
 ) -> anyhow::Result<SupertonicSession> {
+    let model_use = acquire_supertonic_model()?;
     let lib = ffi_tts::load()?;
-    let model_dir = get_supertonic_model_dir();
+    let model_dir = model_use.root();
     let to_cstring =
         |p: &Path| -> anyhow::Result<CString> { Ok(CString::new(p.to_string_lossy().as_bytes())?) };
     let to_cstring_str = |s: &str| -> anyhow::Result<CString> { Ok(CString::new(s)?) };
@@ -490,6 +491,7 @@ fn build_session(
         handle,
         destroy_fn: lib.destroy_tts,
         num_threads: settings.num_threads.max(1),
+        _model_use: model_use,
     })
 }
 

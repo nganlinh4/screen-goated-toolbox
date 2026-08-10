@@ -1,0 +1,16 @@
+Moonshine Voice Android runtime
+
+The optional runtime is the unmodified native payload from
+ai.moonshine:moonshine-voice:0.0.51. Its corresponding public source is tag
+v0.0.51 at commit e3c05a691ae0a88f80957d2284e889a0fb347eaa:
+
+  https://github.com/moonshine-ai/moonshine
+
+Moonshine code and English-language models are distributed under the MIT
+License. The complete upstream license, including the terms for other model
+families, is included as moonshine-LICENSE.txt. Screen Goated Toolbox offers
+only the English streaming model family. Its unmodified model files and these
+notices are delivered on demand and are not included in the application.
+
+The upstream runtime acknowledges the Silero Voice Activity Detector and the
+Pyannote speaker-embedding model used by its default transcriber behavior.

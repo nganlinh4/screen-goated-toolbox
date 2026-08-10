@@ -36,6 +36,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static IS_BUSY_WITH_OVERLAY: AtomicBool = AtomicBool::new(false);
 
+/// Canonical outer radius for selection, processing, and result boxes.
+pub(crate) const BOX_CORNER_RADIUS_PHYSICAL_PX: f32 = 8.0;
+
 pub fn is_busy() -> bool {
     IS_BUSY_WITH_OVERLAY.load(Ordering::SeqCst)
 }

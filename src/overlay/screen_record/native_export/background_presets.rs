@@ -63,10 +63,9 @@ pub fn get_builtin_background(bg_type: &str) -> Option<&'static BuiltInBackgroun
 }
 
 fn load_shared_background_presets() -> HashMap<String, BuiltInBackgroundPreset> {
-    let raw: SharedBackgroundCatalogFile = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/screen-record/src/config/shared-background-presets.json"
-    )))
+    let raw: SharedBackgroundCatalogFile = serde_json::from_str(include_str!(
+        "../../../../screen-record/src/config/shared-background-presets.json"
+    ))
     .expect("shared background preset json must parse");
 
     raw.backgrounds

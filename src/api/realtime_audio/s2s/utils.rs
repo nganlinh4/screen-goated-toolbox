@@ -154,6 +154,7 @@ pub(super) fn is_speech_like_frame(frame: &[i16], rms: f32) -> bool {
     (0.015..=0.24).contains(&zcr) && (1.2..=18.0).contains(&crest)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(super) fn adaptive_vad_snapshot(
     adaptive_vad: &Arc<Mutex<AdaptiveS2sVadState>>,
 ) -> AdaptiveS2sVadSnapshot {
@@ -173,6 +174,7 @@ pub(super) fn observe_adaptive_vad(
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(super) fn log_adaptive_vad_skip(segment: &Segment, vad: AdaptiveS2sVadSnapshot) {
     eprintln!(
         "[RealtimeS2S][AdaptiveVAD] skip segment={} strictness={:.2} confidence={:.2} speech_like_ratio={:.2} speech_ratio={:.2} mean_rms={:.4} peak_rms={:.4}",
@@ -298,6 +300,7 @@ pub(super) fn truncate_chars(value: &str, max_chars: usize) -> String {
     output
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(super) fn is_stale_session(session_id: u64) -> bool {
     crate::overlay::realtime_webview::state::REALTIME_SESSION_ID.load(Ordering::SeqCst)
         != session_id

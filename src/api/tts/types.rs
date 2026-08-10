@@ -2,6 +2,7 @@
 pub const SOURCE_SAMPLE_RATE: u32 = 24000;
 
 /// Playback sample rate (48kHz - most devices support this)
+#[cfg(not(feature = "recorder-worker"))]
 pub const PLAYBACK_SAMPLE_RATE: u32 = 48000;
 
 /// Events passed from socket workers to the player thread

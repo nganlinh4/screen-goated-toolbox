@@ -99,6 +99,7 @@ export class ModelViewer {
   private interacting = false;
   private interactionListener?: (active: boolean) => void;
   private theme: "light" | "dark" = "dark";
+  private disposed = false;
   private hemisphere = new THREE.HemisphereLight(0xe5fbf5, 0x1a2524, 2.15);
   private key = new THREE.DirectionalLight(0xf5fff9, 3.2);
   private rim = new THREE.DirectionalLight(0x54c9b3, 2.0);
@@ -188,6 +189,30 @@ export class ModelViewer {
 
   onInteractionChange(listener: (active: boolean) => void) {
     this.interactionListener = listener;
+  }
+
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.cancelPendingModelLoad();
+    if (this.frameRequest) cancelAnimationFrame(this.frameRequest);
+    this.frameRequest = 0;
+    this.resizeObserver.disconnect();
+    this.interactionListener = undefined;
+    this.controls.dispose();
+    this.clearResult();
+    this.disposeGroup(this.idleObject);
+    this.grid.geometry.dispose();
+    const gridMaterials = Array.isArray(this.grid.material)
+      ? this.grid.material
+      : [this.grid.material];
+    gridMaterials.forEach((material) => material.dispose());
+    (this.scene.userData.toonGradient as THREE.Texture | undefined)?.dispose();
+    this.metadataMaterial.dispose();
+    this.metadataTarget.dispose();
+    this.composer.dispose();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 
   private pixelRatio() {
@@ -491,7 +516,7 @@ export class ModelViewer {
   }
 
   private requestRender = () => {
-    if (!this.frameRequest && document.visibilityState === "visible") {
+    if (!this.disposed && !this.frameRequest && document.visibilityState === "visible") {
       this.frameRequest = requestAnimationFrame(this.animate);
     }
   };

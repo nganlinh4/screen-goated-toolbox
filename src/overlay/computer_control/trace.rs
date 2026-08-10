@@ -77,7 +77,7 @@ pub fn run(task: &str) -> Result<()> {
                 break;
             }
         };
-        for ev in parse_server_message(&frame) {
+        for ev in parse_server_message(&frame)? {
             match ev {
                 ServerEvent::ModelText(t) | ServerEvent::OutputTranscript(t) => {
                     reasoning.push_str(&t)
@@ -147,7 +147,7 @@ fn wait_for_setup(socket: &mut Sock) -> Result<()> {
             Err(e) if is_transient_socket_read_error(&e) => continue,
             Err(e) => anyhow::bail!("setup read error: {e}"),
         };
-        for ev in parse_server_message(&text) {
+        for ev in parse_server_message(&text)? {
             if matches!(ev, ServerEvent::SetupComplete) {
                 return Ok(());
             }

@@ -19,16 +19,10 @@ def _configure_stdio():
 
 
 def _configure_runtime_environment():
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if local_app_data:
-        hf_home = os.path.join(
-            local_app_data, "screen-goated-toolbox", "models", "vieneu_hf"
-        )
-        os.environ["HF_HOME"] = hf_home
-        os.environ["HF_HUB_CACHE"] = os.path.join(hf_home, "hub")
-        os.environ["TRANSFORMERS_CACHE"] = os.path.join(hf_home, "transformers")
     os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
     os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 
 def _patch_vieneu_turbo_budget():
@@ -106,31 +100,25 @@ def _build_engine(req):
     from vieneu import Vieneu
 
     mode = req.get("mode") or "turbo_gpu"
-    repo = req.get("backboneRepo") or "pnnbao-ump/VieNeu-TTS-v2-Turbo"
+    repo = (req.get("backboneRepo") or "").strip()
+    decoder_repo = (req.get("decoderRepo") or "").strip()
+    encoder_repo = (req.get("encoderRepo") or "").strip()
+    if not os.path.isdir(repo):
+        raise RuntimeError("managed VieNeu backbone directory is missing")
+    if not os.path.isfile(decoder_repo) or not os.path.isfile(encoder_repo):
+        raise RuntimeError("managed VieNeu codec files are missing")
     backend = req.get("backend") or "standard"
     backbone_device = req.get("backboneDevice") or "cuda"
     codec_device = req.get("codecDevice") or "cpu"
-    if mode == "turbo_gpu":
-        return Vieneu(
-            mode="turbo_gpu",
-            backbone_repo=repo,
-            device=backbone_device,
-            backend=backend,
-        )
-    if mode == "turbo":
-        return Vieneu(mode="turbo", backbone_repo=repo, device=backbone_device)
-    if mode == "fast":
-        return Vieneu(
-            mode="fast",
-            backbone_repo=repo,
-            backbone_device=backbone_device,
-            codec_device=codec_device,
-        )
+    if mode != "turbo_gpu":
+        raise RuntimeError("managed VieNeu model supports turbo_gpu mode only")
     return Vieneu(
-        mode="standard",
+        mode="turbo_gpu",
         backbone_repo=repo,
-        backbone_device=backbone_device,
-        codec_device=codec_device,
+        decoder_repo=decoder_repo,
+        encoder_repo=encoder_repo,
+        device=backbone_device,
+        backend=backend,
     )
 
 
@@ -139,6 +127,8 @@ def _engine(req):
         {
             "mode": req.get("mode"),
             "repo": req.get("backboneRepo"),
+            "decoder": req.get("decoderRepo"),
+            "encoder": req.get("encoderRepo"),
             "backend": req.get("backend"),
             "backboneDevice": req.get("backboneDevice"),
             "codecDevice": req.get("codecDevice"),

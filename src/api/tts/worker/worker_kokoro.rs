@@ -28,8 +28,8 @@ use super::super::types::AudioEvent;
 use super::open_weights::{fail_request, stream_pcm_samples};
 use crate::APP;
 use crate::api::realtime_audio::kokoro_assets::{
-    download_kokoro_model, get_kokoro_espeak_data_dir, get_kokoro_lexicon_paths,
-    get_kokoro_model_dir, get_kokoro_rule_fst_paths, is_kokoro_model_downloaded,
+    acquire_kokoro_model, download_kokoro_model, get_kokoro_espeak_data_dir,
+    get_kokoro_lexicon_paths, get_kokoro_rule_fst_paths, is_kokoro_model_downloaded,
 };
 use crate::api::realtime_audio::sherpa_onnx::{dlls, ffi_tts};
 use crate::config::tts_catalog::{
@@ -56,6 +56,7 @@ struct KokoroSession {
     destroy_fn: unsafe extern "C" fn(*const ffi_tts::SherpaOnnxOfflineTts),
     lang: String,
     num_threads: i32,
+    _model_use: crate::component_registry::models::ModelUse,
 }
 
 unsafe impl Send for KokoroSession {}
@@ -83,14 +84,13 @@ pub(super) fn handle_kokoro_tts(
             badge.required_for_offline_tts_fmt,
             &[("name", "Kokoro")],
         );
+        let progress_badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(
+            badge.downloading_sherpa_runtime,
+            &required,
+        );
         if let Err(err) = dlls::download_sherpa_dlls_with_progress(stop, |progress| {
-            crate::overlay::auto_copy_badge::show_progress_notification(
-                badge.downloading_sherpa_runtime,
-                &required,
-                progress * 100.0,
-            );
+            progress_badge.report((progress * 100.0).round() as u64, 100);
         }) {
-            crate::overlay::auto_copy_badge::hide_progress_notification();
             fail_request(
                 PROVIDER,
                 hwnd,
@@ -99,7 +99,7 @@ pub(super) fn handle_kokoro_tts(
             );
             return;
         }
-        crate::overlay::auto_copy_badge::hide_progress_notification();
+        progress_badge.finish();
     }
 
     if !is_kokoro_model_downloaded() {
@@ -331,8 +331,8 @@ fn resolve_kokoro_voice_for_language(
 /// the speaker embedding table inside `voices.bin`). Falls back to the
 /// well-known Kokoro v1.0 v1.0 voice manifest if `voices.txt` is missing.
 fn resolve_voice_sid(voice: &str) -> anyhow::Result<i32> {
-    let dir = get_kokoro_model_dir();
-    let manifest_path = dir.join("voices.txt");
+    let model_use = acquire_kokoro_model()?;
+    let manifest_path = model_use.root().join("voices.txt");
     if manifest_path.exists() {
         let contents = fs::read_to_string(&manifest_path)?;
         for (idx, line) in contents.lines().enumerate() {
@@ -377,9 +377,10 @@ fn build_session_with_timeout(
 }
 
 fn build_session(settings: &crate::config::KokoroSettings) -> anyhow::Result<KokoroSession> {
+    let model_use = acquire_kokoro_model()?;
     let lib = ffi_tts::load()?;
 
-    let model_dir = get_kokoro_model_dir();
+    let model_dir = model_use.root();
     let to_cstring =
         |p: &Path| -> anyhow::Result<CString> { Ok(CString::new(p.to_string_lossy().as_bytes())?) };
     let to_cstring_str = |s: &str| -> anyhow::Result<CString> { Ok(CString::new(s)?) };
@@ -440,6 +441,7 @@ fn build_session(settings: &crate::config::KokoroSettings) -> anyhow::Result<Kok
         destroy_fn: lib.destroy_tts,
         lang: settings.lang.clone(),
         num_threads: settings.num_threads.max(1),
+        _model_use: model_use,
     })
 }
 

@@ -10,7 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.json.JsonObject
-internal class CreationJobManager private constructor(context: Context) {
+internal class CreationJobManager internal constructor(context: Context) {
     val files = CreationFileStore(context)
     val history = CreationHistoryStore(context, files)
     private val finisher = CreationJobFinisher(files, history)
@@ -156,7 +156,6 @@ internal class CreationJobManager private constructor(context: Context) {
         workers.release(tool, "surface:$ownerId")
     fun closeOwner(tool: CreationTool, ownerId: String) =
         ownerCloseCoordinator.requestWithRetry(scope, ownerId, tool)
-    fun startOneShotPreparation() = workers.startOneShotPreparation()
     fun preparationStatus(tool: CreationTool): String = workers.preparationStatus(tool)
     fun supportsOptionalInstruction(mode: String): Boolean =
         workers.supportsOptionalInstruction(mode)
@@ -596,10 +595,6 @@ internal class CreationJobManager private constructor(context: Context) {
     )
 
     companion object {
-        @Volatile private var instance: CreationJobManager? = null
-
-        fun get(context: Context): CreationJobManager = instance ?: synchronized(this) {
-            instance ?: CreationJobManager(context.applicationContext).also { instance = it }
-        }
+        fun get(context: Context): CreationJobManager = CreationJobManagerProvider.get(context)
     }
 }

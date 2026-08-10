@@ -121,7 +121,7 @@ fn locale_root_contains_only_the_sixteen_typed_sections() {
 #[test]
 fn locale_leaf_fields_have_one_section_owner() {
     let sections = [
-        ("badge", include_str!("badge.rs"), 43),
+        ("badge", include_str!("badge.rs"), 45),
         ("workspace", include_str!("workspace.rs"), 25),
         ("preset_basics", include_str!("preset_basics.rs"), 36),
         ("desktop_settings", include_str!("desktop_settings.rs"), 38),
@@ -138,7 +138,7 @@ fn locale_leaf_fields_have_one_section_owner() {
             include_str!("translation_gummy.rs"),
             30,
         ),
-        ("tool_runtime", include_str!("tool_runtime.rs"), 53),
+        ("tool_runtime", include_str!("tool_runtime.rs"), 44),
         ("overlay", include_str!("overlay.rs"), 22),
         ("auxiliary", include_str!("auxiliary.rs"), 10),
     ];
@@ -155,13 +155,64 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 528);
+    assert_eq!(owners.len(), 521);
     assert_eq!(owners["cancel_label"], "preset_basics");
     assert_eq!(owners["favorites_keep_open"], "shell");
     assert_eq!(owners["image_creator_btn"], "shell");
     assert_eq!(owners["download"], "auxiliary");
     assert_eq!(owners["managed_tools"], "auxiliary");
     assert_eq!(owners["realtime_app_loading"], "realtime");
+}
+
+#[test]
+fn downloaded_tools_progress_and_cards_are_localized() {
+    assert_eq!(
+        public_field_names(include_str!("managed_tools.rs")).len(),
+        128
+    );
+    let english = LocaleText::get("en");
+    for code in ["en", "ko", "vi"] {
+        let locale = LocaleText::get(code);
+        let badge = &locale.badge;
+        for template in [
+            badge.downloading_component_fmt,
+            badge.preparing_component_fmt,
+            badge.component_installed_fmt,
+            badge.component_install_failed_fmt,
+            badge.removing_component_fmt,
+            badge.component_removed_fmt,
+            badge.component_remove_failed_fmt,
+        ] {
+            assert!(template.contains("{name}"), "{code}: {template}");
+        }
+        let managed = &locale.auxiliary.managed_tools;
+        for value in [
+            managed.tool_screen_recorder_card,
+            managed.tool_computer_control_card,
+            managed.tool_creation_interface,
+            managed.tool_prompt_dj_interface,
+            managed.tool_tts_playground_interface,
+            managed.tool_step_audio_model,
+            managed.tool_magpie_model,
+            managed.tool_vieneu_model,
+        ] {
+            assert!(!value.trim().is_empty(), "{code}");
+        }
+    }
+    for code in ["ko", "vi"] {
+        let localized = LocaleText::get(code);
+        assert_ne!(
+            localized
+                .auxiliary
+                .managed_tools
+                .tool_screen_recorder_payload,
+            english.auxiliary.managed_tools.tool_screen_recorder_payload
+        );
+        assert_ne!(
+            localized.badge.preparing_component_fmt,
+            english.badge.preparing_component_fmt
+        );
+    }
 }
 
 #[test]

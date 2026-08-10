@@ -1,14 +1,18 @@
 // --- SCREEN RECORD BACKGROUND DOWNLOAD ---
 // Downloadable background image support with per-item progress tracking.
 
+#[cfg(feature = "recorder-worker")]
 use base64::Engine;
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use std::collections::HashMap;
+#[cfg(feature = "recorder-worker")]
 use std::hash::{Hash, Hasher};
 use std::io::{Read as IoRead, Write};
 use std::path::PathBuf;
-use std::sync::{LazyLock, Mutex, OnceLock};
+#[cfg(not(feature = "recorder-worker"))]
+use std::sync::OnceLock;
+use std::sync::{LazyLock, Mutex};
 use std::thread;
 
 mod resolver;
@@ -28,12 +32,14 @@ pub enum BgDownloadStatus {
 
 #[derive(Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(not(feature = "recorder-worker"))]
 pub struct DownloadableBackground {
     pub id: String,
     pub download_url: String,
 }
 
 #[derive(Clone, Copy)]
+#[cfg(not(feature = "recorder-worker"))]
 pub struct DownloadableBackgroundSummary {
     pub downloaded_count: usize,
     pub total_count: usize,
@@ -41,9 +47,11 @@ pub struct DownloadableBackgroundSummary {
     pub downloaded_bytes: u64,
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 const DOWNLOADABLE_BACKGROUNDS_MANIFEST: &str =
     include_str!("../../../screen-record/src/config/downloadable-backgrounds.json");
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn downloadable_backgrounds() -> &'static [DownloadableBackground] {
     static CACHE: OnceLock<Vec<DownloadableBackground>> = OnceLock::new();
     CACHE
@@ -77,6 +85,7 @@ pub fn downloadable_backgrounds() -> &'static [DownloadableBackground] {
         .as_slice()
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn downloadable_background_summary() -> DownloadableBackgroundSummary {
     let mut downloaded_count = 0usize;
     let mut downloading_count = 0usize;
@@ -106,6 +115,7 @@ pub fn downloadable_background_summary() -> DownloadableBackgroundSummary {
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 fn downloaded_background_file(id: &str) -> Option<PathBuf> {
     let dir = backgrounds_dir();
     for ext in &["png", "jpg", "jpeg", "webp"] {
@@ -117,6 +127,7 @@ fn downloaded_background_file(id: &str) -> Option<PathBuf> {
     None
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn start_download_all_missing() -> usize {
     let mut started = 0usize;
     for bg in downloadable_backgrounds() {
@@ -128,6 +139,7 @@ pub fn start_download_all_missing() -> usize {
     started
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn delete_all_downloaded() -> usize {
     let mut deleted = 0usize;
     for bg in downloadable_backgrounds() {
@@ -212,6 +224,7 @@ pub fn delete_downloaded(id: &str) {
 }
 
 /// Read a downloaded background as a base64 data URL.
+#[cfg(feature = "recorder-worker")]
 pub fn read_as_data_url(id: &str) -> Result<String, String> {
     let dir = backgrounds_dir();
     for ext in &["png", "jpg", "jpeg", "webp"] {
@@ -291,6 +304,7 @@ fn normalize_downloaded_image_for_export(
 
 /// Persist an uploaded custom background data URL to local app data and return
 /// a lightweight protocol URL the frontend can store in project state.
+#[cfg(feature = "recorder-worker")]
 pub fn save_uploaded_data_url(data_url: &str) -> Result<String, String> {
     let rest = data_url
         .strip_prefix("data:")
@@ -379,7 +393,11 @@ pub fn start_download(id: String, url: String) {
         let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
                   (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-        match ureq::get(&image_url).header("User-Agent", ua).call() {
+        match crate::api::client::UREQ_AGENT
+            .get(&image_url)
+            .header("User-Agent", ua)
+            .call()
+        {
             Ok(response) => {
                 let content_type = response
                     .headers()

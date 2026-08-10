@@ -8,8 +8,10 @@
 
 mod capture;
 pub mod kokoro_assets;
+pub(crate) mod local_asr_worker;
 pub mod magpie_assets;
 pub mod magpie_runtime;
+mod model_component_assets;
 pub mod model_loader;
 pub mod offline_asr_commit;
 pub mod parakeet;
@@ -26,11 +28,9 @@ pub mod supertonic_assets;
 pub(crate) mod transcript_state;
 mod transcription;
 mod translation;
-pub mod tts_libtorch_runtime;
-pub mod tts_libtorch_runtime_assets;
 mod utils;
+pub mod vieneu_assets;
 pub mod vieneu_runtime;
-pub mod voxtral_assets;
 pub mod websocket;
 
 use windows::Win32::UI::WindowsAndMessaging::WM_APP;

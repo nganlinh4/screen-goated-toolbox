@@ -15,6 +15,7 @@ mod clipboard;
 mod controller;
 mod coord_test;
 mod effect_receipt;
+mod engine;
 mod executor;
 mod grid;
 mod human_input;
@@ -44,17 +45,17 @@ pub use overlay::{is_active, show_overlay, stop_overlay};
 /// CLI entry for the de-risk probe. Multiple tasks run in one real Live session,
 /// which exercises conversation-state behavior without enabling input execution.
 pub fn run_probe_cli(tasks: &[String]) -> Result<(), String> {
-    probe::run(tasks).map_err(|e| format!("{e:?}"))
+    run_cli_with_engine(|| probe::run(tasks))
 }
 
 /// CLI entry for the coordinate-convention debug: `--cc-coord-test`.
 pub fn run_coord_test_cli() -> Result<(), String> {
-    coord_test::run().map_err(|e| format!("{e:?}"))
+    run_cli_with_engine(coord_test::run)
 }
 
 /// CLI entry for the task-trace harness: `--cc-task-trace --cc-task "..."`.
 pub fn run_task_trace_cli(task: &str) -> Result<(), String> {
-    trace::run(task).map_err(|e| format!("{e:?}"))
+    run_cli_with_engine(|| trace::run(task))
 }
 
 /// CLI entry for the UIA ground-truth element dump: `--cc-uia-dump`.
@@ -64,17 +65,26 @@ pub fn run_uia_dump_cli(target: Option<&str>) -> Result<(), String> {
 
 /// CLI entry for the UIA-grounded task workhorse: `--cc-uia-task --cc-task "..."`.
 pub fn run_uia_task_cli(task: &str) -> Result<(), String> {
-    uia_task::run(task).map_err(|e| format!("{e:?}"))
+    run_cli_with_engine(|| uia_task::run(task))
 }
 
 /// CLI entry for the grid-overlay legibility check: `--cc-grid-test`.
 pub fn run_grid_test_cli(target: Option<&str>) -> Result<(), String> {
-    uia_task::run_grid_test(target).map_err(|e| format!("{e:?}"))
+    run_cli_with_engine(|| uia_task::run_grid_test(target))
 }
 
 /// CLI entry for the aux vision-stack smoke test: `--cc-vision-test`.
 pub fn run_vision_test_cli(target: Option<&str>, question: &str) -> Result<(), String> {
-    uia_task::run_vision_test(target, question).map_err(|e| format!("{e:?}"))
+    run_cli_with_engine(|| uia_task::run_vision_test(target, question))
+}
+
+fn run_cli_with_engine(operation: impl FnOnce() -> anyhow::Result<()>) -> Result<(), String> {
+    use std::sync::atomic::AtomicBool;
+
+    session::load_key().map_err(|error| format!("{error:?}"))?;
+    let cancelled = AtomicBool::new(false);
+    let _engine = engine::SessionGuard::start(&cancelled).map_err(|error| format!("{error:?}"))?;
+    operation().map_err(|error| format!("{error:?}"))
 }
 
 /// CLI entry for the MCP stdio bridge smoke test: `--cc-mcp-test <id>` (no Gemini).
