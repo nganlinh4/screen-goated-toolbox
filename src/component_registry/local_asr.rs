@@ -279,7 +279,7 @@ pub(crate) fn current_status(kind: ComponentKind) -> ComponentStatus {
         };
     }
     let Some(delivery) = optional_delivery(kind.id()) else {
-        return ComponentStatus::Unavailable;
+        return status_without_delivery(kind, cfg!(debug_assertions));
     };
     match validate_delivery_status(delivery) {
         #[cfg(feature = "recorder-worker")]
@@ -300,6 +300,17 @@ pub(crate) fn current_status(kind: ComponentKind) -> ComponentStatus {
             ComponentStatus::Error(error.to_string())
         }
         Err(_) => ComponentStatus::Missing,
+    }
+}
+
+fn status_without_delivery(
+    kind: ComponentKind,
+    development_runtime_available: bool,
+) -> ComponentStatus {
+    if kind == ComponentKind::Runtime && development_runtime_available {
+        ComponentStatus::Missing
+    } else {
+        ComponentStatus::Unavailable
     }
 }
 
@@ -546,5 +557,30 @@ fn receipt(kind: ComponentKind, version: &str, files: &[LocalAsrFile]) -> Compon
         architecture: ARCHITECTURE.to_string(),
         dependencies: kind.dependencies(),
         files: files.iter().map(owned_file).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ComponentKind, ComponentStatus, status_without_delivery};
+
+    #[test]
+    fn development_runtime_without_delivery_remains_downloadable() {
+        assert!(matches!(
+            status_without_delivery(ComponentKind::Runtime, true),
+            ComponentStatus::Missing
+        ));
+    }
+
+    #[test]
+    fn missing_release_delivery_and_worker_fallback_remain_unavailable() {
+        assert!(matches!(
+            status_without_delivery(ComponentKind::Runtime, false),
+            ComponentStatus::Unavailable
+        ));
+        assert!(matches!(
+            status_without_delivery(ComponentKind::Worker, true),
+            ComponentStatus::Unavailable
+        ));
     }
 }
