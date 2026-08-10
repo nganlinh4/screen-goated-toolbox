@@ -15,6 +15,10 @@ from pathlib import Path
 COMPONENT_ID = "qwen3-cuda-runtime"
 VC_COMPONENT_ID = "vc14-x64-runtime"
 DEFAULT_VERSION = "2.7.1-cu128-abi2"
+RELEASE_DOWNLOAD_ROOT = (
+    "https://github.com/nganlinh4/screen-goated-toolbox/"
+    "releases/download/sgt-runtime-bundles"
+)
 RUNTIME_DLL = "native/qwen3_runtime/dist/sgt_qwen3_runtime.dll"
 RUNTIME_MANIFEST = "native/qwen3_runtime/dist/sgt_qwen3_runtime.manifest.json"
 RUNTIME_FILES = (
@@ -284,7 +288,14 @@ def require_matching_delivery(output: Path, descriptor: dict) -> None:
     expected = json.loads(json.dumps(descriptor))
     for asset in expected["windows"]["components"][0]["assets"]:
         asset.pop("assetPath")
-    if delivery != expected:
+    normalized_delivery = json.loads(json.dumps(delivery))
+    for asset in normalized_delivery["windows"]["components"][0]["assets"]:
+        expected_url = f"{RELEASE_DOWNLOAD_ROOT}/{asset['asset']}"
+        if asset.pop("downloadUrl", None) != expected_url:
+            raise RuntimeError(
+                f"verified Qwen3 delivery URL is not immutable for {asset['asset']}"
+            )
+    if normalized_delivery != expected:
         raise RuntimeError("verified Qwen3 delivery does not match the pinned packs")
 
 

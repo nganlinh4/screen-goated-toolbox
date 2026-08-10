@@ -29,7 +29,7 @@ struct RendererProcess {
     generation: u64,
 }
 
-static SCENES: LazyLock<Mutex<HashMap<isize, SceneCard>>> =
+pub(super) static SCENES: LazyLock<Mutex<HashMap<isize, SceneCard>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static SCENE_DISPATCH: Mutex<()> = Mutex::new(());
 static PENDING_GEOMETRY: LazyLock<Mutex<HashMap<isize, SceneGeometry>>> =
@@ -52,6 +52,7 @@ static GEOMETRY_SIGNAL: LazyLock<SyncSender<()>> = LazyLock::new(|| {
 });
 static PROCESS: LazyLock<Mutex<Option<RendererProcess>>> = LazyLock::new(|| Mutex::new(None));
 static STARTING: AtomicBool = AtomicBool::new(false);
+pub(super) static DRAGGING: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static LIVE_GENERATION: AtomicU64 = AtomicU64::new(0);
 static READY_GENERATION: AtomicU64 = AtomicU64::new(0);
@@ -111,6 +112,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
     let Some(geometry) = read_geometry(hwnd, requested_visible) else {
         return;
     };
+    let controls = super::controls::snapshot(hwnd_key).unwrap_or_default();
     let mut scenes = SCENES.lock().unwrap();
     let stack_order = scenes
         .get(&hwnd_key)
@@ -119,6 +121,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
     let card = SceneCard {
         id: hwnd_key,
         rect: geometry.rect,
+        control_rect: geometry.control_rect,
         body: body.clone(),
         document,
         refining: snapshot.1,
@@ -128,6 +131,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         streaming: snapshot.6,
         streaming_enabled: snapshot.7,
         stack_order,
+        controls,
     };
 
     let previous = scenes.insert(hwnd_key, card.clone());
@@ -163,6 +167,7 @@ fn command_for_transition(
                     opacity: card.opacity,
                     visible: card.visible,
                     streaming_enabled: card.streaming_enabled,
+                    controls: card.controls.clone(),
                 },
             },
             (Some(true), false) => HostCommand::Finalize {
@@ -175,6 +180,7 @@ fn command_for_transition(
                     opacity: card.opacity,
                     visible: card.visible,
                     streaming_enabled: card.streaming_enabled,
+                    controls: card.controls.clone(),
                 },
             },
             _ => HostCommand::Upsert { card: card.clone() },
@@ -196,6 +202,7 @@ pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
             return;
         };
         card.rect = geometry.rect.clone();
+        card.control_rect = geometry.control_rect.clone();
         card.visible = geometry.visible;
         true
     };
@@ -228,6 +235,12 @@ fn read_geometry(hwnd: HWND, requested_visible: bool) -> Option<SceneGeometry> {
             y: screen_rect.top - virtual_y + 2,
             width: (screen_rect.right - screen_rect.left - 8).max(1),
             height: (screen_rect.bottom - screen_rect.top - 4).max(1),
+        },
+        control_rect: SceneRect {
+            x: screen_rect.left - virtual_x,
+            y: screen_rect.top - virtual_y,
+            width: (screen_rect.right - screen_rect.left).max(1),
+            height: (screen_rect.bottom - screen_rect.top).max(1),
         },
         visible: requested_visible && unsafe { IsWindowVisible(hwnd).as_bool() },
     })
@@ -286,9 +299,7 @@ pub fn update_theme(is_dark: bool) {
         }
     }
     let theme = theme_command(is_dark);
-    if !theme.cards.is_empty() {
-        send_command(HostCommand::Theme { theme });
-    }
+    send_command(HostCommand::Theme { theme });
 }
 
 fn theme_command(is_dark: bool) -> SceneTheme {
@@ -313,6 +324,7 @@ fn theme_command(is_dark: bool) -> SceneTheme {
         .collect();
     SceneTheme {
         css: crate::overlay::result::markdown_view::css::get_theme_css(is_dark),
+        controls_css: crate::overlay::result::button_canvas::theme_css(is_dark),
         cards,
     }
 }
@@ -439,9 +451,19 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
             } => update_navigation_state(id, depth, max_depth),
             ChildEvent::Interaction { id } => {
                 raise_window_id(id);
-                crate::overlay::result::button_canvas::raise_window(HWND(
-                    id as *mut std::ffi::c_void,
-                ));
+            }
+            ChildEvent::ButtonAction { id, action } => {
+                crate::overlay::result::button_canvas::handle_action(id, action);
+            }
+            ChildEvent::DragStarted => DRAGGING.store(true, Ordering::SeqCst),
+            ChildEvent::DragFinished {
+                id,
+                targets,
+                outcome,
+            } => {
+                DRAGGING.store(false, Ordering::SeqCst);
+                crate::overlay::result::button_canvas::handle_drag_finished(id, &targets, outcome);
+                super::controls::sync_all();
             }
             ChildEvent::FitDiagnostic { id, payload } => log_fit_diagnostic(id, &payload),
         }
@@ -453,6 +475,7 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
         READY_GENERATION
             .compare_exchange(generation, 0, Ordering::SeqCst, Ordering::SeqCst)
             .ok();
+        DRAGGING.store(false, Ordering::SeqCst);
         crate::log_info!("[ResultCompositor] renderer process disconnected");
     }
 }
@@ -472,7 +495,7 @@ fn update_navigation_state(id: isize, depth: usize, max_depth: usize) {
     };
     if updated {
         let hwnd = HWND(id as *mut std::ffi::c_void);
-        crate::overlay::result::button_canvas::update_window_position(hwnd);
+        super::controls::sync(hwnd);
     }
 }
 

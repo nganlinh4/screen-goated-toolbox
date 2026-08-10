@@ -161,7 +161,7 @@ impl DownloadManager {
         }
 
         std::thread::spawn(move || {
-            let result = (|| -> Result<Option<PathBuf>, String> {
+            let attempt = |attempt_label: &str| -> Result<Option<PathBuf>, String> {
                 log(&logs, format!("Processing URL: {url}"));
                 let ytdlp = prepare_tool(ExternalTool::YtDlp, &ytdlp_status, &state, &cancel)?;
                 let ffmpeg = prepare_tool(ExternalTool::Ffmpeg, &ffmpeg_status, &state, &cancel)?;
@@ -205,14 +205,18 @@ impl DownloadManager {
                 }
                 if use_subtitles {
                     args.extend(["--write-subs", "--sub-langs"].map(str::to_string));
-                    args.push(selected_subtitle.unwrap_or_else(|| "en.*,vi.*,ko.*".to_string()));
+                    args.push(
+                        selected_subtitle
+                            .clone()
+                            .unwrap_or_else(|| "en.*,vi.*,ko.*".to_string()),
+                    );
                     args.push("--embed-subs".to_string());
                 }
-                append_cookie_args(&mut args, cookie_browser);
-                match download_type {
+                append_cookie_args(&mut args, cookie_browser.clone());
+                match &download_type {
                     DownloadType::Video => {
                         args.push("-f".to_string());
-                        args.push(selected_format.map_or_else(
+                        args.push(selected_format.clone().map_or_else(
                             || "bestvideo+bestaudio/best".to_string(),
                             |format| {
                                 let height = format.trim_end_matches('p');
@@ -237,7 +241,7 @@ impl DownloadManager {
                         .to_string_lossy()
                         .to_string(),
                 );
-                args.push(url);
+                args.push(url.clone());
 
                 // Every selected tool guard remains alive until yt-dlp and its children exit.
                 run_ytdlp_download_attempt(
@@ -247,9 +251,44 @@ impl DownloadManager {
                     &state,
                     &logs,
                     &cancel,
-                    "pinned",
+                    attempt_label,
                 )
-            })();
+            };
+
+            let result = match attempt("verified") {
+                Ok(path) => Ok(path),
+                Err(error) if cancel.load(Ordering::Relaxed) => Err(error),
+                Err(first_error) => {
+                    log(
+                        &logs,
+                        "Download failed; checking the signed component catalog for newer downloader tools.",
+                    );
+                    match external_tools::refresh_downloader_after_failure(true) {
+                        Ok(updated) if !updated.is_empty() => {
+                            let names = updated
+                                .iter()
+                                .map(|tool| tool.id())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            log(
+                                &logs,
+                                format!(
+                                    "Newer verified tools are available ({names}); retrying once."
+                                ),
+                            );
+                            attempt("verified update")
+                        }
+                        Ok(_) => Err(first_error),
+                        Err(refresh_error) => {
+                            log(
+                                &logs,
+                                format!("Signed update check was unavailable: {refresh_error:#}"),
+                            );
+                            Err(first_error)
+                        }
+                    }
+                }
+            };
 
             match result {
                 Ok(final_path) => {

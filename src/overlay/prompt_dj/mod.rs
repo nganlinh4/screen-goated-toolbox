@@ -1,4 +1,6 @@
 use std::sync::Once;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -16,6 +18,7 @@ static REGISTER_PDJ_CLASS: Once = Once::new();
 static mut PDJ_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
 static mut IS_WARMED_UP: bool = false;
 static mut IS_INITIALIZING: bool = false;
+static REMOVAL_REQUESTED: AtomicBool = AtomicBool::new(false);
 const WM_APP_SHOW: u32 = WM_USER + 101;
 const WM_APP_UPDATE_SETTINGS: u32 = WM_USER + 102;
 
@@ -23,6 +26,7 @@ const WM_APP_UPDATE_SETTINGS: u32 = WM_USER + 102;
 thread_local! {
     static PDJ_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
     static PDJ_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
+    static PDJ_ASSET_PACK: std::cell::RefCell<Option<crate::component_registry::web_assets::WebAssetPack>> = const { std::cell::RefCell::new(None) };
 }
 
 fn with_pdj_webview(action: impl FnOnce(&wry::WebView)) {
@@ -124,7 +128,33 @@ pub(crate) fn download_web_assets(
 }
 
 pub(crate) fn remove_web_assets() -> anyhow::Result<()> {
-    crate::component_registry::web_assets::remove(WebAssetComponent::PromptDj)
+    REMOVAL_REQUESTED.store(true, Ordering::Release);
+    crate::component_registry::web_assets::remove(WebAssetComponent::PromptDj)?;
+    stop_for_component_removal()
+}
+
+fn stop_for_component_removal() -> anyhow::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let (hwnd, initializing) = unsafe {
+            (
+                std::ptr::addr_of!(PDJ_HWND).read(),
+                std::ptr::addr_of!(IS_INITIALIZING).read(),
+            )
+        };
+        if !hwnd.is_invalid() {
+            unsafe {
+                let _ = PostMessageW(Some(hwnd.0), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        } else if !initializing {
+            REMOVAL_REQUESTED.store(false, Ordering::Release);
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            anyhow::bail!("PromptDJ did not stop before component removal timed out");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 pub fn update_settings() {

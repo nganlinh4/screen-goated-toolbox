@@ -8,6 +8,7 @@ import copy
 import hashlib
 import json
 import sys
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -139,6 +140,34 @@ def verify_local_packages(packages: dict, package_dir: Path) -> None:
         print(f"local {model['id']}: {size} bytes sha256={digest}")
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+
+def linked_receipt(url: str) -> tuple[int, str] | None:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "ScreenGoatedToolbox-ReleaseVerifier/1",
+            "Range": "bytes=0-0",
+        },
+    )
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        response = opener.open(request, timeout=60)
+    except urllib.error.HTTPError as error:
+        if error.code not in (301, 302, 303, 307, 308):
+            raise
+        response = error
+    with response:
+        linked_size = response.headers.get("x-linked-size", "")
+        linked_digest = response.headers.get("x-linked-etag", "")
+        if linked_size.isdigit() and linked_digest:
+            return int(linked_size), linked_digest.strip().strip('W/').strip('"').lower()
+    return None
+
+
 def remote_headers(url: str, byte_range: bool) -> tuple[object, bytes]:
     headers = {"User-Agent": "ScreenGoatedToolbox-ReleaseVerifier/1"}
     if byte_range:
@@ -170,6 +199,12 @@ def verify_remote(url: str, size: int, sha256: str, force_full: bool) -> None:
                 digest.update(chunk)
         if (received, digest.hexdigest()) != (size, sha256):
             raise ValueError(f"remote object checksum mismatch: {url}")
+        return
+
+    receipt = linked_receipt(url)
+    if receipt is not None:
+        if receipt != (size, sha256):
+            raise ValueError(f"remote large-file receipt mismatch: {url}")
         return
 
     response, _ = remote_headers(url, True)

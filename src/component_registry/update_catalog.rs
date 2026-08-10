@@ -1,0 +1,181 @@
+//! Signed, append-only discovery for independently updateable components.
+
+use std::collections::HashSet;
+use std::sync::{Arc, LazyLock, RwLock};
+
+use anyhow::{Context, Result, bail};
+use semver::Version;
+use serde::Deserialize;
+use serde_json::Value;
+
+mod cache;
+mod network;
+mod signature;
+
+const MAX_CONTRACTS: usize = 64;
+const MAX_POLICIES: usize = 128;
+const PLATFORM: &str = "windows-x64";
+
+static ACTIVE: LazyLock<RwLock<Option<Arc<UpdateCatalog>>>> = LazyLock::new(|| RwLock::new(None));
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpdateCatalog {
+    schema_version: u32,
+    sequence: u64,
+    channel: String,
+    min_host_version: String,
+    max_host_version_exclusive: String,
+    contracts: Vec<CatalogContract>,
+    policies: Vec<CatalogPolicy>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CatalogContract {
+    name: String,
+    platform: String,
+    delivery: Value,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CatalogPolicy {
+    id: String,
+    mode: String,
+    check_hours: u64,
+    group: String,
+}
+
+pub(crate) fn refresh_in_background() {
+    if let Ok(Some(catalog)) = cache::load_highest() {
+        activate(catalog);
+        super::external_tools::schedule_periodic_updates();
+    }
+    std::thread::spawn(|| match refresh_now() {
+        Ok(_) => super::external_tools::schedule_periodic_updates(),
+        Err(error) => {
+            crate::log_info!("[Component updates] Catalog refresh skipped: {error:#}")
+        }
+    });
+}
+
+pub(crate) fn refresh_now() -> Result<u64> {
+    let minimum = ACTIVE
+        .read()
+        .ok()
+        .and_then(|catalog| catalog.as_ref().map(|catalog| catalog.sequence))
+        .unwrap_or(0);
+    let candidate = network::fetch_highest_compatible(minimum)?;
+    cache::store(&candidate.name, &candidate.catalog, &candidate.signature)?;
+    let catalog = parse_verified(&candidate.catalog, &candidate.signature)?;
+    let sequence = catalog.sequence;
+    activate(catalog);
+    Ok(sequence)
+}
+
+pub(crate) fn contract(name: &str) -> Option<(u64, Value)> {
+    ACTIVE
+        .read()
+        .ok()
+        .and_then(|catalog| catalog.clone())
+        .and_then(|catalog| {
+            catalog
+                .contracts
+                .iter()
+                .find(|contract| {
+                    contract.name == name
+                        && matches!(contract.platform.as_str(), PLATFORM | "multi")
+                })
+                .map(|contract| (catalog.sequence, contract.delivery.clone()))
+        })
+}
+
+pub(crate) fn policy(id: &str) -> Option<(String, u64, String)> {
+    ACTIVE
+        .read()
+        .ok()
+        .and_then(|catalog| catalog.clone())
+        .and_then(|catalog| {
+            catalog
+                .policies
+                .iter()
+                .find(|policy| policy.id == id)
+                .map(|policy| {
+                    (
+                        policy.mode.clone(),
+                        policy.check_hours,
+                        policy.group.clone(),
+                    )
+                })
+        })
+}
+
+fn activate(catalog: UpdateCatalog) {
+    if let Ok(mut active) = ACTIVE.write()
+        && active
+            .as_ref()
+            .is_none_or(|current| catalog.sequence > current.sequence)
+    {
+        *active = Some(Arc::new(catalog));
+    }
+}
+
+fn parse_verified(catalog_bytes: &[u8], signature_bytes: &[u8]) -> Result<UpdateCatalog> {
+    signature::verify(catalog_bytes, signature_bytes)?;
+    let catalog: UpdateCatalog = serde_json::from_slice(catalog_bytes)
+        .context("signed component catalog is not valid JSON")?;
+    validate(&catalog)?;
+    Ok(catalog)
+}
+
+fn validate(catalog: &UpdateCatalog) -> Result<()> {
+    if catalog.schema_version != 1 || catalog.sequence == 0 || catalog.channel != "stable" {
+        bail!("signed component catalog header is invalid");
+    }
+    let current = Version::parse(env!("CARGO_PKG_VERSION"))?;
+    let minimum = Version::parse(&catalog.min_host_version)?;
+    let maximum = Version::parse(&catalog.max_host_version_exclusive)?;
+    if current < minimum || current >= maximum {
+        bail!("signed component catalog is not compatible with this host");
+    }
+    if catalog.contracts.is_empty() || catalog.contracts.len() > MAX_CONTRACTS {
+        bail!("signed component catalog has an invalid contract count");
+    }
+    if catalog.policies.len() > MAX_POLICIES {
+        bail!("signed component catalog has too many policies");
+    }
+    let mut names = HashSet::new();
+    for contract in &catalog.contracts {
+        validate_token(&contract.name, 96)?;
+        validate_token(&contract.platform, 32)?;
+        if !names.insert(&contract.name) || !contract.delivery.is_object() {
+            bail!("signed component catalog contains an invalid contract");
+        }
+    }
+    let mut ids = HashSet::new();
+    for policy in &catalog.policies {
+        super::catalog::validate_identifier(&policy.id)?;
+        validate_token(&policy.mode, 32)?;
+        validate_token(&policy.group, 64)?;
+        if policy.check_hours == 0 || policy.check_hours > 24 * 365 || !ids.insert(&policy.id) {
+            bail!("signed component catalog contains an invalid policy");
+        }
+    }
+    Ok(())
+}
+
+fn validate_token(value: &str, maximum: usize) -> Result<()> {
+    if value.is_empty()
+        || value.len() > maximum
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        bail!("signed component catalog token is invalid");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

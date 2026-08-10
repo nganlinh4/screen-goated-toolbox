@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.service.moonshine
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.componentupdate.ComponentUpdateCatalog
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -12,10 +13,16 @@ import java.net.URI
 internal object MoonshineModelDelivery {
     const val ASSET_NAME = "moonshine-model-delivery.json"
 
-    fun load(context: Context): Map<String, MoonshineModelBundle> =
-        context.assets.open(ASSET_NAME).bufferedReader(Charsets.UTF_8).use { reader ->
+    fun load(context: Context): Map<String, MoonshineModelBundle> {
+        val updated = ComponentUpdateCatalog.contract(
+            "android-moonshine-models-v1",
+            setOf("android-arm64"),
+        )
+        if (updated != null) return parse(updated.toString())
+        return context.assets.open(ASSET_NAME).bufferedReader(Charsets.UTF_8).use { reader ->
             parse(reader.readText())
         }
+    }
 
     internal fun parse(source: String): Map<String, MoonshineModelBundle> {
         val root = Json.parseToJsonElement(source).jsonObject

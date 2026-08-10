@@ -15,6 +15,7 @@ use super::{ComponentLease, RemovalOutcome};
 
 mod install;
 mod staging;
+mod update;
 
 pub(crate) const WEB_ID: &str = "recorder-web";
 pub(crate) const WORKER_ID: &str = "recorder-worker";
@@ -52,11 +53,6 @@ pub(crate) fn ensure_ready(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<RecorderComponents> {
-    #[cfg(debug_assertions)]
-    if RECORDER_DELIVERIES.is_empty() {
-        return development_components();
-    }
-
     let _mutation = super::acquire_mutation_guard()?;
     let web = delivery(WEB_ID)?;
     let worker = delivery(WORKER_ID)?;
@@ -116,6 +112,10 @@ pub(crate) fn is_installed() -> bool {
         return false;
     };
     validate_status(web).is_ok() && validate_status(worker).is_ok()
+}
+
+pub(crate) fn delivery_available() -> bool {
+    delivery(WEB_ID).is_ok() && delivery(WORKER_ID).is_ok()
 }
 
 pub(crate) fn installed_size() -> u64 {
@@ -255,10 +255,16 @@ fn remove_one(id: &str) -> Result<()> {
 }
 
 fn delivery(id: &str) -> Result<&'static RecorderDelivery> {
+    if let Some(delivery) = update::deliveries()
+        .iter()
+        .find(|delivery| delivery.id == id)
+    {
+        return Ok(delivery);
+    }
     RECORDER_DELIVERIES
         .iter()
         .find(|entry| entry.id == id)
-        .ok_or_else(|| anyhow::anyhow!("Screen Recorder components are not included in this build"))
+        .ok_or_else(|| anyhow::anyhow!("Screen Recorder download contract is unavailable"))
 }
 
 fn version_root(delivery: &RecorderDelivery) -> Result<PathBuf> {
@@ -396,33 +402,6 @@ fn validate_x64_pe(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(debug_assertions)]
-fn development_components() -> Result<RecorderComponents> {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let repo = if manifest_dir.ends_with("native/recorder_worker") {
-        manifest_dir
-            .ancestors()
-            .nth(2)
-            .ok_or_else(|| anyhow::anyhow!("recorder worker repository root is unavailable"))?
-    } else {
-        manifest_dir
-    };
-    let web_root = repo.join("screen-record").join("dist");
-    let worker_path = repo
-        .join("native/recorder_worker/target/x86_64-pc-windows-msvc/debug")
-        .join("sgt-recorder-worker.exe");
-    if !web_root.join("index.html").is_file() {
-        bail!("build the recorder frontend before opening Screen Recorder");
-    }
-    validate_x64_pe(&worker_path)?;
-    Ok(RecorderComponents {
-        web_root,
-        worker_path,
-        _leases: Vec::new(),
-        _files: Vec::new(),
-    })
-}
-
 fn receipt(delivery: &RecorderDelivery) -> ComponentReceipt {
     ComponentReceipt {
         schema_version: 1,
@@ -436,6 +415,11 @@ fn receipt(delivery: &RecorderDelivery) -> ComponentReceipt {
 
 #[cfg(test)]
 mod acceptance_tests {
+    #[test]
+    fn tracked_delivery_contains_recorder_web_and_worker() {
+        assert!(super::delivery_available());
+    }
+
     #[test]
     #[ignore = "opens the local recorder window"]
     fn active_recorder_is_stopped_before_removal_returns() {

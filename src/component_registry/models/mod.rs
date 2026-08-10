@@ -17,6 +17,8 @@ use super::{ComponentLease, RemovalOutcome};
 mod auxiliary;
 mod install;
 mod staging;
+#[cfg(not(feature = "recorder-worker"))]
+mod update;
 
 const DELIVERY_JSON: &str = include_str!("../../../model-delivery/windows-v1.json");
 const MAX_MODELS: usize = 32;
@@ -223,6 +225,14 @@ fn acquire_delivery(delivery: &ModelDelivery) -> Result<ModelUse> {
 }
 
 fn catalog() -> &'static DeliveryCatalog {
+    #[cfg(not(feature = "recorder-worker"))]
+    if let Some(catalog) = update::catalog() {
+        return catalog;
+    }
+    embedded_delivery_catalog()
+}
+
+fn embedded_delivery_catalog() -> &'static DeliveryCatalog {
     static CATALOG: OnceLock<DeliveryCatalog> = OnceLock::new();
     CATALOG.get_or_init(|| {
         let catalog: DeliveryCatalog =

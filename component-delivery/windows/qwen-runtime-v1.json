@@ -1,0 +1,290 @@
+{
+  "schemaVersion": 1,
+  "version": "2.7.1-cu128-abi2",
+  "windows": {
+    "architecture": "x64",
+    "components": [
+      {
+        "id": "qwen3-cuda-runtime",
+        "dependencies": [
+          "vc14-x64-runtime"
+        ],
+        "assets": [
+          {
+            "asset": "qwen3-cuda-runtime-2.7.1-cu128-abi2-5a7677908f227c35.zip",
+            "sizeBytes": 2166411,
+            "sha256": "5a7677908f227c35db07c057e9a2dc4ae161bd2c48d8c93e2965924a0fe2ff74",
+            "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/qwen3-cuda-runtime-2.7.1-cu128-abi2-5a7677908f227c35.zip"
+          },
+          {
+            "asset": "qwen3-cuda-libtorch-2.7.1-cu128-abi2-part1-73e86a481e1652a6.zip",
+            "sizeBytes": 1470176396,
+            "sha256": "73e86a481e1652a612d3d893565ffba0a5cce7a5c7d693aa5b8ca7c8e58a617e",
+            "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/qwen3-cuda-libtorch-2.7.1-cu128-abi2-part1-73e86a481e1652a6.zip"
+          },
+          {
+            "asset": "qwen3-cuda-libtorch-2.7.1-cu128-abi2-part2-1313a24362d6b95b.zip",
+            "sizeBytes": 1463767715,
+            "sha256": "1313a24362d6b95b873e54b436aa5a9e4ccfbbbcc8d6759e71363ea1fd9c96db",
+            "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/qwen3-cuda-libtorch-2.7.1-cu128-abi2-part2-1313a24362d6b95b.zip"
+          }
+        ],
+        "unpackedSizeBytes": 4505493170,
+        "files": [
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/asmjit.dll",
+            "path": "bin/x64/asmjit.dll",
+            "sizeBytes": 358912,
+            "sha256": "1466ae7c409ff160582fe49d30548b98dbed20783d47249150da06d21394edaf"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/c10.dll",
+            "path": "bin/x64/c10.dll",
+            "sizeBytes": 1010176,
+            "sha256": "510c0aabe6e33e62952c292739e1da85497a59433cf95087b72d05855155f88b"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/c10_cuda.dll",
+            "path": "bin/x64/c10_cuda.dll",
+            "sizeBytes": 389120,
+            "sha256": "c455219df3e1e20d334feea6a287ceed908bb01e4c120e51785d674b69a94c82"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/cublas64_12.dll",
+            "path": "bin/x64/cublas64_12.dll",
+            "sizeBytes": 113712640,
+            "sha256": "0a60a7ecbf906f7f3842826fecaf412f1587ff6269729339245a1ec224364161"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/cublasLt64_12.dll",
+            "path": "bin/x64/cublasLt64_12.dll",
+            "sizeBytes": 692441600,
+            "sha256": "a21ddfc1c9cd090ab07d2c6aad235aa4f15fe60fe896d5db28adf7a279c09ef3"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/cudart64_12.dll",
+            "path": "bin/x64/cudart64_12.dll",
+            "sizeBytes": 573952,
+            "sha256": "9d9b868955149875ac4ef43442aaaa8913d4a7b3e4d6dd60ee871626aa045768"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/cudnn64_9.dll",
+            "path": "bin/x64/cudnn64_9.dll",
+            "sizeBytes": 265760,
+            "sha256": "3568726e0b6255a88f8e3d0dd6536bba7e0e4d7f793a668e5d2165957fba5387"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/cudnn_adv64_9.dll",
+            "path": "bin/x64/cudnn_adv64_9.dll",
+            "sizeBytes": 326072352,
+            "sha256": "063c988638e3c5f935507360013209c448070407a854885a2cdd8e707389cef0"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/cudnn_cnn64_9.dll",
+            "path": "bin/x64/cudnn_cnn64_9.dll",
+            "sizeBytes": 4254776,
+            "sha256": "e9217e4ea5060b12e452cc3a27898848c1e6e2879c6082f4d8d1cfe61c6a36fb"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/cudnn_engines_precompiled64_9.dll",
+            "path": "bin/x64/cudnn_engines_precompiled64_9.dll",
+            "sizeBytes": 528766000,
+            "sha256": "9d1ff785535d91d4074448cd19538662c087d7d60ad7b3cdc49c7ba885e34a21"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/cudnn_engines_runtime_compiled64_9.dll",
+            "path": "bin/x64/cudnn_engines_runtime_compiled64_9.dll",
+            "sizeBytes": 24718368,
+            "sha256": "88c87be6a55902768d6d73f7b40a0077459194fabc064485c1af7050587da63d"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/cudnn_graph64_9.dll",
+            "path": "bin/x64/cudnn_graph64_9.dll",
+            "sizeBytes": 2199608,
+            "sha256": "8fb2dad5ef130661ccf464f7d062c1500d4186e54a30217392474a58d1a255c5"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/cudnn_heuristic64_9.dll",
+            "path": "bin/x64/cudnn_heuristic64_9.dll",
+            "sizeBytes": 60222000,
+            "sha256": "9e5507f112cd45ba1ce96ebfe864895ebc00b16e8fda94055c2ded431c4a7646"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/cudnn_ops64_9.dll",
+            "path": "bin/x64/cudnn_ops64_9.dll",
+            "sizeBytes": 116958752,
+            "sha256": "035c07683b4a5e7c56ce92029ca334f1335c77b4f006f43cbdd193dc4b5a6d99"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/cufft64_11.dll",
+            "path": "bin/x64/cufft64_11.dll",
+            "sizeBytes": 276121088,
+            "sha256": "619fcb005c8a18ffad478ff68b7a9cd154fa170e835dce9d41ff4fc0c0692113"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/cupti64_2025.1.0.dll",
+            "path": "bin/x64/cupti64_2025.1.0.dll",
+            "sizeBytes": 4482632,
+            "sha256": "4e6a6cfe76cf5c56ef6d3c49d41747266af561f890a6926cb7e2c5fe75d3172b"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/cusolver64_11.dll",
+            "path": "bin/x64/cusolver64_11.dll",
+            "sizeBytes": 220286976,
+            "sha256": "ae41c92c426bc0390b25a2f362a66c81a3ef7e1211bcfbca54abcd1910dba948"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/cusparse64_12.dll",
+            "path": "bin/x64/cusparse64_12.dll",
+            "sizeBytes": 385082880,
+            "sha256": "6d885e2bc6c7f50eed34a649491c4f44ce68ee2ba79ca9b901bda4795b9811b1"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/fbgemm.dll",
+            "path": "bin/x64/fbgemm.dll",
+            "sizeBytes": 4961280,
+            "sha256": "50cafb6675294d9104a5f0a52c1a76de5dcfe94ed73355e04fb3448a5e1e7ea3"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/libiomp5md.dll",
+            "path": "bin/x64/libiomp5md.dll",
+            "sizeBytes": 1602416,
+            "sha256": "15e6f874a53cb54a8e266099c8da92484c6f50301d117f9a5443846e9ece90b5"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/nvJitLink_120_0.dll",
+            "path": "bin/x64/nvJitLink_120_0.dll",
+            "sizeBytes": 77834752,
+            "sha256": "4bc81414f0c91119061aa1207d329ceb7f94959a647f865a3c44e23fb27c7907"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/nvrtc-builtins64_128.dll",
+            "path": "bin/x64/nvrtc-builtins64_128.dll",
+            "sizeBytes": 6356480,
+            "sha256": "96a28201dbffd4eff6dc93f310417b981bf7a141d46f2839036f5dbfd83b33ae"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/nvrtc64_120_0.dll",
+            "path": "bin/x64/nvrtc64_120_0.dll",
+            "sizeBytes": 86702592,
+            "sha256": "ec2a860422b7d0396b45c29a1848faecc3788041ba52f166f0fc52c1b47e8245"
+          },
+          {
+            "archiveIndex": 0,
+            "archivePath": "bin/x64/sgt_qwen3_runtime.dll",
+            "path": "bin/x64/sgt_qwen3_runtime.dll",
+            "sizeBytes": 5825536,
+            "sha256": "939714781ad4737430ee1aa1867f7235c212155a2c010ca64a22b064359c7795"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/torch_cpu.dll",
+            "path": "bin/x64/torch_cpu.dll",
+            "sizeBytes": 252337664,
+            "sha256": "8b83bc5e5da9488266620918f38802d707b98ff2b519d4e7c9206a9fb90f1ad2"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/torch_cuda.dll",
+            "path": "bin/x64/torch_cuda.dll",
+            "sizeBytes": 1311576064,
+            "sha256": "2db2ad2907857651433704ba9de74d0892aa3d58a6b5a4f837c6ebeefe6a05fb"
+          },
+          {
+            "archiveIndex": 1,
+            "archivePath": "bin/x64/uv.dll",
+            "path": "bin/x64/uv.dll",
+            "sizeBytes": 195072,
+            "sha256": "d6e517084425092066d4b26678320eb60edf2c79ade855bd67b829113f999da6"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "bin/x64/zlibwapi.dll",
+            "path": "bin/x64/zlibwapi.dll",
+            "sizeBytes": 89088,
+            "sha256": "1f047faec08d9a35c304fb4a7cf13853589359a8f7cbfdd48c5d5807712dcf05"
+          },
+          {
+            "archiveIndex": 0,
+            "archivePath": "licenses/CUDA-NOTICE.txt",
+            "path": "licenses/CUDA-NOTICE.txt",
+            "sizeBytes": 592,
+            "sha256": "90a0982730ba07afacb2a001b50a2837e00ad7a9be8ab72697cef660e5359798"
+          },
+          {
+            "archiveIndex": 0,
+            "archivePath": "licenses/DNNL-LICENSE.txt",
+            "path": "licenses/DNNL-LICENSE.txt",
+            "sizeBytes": 11607,
+            "sha256": "9dad27256276bb4fce6725c162ef619b5aa2e8abc8f341a4dab0b870aad55664"
+          },
+          {
+            "archiveIndex": 0,
+            "archivePath": "licenses/DNNL-THIRD-PARTY-PROGRAMS.txt",
+            "path": "licenses/DNNL-THIRD-PARTY-PROGRAMS.txt",
+            "sizeBytes": 37713,
+            "sha256": "f934c0a5bd1f437769df3a349044dba49e41b2c0b66e99e6ec78b6eeb3286818"
+          },
+          {
+            "archiveIndex": 0,
+            "archivePath": "licenses/PYTORCH-LICENSE.txt",
+            "path": "licenses/PYTORCH-LICENSE.txt",
+            "sizeBytes": 3464,
+            "sha256": "a8a2c6b67cf8a597ffaa5c82380a6bd1b82629c0417e00673d8013d662eb500a"
+          },
+          {
+            "archiveIndex": 0,
+            "archivePath": "licenses/PYTORCH-LICENSES-BUNDLED.txt",
+            "path": "licenses/PYTORCH-LICENSES-BUNDLED.txt",
+            "sizeBytes": 17571,
+            "sha256": "f90a2e8660d571d1f951156b324cf737a1982e46116c6b1c10b078fade6f0cd7"
+          },
+          {
+            "archiveIndex": 0,
+            "archivePath": "licenses/PYTORCH-NOTICE.txt",
+            "path": "licenses/PYTORCH-NOTICE.txt",
+            "sizeBytes": 23632,
+            "sha256": "c2cc7bf0caec7652c2b460a8a470bea1677f241e4ab8e431df34cf17f5a9fec0"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "metadata/build-hash",
+            "path": "metadata/build-hash",
+            "sizeBytes": 41,
+            "sha256": "e8b69564db3ee0651f85baa60ecc7463decbeab699253a3de11c6b86403560e0"
+          },
+          {
+            "archiveIndex": 2,
+            "archivePath": "metadata/build-version",
+            "path": "metadata/build-version",
+            "sizeBytes": 14,
+            "sha256": "a53c96a32fc83ac69605ef6ed704c2fd1229d29b5e019e86f3141b32cac09e32"
+          }
+        ]
+      }
+    ]
+  }
+}

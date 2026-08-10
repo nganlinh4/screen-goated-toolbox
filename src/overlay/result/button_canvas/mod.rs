@@ -1,347 +1,102 @@
-//! Button canvas overlay for result windows
-//!
-//! This module provides a transparent overlay window that displays interactive
-//! buttons for each registered markdown result window. The overlay uses a WebView
-//! for rendering and handles mouse events to show/hide buttons based on proximity.
+//! Interactive controls rendered inside the unified result compositor.
 
+mod actions;
 mod css;
-mod html;
-mod ipc;
 mod js;
 mod theme;
-mod window;
-mod wnd_proc;
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::sync::{
-    LazyLock, Mutex,
-    atomic::{AtomicBool, AtomicIsize, Ordering},
-};
-use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::UI::HiDpi::GetDpiForSystem;
-use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::{WebContext, WebView};
+use windows::Win32::Foundation::HWND;
 
-// Re-export window creation for external use
-pub use window::create_canvas_window;
-
-// Singleton canvas state
-static CANVAS_HWND: AtomicIsize = AtomicIsize::new(0);
-static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
-static IS_DRAGGING_EXTERNAL: AtomicBool = AtomicBool::new(false);
-static REGISTER_CANVAS_CLASS: std::sync::Once = std::sync::Once::new();
-static IS_INITIALIZING: AtomicBool = AtomicBool::new(false);
-
-// Custom messages
-const WM_APP_UPDATE_WINDOWS: u32 = WM_APP + 50;
-const WM_APP_SHOW_CANVAS: u32 = WM_APP + 51;
-const WM_APP_HIDE_CANVAS: u32 = WM_APP + 52;
-const WM_APP_SEND_REFINE_TEXT: u32 = WM_APP + 53;
-const WM_APP_UPDATE_THEME: u32 = WM_APP + 54;
-const WM_APP_RAISE_WINDOW: u32 = WM_APP + 55;
-
-// Timer for cursor position polling
-const CURSOR_POLL_TIMER_ID: usize = 1;
-
-thread_local! {
-    static CANVAS_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
-    static CANVAS_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
+pub(crate) fn document_css() -> &'static str {
+    css::get_base_css()
 }
 
-/// Result-window rectangle `(x, y, w, h)`.
-type WindowRect = (i32, i32, i32, i32);
-
-/// Tracks which result windows are in markdown mode and their positions
-/// Key: hwnd as isize, Value: (x, y, w, h)
-static MARKDOWN_WINDOWS: LazyLock<Mutex<HashMap<isize, WindowRect>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-static PENDING_REFINE_UPDATES: LazyLock<Mutex<HashMap<isize, String>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-// Track last applied theme to avoid redundant injections
-static LAST_THEME_IS_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-
-// Global state for manual Rust-side dragging
-static ACTIVE_DRAG_TARGET: AtomicIsize = AtomicIsize::new(0);
-static DRAG_IS_GROUP: AtomicBool = AtomicBool::new(false);
-static ACTIVE_DRAG_SNAPSHOT: Mutex<Vec<isize>> = Mutex::new(Vec::new());
-static LAST_DRAG_POS: Mutex<POINT> = Mutex::new(POINT { x: 0, y: 0 });
-static START_DRAG_POS: Mutex<POINT> = Mutex::new(POINT { x: 0, y: 0 });
-
-/// Get DPI scale factor (1.0 = 100%, 1.5 = 150%, 2.0 = 200%, etc.)
-fn get_dpi_scale() -> f64 {
-    let dpi = unsafe { GetDpiForSystem() };
-    dpi as f64 / 96.0
+pub(crate) fn document_script() -> String {
+    let lang = crate::APP.lock().unwrap().config.ui_language.clone();
+    let locale = crate::gui::locale::LocaleText::get(&lang);
+    let l10n = serde_json::json!({
+        "copy": locale.overlay.overlay_copy_tooltip,
+        "undo": locale.overlay.overlay_undo_tooltip,
+        "redo": locale.overlay.overlay_redo_tooltip,
+        "edit": locale.overlay.overlay_edit_tooltip,
+        "download": locale.overlay.overlay_download_tooltip,
+        "speaker": locale.overlay.overlay_speaker_tooltip,
+        "result_handle": locale.overlay.overlay_result_handle_tooltip,
+        "back": locale.overlay.overlay_back_tooltip,
+        "forward": locale.overlay.overlay_forward_tooltip,
+        "opacity": locale.overlay.overlay_opacity_tooltip,
+        "cancel": locale.overlay.overlay_cancel_tooltip,
+        "overlay_refine_placeholder": locale.overlay.overlay_refine_placeholder,
+    })
+    .to_string();
+    let icon = |name| crate::overlay::html_components::icons::get_icon_svg(name).to_string();
+    let icons = serde_json::json!({
+        "arrow_back": icon("arrow_back"), "arrow_forward": icon("arrow_forward"),
+        "undo": icon("undo"), "redo": icon("redo"),
+        "hourglass_empty": icon("hourglass_empty"), "stop": icon("stop"),
+        "cleaning_services": icon("cleaning_services"), "content_copy": icon("content_copy"),
+        "check": icon("check"), "download": icon("download"),
+        "volume_up": icon("volume_up"), "mic": icon("mic"),
+        "send": icon("send"), "opacity": icon("opacity"),
+    })
+    .to_string();
+    js::get_javascript()
+        .replace("#L10N_JSON#", &l10n)
+        .replace("#ICON_SVGS_JSON#", &icons)
 }
 
-fn valid_canvas_hwnd() -> Option<HWND> {
-    let hwnd_val = CANVAS_HWND.load(Ordering::SeqCst);
-    if hwnd_val == 0 {
-        return None;
-    }
-
-    let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-    unsafe {
-        if IsWindow(Some(hwnd)).as_bool() {
-            Some(hwnd)
-        } else {
-            CANVAS_HWND.store(0, Ordering::SeqCst);
-            IS_WARMED_UP.store(false, Ordering::SeqCst);
-            None
-        }
-    }
+pub(crate) fn theme_css(is_dark: bool) -> String {
+    theme::get_canvas_theme_css(is_dark)
 }
 
-/// Register a markdown window for button overlay
-pub fn register_markdown_window(hwnd: HWND) {
-    let hwnd_key = hwnd.0 as isize;
-    unsafe {
-        if !IsWindow(Some(hwnd)).as_bool() {
-            return;
-        }
-    }
-    let canvas_ready = valid_canvas_hwnd().is_some();
-
-    // Initialize on-demand if not warmed up
-    if !IS_WARMED_UP.load(Ordering::SeqCst) && !canvas_ready {
-        if !IS_INITIALIZING.swap(true, Ordering::SeqCst) {
-            std::thread::spawn(|| {
-                create_canvas_window();
-            });
-        }
-
-        // Polling thread to auto-show once ready
-        std::thread::spawn(move || {
-            for _ in 0..50 {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                if IS_WARMED_UP.load(Ordering::SeqCst) && CANVAS_HWND.load(Ordering::SeqCst) != 0 {
-                    update_canvas();
-                    show_canvas();
-                    return;
-                }
-            }
-        });
-    }
-
-    // Get window rect
-    let rect = unsafe {
-        let mut r = RECT::default();
-        let _ = GetWindowRect(hwnd, &mut r);
-        r
-    };
-
-    {
-        let mut windows = MARKDOWN_WINDOWS.lock().unwrap();
-        windows.insert(
-            hwnd_key,
-            (
-                rect.left,
-                rect.top,
-                rect.right - rect.left,
-                rect.bottom - rect.top,
-            ),
-        );
-    }
-
-    // Trigger canvas update
-    update_canvas();
-    show_canvas();
-}
-
-/// Unregister a markdown window
-pub fn unregister_markdown_window(hwnd: HWND) {
-    let hwnd_key = hwnd.0 as isize;
-
-    {
-        let mut windows = MARKDOWN_WINDOWS.lock().unwrap();
-        windows.remove(&hwnd_key);
-
-        // If no more markdown windows, hide canvas
-        if windows.is_empty() {
-            hide_canvas();
-        }
-    }
-
-    update_canvas();
-}
-
-/// Update window position (call when window moves/resizes)
 pub fn update_window_position(hwnd: HWND) {
-    update_window_position_internal(hwnd, true);
+    crate::overlay::result::scene_compositor::sync_controls(hwnd);
 }
 
-fn update_window_position_internal(hwnd: HWND, notify: bool) {
-    let hwnd_key = hwnd.0 as isize;
-    unsafe {
-        if !IsWindow(Some(hwnd)).as_bool() {
-            let mut windows = MARKDOWN_WINDOWS.lock().unwrap();
-            windows.remove(&hwnd_key);
-            if notify {
-                update_canvas();
-            }
-            return;
-        }
-    }
-
-    let rect = unsafe {
-        let mut r = RECT::default();
-        let _ = GetWindowRect(hwnd, &mut r);
-        r
-    };
-
-    {
-        let mut windows = MARKDOWN_WINDOWS.lock().unwrap();
-        if windows.contains_key(&hwnd_key) {
-            windows.insert(
-                hwnd_key,
-                (
-                    rect.left,
-                    rect.top,
-                    rect.right - rect.left,
-                    rect.bottom - rect.top,
-                ),
-            );
-        }
-    }
-
-    if notify {
-        update_canvas();
-    }
-}
-
-/// Update window position directly in the register (skips GetWindowRect, faster for bulk)
-pub fn update_window_position_direct(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
-    let hwnd_key = hwnd.0 as isize;
-    let mut windows = MARKDOWN_WINDOWS.lock().unwrap();
-    if windows.contains_key(&hwnd_key) {
-        windows.insert(hwnd_key, (x, y, w, h));
-    }
-}
-
-/// Send update to set the text in the refine input bar
-pub fn send_refine_text_update(hwnd: HWND, text: &str, is_insert: bool) {
-    let hwnd_key = hwnd.0 as isize;
-
-    // Store in pending updates
-    {
-        let mut updates = PENDING_REFINE_UPDATES.lock().unwrap();
-        updates.insert(hwnd_key, text.to_string());
-    }
-
-    // Notify canvas thread
-    if let Some(hwnd) = valid_canvas_hwnd() {
-        unsafe {
-            let _ = PostMessageW(
-                Some(hwnd),
-                WM_APP_SEND_REFINE_TEXT,
-                WPARAM(hwnd_key as usize),
-                LPARAM(if is_insert { 1 } else { 0 }),
-            );
-        }
-    }
-}
-
-/// Check if the button canvas is currently in drag mode
-pub fn is_dragging() -> bool {
-    IS_DRAGGING_EXTERNAL.load(Ordering::SeqCst)
-}
-
-/// Check if a point is within any registered result window bounds
-pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
-    if valid_canvas_hwnd().is_none() {
-        return false;
-    }
-
-    let windows = MARKDOWN_WINDOWS.lock().unwrap();
-    for (_hwnd, (wx, wy, ww, wh)) in windows.iter() {
-        let padding = 60;
-        if x >= wx - padding
-            && x <= wx + ww + padding
-            && y >= wy - padding
-            && y <= wy + wh + padding
-        {
-            return true;
-        }
-    }
-    false
-}
-
-/// Set drag mode (temporarily disable region clipping to prevent UI cutoff)
-pub fn set_drag_mode(active: bool) {
-    let Some(hwnd) = valid_canvas_hwnd() else {
-        return;
-    };
-
-    if active {
-        IS_DRAGGING_EXTERNAL.store(true, Ordering::SeqCst);
-        unsafe {
-            let empty = CreateRectRgn(0, 0, 0, 0);
-            let _ = SetWindowRgn(hwnd, Some(empty), true);
-        }
-        update_canvas();
-    } else {
-        IS_DRAGGING_EXTERNAL.store(false, Ordering::SeqCst);
-
-        unsafe {
-            let empty = CreateRectRgn(0, 0, 0, 0);
-            let _ = SetWindowRgn(hwnd, Some(empty), true);
-        }
-
-        update_canvas();
-    }
-}
-
-/// Update canvas with current window positions
 pub fn update_canvas() {
-    if let Some(hwnd) = valid_canvas_hwnd() {
-        unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_APP_UPDATE_WINDOWS, WPARAM(0), LPARAM(0));
-        }
-    }
+    crate::overlay::result::scene_compositor::sync_all_controls();
 }
 
-pub fn update_theme(is_dark: bool) {
-    if let Some(hwnd) = valid_canvas_hwnd() {
-        unsafe {
-            let _ = PostMessageW(
-                Some(hwnd),
-                WM_APP_UPDATE_THEME,
-                WPARAM(usize::from(is_dark)),
-                LPARAM(0),
-            );
-        }
-    }
+pub fn send_refine_text_update(hwnd: HWND, text: &str, is_insert: bool) {
+    crate::overlay::result::scene_compositor::set_refine_text(hwnd, text, is_insert);
 }
 
-pub fn raise_window(target: HWND) {
-    if let Some(hwnd) = valid_canvas_hwnd() {
-        unsafe {
-            let _ = PostMessageW(
-                Some(hwnd),
-                WM_APP_RAISE_WINDOW,
-                WPARAM(target.0 as usize),
-                LPARAM(0),
-            );
-        }
-    }
+pub fn is_dragging() -> bool {
+    crate::overlay::result::scene_compositor::is_dragging()
 }
 
-/// Show the canvas
-fn show_canvas() {
-    if let Some(hwnd) = valid_canvas_hwnd() {
-        unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_CANVAS, WPARAM(0), LPARAM(0));
-        }
-    }
+pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
+    crate::overlay::result::scene_compositor::is_point_over_result_window(x, y)
 }
 
-/// Hide the canvas
-fn hide_canvas() {
-    if let Some(hwnd) = valid_canvas_hwnd() {
-        unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_APP_HIDE_CANVAS, WPARAM(0), LPARAM(0));
-        }
+pub fn set_drag_mode(active: bool) {
+    crate::overlay::result::scene_compositor::set_external_drag(active);
+}
+
+pub(crate) fn handle_action(
+    id: isize,
+    action: crate::overlay::result::scene_compositor::protocol::ButtonAction,
+) {
+    actions::handle(id, action);
+}
+
+pub(crate) fn handle_drag_finished(
+    id: isize,
+    targets: &[isize],
+    outcome: crate::overlay::result::scene_compositor::protocol::DragOutcome,
+) {
+    actions::handle_drag_finished(id, targets, outcome);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn result_cards_and_controls_own_exactly_one_webview_builder() {
+        let compositor = include_str!("../scene_compositor/child.rs");
+        let controls = include_str!("mod.rs");
+
+        assert_eq!(compositor.matches("WebViewBuilder::").count(), 1);
+        assert!(!controls.contains(&["create_canvas", "_window"].concat()));
+        assert!(!controls.contains(&["Web", "Context"].concat()));
     }
 }

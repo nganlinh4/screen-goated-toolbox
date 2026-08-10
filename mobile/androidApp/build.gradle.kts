@@ -100,6 +100,8 @@ val generatedPresetModelCatalogSources = layout.buildDirectory.dir("generated/pr
 val generatedPhoneControlContract = layout.buildDirectory.dir("generated/phoneControlContract")
 val generatedNativeRuntimeContractAssets =
     layout.buildDirectory.dir("generated/nativeRuntimeContractAssets")
+val generatedComponentUpdateTrustAssets =
+    layout.buildDirectory.dir("generated/componentUpdateTrustAssets")
 val generatedFullCreationRuntimeDeliveryAssets =
     layout.buildDirectory.dir("generated/fullCreationRuntimeDeliveryAssets")
 val generatedFullDownloaderRuntimeDeliveryAssets =
@@ -478,6 +480,7 @@ android {
         assets.srcDir(rootProject.projectDir.resolve("native/moonshine-runtime/assets"))
         assets.srcDir(generatedFullCreationRuntimeDeliveryAssets)
         assets.srcDir(generatedFullDownloaderRuntimeDeliveryAssets)
+        assets.srcDir(generatedComponentUpdateTrustAssets)
         jniLibs.srcDir(generatedFullDownloaderLauncherJniLibs)
     }
     sourceSets.maybeCreate("testFullDebug").java.srcDir("src/testDebug/java")

@@ -184,6 +184,12 @@ impl DownloadManager {
                                 .replace("{}", err),
                         );
                     }
+                    InstallStatus::Unavailable => {
+                        ui.colored_label(
+                            theme.danger_text(),
+                            text.auxiliary.managed_tools.tool_status_unavailable,
+                        );
+                    }
                     _ => {}
                 }
 
@@ -191,7 +197,9 @@ impl DownloadManager {
                 ui.horizontal(|ui| {
                     let can_click_yes = !matches!(
                         deno_status,
-                        InstallStatus::Downloading(_) | InstallStatus::Extracting
+                        InstallStatus::Downloading(_)
+                            | InstallStatus::Extracting
+                            | InstallStatus::Unavailable
                     );
                     if ui
                         .add_enabled(

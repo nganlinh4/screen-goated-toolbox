@@ -25,28 +25,6 @@ pub(super) fn validate_delivery_status(delivery: &LocalAsrDelivery) -> Result<()
     )
 }
 
-#[cfg(debug_assertions)]
-pub(super) fn validate_runtime_install() -> Result<()> {
-    validate_install_root(
-        &version_root(RUNTIME_ID, RUNTIME_VERSION)?,
-        RUNTIME_ID,
-        RUNTIME_VERSION,
-        RUNTIME_FILES,
-        &[VC_RUNTIME_ID.to_string()],
-    )
-}
-
-pub(super) fn validate_runtime_status() -> Result<()> {
-    validate_component_root(
-        &version_root(RUNTIME_ID, RUNTIME_VERSION)?,
-        RUNTIME_ID,
-        RUNTIME_VERSION,
-        RUNTIME_FILES,
-        &[VC_RUNTIME_ID.to_string()],
-        file_size_matches,
-    )
-}
-
 fn validate_install_root(
     root: &Path,
     id: &str,

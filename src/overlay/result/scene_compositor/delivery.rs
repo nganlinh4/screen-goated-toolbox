@@ -117,6 +117,7 @@ mod tests {
                 opacity: 100,
                 visible: true,
                 streaming_enabled: true,
+                controls: Default::default(),
             },
         }
     }
@@ -132,6 +133,7 @@ mod tests {
                 opacity: 100,
                 visible: true,
                 streaming_enabled: false,
+                controls: Default::default(),
             },
         }
     }

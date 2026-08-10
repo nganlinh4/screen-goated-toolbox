@@ -1,12 +1,10 @@
 use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::{Map, Value};
 
-const MANIFEST_ENV: &str = "SGT_COMPUTER_CONTROL_DELIVERY_MANIFEST";
-const DEFAULT_MANIFEST: &str =
-    "local-runtime-bundles/sgt_computer_control/sgt_computer_control.delivery.json";
+const DEFAULT_MANIFEST: &str = "component-delivery/windows/computer-control-v1.json";
 const RELEASE_PREFIX: &str =
     "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/";
 const COMPONENT_ID: &str = "computer-control-engine";
@@ -17,16 +15,14 @@ const REQUIRED_FILES: &[&str] = &[
 ];
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
-    println!("cargo:rerun-if-env-changed={MANIFEST_ENV}");
-    let configured = std::env::var_os(MANIFEST_ENV)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| manifest_dir.join(DEFAULT_MANIFEST));
+    let configured = manifest_dir.join(DEFAULT_MANIFEST);
     println!("cargo:rerun-if-changed={}", configured.display());
-    let generated = if configured.is_file() {
-        delivery_source(&configured)
-    } else {
-        "const ENGINE_DELIVERY: Option<EngineDelivery> = None;\n".to_string()
-    };
+    assert!(
+        configured.is_file(),
+        "missing verified Computer Control delivery: {}",
+        configured.display()
+    );
+    let generated = delivery_source(&configured);
     let output = out_dir.join("computer_control_delivery.rs");
     fs::write(&output, generated)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));

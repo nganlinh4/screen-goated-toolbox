@@ -20,7 +20,10 @@ pub(super) fn render_mcp_card(ui: &mut egui::Ui, text: &LocaleText) {
                 ui.label(egui::RichText::new(integ.display_name).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let theme = AppTheme::from_ui(ui);
-                    if integ.installing {
+                    if integ.removing {
+                        ui.spinner();
+                        ui.label(managed.tool_status_removing);
+                    } else if integ.installing {
                         ui.spinner();
                         ui.label(managed.tool_status_installing);
                     } else if integ.installed {
@@ -55,7 +58,11 @@ pub(super) fn render_mcp_card(ui: &mut egui::Ui, text: &LocaleText) {
                     }
                 });
             });
-            ui.label(integ.description);
+            ui.label(
+                managed
+                    .mcp_description(integ.id)
+                    .unwrap_or(integ.description),
+            );
             if integ.addon_hint.is_some() {
                 ui.label(
                     egui::RichText::new(managed.tool_mcp_addon_hint)

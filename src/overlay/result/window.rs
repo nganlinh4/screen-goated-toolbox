@@ -182,7 +182,7 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 1, LWA_ALPHA);
 
         if start_editing {
-            // Just activate the window, let the button canvas handle the UI
+            // Activate the geometry owner so the compositor refine input can take focus.
             let _ = SetForegroundWindow(hwnd);
         }
 
@@ -192,7 +192,6 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
 
 pub(crate) fn initialize_result_window(hwnd: HWND) {
     super::scene_compositor::register_window(hwnd);
-    super::button_canvas::register_markdown_window(hwnd);
 }
 
 pub fn create_result_window(params: ResultWindowParams) -> HWND {

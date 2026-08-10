@@ -2,7 +2,11 @@ use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
 
-use super::utils::format_size;
+use super::utils::{format_size, removal_in_progress, start_removal};
+
+const REMOVE_LOCAL_ASR_WORKER: &str = "remove:local-asr-worker";
+const REMOVE_ONNX_RUNTIME: &str = "remove:onnx-directml-runtime";
+const REMOVE_VC_RUNTIME: &str = "remove:vc14-x64-runtime";
 
 pub(super) fn render_local_asr_worker_content(ui: &mut egui::Ui, text: &LocaleText) {
     render_local_asr_component(
@@ -35,84 +39,88 @@ fn render_local_asr_component(
 
     let theme = AppTheme::from_ui(ui);
     let status = local_asr::current_status(kind);
+    let removal_key = match kind {
+        local_asr::ComponentKind::Worker => REMOVE_LOCAL_ASR_WORKER,
+        local_asr::ComponentKind::Runtime => REMOVE_ONNX_RUNTIME,
+    };
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).strong());
-        ui.with_layout(
-            egui::Layout::right_to_left(egui::Align::Center),
-            |ui| match &status {
-                #[cfg(debug_assertions)]
-                ComponentStatus::Development { bytes } => {
-                    ui.label(
-                        egui::RichText::new(
-                            text.auxiliary
-                                .managed_tools
-                                .tool_status_development_fmt
-                                .replace("{}", &format_size(*bytes)),
-                        )
-                        .color(theme.success()),
-                    );
-                }
-                ComponentStatus::Installed { bytes, version } => {
-                    if ui
-                        .button(
-                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if removal_in_progress(removal_key) {
+                ui.label(text.auxiliary.managed_tools.tool_status_removing);
+                ui.spinner();
+            } else {
+                match &status {
+                    ComponentStatus::Installed { bytes, version } => {
+                        if ui
+                            .button(
+                                egui::RichText::new(
+                                    text.auxiliary.managed_tools.tool_action_delete,
+                                )
                                 .color(theme.danger_text()),
-                        )
-                        .clicked()
-                        && let Err(error) = local_asr::remove(kind)
-                    {
-                        crate::log_info!("[Downloaded Tools] component removal failed: {error}");
+                            )
+                            .clicked()
+                        {
+                            start_removal(
+                                removal_key,
+                                label.to_string(),
+                                move || local_asr::remove(kind),
+                                || {},
+                            );
+                        }
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} · {version}",
+                                text.auxiliary
+                                    .managed_tools
+                                    .tool_status_installed
+                                    .replace("{}", &format_size(*bytes))
+                            ))
+                            .color(theme.success()),
+                        );
                     }
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} · {version}",
-                            text.auxiliary
-                                .managed_tools
-                                .tool_status_installed
-                                .replace("{}", &format_size(*bytes))
-                        ))
-                        .color(theme.success()),
-                    );
-                }
-                ComponentStatus::Installing { progress } => {
-                    ui.label(format!("{progress:.0}%"));
-                    ui.spinner();
-                }
-                ComponentStatus::Error(message) => {
-                    if ui
-                        .button(text.auxiliary.managed_tools.tool_action_download)
-                        .clicked()
-                    {
-                        let _ = local_asr::start_install(kind);
+                    ComponentStatus::Installing { progress } => {
+                        ui.label(format!("{progress:.0}%"));
+                        ui.spinner();
                     }
-                    ui.label(
-                        egui::RichText::new(
-                            text.auxiliary.managed_tools.tool_status_install_failed,
-                        )
-                        .color(theme.danger_text()),
-                    )
-                    .on_hover_text(message);
-                }
-                ComponentStatus::Missing => {
-                    if ui
-                        .button(text.auxiliary.managed_tools.tool_action_download)
-                        .clicked()
-                    {
-                        let _ = local_asr::start_install(kind);
-                    }
-                    ui.label(
-                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
-                            .color(egui::Color32::GRAY),
-                    );
-                }
-                ComponentStatus::Unavailable => {
-                    ui.label(
-                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_unavailable)
+                    ComponentStatus::Error(message) => {
+                        if ui
+                            .button(text.auxiliary.managed_tools.tool_action_download)
+                            .clicked()
+                        {
+                            let _ = local_asr::start_install(kind);
+                        }
+                        ui.label(
+                            egui::RichText::new(
+                                text.auxiliary.managed_tools.tool_status_install_failed,
+                            )
                             .color(theme.danger_text()),
-                    );
+                        )
+                        .on_hover_text(message);
+                    }
+                    ComponentStatus::Missing => {
+                        if ui
+                            .button(text.auxiliary.managed_tools.tool_action_download)
+                            .clicked()
+                        {
+                            let _ = local_asr::start_install(kind);
+                        }
+                        ui.label(
+                            egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                                .color(egui::Color32::GRAY),
+                        );
+                    }
+                    ComponentStatus::Unavailable => {
+                        ui.label(
+                            egui::RichText::new(
+                                text.auxiliary.managed_tools.tool_status_unavailable,
+                            )
+                            .color(theme.danger_text()),
+                        );
+                    }
                 }
-            },
-        );
+            }
+        });
     });
     ui.label(description);
     ui.label(
@@ -133,81 +141,82 @@ pub(super) fn render_vc_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
     let status = vc_runtime::current_status();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.auxiliary.managed_tools.tool_vc_runtime).strong());
-        ui.with_layout(
-            egui::Layout::right_to_left(egui::Align::Center),
-            |ui| match &status {
-                #[cfg(debug_assertions)]
-                VcRuntimeStatus::Development { bytes } => {
-                    ui.label(
-                        egui::RichText::new(
-                            text.auxiliary
-                                .managed_tools
-                                .tool_status_development_fmt
-                                .replace("{}", &format_size(*bytes)),
-                        )
-                        .color(theme.success()),
-                    );
-                }
-                VcRuntimeStatus::Installed { bytes, version } => {
-                    if ui
-                        .button(
-                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if removal_in_progress(REMOVE_VC_RUNTIME) {
+                ui.label(text.auxiliary.managed_tools.tool_status_removing);
+                ui.spinner();
+            } else {
+                match &status {
+                    VcRuntimeStatus::Installed { bytes, version } => {
+                        if ui
+                            .button(
+                                egui::RichText::new(
+                                    text.auxiliary.managed_tools.tool_action_delete,
+                                )
                                 .color(theme.danger_text()),
-                        )
-                        .clicked()
-                    {
-                        let _ = vc_runtime::remove();
+                            )
+                            .clicked()
+                        {
+                            start_removal(
+                                REMOVE_VC_RUNTIME,
+                                text.auxiliary.managed_tools.tool_vc_runtime.to_string(),
+                                vc_runtime::remove,
+                                || {},
+                            );
+                        }
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} · {version}",
+                                text.auxiliary
+                                    .managed_tools
+                                    .tool_status_installed
+                                    .replace("{}", &format_size(*bytes))
+                            ))
+                            .color(theme.success()),
+                        );
                     }
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} · {version}",
-                            text.auxiliary
-                                .managed_tools
-                                .tool_status_installed
-                                .replace("{}", &format_size(*bytes))
-                        ))
-                        .color(theme.success()),
-                    );
-                }
-                VcRuntimeStatus::Installing { progress } => {
-                    ui.label(format!("{progress:.0}%"));
-                    ui.spinner();
-                }
-                VcRuntimeStatus::Error(message) => {
-                    if ui
-                        .button(text.auxiliary.managed_tools.tool_action_download)
-                        .clicked()
-                    {
-                        let _ = vc_runtime::start_install();
+                    VcRuntimeStatus::Installing { progress } => {
+                        ui.label(format!("{progress:.0}%"));
+                        ui.spinner();
                     }
-                    ui.label(
-                        egui::RichText::new(
-                            text.auxiliary.managed_tools.tool_status_install_failed,
-                        )
-                        .color(theme.danger_text()),
-                    )
-                    .on_hover_text(message);
-                }
-                VcRuntimeStatus::Missing => {
-                    if ui
-                        .button(text.auxiliary.managed_tools.tool_action_download)
-                        .clicked()
-                    {
-                        let _ = vc_runtime::start_install();
-                    }
-                    ui.label(
-                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
-                            .color(egui::Color32::GRAY),
-                    );
-                }
-                VcRuntimeStatus::Unavailable => {
-                    ui.label(
-                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_unavailable)
+                    VcRuntimeStatus::Error(message) => {
+                        if ui
+                            .button(text.auxiliary.managed_tools.tool_action_download)
+                            .clicked()
+                        {
+                            let _ = vc_runtime::start_install();
+                        }
+                        ui.label(
+                            egui::RichText::new(
+                                text.auxiliary.managed_tools.tool_status_install_failed,
+                            )
                             .color(theme.danger_text()),
-                    );
+                        )
+                        .on_hover_text(message);
+                    }
+                    VcRuntimeStatus::Missing => {
+                        if ui
+                            .button(text.auxiliary.managed_tools.tool_action_download)
+                            .clicked()
+                        {
+                            let _ = vc_runtime::start_install();
+                        }
+                        ui.label(
+                            egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                                .color(egui::Color32::GRAY),
+                        );
+                    }
+                    VcRuntimeStatus::Unavailable => {
+                        ui.label(
+                            egui::RichText::new(
+                                text.auxiliary.managed_tools.tool_status_unavailable,
+                            )
+                            .color(theme.danger_text()),
+                        );
+                    }
                 }
-            },
-        );
+            }
+        });
     });
     ui.label(text.auxiliary.managed_tools.tool_desc_vc_runtime);
     ui.label(

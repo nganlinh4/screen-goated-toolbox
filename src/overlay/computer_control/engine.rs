@@ -101,6 +101,14 @@ fn request_engine(command: Command) -> Result<Output> {
         .request(command)
 }
 
+pub(super) fn stop_for_component_removal() {
+    if let Ok(mut session) = SESSION.lock()
+        && let Some(mut process) = session.take()
+    {
+        process.shutdown();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

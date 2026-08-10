@@ -53,9 +53,14 @@ fn supported_component_ids_are_present_in_the_signed_catalog() {
 }
 
 #[test]
-fn release_build_without_delivery_data_fails_closed() {
-    if WEB_ASSET_DELIVERIES.is_empty() {
-        assert!(!is_installed(WebAssetComponent::PromptDj));
+fn tracked_delivery_contains_every_optional_interface() {
+    assert_eq!(WEB_ASSET_DELIVERIES.len(), 3);
+    for component in [
+        WebAssetComponent::Creation3d,
+        WebAssetComponent::PromptDj,
+        WebAssetComponent::TtsPlayground,
+    ] {
+        assert!(delivery(component).is_some());
     }
 }
 

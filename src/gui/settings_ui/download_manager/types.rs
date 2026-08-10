@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 pub enum InstallStatus {
     Checking,
     Missing,
+    Unavailable,
     Downloading(f32), // 0.0 to 1.0
     Extracting,
     Installed,

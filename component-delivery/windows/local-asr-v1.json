@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "windows": {
+    "architecture": "x64",
+    "components": [
+      {
+        "asset": "local-asr-worker-1.0.0-3c71367af2e2e97e.zip",
+        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/local-asr-worker-1.0.0-3c71367af2e2e97e.zip",
+        "files": [
+          {
+            "path": "bin/x64/sgt-local-asr-worker.exe",
+            "sha256": "bb5769dac6040c68947cb125738bddcd025961cc467d3cd80c1f488753297361",
+            "sizeBytes": 2552320
+          },
+          {
+            "path": "licenses/parakeet-rs-LICENSE.txt",
+            "sha256": "e5c3ce5c06df58ffd79c7dbbc1b9bb754ee97bad25148a3c56bf48b349838dc1",
+            "sizeBytes": 1067
+          }
+        ],
+        "id": "local-asr-worker",
+        "sha256": "3c71367af2e2e97ef076f6719ca9b14bc7f7c8d6a0bb405bfd2f557a6f7fa288",
+        "sizeBytes": 1039143,
+        "unpackedSizeBytes": 2553387,
+        "version": "1.0.0"
+      },
+      {
+        "asset": "onnx-directml-runtime-1.24.2-directml-1.15.4-0ef76bb7bd54c51a.zip",
+        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/onnx-directml-runtime-1.24.2-directml-1.15.4-0ef76bb7bd54c51a.zip",
+        "files": [
+          {
+            "path": "bin/x64/DirectML.dll",
+            "sha256": "9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1",
+            "sizeBytes": 18527776
+          },
+          {
+            "path": "bin/x64/onnxruntime.dll",
+            "sha256": "a2323bc49544645b911743052f1edce594e17df1e3423b71468c7386bc902f80",
+            "sizeBytes": 17270304
+          },
+          {
+            "path": "bin/x64/onnxruntime_providers_shared.dll",
+            "sha256": "8b33b30ac866c938aa3d946d4f92fc2ba70fff06ef45d5ce22e483f19ba2c896",
+            "sizeBytes": 22048
+          },
+          {
+            "path": "licenses/directml-LICENSE-CODE.txt",
+            "sha256": "903df5512f7d02609fed0c780a9b704f5a3eeb6e4d84ebe42a29845c81899a3c",
+            "sizeBytes": 1093
+          },
+          {
+            "path": "licenses/directml-LICENSE.txt",
+            "sha256": "a05138e3a085ff60a44881eedfa58dccb03ecc1d7b1f6ae888418e8c2fec4b8d",
+            "sizeBytes": 10439
+          },
+          {
+            "path": "licenses/directml-ThirdPartyNotices.txt",
+            "sha256": "2c95795c13ff48a58b6ed916f37901c23d964b5d9d601af422f17ad2172e7950",
+            "sizeBytes": 4577
+          },
+          {
+            "path": "licenses/onnxruntime-LICENSE.txt",
+            "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674",
+            "sizeBytes": 1094
+          },
+          {
+            "path": "licenses/onnxruntime-ThirdPartyNotices.txt",
+            "sha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866",
+            "sizeBytes": 331175
+          }
+        ],
+        "id": "onnx-directml-runtime",
+        "sha256": "0ef76bb7bd54c51a35d2dcf57f40ddb20944f3d1ef15374a6d2ba06a590c5b86",
+        "sizeBytes": 15547498,
+        "unpackedSizeBytes": 36168506,
+        "version": "1.24.2-directml-1.15.4"
+      }
+    ]
+  }
+}

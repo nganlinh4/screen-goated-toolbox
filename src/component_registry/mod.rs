@@ -15,11 +15,15 @@ mod receipt;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod recorder;
 mod removal;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) mod update_catalog;
 pub(crate) mod vc_runtime;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod web_assets;
 
 pub(crate) use catalog::embedded_catalog;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use catalog::validate_identifier;
 pub(crate) use lease::{ComponentLease, acquire};
 pub(crate) use mutation::{RegistryMutationGuard, acquire_mutation_guard};
 pub(crate) use receipt::write_receipt;

@@ -16,6 +16,7 @@ use super::{ComponentLease, RemovalOutcome};
 
 mod install;
 mod staging;
+mod update;
 
 pub(crate) const ID: &str = "computer-control-engine";
 const ARCHITECTURE: &str = "x64";
@@ -43,7 +44,7 @@ include!(concat!(env!("OUT_DIR"), "/computer_control_delivery.rs"));
 
 pub(crate) struct ComputerControlEngineUse {
     executable: PathBuf,
-    _lease: Option<ComponentLease>,
+    _lease: ComponentLease,
     _files: Vec<std::fs::File>,
 }
 
@@ -57,11 +58,6 @@ pub(crate) fn ensure_engine(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<ComputerControlEngineUse> {
-    #[cfg(debug_assertions)]
-    if ENGINE_DELIVERY.is_none() {
-        return development_engine();
-    }
-
     let _mutation = super::acquire_mutation_guard()?;
     let delivery = delivery()?;
     install::ensure(delivery, cancelled, on_progress)?;
@@ -73,7 +69,7 @@ pub(crate) fn ensure_engine(
     validate_x64_pe(&executable)?;
     Ok(ComputerControlEngineUse {
         executable,
-        _lease: Some(lease),
+        _lease: lease,
         _files: files,
     })
 }
@@ -95,6 +91,10 @@ pub(crate) fn download_title() -> String {
 
 pub(crate) fn is_installed() -> bool {
     delivery().is_ok_and(|delivery| validate_status(delivery).is_ok())
+}
+
+pub(crate) fn delivery_available() -> bool {
+    delivery().is_ok()
 }
 
 pub(crate) fn installed_size() -> u64 {
@@ -191,9 +191,12 @@ fn current_locale() -> crate::gui::locale::LocaleText {
 }
 
 fn delivery() -> Result<&'static EngineDelivery> {
+    if let Some(delivery) = update::delivery() {
+        return Ok(delivery);
+    }
     ENGINE_DELIVERY
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Computer Control engine delivery is not included"))
+        .ok_or_else(|| anyhow::anyhow!("Computer Control download contract is unavailable"))
 }
 
 fn version_root(delivery: &EngineDelivery) -> Result<PathBuf> {
@@ -340,26 +343,6 @@ fn validate_x64_pe(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(debug_assertions)]
-fn development_engine() -> Result<ComputerControlEngineUse> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("native/computer_control_engine/target");
-    let explicit_target = root
-        .join("x86_64-pc-windows-msvc/debug")
-        .join("sgt-computer-control-engine.exe");
-    let default_target = root.join("debug").join("sgt-computer-control-engine.exe");
-    let executable = if explicit_target.is_file() {
-        explicit_target
-    } else {
-        default_target
-    };
-    validate_x64_pe(&executable)?;
-    Ok(ComputerControlEngineUse {
-        executable,
-        _lease: None,
-        _files: Vec::new(),
-    })
-}
-
 fn receipt(delivery: &EngineDelivery) -> ComponentReceipt {
     ComponentReceipt {
         schema_version: 1,
@@ -368,5 +351,13 @@ fn receipt(delivery: &EngineDelivery) -> ComponentReceipt {
         architecture: ARCHITECTURE.to_string(),
         dependencies: Vec::new(),
         files: delivery.files.iter().map(owned_file).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn tracked_computer_control_delivery_is_present() {
+        assert!(super::delivery_available());
     }
 }

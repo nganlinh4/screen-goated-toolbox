@@ -16,13 +16,13 @@ use super::{ComponentLease, RemovalOutcome};
 
 mod notifications;
 mod staging;
+mod update;
 mod validation;
 
 use validation::{validate_exact_tree, validate_install, validate_status};
 
 const MAX_ARCHIVE_ENTRIES: usize = 64;
 const ARCHITECTURE: &str = "x64";
-const DEVELOPMENT_FILES: &[&str] = &["assets/index.css", "assets/index.js", "index.html"];
 static INSTALL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,15 +54,6 @@ impl WebAssetComponent {
             Self::Creation3d | Self::PromptDj | Self::TtsPlayground => &[],
         }
     }
-
-    #[cfg(debug_assertions)]
-    const fn development_dist(self) -> &'static str {
-        match self {
-            Self::Creation3d => "src/overlay/three_d_generator/dist",
-            Self::PromptDj => "src/overlay/prompt_dj/dist",
-            Self::TtsPlayground => "src/overlay/tts_playground/dist",
-        }
-    }
 }
 
 struct WebAssetFile {
@@ -86,29 +77,20 @@ include!(concat!(env!("OUT_DIR"), "/web_asset_delivery.rs"));
 
 pub(crate) struct WebAssetPack {
     root: PathBuf,
-    delivery: Option<&'static WebAssetDelivery>,
-    _lease: Option<ComponentLease>,
+    delivery: &'static WebAssetDelivery,
+    _lease: ComponentLease,
 }
 
 impl WebAssetPack {
     pub(crate) fn read(&self, relative: &str) -> Result<Vec<u8>> {
         let relative = Path::new(relative);
         validate_relative_path(relative)?;
-        let expected = match self.delivery {
-            Some(delivery) => delivery
-                .files
-                .iter()
-                .find(|file| Path::new(file.path) == relative)
-                .ok_or_else(|| anyhow!("web asset is not owned by this package"))?,
-            None if DEVELOPMENT_FILES
-                .iter()
-                .any(|path| Path::new(path) == relative) =>
-            {
-                let path = resolve_owned_path(&self.root, relative)?;
-                return read_regular_file(&path);
-            }
-            None => bail!("development web asset is not part of the frontend contract"),
-        };
+        let expected = self
+            .delivery
+            .files
+            .iter()
+            .find(|file| Path::new(file.path) == relative)
+            .ok_or_else(|| anyhow!("web asset is not owned by this package"))?;
         let owned = owned_file(expected);
         let path = resolve_owned_path(&self.root, relative)?;
         if !file_matches(&path, &owned)? {
@@ -119,33 +101,22 @@ impl WebAssetPack {
 }
 
 pub(crate) fn open(component: WebAssetComponent) -> Result<WebAssetPack> {
-    #[cfg(debug_assertions)]
-    if let Some(root) = development_root(component) {
-        return Ok(WebAssetPack {
-            root,
-            delivery: None,
-            _lease: None,
-        });
-    }
-
-    let delivery = delivery(component)
-        .ok_or_else(|| anyhow!("{} is not included in this build", component.display_name()))?;
+    let delivery = delivery(component).ok_or_else(|| {
+        anyhow!(
+            "{} download contract is unavailable",
+            component.display_name()
+        )
+    })?;
     let lease = super::acquire(component.id())?;
     validate_install(delivery)?;
     Ok(WebAssetPack {
         root: version_root(delivery)?,
-        delivery: Some(delivery),
-        _lease: Some(lease),
+        delivery,
+        _lease: lease,
     })
 }
 
 pub(crate) fn launch_when_ready(component: WebAssetComponent, launch: fn()) {
-    #[cfg(debug_assertions)]
-    if development_root(component).is_some() {
-        launch();
-        return;
-    }
-
     if is_installed(component) {
         launch();
         return;
@@ -179,10 +150,6 @@ pub(crate) fn is_installed(component: WebAssetComponent) -> bool {
 }
 
 pub(crate) fn is_installed_for_display(component: WebAssetComponent) -> bool {
-    #[cfg(debug_assertions)]
-    if development_root(component).is_some() {
-        return true;
-    }
     delivery(component).is_some_and(|delivery| validate_status(delivery).is_ok())
 }
 
@@ -225,8 +192,12 @@ pub(crate) fn download(
     if is_installed(component) {
         return Ok(());
     }
-    let delivery = delivery(component)
-        .ok_or_else(|| anyhow!("{} is not included in this build", component.display_name()))?;
+    let delivery = delivery(component).ok_or_else(|| {
+        anyhow!(
+            "{} download contract is unavailable",
+            component.display_name()
+        )
+    })?;
     clear_invalid_install(component)?;
     let _install_lease = super::acquire(component.id())?;
     let badge = use_badge.then(|| {
@@ -280,6 +251,12 @@ fn notify_install_error(component: WebAssetComponent, error: &anyhow::Error) {
 }
 
 fn delivery(component: WebAssetComponent) -> Option<&'static WebAssetDelivery> {
+    if let Some(delivery) = update::deliveries()
+        .iter()
+        .find(|delivery| delivery.component == component)
+    {
+        return Some(delivery);
+    }
     WEB_ASSET_DELIVERIES
         .iter()
         .find(|delivery| delivery.component == component)
@@ -287,15 +264,6 @@ fn delivery(component: WebAssetComponent) -> Option<&'static WebAssetDelivery> {
 
 fn version_root(delivery: &WebAssetDelivery) -> Result<PathBuf> {
     super::component_version_root(delivery.component.id(), delivery.version)
-}
-
-#[cfg(debug_assertions)]
-fn development_root(component: WebAssetComponent) -> Option<PathBuf> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(component.development_dist());
-    DEVELOPMENT_FILES
-        .iter()
-        .all(|relative| root.join(relative).is_file())
-        .then_some(root)
 }
 
 fn clear_invalid_install(component: WebAssetComponent) -> Result<()> {

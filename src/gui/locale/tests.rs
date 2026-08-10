@@ -168,7 +168,7 @@ fn locale_leaf_fields_have_one_section_owner() {
 fn downloaded_tools_progress_and_cards_are_localized() {
     assert_eq!(
         public_field_names(include_str!("managed_tools.rs")).len(),
-        128
+        146
     );
     let english = LocaleText::get("en");
     for code in ["en", "ko", "vi"] {
@@ -195,6 +195,13 @@ fn downloaded_tools_progress_and_cards_are_localized() {
             managed.tool_step_audio_model,
             managed.tool_magpie_model,
             managed.tool_vieneu_model,
+            managed.downloaded_tools_clean_confirm_title,
+            managed.downloaded_tools_clean_confirm_body,
+            managed.downloaded_tools_clean_progress_title,
+            managed.downloaded_tools_clean_complete,
+            managed.tool_desc_supertonic,
+            managed.tool_mcp_time_desc,
+            managed.tool_mcp_blender_desc,
         ] {
             assert!(!value.trim().is_empty(), "{code}");
         }
@@ -211,6 +218,20 @@ fn downloaded_tools_progress_and_cards_are_localized() {
         assert_ne!(
             localized.badge.preparing_component_fmt,
             english.badge.preparing_component_fmt
+        );
+        assert_ne!(
+            localized
+                .auxiliary
+                .managed_tools
+                .downloaded_tools_clean_confirm_body,
+            english
+                .auxiliary
+                .managed_tools
+                .downloaded_tools_clean_confirm_body
+        );
+        assert_ne!(
+            localized.auxiliary.managed_tools.tool_desc_supertonic,
+            english.auxiliary.managed_tools.tool_desc_supertonic
         );
     }
 }

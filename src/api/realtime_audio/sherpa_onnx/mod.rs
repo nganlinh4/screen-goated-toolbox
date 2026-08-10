@@ -53,6 +53,64 @@ pub fn is_model_payload_present(lang: ZipformerLanguage) -> bool {
     })
 }
 
+#[cfg(not(feature = "recorder-worker"))]
+pub fn remove_model(lang: ZipformerLanguage) -> Result<()> {
+    let dir = model_dir(lang);
+    let Ok(metadata) = std::fs::symlink_metadata(&dir) else {
+        return Ok(());
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(anyhow!("Zipformer model directory is unsafe"));
+    }
+
+    let mut preserved = Vec::new();
+    for file in lang.model_files() {
+        let target = dir.join(file.name);
+        if target.exists() {
+            if crate::api::realtime_audio::model_loader::verified_file_present(
+                &target,
+                file.contract(),
+            ) {
+                std::fs::remove_file(&target)?;
+            } else {
+                preserved.push(target);
+            }
+        }
+        for extension in ["tmp", "verified-download", "unverified-backup"] {
+            let temporary = dir.join(file.name).with_extension(extension);
+            remove_regular_temporary(&temporary, &mut preserved)?;
+        }
+    }
+
+    if std::fs::read_dir(&dir)?.next().is_none() {
+        std::fs::remove_dir(&dir)?;
+    }
+    if preserved.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "Zipformer model contains {} modified or unsafe managed file(s)",
+            preserved.len()
+        ))
+    }
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+fn remove_regular_temporary(
+    path: &std::path::Path,
+    preserved: &mut Vec<std::path::PathBuf>,
+) -> Result<()> {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return Ok(());
+    };
+    if metadata.is_file() && !metadata.file_type().is_symlink() {
+        std::fs::remove_file(path)?;
+    } else {
+        preserved.push(path.to_path_buf());
+    }
+    Ok(())
+}
+
 /// Downloads all files for `lang`.
 /// `on_progress(p)` is called continuously with p in 0.0..=1.0 (byte-level within each file).
 /// Returns Ok(()) on success (already-downloaded files are skipped).

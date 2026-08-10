@@ -40,9 +40,11 @@ fn temp_root(label: &str) -> PathBuf {
 }
 
 #[test]
-fn development_contract_matches_the_complete_current_support_set() {
+fn delivered_contract_matches_the_complete_support_set() {
+    let delivery = delivery().expect("tracked VC delivery is required");
     assert_eq!(
-        DEVELOPMENT_FILES
+        delivery
+            .files
             .iter()
             .map(|file| file.path)
             .collect::<Vec<_>>(),
@@ -57,27 +59,16 @@ fn development_contract_matches_the_complete_current_support_set() {
             "bin/x64/vcruntime140.dll",
             "bin/x64/vcruntime140_1.dll",
             "bin/x64/vcruntime140_threads.dll",
+            "licenses/REDIST.txt",
+            "licenses/THIRD-PARTY-NOTICES.txt",
         ]
     );
-    assert_eq!(development_bytes(), 1_828_608);
-    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/embed_dlls/x64");
-    for file in DEVELOPMENT_FILES {
-        let name = Path::new(file.path).file_name().unwrap();
-        assert!(file_matches(&source.join(name), &owned_file(file)).unwrap());
-    }
+    assert_eq!(delivery.unpacked_size_bytes, 1_829_454);
 }
 
 #[test]
-fn release_delivery_is_optional_at_core_startup() {
-    if VC_RUNTIME_DELIVERY.is_none() {
-        assert!(
-            delivery()
-                .err()
-                .expect("delivery must fail")
-                .to_string()
-                .contains("not included")
-        );
-    }
+fn verified_delivery_is_present_in_every_build() {
+    assert!(delivery().is_ok());
 }
 
 #[test]

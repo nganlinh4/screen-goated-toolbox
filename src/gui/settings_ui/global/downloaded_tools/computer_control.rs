@@ -7,7 +7,8 @@ use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
 
 use super::utils::{
-    cached_probe, cached_u64, format_size, invalidate_probe_cache, invalidate_u64_cache, tool_card,
+    cached_probe, cached_u64, format_size, invalidate_probe_cache, invalidate_u64_cache,
+    removal_in_progress, start_removal, tool_card,
 };
 
 const PROBE_COMPUTER_CONTROL: &str = "downloaded-tools:computer-control";
@@ -27,7 +28,10 @@ pub(super) fn render_computer_control_card(ui: &mut egui::Ui, text: &LocaleText)
                     .lock()
                     .map(|state| state.is_downloading && state.download_title == download_title)
                     .unwrap_or(false);
-                if downloading {
+                if removal_in_progress(PROBE_COMPUTER_CONTROL) {
+                    ui.label(managed.tool_status_removing);
+                    ui.spinner();
+                } else if downloading {
                     let progress = REALTIME_STATE
                         .lock()
                         .map(|state| state.download_progress)
@@ -45,9 +49,15 @@ pub(super) fn render_computer_control_card(ui: &mut egui::Ui, text: &LocaleText)
                         )
                         .clicked()
                     {
-                        let _ = crate::component_registry::computer_control::remove();
-                        invalidate_probe_cache(PROBE_COMPUTER_CONTROL);
-                        invalidate_u64_cache(VALUE_COMPUTER_CONTROL_SIZE);
+                        start_removal(
+                            PROBE_COMPUTER_CONTROL,
+                            managed.tool_computer_control_card.to_string(),
+                            crate::overlay::computer_control::remove_downloaded_engine,
+                            || {
+                                invalidate_probe_cache(PROBE_COMPUTER_CONTROL);
+                                invalidate_u64_cache(VALUE_COMPUTER_CONTROL_SIZE);
+                            },
+                        );
                     }
                     ui.label(
                         egui::RichText::new(format_size(cached_u64(
@@ -55,6 +65,11 @@ pub(super) fn render_computer_control_card(ui: &mut egui::Ui, text: &LocaleText)
                             crate::component_registry::computer_control::installed_size,
                         )))
                         .color(theme.success()),
+                    );
+                } else if !crate::component_registry::computer_control::delivery_available() {
+                    ui.label(
+                        egui::RichText::new(managed.tool_status_unavailable)
+                            .color(theme.danger_text()),
                     );
                 } else {
                     if ui

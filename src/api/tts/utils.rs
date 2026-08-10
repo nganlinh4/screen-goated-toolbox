@@ -35,7 +35,7 @@ pub fn clear_tts_loading_state(hwnd: isize) {
             let _ = InvalidateRect(Some(HWND(hwnd as *mut std::ffi::c_void)), None, false);
         }
 
-        // Notify button canvas that state has changed
+        // Notify the unified result controls that state has changed.
         crate::overlay::result::button_canvas::update_canvas();
     }
 }
@@ -66,7 +66,7 @@ pub fn clear_tts_state(hwnd: isize) {
             let _ = InvalidateRect(Some(HWND(hwnd as *mut std::ffi::c_void)), None, false);
         }
 
-        // Notify button canvas that state has changed
+        // Notify the unified result controls that state has changed.
         crate::overlay::result::button_canvas::update_canvas();
     }
 }

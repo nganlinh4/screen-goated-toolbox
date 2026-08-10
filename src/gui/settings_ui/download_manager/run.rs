@@ -134,7 +134,8 @@ impl DownloadManager {
 pub(super) fn install_status(tool: ExternalTool) -> InstallStatus {
     match current_status(tool) {
         ExternalToolStatus::Installed { .. } => InstallStatus::Installed,
-        ExternalToolStatus::Missing | ExternalToolStatus::Unavailable => InstallStatus::Missing,
+        ExternalToolStatus::Missing => InstallStatus::Missing,
+        ExternalToolStatus::Unavailable => InstallStatus::Unavailable,
         ExternalToolStatus::Error(error) => InstallStatus::Error(error),
     }
 }

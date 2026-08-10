@@ -4,6 +4,9 @@ document.fonts.load("400 16px 'Google Sans Flex'").then(function(faces) {
     if (!faces.length || !document.fonts.check("400 16px 'Google Sans Flex'")) {
         throw new Error('Google Sans Flex did not enter the loaded font set');
     }
+    if (!window.__SGT_BUTTON_SCENE__ || typeof window.updateWindows !== 'function') {
+        throw new Error('Unified result controls did not initialize');
+    }
     document.documentElement.classList.add('sgt-font-ready');
     window.ipc.postMessage(JSON.stringify({
         type: 'font_ready',

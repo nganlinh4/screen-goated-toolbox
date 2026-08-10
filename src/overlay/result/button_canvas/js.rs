@@ -1,4 +1,4 @@
-//! JavaScript code for button canvas WebView
+//! JavaScript for the result compositor's control layer.
 
 pub fn get_javascript() -> &'static str {
     r#"
@@ -24,6 +24,14 @@ window.raiseWindowButtons = function(hwnd) {
     if (!group) return;
     highestButtonStackOrder += 1;
     group.style.zIndex = String(highestButtonStackOrder);
+};
+
+window.setWindowButtonStackOrder = function(hwnd, stackOrder) {
+    const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
+    if (!group) return;
+    const order = Number(stackOrder || 0);
+    highestButtonStackOrder = Math.max(highestButtonStackOrder, order);
+    group.style.zIndex = String(order);
 };
 
 function setResultDraggingCursor(active) {
@@ -164,6 +172,7 @@ function updateButtonOpacity() {
 
         window.ipc.postMessage(JSON.stringify({
             action: "update_clickable_regions",
+            scale: window.devicePixelRatio || 1,
             regions: regions
         }));
     }
@@ -430,9 +439,15 @@ function updateWindows(windowsData) {
     existingGroups.forEach((el, key) => {
         el.remove();
         lastVisibleState.delete(key);
+        lastSentRegions.delete(key);
     });
 
     updateButtonOpacity();
+    if (container.querySelectorAll('.button-group').length === 0) {
+        window.ipc.postMessage(JSON.stringify({
+            action: "update_clickable_regions", scale: window.devicePixelRatio || 1, regions: []
+        }));
+    }
 }
 
 window.updateWindows = updateWindows;

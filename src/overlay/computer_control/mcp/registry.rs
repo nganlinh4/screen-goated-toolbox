@@ -3,6 +3,7 @@
 //! atomic-JSON pattern as `browser/prefs.rs`.
 
 use serde::{Deserialize, Serialize};
+use std::sync::{LazyLock, Mutex};
 
 #[derive(Serialize, Deserialize, Default)]
 struct Registry {
@@ -16,6 +17,8 @@ struct Entry {
     installed_at: u64,
 }
 
+static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(load_from_disk()));
+
 fn persisted_path() -> std::path::PathBuf {
     crate::paths::app_config_dir().join("cc_mcp_registry.json")
 }
@@ -24,7 +27,7 @@ fn writable_path() -> std::path::PathBuf {
     crate::paths::app_runtime_config_dir().join("cc_mcp_registry.json")
 }
 
-fn load() -> Registry {
+fn load_from_disk() -> Registry {
     [writable_path(), persisted_path()]
         .into_iter()
         .find_map(|path| {
@@ -43,29 +46,59 @@ fn now_secs() -> u64 {
 }
 
 pub(super) fn is_installed(id: &str) -> bool {
-    load().installed.iter().any(|e| e.id == id)
+    REGISTRY
+        .lock()
+        .map(|registry| registry.installed.iter().any(|entry| entry.id == id))
+        .unwrap_or(false)
 }
 
 pub(super) fn installed_ids() -> Vec<String> {
-    load().installed.into_iter().map(|e| e.id).collect()
+    REGISTRY
+        .lock()
+        .map(|registry| {
+            registry
+                .installed
+                .iter()
+                .map(|entry| entry.id.clone())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub(super) fn mark_installed(id: &str) {
-    let mut r = load();
-    if !r.installed.iter().any(|e| e.id == id) {
-        r.installed.push(Entry {
+    let Ok(mut registry) = REGISTRY.lock() else {
+        return;
+    };
+    if !registry.installed.iter().any(|entry| entry.id == id) {
+        registry.installed.push(Entry {
             id: id.to_string(),
             installed_at: now_secs(),
         });
-        let _ = crate::atomic_json::write_json_atomic(&writable_path(), &r);
+        if let Err(error) = crate::atomic_json::write_json_atomic(&writable_path(), &*registry) {
+            registry.installed.retain(|entry| entry.id != id);
+            crate::log_info!("[MCP] Could not persist installed integration: {error:#}");
+        }
     }
 }
 
 pub(super) fn remove(id: &str) {
-    let mut r = load();
-    let before = r.installed.len();
-    r.installed.retain(|e| e.id != id);
-    if r.installed.len() != before {
-        let _ = crate::atomic_json::write_json_atomic(&writable_path(), &r);
+    if let Err(error) = try_remove(id) {
+        crate::log_info!("[MCP] Could not persist removed integration: {error:#}");
     }
+}
+
+pub(super) fn try_remove(id: &str) -> anyhow::Result<()> {
+    let mut registry = REGISTRY
+        .lock()
+        .map_err(|_| anyhow::anyhow!("MCP integration registry is unavailable"))?;
+    let before = registry.installed.len();
+    registry.installed.retain(|entry| entry.id != id);
+    if registry.installed.len() == before {
+        return Ok(());
+    }
+    if let Err(error) = crate::atomic_json::write_json_atomic(&writable_path(), &*registry) {
+        *registry = load_from_disk();
+        return Err(error.into());
+    }
+    Ok(())
 }

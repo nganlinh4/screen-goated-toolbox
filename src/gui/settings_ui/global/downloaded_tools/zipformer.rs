@@ -180,10 +180,12 @@ pub(super) fn render_zipformer_section(
                                 .clicked()
                             {
                                 invalidate_probe_cache(zipformer_probe_key(lang));
-                                let _ = std::fs::remove_dir_all(model_dir(lang));
                                 *download_manager.zipformer_lang_statuses[&lang]
                                     .lock()
-                                    .unwrap() = InstallStatus::Missing;
+                                    .unwrap() = match sherpa_onnx::remove_model(lang) {
+                                    Ok(()) => InstallStatus::Missing,
+                                    Err(error) => InstallStatus::Error(error.to_string()),
+                                };
                             }
                             let size = get_dir_size(&model_dir(lang));
                             ui.label(

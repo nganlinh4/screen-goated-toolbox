@@ -9,6 +9,7 @@ use std::thread;
 
 use super::utils::{
     cached_probe, format_size, get_dir_size, invalidate_probe_cache, invalidate_size_cache,
+    removal_in_progress, start_removal,
 };
 
 /// Declarative description of a single downloadable model row (title, probe key,
@@ -23,6 +24,9 @@ pub(super) struct ModelRowSpec {
     pub(super) model_dir: fn() -> PathBuf,
     pub(super) download_model: fn(Arc<AtomicBool>, bool) -> anyhow::Result<()>,
     pub(super) remove_model: fn() -> anyhow::Result<()>,
+    /// `None` means the row has an intrinsic delivery path. A predicate is
+    /// supplied for build-generated packages that may be intentionally absent.
+    pub(super) is_available: Option<fn() -> bool>,
     /// Optional description rendered after the row (the per-model section cards
     /// render the description below the row; the TTS cards render it above and
     /// pass `None` here).
@@ -42,7 +46,11 @@ pub(super) fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &Mode
                 .lock()
                 .map(|s| s.is_downloading && s.download_title == spec.model_download_title.as_str())
                 .unwrap_or(false);
-            if is_downloading {
+            let is_removing = removal_in_progress(spec.model_probe);
+            if is_removing {
+                ui.label(text.auxiliary.managed_tools.tool_status_removing);
+                ui.spinner();
+            } else if is_downloading {
                 let progress = REALTIME_STATE
                     .lock()
                     .map(|s| s.download_progress)
@@ -57,9 +65,7 @@ pub(super) fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &Mode
                     )
                     .clicked()
                 {
-                    invalidate_size_cache(&(spec.model_dir)());
-                    invalidate_probe_cache(spec.model_probe);
-                    let _ = (spec.remove_model)();
+                    start_model_removal(spec);
                 }
                 let size = get_dir_size(&(spec.model_dir)());
                 ui.label(
@@ -70,6 +76,11 @@ pub(super) fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &Mode
                             .replace("{}", &format_size(size)),
                     )
                     .color(theme.success()),
+                );
+            } else if spec.is_available.is_some_and(|available| !available()) {
+                ui.label(
+                    egui::RichText::new(text.auxiliary.managed_tools.tool_status_unavailable)
+                        .color(theme.danger_text()),
                 );
             } else {
                 if ui
@@ -98,4 +109,15 @@ pub(super) fn render_model_row(ui: &mut egui::Ui, text: &LocaleText, spec: &Mode
         }
         ui.label(egui::RichText::new(message).color(theme.danger_text()));
     }
+}
+
+fn start_model_removal(spec: &ModelRowSpec) {
+    let probe = spec.model_probe;
+    let title = spec.model_title.to_string();
+    let model_dir = spec.model_dir;
+    let remove_model = spec.remove_model;
+    start_removal(probe, title, remove_model, move || {
+        invalidate_size_cache(&model_dir());
+        invalidate_probe_cache(probe);
+    });
 }

@@ -127,7 +127,7 @@ fn visit<'a>(
     Ok(())
 }
 
-pub(super) fn validate_identifier(value: &str) -> Result<()> {
+pub(crate) fn validate_identifier(value: &str) -> Result<()> {
     if value.is_empty()
         || value.len() > 80
         || !value.bytes().all(|byte| {

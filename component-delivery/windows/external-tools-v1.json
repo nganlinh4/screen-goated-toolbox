@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "hostVersion": "5.4.3",
+  "architecture": "x64",
+  "components": [
+    {
+      "id": "yt-dlp-x64",
+      "version": "2026.07.04",
+      "asset": "yt-dlp.exe",
+      "archiveFormat": "raw",
+      "sizeBytes": 18226085,
+      "sha256": "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8",
+      "unpackedSizeBytes": 18226085,
+      "files": [
+        {
+          "path": "bin/x64/yt-dlp.exe",
+          "archivePath": "yt-dlp.exe",
+          "sizeBytes": 18226085,
+          "sha256": "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8"
+        }
+      ],
+      "downloadUrl": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp.exe"
+    },
+    {
+      "id": "ffmpeg-x64",
+      "version": "n8.1.2-34-g9b6c8969e0-20260809",
+      "asset": "ffmpeg-x64-n8.1.2-34-g9b6c8969e0-20260809-9281d896411bf231.zip",
+      "archiveFormat": "zip",
+      "sizeBytes": 110361214,
+      "sha256": "9281d896411bf231ed11113e89fb3d4d22c17fd5b012d6059046ab10ba6046ee",
+      "unpackedSizeBytes": 288120902,
+      "files": [
+        {
+          "path": "bin/x64/ffmpeg.exe",
+          "archivePath": "bin/x64/ffmpeg.exe",
+          "sizeBytes": 144145920,
+          "sha256": "693debe65acf25b453be0978b77a6c64aa75ef23d35b009df195ea166cd912bf"
+        },
+        {
+          "path": "bin/x64/ffprobe.exe",
+          "archivePath": "bin/x64/ffprobe.exe",
+          "sizeBytes": 143939584,
+          "sha256": "8fd4598047b2f48ed803bf0080c0fffe482e2dd47239a5048881166a1b1e87b6"
+        },
+        {
+          "path": "licenses/LICENSE.txt",
+          "archivePath": "licenses/LICENSE.txt",
+          "sizeBytes": 35147,
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        },
+        {
+          "path": "licenses/SOURCE.txt",
+          "archivePath": "licenses/SOURCE.txt",
+          "sizeBytes": 251,
+          "sha256": "6519d80d8f89a6d61eeef7d513064fcfd80887485b314ef6aeff30529e1c5bfd"
+        }
+      ],
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/ffmpeg-x64-n8.1.2-34-g9b6c8969e0-20260809-9281d896411bf231.zip"
+    },
+    {
+      "id": "deno-x64",
+      "version": "2.9.5",
+      "asset": "deno-x86_64-pc-windows-msvc.zip",
+      "archiveFormat": "zip",
+      "sizeBytes": 42691248,
+      "sha256": "171efab55ac6b9881fd53ee4c20f8bf3bb1340ffc618483746909014db12216a",
+      "unpackedSizeBytes": 97408288,
+      "files": [
+        {
+          "path": "bin/x64/deno.exe",
+          "archivePath": "deno.exe",
+          "sizeBytes": 97408288,
+          "sha256": "98f8c2a2d470e4ccb04c935c86ff8050817d877762aec5eaeeb9e409ccb3b9fd"
+        }
+      ],
+      "downloadUrl": "https://github.com/denoland/deno/releases/download/v2.9.5/deno-x86_64-pc-windows-msvc.zip"
+    }
+  ],
+  "webview2Bootstrapper": {
+    "version": "1.3.251.23",
+    "asset": "webview2-bootstrapper-1.3.251.23-8c4a80540b6bbcbe.exe",
+    "sizeBytes": 1695960,
+    "sha256": "8c4a80540b6bbcbef30a4e8c7d1ac504b6fc09db922b4acdfd85c9d5f6f1050e",
+    "expectedPublisher": "Microsoft Corporation",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/webview2-bootstrapper-1.3.251.23-8c4a80540b6bbcbe.exe"
+  }
+}

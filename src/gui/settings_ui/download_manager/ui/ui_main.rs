@@ -36,6 +36,12 @@ impl DownloadManager {
                             ui.colored_label(theme.danger_text(), e);
                         }
                     }
+                    InstallStatus::Unavailable => {
+                        ui.colored_label(
+                            theme.danger_text(),
+                            text.auxiliary.managed_tools.tool_status_unavailable,
+                        );
+                    }
                     InstallStatus::Downloading(p) => {
                         ui.label(format!("{:.0}%", p * 100.0));
                         ui.add(egui::ProgressBar::new(p).desired_width(120.0));
@@ -83,6 +89,12 @@ impl DownloadManager {
                         if let InstallStatus::Error(e) = status {
                             ui.colored_label(theme.danger_text(), e);
                         }
+                    }
+                    InstallStatus::Unavailable => {
+                        ui.colored_label(
+                            theme.danger_text(),
+                            text.auxiliary.managed_tools.tool_status_unavailable,
+                        );
                     }
                     InstallStatus::Downloading(p) => {
                         ui.label(format!("{:.0}%", p * 100.0));

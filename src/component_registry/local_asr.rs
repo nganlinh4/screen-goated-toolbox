@@ -17,21 +17,17 @@ use super::receipt::{
 
 mod install;
 mod staging;
+#[cfg(not(feature = "recorder-worker"))]
+mod update;
 mod validation;
 
-#[cfg(debug_assertions)]
-use validation::validate_runtime_install;
-use validation::{
-    owned_file, validate_delivery, validate_delivery_status, validate_exact_tree,
-    validate_runtime_status,
-};
+use validation::{owned_file, validate_delivery, validate_delivery_status, validate_exact_tree};
 
 pub(crate) const WORKER_ID: &str = "local-asr-worker";
 pub(crate) const RUNTIME_ID: &str = "onnx-directml-runtime";
 const ARCHITECTURE: &str = "x64";
 const VC_RUNTIME_ID: &str = "vc14-x64-runtime";
 const WORKER_FILE: &str = "bin/x64/sgt-local-asr-worker.exe";
-const RUNTIME_VERSION: &str = "1.24.2-directml-1.15.4";
 const MAX_COMPONENT_FILES: usize = 8;
 
 #[derive(Clone, Copy)]
@@ -53,63 +49,11 @@ struct LocalAsrDelivery {
 
 include!(concat!(env!("OUT_DIR"), "/local_asr_delivery.rs"));
 
-const RUNTIME_FILES: &[LocalAsrFile] = &[
-    LocalAsrFile {
-        path: "bin/x64/onnxruntime.dll",
-        size_bytes: 17_270_304,
-        sha256: "a2323bc49544645b911743052f1edce594e17df1e3423b71468c7386bc902f80",
-    },
-    LocalAsrFile {
-        path: "bin/x64/onnxruntime_providers_shared.dll",
-        size_bytes: 22_048,
-        sha256: "8b33b30ac866c938aa3d946d4f92fc2ba70fff06ef45d5ce22e483f19ba2c896",
-    },
-    LocalAsrFile {
-        path: "bin/x64/DirectML.dll",
-        size_bytes: 18_527_776,
-        sha256: "9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1",
-    },
-    LocalAsrFile {
-        path: "licenses/onnxruntime-LICENSE.txt",
-        size_bytes: 1_094,
-        sha256: "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674",
-    },
-    LocalAsrFile {
-        path: "licenses/onnxruntime-ThirdPartyNotices.txt",
-        size_bytes: 331_175,
-        sha256: "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866",
-    },
-    LocalAsrFile {
-        path: "licenses/directml-LICENSE-CODE.txt",
-        size_bytes: 1_093,
-        sha256: "903df5512f7d02609fed0c780a9b704f5a3eeb6e4d84ebe42a29845c81899a3c",
-    },
-    LocalAsrFile {
-        path: "licenses/directml-LICENSE.txt",
-        size_bytes: 10_439,
-        sha256: "a05138e3a085ff60a44881eedfa58dccb03ecc1d7b1f6ae888418e8c2fec4b8d",
-    },
-    LocalAsrFile {
-        path: "licenses/directml-ThirdPartyNotices.txt",
-        size_bytes: 4_577,
-        sha256: "2c95795c13ff48a58b6ed916f37901c23d964b5d9d601af422f17ad2172e7950",
-    },
-];
-
 #[cfg(not(feature = "recorder-worker"))]
 #[derive(Clone, Debug)]
 pub(crate) enum ComponentStatus {
-    #[cfg(debug_assertions)]
-    Development {
-        bytes: u64,
-    },
-    Installed {
-        bytes: u64,
-        version: String,
-    },
-    Installing {
-        progress: f32,
-    },
+    Installed { bytes: u64, version: String },
+    Installing { progress: f32 },
     Missing,
     Unavailable,
     Error(String),
@@ -117,19 +61,12 @@ pub(crate) enum ComponentStatus {
 
 #[cfg(feature = "recorder-worker")]
 pub(crate) fn status_is_ready(status: &ComponentStatus) -> bool {
-    match status {
-        ComponentStatus::Installed => true,
-        #[cfg(debug_assertions)]
-        ComponentStatus::Development => true,
-        _ => false,
-    }
+    matches!(status, ComponentStatus::Installed)
 }
 
 #[cfg(feature = "recorder-worker")]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ComponentStatus {
-    #[cfg(debug_assertions)]
-    Development,
     Installed,
     Installing,
     Missing,
@@ -169,7 +106,7 @@ static RUNTIME_NOTICE: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex:
 pub(crate) struct LocalAsrWorkerUse {
     executable: PathBuf,
     _files: Vec<std::fs::File>,
-    _lease: Option<ComponentLease>,
+    _lease: ComponentLease,
 }
 
 impl LocalAsrWorkerUse {
@@ -194,14 +131,6 @@ pub(crate) fn ensure_worker(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<LocalAsrWorkerUse> {
-    #[cfg(debug_assertions)]
-    if let Some(executable) = development_worker() {
-        return Ok(LocalAsrWorkerUse {
-            _files: vec![open_locked_regular_file(&executable)?],
-            executable,
-            _lease: None,
-        });
-    }
     let _mutation = super::acquire_mutation_guard()?;
     let delivery = delivery(WORKER_ID)?;
     install::ensure_delivery(delivery, cancelled, on_progress)?;
@@ -212,7 +141,7 @@ pub(crate) fn ensure_worker(
     Ok(LocalAsrWorkerUse {
         executable: root.join(WORKER_FILE),
         _files: files,
-        _lease: Some(lease),
+        _lease: lease,
     })
 }
 
@@ -221,22 +150,12 @@ pub(crate) fn ensure_runtime(
     on_progress: impl Fn(u64, u64),
 ) -> Result<OnnxRuntimeUse> {
     let _mutation = super::acquire_mutation_guard()?;
-    let root = if let Some(delivery) = optional_delivery(RUNTIME_ID) {
-        install::ensure_delivery(delivery, cancelled, on_progress)?;
-        validate_delivery(delivery)?;
-        version_root(RUNTIME_ID, delivery.version)?
-    } else {
-        #[cfg(debug_assertions)]
-        {
-            install::ensure_development_runtime(cancelled, on_progress)?;
-            validate_runtime_install()?;
-            version_root(RUNTIME_ID, RUNTIME_VERSION)?
-        }
-        #[cfg(not(debug_assertions))]
-        bail!("the local ONNX/DirectML runtime is not included in this build")
-    };
+    let delivery = delivery(RUNTIME_ID)?;
+    install::ensure_delivery(delivery, cancelled, on_progress)?;
+    validate_delivery(delivery)?;
+    let root = version_root(RUNTIME_ID, delivery.version)?;
     let lease = super::acquire(RUNTIME_ID)?;
-    let files = lock_component_files(&root, RUNTIME_FILES)?;
+    let files = lock_component_files(&root, delivery.files)?;
     Ok(OnnxRuntimeUse {
         bin_dir: root.join("bin/x64"),
         _files: files,
@@ -254,32 +173,11 @@ pub(crate) fn current_status(kind: ComponentKind) -> ComponentStatus {
             progress: _progress.load(Ordering::Relaxed) as f32 / 100.0,
         };
     }
-    #[cfg(debug_assertions)]
-    if kind == ComponentKind::Worker
-        && let Some(_executable) = development_worker_for_status()
-    {
-        #[cfg(feature = "recorder-worker")]
-        return ComponentStatus::Development;
-        #[cfg(not(feature = "recorder-worker"))]
-        return ComponentStatus::Development {
-            bytes: _executable.metadata().map(|value| value.len()).unwrap_or(0),
-        };
-    }
-    #[cfg(not(debug_assertions))]
     if kind == ComponentKind::Runtime && optional_delivery(RUNTIME_ID).is_none() {
         return ComponentStatus::Unavailable;
     }
-    if kind == ComponentKind::Runtime && validate_runtime_status().is_ok() {
-        #[cfg(feature = "recorder-worker")]
-        return ComponentStatus::Installed;
-        #[cfg(not(feature = "recorder-worker"))]
-        return ComponentStatus::Installed {
-            bytes: RUNTIME_FILES.iter().map(|file| file.size_bytes).sum(),
-            version: RUNTIME_VERSION.to_string(),
-        };
-    }
     let Some(delivery) = optional_delivery(kind.id()) else {
-        return status_without_delivery(kind, cfg!(debug_assertions));
+        return status_without_delivery(kind);
     };
     match validate_delivery_status(delivery) {
         #[cfg(feature = "recorder-worker")]
@@ -303,15 +201,8 @@ pub(crate) fn current_status(kind: ComponentKind) -> ComponentStatus {
     }
 }
 
-fn status_without_delivery(
-    kind: ComponentKind,
-    development_runtime_available: bool,
-) -> ComponentStatus {
-    if kind == ComponentKind::Runtime && development_runtime_available {
-        ComponentStatus::Missing
-    } else {
-        ComponentStatus::Unavailable
-    }
+fn status_without_delivery(_kind: ComponentKind) -> ComponentStatus {
+    ComponentStatus::Unavailable
 }
 
 #[cfg(not(feature = "recorder-worker"))]
@@ -324,11 +215,6 @@ pub(crate) fn current_notice(kind: ComponentKind) -> Option<String> {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn version_label(kind: ComponentKind) -> Option<String> {
-    if kind == ComponentKind::Runtime {
-        return Some(format!(
-            "ONNX Runtime 1.24.2 + DirectML 1.15.4 ({ARCHITECTURE})"
-        ));
-    }
     optional_delivery(kind.id()).map(|delivery| format!("{} ({ARCHITECTURE})", delivery.version))
 }
 
@@ -342,8 +228,6 @@ pub(crate) fn start_install(kind: ComponentKind) -> bool {
         status,
         ComponentStatus::Installed { .. } | ComponentStatus::Installing { .. }
     );
-    #[cfg(all(not(feature = "recorder-worker"), debug_assertions))]
-    let ready = ready || matches!(status, ComponentStatus::Development { .. });
     if ready
         || installing
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -432,10 +316,17 @@ pub(crate) fn remove(kind: ComponentKind) -> Result<()> {
 }
 
 fn delivery(id: &str) -> Result<&'static LocalAsrDelivery> {
-    optional_delivery(id).ok_or_else(|| anyhow!("{id} is not included in this build"))
+    optional_delivery(id).ok_or_else(|| anyhow!("{id} download contract is unavailable"))
 }
 
 fn optional_delivery(id: &str) -> Option<&'static LocalAsrDelivery> {
+    #[cfg(not(feature = "recorder-worker"))]
+    if let Some(delivery) = update::deliveries()
+        .iter()
+        .find(|delivery| delivery.id == id)
+    {
+        return Some(delivery);
+    }
     LOCAL_ASR_DELIVERIES
         .iter()
         .find(|delivery| delivery.id == id)
@@ -529,26 +420,6 @@ fn store_progress(progress: &AtomicU32, done: u64, total: u64) {
     progress.store(basis_points.min(10_000) as u32, Ordering::Relaxed);
 }
 
-#[cfg(debug_assertions)]
-fn development_worker_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("native/local_asr_worker/target/x86_64-pc-windows-msvc/debug")
-        .join("sgt-local-asr-worker.exe")
-}
-
-#[cfg(debug_assertions)]
-fn development_worker_for_status() -> Option<PathBuf> {
-    let path = development_worker_path();
-    let metadata = std::fs::symlink_metadata(&path).ok()?;
-    (metadata.is_file() && !is_reparse_point(&metadata) && metadata.len() > 0).then_some(path)
-}
-
-#[cfg(debug_assertions)]
-fn development_worker() -> Option<PathBuf> {
-    let path = development_worker_path();
-    install::validate_x64_pe(&path).is_ok().then_some(path)
-}
-
 fn receipt(kind: ComponentKind, version: &str, files: &[LocalAsrFile]) -> ComponentReceipt {
     ComponentReceipt {
         schema_version: 1,
@@ -562,24 +433,25 @@ fn receipt(kind: ComponentKind, version: &str, files: &[LocalAsrFile]) -> Compon
 
 #[cfg(test)]
 mod tests {
-    use super::{ComponentKind, ComponentStatus, status_without_delivery};
+    use super::{
+        ComponentKind, ComponentStatus, RUNTIME_ID, WORKER_ID, optional_delivery,
+        status_without_delivery,
+    };
 
     #[test]
-    fn development_runtime_without_delivery_remains_downloadable() {
-        assert!(matches!(
-            status_without_delivery(ComponentKind::Runtime, true),
-            ComponentStatus::Missing
-        ));
+    fn tracked_delivery_contains_worker_and_runtime() {
+        assert!(optional_delivery(WORKER_ID).is_some());
+        assert!(optional_delivery(RUNTIME_ID).is_some());
     }
 
     #[test]
-    fn missing_release_delivery_and_worker_fallback_remain_unavailable() {
+    fn missing_delivery_is_never_replaced_by_a_local_build_artifact() {
         assert!(matches!(
-            status_without_delivery(ComponentKind::Runtime, false),
+            status_without_delivery(ComponentKind::Runtime),
             ComponentStatus::Unavailable
         ));
         assert!(matches!(
-            status_without_delivery(ComponentKind::Worker, true),
+            status_without_delivery(ComponentKind::Worker),
             ComponentStatus::Unavailable
         ));
     }

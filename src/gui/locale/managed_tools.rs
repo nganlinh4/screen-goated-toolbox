@@ -2,6 +2,22 @@ pub struct ManagedToolsLocaleText {
     pub downloaded_tools_button: &'static str,
     pub downloaded_tools_title: &'static str,
     pub downloaded_tools_clean_all: &'static str,
+    pub downloaded_tools_clean_confirm_title: &'static str,
+    pub downloaded_tools_clean_confirm_body: &'static str,
+    pub downloaded_tools_clean_confirm: &'static str,
+    pub downloaded_tools_clean_cancel: &'static str,
+    pub downloaded_tools_clean_wait_for_downloads: &'static str,
+    pub downloaded_tools_clean_progress_title: &'static str,
+    pub downloaded_tools_clean_progress_fmt: &'static str,
+    pub downloaded_tools_clean_complete: &'static str,
+    pub downloaded_tools_clean_complete_with_errors_fmt: &'static str,
+    pub downloaded_tools_clean_close: &'static str,
+    pub downloaded_tools_clean_step_components: &'static str,
+    pub downloaded_tools_clean_step_recoveries: &'static str,
+    pub downloaded_tools_clean_step_models: &'static str,
+    pub downloaded_tools_clean_step_runtimes: &'static str,
+    pub downloaded_tools_clean_step_interfaces: &'static str,
+    pub downloaded_tools_clean_step_media: &'static str,
     pub tool_ai_runtime: &'static str,
     pub tool_parakeet: &'static str,
     pub tool_parakeet_tdt: &'static str,
@@ -14,7 +30,6 @@ pub struct ManagedToolsLocaleText {
     pub tool_status_missing: &'static str,
     pub tool_status_install_failed: &'static str,
     pub tool_status_unavailable: &'static str,
-    pub tool_status_development_fmt: &'static str,
     pub tool_status_installing: &'static str,
     pub tool_status_removing: &'static str,
     pub tool_status_connected: &'static str,
@@ -73,7 +88,7 @@ pub struct ManagedToolsLocaleText {
     pub tool_step_audio_model: &'static str,
     pub tool_magpie_model: &'static str,
     pub tool_vieneu_model: &'static str,
-    pub tool_desc_supertonic_fmt: &'static str,
+    pub tool_desc_supertonic: &'static str,
     pub tool_desc_kokoro: &'static str,
     pub tool_desc_step_audio: &'static str,
     pub tool_desc_magpie: &'static str,
@@ -112,6 +127,8 @@ pub struct ManagedToolsLocaleText {
     pub tool_mcp_card: &'static str,
     pub tool_desc_mcp: &'static str,
     pub tool_mcp_addon_hint: &'static str,
+    pub tool_mcp_time_desc: &'static str,
+    pub tool_mcp_blender_desc: &'static str,
     pub tool_recovery_inventory_error_fmt: &'static str,
     pub tool_recovery_preserved: &'static str,
     pub tool_recovery_clean_verified: &'static str,
@@ -129,6 +146,14 @@ pub struct ManagedToolsLocaleText {
 }
 
 impl ManagedToolsLocaleText {
+    pub fn mcp_description(&self, id: &str) -> Option<&'static str> {
+        match id {
+            "time" => Some(self.tool_mcp_time_desc),
+            "blender" => Some(self.tool_mcp_blender_desc),
+            _ => None,
+        }
+    }
+
     pub fn zipformer_language_name(&self, code: &str) -> &'static str {
         match code {
             "en" => self.zipformer_language_en,

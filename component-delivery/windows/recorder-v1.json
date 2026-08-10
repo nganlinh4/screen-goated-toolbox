@@ -1,0 +1,943 @@
+{
+  "architecture": "x64",
+  "components": [
+    {
+      "asset": "recorder-web-5.4.3-b6da0b44eee724d8.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.4.3-b6da0b44eee724d8.zip",
+      "files": [
+        {
+          "path": "assets/index.css",
+          "sha256": "5ac93ad23f36654ea3db3f0491c8d16ce07e04d6ef16bdd148f41f0b460cbfd5",
+          "sizeBytes": 142517
+        },
+        {
+          "path": "assets/index.js",
+          "sha256": "df33fd3ecb0b9bdfe21da9798306fd316b06cf23ac597fe43e7beb855e838214",
+          "sizeBytes": 1066406
+        },
+        {
+          "path": "assets/rolldown-runtime.js",
+          "sha256": "6f5330f281c713c1b765ec52977b36599538b8d52c5dd3ce94d211f5b0e7debf",
+          "sizeBytes": 826
+        },
+        {
+          "path": "assets/vendor.js",
+          "sha256": "9023ae6da9954e2c21beed75ab33b82d1fe6a42215aea4da4ae6ef14fa45b7cd",
+          "sizeBytes": 437005
+        },
+        {
+          "path": "bg-antelope-canyon.jpg",
+          "sha256": "d8bd8f6818e443c59321c43df1fba6c6a669e5ff3bdb3e81a5c9d56efd9d0ea9",
+          "sizeBytes": 6421
+        },
+        {
+          "path": "bg-beach-aerial.jpg",
+          "sha256": "e6ce9ccdfec5cb07b92fa70ffdf7a9f12d28c471b64879ae2d3b1b26c973f43f",
+          "sizeBytes": 6984
+        },
+        {
+          "path": "bg-big-sur-iridescence.jpg",
+          "sha256": "bd5f260801e006d874bcabb2b2a5ccd095b5fc13b27c3f9d5ae681a1ade17ce5",
+          "sizeBytes": 5567
+        },
+        {
+          "path": "bg-big-sur-rocks.jpg",
+          "sha256": "db9ed86e550fa4080b73fdf2a7dccf46958dcf58be21ccb423695458051290cb",
+          "sizeBytes": 6794
+        },
+        {
+          "path": "bg-big-sur-waves.jpg",
+          "sha256": "5414e8fe080b643913b12eb6ce7cf5e85ad8f922516fe509bd2f77fec5b00092",
+          "sizeBytes": 2955
+        },
+        {
+          "path": "bg-big-sur.jpg",
+          "sha256": "8d118e11dde1d29c7afeb6500b82fe823f1825302ed01b42138ae686c4e8d2ad",
+          "sizeBytes": 5923
+        },
+        {
+          "path": "bg-blue-waves.jpg",
+          "sha256": "1118810610b7d39b59c5563c80f6f1cb1759a0a6a3503c9055d6e0d3af008d44",
+          "sizeBytes": 4952
+        },
+        {
+          "path": "bg-catalina.jpg",
+          "sha256": "3395943095320323187611a9d5224514ce4b2e966a26f35403329c41cf1f9bcc",
+          "sizeBytes": 6153
+        },
+        {
+          "path": "bg-cerro-torre.jpg",
+          "sha256": "995b80237289c3649000b019e859c5dfb5cf3f641735b3e801b52aafab3d2ab8",
+          "sizeBytes": 8922
+        },
+        {
+          "path": "bg-cool-abstract.jpg",
+          "sha256": "e5a87e200f1921e1defb8c4c98685f9b3a9ab055b819b4c2109a8bcc8ce02aa6",
+          "sizeBytes": 3812
+        },
+        {
+          "path": "bg-deep-abstract.jpg",
+          "sha256": "ad398c3b794cd6f97bd2f814626a84adbe13215232cd96cebe7da3dafd610c5a",
+          "sizeBytes": 3450
+        },
+        {
+          "path": "bg-el-capitan.jpg",
+          "sha256": "93fda75dbc4904806951cafd5eb72eb3de5afc1351a66f6ae924d90931c4cf7a",
+          "sizeBytes": 8492
+        },
+        {
+          "path": "bg-gdrive-2.jpg",
+          "sha256": "0c9f71399033cf5aa28e81f50240bb4204c51c84b681445d5229cbbab9a4690e",
+          "sizeBytes": 7477
+        },
+        {
+          "path": "bg-gdrive-3.jpg",
+          "sha256": "eacd32260230173f4b92c649976b44e34b31ab93141bdf69d1da1d73dfc32df2",
+          "sizeBytes": 7377
+        },
+        {
+          "path": "bg-ipados-blue.jpg",
+          "sha256": "d94bb966b113b665525029b55a7ea16ab9ce64fa9b6462fe30848b1b603c5f4a",
+          "sizeBytes": 3405
+        },
+        {
+          "path": "bg-ipados-orange.jpg",
+          "sha256": "316b4156f7dbad0230315682606c9ded106a2e8838092839a579583fa9fa9f98",
+          "sizeBytes": 3311
+        },
+        {
+          "path": "bg-lake-mountains.jpg",
+          "sha256": "08d51f5696eaee3e74ca3753cff32b8a4bd954307bc1c2535accf3bc0962871c",
+          "sizeBytes": 8573
+        },
+        {
+          "path": "bg-landscape-rocks.jpg",
+          "sha256": "4f33016f3b4ee1714269bc1f487b8972d013631105a7e7ddfdb672a7e2c76b95",
+          "sizeBytes": 7723
+        },
+        {
+          "path": "bg-macos-tahoe.jpg",
+          "sha256": "1c6ec240627970de1b840e29d5176ec819520e667f9e979b7930936d2d08afa2",
+          "sizeBytes": 4262
+        },
+        {
+          "path": "bg-mojave-dunes.jpg",
+          "sha256": "ee0ec80566860f14aae444b8a62fcb00f508a3e7d224d43802b5e6939df4c1e1",
+          "sizeBytes": 4219
+        },
+        {
+          "path": "bg-monterey-dark.jpg",
+          "sha256": "475c776d2c5b09ad36094add88e01a64f614c4e1bec2b4975011aa011407c17c",
+          "sizeBytes": 1322
+        },
+        {
+          "path": "bg-sierra-glacier.jpg",
+          "sha256": "33363f70831702868bc1416af9ec3330f3cf8d924b13862232f8d3f0e132489d",
+          "sizeBytes": 7380
+        },
+        {
+          "path": "bg-sierra-sunset.jpg",
+          "sha256": "701617e33f451099a947e4e5d22bd2b8f5460b87dd3d133df956273532906718",
+          "sizeBytes": 8749
+        },
+        {
+          "path": "bg-vivid-abstract.jpg",
+          "sha256": "1a296668b9cc8f622ad66dc019e1fa49663de70f15359574c0ad31ae7ba6c3bc",
+          "sizeBytes": 5099
+        },
+        {
+          "path": "bg-warm-abstract.jpg",
+          "sha256": "9b4fd79fc4199a86f07db21c9ee77f3210512a0c5515965d05f7b001f1d9c497",
+          "sizeBytes": 4149
+        },
+        {
+          "path": "bg-windows-11-3d.jpg",
+          "sha256": "6c52ecf2b15dbc698fa1f995de6770b9ad3cb666f1d2876f23105cce54097736",
+          "sizeBytes": 7156
+        },
+        {
+          "path": "bg-windows-11-colorful.jpg",
+          "sha256": "77150c4062f30738da67e43304ba6d7dd77c2267bc18199b01782976b44b5176",
+          "sizeBytes": 2159
+        },
+        {
+          "path": "bg-windows-7.jpg",
+          "sha256": "a947b6ee1aa78c53720ce69dc676ff8bf37cb4558c12c186b100482aea6f8438",
+          "sizeBytes": 3325
+        },
+        {
+          "path": "bg-windows-xp.jpg",
+          "sha256": "2b52f61f9bec11b87ef339a3a544c0d1ee162a35636b121d310ebc9f2b7e77f7",
+          "sizeBytes": 4632
+        },
+        {
+          "path": "cursor-appstarting-jepriwin11.svg",
+          "sha256": "f70bb81437107f8c682399ce7c14c0f3b309edcb2b465a12cefb66aa916da80f",
+          "sizeBytes": 2240
+        },
+        {
+          "path": "cursor-appstarting-macos26.svg",
+          "sha256": "43798b05784d8bb0bdc28a8d11efecb0552153b8c5f49993e23da918af8b4731",
+          "sizeBytes": 3334
+        },
+        {
+          "path": "cursor-appstarting-screenstudio.svg",
+          "sha256": "ebe30d0bce99f4d6435174c3e98b3f9ffff14c4f2658610193853210282c15c5",
+          "sizeBytes": 3371
+        },
+        {
+          "path": "cursor-appstarting-sgtai.svg",
+          "sha256": "209f5bfe3f19ea132ee203d0ccebd0968fd70fc6deb05d7b3323d7f209eb380e",
+          "sizeBytes": 7490
+        },
+        {
+          "path": "cursor-appstarting-sgtcool.svg",
+          "sha256": "6abfc3f4e7f1582cddb12413d52db413d10423dac40462b9bce020b834222518",
+          "sizeBytes": 2744
+        },
+        {
+          "path": "cursor-appstarting-sgtcute.svg",
+          "sha256": "89f49c16ec3c126371be550c487cef63d8d7874f0a3da204ef76c66241a4aebb",
+          "sizeBytes": 9303
+        },
+        {
+          "path": "cursor-appstarting-sgtfastfood.svg",
+          "sha256": "2874890e8b4a0330cd2db63f2cb7f8689545dc85f6a6142f010ef3b8c8bbdfc6",
+          "sizeBytes": 11470
+        },
+        {
+          "path": "cursor-appstarting-sgtkorea.svg",
+          "sha256": "1611bfdd355a444abff2abcb6a69fdd48793d51073fda7b263c049cf8d686abd",
+          "sizeBytes": 8431
+        },
+        {
+          "path": "cursor-appstarting-sgtpixel.svg",
+          "sha256": "a18ba74c0845d04365f4e3873d86c28d2e102c96174fc322c3fd7dc03a6cad75",
+          "sizeBytes": 15725
+        },
+        {
+          "path": "cursor-appstarting-sgtveggie.svg",
+          "sha256": "22b73012c99193be36a3d2119e581123425b5fff43867bcc266eda0ec30b1b23",
+          "sizeBytes": 5998
+        },
+        {
+          "path": "cursor-appstarting-sgtvietnam.svg",
+          "sha256": "a956ab0d78e3d18dc42a50dba8f40d574493ce430a7b8e7e5107a7996cdb3d90",
+          "sizeBytes": 5216
+        },
+        {
+          "path": "cursor-appstarting-sgtwatermelon.svg",
+          "sha256": "7172263436abc40b2eed6b900ba73125312626cb444dea124d9929cd68b50c17",
+          "sizeBytes": 7114
+        },
+        {
+          "path": "cursor-closehand-jepriwin11.svg",
+          "sha256": "f2bac45482328f77b1966634a2a237ca226e37013610a45a56fea7cb8016c595",
+          "sizeBytes": 1207
+        },
+        {
+          "path": "cursor-closehand-macos26.svg",
+          "sha256": "ce908df07f647a3ccf9a4183667067fea03abcb8c171ec998aee090673292aa6",
+          "sizeBytes": 4081
+        },
+        {
+          "path": "cursor-closehand-screenstudio.svg",
+          "sha256": "409f9b44b281f11de15b7464677dfc1d015492066b992f390c45938e7c4b815d",
+          "sizeBytes": 4142
+        },
+        {
+          "path": "cursor-closehand-sgtai.svg",
+          "sha256": "fc3cea901d956365c787edd3c6ba837406bd7d52a4976494dca14dbf8843cae0",
+          "sizeBytes": 2122
+        },
+        {
+          "path": "cursor-closehand-sgtcool.svg",
+          "sha256": "44c0e2b53f4aa49993c8648d5e072be04c40a6454928e0c0a7bfbf84f8ca23fe",
+          "sizeBytes": 1505
+        },
+        {
+          "path": "cursor-closehand-sgtcute.svg",
+          "sha256": "8e5c37e028b7daf1a8397db1490401d7bbbe6bafaf4241c46a1e0dc364947f2a",
+          "sizeBytes": 917
+        },
+        {
+          "path": "cursor-closehand-sgtfastfood.svg",
+          "sha256": "f991849e10e2394074eea6dd373602518c977a9ceff2c4253226bc166445f807",
+          "sizeBytes": 14269
+        },
+        {
+          "path": "cursor-closehand-sgtkorea.svg",
+          "sha256": "bbb278d78f12fca28a4bf7f20e8291f44a83890937846da31ea5c0bb92086995",
+          "sizeBytes": 8638
+        },
+        {
+          "path": "cursor-closehand-sgtpixel.svg",
+          "sha256": "eaf51cf3cd3a1e3e968fa248161c085744520917852512aa98b1d3bd02cc179a",
+          "sizeBytes": 7715
+        },
+        {
+          "path": "cursor-closehand-sgtveggie.svg",
+          "sha256": "26d60dabbdde7f98dc719d5095dcddaf9ca81bc48c9c7403ee6a8b3feb3d4afc",
+          "sizeBytes": 4666
+        },
+        {
+          "path": "cursor-closehand-sgtvietnam.svg",
+          "sha256": "585f94ab4b3e83b028ed0a99284af0e6e1078f7c1a2a466e4b34c3347db1daec",
+          "sizeBytes": 4401
+        },
+        {
+          "path": "cursor-closehand-sgtwatermelon.svg",
+          "sha256": "cd9b75b5f4a7ef050e6b20f30946aea86f34756bff3ee7f6a45fd3cf19060e3f",
+          "sizeBytes": 2511
+        },
+        {
+          "path": "cursor-crosshair-jepriwin11.svg",
+          "sha256": "8399a45686505abe56046e811ad422b0b26a748848d33c1320dd2e10de305515",
+          "sizeBytes": 1654
+        },
+        {
+          "path": "cursor-crosshair-macos26.svg",
+          "sha256": "4dd66db98933fe09b14e287eebfb464ef702f583f72b50a35130c675880779d1",
+          "sizeBytes": 1632
+        },
+        {
+          "path": "cursor-crosshair-screenstudio.svg",
+          "sha256": "b23c19d10c0e20eb7232bb53f56f560e9944bf2dc6918d72a715ba6c8752d071",
+          "sizeBytes": 731
+        },
+        {
+          "path": "cursor-crosshair-sgtai.svg",
+          "sha256": "0d6d4a72fe01f43a2ffe63cf5b7de43aee61f8b93f72c5efeb396ba95449049a",
+          "sizeBytes": 1533
+        },
+        {
+          "path": "cursor-crosshair-sgtcool.svg",
+          "sha256": "1643fe941c1da7b37e4d08d7d55e35e24f5a3e0c4e34996d45efb6411366d971",
+          "sizeBytes": 1276
+        },
+        {
+          "path": "cursor-crosshair-sgtcute.svg",
+          "sha256": "de20737acbcc575f290323b3989f4f9a4e49a66910ee1e1ea5feef17aea5e6ef",
+          "sizeBytes": 1285
+        },
+        {
+          "path": "cursor-crosshair-sgtfastfood.svg",
+          "sha256": "c45cdc90c425152df191f49acc0b1d0898be925d9dd05579aa51a7fe3aa00a8b",
+          "sizeBytes": 5156
+        },
+        {
+          "path": "cursor-crosshair-sgtkorea.svg",
+          "sha256": "db361b7d51d76f60bd94cf6bfd4002f1cb4d82e11eba528e6106cae69204ada7",
+          "sizeBytes": 4299
+        },
+        {
+          "path": "cursor-crosshair-sgtpixel.svg",
+          "sha256": "06bb97ebec41fa447a68ff038bb100eac02a3e4408c4f6ca0e1e470e5f1ceff5",
+          "sizeBytes": 9229
+        },
+        {
+          "path": "cursor-crosshair-sgtveggie.svg",
+          "sha256": "edb8e9215df98e8650276ad7fcd3e30b5ce4193d3632f2d92e014f2f8a7a6c1e",
+          "sizeBytes": 4035
+        },
+        {
+          "path": "cursor-crosshair-sgtvietnam.svg",
+          "sha256": "d4aa416253ad22ccbcbf69a3c5bb8123c69f022873f6251e1245658bf8ac4a58",
+          "sizeBytes": 6807
+        },
+        {
+          "path": "cursor-crosshair-sgtwatermelon.svg",
+          "sha256": "c7a65e5210aaaaab940d745c98dfd44e5ba51a9c6ebfb59c313dce5a612ac6c7",
+          "sizeBytes": 5929
+        },
+        {
+          "path": "cursor-default-jepriwin11.svg",
+          "sha256": "3ccab87a80697bc08ed51cc1825f709b36922d95b78b4b90e1b84dd7ae104331",
+          "sizeBytes": 1778
+        },
+        {
+          "path": "cursor-default-macos26.svg",
+          "sha256": "24f5eedda4bf51d6d2a4843693538aee9c8ba15a06b81423a3f4a173229513d5",
+          "sizeBytes": 1601
+        },
+        {
+          "path": "cursor-default-screenstudio.svg",
+          "sha256": "8ea08cf19d413be7b502efd4c747e4ad51e489c8248889283dacf60190c63831",
+          "sizeBytes": 744
+        },
+        {
+          "path": "cursor-default-sgtai.svg",
+          "sha256": "02a17390644034e2d70e9d44cb86435aba921b2663cd9563d96fbd27424a223b",
+          "sizeBytes": 1440
+        },
+        {
+          "path": "cursor-default-sgtcool.svg",
+          "sha256": "b84e11532794dfc6cf8a209ffa673def4bd8679219bd6231c7ffbd92c35c8b9f",
+          "sizeBytes": 1073
+        },
+        {
+          "path": "cursor-default-sgtcute.svg",
+          "sha256": "bff9c7498fc43c99f6a1a18df1a948e9f71613112aa348c70f88bc00a362b8d7",
+          "sizeBytes": 1230
+        },
+        {
+          "path": "cursor-default-sgtfastfood.svg",
+          "sha256": "27e98f8b61e701cc81620898ee4171b88800ffdec47437021504829f306b1a4e",
+          "sizeBytes": 3386
+        },
+        {
+          "path": "cursor-default-sgtkorea.svg",
+          "sha256": "0a2d83e1fb4de818db3d0b26bf0a5525867ebfe85ca814318775cd9aac59fe8e",
+          "sizeBytes": 4446
+        },
+        {
+          "path": "cursor-default-sgtpixel.svg",
+          "sha256": "02d588055081c073debc8f4512e482538639074e36f82579da30589338086db2",
+          "sizeBytes": 7738
+        },
+        {
+          "path": "cursor-default-sgtveggie.svg",
+          "sha256": "3c85cee1f20e2ae13455817464195df2b8e6b051246c7f35aba211c6a000cd96",
+          "sizeBytes": 2083
+        },
+        {
+          "path": "cursor-default-sgtvietnam.svg",
+          "sha256": "4260fa8d2965bde7e094c6cc4a735c4a5db4213274953d80423b477a70dd06a7",
+          "sizeBytes": 1650
+        },
+        {
+          "path": "cursor-default-sgtwatermelon.svg",
+          "sha256": "e252dddfbb992c777e0d86d25ce1c2e06fb0cbb1a915a9e06ff6daa73eb00b3d",
+          "sizeBytes": 1849
+        },
+        {
+          "path": "cursor-openhand-jepriwin11.svg",
+          "sha256": "0b5eb9aa768207fcad564bc5a2740cf5d3ade1141b8949a33a0f9970366699e2",
+          "sizeBytes": 1319
+        },
+        {
+          "path": "cursor-openhand-macos26.svg",
+          "sha256": "bbece8db10fa661cc0dc24a8365ac8d642e781d8d3c80c2f60a6c381338967a4",
+          "sizeBytes": 6095
+        },
+        {
+          "path": "cursor-openhand-screenstudio.svg",
+          "sha256": "ed771f34748d2c831cc695863b0aa1556b5b77f29c471e9c315b8f3309399427",
+          "sizeBytes": 5446
+        },
+        {
+          "path": "cursor-openhand-sgtai.svg",
+          "sha256": "068fffef07571fba446ccb2d6589ce880a4123a649ca50734aabbf5b71b85ca6",
+          "sizeBytes": 2041
+        },
+        {
+          "path": "cursor-openhand-sgtcool.svg",
+          "sha256": "3b69e39679de161117299c10dfdbc47709482aa2c9327702dbe575ee2d96f96b",
+          "sizeBytes": 1191
+        },
+        {
+          "path": "cursor-openhand-sgtcute.svg",
+          "sha256": "1557951ee44bdb89de7e8339f7b77449bb34dd7b910ceb4c22350dd11367926d",
+          "sizeBytes": 1036
+        },
+        {
+          "path": "cursor-openhand-sgtfastfood.svg",
+          "sha256": "43d9bf85f970d1d18c44280576238d1e12c39be145bee733104e96695242b23e",
+          "sizeBytes": 19818
+        },
+        {
+          "path": "cursor-openhand-sgtkorea.svg",
+          "sha256": "944c67a5419b95c29dab02abb3de410869d9d53621ae45e22c2321d1300541d6",
+          "sizeBytes": 5951
+        },
+        {
+          "path": "cursor-openhand-sgtpixel.svg",
+          "sha256": "29a88b63f21b2c11a46939987e3ec5d9aace5b16bbea5c9ca29ea33b0e3ea8e8",
+          "sizeBytes": 12918
+        },
+        {
+          "path": "cursor-openhand-sgtveggie.svg",
+          "sha256": "a9092e89729891d739731dd768058dfed798d057060d4400b646673a6f852764",
+          "sizeBytes": 5004
+        },
+        {
+          "path": "cursor-openhand-sgtvietnam.svg",
+          "sha256": "6653895e020b83d86601a8548dc9d0a832a3504d288add6a219fb86d161a507a",
+          "sizeBytes": 3583
+        },
+        {
+          "path": "cursor-openhand-sgtwatermelon.svg",
+          "sha256": "91c1b677c8fe51046b9ebaca0d0479a5cde3c06062fee5ee601a1d2e48026844",
+          "sizeBytes": 3485
+        },
+        {
+          "path": "cursor-pointer-jepriwin11.svg",
+          "sha256": "7ceba710520500b4c59bc8ddca4e34c451795c6955f078f57f48d42b3b1a8fa2",
+          "sizeBytes": 1016
+        },
+        {
+          "path": "cursor-pointer-macos26.svg",
+          "sha256": "6e194e7000e7d507481b654fcce3650d48d37c45fdcc53125d3f2471d4603fdd",
+          "sizeBytes": 5511
+        },
+        {
+          "path": "cursor-pointer-screenstudio.svg",
+          "sha256": "e515ff335485acaecb1773681ddbe3260c13d84f75a1a37b71d1d7fb27c6d7dc",
+          "sizeBytes": 4859
+        },
+        {
+          "path": "cursor-pointer-sgtai.svg",
+          "sha256": "4160e29a1389ed97f108317fd4eee66cd9385d7027737bfdecae0d2a8743841f",
+          "sizeBytes": 2708
+        },
+        {
+          "path": "cursor-pointer-sgtcool.svg",
+          "sha256": "16d9e59a10d5cd220d99b4c0ed639cf4d77f99c32cef1f6be757c71da5414a74",
+          "sizeBytes": 1034
+        },
+        {
+          "path": "cursor-pointer-sgtcute.svg",
+          "sha256": "682b0fe2b362411a01f3275b3eab4bd23abe352b4f7180f507723cc08cb80777",
+          "sizeBytes": 1993
+        },
+        {
+          "path": "cursor-pointer-sgtfastfood.svg",
+          "sha256": "eea5ac877b1e195b2efde8d0a1e37458f0cbf2f3d3d057b4a04fc8010ea88c86",
+          "sizeBytes": 6103
+        },
+        {
+          "path": "cursor-pointer-sgtkorea.svg",
+          "sha256": "af5436ac81e1b94601108dde8f31dd683f7a64e5e7cfe93a4085366168396a6c",
+          "sizeBytes": 5420
+        },
+        {
+          "path": "cursor-pointer-sgtpixel.svg",
+          "sha256": "56f5a7715de8b5c86440f91e4bb141c44f9bd68eb13195f649cc67859ad42950",
+          "sizeBytes": 8140
+        },
+        {
+          "path": "cursor-pointer-sgtveggie.svg",
+          "sha256": "85927071cf9bfa6b4b0b642a654aa4de7b6d92270af0abc37674a879ef4e620f",
+          "sizeBytes": 4701
+        },
+        {
+          "path": "cursor-pointer-sgtvietnam.svg",
+          "sha256": "fdee0a2245efb696ef7e21f9cfc7b0b162a4357811f57c66b95e026a367bb5fe",
+          "sizeBytes": 2507
+        },
+        {
+          "path": "cursor-pointer-sgtwatermelon.svg",
+          "sha256": "b4fe2bbed100b6fcc958329eb46436ddc2f82afeacacc2e24cfe1a69264748dc",
+          "sizeBytes": 2114
+        },
+        {
+          "path": "cursor-resize-nesw-jepriwin11.svg",
+          "sha256": "e22ec34c34249f83e14c1d9f60318e740f64f78bddf7cab44baa68045b304cd1",
+          "sizeBytes": 1457
+        },
+        {
+          "path": "cursor-resize-nesw-macos26.svg",
+          "sha256": "79b3d6cfd6659413d6a5ae3cb3701a8b14bef908f0b078861794774c7c135c6d",
+          "sizeBytes": 1975
+        },
+        {
+          "path": "cursor-resize-nesw-screenstudio.svg",
+          "sha256": "b769f387890f3d56081f1d9662012b02ec2458e6700b59c63ae326cbeaa463c5",
+          "sizeBytes": 916
+        },
+        {
+          "path": "cursor-resize-nesw-sgtai.svg",
+          "sha256": "8067f76af8f6b54f6a9e9aa4c81231a266875502597fc4dd3f780b494ade034e",
+          "sizeBytes": 1246
+        },
+        {
+          "path": "cursor-resize-nesw-sgtcool.svg",
+          "sha256": "29564e65790a564e6a42f64c9d3c0e8fc601a39c455e1454b86587c2d3419785",
+          "sizeBytes": 1126
+        },
+        {
+          "path": "cursor-resize-nesw-sgtcute.svg",
+          "sha256": "a8e3151d47a51228adc5d400d04cec65e721126eb094f03092051d4bef448ae8",
+          "sizeBytes": 1308
+        },
+        {
+          "path": "cursor-resize-nesw-sgtfastfood.svg",
+          "sha256": "3135783ff263eca51c6e7d0eea81e8676b37ed5419aec419162ef1ab765448a1",
+          "sizeBytes": 13225
+        },
+        {
+          "path": "cursor-resize-nesw-sgtkorea.svg",
+          "sha256": "383ff01901eaaa10744d1a45356417af50a4b923eed8a675c791238895b8545f",
+          "sizeBytes": 4263
+        },
+        {
+          "path": "cursor-resize-nesw-sgtpixel.svg",
+          "sha256": "515faf824ff41ffd9151ba96f28e6050324f8b717ca855d4365d7126ab159161",
+          "sizeBytes": 8563
+        },
+        {
+          "path": "cursor-resize-nesw-sgtveggie.svg",
+          "sha256": "631910b903d5fa1833eba54f6bc0557537828a9817b05f5d61d91bbdcd7621ff",
+          "sizeBytes": 4438
+        },
+        {
+          "path": "cursor-resize-nesw-sgtvietnam.svg",
+          "sha256": "1192e81967de85d88991b88ad59204299e022c767593838a95e3bdd803c24174",
+          "sizeBytes": 3288
+        },
+        {
+          "path": "cursor-resize-nesw-sgtwatermelon.svg",
+          "sha256": "4278389715efa1ceb11afcdf8a509e63b4bcd99c9142d95f1c826d3ffd279b1c",
+          "sizeBytes": 1835
+        },
+        {
+          "path": "cursor-resize-ns-jepriwin11.svg",
+          "sha256": "b35fc7e836c3f1841a10cb77c29101395a54f3ae5c87bef35e570e9d20968cdd",
+          "sizeBytes": 1517
+        },
+        {
+          "path": "cursor-resize-ns-macos26.svg",
+          "sha256": "cd80201b574740cb96d07c7301c1093e3a24406797f6ce4993857a463a1d210a",
+          "sizeBytes": 1675
+        },
+        {
+          "path": "cursor-resize-ns-screenstudio.svg",
+          "sha256": "1a2069d200f89e26ce838e9377a3e01d722d34e3d55d3634922add95ce5bca7b",
+          "sizeBytes": 836
+        },
+        {
+          "path": "cursor-resize-ns-sgtai.svg",
+          "sha256": "0d51933dcaf9bfc023c9bc640fb8d9b4626b6b676456c06f7a512b9dff16105a",
+          "sizeBytes": 1218
+        },
+        {
+          "path": "cursor-resize-ns-sgtcool.svg",
+          "sha256": "26577784165f6a72fd5d4468418d1b6b9c9706e5da046e629c8c1a34ba247d09",
+          "sizeBytes": 1556
+        },
+        {
+          "path": "cursor-resize-ns-sgtcute.svg",
+          "sha256": "a6bcc8b958319db9a9c037ada91c90395f558b333ac3f04d45c9788882f316bf",
+          "sizeBytes": 1171
+        },
+        {
+          "path": "cursor-resize-ns-sgtfastfood.svg",
+          "sha256": "f2dbec57a7325b99cfe50c7ca19d36dade85a96810410d0e2cf7cb967e308962",
+          "sizeBytes": 15529
+        },
+        {
+          "path": "cursor-resize-ns-sgtkorea.svg",
+          "sha256": "6fdfeb1c3bf299c52e4e6dacab4a3dd4c94dffb445a4370423d3f5ac3681718a",
+          "sizeBytes": 4380
+        },
+        {
+          "path": "cursor-resize-ns-sgtpixel.svg",
+          "sha256": "cde590723b85e501fbc52e35543ff16492b0d38bca197013218cfade26455f79",
+          "sizeBytes": 14664
+        },
+        {
+          "path": "cursor-resize-ns-sgtveggie.svg",
+          "sha256": "47da75c90c25965a34c19349644cde17c549c067a6bb821be64e72fe9c9573ef",
+          "sizeBytes": 4665
+        },
+        {
+          "path": "cursor-resize-ns-sgtvietnam.svg",
+          "sha256": "a484ce0954b141983eb16da15be54927e43496b12e7ca42bcc8e0e37c4a93fea",
+          "sizeBytes": 3167
+        },
+        {
+          "path": "cursor-resize-ns-sgtwatermelon.svg",
+          "sha256": "da925cbf50943ba6685c326447c0b73ee51d485c90899a44b9326aaa8ee6587e",
+          "sizeBytes": 1191
+        },
+        {
+          "path": "cursor-resize-nwse-jepriwin11.svg",
+          "sha256": "f38fa804a809d5593bccd207bce08bba729f64433b1e30ab7b2171fa312def5b",
+          "sizeBytes": 1493
+        },
+        {
+          "path": "cursor-resize-nwse-macos26.svg",
+          "sha256": "7dd5330cf359a0956fdabed116e9622701eadfe86d8763d4c48796b44b199644",
+          "sizeBytes": 1985
+        },
+        {
+          "path": "cursor-resize-nwse-screenstudio.svg",
+          "sha256": "e75c55712ca40b8f15824ada57ddd2c88cf784b9b22d52eba463c3fd6b09c11f",
+          "sizeBytes": 899
+        },
+        {
+          "path": "cursor-resize-nwse-sgtai.svg",
+          "sha256": "0f1d3b9931cf0bb00df83e59b2f6d5bf745a1aa3c047e379f7ea8afdcbc8b237",
+          "sizeBytes": 1716
+        },
+        {
+          "path": "cursor-resize-nwse-sgtcool.svg",
+          "sha256": "52729106d72a5a51d5844ce3cdce09c70d221a05be8f7008e9f3bf31e18c7d8c",
+          "sizeBytes": 977
+        },
+        {
+          "path": "cursor-resize-nwse-sgtcute.svg",
+          "sha256": "c333c7a6de9671fccfbd1d5ea82ae6f5b110d4831254e66cf1a6f79240abdcc8",
+          "sizeBytes": 1324
+        },
+        {
+          "path": "cursor-resize-nwse-sgtfastfood.svg",
+          "sha256": "06b8a59e84bc087bb23d1bf038849ad8a356fc432581e8f645e861d2da9a0d3e",
+          "sizeBytes": 10584
+        },
+        {
+          "path": "cursor-resize-nwse-sgtkorea.svg",
+          "sha256": "b3361586d1a44ce17f8dbeb83969c1ed4e510eabca5333266c465acfe1c6a2c5",
+          "sizeBytes": 4118
+        },
+        {
+          "path": "cursor-resize-nwse-sgtpixel.svg",
+          "sha256": "c36c268fd2c0466424bcfbb474480ee6a8bff9356f90687f6fac6b578b7d2c93",
+          "sizeBytes": 8325
+        },
+        {
+          "path": "cursor-resize-nwse-sgtveggie.svg",
+          "sha256": "2f41be9fc633800e2c196c2940d09561ce2a1c7a76360b91b37ee62508e33a5a",
+          "sizeBytes": 7733
+        },
+        {
+          "path": "cursor-resize-nwse-sgtvietnam.svg",
+          "sha256": "d40d427ee808722d3f53065bac14194b55d86aa9024af00941e9b6b00e3405e6",
+          "sizeBytes": 3043
+        },
+        {
+          "path": "cursor-resize-nwse-sgtwatermelon.svg",
+          "sha256": "e2f1f9dd79a4af9a88eacb7f00f2f25ffe581b99e086bbdf0da1910b8a4f3309",
+          "sizeBytes": 1905
+        },
+        {
+          "path": "cursor-resize-we-jepriwin11.svg",
+          "sha256": "5522c428d4463fe7c7100e1989a8d8b625b7f48d0d1a18b2f9338a75ff59bbbc",
+          "sizeBytes": 1426
+        },
+        {
+          "path": "cursor-resize-we-macos26.svg",
+          "sha256": "f63ce8db6be4156db4ddfed3d4138faad244dc84a3dafaf039ae31de20ee9dcd",
+          "sizeBytes": 1753
+        },
+        {
+          "path": "cursor-resize-we-screenstudio.svg",
+          "sha256": "8a1a579e7266a8f22749aea3a908c4b727e1b78271a04d3abc154b640f4a7663",
+          "sizeBytes": 1000
+        },
+        {
+          "path": "cursor-resize-we-sgtai.svg",
+          "sha256": "74a8cbbab93bae9c067764d92f627ca22aad2f8b2ada854876feee6052b01986",
+          "sizeBytes": 1056
+        },
+        {
+          "path": "cursor-resize-we-sgtcool.svg",
+          "sha256": "c091007dbd4f97f9427819496b83f300cb106c04ca68834cbb7f99eba4283ddd",
+          "sizeBytes": 1710
+        },
+        {
+          "path": "cursor-resize-we-sgtcute.svg",
+          "sha256": "23dc08bb72af89eee226661b76efdf51c50e61bfbdb64bd51eaddfa8b616cdb9",
+          "sizeBytes": 1140
+        },
+        {
+          "path": "cursor-resize-we-sgtfastfood.svg",
+          "sha256": "d210e48a79716eaede89bfc3a97fd056ab61f2ca435552841fa49ae64d333bff",
+          "sizeBytes": 9712
+        },
+        {
+          "path": "cursor-resize-we-sgtkorea.svg",
+          "sha256": "63dd917e00cc1537bb771e24c2be043df9db8e56ee6582902dbba648a97a185c",
+          "sizeBytes": 4071
+        },
+        {
+          "path": "cursor-resize-we-sgtpixel.svg",
+          "sha256": "52e513ebc5c8a7ca1a41c80f45b2f186b7a326eb23e0ddf6a60fe47ffb80df5f",
+          "sizeBytes": 14056
+        },
+        {
+          "path": "cursor-resize-we-sgtveggie.svg",
+          "sha256": "3f5f2b7fe229bc3e450f3fb7625f0c176330c250754367879f85ecd52a736eb8",
+          "sizeBytes": 34297
+        },
+        {
+          "path": "cursor-resize-we-sgtvietnam.svg",
+          "sha256": "5c2ef2ecadb104b8b8164e656db107d7d1979329cd0e086721dc6d7fb2561387",
+          "sizeBytes": 2944
+        },
+        {
+          "path": "cursor-resize-we-sgtwatermelon.svg",
+          "sha256": "59ec85cb8d4cd0114102721264f1ee61d1d4117260f6296c2a3ac6a3cbd1e528",
+          "sizeBytes": 1443
+        },
+        {
+          "path": "cursor-text-jepriwin11.svg",
+          "sha256": "f0048e8f26fdeb3c3ac81560860ac39c615d828491fa00b4da925263509b29b8",
+          "sizeBytes": 1104
+        },
+        {
+          "path": "cursor-text-macos26.svg",
+          "sha256": "39d706b835b4c07307a1fe236f1e685f3c19a4df1f5b0f903ee0fc3c04d13944",
+          "sizeBytes": 2888
+        },
+        {
+          "path": "cursor-text-screenstudio.svg",
+          "sha256": "48f50657c40ddc754bcf8d1ecc541a8de4b1170b24911e8b1d6a1085b6c2e138",
+          "sizeBytes": 1266
+        },
+        {
+          "path": "cursor-text-sgtai.svg",
+          "sha256": "a07be1d7ee0d609bbc33aecdbf1ed1d099e8e0dbe19989d572f5ad4a8355250e",
+          "sizeBytes": 817
+        },
+        {
+          "path": "cursor-text-sgtcool.svg",
+          "sha256": "f89d431188dc9d5504edbfa3cde01230ebeb9711b08096f57c48cbc7dfdc0889",
+          "sizeBytes": 969
+        },
+        {
+          "path": "cursor-text-sgtcute.svg",
+          "sha256": "ab335d194d3c278c5ab56c93e035526d9e758b58a46b9b6cb6f219c9805ce44d",
+          "sizeBytes": 823
+        },
+        {
+          "path": "cursor-text-sgtfastfood.svg",
+          "sha256": "fdb0464a709cea54e4771eb12493c90c51c063f351e66f9d67796e94d72c73c4",
+          "sizeBytes": 11632
+        },
+        {
+          "path": "cursor-text-sgtkorea.svg",
+          "sha256": "fdaa6857ffa4d05157d7f24de58c3511051941393f2c3e4cafea245cbf175cab",
+          "sizeBytes": 16211
+        },
+        {
+          "path": "cursor-text-sgtpixel.svg",
+          "sha256": "5718d9bae2dff8ce533352c1dc70357c8c7bd67a208f84653fc280e0e9789ac5",
+          "sizeBytes": 6740
+        },
+        {
+          "path": "cursor-text-sgtveggie.svg",
+          "sha256": "6a9f4dab7c6efd498478f476467fea8aefdf4c85c1c4363cf6ac359cfb195977",
+          "sizeBytes": 6834
+        },
+        {
+          "path": "cursor-text-sgtvietnam.svg",
+          "sha256": "4235a16729b2b5292348cf6b154d72c4dbd12729e43b6d4eb23b26669bd2bbe4",
+          "sizeBytes": 4380
+        },
+        {
+          "path": "cursor-text-sgtwatermelon.svg",
+          "sha256": "e8ddee76a45dfdf9c337ded1f9bd187d141c0e9927e931a76f9f78a62da87e3f",
+          "sizeBytes": 2864
+        },
+        {
+          "path": "cursor-wait-jepriwin11.svg",
+          "sha256": "833f5867021f517c88962f3228747b85fe9613fd80bcbc22f5e37c43405a5662",
+          "sizeBytes": 1044
+        },
+        {
+          "path": "cursor-wait-macos26.svg",
+          "sha256": "a1769c91fa270f75f33f19ec0675f7624751898a0513e527cfce207e1d0d5f6c",
+          "sizeBytes": 5003
+        },
+        {
+          "path": "cursor-wait-screenstudio.svg",
+          "sha256": "ebe30d0bce99f4d6435174c3e98b3f9ffff14c4f2658610193853210282c15c5",
+          "sizeBytes": 3371
+        },
+        {
+          "path": "cursor-wait-sgtai.svg",
+          "sha256": "5177847f5b1b993fadb769cffde416d14571bffe0afaa42864a28a064a84cf66",
+          "sizeBytes": 2311
+        },
+        {
+          "path": "cursor-wait-sgtcool.svg",
+          "sha256": "2c6aac477c17fa06f9cc5ff34c276ff9e75a5b4e7d9869c091ae92e492441c19",
+          "sizeBytes": 1367
+        },
+        {
+          "path": "cursor-wait-sgtcute.svg",
+          "sha256": "186e95083038fd3848f2df9aca54e56e16c3233871068e30f8c43f0279858790",
+          "sizeBytes": 4179
+        },
+        {
+          "path": "cursor-wait-sgtfastfood.svg",
+          "sha256": "572cae27b16ece6d5f71c7707cfe504bc14836502d260d4266ba70613a4e9499",
+          "sizeBytes": 17836
+        },
+        {
+          "path": "cursor-wait-sgtkorea.svg",
+          "sha256": "35028699da884c6f03053f65abe691bfc03a274670407352107c8ce83be88a78",
+          "sizeBytes": 8831
+        },
+        {
+          "path": "cursor-wait-sgtpixel.svg",
+          "sha256": "19bc9d0262d233f0f64a0ef61f849007571e32bb9a748ab072e8f4abeead069a",
+          "sizeBytes": 17689
+        },
+        {
+          "path": "cursor-wait-sgtveggie.svg",
+          "sha256": "02952dfd2bc084879924c5536f560fc9dde9368cabca039ef176d51c4ca09874",
+          "sizeBytes": 7076
+        },
+        {
+          "path": "cursor-wait-sgtvietnam.svg",
+          "sha256": "38de9975daae676995bc4a5fa0f353fb74f2d70f4d59342f0b851513550b43a6",
+          "sizeBytes": 11245
+        },
+        {
+          "path": "cursor-wait-sgtwatermelon.svg",
+          "sha256": "9d16b34d7e7f7aee911426df324887704d6da2f8f16314401deb51dc7d4f7c5a",
+          "sizeBytes": 7859
+        },
+        {
+          "path": "index.html",
+          "sha256": "f3ab86bc02c4028e796547caafd6d078359035cdf66eee5649f0cf55d5f6cefc",
+          "sizeBytes": 807
+        },
+        {
+          "path": "licenses/THIRD-PARTY-LICENSES.json",
+          "sha256": "b8a19a0a1aeeb5081c4261bc4c7cb1110014e8b1d029cf7d8c7ca3c28a3db114",
+          "sizeBytes": 115149
+        },
+        {
+          "path": "licenses/THIRD-PARTY-NOTICES.txt",
+          "sha256": "a24d9e1bf4242659dab0edc6162104a5b7a388ae871e24ee44319716bcd1193e",
+          "sizeBytes": 717
+        }
+      ],
+      "id": "recorder-web",
+      "sha256": "b6da0b44eee724d802049f2980aed8f9b7c91c5ce0226b1bcdf74e7c51986327",
+      "sizeBytes": 870506,
+      "unpackedSizeBytes": 2607615,
+      "version": "5.4.3"
+    },
+    {
+      "asset": "recorder-worker-5.4.3-1e9e6087c154ad16.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.4.3-1e9e6087c154ad16.zip",
+      "files": [
+        {
+          "path": "bin/x64/sgt-recorder-worker.exe",
+          "sha256": "b2266d0a2a0ed18857ced861d70a2cf66bc78a41ac272a099d8168bb404a278e",
+          "sizeBytes": 9578496
+        },
+        {
+          "path": "licenses/THIRD-PARTY-LICENSES.json",
+          "sha256": "f1dd6110cff30c7aef806f531a1fd6aebe8bb128893eec3746d8c095cf2a809d",
+          "sizeBytes": 3955014
+        },
+        {
+          "path": "licenses/THIRD-PARTY-NOTICES.txt",
+          "sha256": "f7338ccb3f701e6c7b3911e6f3d1acbb9e4f130f8c04a42270eecb5ae4a7b17d",
+          "sizeBytes": 1072
+        }
+      ],
+      "id": "recorder-worker",
+      "sha256": "1e9e6087c154ad1690363b5a5e3f1de538af5789f140d6d3afbec56eda1e7d9a",
+      "sizeBytes": 4845851,
+      "unpackedSizeBytes": 13534582,
+      "version": "5.4.3"
+    }
+  ],
+  "schemaVersion": 1
+}

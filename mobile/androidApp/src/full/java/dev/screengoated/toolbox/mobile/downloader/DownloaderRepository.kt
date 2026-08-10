@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import okhttp3.OkHttpClient
@@ -36,10 +37,11 @@ class DownloaderRepository(
 
     // ── Tool management ──
 
-    internal val runtimeDelivery = loadDownloaderRuntimeDelivery(context)
-    internal val runtimeInstaller = runtimeDelivery?.let {
+    @Volatile internal var runtimeDelivery = loadDownloaderRuntimeDelivery(context)
+    @Volatile internal var runtimeInstaller = runtimeDelivery?.let {
         DownloaderRuntimeInstaller(context, it, OkHttpClient())
     }
+    internal val runtimeUpdateMutex = Mutex()
     internal val runtimeRemovalPreferences: SharedPreferences = context.getSharedPreferences(
         "downloader_runtime_state",
         Context.MODE_PRIVATE,
@@ -47,7 +49,7 @@ class DownloaderRepository(
     internal val runtimeLeases = RuntimeLeaseRegistry<DownloaderRuntimeKey> {
         finishDownloaderRemoval()
     }
-    internal val processHost = runtimeInstaller?.let { installer ->
+    @Volatile internal var processHost = runtimeInstaller?.let { installer ->
         DownloaderProcessHost(context, installer) { acquireDownloaderRuntimeLease() }
     }
     internal var installJob: Job? = null

@@ -1,0 +1,84 @@
+name: Publish component catalog
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install signing dependency
+        run: python -m pip install --disable-pip-version-check ecdsa==0.19.1
+
+      - name: Verify every referenced runtime-bundles identity
+        run: python scripts/verify_update_catalog_sources.py
+
+      - name: Build and sign the immutable catalog
+        env:
+          SGT_UPDATE_CATALOG_P256_PRIVATE_KEY_PEM_BASE64: ${{ secrets.SGT_UPDATE_CATALOG_P256_PRIVATE_KEY_PEM_BASE64 }}
+        run: python scripts/build_update_catalog.py --output component-catalog-output
+
+      - name: Upload without replacing a published sequence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="component-catalog-output/sgt-component-catalog.packages.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/sgt-runtime-bundles" > release.json
+          python - "$package" release.json > missing-assets.txt <<'PY'
+          import json, pathlib, sys
+          package = json.load(open(sys.argv[1]))
+          release = json.load(open(sys.argv[2]))
+          assets = {asset["name"]: asset for asset in release["assets"]}
+          root = pathlib.Path(sys.argv[1]).parent
+          for key in ("catalog", "signature"):
+              expected = package[key]
+              name = expected["asset"]
+              actual = assets.get(name)
+              if actual:
+                  if actual["size"] != expected["sizeBytes"] or actual.get("digest") != "sha256:" + expected["sha256"]:
+                      raise SystemExit(f"published immutable asset differs: {name}")
+              else:
+                  print(root / name)
+          PY
+          while IFS= read -r asset; do
+            test -n "$asset" || continue
+            gh release upload sgt-runtime-bundles "$asset" --repo "$GITHUB_REPOSITORY"
+          done < missing-assets.txt
+
+      - name: Verify published byte identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="component-catalog-output/sgt-component-catalog.packages.json"
+          catalog_name="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["catalog"]["asset"])' "$package")"
+          signature_name="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["signature"]["asset"])' "$package")"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/sgt-runtime-bundles" > release.json
+          python - "$package" release.json "$catalog_name" "$signature_name" <<'PY'
+          import json, sys
+          package = json.load(open(sys.argv[1]))
+          release = json.load(open(sys.argv[2]))
+          assets = {asset["name"]: asset for asset in release["assets"]}
+          for key, name in (("catalog", sys.argv[3]), ("signature", sys.argv[4])):
+              expected = package[key]
+              actual = assets.get(name)
+              if not actual:
+                  raise SystemExit(f"published asset is missing: {name}")
+              if actual["size"] != expected["sizeBytes"]:
+                  raise SystemExit(f"published size mismatch: {name}")
+              if actual.get("digest") != "sha256:" + expected["sha256"]:
+                  raise SystemExit(f"published digest mismatch: {name}")
+          print("Published catalog and signature identities verified.")
+          PY

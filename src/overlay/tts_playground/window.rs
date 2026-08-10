@@ -91,10 +91,19 @@ unsafe extern "system" fn window_proc(
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 LRESULT(0)
             }
+            super::WM_APP_REMOVE => {
+                super::runtime::cancel_generation();
+                super::runtime::stop();
+                super::runtime_sources::stop_mic_recording();
+                super::runtime_sources::stop_reference_mic();
+                let _ = DestroyWindow(hwnd);
+                LRESULT(0)
+            }
             WM_DESTROY => {
                 super::WEBVIEW.with(|webview| {
                     *webview.borrow_mut() = None;
                 });
+                super::ASSET_PACK.with(|slot| *slot.borrow_mut() = None);
                 super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
                 super::IS_READY = false;
                 PostQuitMessage(0);
@@ -217,7 +226,7 @@ unsafe fn internal_create_loop() {
         "#
     );
 
-    let (inlined_html, _web_asset_pack) = match super::assets::build_inlined_html() {
+    let (inlined_html, web_asset_pack) = match super::assets::build_inlined_html() {
         Ok(assets) => assets,
         Err(error) => {
             crate::log_info!("[TTS Playground] Could not open interface assets: {error}");
@@ -255,6 +264,7 @@ unsafe fn internal_create_loop() {
 
         if let Ok(webview) = webview_result {
             super::WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
+            super::ASSET_PACK.with(|slot| *slot.borrow_mut() = Some(web_asset_pack));
         }
     });
 
@@ -264,6 +274,9 @@ unsafe fn internal_create_loop() {
         let _ = ShowWindow(hwnd, SW_HIDE);
         super::IS_READY = true;
         super::IS_INITIALIZING = false;
+        if super::REMOVAL_REQUESTED.load(std::sync::atomic::Ordering::Acquire) {
+            let _ = PostMessageW(Some(hwnd), super::WM_APP_REMOVE, WPARAM(0), LPARAM(0));
+        }
     }
     super::state::sync_to_webview();
     spawn_playback_ticker(hwnd);
@@ -280,6 +293,7 @@ unsafe fn internal_create_loop() {
         super::WEB_CONTEXT.with(|context| {
             *context.borrow_mut() = None;
         });
+        super::ASSET_PACK.with(|slot| *slot.borrow_mut() = None);
         super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
         super::IS_READY = false;
         super::IS_INITIALIZING = false;

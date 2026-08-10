@@ -26,16 +26,14 @@ pub(crate) fn subtle_outline_color(is_dark: bool) -> &'static str {
 }
 
 pub fn update_theme(is_dark: bool) {
-    button_canvas::update_theme(is_dark);
     scene_compositor::update_theme(is_dark);
 }
 
 pub fn raise_window(hwnd: HWND) {
     scene_compositor::raise_window(hwnd);
-    button_canvas::raise_window(hwnd);
 }
 
-// Trigger functions for button canvas IPC
+// Result-control actions routed back from the compositor process.
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};
 
@@ -350,32 +348,6 @@ pub fn trigger_close_all() {
             if windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() {
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
-        }
-    }
-}
-
-/// Trigger drag window (move by delta)
-pub fn trigger_drag_window(hwnd: HWND, dx: i32, dy: i32) {
-    unsafe {
-        let mut rect = windows::Win32::Foundation::RECT::default();
-        if windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut rect).is_ok() {
-            let (nx, ny) = (rect.left + dx, rect.top + dy);
-            let (nw, nh) = (rect.right - rect.left, rect.bottom - rect.top);
-
-            let _ = windows::Win32::UI::WindowsAndMessaging::SetWindowPos(
-                hwnd,
-                None,
-                nx,
-                ny,
-                0,
-                0,
-                windows::Win32::UI::WindowsAndMessaging::SWP_NOSIZE
-                    | windows::Win32::UI::WindowsAndMessaging::SWP_NOZORDER
-                    | windows::Win32::UI::WindowsAndMessaging::SWP_NOACTIVATE,
-            );
-
-            // Update canvas with new position WITHOUT calling GetWindowRect again
-            button_canvas::update_window_position_direct(hwnd, nx, ny, nw, nh);
         }
     }
 }
