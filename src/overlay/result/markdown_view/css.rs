@@ -232,7 +232,8 @@ pub const MARKDOWN_CSS: &str = r#"
     a .word { cursor: pointer; } /* Ensure link words show hand cursor */
     a:hover { color: var(--link-hover-color); text-shadow: 0 0 10px var(--link-shadow); text-decoration: none; }
 
-    ul, ol { padding-left: 20px; margin: 0 0; }
+    ul { padding-inline-start: 20px; margin: 0; }
+    ol { padding-inline-start: max(22px, 1.3em); margin: 0; }
     li { margin: 2px 0; } /* Reduced from 4px */
 
     table {
@@ -360,5 +361,17 @@ pub fn get_theme_css(is_dark: bool) -> String {
             "__SGT_SUBTLE_OUTLINE__",
             crate::overlay::result::subtle_outline_color(is_dark),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MARKDOWN_CSS;
+
+    #[test]
+    fn ordered_list_gutter_is_compact_but_scales_with_fitted_text() {
+        assert!(MARKDOWN_CSS.contains("ul { padding-inline-start: 20px"));
+        assert!(MARKDOWN_CSS.contains("ol { padding-inline-start: max(22px, 1.3em)"));
+        assert!(!MARKDOWN_CSS.contains("ul, ol { padding-left: 20px"));
     }
 }
