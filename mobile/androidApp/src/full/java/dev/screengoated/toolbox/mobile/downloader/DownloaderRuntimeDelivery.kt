@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.downloader
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.componentupdate.ComponentUpdateCatalog
 import org.json.JSONObject
 
 internal enum class DownloaderArtifactRole(val wireName: String) {
@@ -48,6 +49,10 @@ internal data class DownloaderRuntimeDelivery(
 
 internal fun loadDownloaderRuntimeDelivery(context: Context): DownloaderRuntimeDelivery? =
     runCatching {
+        ComponentUpdateCatalog.contract(
+            "android-downloader-runtime-v1",
+            setOf("android-full-arm64"),
+        )?.let { return@runCatching parseDownloaderRuntimeDelivery(it.toString()) }
         context.assets.open("downloader-runtime/delivery.json").bufferedReader().use {
             parseDownloaderRuntimeDelivery(it.readText())
         }

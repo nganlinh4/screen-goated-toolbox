@@ -18,6 +18,20 @@ pub fn fetch_video_formats(
     url: &str,
     cookie_browser: CookieBrowser,
 ) -> Result<VideoFormatLists, String> {
+    match fetch_video_formats_once(url, cookie_browser.clone()) {
+        Ok(formats) => Ok(formats),
+        Err(first_error) => match external_tools::refresh_downloader_after_failure(true) {
+            Ok(updated) if !updated.is_empty() => fetch_video_formats_once(url, cookie_browser),
+            Ok(_) => Err(first_error),
+            Err(_) => Err(first_error),
+        },
+    }
+}
+
+fn fetch_video_formats_once(
+    url: &str,
+    cookie_browser: CookieBrowser,
+) -> Result<VideoFormatLists, String> {
     let cancelled = AtomicBool::new(false);
     let ytdlp = external_tools::ensure(ExternalTool::YtDlp, &cancelled, |_, _| {})
         .map_err(|error| format!("Prepare pinned yt-dlp: {error:#}"))?;

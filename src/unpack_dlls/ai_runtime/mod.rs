@@ -58,8 +58,6 @@ pub fn current_ai_runtime_status() -> AiRuntimeStatus {
         ComponentStatus::Missing | ComponentStatus::Unavailable => AiRuntimeStatus::Missing,
         ComponentStatus::Error => AiRuntimeStatus::Error,
         ComponentStatus::Installed => AiRuntimeStatus::Installed,
-        #[cfg(debug_assertions)]
-        ComponentStatus::Development => AiRuntimeStatus::Installed,
     }
 }
 

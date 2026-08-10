@@ -17,6 +17,8 @@ else {
 $buildFlags = @(
     "-C",
     "target-feature=+crt-static",
+    "-C",
+    "link-arg=/Brepro",
     "--remap-path-prefix=$repoRoot=/sgt",
     "--remap-path-prefix=$cargoCacheRoot=/cargo"
 )

@@ -4,6 +4,7 @@ import android.content.Context
 import dalvik.system.DexClassLoader
 import dev.screengoated.toolbox.mobile.creation.creationChildDirectoriesNoFollow
 import dev.screengoated.toolbox.mobile.creation.deleteCreationTreeNoFollow
+import dev.screengoated.toolbox.mobile.componentupdate.ComponentUpdateCatalog
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -25,9 +26,7 @@ import okhttp3.Request
 internal class CreationRuntimeProvider(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val httpClient = OkHttpClient()
-    private val delivery: CreationRuntimeDelivery? by lazy {
-        loadCreationRuntimeDelivery(context)
-    }
+    @Volatile private var delivery: CreationRuntimeDelivery? = loadCreationRuntimeDelivery(context)
     private val mutableStatus = MutableStateFlow(computeStatus())
     private var installJob: Job? = null
     private var removalJob: Job? = null
@@ -53,7 +52,9 @@ internal class CreationRuntimeProvider(private val context: Context) {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
-                mutableStatus.value = CreationRuntimeStatus.Failed(CREATION_RUNTIME_INSTALL_FAILURE)
+                if (!retryWithVerifiedUpdate()) {
+                    mutableStatus.value = CreationRuntimeStatus.Failed(CREATION_RUNTIME_INSTALL_FAILURE)
+                }
             } finally {
                 installJob = null
             }
@@ -105,7 +106,7 @@ internal class CreationRuntimeProvider(private val context: Context) {
     }
 
     private fun installBundle() {
-        val spec = requireNotNull(delivery) { "Creation engine is not included in this build" }
+        val spec = requireNotNull(delivery) { "Creation engine download contract is unavailable" }
         if (installedFilesAreValid()) return
         val partial = bundlePartial()
         partial.parentFile?.mkdirs()
@@ -144,6 +145,22 @@ internal class CreationRuntimeProvider(private val context: Context) {
         partial.delete()
         check(installedFilesAreValid()) { "Creation runtime files failed validation" }
     }
+
+    private fun retryWithVerifiedUpdate(): Boolean = runCatching {
+        val policy = ComponentUpdateCatalog.policy("creation-3d-runtime")
+        if (policy?.mode != "typed-failure") return@runCatching false
+        val previous = delivery?.let { "${it.version}:${it.sha256}" }
+        if (!ComponentUpdateCatalog.refreshNow(context)) return@runCatching false
+        val replacement = loadCreationRuntimeDelivery(context) ?: return@runCatching false
+        if (previous == "${replacement.version}:${replacement.sha256}") return@runCatching false
+        loadedFactory = null
+        delivery = replacement
+        mutableStatus.value = CreationRuntimeStatus.Downloading(0f)
+        installBundle()
+        loadedFactory = loadFactory() ?: error("Creation runtime could not be loaded")
+        mutableStatus.value = CreationRuntimeStatus.Ready(installedBytes())
+        true
+    }.getOrDefault(false)
 
     private fun extractBundle(bundle: File) {
         val spec = requireNotNull(delivery)

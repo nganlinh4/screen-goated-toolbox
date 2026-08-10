@@ -19,7 +19,6 @@ use crate::api::realtime_audio::supertonic_assets::{
     current_supertonic_model_notice, download_supertonic_model, get_supertonic_model_dir,
     is_supertonic_model_downloaded, remove_supertonic_model,
 };
-use crate::config::tts_catalog::SUPERTONIC_LANGUAGE_SUMMARY;
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use crate::overlay::realtime_webview::state::REALTIME_STATE;
@@ -33,8 +32,8 @@ use super::ai_runtime::{
 };
 use super::model_card::{ModelRowSpec, render_model_row};
 use super::utils::{
-    cached_probe, cached_u64, format_size, get_dir_size, get_path_size, invalidate_probe_cache,
-    invalidate_size_cache, invalidate_u64_cache, tool_card,
+    cached_probe, cached_u64, format_size, get_path_size, invalidate_probe_cache,
+    invalidate_u64_cache, removal_in_progress, start_removal, tool_card,
 };
 
 const PROBE_PARAKEET_EOU: &str = "downloaded-tools:parakeet-eou";
@@ -45,6 +44,7 @@ const PROBE_QWEN3_SMALL: &str = "downloaded-tools:qwen3-small";
 const PROBE_QWEN3_LARGE: &str = "downloaded-tools:qwen3-large";
 const PROBE_QWEN3_RUNTIME: &str = "downloaded-tools:qwen3-runtime";
 const PROBE_QWEN3_RUNTIME_ACTIVE: &str = "downloaded-tools:qwen3-runtime-active";
+const REMOVE_QWEN3_RUNTIME: &str = "downloaded-tools:remove-qwen3-runtime";
 const VALUE_QWEN3_RUNTIME_SIZE: &str = "downloaded-tools:qwen3-runtime-size";
 const VALUE_QWEN3_RUNTIME_ACTIVE_SIZE: &str = "downloaded-tools:qwen3-runtime-active-size";
 
@@ -70,6 +70,7 @@ pub(super) fn render_parakeet_card(ui: &mut egui::Ui, text: &LocaleText) {
                 model_dir: get_parakeet_model_dir,
                 download_model: download_parakeet_model,
                 remove_model: remove_parakeet_model,
+                is_available: None,
                 description: Some(text.auxiliary.managed_tools.tool_desc_parakeet),
                 space_before_notice: true,
             },
@@ -87,6 +88,7 @@ pub(super) fn render_parakeet_card(ui: &mut egui::Ui, text: &LocaleText) {
                 model_dir: get_parakeet_tdt_model_dir,
                 download_model: download_parakeet_tdt_model,
                 remove_model: remove_parakeet_tdt_model,
+                is_available: None,
                 description: Some(text.auxiliary.managed_tools.tool_desc_parakeet_tdt),
                 space_before_notice: true,
             },
@@ -110,6 +112,7 @@ pub(super) fn render_kokoro_card(ui: &mut egui::Ui, text: &LocaleText) {
                 model_dir: get_kokoro_model_dir,
                 download_model: download_kokoro_model,
                 remove_model: remove_kokoro_model,
+                is_available: None,
                 description: Some(text.auxiliary.managed_tools.tool_desc_kokoro),
                 space_before_notice: true,
             },
@@ -126,82 +129,26 @@ pub(super) fn render_supertonic_card(ui: &mut egui::Ui, text: &LocaleText) {
 }
 
 fn render_supertonic_content(ui: &mut egui::Ui, text: &LocaleText) {
-    let theme = AppTheme::from_ui(ui);
-    let notice = current_supertonic_model_notice();
-    let download_title = crate::overlay::auto_copy_badge::format_locale(
-        text.badge.downloading_model_fmt,
-        &[("name", "Supertonic 3")],
+    render_model_row(
+        ui,
+        text,
+        &ModelRowSpec {
+            model_probe: PROBE_SUPERTONIC_3,
+            model_title: text.auxiliary.managed_tools.tool_supertonic_model,
+            model_download_title: crate::overlay::auto_copy_badge::format_locale(
+                text.badge.downloading_model_fmt,
+                &[("name", "Supertonic 3")],
+            ),
+            model_notice: current_supertonic_model_notice,
+            is_model_downloaded: is_supertonic_model_downloaded,
+            model_dir: get_supertonic_model_dir,
+            download_model: download_supertonic_model,
+            remove_model: remove_supertonic_model,
+            is_available: None,
+            description: Some(text.auxiliary.managed_tools.tool_desc_supertonic),
+            space_before_notice: true,
+        },
     );
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.auxiliary.managed_tools.tool_supertonic_model).strong());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let is_downloading = {
-                if let Ok(state) = REALTIME_STATE.lock() {
-                    state.is_downloading && state.download_title == download_title
-                } else {
-                    false
-                }
-            };
-
-            if is_downloading {
-                let progress = {
-                    if let Ok(state) = REALTIME_STATE.lock() {
-                        state.download_progress
-                    } else {
-                        0.0
-                    }
-                };
-                ui.label(format!("{progress:.0}%"));
-                ui.spinner();
-            } else if cached_probe(PROBE_SUPERTONIC_3, is_supertonic_model_downloaded) {
-                if ui
-                    .button(
-                        egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
-                            .color(theme.danger_text()),
-                    )
-                    .clicked()
-                {
-                    invalidate_size_cache(&get_supertonic_model_dir());
-                    invalidate_probe_cache(PROBE_SUPERTONIC_3);
-                    let _ = remove_supertonic_model();
-                }
-                let size = get_dir_size(&get_supertonic_model_dir());
-                ui.label(
-                    egui::RichText::new(
-                        text.auxiliary
-                            .managed_tools
-                            .tool_status_installed
-                            .replace("{}", &format_size(size)),
-                    )
-                    .color(theme.success()),
-                );
-            } else {
-                if ui
-                    .button(text.auxiliary.managed_tools.tool_action_download)
-                    .clicked()
-                {
-                    let stop_signal = Arc::new(AtomicBool::new(false));
-                    thread::spawn(move || {
-                        let _ = download_supertonic_model(stop_signal, true);
-                    });
-                }
-                ui.label(
-                    egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
-                        .color(egui::Color32::GRAY),
-                );
-            }
-        });
-    });
-    ui.label(
-        text.auxiliary
-            .managed_tools
-            .tool_desc_supertonic_fmt
-            .replace("{languages}", SUPERTONIC_LANGUAGE_SUMMARY),
-    );
-    if let Some(message) = notice {
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new(message).color(theme.danger_text()));
-    }
 }
 
 pub(super) fn render_qwen3_card(ui: &mut egui::Ui, text: &LocaleText) {
@@ -222,6 +169,7 @@ pub(super) fn render_qwen3_card(ui: &mut egui::Ui, text: &LocaleText) {
                 model_dir: get_qwen3_model_dir,
                 download_model: download_qwen3_model,
                 remove_model: remove_qwen3_model,
+                is_available: None,
                 description: Some(text.auxiliary.managed_tools.tool_desc_qwen3),
                 space_before_notice: true,
             },
@@ -239,6 +187,7 @@ pub(super) fn render_qwen3_card(ui: &mut egui::Ui, text: &LocaleText) {
                 model_dir: get_qwen3_1_7b_model_dir,
                 download_model: download_qwen3_1_7b_model,
                 remove_model: remove_qwen3_1_7b_model,
+                is_available: None,
                 description: Some(text.auxiliary.managed_tools.tool_desc_qwen3_1_7b),
                 space_before_notice: true,
             },
@@ -272,7 +221,10 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                 }
             };
 
-            if is_downloading_runtime {
+            if removal_in_progress(REMOVE_QWEN3_RUNTIME) {
+                ui.label(text.auxiliary.managed_tools.tool_status_removing);
+                ui.spinner();
+            } else if is_downloading_runtime {
                 let progress = {
                     if let Ok(state) = REALTIME_STATE.lock() {
                         state.download_progress
@@ -290,10 +242,17 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                     )
                     .clicked()
                 {
-                    invalidate_probe_cache(PROBE_QWEN3_RUNTIME);
-                    invalidate_probe_cache(PROBE_QWEN3_RUNTIME_ACTIVE);
-                    invalidate_u64_cache(VALUE_QWEN3_RUNTIME_SIZE);
-                    let _ = remove_qwen3_runtime();
+                    start_removal(
+                        REMOVE_QWEN3_RUNTIME,
+                        text.auxiliary.managed_tools.tool_qwen3_runtime.to_string(),
+                        remove_qwen3_runtime,
+                        || {
+                            invalidate_probe_cache(PROBE_QWEN3_RUNTIME);
+                            invalidate_probe_cache(PROBE_QWEN3_RUNTIME_ACTIVE);
+                            invalidate_u64_cache(VALUE_QWEN3_RUNTIME_SIZE);
+                            invalidate_u64_cache(VALUE_QWEN3_RUNTIME_ACTIVE_SIZE);
+                        },
+                    );
                 }
                 let size = cached_u64(
                     VALUE_QWEN3_RUNTIME_SIZE,
@@ -333,6 +292,11 @@ fn render_qwen3_runtime_content(ui: &mut egui::Ui, text: &LocaleText) {
                             .replace("{}", &format_size(size)),
                     )
                     .color(egui::Color32::from_rgb(96, 125, 139)),
+                );
+            } else if !crate::component_registry::qwen_runtime::delivery_available() {
+                ui.label(
+                    egui::RichText::new(text.auxiliary.managed_tools.tool_status_unavailable)
+                        .color(theme.danger_text()),
                 );
             } else {
                 if ui

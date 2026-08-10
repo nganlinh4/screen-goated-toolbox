@@ -22,28 +22,19 @@ use super::receipt::{
 
 mod install;
 mod staging;
+#[cfg(not(feature = "recorder-worker"))]
+mod update;
 
 const COMPONENT_ID: &str = "vc14-x64-runtime";
 const ARCHITECTURE: &str = "x64";
 const DISPLAY_NAME: &str = "Microsoft VC runtime support";
-#[cfg(all(debug_assertions, not(feature = "recorder-worker")))]
-const DEVELOPMENT_VERSION: &str = "14.50.35719.0";
 const MAX_COMPONENT_FILES: usize = 16;
 
 #[cfg(not(feature = "recorder-worker"))]
 #[derive(Clone, Debug)]
 pub(crate) enum VcRuntimeStatus {
-    #[cfg(debug_assertions)]
-    Development {
-        bytes: u64,
-    },
-    Installed {
-        bytes: u64,
-        version: String,
-    },
-    Installing {
-        progress: f32,
-    },
+    Installed { bytes: u64, version: String },
+    Installing { progress: f32 },
     Missing,
     Unavailable,
     Error(String),
@@ -68,60 +59,6 @@ struct VcRuntimeDelivery {
 
 include!(concat!(env!("OUT_DIR"), "/vc_runtime_delivery.rs"));
 
-#[cfg(debug_assertions)]
-const DEVELOPMENT_FILES: &[VcRuntimeFile] = &[
-    VcRuntimeFile {
-        path: "bin/x64/concrt140.dll",
-        size_bytes: 321_696,
-        sha256: "b2faf3b85b23c840b654e57d5497a0ad31acd02fb01856cad4725a1715d5f78e",
-    },
-    VcRuntimeFile {
-        path: "bin/x64/msvcp140.dll",
-        size_bytes: 553_552,
-        sha256: "def46aa6a8f72f27bafac0c43334419486a4d1dcdb6c479a8ef7034b3e1fa4cb",
-    },
-    VcRuntimeFile {
-        path: "bin/x64/msvcp140_1.dll",
-        size_bytes: 35_488,
-        sha256: "2dd670f874562fbdca5b022df1943d70a57ba91fde559280e3a1daebe4db2380",
-    },
-    VcRuntimeFile {
-        path: "bin/x64/msvcp140_2.dll",
-        size_bytes: 278_608,
-        sha256: "1d60da3ac2b06482912ca852fa7047436e6e474b4cfffa3bf77f4598cfbf454c",
-    },
-    VcRuntimeFile {
-        path: "bin/x64/msvcp140_atomic_wait.dll",
-        size_bytes: 48_800,
-        sha256: "e7963645e0d1db08e300614d4c5fa7194bd8173e9ab7a5558859e6b232ed3241",
-    },
-    VcRuntimeFile {
-        path: "bin/x64/msvcp140_codecvt_ids.dll",
-        size_bytes: 31_392,
-        sha256: "ae8d922b00cdd93e3ebecc37beb46c800f383ebdeb9f9e5b84e04a72428b6fb3",
-    },
-    VcRuntimeFile {
-        path: "bin/x64/vccorlib140.dll",
-        size_bytes: 350_880,
-        sha256: "6b8d8a76c3e6664293407553650e60b94df9aaafc7c92057ea83032bd228e44f",
-    },
-    VcRuntimeFile {
-        path: "bin/x64/vcruntime140.dll",
-        size_bytes: 123_472,
-        sha256: "184146852727a9db4eea06178716bec3cdbb1015c911f6b0f915b184ad7775b2",
-    },
-    VcRuntimeFile {
-        path: "bin/x64/vcruntime140_1.dll",
-        size_bytes: 47_264,
-        sha256: "e6bfb3662ab4b1969a73441dbe35c96d51441b6bff8cf1fe7430bd5b246ca605",
-    },
-    VcRuntimeFile {
-        path: "bin/x64/vcruntime140_threads.dll",
-        size_bytes: 37_456,
-        sha256: "a6222020b500a9a86b36e040c2dbd0e459716db1bf2810a11cd7512ea9b8d89b",
-    },
-];
-
 #[cfg(not(feature = "recorder-worker"))]
 static INSTALLING: AtomicBool = AtomicBool::new(false);
 #[cfg(not(feature = "recorder-worker"))]
@@ -132,7 +69,7 @@ static LAST_NOTICE: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::ne
 pub(crate) struct VcRuntimeUse {
     bin_dir: PathBuf,
     _files: Vec<std::fs::File>,
-    _lease: Option<ComponentLease>,
+    _lease: ComponentLease,
 }
 
 impl VcRuntimeUse {
@@ -187,15 +124,6 @@ pub(crate) struct LoadedVcRuntime {
 }
 
 pub(crate) fn ensure_component(on_progress: impl Fn(u64, u64)) -> Result<VcRuntimeUse> {
-    #[cfg(debug_assertions)]
-    if let Some(bin_dir) = development_root() {
-        return Ok(VcRuntimeUse {
-            _files: lock_development_files(&bin_dir)?,
-            bin_dir,
-            _lease: None,
-        });
-    }
-
     let _mutation = super::acquire_mutation_guard()?;
     let delivery = delivery()?;
     if validate_install(delivery).is_err() {
@@ -208,7 +136,7 @@ pub(crate) fn ensure_component(on_progress: impl Fn(u64, u64)) -> Result<VcRunti
     Ok(VcRuntimeUse {
         bin_dir: root.join("bin/x64"),
         _files: files,
-        _lease: Some(lease),
+        _lease: lease,
     })
 }
 
@@ -220,14 +148,7 @@ pub(crate) fn current_status() -> VcRuntimeStatus {
         };
     }
 
-    #[cfg(debug_assertions)]
-    if development_root_for_status().is_some() {
-        return VcRuntimeStatus::Development {
-            bytes: development_bytes(),
-        };
-    }
-
-    let Some(delivery) = VC_RUNTIME_DELIVERY.as_ref() else {
+    let Some(delivery) = optional_delivery() else {
         return VcRuntimeStatus::Unavailable;
     };
     match validate_status(delivery) {
@@ -252,22 +173,12 @@ pub(crate) fn current_notice() -> Option<String> {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn version_label() -> Option<String> {
-    #[cfg(debug_assertions)]
-    if development_root_for_status().is_some() {
-        return Some(format!("{DEVELOPMENT_VERSION} ({ARCHITECTURE})"));
-    }
-    VC_RUNTIME_DELIVERY
-        .as_ref()
-        .map(|delivery| format!("{} ({ARCHITECTURE})", delivery.version))
+    optional_delivery().map(|delivery| format!("{} ({ARCHITECTURE})", delivery.version))
 }
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn start_install() -> bool {
     let status = current_status();
-    #[cfg(debug_assertions)]
-    if matches!(status, VcRuntimeStatus::Development { .. }) {
-        return false;
-    }
     if matches!(
         status,
         VcRuntimeStatus::Installed { .. } | VcRuntimeStatus::Installing { .. }
@@ -360,9 +271,16 @@ pub(crate) fn remove() -> Result<()> {
 }
 
 fn delivery() -> Result<&'static VcRuntimeDelivery> {
-    VC_RUNTIME_DELIVERY
-        .as_ref()
-        .ok_or_else(|| anyhow!("verified {DISPLAY_NAME} delivery is not included in this build"))
+    optional_delivery()
+        .ok_or_else(|| anyhow!("verified {DISPLAY_NAME} download contract is unavailable"))
+}
+
+fn optional_delivery() -> Option<&'static VcRuntimeDelivery> {
+    #[cfg(not(feature = "recorder-worker"))]
+    if let Some(delivery) = update::delivery() {
+        return Some(delivery);
+    }
+    VC_RUNTIME_DELIVERY.as_ref()
 }
 
 fn version_root(delivery: &VcRuntimeDelivery) -> Result<PathBuf> {
@@ -483,37 +401,6 @@ fn lock_component_files(root: &Path, files: &[VcRuntimeFile]) -> Result<Vec<std:
     Ok(locked)
 }
 
-#[cfg(debug_assertions)]
-fn lock_development_files(root: &Path) -> Result<Vec<std::fs::File>> {
-    let mut locked = Vec::with_capacity(DEVELOPMENT_FILES.len());
-    for expected in DEVELOPMENT_FILES {
-        let name = Path::new(expected.path)
-            .file_name()
-            .ok_or_else(|| anyhow!("VC runtime development file name is invalid"))?;
-        let path = root.join(name);
-        let mut file = open_locked_regular_file(&path)?;
-        if file.metadata()?.len() != expected.size_bytes {
-            bail!("VC runtime development file changed while acquiring its use lease");
-        }
-        let mut hasher = sha2::Sha256::new();
-        let mut buffer = [0_u8; 64 * 1024];
-        loop {
-            let read = file.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            use sha2::Digest as _;
-            hasher.update(&buffer[..read]);
-        }
-        use sha2::Digest as _;
-        if !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected.sha256) {
-            bail!("VC runtime development file changed while acquiring its use lease");
-        }
-        locked.push(file);
-    }
-    Ok(locked)
-}
-
 fn open_locked_regular_file(path: &Path) -> Result<std::fs::File> {
     let metadata = std::fs::symlink_metadata(path)?;
     if !metadata.is_file() || is_reparse_point(&metadata) {
@@ -530,36 +417,6 @@ fn open_locked_regular_file(path: &Path) -> Result<std::fs::File> {
         bail!("VC runtime use file is unsafe");
     }
     Ok(file)
-}
-
-#[cfg(all(debug_assertions, not(feature = "recorder-worker")))]
-fn development_bytes() -> u64 {
-    DEVELOPMENT_FILES.iter().map(|file| file.size_bytes).sum()
-}
-
-#[cfg(debug_assertions)]
-fn development_root() -> Option<PathBuf> {
-    development_root_matching(file_matches)
-}
-
-#[cfg(all(debug_assertions, not(feature = "recorder-worker")))]
-fn development_root_for_status() -> Option<PathBuf> {
-    development_root_matching(file_size_matches)
-}
-
-#[cfg(debug_assertions)]
-fn development_root_matching(
-    matches: fn(&Path, &OwnedComponentFile) -> Result<bool>,
-) -> Option<PathBuf> {
-    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/embed_dlls/x64");
-    DEVELOPMENT_FILES
-        .iter()
-        .all(|file| {
-            Path::new(file.path)
-                .file_name()
-                .is_some_and(|name| matches(&source.join(name), &owned_file(file)).unwrap_or(false))
-        })
-        .then_some(source)
 }
 
 #[cfg(all(test, not(feature = "recorder-worker")))]

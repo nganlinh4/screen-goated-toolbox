@@ -30,7 +30,7 @@ pub(super) use runtime::{
 };
 pub(super) use smoke::run_mcp_test;
 pub(super) use startup::StartupCatalog;
-pub(crate) use ui::{UiIntegration, ui_install, ui_remove, ui_remove_all};
+pub(crate) use ui::{UiIntegration, ui_install, ui_installing, ui_remove, ui_remove_all};
 
 pub(crate) fn ui_list() -> Vec<UiIntegration> {
     ui::ui_list()

@@ -17,6 +17,7 @@ mod install;
 mod recovery;
 mod recovery_io;
 mod staging;
+mod update;
 
 pub(crate) use recovery::{ExternalToolRecovery, RecoveryCleanupOutcome};
 
@@ -24,6 +25,8 @@ const ARCHITECTURE: &str = "x64";
 const MAX_COMPONENT_FILES: usize = 8;
 static TOOL_MUTATION_LOCKS: LazyLock<[Mutex<()>; 3]> =
     LazyLock::new(|| std::array::from_fn(|_| Mutex::new(())));
+static PERIODIC_UPDATE_IDENTITY: LazyLock<Mutex<Option<(String, String)>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ExternalTool {
@@ -154,6 +157,85 @@ pub(crate) fn version_label(tool: ExternalTool) -> Option<String> {
     delivery_optional(tool).map(|delivery| format!("{} (x64)", delivery.version))
 }
 
+pub(crate) fn refresh_downloader_after_failure(include_deno: bool) -> Result<Vec<ExternalTool>> {
+    let candidates = [ExternalTool::YtDlp, ExternalTool::Deno]
+        .into_iter()
+        .filter(|tool| *tool != ExternalTool::Deno || include_deno)
+        .filter(|tool| {
+            super::update_catalog::policy(tool.id())
+                .is_some_and(|(mode, _, _)| mode == "typed-failure")
+        })
+        .collect::<Vec<_>>();
+    let before = candidates
+        .iter()
+        .map(|tool| {
+            (
+                *tool,
+                delivery_optional(*tool).map(|delivery| (delivery.version, delivery.sha256)),
+            )
+        })
+        .collect::<Vec<_>>();
+    super::update_catalog::refresh_now()?;
+    Ok(before
+        .into_iter()
+        .filter_map(|(tool, previous)| {
+            let current =
+                delivery_optional(tool).map(|delivery| (delivery.version, delivery.sha256));
+            (previous.is_some() && current.is_some() && previous != current).then_some(tool)
+        })
+        .collect())
+}
+
+pub(crate) fn schedule_periodic_updates() {
+    let Some((mode, _, _)) = super::update_catalog::policy(ExternalTool::Ffmpeg.id()) else {
+        return;
+    };
+    if mode != "periodic-idle" {
+        return;
+    }
+    let Some(delivery) = delivery_optional(ExternalTool::Ffmpeg) else {
+        return;
+    };
+    let identity = (delivery.version.to_string(), delivery.sha256.to_string());
+    let should_check = PERIODIC_UPDATE_IDENTITY
+        .lock()
+        .map(|mut checked| {
+            if checked.as_ref() == Some(&identity) {
+                false
+            } else {
+                *checked = Some(identity);
+                true
+            }
+        })
+        .unwrap_or(false);
+    if !should_check {
+        return;
+    }
+    std::thread::spawn(|| {
+        if !matches!(
+            current_status(ExternalTool::Ffmpeg),
+            ExternalToolStatus::Missing
+        ) || !has_prior_managed_install(ExternalTool::Ffmpeg)
+        {
+            return;
+        }
+        let name = localized_tool_name(ExternalTool::Ffmpeg);
+        let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&name);
+        let cancelled = AtomicBool::new(false);
+        let result = ensure(ExternalTool::Ffmpeg, &cancelled, |done, total| {
+            badge.report(done, total);
+        });
+        badge.finish();
+        match result {
+            Ok(component) => {
+                drop(component);
+                notify_periodic_update(&name, None);
+            }
+            Err(error) => notify_periodic_update(&name, Some(&error)),
+        }
+    });
+}
+
 pub(crate) fn remove(tool: ExternalTool) -> Result<RemovalOutcome> {
     super::request_remove(tool.id())
 }
@@ -193,6 +275,65 @@ fn lock_tool_mutation(tool: ExternalTool) -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+fn has_prior_managed_install(tool: ExternalTool) -> bool {
+    let Some(current) = delivery_optional(tool) else {
+        return false;
+    };
+    let root = super::components_root().join(tool.id());
+    let Ok(metadata) = std::fs::symlink_metadata(&root) else {
+        return false;
+    };
+    if !metadata.is_dir() || is_reparse_point(&metadata) {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return false;
+    };
+    entries.take(64).flatten().any(|entry| {
+        let path = entry.path();
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            return false;
+        };
+        if !metadata.is_dir() || is_reparse_point(&metadata) {
+            return false;
+        }
+        ComponentReceipt::read(&path.join(RECEIPT_NAME))
+            .is_ok_and(|receipt| receipt.id == tool.id() && receipt.version != current.version)
+    })
+}
+
+fn localized_tool_name(tool: ExternalTool) -> String {
+    let language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    let text = crate::gui::locale::LocaleText::get(&language);
+    match tool {
+        ExternalTool::YtDlp => text.auxiliary.managed_tools.tool_ytdlp,
+        ExternalTool::Ffmpeg => text.auxiliary.managed_tools.tool_ffmpeg,
+        ExternalTool::Deno => text.auxiliary.managed_tools.tool_deno,
+    }
+    .to_string()
+}
+
+fn notify_periodic_update(name: &str, error: Option<&anyhow::Error>) {
+    let locale = crate::overlay::auto_copy_badge::locale_text();
+    let (template, kind, detail) = match error {
+        Some(error) => (
+            locale.component_install_failed_fmt,
+            crate::overlay::auto_copy_badge::NotificationType::Error,
+            format!("{error:#}"),
+        ),
+        None => (
+            locale.component_installed_fmt,
+            crate::overlay::auto_copy_badge::NotificationType::Success,
+            String::new(),
+        ),
+    };
+    let title = crate::overlay::auto_copy_badge::format_locale(template, &[("name", name)]);
+    crate::overlay::auto_copy_badge::show_detailed_notification(&title, &detail, kind);
+}
+
 const fn tool_index(tool: ExternalTool) -> usize {
     match tool {
         ExternalTool::YtDlp => 0,
@@ -204,7 +345,7 @@ const fn tool_index(tool: ExternalTool) -> usize {
 pub(crate) fn webview2_bootstrapper_delivery() -> Result<&'static WebView2BootstrapperDelivery> {
     WEBVIEW2_BOOTSTRAPPER_DELIVERY
         .as_ref()
-        .ok_or_else(|| anyhow!("verified WebView2 bootstrapper delivery is not included"))
+        .ok_or_else(|| anyhow!("verified WebView2 bootstrapper contract is unavailable"))
 }
 
 fn acquire_delivery(
@@ -225,16 +366,18 @@ fn acquire_delivery(
 }
 
 fn delivery(tool: ExternalTool) -> Result<&'static ExternalToolDelivery> {
-    delivery_optional(tool).ok_or_else(|| {
-        anyhow!(
-            "verified {} delivery is not included in this build",
-            tool.id()
-        )
-    })
+    delivery_optional(tool)
+        .ok_or_else(|| anyhow!("verified {} download contract is unavailable", tool.id()))
 }
 
 fn delivery_optional(tool: ExternalTool) -> Option<&'static ExternalToolDelivery> {
     debug_assert_eq!(SUPPORTED_ARCHIVE_FORMATS.len(), 2);
+    if let Some(delivery) = update::deliveries()
+        .iter()
+        .find(|delivery| delivery.id == tool.id())
+    {
+        return Some(delivery);
+    }
     EXTERNAL_TOOL_DELIVERIES
         .iter()
         .find(|delivery| delivery.id == tool.id())

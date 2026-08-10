@@ -1,4 +1,4 @@
-//! Theme CSS generation for button canvas
+//! Theme CSS for the result compositor's control layer.
 
 /// Get theme-specific CSS variables
 pub fn get_canvas_theme_css(is_dark: bool) -> String {

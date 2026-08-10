@@ -1,15 +1,22 @@
+mod button_input;
 mod card_bridge;
 mod card_document;
 mod child;
+mod controls;
 mod delivery;
 mod diagnostics;
 pub(crate) mod font;
 mod html;
 mod isolated_server;
 mod parent;
-mod protocol;
+pub(crate) mod protocol;
 mod sync_scheduler;
+mod web_response;
 
+pub use controls::{
+    is_dragging, is_point_over_result_window, set_external_drag, set_refine_text,
+    sync as sync_controls, sync_all as sync_all_controls,
+};
 pub(crate) use parent::wait_until_ready;
 pub use parent::{
     go_back, go_forward, raise_window, register_window, remove_window, sync_geometry, sync_window,

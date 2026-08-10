@@ -15,6 +15,10 @@
 - The shipped creation runtime advertises and delivers only `image_to_3d`.
   Archived SVG and image-creation capability code and assets are excluded from
   Windows and Android artifacts.
+- Windows, Android Full, and Android Play consume one tracked, immutable
+  delivery contract. Every artifact has an exact URL, version, size, and
+  SHA-256; missing or invalid contract data fails the build. Local runtime
+  outputs and environment overrides are never accepted as product delivery.
 
 - The app is named Image to 3D / 이미지를 3D로 / Ảnh sang 3D.
 - Mode appears before topology:

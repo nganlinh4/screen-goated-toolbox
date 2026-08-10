@@ -81,6 +81,7 @@ pub(crate) fn run() -> eframe::Result<()> {
     {
         crate::log_info!("[Components] External-tool staging maintenance failed: {error}");
     }
+    crate::component_registry::update_catalog::refresh_in_background();
 
     let webview2_ready = crate::runtime_support::webview2_runtime_installed();
     if !webview2_ready {

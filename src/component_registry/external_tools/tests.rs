@@ -5,6 +5,18 @@ use sha2::{Digest, Sha256};
 
 use super::*;
 
+#[test]
+fn tracked_delivery_contains_every_external_tool() {
+    for tool in [
+        ExternalTool::YtDlp,
+        ExternalTool::Ffmpeg,
+        ExternalTool::Deno,
+    ] {
+        assert!(delivery_optional(tool).is_some());
+    }
+    assert!(WEBVIEW2_BOOTSTRAPPER_DELIVERY.is_some());
+}
+
 fn temp_root(label: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

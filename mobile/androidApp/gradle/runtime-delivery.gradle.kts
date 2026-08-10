@@ -4,6 +4,8 @@ import java.security.MessageDigest
 
 val generatedNativeRuntimeContractAssets =
     layout.buildDirectory.dir("generated/nativeRuntimeContractAssets")
+val generatedComponentUpdateTrustAssets =
+    layout.buildDirectory.dir("generated/componentUpdateTrustAssets")
 val generatedFullCreationRuntimeDeliveryAssets =
     layout.buildDirectory.dir("generated/fullCreationRuntimeDeliveryAssets")
 val generatedFullDownloaderRuntimeDeliveryAssets =
@@ -14,12 +16,11 @@ val sharedCreationModelViewerAssets = rootProject.projectDir.parentFile
     .resolve("3d-generator-ui/viewer-dist")
 val nativeRuntimeContractSource = rootProject.projectDir.parentFile
     .resolve("parity-fixtures/phone-control/native-runtime-contract.json")
-val creationRuntimeDeliveryManifest = System.getenv("SGT_CREATION_RUNTIME_DELIVERY_MANIFEST")
-    ?.takeIf { it.isNotBlank() }
-    ?.let { file(it) }
-    ?: rootProject.projectDir.parentFile.resolve(
-        "local-runtime-bundles/sgt_creation_runtime/sgt_creation_runtime.delivery.json",
-    )
+val componentUpdatePublicKey = rootProject.projectDir.parentFile
+    .resolve("component-delivery/update-catalog-p256-public-key.hex")
+val creationRuntimeDeliveryManifest = rootProject.projectDir.parentFile.resolve(
+    "component-delivery/creation-runtime-v1.json",
+)
 val downloaderRuntimeDeliveryManifest = projectDir.resolve("delivery/downloader-runtime.json")
 val downloaderLauncherSourceRoot = rootProject.projectDir.resolve("../../youtubedl-android")
 val downloaderLauncherContract = linkedMapOf(
@@ -46,6 +47,20 @@ val stageNativeRuntimeContract by tasks.registering(Sync::class) {
     dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
     from(nativeRuntimeContractSource) { rename { "contract.json" } }
     into(generatedNativeRuntimeContractAssets.map { it.dir("native-runtime") })
+}
+
+val stageComponentUpdateTrust by tasks.registering(Sync::class) {
+    inputs.file(componentUpdatePublicKey)
+    doFirst {
+        require(componentUpdatePublicKey.isFile) {
+            "Tracked component-update public key is required: $componentUpdatePublicKey"
+        }
+        require(componentUpdatePublicKey.readText().trim().matches(Regex("04[0-9a-f]{128}"))) {
+            "Component-update public key must be an uncompressed P-256 point"
+        }
+    }
+    from(componentUpdatePublicKey) { rename { "public-key.hex" } }
+    into(generatedComponentUpdateTrustAssets.map { it.dir("component-update") })
 }
 
 val verifyCreationModelViewerAssets by tasks.registering {
@@ -79,9 +94,14 @@ val verifyCreationModelViewerAssets by tasks.registering {
 }
 
 val stageFullCreationRuntimeDelivery by tasks.registering(Sync::class) {
-    if (creationRuntimeDeliveryManifest.isFile) {
-        from(creationRuntimeDeliveryManifest) { rename { "delivery.json" } }
+    inputs.file(creationRuntimeDeliveryManifest)
+    doFirst {
+        require(creationRuntimeDeliveryManifest.isFile) {
+            "Tracked creation runtime delivery contract is required: " +
+                creationRuntimeDeliveryManifest
+        }
     }
+    from(creationRuntimeDeliveryManifest) { rename { "delivery.json" } }
     into(generatedFullCreationRuntimeDeliveryAssets.map { it.dir("creation-runtime") })
 }
 
@@ -176,6 +196,9 @@ tasks.matching {
         it.name.contains("Assets", ignoreCase = false)
 }.configureEach {
     dependsOn(stageNativeRuntimeContract)
+    if (name.contains("Full")) {
+        dependsOn(stageComponentUpdateTrust)
+    }
     dependsOn(verifyCreationModelViewerAssets)
 }
 
@@ -197,6 +220,7 @@ tasks.matching { it.name.contains("lint", ignoreCase = true) }.configureEach {
     dependsOn(stageNativeRuntimeContract)
     dependsOn(verifyCreationModelViewerAssets)
     if (name.contains("Full")) {
+        dependsOn(stageComponentUpdateTrust)
         dependsOn(stageFullCreationRuntimeDelivery)
         dependsOn(stageFullDownloaderRuntimeDelivery)
     }

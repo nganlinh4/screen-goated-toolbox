@@ -6,11 +6,15 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::{Result, anyhow, bail};
 
 use super::{
-    RUNTIME_DELIVERY, cleanup_runtime_files, download_title, ensure_runtime_bundle_dir,
-    invalidate_verified_runtime, is_reparse_point, is_runtime_installed, localized_component_name,
-    runtime_bundle_dir, runtime_exe_path, runtime_shutting_down, validate_runtime,
+    cleanup_runtime_files, download_title, ensure_runtime_bundle_dir, invalidate_verified_runtime,
+    is_reparse_point, is_runtime_installed, localized_component_name, runtime_bundle_dir,
+    runtime_delivery, runtime_exe_path, runtime_shutting_down, validate_runtime,
     verified_installed_runtime_path, write_runtime_receipt,
 };
+
+pub(crate) fn is_runtime_available() -> bool {
+    runtime_delivery().is_some()
+}
 
 fn download_delivery_file(
     url: &str,
@@ -77,9 +81,8 @@ pub(crate) fn download_runtime(stop: Arc<AtomicBool>, use_badge: bool) -> Result
     if is_runtime_installed() {
         return Ok(());
     }
-    let delivery = RUNTIME_DELIVERY
-        .as_ref()
-        .ok_or_else(|| anyhow!("Creation engine is not included in this build."))?;
+    let delivery = runtime_delivery()
+        .ok_or_else(|| anyhow!("Creation engine download contract is unavailable."))?;
 
     let path = runtime_exe_path();
     let partial = runtime_bundle_dir().join(format!("{}.download", delivery.asset));

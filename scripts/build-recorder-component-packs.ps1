@@ -8,6 +8,33 @@ $frontend = Join-Path $repo "screen-record"
 $workerManifest = Join-Path $repo "native\recorder_worker\Cargo.toml"
 $workerExe = Join-Path $repo "native\recorder_worker\target\x86_64-pc-windows-msvc\release\sgt-recorder-worker.exe"
 $output = Join-Path $repo "local-runtime-bundles\sgt_recorder"
+$separator = [char]0x1f
+$cargoCacheRoot = if ($env:CARGO_HOME) {
+    [IO.Path]::GetFullPath($env:CARGO_HOME).TrimEnd('\')
+}
+else {
+    Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)) ".cargo"
+}
+$buildFlags = @(
+    "-C",
+    "target-feature=+crt-static",
+    "-C",
+    "link-arg=/Brepro",
+    "--remap-path-prefix=$repo=/sgt",
+    "--remap-path-prefix=$cargoCacheRoot=/cargo"
+)
+$profileRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+if (-not [string]::IsNullOrWhiteSpace($profileRoot)) {
+    $buildFlags += "--remap-path-prefix=$profileRoot=/build-user"
+}
+$previousFlags = [Environment]::GetEnvironmentVariable(
+    "CARGO_ENCODED_RUSTFLAGS",
+    [EnvironmentVariableTarget]::Process
+)
+$previousSourceDate = $env:SOURCE_DATE_EPOCH
+if (-not [string]::IsNullOrEmpty($previousFlags)) {
+    $buildFlags += $previousFlags.Split($separator)
+}
 
 Push-Location $frontend
 try {
@@ -28,6 +55,8 @@ finally {
 
 Push-Location $repo
 try {
+    $env:CARGO_ENCODED_RUSTFLAGS = $buildFlags -join $separator
+    $env:SOURCE_DATE_EPOCH = "1704067200"
     cargo build `
         --manifest-path $workerManifest `
         --release `
@@ -51,5 +80,12 @@ try {
     }
 }
 finally {
+    if ($null -eq $previousFlags) {
+        Remove-Item Env:CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:CARGO_ENCODED_RUSTFLAGS = $previousFlags
+    }
+    $env:SOURCE_DATE_EPOCH = $previousSourceDate
     Pop-Location
 }

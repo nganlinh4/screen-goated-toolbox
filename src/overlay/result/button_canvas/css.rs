@@ -1,14 +1,7 @@
-//! CSS styles for button canvas
+//! CSS styles for the result compositor's control layer.
 
 pub fn get_base_css() -> &'static str {
     r#"
-.icons {
-    font-family: 'Material Symbols Rounded';
-    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
-    font-size: 16px;
-    line-height: 1;
-}
-
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
     width: 100vw;
@@ -16,8 +9,15 @@ html, body {
     overflow: hidden;
     background: transparent;
     pointer-events: none;
-    font-family: 'Google Sans Flex', 'Segoe UI', sans-serif;
+    font-family: 'Google Sans Flex';
     user-select: none;
+}
+
+#button-container {
+    position: fixed;
+    inset: 0;
+    z-index: 2147480000;
+    pointer-events: none;
 }
 
 .button-group {
@@ -133,7 +133,7 @@ html, body {
     border-radius: 8px;
     padding: 6px 10px;
     color: var(--refine-text);
-    font-family: 'Google Sans Flex', sans-serif;
+    font-family: 'Google Sans Flex';
     font-size: 13px;
     outline: none;
     transition: border-color 0.15s;

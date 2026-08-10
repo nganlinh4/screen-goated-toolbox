@@ -121,7 +121,7 @@ internal suspend fun DownloaderRepository.analyzeUrl(sessionIdx: Int, url: Strin
 // ── Download config ──
 
 
-internal fun DownloaderRepository.executeDownload(
+internal suspend fun DownloaderRepository.executeDownload(
     sessionIdx: Int,
     session: DownloadSessionState,
     processId: String,

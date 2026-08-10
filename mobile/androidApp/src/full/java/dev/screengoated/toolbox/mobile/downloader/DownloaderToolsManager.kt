@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.downloader
 
 import androidx.core.content.edit
+import dev.screengoated.toolbox.mobile.componentupdate.ComponentUpdateCatalog
 import dev.screengoated.toolbox.mobile.service.nativelibs.RuntimeLeaseRegistry
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
@@ -8,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 
 internal enum class DownloaderRuntimeKey {
     RUNTIME,
@@ -103,13 +105,43 @@ internal fun DownloaderRepository.acquireDownloaderRuntimeLease(): AutoCloseable
     return runtimeLeases.acquire(listOf(DownloaderRuntimeKey.RUNTIME))
 }
 
-internal fun DownloaderRepository.executeYtDlp(
+internal suspend fun DownloaderRepository.executeYtDlp(
     request: YtDlpCommand,
     processId: String? = null,
     callback: ((Float, Long, String) -> Unit)? = null,
-): YtDlpProcessResult = requireNotNull(processHost) {
-    "Downloader runtime delivery is unavailable in this build"
-}.execute(request, processId, callback)
+): YtDlpProcessResult {
+    val firstHost = requireNotNull(processHost) {
+        "Downloader runtime delivery is unavailable in this build"
+    }
+    return try {
+        firstHost.execute(request, processId, callback)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (firstError: Throwable) {
+        if (!refreshDownloaderRuntimeAfterFailure()) throw firstError
+        requireNotNull(processHost).execute(request, processId, callback)
+    }
+}
+
+private suspend fun DownloaderRepository.refreshDownloaderRuntimeAfterFailure(): Boolean {
+    val policy = ComponentUpdateCatalog.policy("android-downloader-yt-dlp") ?: return false
+    if (policy.mode != "typed-failure") return false
+    return runtimeUpdateMutex.withLock {
+        if (runtimeLeases.isInUse(DownloaderRuntimeKey.RUNTIME)) return@withLock false
+        val previous = runtimeDelivery?.identity
+        if (!ComponentUpdateCatalog.refreshNow(context)) return@withLock false
+        val replacement = loadDownloaderRuntimeDelivery(context) ?: return@withLock false
+        if (previous == replacement.identity) return@withLock false
+        val installer = DownloaderRuntimeInstaller(context, replacement, okhttp3.OkHttpClient())
+        installer.install(::updateInstallProgress)
+        runtimeDelivery = replacement
+        runtimeInstaller = installer
+        processHost = DownloaderProcessHost(context, installer) {
+            acquireDownloaderRuntimeLease()
+        }
+        true
+    }
+}
 
 internal fun DownloaderRepository.destroyYtDlpProcess(processId: String): Boolean =
     processHost?.destroy(processId) ?: false

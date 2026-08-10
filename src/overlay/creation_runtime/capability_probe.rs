@@ -76,7 +76,7 @@ fn runtime_binary_key() -> Option<RuntimeBinaryKey> {
 }
 
 fn query_runtime_capabilities(binary: RuntimeBinaryKey) -> Option<RuntimeCapabilities> {
-    let delivery = super::RUNTIME_DELIVERY.as_ref()?;
+    let delivery = super::runtime_delivery()?;
     let mut command = Command::new(&binary.path);
     command.arg("--capabilities");
     let output = super::process_query::run(&mut command, None, Duration::from_secs(5), 64 * 1024)?;

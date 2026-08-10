@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "version": "5.4.3",
+  "windows": {
+    "architecture": "x64",
+    "components": [
+      {
+        "id": "creation-3d-web",
+        "asset": "creation-3d-web-5.4.3-8353ceb736bc5824.zip",
+        "sizeBytes": 193609,
+        "sha256": "8353ceb736bc5824eab0a19b2d09aef0726bd01dade12269f119eb6dcf3aa39a",
+        "unpackedSizeBytes": 748605,
+        "files": [
+          {
+            "path": "assets/index.css",
+            "sizeBytes": 24358,
+            "sha256": "1c03ddc07af5eba2e86bcc2a8b90838cadd850c7270286e54ed3920f1b3b590f"
+          },
+          {
+            "path": "assets/index.js",
+            "sizeBytes": 723868,
+            "sha256": "a9e956046f15abc01aa292ecc0b64a6ec3e559845cdc4a467eca93f5b98f0a47"
+          },
+          {
+            "path": "index.html",
+            "sizeBytes": 379,
+            "sha256": "e285371fe0989d29f10efcd18c860a9ea44a4874038b9a43b9862aeec5728853"
+          }
+        ],
+        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/creation-3d-web-5.4.3-8353ceb736bc5824.zip"
+      },
+      {
+        "id": "prompt-dj-web",
+        "asset": "prompt-dj-web-5.4.3-f41304fd202cdc83.zip",
+        "sizeBytes": 131477,
+        "sha256": "f41304fd202cdc838682a8a97b2acabdaa683007f57d0d0bbd5c0ecd81dd472f",
+        "unpackedSizeBytes": 516998,
+        "files": [
+          {
+            "path": "assets/index.css",
+            "sizeBytes": 12025,
+            "sha256": "a7a4e1b5224eb8c94aa3ca86720bb8a584150ae5eaced2c662936aa8148de293"
+          },
+          {
+            "path": "assets/index.js",
+            "sizeBytes": 504529,
+            "sha256": "9add5e977806d77fbff3b71fc66b538cf8945ab7c8bd3322205b9dc5be8d0351"
+          },
+          {
+            "path": "index.html",
+            "sizeBytes": 444,
+            "sha256": "ed9cca82880509fc68fef9cb2f0bf786bd5cac0c2fca03c64c0591d49f51de69"
+          }
+        ],
+        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/prompt-dj-web-5.4.3-f41304fd202cdc83.zip"
+      },
+      {
+        "id": "tts-playground-web",
+        "asset": "tts-playground-web-5.4.3-f163a05da294b619.zip",
+        "sizeBytes": 60326,
+        "sha256": "f163a05da294b619868cd865bf38ab061193921b6e107f2b3566a9e96090cbf9",
+        "unpackedSizeBytes": 197721,
+        "files": [
+          {
+            "path": "assets/index.css",
+            "sizeBytes": 16058,
+            "sha256": "cc479270b2b7986e0ca9567b874a2d2142848bfc8304fddaffa831169b522aac"
+          },
+          {
+            "path": "assets/index.js",
+            "sizeBytes": 181215,
+            "sha256": "3c0c483d7d9b2be3400eb1611e06dec3078ddba480d7bf2f675e276034069ae5"
+          },
+          {
+            "path": "index.html",
+            "sizeBytes": 448,
+            "sha256": "573c8a4872b4a2d17318348ec877b7b8c3da2dc348601325a2d977b32e1aa0d0"
+          }
+        ],
+        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/tts-playground-web-5.4.3-f163a05da294b619.zip"
+      }
+    ]
+  }
+}

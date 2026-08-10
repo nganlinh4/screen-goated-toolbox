@@ -106,7 +106,7 @@ cargo clippy --all-targets -- -D warnings
 Run relevant frontend/mobile tests for changed subsystems. Do not waive failures to cut a release.
 
 For a release containing the Image-to-3D mini app, build the separately tracked
-runtime first and point all host builds at its generated delivery manifest.
+runtime first and update the tracked delivery contract only after remote read-back.
 Image-to-SVG and image creation/editing are archived source only: their host
 modules, frontend assets, worker services, and runtime capabilities must not be
 present in Windows or Android release artifacts.
@@ -128,7 +128,8 @@ Android host builds until every item is complete:
    local-only build is not a completed runtime release.
 5. Query the GitHub release again and verify every uploaded asset's name, size,
    and checksum against the newly generated manifests.
-6. Use that exact verified combined delivery manifest for all subsequent
+6. Commit that exact verified combined delivery contract at
+   `component-delivery/creation-runtime-v1.json` for all subsequent
    Windows, Android Full, and Android Play app builds.
 
 The private runtime source and its build scripts live in the nested, gitignored
@@ -138,8 +139,7 @@ gitignored `local-runtime-bundles/sgt_creation_runtime/`.
 ```powershell
 .\native\sgt_3d_generator_runtime\scripts\build_exe.ps1
 .\native\sgt_3d_generator_runtime\scripts\build_android_runtime.ps1 -CopyToBundleDirectory
-py -3 .\scripts\verify_creation_runtime_release.py
-$env:SGT_CREATION_RUNTIME_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_creation_runtime\sgt_creation_runtime.delivery.json'
+py -3 .\scripts\verify_creation_runtime_release.py --manifest .\component-delivery\creation-runtime-v1.json
 ```
 
 Native libraries must be built for 16 KB memory pages or Play rejects the
@@ -147,10 +147,9 @@ update. Verify before publishing that every `PT_LOAD` segment in every `.so`
 inside the AAB reports `p_align` of at least 16384.
 
 The same manifest version and feature handshake must feed Windows, Android Full,
-and Android Play. It supplies private delivery locations and integrity metadata
-at build time; never copy those values into tracked host source, fixtures,
-tests, or documentation. A host built without the manifest must fail closed and
-report that the creation engine is not included.
+and Android Play. The tracked contract is build input, so ordinary and canonical
+builds resolve identical immutable locations and integrity metadata. Missing or
+invalid tracked delivery data is a compile-time failure, never a local fallback.
 
 The `sgt-runtime-bundles` tag is an append-only artifact store. Every executable,
 native library, model, or WebView pack uses a unique asset name and an exact
@@ -176,13 +175,12 @@ Complete this checkpoint before `build.ps1`:
 .\scripts\build-web-asset-packs.ps1
 # Upload only the new ZIP files listed in the generated packages manifest.
 py -3 .\scripts\verify_web_asset_release.py
-$env:SGT_WEB_ASSET_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_web_assets\sgt_web_assets.delivery.json'
+py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_web_assets\sgt_web_assets.delivery.json .\component-delivery\windows\web-assets-v1.json
 ```
 
 The verifier is read-only: it downloads the published assets and hashes their
-actual bytes before emitting host delivery data. A build without verified
-delivery data keeps core startup working but reports the affected interface as
-unavailable on first use; it never guesses a download location.
+actual bytes before emitting delivery data. Every build consumes the tracked
+contract; absent or divergent verified delivery is a build failure.
 
 ### Mandatory Windows external-tool checkpoint
 
@@ -197,7 +195,7 @@ WebView2 assets, then read every remote byte back before building the host:
 # Upload only the new SGT assets listed by sgt_external_tools.packages.json.
 # yt-dlp and Deno remain on their immutable upstream version tags.
 py -3 .\scripts\verify_external_tool_release.py
-$env:SGT_EXTERNAL_TOOL_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_external_tools\sgt_external_tools.delivery.json'
+py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_external_tools\sgt_external_tools.delivery.json .\component-delivery\windows\external-tools-v1.json
 ```
 
 The verifier checks exact archive and installed-file inventories. It additionally
@@ -223,7 +221,6 @@ their immutable remote objects:
 ```powershell
 py -3 .\scripts\generate_windows_model_delivery.py --package-manifest .\local-runtime-bundles\sgt_windows_models\sgt_windows_model_packages.json --output .\model-delivery\windows-v1.json
 py -3 .\scripts\verify_windows_model_release.py --package-manifest .\local-runtime-bundles\sgt_windows_models\sgt_windows_model_packages.json --delivery-manifest .\model-delivery\windows-v1.json --remote
-$env:SGT_WINDOWS_MODEL_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_windows_models\sgt_windows_model_packages.json'
 ```
 
 The canonical build repeats deterministic generation comparison and hashes
@@ -241,7 +238,7 @@ release build:
 .\scripts\build-vc-runtime-pack.ps1
 # Upload only the new ZIP named by sgt_vc_runtime.packages.json.
 py -3 .\scripts\verify_vc_runtime_release.py
-$env:SGT_VC_RUNTIME_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_vc_runtime\sgt_vc_runtime.delivery.json'
+py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_vc_runtime\sgt_vc_runtime.delivery.json .\component-delivery\windows\vc-runtime-v1.json
 ```
 
 The pack contains an exact per-file size/SHA-256 contract as well as the
@@ -261,7 +258,7 @@ all required notices are exact files in the delivery manifest.
 .\scripts\build-qwen3-runtime-pack.ps1
 # Upload only the three new ZIPs listed in sgt_qwen3_runtime.packages.json.
 py -3 .\scripts\verify_qwen3_runtime_release.py
-$env:SGT_QWEN3_RUNTIME_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json'
+py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json .\component-delivery\windows\qwen-runtime-v1.json
 ```
 
 The verifier hashes the uploaded bytes before emitting host delivery data.
@@ -278,7 +275,7 @@ the host:
 .\scripts\build-local-asr-packs.ps1
 # Upload only the two new ZIPs listed in sgt_local_asr.packages.json.
 py -3 .\scripts\verify_local_asr_release.py
-$env:SGT_LOCAL_ASR_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_local_asr\sgt_local_asr.delivery.json'
+py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_local_asr\sgt_local_asr.delivery.json .\component-delivery\windows\local-asr-v1.json
 ```
 
 `build.ps1` never builds or embeds these native packages. It requires the
@@ -295,7 +292,7 @@ packages, upload only those new immutable ZIPs, then verify the remote bytes:
 .\scripts\build-recorder-component-packs.ps1
 # Upload only the two new ZIPs listed in sgt_recorder.packages.json.
 py -3 .\scripts\verify_recorder_release.py
-$env:SGT_RECORDER_DELIVERY_MANIFEST = 'C:\WORK\screen-goated-toolbox\local-runtime-bundles\sgt_recorder\sgt_recorder.delivery.json'
+py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_recorder\sgt_recorder.delivery.json .\component-delivery\windows\recorder-v1.json
 ```
 
 The worker package includes its exact third-party license inventory. The host
@@ -315,7 +312,7 @@ the published bytes:
 .\scripts\build-computer-control-engine-pack.ps1
 # Upload only the new ZIP named by sgt_computer_control.packages.json.
 py -3 .\scripts\verify_computer_control_release.py
-$env:SGT_COMPUTER_CONTROL_DELIVERY_MANIFEST = (Resolve-Path '.\local-runtime-bundles\sgt_computer_control\sgt_computer_control.delivery.json').Path
+py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_computer_control\sgt_computer_control.delivery.json .\component-delivery\windows\computer-control-v1.json
 ```
 
 The component contains the x64 engine plus its complete resolved third-party
@@ -331,6 +328,41 @@ runtime crate is no longer linked. Keep
 verify its isolang 2.4.0 Apache-2.0 attribution before signing. Do not restore
 the upstream language-table payload; the derived catalog parity tests must
 continue to cover all mappings.
+
+### Mandatory signed component-catalog checkpoint
+
+The host and Android Full discover newer optional-component contracts through a
+detached ECDSA P-256 signed catalog. The catalog changes delivery metadata only;
+it never weakens the exact size/SHA-256 checks in each installer. Android Play
+native code remains owned by Play dynamic-feature delivery and must not be
+replaced by a GitHub-downloaded executable. The Play base performs no GitHub
+catalog discovery: its immutable model contracts advance with the next reviewed
+Play build. Android Full may select newer signed model-data transport.
+
+After every referenced component checkpoint above is green:
+
+1. Increment `sequence` in
+   `component-delivery/update-catalog-v1.sources.json`; a published sequence is
+   immutable and is never reused for different source bytes.
+2. Set host compatibility bounds deliberately. A host outside the range rejects
+   the catalog and continues using its compiled delivery contracts.
+3. Run `py -3 scripts/verify_update_catalog_sources.py`. It must read back every
+   SGT-owned `sgt-runtime-bundles` asset and match its recorded size and GitHub
+   SHA-256 digest.
+4. Commit and push the reviewed sources, then run the
+   `Publish component catalog` workflow. The signing key exists only as the
+   repository secret `SGT_UPDATE_CATALOG_P256_PRIVATE_KEY_PEM_BASE64`.
+5. Confirm the workflow read-back gate. It uploads only missing
+   content-addressed catalog/signature assets and refuses any same-name byte
+   mismatch. Its deterministic signature makes a partial workflow retry
+   byte-identical.
+
+Never delete or replace an older runtime, model, catalog, or signature asset.
+Old signed app versions may still reference it. Updating yt-dlp or Deno is
+failure-triggered and retries one request; Creation retries only before a job is
+accepted; FFmpeg updates while idle only for users who already installed an
+older managed FFmpeg. Other optional components select the newest compatible
+contract immediately before their next open/session/install boundary.
 
 ## 6. Build Windows
 

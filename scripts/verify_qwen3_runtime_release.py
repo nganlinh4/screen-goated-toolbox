@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 import urllib.request
@@ -36,14 +35,6 @@ def request_bytes(url: str) -> bytes:
         return response.read()
 
 
-def remote_sha256(url: str) -> str:
-    digest = hashlib.sha256()
-    with request(url) as response:
-        while chunk := response.read(4 * 1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -70,7 +61,7 @@ def main() -> int:
             raise RuntimeError(f"release is missing {asset['asset']}")
         if remote.get("size") != asset["sizeBytes"]:
             raise RuntimeError(f"release size mismatch for {asset['asset']}")
-        if remote_sha256(remote["browser_download_url"]) != asset["sha256"]:
+        if remote.get("digest") != f"sha256:{asset['sha256']}":
             raise RuntimeError(f"release checksum mismatch for {asset['asset']}")
         asset["downloadUrl"] = remote["browser_download_url"]
         asset.pop("assetPath")

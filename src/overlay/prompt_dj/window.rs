@@ -14,8 +14,9 @@ use crate::win_types::SendHwnd;
 
 use super::volume::{set_app_volume, update_child_pids};
 use super::{
-    IS_INITIALIZING, IS_WARMED_UP, PDJ_HWND, PDJ_WEB_CONTEXT, PDJ_WEBVIEW, REGISTER_PDJ_CLASS,
-    WM_APP_SHOW, WM_APP_UPDATE_SETTINGS, clear_pdj_webview, html, scripts, with_pdj_webview,
+    IS_INITIALIZING, IS_WARMED_UP, PDJ_ASSET_PACK, PDJ_HWND, PDJ_WEB_CONTEXT, PDJ_WEBVIEW,
+    REGISTER_PDJ_CLASS, REMOVAL_REQUESTED, WM_APP_SHOW, WM_APP_UPDATE_SETTINGS, clear_pdj_webview,
+    html, scripts, with_pdj_webview,
 };
 
 fn push_settings(hwnd: HWND) {
@@ -73,6 +74,7 @@ unsafe extern "system" fn pdj_wnd_proc(
             }
             WM_DESTROY => {
                 clear_pdj_webview("WM_DESTROY");
+                PDJ_ASSET_PACK.with(|slot| *slot.borrow_mut() = None);
                 PDJ_HWND = SendHwnd::default();
                 IS_WARMED_UP = false;
                 PostQuitMessage(0);
@@ -199,7 +201,7 @@ pub(super) unsafe fn internal_create_pdj_loop() {
 
         // Build inlined HTML and serve via the shared font server
         // so this WebView joins the shared browser process (same user data dir + origin)
-        let (inlined_html, _web_asset_pack) = match html::build_inlined_html() {
+        let (inlined_html, web_asset_pack) = match html::build_inlined_html() {
             Ok(assets) => assets,
             Err(error) => {
                 crate::log_info!("[PromptDJ] Could not open interface assets: {error}");
@@ -294,6 +296,11 @@ pub(super) unsafe fn internal_create_pdj_loop() {
             IS_INITIALIZING = false;
             return;
         }
+        PDJ_ASSET_PACK.with(|slot| *slot.borrow_mut() = Some(web_asset_pack));
+
+        if REMOVAL_REQUESTED.load(std::sync::atomic::Ordering::Acquire) {
+            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
 
         // Mark as warmed up and ready
         IS_WARMED_UP = true;
@@ -312,6 +319,7 @@ pub(super) unsafe fn internal_create_pdj_loop() {
         }
 
         clear_pdj_webview("message loop exit");
+        PDJ_ASSET_PACK.with(|slot| *slot.borrow_mut() = None);
         PDJ_HWND = SendHwnd::default();
         IS_WARMED_UP = false;
         IS_INITIALIZING = false;

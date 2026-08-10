@@ -43,7 +43,12 @@ fn handle(mut stream: TcpStream) {
         .strip_prefix("/card/")
         .and_then(|value| value.parse::<isize>().ok())
     {
-        if let Some(document) = super::child::document_for_card(id) {
+        if let Some(document) = super::child::CARDS
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|card| card.document.clone())
+        {
             crate::debug_log::log_debug(&format!(
                 "[ResultCompositor] resource=isolated_document action=served id={id} bytes={}",
                 document.len()

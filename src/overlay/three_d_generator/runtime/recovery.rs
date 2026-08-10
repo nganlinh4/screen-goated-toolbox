@@ -17,6 +17,24 @@ pub(super) fn run_stdio_operation(
     deadline_at_ms: u64,
     query_recovery: bool,
 ) {
+    run_stdio_operation_attempt(
+        job_id,
+        operation,
+        request_fingerprint,
+        deadline_at_ms,
+        query_recovery,
+        true,
+    );
+}
+
+fn run_stdio_operation_attempt(
+    job_id: String,
+    operation: RuntimeOperation,
+    request_fingerprint: String,
+    deadline_at_ms: u64,
+    query_recovery: bool,
+    allow_runtime_update: bool,
+) {
     if !sources_unchanged(&operation) {
         fail(
             &job_id,
@@ -29,12 +47,29 @@ pub(super) fn run_stdio_operation(
     if runtime_command().is_none() {
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         if crate::overlay::creation_runtime::download_runtime(stop, true).is_err() {
+            if allow_runtime_update
+                && crate::overlay::creation_runtime::refresh_after_start_failure()
+            {
+                run_stdio_operation_attempt(
+                    job_id,
+                    operation,
+                    request_fingerprint,
+                    deadline_at_ms,
+                    query_recovery,
+                    false,
+                );
+                return;
+            }
             fail(&job_id, &operation, "The 3D engine is unavailable.");
             return;
         }
     }
     let Some(mut command) = runtime_command() else {
         fail(&job_id, &operation, "The 3D engine is unavailable.");
+        return;
+    };
+    let Ok(_component_lease) = crate::component_registry::acquire("creation-3d-runtime") else {
+        fail(&job_id, &operation, "The 3D engine is being removed.");
         return;
     };
     command
@@ -60,6 +95,17 @@ pub(super) fn run_stdio_operation(
         child
     };
     let Ok(mut child) = child else {
+        if allow_runtime_update && crate::overlay::creation_runtime::refresh_after_start_failure() {
+            run_stdio_operation_attempt(
+                job_id,
+                operation,
+                request_fingerprint,
+                deadline_at_ms,
+                query_recovery,
+                false,
+            );
+            return;
+        }
         fail(&job_id, &operation, "The 3D engine could not start.");
         return;
     };

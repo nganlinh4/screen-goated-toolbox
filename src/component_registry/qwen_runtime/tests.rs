@@ -104,16 +104,8 @@ fn qwen_catalog_dependency_blocks_vc_removal_while_receipt_remains() {
 }
 
 #[test]
-fn release_without_verified_delivery_fails_only_at_feature_use() {
-    if QWEN_RUNTIME_DELIVERY.is_none() {
-        assert!(
-            delivery()
-                .err()
-                .expect("delivery must fail")
-                .to_string()
-                .contains("not included")
-        );
-    }
+fn tracked_qwen_delivery_is_present_in_every_build() {
+    assert!(delivery().is_ok());
 }
 
 #[test]

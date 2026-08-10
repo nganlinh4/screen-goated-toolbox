@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.creation.runtime
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.componentupdate.ComponentUpdateCatalog
 import org.json.JSONObject
 
 internal data class CreationRuntimeEntry(
@@ -27,7 +28,9 @@ internal data class CreationRuntimeDelivery(
 }
 
 internal fun loadCreationRuntimeDelivery(context: Context): CreationRuntimeDelivery? {
-    val root = loadCreationRuntimeManifest(context) ?: return null
+    val root = ComponentUpdateCatalog.contract("creation-runtime-v1", setOf("multi"))
+        ?: loadCreationRuntimeManifest(context)
+        ?: return null
     return parseCreationRuntimeDelivery(root)
 }
 

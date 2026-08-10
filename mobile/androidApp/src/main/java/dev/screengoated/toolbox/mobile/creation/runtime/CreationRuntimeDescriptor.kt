@@ -1,6 +1,8 @@
 package dev.screengoated.toolbox.mobile.creation.runtime
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.BuildConfig
+import dev.screengoated.toolbox.mobile.componentupdate.ComponentUpdateCatalog
 import dev.screengoated.toolbox.mobile.creation.readCreationBytesBounded
 import org.json.JSONObject
 
@@ -17,7 +19,14 @@ internal fun loadCreationRuntimeManifest(context: Context): JSONObject? = runCat
 
 internal fun loadCreationRuntimeProductDescriptor(
     context: Context,
-): CreationRuntimeProductDescriptor? = loadCreationRuntimeManifest(context)?.let { root ->
+): CreationRuntimeProductDescriptor? = (
+    if (BuildConfig.FLAVOR == "full") {
+        ComponentUpdateCatalog.contract("creation-runtime-v1", setOf("multi"))
+    } else {
+        null
+    } ?: loadCreationRuntimeManifest(context)
+).let { root ->
+    root ?: return@let null
     runCatching {
         val version = root.getString("version").trim()
         require(version.isNotEmpty())

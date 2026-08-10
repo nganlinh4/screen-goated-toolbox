@@ -128,17 +128,21 @@ pub enum WindowType {
 }
 
 pub fn link_windows(hwnd1: HWND, hwnd2: HWND) {
-    let mut states = WINDOW_STATES.lock().unwrap();
-    if let Some(s1) = states.get_mut(&(hwnd1.0 as isize))
-        && !s1.linked_windows.contains(&hwnd2)
     {
-        s1.linked_windows.push(hwnd2);
+        let mut states = WINDOW_STATES.lock().unwrap();
+        if let Some(s1) = states.get_mut(&(hwnd1.0 as isize))
+            && !s1.linked_windows.contains(&hwnd2)
+        {
+            s1.linked_windows.push(hwnd2);
+        }
+        if let Some(s2) = states.get_mut(&(hwnd2.0 as isize))
+            && !s2.linked_windows.contains(&hwnd1)
+        {
+            s2.linked_windows.push(hwnd1);
+        }
     }
-    if let Some(s2) = states.get_mut(&(hwnd2.0 as isize))
-        && !s2.linked_windows.contains(&hwnd1)
-    {
-        s2.linked_windows.push(hwnd1);
-    }
+    super::scene_compositor::sync_controls(hwnd1);
+    super::scene_compositor::sync_controls(hwnd2);
 }
 
 use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};

@@ -1,10 +1,27 @@
 # Re-patch egui-snarl to ensure custom scroll-to-zoom is applied
 Write-Host "Setting up patched egui-snarl..." -ForegroundColor Cyan
 $snarlDir = Join-Path $PSScriptRoot "libs\egui-snarl"
-if (Test-Path $snarlDir) {
-    Remove-Item $snarlDir -Recurse -Force
+$scaleDir = Join-Path $PSScriptRoot "libs\egui-scale"
+$snarlRevision = "5bdc34e4ebdb9d7a0968f21564dce51a1a027ee8"
+$scaleRevision = "abb9b647cf9478c6de876a980e4355cdc2d141c8"
+$snarlReady = (Test-Path (Join-Path $snarlDir "src\ui.rs") -PathType Leaf) -and
+    (Test-Path (Join-Path $snarlDir "Cargo.toml") -PathType Leaf) -and
+    ((git -C $snarlDir rev-parse HEAD 2>$null) -eq $snarlRevision) -and
+    (Select-String -Path (Join-Path $snarlDir "src\ui.rs") -Pattern "CUSTOM SCROLL-TO-ZOOM" -Quiet) -and
+    (Select-String -Path (Join-Path $snarlDir "Cargo.toml") -Pattern 'egui = \{ version = "0.34", default-features = false \}' -Quiet)
+$scaleReady = (Test-Path (Join-Path $scaleDir "Cargo.toml") -PathType Leaf) -and
+    ((git -C $scaleDir rev-parse HEAD 2>$null) -eq $scaleRevision) -and
+    (Select-String -Path (Join-Path $scaleDir "Cargo.toml") -Pattern 'egui = \{ version = "0.34", default-features = false \}' -Quiet)
+if ($snarlReady -and $scaleReady) {
+    Write-Host "Pinned egui patches are already valid." -ForegroundColor Green
 }
-& (Join-Path $PSScriptRoot "scripts\setup-egui-snarl.ps1")
+else {
+    & (Join-Path $PSScriptRoot "scripts\setup-egui-snarl.ps1")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: patched egui dependencies are not ready." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+}
 
 # --- Build PromptDJ Frontend ---
 Write-Host "Building PromptDJ Frontend..." -ForegroundColor Cyan
@@ -181,10 +198,24 @@ else {
     exit 1
 }
 
-# The private creation-runtime build produces a read-back-verified combined
-# manifest shared by Windows and both Android flavors. Never compile a release
-# host that silently omits the approved image-to-3D runtime.
-$creationRuntimeDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_creation_runtime\sgt_creation_runtime.delivery.json"
+function Assert-TrackedDelivery {
+    param(
+        [Parameter(Mandatory = $true)][string]$Generated,
+        [Parameter(Mandatory = $true)][string]$Tracked
+    )
+
+    & py -3 (Join-Path $PSScriptRoot "scripts\verify_tracked_delivery.py") $Generated $Tracked
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: verified remote delivery does not match the tracked build contract." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+}
+
+$trackedDeliveryRoot = Join-Path $PSScriptRoot "component-delivery\windows"
+
+# The tracked creation contract is shared by Windows and both Android flavors
+# and is verified against the immutable release before the host build starts.
+$creationRuntimeDelivery = Join-Path $PSScriptRoot "component-delivery\creation-runtime-v1.json"
 if (-not (Test-Path -LiteralPath $creationRuntimeDelivery -PathType Leaf)) {
     Write-Host "FAILED: verified creation-runtime delivery is missing. Rebuild and verify the private Windows/Android runtime release first." -ForegroundColor Red
     exit 1
@@ -195,7 +226,6 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: creation-runtime delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$env:SGT_CREATION_RUNTIME_DELIVERY_MANIFEST = $creationRuntimeDelivery
 
 # Build deterministic optional frontend packs and require read-back-verified delivery metadata.
 # This prevents a signed host from referencing an asset that has not reached the immutable release.
@@ -205,7 +235,8 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: optional frontend delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$env:SGT_WEB_ASSET_DELIVERY_MANIFEST = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_web_assets\sgt_web_assets.delivery.json"
+$webAssetDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_web_assets\sgt_web_assets.delivery.json"
+Assert-TrackedDelivery $webAssetDelivery (Join-Path $trackedDeliveryRoot "web-assets-v1.json")
 
 # Pin external executables and the signed WebView2 bootstrapper to bytes read
 # back from immutable release locations. None of these payloads enters the host.
@@ -215,7 +246,8 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: Windows external-tool delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$env:SGT_EXTERNAL_TOOL_DELIVERY_MANIFEST = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_external_tools\sgt_external_tools.delivery.json"
+$externalToolDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_external_tools\sgt_external_tools.delivery.json"
+Assert-TrackedDelivery $externalToolDelivery (Join-Path $trackedDeliveryRoot "external-tools-v1.json")
 
 # Require the canonical Windows model package inventory and prove that its
 # deterministic tracked delivery plus every local package entry still match.
@@ -224,10 +256,9 @@ if (-not (Test-Path -LiteralPath $windowsModelDelivery -PathType Leaf)) {
     Write-Host "FAILED: canonical Windows model delivery manifest is missing." -ForegroundColor Red
     exit 1
 }
-$env:SGT_WINDOWS_MODEL_DELIVERY_MANIFEST = $windowsModelDelivery
 Write-Host "Verifying Windows model delivery..." -ForegroundColor Cyan
 & py -3 (Join-Path $PSScriptRoot "scripts\verify_windows_model_release.py") `
-    --package-manifest $env:SGT_WINDOWS_MODEL_DELIVERY_MANIFEST `
+    --package-manifest $windowsModelDelivery `
     --delivery-manifest (Join-Path $PSScriptRoot "model-delivery\windows-v1.json")
 if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: Windows model delivery is not release-ready." -ForegroundColor Red
@@ -242,7 +273,8 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: VC runtime delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$env:SGT_VC_RUNTIME_DELIVERY_MANIFEST = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_vc_runtime\sgt_vc_runtime.delivery.json"
+$vcRuntimeDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_vc_runtime\sgt_vc_runtime.delivery.json"
+Assert-TrackedDelivery $vcRuntimeDelivery (Join-Path $trackedDeliveryRoot "vc-runtime-v1.json")
 
 # Reproduce the split Qwen3 CUDA packs and require delivery metadata generated by
 # hashing the published assets after upload. This is intentionally fail-closed.
@@ -252,16 +284,19 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: Qwen3 CUDA runtime delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$env:SGT_QWEN3_RUNTIME_DELIVERY_MANIFEST = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json"
+$qwenRuntimeDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json"
+Assert-TrackedDelivery $qwenRuntimeDelivery (Join-Path $trackedDeliveryRoot "qwen-runtime-v1.json")
 
 # Local ASR packs are built explicitly because they include a separate release
 # worker. Canonical host builds consume only the read-back-verified manifest.
 $localAsrDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_local_asr\sgt_local_asr.delivery.json"
-if (-not (Test-Path -LiteralPath $localAsrDelivery -PathType Leaf)) {
-    Write-Host "FAILED: verified local ASR delivery is missing. Build, upload, and run scripts\verify_local_asr_release.py first." -ForegroundColor Red
-    exit 1
+Write-Host "Reading back local ASR component delivery..." -ForegroundColor Cyan
+& py -3 (Join-Path $PSScriptRoot "scripts\verify_local_asr_release.py") --output $localAsrDelivery
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "FAILED: local ASR delivery is not release-ready." -ForegroundColor Red
+    exit $LASTEXITCODE
 }
-$env:SGT_LOCAL_ASR_DELIVERY_MANIFEST = $localAsrDelivery
+Assert-TrackedDelivery $localAsrDelivery (Join-Path $trackedDeliveryRoot "local-asr-v1.json")
 
 # Build the standalone recorder worker and reproduce both recorder packages.
 # The host build is blocked unless their uploaded bytes were read back and
@@ -272,7 +307,8 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: Screen Recorder component delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$env:SGT_RECORDER_DELIVERY_MANIFEST = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_recorder\sgt_recorder.delivery.json"
+$recorderDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_recorder\sgt_recorder.delivery.json"
+Assert-TrackedDelivery $recorderDelivery (Join-Path $trackedDeliveryRoot "recorder-v1.json")
 
 # Build the standalone Computer Control cognition engine and require delivery
 # metadata produced only after the immutable release asset was read back.
@@ -282,7 +318,8 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: Computer Control engine delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$env:SGT_COMPUTER_CONTROL_DELIVERY_MANIFEST = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_computer_control\sgt_computer_control.delivery.json"
+$computerControlDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_computer_control\sgt_computer_control.delivery.json"
+Assert-TrackedDelivery $computerControlDelivery (Join-Path $trackedDeliveryRoot "computer-control-v1.json")
 
 # --- Continue Main Build ---
 # Extract version from Cargo.toml
@@ -310,6 +347,8 @@ $workspaceRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\')
 $releaseRustFlags = @(
     "-C",
     "target-feature=+crt-static",
+    "-C",
+    "link-arg=/Brepro",
     "--remap-path-prefix=$workspaceRoot=/sgt"
 )
 $cargoHome = if ($env:CARGO_HOME) {

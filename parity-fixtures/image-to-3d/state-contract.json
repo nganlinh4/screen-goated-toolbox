@@ -1,6 +1,14 @@
 {
-  "schemaVersion": 35,
+  "schemaVersion": 36,
   "tool": "image-to-3d",
+  "runtimeDelivery": {
+    "authority": "tracked-immutable-contract",
+    "sharedAcrossWindowsAndAndroid": true,
+    "requiresExactUrlVersionSizeAndSha256": true,
+    "missingContractFailsBuild": true,
+    "acceptsLocalRuntimeFallback": false,
+    "acceptsEnvironmentOverride": false
+  },
   "names": {
     "en": "Image to 3D",
     "ko": "이미지를 3D로",

@@ -14,10 +14,13 @@ use sha2::{Digest, Sha256};
 
 mod capability_probe;
 mod download;
+mod lifecycle;
 mod process_query;
+mod update;
 
 pub(crate) use capability_probe::supports_optional_3d_instruction;
-pub(crate) use download::download_runtime;
+pub(crate) use download::{download_runtime, is_runtime_available};
+pub(crate) use lifecycle::{shutdown, stop_for_component_removal};
 
 #[derive(Clone, Copy)]
 struct RuntimeDelivery {
@@ -55,10 +58,32 @@ fn localized_component_name() -> String {
 }
 
 fn runtime_version() -> &'static str {
-    RUNTIME_DELIVERY
-        .as_ref()
+    runtime_delivery()
         .map(|delivery| delivery.version)
         .unwrap_or("not-included")
+}
+
+fn runtime_delivery() -> Option<&'static RuntimeDelivery> {
+    update::delivery().or(RUNTIME_DELIVERY.as_ref())
+}
+
+pub(crate) fn refresh_after_start_failure() -> bool {
+    let Some((mode, _, _)) = crate::component_registry::update_catalog::policy(COMPONENT_ID) else {
+        return false;
+    };
+    if mode != "typed-failure" {
+        return false;
+    }
+    let before = runtime_delivery().map(|delivery| (delivery.version, delivery.sha256));
+    if crate::component_registry::update_catalog::refresh_now().is_err() {
+        return false;
+    }
+    let after = runtime_delivery().map(|delivery| (delivery.version, delivery.sha256));
+    if before.is_none() || after.is_none() || before == after {
+        return false;
+    }
+    invalidate_verified_runtime();
+    download_runtime(Arc::new(AtomicBool::new(false)), true).is_ok()
 }
 
 fn runtime_component_root() -> PathBuf {
@@ -68,6 +93,7 @@ fn runtime_component_root() -> PathBuf {
 
 #[cfg(windows)]
 struct VerifiedInstalledRuntime {
+    version: &'static str,
     path: PathBuf,
     _lease: std::fs::File,
 }
@@ -112,9 +138,8 @@ fn open_runtime_for_validation(path: &Path) -> Result<std::fs::File> {
 }
 
 fn validate_open_runtime(file: &mut std::fs::File) -> Result<()> {
-    let delivery = RUNTIME_DELIVERY
-        .as_ref()
-        .ok_or_else(|| anyhow!("Creation engine is not included in this build."))?;
+    let delivery = runtime_delivery()
+        .ok_or_else(|| anyhow!("Creation engine download contract is unavailable."))?;
     if delivery.version.is_empty() {
         bail!("Creation engine delivery metadata is invalid.");
     }
@@ -161,13 +186,16 @@ fn verified_installed_runtime_path() -> Result<PathBuf> {
         let mut cached = VERIFIED_INSTALLED_RUNTIME
             .lock()
             .unwrap_or_else(|value| value.into_inner());
-        if let Some(runtime) = cached.as_ref() {
+        let version = runtime_version();
+        if let Some(runtime) = cached.as_ref().filter(|runtime| runtime.version == version) {
             return Ok(runtime.path.clone());
         }
+        cached.take();
         let path = runtime_exe_path();
         let mut lease = open_runtime_for_validation(&path)?;
         validate_open_runtime(&mut lease)?;
         *cached = Some(VerifiedInstalledRuntime {
+            version,
             path: path.clone(),
             _lease: lease,
         });
@@ -176,9 +204,8 @@ fn verified_installed_runtime_path() -> Result<PathBuf> {
 }
 
 fn write_runtime_receipt() -> Result<()> {
-    let delivery = RUNTIME_DELIVERY
-        .as_ref()
-        .ok_or_else(|| anyhow!("Creation engine is not included in this build."))?;
+    let delivery = runtime_delivery()
+        .ok_or_else(|| anyhow!("Creation engine download contract is unavailable."))?;
     crate::component_registry::write_receipt(
         &runtime_component_root(),
         &crate::component_registry::ComponentReceipt {
@@ -198,7 +225,7 @@ fn write_runtime_receipt() -> Result<()> {
 
 fn migrate_legacy_runtime() -> Result<()> {
     let target = runtime_exe_path();
-    if target.is_file() || RUNTIME_DELIVERY.is_none() {
+    if target.is_file() || runtime_delivery().is_none() {
         return Ok(());
     }
     let legacy = crate::paths::app_local_data_dir()
@@ -307,7 +334,7 @@ fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
 }
 
 pub(crate) fn update_installed_runtime_in_background() {
-    if RUNTIME_DELIVERY.is_none() {
+    if runtime_delivery().is_none() {
         return;
     }
     let path = runtime_exe_path();
@@ -323,24 +350,8 @@ pub(crate) fn update_installed_runtime_in_background() {
     });
 }
 
-#[cfg(debug_assertions)]
-pub(crate) fn development_runtime_path() -> Option<PathBuf> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("native")
-        .join("sgt_3d_generator_runtime")
-        .join("target")
-        .join("debug")
-        .join("sgt_creation_runtime.exe");
-    path.is_file().then_some(path)
-}
-
-#[cfg(not(debug_assertions))]
-pub(crate) fn development_runtime_path() -> Option<PathBuf> {
-    None
-}
-
 pub(crate) fn shared_runtime_path() -> Option<PathBuf> {
-    development_runtime_path().or_else(|| is_runtime_installed().then(runtime_exe_path))
+    is_runtime_installed().then(runtime_exe_path)
 }
 
 fn supported_readiness_tool(tool: &str) -> bool {
@@ -425,27 +436,6 @@ pub(super) fn unregister_runtime_process(pid: u32) {
         .lock()
         .unwrap_or_else(|value| value.into_inner())
         .remove(&pid);
-}
-
-pub(crate) fn shutdown() {
-    RUNTIME_SHUTTING_DOWN.store(true, Ordering::Release);
-    for task in READINESS_IN_FLIGHT
-        .lock()
-        .unwrap_or_else(|value| value.into_inner())
-        .drain()
-        .map(|(_, task)| task)
-    {
-        task.stop.store(true, Ordering::Release);
-    }
-    let processes = {
-        let mut processes = RUNTIME_PROCESSES
-            .lock()
-            .unwrap_or_else(|value| value.into_inner());
-        processes.drain().collect::<Vec<_>>()
-    };
-    for pid in processes {
-        crate::overlay::creation_recovery::terminate_process_tree(pid);
-    }
 }
 
 pub(crate) fn cancel_readiness(tool: &str) {

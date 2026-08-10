@@ -22,6 +22,7 @@ class CreationStateContractTest {
     @Test
     fun `image to 3d product contract preserves canonical limits`() {
         val fixture = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
+        val delivery = fixture.objectAt("runtimeDelivery")
         val states = fixture.getValue("states").jsonArray
             .map { it.jsonPrimitive.content }
             .toSet()
@@ -36,6 +37,13 @@ class CreationStateContractTest {
         val runtimeCapabilities = fixture.objectAt("runtimeCapabilities")
         val optionalInstruction = runtimeCapabilities.objectAt("optionalInstruction")
         val generationPrerequisite = segmentation.objectAt("generationPrerequisite")
+
+        assertEquals("tracked-immutable-contract", delivery.stringAt("authority"))
+        assertTrue(delivery.booleanAt("sharedAcrossWindowsAndAndroid"))
+        assertTrue(delivery.booleanAt("requiresExactUrlVersionSizeAndSha256"))
+        assertTrue(delivery.booleanAt("missingContractFailsBuild"))
+        assertFalse(delivery.booleanAt("acceptsLocalRuntimeFallback"))
+        assertFalse(delivery.booleanAt("acceptsEnvironmentOverride"))
 
         assertEquals(CreationContract.DEFAULT_POLYCOUNT, defaults.intAt("polycount"))
         assertEquals(

@@ -9,6 +9,12 @@ fn test_card(streaming: bool) -> SceneCard {
             width: 300,
             height: 100,
         },
+        control_rect: SceneRect {
+            x: 0,
+            y: 0,
+            width: 308,
+            height: 104,
+        },
         body: "result".to_string(),
         document: None,
         refining: false,
@@ -18,6 +24,7 @@ fn test_card(streaming: bool) -> SceneCard {
         streaming,
         streaming_enabled: streaming,
         stack_order: 7,
+        controls: Default::default(),
     }
 }
 

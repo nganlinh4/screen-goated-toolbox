@@ -17,15 +17,15 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
-use wry::http::Response;
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
 const WM_DRAIN_COMMANDS: u32 = WM_APP + 91;
+const INPUT_TIMER_ID: usize = 1;
 static HOST_HWND: AtomicIsize = AtomicIsize::new(0);
 static RENDERER_READY: AtomicBool = AtomicBool::new(false);
 static COMMANDS: LazyLock<Mutex<VecDeque<HostCommand>>> =
     LazyLock::new(|| Mutex::new(VecDeque::new()));
-static CARDS: LazyLock<Mutex<HashMap<isize, SceneCard>>> =
+pub(super) static CARDS: LazyLock<Mutex<HashMap<isize, SceneCard>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static STDOUT: LazyLock<Mutex<std::io::Stdout>> = LazyLock::new(|| Mutex::new(std::io::stdout()));
 
@@ -39,6 +39,9 @@ pub fn run() -> anyhow::Result<()> {
 
     let hwnd = create_host_window()?;
     HOST_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
+    unsafe {
+        let _ = SetTimer(Some(hwnd), INPUT_TIMER_ID, 100, None);
+    }
     start_input_thread();
 
     let webview = create_webview(hwnd)?;
@@ -124,7 +127,7 @@ fn create_webview(hwnd: HWND) -> anyhow::Result<WebView> {
             .with_custom_protocol("sgtresult".to_string(), move |_id, request| {
                 let path = request.uri().path();
                 if path == "/" || path == "/index.html" {
-                    return compositor_response(
+                    return super::web_response::compositor_response(
                         200,
                         "text/html; charset=utf-8",
                         Cow::Owned(compositor_html.as_bytes().to_vec()),
@@ -132,14 +135,19 @@ fn create_webview(hwnd: HWND) -> anyhow::Result<WebView> {
                     );
                 }
                 if path == "/font.ttf" {
-                    return compositor_response(
+                    return super::web_response::compositor_response(
                         200,
                         "font/ttf",
                         Cow::Borrowed(super::font::bytes()),
                         "public, max-age=31536000, immutable",
                     );
                 }
-                compositor_response(404, "text/plain", Cow::Borrowed(b"Not Found"), "no-store")
+                super::web_response::compositor_response(
+                    404,
+                    "text/plain",
+                    Cow::Borrowed(b"Not Found"),
+                    "no-store",
+                )
             })
             .with_url("sgtresult://localhost/index.html")
             .with_ipc_handler(|request: wry::http::Request<String>| {
@@ -148,29 +156,6 @@ fn create_webview(hwnd: HWND) -> anyhow::Result<WebView> {
             .build_as_child(&wrapper)
             .map_err(Into::into)
     })
-}
-
-pub(super) fn document_for_card(id: isize) -> Option<String> {
-    CARDS
-        .lock()
-        .unwrap()
-        .get(&id)
-        .and_then(|card| card.document.clone())
-}
-
-fn compositor_response(
-    status: u16,
-    mime: &'static str,
-    body: Cow<'static, [u8]>,
-    cache_control: &'static str,
-) -> Response<Cow<'static, [u8]>> {
-    Response::builder()
-        .status(status)
-        .header("Content-Type", mime)
-        .header("Access-Control-Allow-Origin", "*")
-        .header("Cache-Control", cache_control)
-        .body(body)
-        .unwrap_or_else(|_| Response::new(Cow::Borrowed(b"Internal Error")))
 }
 
 fn start_input_thread() {
@@ -226,6 +211,21 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+            WM_MOUSEMOVE if super::button_input::handle_mouse_move() => LRESULT(0),
+            WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP
+                if super::button_input::has_active_drag() =>
+            {
+                finish_button_drag(hwnd);
+                LRESULT(0)
+            }
+            WM_CAPTURECHANGED | WM_CANCELMODE if super::button_input::has_active_drag() => {
+                recover_button_drag(hwnd);
+                LRESULT(0)
+            }
+            WM_TIMER if wparam.0 == INPUT_TIMER_ID => {
+                poll_compositor_cursor(hwnd);
+                LRESULT(0)
+            }
             WM_CLOSE => {
                 let _ = DestroyWindow(hwnd);
                 LRESULT(0)
@@ -287,6 +287,33 @@ fn command_requires_region_redraw(command: &HostCommand) -> bool {
 }
 
 fn handle_renderer_event(body: &str) {
+    let host_value = HOST_HWND.load(Ordering::SeqCst);
+    if host_value != 0 {
+        let host = HWND(host_value as *mut std::ffi::c_void);
+        let outcome = {
+            let cards = CARDS.lock().unwrap();
+            super::button_input::handle_renderer_message(body, host, &cards)
+        };
+        match outcome {
+            super::button_input::RendererInput::Unhandled => {}
+            super::button_input::RendererInput::RefreshRegion => {
+                update_window_region(host, true);
+                return;
+            }
+            super::button_input::RendererInput::Event(event) => {
+                emit_event(event);
+                return;
+            }
+            super::button_input::RendererInput::EventAndRefresh(event) => {
+                if event == ChildEvent::DragStarted {
+                    evaluate_script("window.__SGT_BUTTON_SCENE__?.setDragActive(true);");
+                }
+                emit_event(event);
+                update_window_region(host, true);
+                return;
+            }
+        }
+    }
     match body {
         "renderer_ready" => {
             RENDERER_READY.store(true, Ordering::SeqCst);
@@ -309,6 +336,9 @@ fn handle_renderer_event(body: &str) {
                 match event {
                     ChildEvent::Navigation { .. }
                     | ChildEvent::Interaction { .. }
+                    | ChildEvent::ButtonAction { .. }
+                    | ChildEvent::DragStarted
+                    | ChildEvent::DragFinished { .. }
                     | ChildEvent::FitDiagnostic { .. }
                     | ChildEvent::CardDiagnostic { .. }
                     | ChildEvent::FontReady { .. }
@@ -329,6 +359,9 @@ fn command_name(command: &HostCommand) -> &'static str {
         HostCommand::Stream { .. } => "stream",
         HostCommand::Finalize { .. } => "finalize",
         HostCommand::Geometry { .. } => "geometry",
+        HostCommand::Controls { .. } => "controls",
+        HostCommand::RefineText { .. } => "refine_text",
+        HostCommand::ExternalDrag { .. } => "external_drag",
         HostCommand::Theme { .. } => "theme",
         HostCommand::Raise { .. } => "raise",
         HostCommand::Remove { .. } => "remove",
@@ -347,8 +380,11 @@ fn command_id(command: &HostCommand) -> Option<isize> {
         | HostCommand::NavigateBack { id }
         | HostCommand::NavigateForward { id } => Some(*id),
         HostCommand::Raise { id, .. } => Some(*id),
+        HostCommand::RefineText { id, .. } => Some(*id),
         HostCommand::Snapshot { .. }
         | HostCommand::Geometry { .. }
+        | HostCommand::Controls { .. }
+        | HostCommand::ExternalDrag { .. }
         | HostCommand::Theme { .. }
         | HostCommand::Shutdown => None,
     }
@@ -373,6 +409,7 @@ fn apply_scene_state(command: &HostCommand) {
                 card.opacity = update.opacity;
                 card.visible = update.visible;
                 card.streaming = true;
+                card.controls.clone_from(&update.controls);
             }
         }
         HostCommand::Finalize { card: update } => {
@@ -384,16 +421,26 @@ fn apply_scene_state(command: &HostCommand) {
                 card.opacity = update.opacity;
                 card.visible = update.visible;
                 card.streaming = false;
+                card.controls.clone_from(&update.controls);
             }
         }
         HostCommand::Geometry { cards: updates } => {
             for update in updates {
                 if let Some(card) = cards.get_mut(&update.id) {
                     card.rect = update.rect.clone();
+                    card.control_rect = update.control_rect.clone();
                     card.visible = update.visible;
                 }
             }
         }
+        HostCommand::Controls { cards: updates } => {
+            for update in updates {
+                if let Some(card) = cards.get_mut(&update.id) {
+                    card.controls.clone_from(&update.controls);
+                }
+            }
+        }
+        HostCommand::ExternalDrag { active } => super::button_input::set_external_drag(*active),
         HostCommand::Theme { theme } => {
             for appearance in &theme.cards {
                 if let Some(card) = cards.get_mut(&appearance.id) {
@@ -411,6 +458,7 @@ fn apply_scene_state(command: &HostCommand) {
         }
         HostCommand::NavigateBack { .. }
         | HostCommand::NavigateForward { .. }
+        | HostCommand::RefineText { .. }
         | HostCommand::Shutdown => {}
     }
 }
@@ -427,6 +475,16 @@ fn update_window_region(hwnd: HWND, redraw: bool) {
                 card.rect.y,
                 card.rect.x + card.rect.width,
                 card.rect.y + card.rect.height,
+            );
+            let _ = CombineRgn(Some(combined), Some(combined), Some(rect), RGN_OR);
+            let _ = DeleteObject(rect.into());
+        }
+        for region in super::button_input::interactive_regions() {
+            let rect = CreateRectRgn(
+                region.x,
+                region.y,
+                region.x + region.width,
+                region.y + region.height,
             );
             let _ = CombineRgn(Some(combined), Some(combined), Some(rect), RGN_OR);
             let _ = DeleteObject(rect.into());
@@ -448,6 +506,55 @@ fn update_window_region(hwnd: HWND, redraw: bool) {
             );
         }
     }
+}
+
+fn finish_button_drag(hwnd: HWND) {
+    if let Some(event) = unsafe { super::button_input::finish_drag() } {
+        emit_event(event);
+        reset_button_cursor();
+        update_window_region(hwnd, true);
+    }
+}
+
+fn recover_button_drag(hwnd: HWND) {
+    if let Some(event) = unsafe { super::button_input::recover_stale_drag(hwnd) } {
+        emit_event(event);
+        reset_button_cursor();
+        update_window_region(hwnd, true);
+    }
+}
+
+fn poll_compositor_cursor(hwnd: HWND) {
+    if super::button_input::is_dragging() {
+        recover_button_drag(hwnd);
+        return;
+    }
+    let mut cursor = windows::Win32::Foundation::POINT::default();
+    if unsafe { GetCursorPos(&mut cursor) }.is_err() {
+        return;
+    }
+    let virtual_x = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+    let virtual_y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+    let script = format!(
+        "window.updateCursorPosition?.({}/(window.devicePixelRatio||1),{}/(window.devicePixelRatio||1));",
+        cursor.x - virtual_x,
+        cursor.y - virtual_y
+    );
+    evaluate_script(&script);
+}
+
+fn reset_button_cursor() {
+    evaluate_script(
+        "window.setResultDraggingCursor?.(false);window.__SGT_BUTTON_SCENE__?.setDragActive(false);",
+    );
+}
+
+fn evaluate_script(script: &str) {
+    WEBVIEW.with(|slot| {
+        if let Some(webview) = slot.borrow().as_ref() {
+            let _ = webview.evaluate_script(script);
+        }
+    });
 }
 
 fn resize_host(hwnd: HWND) {
@@ -488,40 +595,5 @@ fn emit_event(event: ChildEvent) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::command_requires_region_redraw;
-    use crate::overlay::result::scene_compositor::protocol::{
-        HostCommand, SceneGeometry, SceneRect, SceneTheme,
-    };
-
-    #[test]
-    fn geometry_only_commands_do_not_force_a_webview_redraw() {
-        let command = HostCommand::Geometry {
-            cards: vec![SceneGeometry {
-                id: 42,
-                rect: SceneRect {
-                    x: 10,
-                    y: 20,
-                    width: 300,
-                    height: 200,
-                },
-                visible: true,
-            }],
-        };
-
-        assert!(!command_requires_region_redraw(&command));
-        assert!(!command_requires_region_redraw(&HostCommand::Theme {
-            theme: SceneTheme {
-                css: String::new(),
-                cards: Vec::new(),
-            },
-        }));
-        assert!(!command_requires_region_redraw(&HostCommand::Raise {
-            id: 42,
-            stack_order: 9,
-        }));
-        assert!(command_requires_region_redraw(&HostCommand::Remove {
-            id: 42
-        }));
-    }
-}
+#[path = "child_tests.rs"]
+mod tests;

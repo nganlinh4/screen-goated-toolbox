@@ -9,96 +9,12 @@ use super::{
     ComponentKind, LocalAsrDelivery, LocalAsrFile, MAX_COMPONENT_FILES, WORKER_ID, owned_file,
     receipt, staging, validate_delivery, version_root,
 };
-#[cfg(debug_assertions)]
-use super::{RUNTIME_FILES, RUNTIME_ID, RUNTIME_VERSION, validate_runtime_install};
-#[cfg(debug_assertions)]
-use anyhow::Context as _;
 use anyhow::{Result, anyhow, bail};
 
-#[cfg(debug_assertions)]
-const ONNX_URL: &str = "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.2/microsoft.ml.onnxruntime.directml.1.24.2.nupkg";
-#[cfg(debug_assertions)]
-const ONNX_SIZE: u64 = 12_411_398;
-#[cfg(debug_assertions)]
-const ONNX_SHA256: &str = "c9b8adb96dfb5578097bea42a7d9b7ff8f300fb3c3a6f3052fe5b702628ab681";
-#[cfg(debug_assertions)]
-const DIRECTML_URL: &str = "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg";
-#[cfg(debug_assertions)]
-const DIRECTML_SIZE: u64 = 202_292_617;
-#[cfg(debug_assertions)]
-const DIRECTML_SHA256: &str = "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9";
 const IMAGE_FILE_MACHINE_AMD64: u16 = 0x8664;
 
 static INSTALL_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static INSTALL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-#[cfg(debug_assertions)]
-struct SourcePackage {
-    url: &'static str,
-    size_bytes: u64,
-    sha256: &'static str,
-    entries: &'static [SourceEntry],
-}
-
-#[cfg(debug_assertions)]
-struct SourceEntry {
-    archive_path: &'static str,
-    output_path: &'static str,
-}
-
-#[cfg(debug_assertions)]
-const ONNX_ENTRIES: &[SourceEntry] = &[
-    SourceEntry {
-        archive_path: "runtimes/win-x64/native/onnxruntime.dll",
-        output_path: "bin/x64/onnxruntime.dll",
-    },
-    SourceEntry {
-        archive_path: "runtimes/win-x64/native/onnxruntime_providers_shared.dll",
-        output_path: "bin/x64/onnxruntime_providers_shared.dll",
-    },
-    SourceEntry {
-        archive_path: "LICENSE",
-        output_path: "licenses/onnxruntime-LICENSE.txt",
-    },
-    SourceEntry {
-        archive_path: "ThirdPartyNotices.txt",
-        output_path: "licenses/onnxruntime-ThirdPartyNotices.txt",
-    },
-];
-#[cfg(debug_assertions)]
-const DIRECTML_ENTRIES: &[SourceEntry] = &[
-    SourceEntry {
-        archive_path: "bin/x64-win/DirectML.dll",
-        output_path: "bin/x64/DirectML.dll",
-    },
-    SourceEntry {
-        archive_path: "LICENSE-CODE.txt",
-        output_path: "licenses/directml-LICENSE-CODE.txt",
-    },
-    SourceEntry {
-        archive_path: "LICENSE.txt",
-        output_path: "licenses/directml-LICENSE.txt",
-    },
-    SourceEntry {
-        archive_path: "ThirdPartyNotices.txt",
-        output_path: "licenses/directml-ThirdPartyNotices.txt",
-    },
-];
-#[cfg(debug_assertions)]
-const SOURCE_PACKAGES: &[SourcePackage] = &[
-    SourcePackage {
-        url: ONNX_URL,
-        size_bytes: ONNX_SIZE,
-        sha256: ONNX_SHA256,
-        entries: ONNX_ENTRIES,
-    },
-    SourcePackage {
-        url: DIRECTML_URL,
-        size_bytes: DIRECTML_SIZE,
-        sha256: DIRECTML_SHA256,
-        entries: DIRECTML_ENTRIES,
-    },
-];
 
 pub(super) fn ensure_delivery(
     delivery: &'static LocalAsrDelivery,
@@ -117,25 +33,6 @@ pub(super) fn ensure_delivery(
     clear_invalid(ComponentKind::from_id(delivery.id)?)?;
     let _lease = super::super::acquire(delivery.id)?;
     install_delivery(delivery, cancelled, on_progress)
-}
-
-#[cfg(debug_assertions)]
-pub(super) fn ensure_development_runtime(
-    cancelled: &std::sync::atomic::AtomicBool,
-    on_progress: impl Fn(u64, u64),
-) -> Result<()> {
-    if validate_runtime_install().is_ok() {
-        return Ok(());
-    }
-    let _guard = INSTALL_LOCK
-        .lock()
-        .unwrap_or_else(|value| value.into_inner());
-    if validate_runtime_install().is_ok() {
-        return Ok(());
-    }
-    clear_invalid(ComponentKind::Runtime)?;
-    let _lease = super::super::acquire(RUNTIME_ID)?;
-    install_development_runtime(cancelled, on_progress)
 }
 
 fn clear_invalid(kind: ComponentKind) -> Result<()> {
@@ -204,40 +101,6 @@ fn install_delivery(
             .map(|file| PathBuf::from(file.path))
             .collect::<Vec<_>>();
         owned.push("receipt.json".into());
-        let _ = staging::cleanup_owned(&staging_root, &owned);
-    }
-    result
-}
-
-#[cfg(debug_assertions)]
-fn install_development_runtime(
-    cancelled: &std::sync::atomic::AtomicBool,
-    on_progress: impl Fn(u64, u64),
-) -> Result<()> {
-    let (_, staging_root) = working_paths(RUNTIME_ID, RUNTIME_VERSION)?;
-    let result = (|| {
-        if !adopt_legacy_runtime(&staging_root)? {
-            install_source_packages(&staging_root, cancelled, &on_progress)?;
-        }
-        publish(
-            &staging_root,
-            RUNTIME_ID,
-            RUNTIME_VERSION,
-            ComponentKind::Runtime,
-            RUNTIME_FILES,
-        )?;
-        validate_runtime_install()
-    })();
-    if staging_root.exists() {
-        let mut owned = RUNTIME_FILES
-            .iter()
-            .map(|file| PathBuf::from(file.path))
-            .collect::<Vec<_>>();
-        owned.extend([
-            PathBuf::from("source-0.nupkg"),
-            PathBuf::from("source-1.nupkg"),
-            PathBuf::from("receipt.json"),
-        ]);
         let _ = staging::cleanup_owned(&staging_root, &owned);
     }
     result
@@ -360,86 +223,6 @@ fn extract_delivery(
     Ok(())
 }
 
-#[cfg(debug_assertions)]
-fn adopt_legacy_runtime(staging_root: &Path) -> Result<bool> {
-    let legacy = crate::paths::app_local_data_dir().join("bin/x64");
-    for expected in RUNTIME_FILES {
-        let source = legacy.join(
-            Path::new(expected.path)
-                .file_name()
-                .expect("runtime file has a name"),
-        );
-        if !source.is_file() || !file_matches(&source, &owned_file(expected))? {
-            return Ok(false);
-        }
-    }
-    for expected in RUNTIME_FILES {
-        let source = legacy.join(
-            Path::new(expected.path)
-                .file_name()
-                .expect("runtime file has a name"),
-        );
-        let target = staging::prepare_target(staging_root, Path::new(expected.path))?;
-        fs::copy(source, &target)?;
-        validate_x64_pe(&target)?;
-    }
-    Ok(true)
-}
-
-#[cfg(debug_assertions)]
-fn install_source_packages(
-    staging_root: &Path,
-    cancelled: &std::sync::atomic::AtomicBool,
-    on_progress: &impl Fn(u64, u64),
-) -> Result<()> {
-    let total_download: u64 = SOURCE_PACKAGES
-        .iter()
-        .map(|package| package.size_bytes)
-        .sum();
-    let mut completed = 0_u64;
-    for (index, package) in SOURCE_PACKAGES.iter().enumerate() {
-        let archive = staging_root.join(format!("source-{index}.nupkg"));
-        download(
-            package.url,
-            package.size_bytes,
-            &archive,
-            cancelled,
-            &|done, _| on_progress(completed + done, total_download),
-        )?;
-        verify_file(&archive, package.size_bytes, package.sha256)?;
-        let mut zip = zip::ZipArchive::new(fs::File::open(&archive)?)?;
-        for source in package.entries {
-            let expected = RUNTIME_FILES
-                .iter()
-                .find(|file| file.path == source.output_path)
-                .expect("source entry maps to runtime contract");
-            let mut entry = zip
-                .by_name(source.archive_path)
-                .with_context(|| format!("source package is missing {}", source.archive_path))?;
-            if entry.size() != expected.size_bytes {
-                bail!("source package runtime entry has an unexpected size");
-            }
-            let target = staging::prepare_target(staging_root, Path::new(source.output_path))?;
-            let mut output = fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&target)?;
-            std::io::copy(&mut entry, &mut output)?;
-            output.flush()?;
-            if !file_matches(&target, &owned_file(expected))? {
-                bail!("source package runtime entry failed integrity verification");
-            }
-            if expected.path.starts_with("bin/x64/") {
-                validate_x64_pe(&target)?;
-            }
-        }
-        drop(zip);
-        fs::remove_file(&archive)?;
-        completed += package.size_bytes;
-    }
-    Ok(())
-}
-
 fn publish(
     staging_root: &Path,
     id: &str,
@@ -497,26 +280,4 @@ pub(super) fn validate_x64_pe(path: &Path) -> Result<()> {
         bail!("local ASR executable is not an x64 PE file");
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn source_contract_matches_runtime_inventory() {
-        let mut outputs = SOURCE_PACKAGES
-            .iter()
-            .flat_map(|package| package.entries)
-            .map(|entry| entry.output_path)
-            .collect::<Vec<_>>();
-        outputs.sort_unstable();
-        let mut expected = RUNTIME_FILES
-            .iter()
-            .map(|file| file.path)
-            .collect::<Vec<_>>();
-        expected.sort_unstable();
-        assert_eq!(outputs, expected);
-        assert_eq!(super::super::ARCHITECTURE, "x64");
-    }
 }

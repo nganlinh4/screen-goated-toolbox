@@ -39,8 +39,15 @@ pub(crate) mod vision_contract;
 mod vision_reader;
 
 /// MCP capability-store hooks for the Downloaded Tools settings UI (list/install/remove).
-pub(crate) use mcp::{ui_install, ui_list, ui_remove, ui_remove_all};
+pub(crate) use mcp::{ui_install, ui_installing, ui_list, ui_remove, ui_remove_all};
 pub use overlay::{is_active, show_overlay, stop_overlay};
+
+pub(crate) fn remove_downloaded_engine() -> anyhow::Result<()> {
+    crate::component_registry::computer_control::remove()?;
+    stop_overlay();
+    engine::stop_for_component_removal();
+    crate::component_registry::computer_control::remove()
+}
 
 /// CLI entry for the de-risk probe. Multiple tasks run in one real Live session,
 /// which exercises conversation-state behavior without enabling input execution.

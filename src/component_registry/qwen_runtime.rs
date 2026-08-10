@@ -19,6 +19,8 @@ use super::receipt::{
 
 mod archive;
 mod install;
+#[cfg(not(feature = "recorder-worker"))]
+mod update;
 
 const COMPONENT_ID: &str = "qwen3-cuda-runtime";
 const VC_COMPONENT_ID: &str = "vc14-x64-runtime";
@@ -54,7 +56,7 @@ include!(concat!(env!("OUT_DIR"), "/qwen_runtime_delivery.rs"));
 pub(crate) struct QwenRuntimeUse {
     bin_dir: PathBuf,
     _files: Vec<std::fs::File>,
-    _lease: Option<ComponentLease>,
+    _lease: ComponentLease,
     vc_runtime: super::vc_runtime::VcRuntimeUse,
 }
 
@@ -78,7 +80,7 @@ impl QwenRuntimeUse {
 pub(crate) struct QwenRuntimeLoadUse {
     bin_dir: PathBuf,
     _files: Vec<std::fs::File>,
-    _lease: Option<ComponentLease>,
+    _lease: ComponentLease,
     _vc_runtime: super::vc_runtime::LoadedVcRuntime,
 }
 
@@ -94,15 +96,6 @@ pub(crate) fn ensure_component(
 ) -> Result<QwenRuntimeUse> {
     let _mutation = super::acquire_mutation_guard()?;
     let vc_runtime = super::vc_runtime::ensure_component(|_, _| {})?;
-    #[cfg(debug_assertions)]
-    if let Some(bin_dir) = development_root() {
-        return Ok(QwenRuntimeUse {
-            _files: lock_development_files(&bin_dir)?,
-            bin_dir,
-            _lease: None,
-            vc_runtime,
-        });
-    }
     let delivery = delivery()?;
     if validate_install(delivery).is_err() {
         install::install(cancel, on_progress)?;
@@ -112,15 +105,6 @@ pub(crate) fn ensure_component(
 
 pub(crate) fn acquire_installed() -> Result<QwenRuntimeUse> {
     let vc_runtime = super::vc_runtime::ensure_component(|_, _| {})?;
-    #[cfg(debug_assertions)]
-    if let Some(bin_dir) = development_root() {
-        return Ok(QwenRuntimeUse {
-            _files: lock_development_files(&bin_dir)?,
-            bin_dir,
-            _lease: None,
-            vc_runtime,
-        });
-    }
     acquire_with_vc(delivery()?, vc_runtime)
 }
 
@@ -135,65 +119,48 @@ fn acquire_with_vc(
     Ok(QwenRuntimeUse {
         bin_dir: root.join("bin/x64"),
         _files: files,
-        _lease: Some(lease),
+        _lease: lease,
         vc_runtime,
     })
 }
 
 pub(crate) fn is_installed() -> bool {
-    #[cfg(debug_assertions)]
-    if development_root().is_some() {
-        return true;
-    }
-    QWEN_RUNTIME_DELIVERY
-        .as_ref()
-        .is_some_and(|delivery| validate_install(delivery).is_ok())
+    optional_delivery().is_some_and(|delivery| validate_install(delivery).is_ok())
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) fn delivery_available() -> bool {
+    optional_delivery().is_some()
 }
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn is_installed_for_display() -> bool {
-    #[cfg(debug_assertions)]
-    if development_root().is_some() {
-        return true;
-    }
-    QWEN_RUNTIME_DELIVERY
-        .as_ref()
-        .is_some_and(|delivery| validate_status(delivery).is_ok())
+    optional_delivery().is_some_and(|delivery| validate_status(delivery).is_ok())
 }
 
 pub(crate) fn active_bin_dir() -> Option<PathBuf> {
-    #[cfg(debug_assertions)]
-    if let Some(root) = development_root() {
-        return Some(root);
-    }
-    let delivery = QWEN_RUNTIME_DELIVERY.as_ref()?;
+    let delivery = optional_delivery()?;
     validate_install(delivery).ok()?;
     version_root(delivery).ok().map(|root| root.join("bin/x64"))
 }
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn active_bin_dir_for_display() -> Option<PathBuf> {
-    #[cfg(debug_assertions)]
-    if let Some(root) = development_root() {
-        return Some(root);
-    }
-    let delivery = QWEN_RUNTIME_DELIVERY.as_ref()?;
+    let delivery = optional_delivery()?;
     validate_status(delivery).ok()?;
     version_root(delivery).ok().map(|root| root.join("bin/x64"))
 }
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn installed_size() -> u64 {
-    QWEN_RUNTIME_DELIVERY
-        .as_ref()
+    optional_delivery()
         .filter(|delivery| validate_install(delivery).is_ok())
         .map_or(0, |delivery| delivery.unpacked_size_bytes)
 }
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn installed_size_for_display() -> u64 {
-    QWEN_RUNTIME_DELIVERY
-        .as_ref()
+    optional_delivery()
         .filter(|delivery| validate_status(delivery).is_ok())
         .map_or(0, |delivery| delivery.unpacked_size_bytes)
 }
@@ -214,9 +181,16 @@ pub(crate) fn remove() -> Result<()> {
 }
 
 fn delivery() -> Result<&'static QwenRuntimeDelivery> {
-    QWEN_RUNTIME_DELIVERY
-        .as_ref()
-        .ok_or_else(|| anyhow!("verified {DISPLAY_NAME} delivery is not included in this build"))
+    optional_delivery()
+        .ok_or_else(|| anyhow!("verified {DISPLAY_NAME} download contract is unavailable"))
+}
+
+fn optional_delivery() -> Option<&'static QwenRuntimeDelivery> {
+    #[cfg(not(feature = "recorder-worker"))]
+    if let Some(delivery) = update::delivery() {
+        return Some(delivery);
+    }
+    QWEN_RUNTIME_DELIVERY.as_ref()
 }
 
 fn version_root(delivery: &QwenRuntimeDelivery) -> Result<PathBuf> {
@@ -361,31 +335,6 @@ fn open_locked_regular_file(path: &Path) -> Result<std::fs::File> {
         bail!("Qwen3 runtime load file is unsafe");
     }
     Ok(file)
-}
-
-#[cfg(debug_assertions)]
-fn lock_development_files(root: &Path) -> Result<Vec<std::fs::File>> {
-    [
-        "sgt_qwen3_runtime.dll",
-        "c10.dll",
-        "c10_cuda.dll",
-        "torch_cpu.dll",
-        "torch_cuda.dll",
-    ]
-    .iter()
-    .map(|name| open_locked_regular_file(&root.join(name)))
-    .collect()
-}
-
-#[cfg(debug_assertions)]
-fn development_root() -> Option<PathBuf> {
-    let root = std::env::var_os("SGT_QWEN3_RUNTIME_DEV_DIR").map(PathBuf::from)?;
-    let runtime = root.join("sgt_qwen3_runtime.dll");
-    archive::validate_x64_pe(&runtime).ok()?;
-    ["c10.dll", "c10_cuda.dll", "torch_cpu.dll", "torch_cuda.dll"]
-        .iter()
-        .all(|name| root.join(name).is_file())
-        .then_some(root)
 }
 
 #[cfg(all(test, not(feature = "recorder-worker")))]

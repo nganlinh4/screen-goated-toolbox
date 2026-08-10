@@ -28,14 +28,9 @@ fun Map<*, *>.requiredCreationString(name: String): String =
         ?: error("Creation runtime manifest is missing $name")
 
 fun loadCreationRuntimeBundleContract(repoRoot: File): CreationRuntimeBundleContract {
-    val configured = System.getenv("SGT_CREATION_RUNTIME_DELIVERY_MANIFEST")
-        ?.takeIf { it.isNotBlank() }
-        ?.let(::File)
-    val source = configured ?: repoRoot.resolve(
-        "local-runtime-bundles/sgt_creation_runtime/sgt_creation_runtime.delivery.json",
-    )
+    val source = repoRoot.resolve("component-delivery/creation-runtime-v1.json")
     require(source.isFile) {
-        "Play compliance requires the private creation runtime delivery manifest"
+        "Play compliance requires the tracked creation runtime delivery contract"
     }
     @Suppress("UNCHECKED_CAST")
     val root = JsonSlurper().parse(source) as Map<*, *>

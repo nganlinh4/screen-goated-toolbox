@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct SceneRect {
     pub x: i32,
     pub y: i32,
@@ -12,6 +12,8 @@ pub struct SceneRect {
 pub struct SceneCard {
     pub id: isize,
     pub rect: SceneRect,
+    #[serde(default)]
+    pub control_rect: SceneRect,
     pub body: String,
     pub document: Option<String>,
     pub refining: bool,
@@ -24,12 +26,39 @@ pub struct SceneCard {
     pub streaming_enabled: bool,
     #[serde(default)]
     pub stack_order: u64,
+    #[serde(default)]
+    pub controls: SceneControls,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneControls {
+    pub copy_success: bool,
+    pub has_undo: bool,
+    pub has_redo: bool,
+    pub nav_depth: usize,
+    pub max_nav_depth: usize,
+    pub tts_loading: bool,
+    pub tts_speaking: bool,
+    pub is_browsing: bool,
+    pub is_editing: bool,
+    pub input_text: String,
+    pub opacity_percent: u8,
+    pub group_ids: Vec<isize>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct SceneControlUpdate {
+    pub id: isize,
+    pub controls: SceneControls,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SceneGeometry {
     pub id: isize,
     pub rect: SceneRect,
+    #[serde(default)]
+    pub control_rect: SceneRect,
     pub visible: bool,
 }
 
@@ -44,6 +73,8 @@ pub struct SceneStream {
     pub visible: bool,
     #[serde(default)]
     pub streaming_enabled: bool,
+    #[serde(default)]
+    pub controls: SceneControls,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -57,6 +88,8 @@ pub struct SceneFinalize {
     pub visible: bool,
     #[serde(default)]
     pub streaming_enabled: bool,
+    #[serde(default)]
+    pub controls: SceneControls,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -68,22 +101,83 @@ pub struct SceneAppearance {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SceneTheme {
     pub css: String,
+    pub controls_css: String,
     pub cards: Vec<SceneAppearance>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum ButtonAction {
+    Copy,
+    Undo,
+    Redo,
+    Edit,
+    Download,
+    Back,
+    Forward,
+    Speaker,
+    SetOpacity { value: u8 },
+    SubmitRefine { text: String },
+    CancelRefine,
+    HistoryUpRefine { text: String },
+    HistoryDownRefine { text: String },
+    Mic,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DragOutcome {
+    Moved,
+    CloseOne,
+    CloseGroup,
+    CloseAll,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HostCommand {
-    Snapshot { cards: Vec<SceneCard> },
-    Upsert { card: SceneCard },
-    Stream { card: SceneStream },
-    Finalize { card: SceneFinalize },
-    Geometry { cards: Vec<SceneGeometry> },
-    Theme { theme: SceneTheme },
-    Raise { id: isize, stack_order: u64 },
-    Remove { id: isize },
-    NavigateBack { id: isize },
-    NavigateForward { id: isize },
+    Snapshot {
+        cards: Vec<SceneCard>,
+    },
+    Upsert {
+        card: SceneCard,
+    },
+    Stream {
+        card: SceneStream,
+    },
+    Finalize {
+        card: SceneFinalize,
+    },
+    Geometry {
+        cards: Vec<SceneGeometry>,
+    },
+    Controls {
+        cards: Vec<SceneControlUpdate>,
+    },
+    RefineText {
+        id: isize,
+        text: String,
+        is_insert: bool,
+    },
+    ExternalDrag {
+        active: bool,
+    },
+    Theme {
+        theme: SceneTheme,
+    },
+    Raise {
+        id: isize,
+        stack_order: u64,
+    },
+    Remove {
+        id: isize,
+    },
+    NavigateBack {
+        id: isize,
+    },
+    NavigateForward {
+        id: isize,
+    },
     Shutdown,
 }
 
@@ -119,6 +213,16 @@ pub enum ChildEvent {
     Interaction {
         id: isize,
     },
+    ButtonAction {
+        id: isize,
+        action: ButtonAction,
+    },
+    DragStarted,
+    DragFinished {
+        id: isize,
+        targets: Vec<isize>,
+        outcome: DragOutcome,
+    },
     FitDiagnostic {
         id: isize,
         payload: serde_json::Value,
@@ -140,6 +244,12 @@ mod tests {
                     width: 640,
                     height: 240,
                 },
+                control_rect: SceneRect {
+                    x: -124,
+                    y: 28,
+                    width: 648,
+                    height: 244,
+                },
                 body: "<p>line one</p>".to_string(),
                 document: Some("<p>line one</p>\n<script>const x = `quoted`;</script>".to_string()),
                 refining: false,
@@ -149,6 +259,7 @@ mod tests {
                 stack_order: 7,
                 streaming: false,
                 streaming_enabled: false,
+                controls: SceneControls::default(),
             },
         };
 
@@ -169,6 +280,12 @@ mod tests {
                     y: 8,
                     width: 900,
                     height: 500,
+                },
+                control_rect: SceneRect {
+                    x: 1,
+                    y: 6,
+                    width: 908,
+                    height: 504,
                 },
                 visible: true,
             }],
@@ -194,6 +311,7 @@ mod tests {
                 opacity: 75,
                 visible: true,
                 streaming_enabled: true,
+                controls: SceneControls::default(),
             },
         };
 
@@ -218,6 +336,7 @@ mod tests {
                 opacity: 90,
                 visible: true,
                 streaming_enabled: false,
+                controls: SceneControls::default(),
             },
         };
 
@@ -259,6 +378,7 @@ mod tests {
         let theme = HostCommand::Theme {
             theme: SceneTheme {
                 css: ":root { --text-color: white; }".to_string(),
+                controls_css: ":root { --btn-color: white; }".to_string(),
                 cards: vec![SceneAppearance {
                     id: 42,
                     background: "#112233".to_string(),

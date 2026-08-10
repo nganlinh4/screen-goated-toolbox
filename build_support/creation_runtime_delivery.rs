@@ -1,25 +1,20 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::Value;
 
-const MANIFEST_ENV: &str = "SGT_CREATION_RUNTIME_DELIVERY_MANIFEST";
-const DEFAULT_MANIFEST: &str =
-    "local-runtime-bundles/sgt_creation_runtime/sgt_creation_runtime.delivery.json";
+const DEFAULT_MANIFEST: &str = "component-delivery/creation-runtime-v1.json";
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
-    println!("cargo:rerun-if-env-changed={MANIFEST_ENV}");
-
-    let configured = std::env::var_os(MANIFEST_ENV)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| manifest_dir.join(DEFAULT_MANIFEST));
+    let configured = manifest_dir.join(DEFAULT_MANIFEST);
     println!("cargo:rerun-if-changed={}", configured.display());
 
-    let generated = if configured.is_file() {
-        delivery_source(&configured)
-    } else {
-        "const RUNTIME_DELIVERY: Option<RuntimeDelivery> = None;\n".to_string()
-    };
+    assert!(
+        configured.is_file(),
+        "missing verified creation-runtime delivery: {}",
+        configured.display()
+    );
+    let generated = delivery_source(&configured);
 
     let output = out_dir.join("creation_runtime_delivery.rs");
     fs::write(&output, generated)

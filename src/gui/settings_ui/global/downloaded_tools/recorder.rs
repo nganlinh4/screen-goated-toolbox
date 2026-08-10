@@ -66,6 +66,11 @@ pub(super) fn render_recorder_card(ui: &mut egui::Ui, text: &LocaleText) {
                         )))
                         .color(theme.success()),
                     );
+                } else if !crate::component_registry::recorder::delivery_available() {
+                    ui.label(
+                        egui::RichText::new(managed.tool_status_unavailable)
+                            .color(theme.danger_text()),
+                    );
                 } else {
                     if ui
                         .button(text.auxiliary.managed_tools.tool_action_download)

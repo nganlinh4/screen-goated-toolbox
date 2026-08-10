@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "sequence": 1,
+  "channel": "stable",
+  "minHostVersion": "5.4.3",
+  "maxHostVersionExclusive": "5.5.0",
+  "contracts": [
+    {
+      "name": "windows-external-tools-v1",
+      "platform": "windows-x64",
+      "path": "component-delivery/windows/external-tools-v1.json"
+    },
+    {
+      "name": "windows-web-assets-v1",
+      "platform": "windows-x64",
+      "path": "component-delivery/windows/web-assets-v1.json"
+    },
+    {
+      "name": "windows-recorder-v1",
+      "platform": "windows-x64",
+      "path": "component-delivery/windows/recorder-v1.json"
+    },
+    {
+      "name": "windows-computer-control-v1",
+      "platform": "windows-x64",
+      "path": "component-delivery/windows/computer-control-v1.json"
+    },
+    {
+      "name": "windows-local-asr-v1",
+      "platform": "windows-x64",
+      "path": "component-delivery/windows/local-asr-v1.json"
+    },
+    {
+      "name": "windows-qwen-runtime-v1",
+      "platform": "windows-x64",
+      "path": "component-delivery/windows/qwen-runtime-v1.json"
+    },
+    {
+      "name": "windows-vc-runtime-v1",
+      "platform": "windows-x64",
+      "path": "component-delivery/windows/vc-runtime-v1.json"
+    },
+    {
+      "name": "windows-models-v1",
+      "platform": "windows-x64",
+      "path": "model-delivery/windows-v1.json"
+    },
+    {
+      "name": "creation-runtime-v1",
+      "platform": "multi",
+      "path": "component-delivery/creation-runtime-v1.json"
+    },
+    {
+      "name": "android-downloader-runtime-v1",
+      "platform": "android-full-arm64",
+      "path": "mobile/androidApp/delivery/downloader-runtime.json"
+    },
+    {
+      "name": "android-moonshine-models-v1",
+      "platform": "android-arm64",
+      "path": "mobile/androidApp/src/main/assets/moonshine-model-delivery.json"
+    }
+  ],
+  "policies": [
+    { "id": "yt-dlp-x64", "mode": "typed-failure", "checkHours": 24, "group": "windows-downloader" },
+    { "id": "deno-x64", "mode": "typed-failure", "checkHours": 24, "group": "windows-downloader" },
+    { "id": "ffmpeg-x64", "mode": "periodic-idle", "checkHours": 168, "group": "windows-media" },
+    { "id": "creation-3d-runtime", "mode": "typed-failure", "checkHours": 24, "group": "creation-runtime" },
+    { "id": "creation-3d-web", "mode": "before-open", "checkHours": 24, "group": "creation-ui" },
+    { "id": "prompt-dj-web", "mode": "before-open", "checkHours": 24, "group": "prompt-dj-ui" },
+    { "id": "tts-playground-web", "mode": "before-open", "checkHours": 24, "group": "tts-playground-ui" },
+    { "id": "recorder-web", "mode": "before-open", "checkHours": 24, "group": "recorder" },
+    { "id": "recorder-worker", "mode": "before-open", "checkHours": 24, "group": "recorder" },
+    { "id": "computer-control-engine", "mode": "before-session", "checkHours": 24, "group": "computer-control" },
+    { "id": "local-asr-worker", "mode": "before-session", "checkHours": 168, "group": "local-asr" },
+    { "id": "onnx-directml-runtime", "mode": "curated", "checkHours": 168, "group": "local-asr" },
+    { "id": "vc14-x64-runtime", "mode": "dependency", "checkHours": 168, "group": "native-dependencies" },
+    { "id": "qwen3-cuda-runtime", "mode": "curated", "checkHours": 168, "group": "qwen-runtime" },
+    { "id": "android-downloader-yt-dlp", "mode": "typed-failure", "checkHours": 24, "group": "android-downloader" },
+    { "id": "android-downloader-python", "mode": "curated", "checkHours": 168, "group": "android-downloader" },
+    { "id": "android-downloader-ffmpeg", "mode": "periodic-idle", "checkHours": 168, "group": "android-downloader" }
+  ]
+}

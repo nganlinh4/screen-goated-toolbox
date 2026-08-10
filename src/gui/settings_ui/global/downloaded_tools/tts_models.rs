@@ -32,7 +32,8 @@ use std::thread;
 
 use super::model_card::{ModelRowSpec, render_model_row};
 use super::utils::{
-    cached_probe, cached_u64, format_size, invalidate_probe_cache, invalidate_u64_cache, tool_card,
+    cached_probe, cached_u64, format_size, invalidate_probe_cache, invalidate_u64_cache,
+    removal_in_progress, start_removal, tool_card,
 };
 
 const PROBE_STEP_AUDIO: &str = "downloaded-tools:step-audio-editx";
@@ -41,6 +42,12 @@ const PROBE_STEP_RUNTIME: &str = "downloaded-tools:step-audio-runtime";
 const PROBE_MAGPIE_RUNTIME: &str = "downloaded-tools:magpie-runtime";
 const PROBE_VIENEU_MODEL: &str = "downloaded-tools:vieneu-v2-turbo";
 const PROBE_VIENEU_RUNTIME: &str = "downloaded-tools:vieneu-runtime";
+const REMOVE_STEP_RUNTIME: &str = "downloaded-tools:remove-step-audio-runtime";
+const REMOVE_MAGPIE_RUNTIME: &str = "downloaded-tools:remove-magpie-runtime";
+const REMOVE_VIENEU_RUNTIME: &str = "downloaded-tools:remove-vieneu-runtime";
+const VALUE_STEP_RUNTIME_SIZE: &str = "downloaded-tools:step-audio-runtime-size";
+const VALUE_MAGPIE_RUNTIME_SIZE: &str = "downloaded-tools:magpie-runtime-size";
+const VALUE_VIENEU_RUNTIME_SIZE: &str = "downloaded-tools:vieneu-runtime-size";
 
 pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
     tool_card(ui, |ui| {
@@ -53,6 +60,7 @@ pub(super) fn render_step_audio_card(ui: &mut egui::Ui, text: &LocaleText) {
             model_dir: get_step_audio_model_dir,
             download_model: download_step_audio_model,
             remove_model: remove_step_audio_model,
+            is_available: None,
             description: None,
             space_before_notice: false,
         };
@@ -77,6 +85,7 @@ pub(super) fn render_magpie_card(ui: &mut egui::Ui, text: &LocaleText) {
             model_dir: get_magpie_model_dir,
             download_model: download_magpie_model,
             remove_model: remove_magpie_model,
+            is_available: None,
             description: None,
             space_before_notice: false,
         };
@@ -106,7 +115,10 @@ fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                     .lock()
                     .map(|s| s.is_downloading && s.download_title == download_title)
                     .unwrap_or(false);
-            if is_downloading {
+            if removal_in_progress(REMOVE_STEP_RUNTIME) {
+                ui.label(text.auxiliary.managed_tools.tool_status_removing);
+                ui.spinner();
+            } else if is_downloading {
                 let progress = REALTIME_STATE
                     .lock()
                     .map(|s| s.download_progress)
@@ -121,14 +133,20 @@ fn render_step_audio_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                     )
                     .clicked()
                 {
-                    invalidate_probe_cache(PROBE_STEP_RUNTIME);
-                    invalidate_u64_cache("downloaded-tools:step-audio-runtime-size");
-                    let _ = remove_step_audio_runtime();
+                    start_removal(
+                        REMOVE_STEP_RUNTIME,
+                        text.auxiliary
+                            .managed_tools
+                            .tool_step_audio_runtime
+                            .to_string(),
+                        remove_step_audio_runtime,
+                        || {
+                            invalidate_probe_cache(PROBE_STEP_RUNTIME);
+                            invalidate_u64_cache(VALUE_STEP_RUNTIME_SIZE);
+                        },
+                    );
                 }
-                let size = cached_u64(
-                    "downloaded-tools:step-audio-runtime-size",
-                    step_audio_runtime_installed_size,
-                );
+                let size = cached_u64(VALUE_STEP_RUNTIME_SIZE, step_audio_runtime_installed_size);
                 ui.label(
                     egui::RichText::new(
                         text.auxiliary
@@ -180,6 +198,7 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                 model_dir: get_vieneu_model_dir,
                 download_model: download_vieneu_model,
                 remove_model: remove_vieneu_model,
+                is_available: None,
                 description: None,
                 space_before_notice: false,
             },
@@ -200,7 +219,10 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                         })
                         .unwrap_or(false);
                 let probe_variant = crate::config::tts_catalog::default_vieneu_variant_id();
-                if is_downloading {
+                if removal_in_progress(REMOVE_VIENEU_RUNTIME) {
+                    ui.label(text.auxiliary.managed_tools.tool_status_removing);
+                    ui.spinner();
+                } else if is_downloading {
                     let progress = REALTIME_STATE
                         .lock()
                         .map(|s| s.download_progress)
@@ -217,14 +239,17 @@ pub(super) fn render_vieneu_card(ui: &mut egui::Ui, text: &LocaleText) {
                         )
                         .clicked()
                     {
-                        invalidate_probe_cache(PROBE_VIENEU_RUNTIME);
-                        invalidate_u64_cache("downloaded-tools:vieneu-runtime-size");
-                        let _ = remove_vieneu_runtime();
+                        start_removal(
+                            REMOVE_VIENEU_RUNTIME,
+                            text.auxiliary.managed_tools.tool_vieneu_runtime.to_string(),
+                            remove_vieneu_runtime,
+                            || {
+                                invalidate_probe_cache(PROBE_VIENEU_RUNTIME);
+                                invalidate_u64_cache(VALUE_VIENEU_RUNTIME_SIZE);
+                            },
+                        );
                     }
-                    let size = cached_u64(
-                        "downloaded-tools:vieneu-runtime-size",
-                        vieneu_runtime_installed_size,
-                    );
+                    let size = cached_u64(VALUE_VIENEU_RUNTIME_SIZE, vieneu_runtime_installed_size);
                     ui.label(
                         egui::RichText::new(
                             text.auxiliary
@@ -274,7 +299,10 @@ fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                     .lock()
                     .map(|s| s.is_downloading && s.download_title == download_title)
                     .unwrap_or(false);
-            if is_downloading {
+            if removal_in_progress(REMOVE_MAGPIE_RUNTIME) {
+                ui.label(text.auxiliary.managed_tools.tool_status_removing);
+                ui.spinner();
+            } else if is_downloading {
                 let progress = REALTIME_STATE
                     .lock()
                     .map(|s| s.download_progress)
@@ -289,14 +317,17 @@ fn render_magpie_runtime_row(ui: &mut egui::Ui, text: &LocaleText) {
                     )
                     .clicked()
                 {
-                    invalidate_probe_cache(PROBE_MAGPIE_RUNTIME);
-                    invalidate_u64_cache("downloaded-tools:magpie-runtime-size");
-                    let _ = remove_magpie_runtime();
+                    start_removal(
+                        REMOVE_MAGPIE_RUNTIME,
+                        text.auxiliary.managed_tools.tool_magpie_runtime.to_string(),
+                        remove_magpie_runtime,
+                        || {
+                            invalidate_probe_cache(PROBE_MAGPIE_RUNTIME);
+                            invalidate_u64_cache(VALUE_MAGPIE_RUNTIME_SIZE);
+                        },
+                    );
                 }
-                let size = cached_u64(
-                    "downloaded-tools:magpie-runtime-size",
-                    magpie_runtime_installed_size,
-                );
+                let size = cached_u64(VALUE_MAGPIE_RUNTIME_SIZE, magpie_runtime_installed_size);
                 ui.label(
                     egui::RichText::new(
                         text.auxiliary

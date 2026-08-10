@@ -3,9 +3,9 @@ pub const DOCUMENT: &str = r#"<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<style id="sgt-theme-css"></style>
+<style id="sgt-theme-css"></style><style id="sgt-controls-theme-css"></style>
 <style>
-__SGT_FONT_FACE__
+__SGT_FONT_FACE____SGT_BUTTON_CSS__
 html,body,#scene{position:fixed;inset:0;margin:0;overflow:hidden;background:transparent}
 body{font-family:'Google Sans Flex';user-select:none}
 #scene{pointer-events:none}
@@ -17,7 +17,7 @@ body{font-family:'Google Sans Flex';user-select:none}
 </head>
 <body>
 <span class="font-prewarm" aria-hidden="true">SGT</span>
-<main id="scene"></main>
+<main id="scene"></main><aside id="button-container"></aside>
 <script>__SGT_DIRECT_RUNTIME__</script>
 <script>
 window.__SGT_RUN_FIT__ = function(streaming) { __SGT_FIT_RUNTIME__ };
@@ -591,7 +591,7 @@ window.applyHostCommand = function(command) {
   }
 };
 
-</script><script>__SGT_SETTLED_REVEAL_RUNTIME__</script><script>__SGT_RENDERER_BOOTSTRAP__</script>
+</script><script>__SGT_BUTTON_SCRIPT__</script><script>__SGT_BUTTON_SCENE_RUNTIME__</script><script>__SGT_SETTLED_REVEAL_RUNTIME__</script><script>__SGT_RENDERER_BOOTSTRAP__</script>
 </body>
 </html>"#;
 

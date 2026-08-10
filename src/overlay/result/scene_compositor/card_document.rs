@@ -49,6 +49,18 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
     DOCUMENT
         .replace("__SGT_FONT_FACE__", &super::font::face_css("/font.ttf"))
         .replace(
+            "__SGT_BUTTON_CSS__",
+            crate::overlay::result::button_canvas::document_css(),
+        )
+        .replace(
+            "__SGT_BUTTON_SCRIPT__",
+            &crate::overlay::result::button_canvas::document_script(),
+        )
+        .replace(
+            "__SGT_BUTTON_SCENE_RUNTIME__",
+            include_str!("button_scene_runtime.js"),
+        )
+        .replace(
             "__SGT_BOX_RADIUS_PX__",
             &crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX.to_string(),
         )
@@ -93,6 +105,22 @@ mod tests {
         assert!(!document.contains("__SGT_FIT_RUNTIME__"));
         assert!(!document.contains("__SGT_RENDERER_BOOTSTRAP__"));
         assert!(!document.contains("__SGT_ISOLATED_ORIGIN_JSON__"));
+        assert!(!document.contains("__SGT_BUTTON_CSS__"));
+        assert!(!document.contains("__SGT_BUTTON_SCRIPT__"));
+        assert!(!document.contains("__SGT_BUTTON_SCENE_RUNTIME__"));
+    }
+
+    #[test]
+    fn result_controls_share_the_single_compositor_document() {
+        let document = compositor_document("http://127.0.0.1:32123");
+
+        assert!(document.contains("id=\"button-container\""));
+        assert!(document.contains("window.updateWindows = updateWindows"));
+        assert!(document.contains("result_drag_start"));
+        assert!(document.contains("command.type === 'controls'"));
+        assert!(document.contains("sgt-controls-theme-css"));
+        assert!(document.contains("window.__SGT_BUTTON_SCENE__"));
+        assert!(document.contains("Unified result controls did not initialize"));
     }
 
     #[test]

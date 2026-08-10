@@ -28,18 +28,11 @@ fun Map<*, *>.requiredLong(name: String): Long =
         ?: error("Creation runtime manifest has invalid $name")
 
 val repoRoot = rootProject.projectDir.parentFile
-val configuredManifest = System.getenv("SGT_CREATION_RUNTIME_DELIVERY_MANIFEST")
-    ?.takeIf { it.isNotBlank() }
-    ?.let { file(it) }
-val privateManifest = configuredManifest
-    ?: repoRoot.resolve(
-        "local-runtime-bundles/sgt_creation_runtime/sgt_creation_runtime.delivery.json",
-    ).takeIf(File::isFile)
-val legacyLocalManifest = repoRoot.resolve(
-    "local-runtime-bundles/sgt_creation_runtime/sgt_creation_runtime.android.manifest.json",
-)
-val manifestFile = privateManifest ?: legacyLocalManifest.takeIf(File::isFile)
-val runtimeContract = manifestFile?.let { source ->
+val manifestFile = repoRoot.resolve("component-delivery/creation-runtime-v1.json")
+require(manifestFile.isFile) {
+    "Tracked creation runtime delivery contract is required: $manifestFile"
+}
+val runtimeContract = manifestFile.let { source ->
     @Suppress("UNCHECKED_CAST")
     val root = JsonSlurper().parse(source) as Map<*, *>
     val play = root.requiredMap("android").requiredMap("play")
@@ -66,20 +59,11 @@ val runtimeContract = manifestFile?.let { source ->
             }
         }
     }
-} ?: RuntimeArtifactContract(
-    asset = "creation-runtime-unavailable.aar",
-    sizeBytes = 1L,
-    sha256 = "unavailable",
-    downloadUrl = null,
-)
+}
 
 val generatedRuntime =
     layout.buildDirectory.file("generated/runtime/${runtimeContract.asset}")
 val generatedDeliveryAssets = layout.buildDirectory.dir("generated/runtimeDeliveryAssets")
-val localCandidates = listOf(
-    repoRoot.resolve("local-runtime-bundles/sgt_creation_runtime/${runtimeContract.asset}"),
-    repoRoot.resolve("native/sgt_3d_generator_runtime/android-runtime/dist/android/${runtimeContract.asset}"),
-)
 
 fun validRuntime(file: File): Boolean {
     if (!file.isFile || file.length() != runtimeContract.sizeBytes) return false
@@ -96,21 +80,16 @@ fun validRuntime(file: File): Boolean {
 }
 
 val prepareCreationRuntime by tasks.registering {
-    manifestFile?.let { inputs.file(it) }
-    inputs.property("runtimeDelivery", runtimeContract.downloadUrl ?: "local-only")
+    inputs.file(manifestFile)
+    inputs.property("runtimeDelivery", runtimeContract.downloadUrl)
     inputs.property("runtimeSha256", runtimeContract.sha256)
-    localCandidates.filter(File::isFile).forEach { inputs.file(it) }
     outputs.file(generatedRuntime)
     outputs.upToDateWhen { validRuntime(generatedRuntime.get().asFile) }
     doLast {
         val output = generatedRuntime.get().asFile
         output.parentFile.mkdirs()
-        localCandidates.firstOrNull(::validRuntime)?.let { local ->
-            local.copyTo(output, overwrite = true)
-            return@doLast
-        }
         val runtimeUrl = requireNotNull(runtimeContract.downloadUrl) {
-            "Creation runtime is not included in this build; provide the private delivery manifest"
+            "Creation runtime download contract is missing its immutable URL"
         }
         val partial = File(output.parentFile, "${output.name}.part")
         partial.delete()
@@ -149,9 +128,7 @@ val prepareCreationRuntime by tasks.registering {
 }
 
 val stageCreationRuntimeDelivery by tasks.registering(Sync::class) {
-    manifestFile?.let {
-        from(it) { rename { "delivery.json" } }
-    }
+    from(manifestFile) { rename { "delivery.json" } }
     into(generatedDeliveryAssets.map { it.dir("creation-runtime") })
 }
 
