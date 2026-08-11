@@ -99,4 +99,16 @@ mod tests {
         assert!(!controls.contains(&["create_canvas", "_window"].concat()));
         assert!(!controls.contains(&["Web", "Context"].concat()));
     }
+
+    #[test]
+    fn opacity_updates_preserve_the_active_slider_element() {
+        let script = super::js::get_javascript();
+        let actions = include_str!("actions.rs");
+
+        assert!(script.contains("const { opacityPercent, ...structuralState } = state;"));
+        assert!(script.contains("opacity.value = opacityPercent;"));
+        assert!(script.contains("JSON.stringify(structuralState)"));
+        assert!(actions.contains("scene_compositor::set_opacity(hwnd, value)"));
+        assert!(!actions.contains("scene_compositor::sync_window"));
+    }
 }

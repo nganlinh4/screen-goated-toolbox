@@ -14,7 +14,7 @@ mod sync_scheduler;
 mod web_response;
 
 pub use controls::{
-    is_dragging, is_point_over_result_window, set_external_drag, set_refine_text,
+    is_dragging, is_point_over_result_window, set_external_drag, set_opacity, set_refine_text,
     sync as sync_controls, sync_all as sync_all_controls,
 };
 pub(crate) use parent::wait_until_ready;

@@ -1,7 +1,6 @@
 use crate::overlay::result::scene_compositor::protocol::{ButtonAction, DragOutcome};
-use crate::overlay::result::state::WINDOW_STATES;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{IsWindowVisible, PostMessageW};
+use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 pub(super) fn handle(id: isize, action: ButtonAction) {
     let hwnd = HWND(id as *mut std::ffi::c_void);
@@ -17,7 +16,9 @@ pub(super) fn handle(id: isize, action: ButtonAction) {
         ButtonAction::Back => post(hwnd, super::super::event_handler::misc::WM_BACK_CLICK),
         ButtonAction::Forward => post(hwnd, super::super::event_handler::misc::WM_FORWARD_CLICK),
         ButtonAction::Speaker => post(hwnd, super::super::event_handler::misc::WM_SPEAKER_CLICK),
-        ButtonAction::SetOpacity { value } => set_opacity(hwnd, value),
+        ButtonAction::SetOpacity { value } => {
+            crate::overlay::result::scene_compositor::set_opacity(hwnd, value)
+        }
         ButtonAction::SubmitRefine { text } => {
             crate::overlay::result::trigger_refine_submit(hwnd, &text)
         }
@@ -49,16 +50,6 @@ fn post(hwnd: HWND, message: u32) {
     unsafe {
         let _ = PostMessageW(Some(hwnd), message, WPARAM(0), LPARAM(0));
     }
-}
-
-fn set_opacity(hwnd: HWND, value: u8) {
-    let percent = value.clamp(10, 100);
-    if let Some(state) = WINDOW_STATES.lock().unwrap().get_mut(&(hwnd.0 as isize)) {
-        state.opacity_percent = percent;
-    }
-    crate::overlay::result::scene_compositor::sync_window(hwnd, unsafe {
-        IsWindowVisible(hwnd).as_bool()
-    });
 }
 
 fn update_history(hwnd: HWND, current: &str, upward: bool) {

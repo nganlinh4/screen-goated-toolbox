@@ -36,6 +36,10 @@ fn geometry_only_commands_do_not_force_a_webview_redraw() {
         id: 42,
         stack_order: 9,
     }));
+    assert!(!command_requires_region_redraw(&HostCommand::Opacity {
+        id: 42,
+        opacity: 71,
+    }));
     assert!(command_requires_region_redraw(&HostCommand::Remove {
         id: 42
     }));

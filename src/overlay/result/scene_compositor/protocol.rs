@@ -154,6 +154,10 @@ pub enum HostCommand {
     Controls {
         cards: Vec<SceneControlUpdate>,
     },
+    Opacity {
+        id: isize,
+        opacity: u8,
+    },
     RefineText {
         id: isize,
         text: String,
