@@ -118,6 +118,8 @@ mod tests {
         assert!(document.contains("window.updateWindows = updateWindows"));
         assert!(document.contains("result_drag_start"));
         assert!(document.contains("command.type === 'controls'"));
+        assert!(document.contains("command.type === 'opacity'"));
+        assert!(document.contains("card.style.opacity = String(Math.max"));
         assert!(document.contains("sgt-controls-theme-css"));
         assert!(document.contains("window.__SGT_BUTTON_SCENE__"));
         assert!(document.contains("Unified result controls did not initialize"));

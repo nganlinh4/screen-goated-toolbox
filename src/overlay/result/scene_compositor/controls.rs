@@ -46,6 +46,29 @@ pub fn sync_all() {
     }
 }
 
+pub fn set_opacity(hwnd: HWND, value: u8) {
+    let id = hwnd.0 as isize;
+    let opacity = value.clamp(10, 100);
+    {
+        let mut states = WINDOW_STATES.lock().unwrap();
+        let Some(state) = states.get_mut(&id) else {
+            return;
+        };
+        state.opacity_percent = opacity;
+    }
+    let updated = SCENES.lock().unwrap().get_mut(&id).is_some_and(|card| {
+        if card.opacity == opacity && card.controls.opacity_percent == opacity {
+            return false;
+        }
+        card.opacity = opacity;
+        card.controls.opacity_percent = opacity;
+        true
+    });
+    if updated {
+        send_command(HostCommand::Opacity { id, opacity });
+    }
+}
+
 pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
     send_command(HostCommand::RefineText {
         id: hwnd.0 as isize,

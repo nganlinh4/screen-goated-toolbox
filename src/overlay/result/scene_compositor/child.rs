@@ -36,17 +36,14 @@ thread_local! {
 
 pub fn run() -> anyhow::Result<()> {
     crate::initialization::init_com_and_dpi();
-
     let hwnd = create_host_window()?;
     HOST_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
     unsafe {
         let _ = SetTimer(Some(hwnd), INPUT_TIMER_ID, 100, None);
     }
     start_input_thread();
-
     let webview = create_webview(hwnd)?;
     WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
-
     unsafe {
         let mut message = MSG::default();
         while GetMessageW(&mut message, None, 0, 0).into() {
@@ -73,7 +70,6 @@ fn create_host_window() -> anyhow::Result<HWND> {
             ..Default::default()
         };
         let _ = RegisterClassW(&window_class);
-
         let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
         let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
         let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
@@ -282,7 +278,10 @@ fn drain_commands(hwnd: HWND) {
 fn command_requires_region_redraw(command: &HostCommand) -> bool {
     !matches!(
         command,
-        HostCommand::Geometry { .. } | HostCommand::Theme { .. } | HostCommand::Raise { .. }
+        HostCommand::Geometry { .. }
+            | HostCommand::Opacity { .. }
+            | HostCommand::Theme { .. }
+            | HostCommand::Raise { .. }
     )
 }
 
@@ -360,6 +359,7 @@ fn command_name(command: &HostCommand) -> &'static str {
         HostCommand::Finalize { .. } => "finalize",
         HostCommand::Geometry { .. } => "geometry",
         HostCommand::Controls { .. } => "controls",
+        HostCommand::Opacity { .. } => "opacity",
         HostCommand::RefineText { .. } => "refine_text",
         HostCommand::ExternalDrag { .. } => "external_drag",
         HostCommand::Theme { .. } => "theme",
@@ -379,7 +379,7 @@ fn command_id(command: &HostCommand) -> Option<isize> {
         HostCommand::Remove { id }
         | HostCommand::NavigateBack { id }
         | HostCommand::NavigateForward { id } => Some(*id),
-        HostCommand::Raise { id, .. } => Some(*id),
+        HostCommand::Raise { id, .. } | HostCommand::Opacity { id, .. } => Some(*id),
         HostCommand::RefineText { id, .. } => Some(*id),
         HostCommand::Snapshot { .. }
         | HostCommand::Geometry { .. }
@@ -458,6 +458,7 @@ fn apply_scene_state(command: &HostCommand) {
         }
         HostCommand::NavigateBack { .. }
         | HostCommand::NavigateForward { .. }
+        | HostCommand::Opacity { .. }
         | HostCommand::RefineText { .. }
         | HostCommand::Shutdown => {}
     }

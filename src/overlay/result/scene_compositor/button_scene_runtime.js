@@ -68,6 +68,12 @@
       for (const card of command.cards || []) mergeCard(card);
     } else if (command.type === 'controls') {
       for (const card of command.cards || []) mergeCard(card);
+    } else if (command.type === 'opacity') {
+      const key = String(command.id);
+      const model = models.get(key);
+      if (model && model.controls) model.controls.opacityPercent = Number(command.opacity);
+      const card = document.querySelector('.result-card[data-id="' + key + '"]');
+      if (card) card.style.opacity = String(Math.max(0, Math.min(100, command.opacity)) / 100);
     } else if (command.type === 'raise') {
       mergeCard({ id: command.id, stack_order: command.stack_order });
     } else if (command.type === 'remove') {

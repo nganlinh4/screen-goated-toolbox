@@ -2,22 +2,14 @@
 
 pub fn get_javascript() -> &'static str {
     r#"
-// Track registered windows: { hwnd: { x, y, w, h } }
 window.registeredWindows = {};
 window.L10N = #L10N_JSON#;
 window.iconSvgs = #ICON_SVGS_JSON#;
-
-// Track visibility state to minimize IPC calls
 let lastVisibleState = new Map();
 let lastSentRegions = new Map();
 let highestButtonStackOrder = 0;
-
-// Track cursor position for radius-based opacity
 let cursorX = 0, cursorY = 0;
 const activeGrabbingSources = new Set();
-
-// Opacity slider state
-window.opacityValues = {};
 
 window.raiseWindowButtons = function(hwnd) {
     const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
@@ -69,7 +61,6 @@ window.setResultDraggingCursor = setResultDraggingCursor;
 
 window.updateOpacity = function(hwnd, value) {
     value = parseInt(value);
-    window.opacityValues[hwnd] = value;
     window.ipc.postMessage(JSON.stringify({
         action: "set_opacity",
         hwnd: hwnd,
@@ -376,11 +367,19 @@ function updateWindows(windowsData) {
             existingGroups.delete(hwnd);
         }
 
+        const state = data.state || {};
+        const { opacityPercent, ...structuralState } = state;
         const isVertical = pos.direction === 'left' || pos.direction === 'right';
-        const newStateStr = JSON.stringify(data.state || {}) + isVertical;
+        const newStateStr = JSON.stringify(structuralState) + isVertical;
         if (group.dataset.lastState !== newStateStr) {
-            group.innerHTML = generateButtonsHTML(hwnd, data.state || {}, isVertical);
+            group.innerHTML = generateButtonsHTML(hwnd, state, isVertical);
             group.dataset.lastState = newStateStr;
+        }
+        const opacity = group.querySelector('.opacity-slider-inline');
+        const opacityLabel = group.querySelector('.opacity-value-inline');
+        if (opacity && opacityPercent != null) {
+            opacity.value = opacityPercent;
+            if (opacityLabel) opacityLabel.textContent = opacityPercent + '%';
         }
 
         if (isVertical) {
