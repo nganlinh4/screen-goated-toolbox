@@ -66,8 +66,7 @@ pub static DEVICE_RECONNECT_REQUESTED: std::sync::atomic::AtomicBool =
 /// Cancel Parakeet download and revert to the default realtime model.
 pub fn cancel_download_and_revert_to_gemini() {
     use crate::overlay::realtime_webview::state::{
-        NEW_TRANSCRIPTION_MODEL, REALTIME_HWND, REALTIME_STATE, REALTIME_WEBVIEWS,
-        TRANSCRIPTION_MODEL_CHANGE,
+        NEW_TRANSCRIPTION_MODEL, REALTIME_HWND, REALTIME_STATE, TRANSCRIPTION_MODEL_CHANGE,
     };
     use std::sync::atomic::Ordering;
 
@@ -98,7 +97,6 @@ pub fn cancel_download_and_revert_to_gemini() {
     unsafe {
         let hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
         if !hwnd.is_invalid() {
-            let hwnd_key = hwnd.0 as isize;
             // Hide download modal and update transcription model selection
             let script = r#"
                 if(window.hideDownloadModal) window.hideDownloadModal();
@@ -106,11 +104,7 @@ pub fn cancel_download_and_revert_to_gemini() {
                     icon.classList.toggle('active', icon.getAttribute('data-value') === 'google-gemini-3-5-live-translate-audio');
                 });
             "#;
-            REALTIME_WEBVIEWS.with(|wvs| {
-                if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                    let _ = webview.evaluate_script(script);
-                }
-            });
+            crate::overlay::realtime_webview::webview::run_transcription_script(script);
         }
     }
 

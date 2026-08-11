@@ -1,6 +1,7 @@
 mod tail;
 
 pub fn get(font_size: u32) -> String {
+    let drag_runtime = include_str!("js_main/drag_runtime.js");
     format!(
         r###"        const container = document.getElementById('container');
         const viewport = document.getElementById('viewport');
@@ -55,13 +56,13 @@ pub fn get(font_size: u32) -> String {
                     ttsEnabled = true;
                     this.classList.add('on');
                     if (speakBtn) speakBtn.classList.add('active');
-                    window.ipc.postMessage('ttsEnabled:1');
+                    window.realtimePostMessage('ttsEnabled:1');
                     return;
                 }}
                 ttsEnabled = !ttsEnabled;
                 this.classList.toggle('on', ttsEnabled);
                 if (speakBtn) speakBtn.classList.toggle('active', ttsEnabled);
-                window.ipc.postMessage('ttsEnabled:' + (ttsEnabled ? '1' : '0'));
+                window.realtimePostMessage('ttsEnabled:' + (ttsEnabled ? '1' : '0'));
             }});
         }}
 
@@ -133,7 +134,7 @@ pub fn get(font_size: u32) -> String {
                 e.stopPropagation();
                 ttsSpeed = parseInt(this.value);
                 speedValue.textContent = (ttsSpeed / 100).toFixed(1) + 'x';
-                window.ipc.postMessage('ttsSpeed:' + ttsSpeed);
+                window.realtimePostMessage('ttsSpeed:' + ttsSpeed);
                 // Auto turns off when user manually adjusts slider
                 if (autoSpeed && autoToggle) {{
                     autoSpeed = false;
@@ -146,7 +147,7 @@ pub fn get(font_size: u32) -> String {
                     e.stopPropagation();
                     autoSpeed = !autoSpeed;
                     this.classList.toggle('on', autoSpeed);
-                    window.ipc.postMessage('ttsAutoSpeed:' + (autoSpeed ? '1' : '0'));
+                    window.realtimePostMessage('ttsAutoSpeed:' + (autoSpeed ? '1' : '0'));
                 }});
             }}
         }}
@@ -158,7 +159,7 @@ pub fn get(font_size: u32) -> String {
                 e.stopPropagation();
                 const vol = parseInt(this.value);
                 volumeValue.textContent = vol + '%';
-                window.ipc.postMessage('ttsVolume:' + vol);
+                window.realtimePostMessage('ttsVolume:' + vol);
             }});
         }}
 
@@ -180,7 +181,7 @@ pub fn get(font_size: u32) -> String {
                 const textContent = content.textContent.trim();
                 if (textContent && !content.querySelector('.placeholder')) {{
                     // Send to Rust via IPC for clipboard (navigator.clipboard not available in WebView2)
-                    window.ipc.postMessage('copyText:' + textContent);
+                    window.realtimePostMessage('copyText:' + textContent);
                     // Show success feedback
                     copyBtn.classList.add('copied');
                     const icon = copyBtn.querySelector('.inline-svg-icon');
@@ -200,7 +201,7 @@ pub fn get(font_size: u32) -> String {
             modal.addEventListener('mousedown', function(e) {{
                 if (e.button !== 0) return;
                 if (e.target.closest('input, button, select, .toggle-switch, .ctrl-btn, .auto-toggle, .app-item')) return;
-                window.ipc.postMessage('startDrag');
+                beginCardDrag(e);
             }});
         }});
 
@@ -254,86 +255,7 @@ pub fn get(font_size: u32) -> String {
             }}, {{ passive: false }});
         }}
 
-        // Drag support (left click for single window)
-        container.addEventListener('mousedown', function(e) {{
-            if (e.button !== 0) return; // Only left click
-            if (e.target.closest('#controls') || e.target.closest('#header-toggle') || e.target.id === 'resize-hint' || isResizing) return;
-            window.ipc.postMessage('startDrag');
-        }});
-
-        // Right-click group drag support (moves both windows together)
-        let isGroupDragging = false;
-        let groupDragStartX = 0;
-        let groupDragStartY = 0;
-
-        container.addEventListener('mousedown', function(e) {{
-            if (e.button !== 2) return; // Only right click
-            // Allow context menu on interactive controls
-            if (e.target.closest('#controls') || e.target.closest('select')) return;
-
-            e.preventDefault();
-            isGroupDragging = true;
-            groupDragStartX = e.screenX;
-            groupDragStartY = e.screenY;
-            window.ipc.postMessage('startGroupDrag');
-            document.addEventListener('mousemove', onGroupDragMove);
-            document.addEventListener('mouseup', onGroupDragEnd);
-        }});
-
-        // Prevent context menu when right-click dragging on the window body
-        container.addEventListener('contextmenu', function(e) {{
-            // Allow context menu on interactive controls and selects
-            if (e.target.closest('#controls') || e.target.closest('select')) return;
-            e.preventDefault();
-        }});
-
-        function onGroupDragMove(e) {{
-            if (!isGroupDragging) return;
-            const dx = e.screenX - groupDragStartX;
-            const dy = e.screenY - groupDragStartY;
-            if (dx !== 0 || dy !== 0) {{
-                window.ipc.postMessage('groupDragMove:' + dx + ',' + dy);
-                groupDragStartX = e.screenX;
-                groupDragStartY = e.screenY;
-            }}
-        }}
-
-        function onGroupDragEnd(e) {{
-            if (isGroupDragging) {{
-                isGroupDragging = false;
-                document.removeEventListener('mousemove', onGroupDragMove);
-                document.removeEventListener('mouseup', onGroupDragEnd);
-            }}
-        }}
-
-        // Resize support
-        resizeHint.addEventListener('mousedown', function(e) {{
-            e.stopPropagation();
-            e.preventDefault();
-            isResizing = true;
-            resizeStartX = e.screenX;
-            resizeStartY = e.screenY;
-            document.addEventListener('mousemove', onResizeMove);
-            document.addEventListener('mouseup', onResizeEnd);
-        }});
-
-        function onResizeMove(e) {{
-            if (!isResizing) return;
-            const dx = e.screenX - resizeStartX;
-            const dy = e.screenY - resizeStartY;
-            if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {{
-                window.ipc.postMessage('resize:' + dx + ',' + dy);
-                resizeStartX = e.screenX;
-                resizeStartY = e.screenY;
-            }}
-        }}
-
-        function onResizeEnd(e) {{
-            isResizing = false;
-            document.removeEventListener('mousemove', onResizeMove);
-            document.removeEventListener('mouseup', onResizeEnd);
-            window.ipc.postMessage('saveResize');
-        }}
+        {drag_runtime}
 
         // Visibility toggle buttons
         toggleMic.addEventListener('click', function(e) {{
@@ -341,7 +263,7 @@ pub fn get(font_size: u32) -> String {
             micVisible = !micVisible;
             this.classList.toggle('active', micVisible);
             this.classList.toggle('inactive', !micVisible);
-            window.ipc.postMessage('toggleMic:' + (micVisible ? '1' : '0'));
+            window.realtimePostMessage('toggleMic:' + (micVisible ? '1' : '0'));
         }});
 
         toggleTrans.addEventListener('click', function(e) {{
@@ -349,7 +271,7 @@ pub fn get(font_size: u32) -> String {
             transVisible = !transVisible;
             this.classList.toggle('active', transVisible);
             this.classList.toggle('inactive', !transVisible);
-            window.ipc.postMessage('toggleTrans:' + (transVisible ? '1' : '0'));
+            window.realtimePostMessage('toggleTrans:' + (transVisible ? '1' : '0'));
         }});
 
         // Function to update visibility state from native side
@@ -378,7 +300,7 @@ pub fn get(font_size: u32) -> String {
                 // Reset min height so text can shrink properly
                 minContentHeight = 0;
                 content.style.minHeight = '';
-                window.ipc.postMessage('fontSize:' + currentFontSize);
+                window.realtimePostMessage('fontSize:' + currentFontSize);
             }}
         }});
 
@@ -390,7 +312,7 @@ pub fn get(font_size: u32) -> String {
                 // Reset min height for fresh calculation
                 minContentHeight = 0;
                 content.style.minHeight = '';
-                window.ipc.postMessage('fontSize:' + currentFontSize);
+                window.realtimePostMessage('fontSize:' + currentFontSize);
             }}
         }});
 
@@ -407,7 +329,7 @@ pub fn get(font_size: u32) -> String {
                 micBtn.classList.add('active');
                 if (deviceBtn) deviceBtn.classList.remove('active');
 
-                window.ipc.postMessage('audioSource:mic');
+                window.realtimePostMessage('audioSource:mic');
             }});
         }}
 
@@ -420,7 +342,7 @@ pub fn get(font_size: u32) -> String {
                 if (micBtn) micBtn.classList.remove('active');
                 deviceBtn.classList.add('active');
 
-                window.ipc.postMessage('audioSource:device');
+                window.realtimePostMessage('audioSource:device');
             }});
         }}
 
@@ -463,7 +385,7 @@ pub fn get(font_size: u32) -> String {
             langSelect.addEventListener('blur', showCodes);
             langSelect.addEventListener('change', function(e) {{
                 e.stopPropagation();
-                window.ipc.postMessage('language:' + this.value);
+                window.realtimePostMessage('language:' + this.value);
                 // Delay to let the dropdown close animation finish
                 setTimeout(showCodes, 100);
             }});
@@ -474,7 +396,7 @@ pub fn get(font_size: u32) -> String {
         if (translationModelSelect) {{
             translationModelSelect.addEventListener('change', (e) => {{
                 e.stopPropagation();
-                window.ipc.postMessage('translationModel:' + translationModelSelect.value);
+                window.realtimePostMessage('translationModel:' + translationModelSelect.value);
             }});
         }}
 
@@ -483,7 +405,7 @@ pub fn get(font_size: u32) -> String {
         if (transcriptionModelSelect) {{
             transcriptionModelSelect.addEventListener('change', (e) => {{
                 e.stopPropagation();
-                window.ipc.postMessage('transcriptionModel:' + transcriptionModelSelect.value);
+                window.realtimePostMessage('transcriptionModel:' + transcriptionModelSelect.value);
                 updateTransLangSelectState(transcriptionModelSelect.value);
             }});
         }}
@@ -496,7 +418,7 @@ pub fn get(font_size: u32) -> String {
                     e.stopPropagation();
                     modelIcons.forEach(i => i.classList.remove('active'));
                     icon.classList.add('active');
-                    window.ipc.postMessage('translationModel:' + icon.getAttribute('data-value'));
+                    window.realtimePostMessage('translationModel:' + icon.getAttribute('data-value'));
                 }});
             }});
         }}
@@ -507,7 +429,7 @@ pub fn get(font_size: u32) -> String {
                     e.stopPropagation();
                     transModelIcons.forEach(i => i.classList.remove('active'));
                     icon.classList.add('active');
-                    window.ipc.postMessage('transcriptionModel:' + icon.getAttribute('data-value'));
+                    window.realtimePostMessage('transcriptionModel:' + icon.getAttribute('data-value'));
                 }});
             }});
         }}
@@ -545,7 +467,7 @@ pub fn get(font_size: u32) -> String {
         if (transLangSelect) {{
             transLangSelect.addEventListener('change', (e) => {{
                 e.stopPropagation();
-                window.ipc.postMessage('transcriptionLanguage:' + transLangSelect.value);
+                window.realtimePostMessage('transcriptionLanguage:' + transLangSelect.value);
             }});
         }}
 
@@ -581,7 +503,7 @@ pub fn get(font_size: u32) -> String {
             downloadCancelBtn.addEventListener('click', function(e) {{
                 e.stopPropagation();
                 // Send cancel message to native side
-                window.ipc.postMessage('cancelDownload');
+                window.realtimePostMessage('cancelDownload');
             }});
         }}
 
@@ -590,6 +512,7 @@ pub fn get(font_size: u32) -> String {
         font_size = font_size,
         check_svg = crate::overlay::html_components::icons::get_icon_svg("check"),
         copy_svg = crate::overlay::html_components::icons::get_icon_svg("content_copy"),
+        drag_runtime = drag_runtime,
         tail = tail::get()
     )
 }

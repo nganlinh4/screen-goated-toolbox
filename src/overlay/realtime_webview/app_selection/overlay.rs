@@ -16,25 +16,21 @@ use super::{clear_selected_audio_app_candidate, store_selected_audio_app_candida
 use crate::overlay::realtime_webview::state::{
     AUDIO_SOURCE_CHANGE, CLOSE_TTS_MODAL_REQUEST, COMMITTED_TRANSLATION_QUEUE, CURRENT_TTS_SPEED,
     LAST_SPOKEN_LENGTH, NEW_AUDIO_SOURCE, REALTIME_HWND, REALTIME_TTS_ENABLED, REALTIME_TTS_SPEED,
-    SELECTED_APP_NAME, SELECTED_APP_PID, TRANSLATION_HWND,
+    SELECTED_APP_NAME, SELECTED_APP_PID,
 };
 
 static APP_SELECTOR_OPENING: AtomicBool = AtomicBool::new(false);
 
 fn post_realtime_updates() {
     unsafe {
-        let translation_hwnd = std::ptr::addr_of!(TRANSLATION_HWND).read();
-        if !translation_hwnd.is_invalid() {
+        let realtime_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+        if !realtime_hwnd.is_invalid() {
             let _ = PostMessageW(
-                Some(translation_hwnd),
+                Some(realtime_hwnd),
                 WM_TRANSLATION_UPDATE,
                 WPARAM(0),
                 LPARAM(0),
             );
-        }
-
-        let realtime_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
-        if !realtime_hwnd.is_invalid() {
             let _ = PostMessageW(
                 Some(realtime_hwnd),
                 WM_REALTIME_UPDATE,
@@ -45,20 +41,10 @@ fn post_realtime_updates() {
     }
 }
 
-fn push_script_to_realtime_windows(script: String) {
-    let windows = unsafe {
-        [
-            std::ptr::addr_of!(REALTIME_HWND).read(),
-            std::ptr::addr_of!(TRANSLATION_HWND).read(),
-        ]
-    };
-
-    for hwnd in windows {
-        if hwnd.is_invalid() {
-            continue;
-        }
-
-        let script_ptr = Box::into_raw(Box::new(script.clone()));
+fn push_script_to_realtime_compositor(script: String) {
+    let hwnd = unsafe { std::ptr::addr_of!(REALTIME_HWND).read() };
+    if !hwnd.is_invalid() {
+        let script_ptr = Box::into_raw(Box::new(script));
         unsafe {
             let _ = PostMessageW(
                 Some(hwnd),
@@ -93,7 +79,7 @@ fn apply_audio_app_selection(pid: u32, name: &str) {
     CLOSE_TTS_MODAL_REQUEST.store(true, Ordering::SeqCst);
     let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
     CURRENT_TTS_SPEED.store(base_speed, Ordering::Relaxed);
-    push_script_to_realtime_windows(format!(
+    push_script_to_realtime_compositor(format!(
         "if(window.setTtsEnabled) window.setTtsEnabled(true); if(window.updateTtsSpeed) window.updateTtsSpeed({base_speed});"
     ));
     post_realtime_updates();
@@ -124,7 +110,7 @@ fn cancel_audio_app_selection() {
 
     let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
     CURRENT_TTS_SPEED.store(base_speed, Ordering::Relaxed);
-    push_script_to_realtime_windows(format!(
+    push_script_to_realtime_compositor(format!(
         "if(window.setTtsEnabled) window.setTtsEnabled({}); if(window.updateTtsSpeed) window.updateTtsSpeed({base_speed});",
         if is_s2s { "true" } else { "false" }
     ));

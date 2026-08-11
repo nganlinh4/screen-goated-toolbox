@@ -20,7 +20,7 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
         surface_tint,
     ) = if is_dark {
         (
-            "rgba(28, 27, 31, 0.95)",    // bg_color - MD3 dark surface
+            "#1C1B1F",                   // bg_color - MD3 dark surface
             "#E6E1E5",                   // text_color - MD3 on-surface
             format!("{}50", glow_color), // border_color
             "rgba(44, 44, 44, 0.85)",    // ctrl_bg - #2c2c2c with alpha
@@ -38,7 +38,7 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
         )
     } else {
         (
-            "rgba(254, 247, 255, 0.95)", // bg_color - MD3 light surface
+            "#FEF7FF",                   // bg_color - MD3 light surface
             "#1C1B1F",                   // text_color - MD3 on-surface
             format!("{}40", glow_color), // border_color
             "rgba(234, 234, 234, 0.85)", // ctrl_bg - matches tray_popup hover
@@ -85,14 +85,12 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
         html, body {{
             height: 100%;
             overflow: hidden;
-            background: {bg_color};
+            background: transparent;
             font-family: 'Google Sans Flex', sans-serif;
             color: {text_color};
+        }}
+        body {{
             border-radius: 12px;
-            border: 1px solid {border_color};
-            box-shadow: {box_shadow};
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
         }}
         /* Loading overlay - TEMPORARILY DISABLED FOR TESTING */
         #loading-overlay {{
@@ -154,6 +152,13 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             padding: 8px 12px;
             cursor: grab;
             position: relative;
+            overflow: hidden;
+            background: {bg_color};
+            border: 1px solid {border_color};
+            border-radius: 12px;
+            box-shadow: {box_shadow};
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
         }}
         #container:active {{
             cursor: grabbing;

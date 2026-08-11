@@ -10,6 +10,9 @@ pub struct RealtimeHtmlOptions<'a> {
     pub font_size: u32,
     pub text: &'a LocaleText,
     pub is_dark: bool,
+    /// Identifies a card hosted inside the unified realtime compositor.
+    /// Standalone documents leave this unset and post directly to WRY.
+    pub compositor_role: Option<&'a str>,
 }
 
 pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
@@ -23,6 +26,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         font_size,
         text,
         is_dark,
+        compositor_role,
     } = options;
     let _title_icon = if is_translation {
         "translate"
@@ -277,6 +281,14 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
 
     // Get local font CSS (cached fonts, no network loading)
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
+    let ipc_bootstrap = if let Some(role) = compositor_role {
+        let role = serde_json::to_string(role).unwrap_or_else(|_| "\"transcription\"".to_string());
+        format!(
+            "window.REALTIME_COMPOSITOR_ROLE={role};window.realtimePostMessage=function(message){{window.parent.realtimePostMessage(window.REALTIME_COMPOSITOR_ROLE,message);}};"
+        )
+    } else {
+        "window.REALTIME_COMPOSITOR_ROLE=null;window.realtimePostMessage=function(message){window.ipc.postMessage(message);};".to_string()
+    };
 
     format!(
         r#"<!DOCTYPE html>
@@ -367,6 +379,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         </div>
     </div>
     <script>
+        {ipc_bootstrap}
         window.REALTIME_L10N = {l10n_json};
         {js_content}
     </script>
@@ -375,6 +388,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         css_content = css,
         js_content = js,
         l10n_json = l10n_json,
+        ipc_bootstrap = ipc_bootstrap,
         is_s2s_attr = if is_s2s { "1" } else { "0" },
         is_live_translate_attr = if is_live_translate { "1" } else { "0" },
         tts_toggle_class = if is_s2s { "on locked" } else { "" },

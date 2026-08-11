@@ -73,10 +73,10 @@ impl SettingsApp {
             }
             crate::gui::utils::update_window_icon_native(effective_dark);
 
-            // C. Update Realtime Webviews
+            // C. Update the realtime compositor.
             unsafe {
                 use crate::api::realtime_audio::WM_THEME_UPDATE;
-                use crate::overlay::realtime_webview::state::{REALTIME_HWND, TRANSLATION_HWND};
+                use crate::overlay::realtime_webview::state::REALTIME_HWND;
                 use windows::Win32::Foundation::{LPARAM, WPARAM};
                 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
@@ -85,16 +85,6 @@ impl SettingsApp {
                     let _ =
                         PostMessageW(Some(realtime_hwnd), WM_THEME_UPDATE, WPARAM(0), LPARAM(0));
                 }
-                let translation_hwnd = std::ptr::addr_of!(TRANSLATION_HWND).read();
-                if !translation_hwnd.is_invalid() {
-                    let _ = PostMessageW(
-                        Some(translation_hwnd),
-                        WM_THEME_UPDATE,
-                        WPARAM(0),
-                        LPARAM(0),
-                    );
-                }
-
                 crate::overlay::window_selector::update_theme(crate::overlay::is_dark_mode());
             }
 

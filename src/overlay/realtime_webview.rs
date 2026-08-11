@@ -1,5 +1,8 @@
 pub mod app_selection;
 pub mod controller;
+mod document;
+mod ipc;
+mod layout;
 pub mod manager;
 pub mod state;
 pub mod webview;

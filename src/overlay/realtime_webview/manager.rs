@@ -3,16 +3,16 @@
 use super::state::*;
 use super::webview::*;
 use super::wndproc::*;
+use super::{layout, layout::CardRole};
 use crate::APP;
 use crate::api::realtime_audio::start_realtime_transcription;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Dwm::{
-    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
-};
-use windows::Win32::Graphics::Gdi::HBRUSH;
+use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
+use windows::Win32::Graphics::Gdi::{CreateRectRgn, HBRUSH, SetWindowRgn};
 use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
@@ -51,7 +51,7 @@ pub fn is_realtime_overlay_active() -> bool {
     }
 }
 
-/// Stop the realtime overlay and hide windows
+/// Stop the realtime overlay and close its compositor.
 pub fn stop_realtime_overlay() {
     if crate::overlay::realtime_egui::MINIMAL_ACTIVE.load(Ordering::SeqCst)
         || crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst)
@@ -163,101 +163,45 @@ unsafe fn internal_create_realtime_loop() {
             let _ = RegisterClassW(&wc);
         });
 
-        let trans_class = w!("RealtimeTranslationWebViewOverlay");
-        REGISTER_TRANSLATION_CLASS.call_once(|| {
-            let wc = WNDCLASSW {
-                lpfnWndProc: Some(translation_wnd_proc_internal),
-                hInstance: instance.into(),
-                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
-                lpszClassName: trans_class,
-                style: CS_HREDRAW | CS_VREDRAW,
-                hbrBackground: HBRUSH(std::ptr::null_mut()),
-                ..Default::default()
-            };
-            let _ = RegisterClassW(&wc);
-        });
+        let virtual_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let virtual_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let virtual_width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
+        let virtual_height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
 
-        // Create windows hidden
+        // The one host spans the virtual desktop; its native region is reduced
+        // to the visible card rectangles so the space between cards stays inert.
         let main_hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class_name,
-            w!("Realtime Transcription"),
-            WS_POPUP, // Hidden initially
-            0,
-            0,
-            100,
-            100,
+            w!("Realtime compositor"),
+            WS_POPUP | WS_CLIPCHILDREN,
+            virtual_x,
+            virtual_y,
+            virtual_width,
+            virtual_height,
             None,
             None,
             Some(instance.into()),
             None,
         )
         .unwrap();
-
-        let trans_hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-            trans_class,
-            w!("Translation"),
-            WS_POPUP, // Hidden initially
-            0,
-            0,
-            100,
-            100,
-            None,
-            None,
-            Some(instance.into()),
-            None,
-        )
-        .unwrap();
-
-        // Enable rounded corners (Windows 11+)
-        let corner_pref = DWMWCP_ROUND;
-        let _ = DwmSetWindowAttribute(
-            main_hwnd,
-            DWMWA_WINDOW_CORNER_PREFERENCE,
-            &corner_pref as *const _ as *const std::ffi::c_void,
-            std::mem::size_of_val(&corner_pref) as u32,
-        );
-        let _ = DwmSetWindowAttribute(
-            trans_hwnd,
-            DWMWA_WINDOW_CORNER_PREFERENCE,
-            &corner_pref as *const _ as *const std::ffi::c_void,
-            std::mem::size_of_val(&corner_pref) as u32,
-        );
+        let margins = MARGINS {
+            cxLeftWidth: -1,
+            cxRightWidth: -1,
+            cyTopHeight: -1,
+            cyBottomHeight: -1,
+        };
+        let _ = DwmExtendFrameIntoClientArea(main_hwnd, &margins);
+        let empty = CreateRectRgn(0, 0, 0, 0);
+        let _ = SetWindowRgn(main_hwnd, Some(empty), false);
 
         REALTIME_HWND = main_hwnd;
-        TRANSLATION_HWND = trans_hwnd;
 
-        // Create WebViews
-        create_realtime_webview(
-            main_hwnd,
-            false,
-            "device",
-            "English",
-            "google-gtx",
-            "gemini",
-            16,
-        );
-        create_realtime_webview(
-            trans_hwnd,
-            true,
-            "device",
-            "English",
-            "google-gtx",
-            "gemini",
-            16,
-        );
-
-        // Mark as warmed up and ready
-        IS_WARMED_UP = true;
-        let pending_preset = PENDING_REALTIME_START_PRESET.swap(-1, Ordering::SeqCst);
-        if pending_preset >= 0 {
-            let _ = PostMessageW(
-                Some(REALTIME_HWND),
-                WM_APP_REALTIME_START,
-                WPARAM(pending_preset as usize),
-                LPARAM(0),
-            );
+        if let Err(error) =
+            create_realtime_webview(main_hwnd, "device", "English", "google-gtx", "gemini", 16)
+        {
+            crate::log_info!("[RealtimeCompositor] WebView creation failed: {error:#}");
+            let _ = DestroyWindow(main_hwnd);
         }
 
         // Message loop
@@ -272,7 +216,6 @@ unsafe fn internal_create_realtime_loop() {
 
         // Cleanup
         destroy_realtime_webview(REALTIME_HWND);
-        destroy_realtime_webview(TRANSLATION_HWND);
         IS_ACTIVE = false;
         IS_WARMED_UP = false;
         IS_INITIALIZING = false;
@@ -280,7 +223,6 @@ unsafe fn internal_create_realtime_loop() {
         REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
         REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
         REALTIME_HWND = HWND::default();
-        TRANSLATION_HWND = HWND::default();
         CoUninitialize();
     }
 }
@@ -301,13 +243,23 @@ unsafe extern "system" fn realtime_wnd_proc_internal(
     }
 }
 
-unsafe extern "system" fn translation_wnd_proc_internal(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    unsafe { translation_wnd_proc(hwnd, msg, wparam, lparam) }
+pub(super) fn on_compositor_ready(hwnd: HWND) {
+    unsafe {
+        if hwnd != std::ptr::addr_of!(REALTIME_HWND).read() {
+            return;
+        }
+        IS_WARMED_UP = true;
+        crate::log_info!("[RealtimeCompositor] both cards ready");
+        let pending_preset = PENDING_REALTIME_START_PRESET.swap(-1, Ordering::SeqCst);
+        if pending_preset >= 0 {
+            let _ = PostMessageW(
+                Some(hwnd),
+                WM_APP_REALTIME_START,
+                WPARAM(pending_preset as usize),
+                LPARAM(0),
+            );
+        }
+    }
 }
 
 unsafe fn handle_start_overlay(preset_idx: usize) {
@@ -373,34 +325,16 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
             ((screen_w - main_w) / 2, (screen_h - main_h) / 2)
         };
 
-        // Update window positions and sizes
-        let _ = SetWindowPos(
-            REALTIME_HWND,
-            Some(HWND_TOPMOST),
-            main_x,
-            main_y,
-            main_w,
-            main_h,
-            SWP_SHOWWINDOW,
+        layout::configure(
+            (main_x, main_y),
+            (main_w, main_h),
+            (trans_w, trans_h),
+            has_translation,
         );
-        if has_translation {
-            let trans_x = main_x + main_w + GAP;
-            let _ = SetWindowPos(
-                TRANSLATION_HWND,
-                Some(HWND_TOPMOST),
-                trans_x,
-                main_y,
-                trans_w,
-                trans_h,
-                SWP_SHOWWINDOW,
-            );
-        } else {
-            let _ = ShowWindow(TRANSLATION_HWND, SW_HIDE);
-        }
+        sync_compositor_layout(REALTIME_HWND);
 
-        // Notify WebViews of new settings
-        notify_webview_settings(
-            REALTIME_HWND,
+        notify_card_settings(
+            CardRole::Transcription,
             &active_config.audio_source,
             &target_language,
             &active_config.translation_model,
@@ -409,15 +343,12 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
             active_config.font_size,
         );
 
-        // Explicitly resize WebViews to match window sizes
-        resize_webview(REALTIME_HWND, main_w, main_h);
-
         // Clear text to start fresh
-        clear_webview_text(REALTIME_HWND);
+        clear_card_text(CardRole::Transcription);
 
         if has_translation {
-            notify_webview_settings(
-                TRANSLATION_HWND,
+            notify_card_settings(
+                CardRole::Translation,
                 "mic",
                 &target_language,
                 &active_config.translation_model,
@@ -425,19 +356,14 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
                 &active_config.transcription_language,
                 active_config.font_size,
             );
-            resize_webview(TRANSLATION_HWND, trans_w, trans_h);
-            clear_webview_text(TRANSLATION_HWND);
+            clear_card_text(CardRole::Translation);
         }
 
         // Sync visibility state to webviews (fixes toggled->hidden state on re-show)
-        sync_visibility_to_webviews();
+        sync_visibility_to_webview();
 
         // Start transcription
-        let trans_hwnd_opt = if has_translation {
-            Some(TRANSLATION_HWND)
-        } else {
-            None
-        };
+        let trans_hwnd_opt = has_translation.then_some(REALTIME_HWND);
         start_realtime_transcription(
             preset,
             REALTIME_STOP_SIGNAL.clone(),
@@ -446,47 +372,6 @@ unsafe fn handle_start_overlay(preset_idx: usize) {
             REALTIME_STATE.clone(),
         );
     }
-}
-
-fn notify_webview_settings(
-    hwnd: HWND,
-    source: &str,
-    lang: &str,
-    model: &str,
-    trans_model: &str,
-    trans_lang: &str,
-    font_size: u32,
-) {
-    let hwnd_key = hwnd.0 as isize;
-    let script = format!(
-        "if(window.updateSettings) window.updateSettings({{ audioSource: '{}', targetLanguage: '{}', translationModel: '{}', transcriptionModel: '{}', transcriptionLanguage: '{}', fontSize: {} }});",
-        source,
-        lang,
-        model,
-        trans_model,
-        trans_lang.to_uppercase(),
-        font_size
-    );
-    REALTIME_WEBVIEWS.with(|wvs| {
-        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-            let _ = webview.evaluate_script(&script);
-        }
-    });
-}
-
-fn resize_webview(hwnd: HWND, width: i32, height: i32) {
-    let hwnd_key = hwnd.0 as isize;
-    REALTIME_WEBVIEWS.with(|wvs| {
-        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-            let _ = webview.set_bounds(wry::Rect {
-                position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                    width as u32,
-                    height as u32,
-                )),
-            });
-        }
-    });
 }
 
 #[cfg(test)]

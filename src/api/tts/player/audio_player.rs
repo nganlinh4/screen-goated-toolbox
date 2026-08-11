@@ -292,20 +292,11 @@ impl AudioPlayer {
             let old_speed = CURRENT_TTS_SPEED.swap(speed, Ordering::Relaxed);
             if old_speed != speed {
                 unsafe {
-                    use crate::overlay::realtime_webview::state::TRANSLATION_HWND;
                     use windows::Win32::Foundation::{LPARAM, WPARAM};
                     use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
                     if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
                         let _ = PostMessageW(
                             Some(REALTIME_HWND),
-                            WM_UPDATE_TTS_SPEED,
-                            WPARAM(speed as usize),
-                            LPARAM(0),
-                        );
-                    }
-                    if !std::ptr::addr_of!(TRANSLATION_HWND).read().is_invalid() {
-                        let _ = PostMessageW(
-                            Some(TRANSLATION_HWND),
                             WM_UPDATE_TTS_SPEED,
                             WPARAM(speed as usize),
                             LPARAM(0),
