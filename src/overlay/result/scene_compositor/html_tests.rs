@@ -79,6 +79,12 @@ fn moving_a_card_uses_only_a_compositor_transform() {
 }
 
 #[test]
+fn result_card_outline_does_not_bleed_into_the_control_gap() {
+    assert!(DOCUMENT.contains("box-shadow:inset 0 0 0 1px var(--result-outline)"));
+    assert!(!DOCUMENT.contains("0 8px 28px rgba(0,0,0,.22)"));
+}
+
+#[test]
 fn resizing_debounces_fit_without_penalizing_position_only_dragging() {
     assert!(DOCUMENT.contains("const resized = entry.card.clientWidth !== width"));
     assert!(DOCUMENT.contains("setTimeout(function() { queueFit(entry, entry.streaming); }, 40)"));

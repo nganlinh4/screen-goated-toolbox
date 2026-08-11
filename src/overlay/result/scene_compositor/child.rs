@@ -9,9 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
-use windows::Win32::Graphics::Gdi::{
-    CombineRgn, CreateRectRgn, DeleteObject, RGN_OR, SetWindowRgn,
-};
+use windows::Win32::Graphics::Gdi::{CreateRectRgn, SetWindowRgn};
 use windows::Win32::System::Com::CoUninitialize;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
@@ -270,8 +268,10 @@ fn drain_commands(hwnd: HWND) {
             });
         }
     }
-    if handled_command {
-        update_window_region(hwnd, redraw_region);
+    if handled_command
+        && super::region::needs_update(redraw_region, super::button_input::is_dragging())
+    {
+        super::region::update(hwnd, redraw_region);
     }
 }
 
@@ -296,7 +296,7 @@ fn handle_renderer_event(body: &str) {
         match outcome {
             super::button_input::RendererInput::Unhandled => {}
             super::button_input::RendererInput::RefreshRegion => {
-                update_window_region(host, true);
+                super::region::update(host, true);
                 return;
             }
             super::button_input::RendererInput::Event(event) => {
@@ -308,7 +308,7 @@ fn handle_renderer_event(body: &str) {
                     evaluate_script("window.__SGT_BUTTON_SCENE__?.setDragActive(true);");
                 }
                 emit_event(event);
-                update_window_region(host, true);
+                super::region::update(host, true);
                 return;
             }
         }
@@ -464,56 +464,11 @@ fn apply_scene_state(command: &HostCommand) {
     }
 }
 
-fn update_window_region(hwnd: HWND, redraw: bool) {
-    unsafe {
-        let combined = CreateRectRgn(0, 0, 0, 0);
-        let cards = CARDS.lock().unwrap();
-        let mut visible_count = 0usize;
-        for card in cards.values().filter(|card| card.visible) {
-            visible_count += 1;
-            let rect = CreateRectRgn(
-                card.rect.x,
-                card.rect.y,
-                card.rect.x + card.rect.width,
-                card.rect.y + card.rect.height,
-            );
-            let _ = CombineRgn(Some(combined), Some(combined), Some(rect), RGN_OR);
-            let _ = DeleteObject(rect.into());
-        }
-        for region in super::button_input::interactive_regions() {
-            let rect = CreateRectRgn(
-                region.x,
-                region.y,
-                region.x + region.width,
-                region.y + region.height,
-            );
-            let _ = CombineRgn(Some(combined), Some(combined), Some(rect), RGN_OR);
-            let _ = DeleteObject(rect.into());
-        }
-        drop(cards);
-        let _ = SetWindowRgn(hwnd, Some(combined), redraw);
-        if visible_count == 0 {
-            let _ = ShowWindow(hwnd, SW_HIDE);
-        } else {
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-            );
-        }
-    }
-}
-
 fn finish_button_drag(hwnd: HWND) {
     if let Some(event) = unsafe { super::button_input::finish_drag() } {
         emit_event(event);
         reset_button_cursor();
-        update_window_region(hwnd, true);
+        super::region::update(hwnd, true);
     }
 }
 
@@ -521,7 +476,7 @@ fn recover_button_drag(hwnd: HWND) {
     if let Some(event) = unsafe { super::button_input::recover_stale_drag(hwnd) } {
         emit_event(event);
         reset_button_cursor();
-        update_window_region(hwnd, true);
+        super::region::update(hwnd, true);
     }
 }
 

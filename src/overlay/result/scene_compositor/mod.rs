@@ -10,6 +10,7 @@ mod html;
 mod isolated_server;
 mod parent;
 pub(crate) mod protocol;
+mod region;
 mod sync_scheduler;
 mod web_response;
 
