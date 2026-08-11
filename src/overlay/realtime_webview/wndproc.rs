@@ -1,8 +1,12 @@
-//! Window procedures for realtime overlay windows
+//! Window procedure for the unified realtime compositor host.
 
 use super::controller;
+use super::layout::{self, CardRole};
 use super::state::*;
-use super::webview::{update_webview_text, update_webview_theme};
+use super::webview::{
+    resize_to_virtual_desktop, run_all_cards_script, run_card_script, sync_compositor_layout,
+    update_card_text, update_theme,
+};
 use crate::api::realtime_audio::{
     REALTIME_RMS, WM_COPY_TEXT, WM_DOWNLOAD_PROGRESS, WM_EXEC_SCRIPT, WM_MODEL_SWITCH,
     WM_REALTIME_UPDATE, WM_START_DRAG, WM_THEME_UPDATE, WM_TOGGLE_MIC, WM_TOGGLE_TRANS,
@@ -11,7 +15,6 @@ use crate::api::realtime_audio::{
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::Rect;
 
 fn clamp_to_char_boundary(text: &str, index: usize) -> usize {
     let mut clamped = index.min(text.len());
@@ -21,33 +24,27 @@ fn clamp_to_char_boundary(text: &str, index: usize) -> usize {
     clamped
 }
 
-fn sync_tts_ui_state(hwnd: HWND) {
+fn sync_tts_ui_state() {
     let enabled = REALTIME_TTS_ENABLED.load(Ordering::SeqCst);
     let speed = CURRENT_TTS_SPEED.load(Ordering::Relaxed);
-    let hwnd_key = hwnd.0 as isize;
-    let script = format!(
-        "if(window.setTtsEnabled) window.setTtsEnabled({}); if(window.updateTtsSpeed) window.updateTtsSpeed({});",
-        if enabled { "true" } else { "false" },
-        speed
-    );
-
-    REALTIME_WEBVIEWS.with(|wvs| {
-        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-            let _ = webview.evaluate_script(&script);
-        }
-    });
+    run_all_cards_script(&format!(
+        "if(window.setTtsEnabled) window.setTtsEnabled({enabled});if(window.updateTtsSpeed)window.updateTtsSpeed({speed});"
+    ));
 }
 
-unsafe fn destroy_realtime_overlay_windows() {
-    unsafe {
-        let main_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
-        let translation_hwnd = std::ptr::addr_of!(TRANSLATION_HWND).read();
+fn close_card_modals_if_requested() {
+    if CLOSE_TTS_MODAL_REQUEST.swap(false, Ordering::SeqCst) {
+        run_all_cards_script(
+            "for(const id of ['tts-modal','tts-modal-overlay']){const element=document.getElementById(id);if(element)element.classList.remove('show');}",
+        );
+    }
+}
 
-        if !translation_hwnd.is_invalid() && IsWindow(Some(translation_hwnd)).as_bool() {
-            let _ = DestroyWindow(translation_hwnd);
-        }
-        if !main_hwnd.is_invalid() && IsWindow(Some(main_hwnd)).as_bool() {
-            let _ = DestroyWindow(main_hwnd);
+unsafe fn destroy_realtime_overlay_window() {
+    unsafe {
+        let hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+        if !hwnd.is_invalid() && IsWindow(Some(hwnd)).as_bool() {
+            let _ = DestroyWindow(hwnd);
         } else {
             PostQuitMessage(0);
         }
@@ -56,24 +53,28 @@ unsafe fn destroy_realtime_overlay_windows() {
 
 pub unsafe extern "system" fn realtime_wnd_proc(
     hwnd: HWND,
-    msg: u32,
+    message: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
     unsafe {
-        match msg {
+        match message {
             WM_START_DRAG => {
                 crate::overlay::utils::begin_window_drag(hwnd);
                 LRESULT(0)
             }
             WM_TOGGLE_MIC => {
-                let val = wparam.0 != 0;
-                MIC_VISIBLE.store(val, Ordering::SeqCst);
+                let visible = wparam.0 != 0;
+                MIC_VISIBLE.store(visible, Ordering::SeqCst);
+                layout::set_visible(CardRole::Transcription, visible);
+                sync_compositor_layout(hwnd);
                 LRESULT(0)
             }
             WM_TOGGLE_TRANS => {
-                let val = wparam.0 != 0;
-                TRANS_VISIBLE.store(val, Ordering::SeqCst);
+                let visible = wparam.0 != 0;
+                TRANS_VISIBLE.store(visible, Ordering::SeqCst);
+                layout::set_visible(CardRole::Translation, visible);
+                sync_compositor_layout(hwnd);
                 LRESULT(0)
             }
             WM_COPY_TEXT => {
@@ -87,149 +88,68 @@ pub unsafe extern "system" fn realtime_wnd_proc(
             WM_EXEC_SCRIPT => {
                 let ptr = lparam.0 as *mut String;
                 if !ptr.is_null() {
-                    let script_box = Box::from_raw(ptr);
-                    let script = *script_box;
-                    let hwnd_key = hwnd.0 as isize;
-                    REALTIME_WEBVIEWS.with(|wvs| {
-                        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                            let _ = webview.evaluate_script(&script);
-                        }
-                    });
+                    run_all_cards_script(&Box::from_raw(ptr));
                 }
                 LRESULT(0)
             }
             WM_REALTIME_UPDATE => {
-                // Check if we need to close the modal (flag set by app selection)
-                if CLOSE_TTS_MODAL_REQUEST.load(Ordering::SeqCst)
-                    && CLOSE_TTS_MODAL_REQUEST.swap(false, Ordering::SeqCst)
-                {
-                    let hwnd_key = hwnd.0 as isize;
-                    let script = "var m = document.getElementById('tts-modal'); if(m) m.classList.remove('show'); var o = document.getElementById('tts-modal-overlay'); if(o) o.classList.remove('show');";
-                    REALTIME_WEBVIEWS.with(|wvs| {
-                        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                            let _ = webview.evaluate_script(script);
-                        }
-                    });
+                close_card_modals_if_requested();
+                let (old_text, new_text) = transcription_text();
+                sync_tts_ui_state();
+                update_card_text(CardRole::Transcription, &old_text, &new_text);
+                LRESULT(0)
+            }
+            WM_TRANSLATION_UPDATE => {
+                close_card_modals_if_requested();
+                let (is_s2s, old_text, new_text) = translation_text();
+                if !is_s2s {
+                    controller::process_committed_translation_for_tts(&old_text, hwnd.0 as isize);
+                    sync_tts_ui_state();
                 }
-
-                // Get old (committed) and new (current sentence) text from state
-                let (old_text, new_text) = {
-                    if let Ok(state) = REALTIME_STATE.lock() {
-                        // Everything before transcript_committed_pos is "old"
-                        // Everything after is "new" (current sentence)
-                        let full = &state.full_transcript;
-                        let pos = clamp_to_char_boundary(
-                            full,
-                            state.transcript_committed_pos.min(full.len()),
-                        );
-                        let old_raw = &full[..pos];
-                        let new_raw = &full[pos..];
-
-                        let old = old_raw.trim_end();
-                        let new = new_raw.trim_start();
-                        if !old.is_empty() && !new.is_empty() {
-                            (old.to_string(), format!(" {}", new))
-                        } else {
-                            (old.to_string(), new.to_string())
-                        }
-                    } else {
-                        (String::new(), String::new())
-                    }
+                update_card_text(CardRole::Translation, &old_text, &new_text);
+                LRESULT(0)
+            }
+            WM_MODEL_SWITCH => {
+                let model = if wparam.0 == 1 {
+                    "google-gtx"
+                } else {
+                    "text-llm"
                 };
-                sync_tts_ui_state(hwnd);
-                update_webview_text(hwnd, &old_text, &new_text);
+                run_card_script(
+                    CardRole::Translation,
+                    &format!("if(window.switchModel)window.switchModel('{model}');"),
+                );
                 LRESULT(0)
             }
             WM_DOWNLOAD_PROGRESS => {
-                let (is_downloading, title, message, progress) = {
-                    if let Ok(state) = REALTIME_STATE.lock() {
-                        (
-                            state.is_downloading,
-                            state.download_title.clone(),
-                            state.download_message.clone(),
-                            state.download_progress,
-                        )
-                    } else {
-                        (false, String::new(), String::new(), 0.0)
-                    }
-                };
-
-                if is_downloading {
-                    let script = format!(
-                        "if(window.showDownloadModal) window.showDownloadModal('{}', '{}', {});",
-                        title.replace("'", "\\'"),
-                        message.replace("'", "\\'"),
-                        progress
-                    );
-                    let hwnd_key = hwnd.0 as isize;
-                    REALTIME_WEBVIEWS.with(|wvs| {
-                        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                            let _ = webview.evaluate_script(&script);
-                        }
-                    });
-                } else {
-                    let script = "if(window.hideDownloadModal) window.hideDownloadModal();";
-                    let hwnd_key = hwnd.0 as isize;
-                    REALTIME_WEBVIEWS.with(|wvs| {
-                        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                            let _ = webview.evaluate_script(script);
-                        }
-                    });
-                }
-
+                update_download_modal();
                 LRESULT(0)
             }
             WM_VOLUME_UPDATE => {
-                // Read RMS from shared atomic and update visualizer
-                let rms_bits = REALTIME_RMS.load(Ordering::Relaxed);
-                let rms = f32::from_bits(rms_bits);
-
-                let hwnd_key = hwnd.0 as isize;
-                let script = format!("if(window.updateVolume) window.updateVolume({});", rms);
-
-                REALTIME_WEBVIEWS.with(|wvs| {
-                    if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                        let _ = webview.evaluate_script(&script);
-                    }
-                });
+                let rms = f32::from_bits(REALTIME_RMS.load(Ordering::Relaxed));
+                run_card_script(
+                    CardRole::Transcription,
+                    &format!("if(window.updateVolume)window.updateVolume({rms});"),
+                );
                 LRESULT(0)
             }
             WM_UPDATE_TTS_SPEED => {
                 let speed = wparam.0 as u32;
-                let hwnd_key = hwnd.0 as isize;
-                let script = format!(
-                    "if(window.updateTtsSpeed) window.updateTtsSpeed({});",
-                    speed
-                );
-
-                REALTIME_WEBVIEWS.with(|wvs| {
-                    if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                        let _ = webview.evaluate_script(&script);
-                    }
-                });
+                run_all_cards_script(&format!(
+                    "if(window.updateTtsSpeed)window.updateTtsSpeed({speed});"
+                ));
                 LRESULT(0)
             }
             WM_THEME_UPDATE => {
-                update_webview_theme(hwnd);
+                update_theme();
                 LRESULT(0)
             }
             WM_SIZE => {
-                // Resize WebView to match window size
-                let width = (lparam.0 & 0xFFFF) as u32;
-                let height = ((lparam.0 >> 16) & 0xFFFF) as u32;
-                let hwnd_key = hwnd.0 as isize;
-                REALTIME_WEBVIEWS.with(|wvs| {
-                    if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                        let _ = webview.set_bounds(Rect {
-                            position: wry::dpi::Position::Physical(
-                                wry::dpi::PhysicalPosition::new(0, 0),
-                            ),
-                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                                width, height,
-                            )),
-                        });
-                    }
-                });
+                resize_to_virtual_desktop(hwnd);
+                LRESULT(0)
+            }
+            WM_DISPLAYCHANGE => {
+                resize_host_to_virtual_desktop(hwnd);
                 LRESULT(0)
             }
             WM_CLOSE => {
@@ -237,178 +157,118 @@ pub unsafe extern "system" fn realtime_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_REALTIME_HIDE => {
-                // Check if download modal is active - if so, user wants to cancel and revert to Gemini
-                let is_downloading = {
-                    if let Ok(state) = REALTIME_STATE.lock() {
-                        state.is_downloading
-                    } else {
-                        false
-                    }
-                };
-
-                if is_downloading {
-                    // Cancel download and revert to Gemini
+                if REALTIME_STATE
+                    .lock()
+                    .is_ok_and(|state| state.is_downloading)
+                {
                     crate::api::realtime_audio::cancel_download_and_revert_to_gemini();
                 }
-
-                // Stop transcription and TTS
                 REALTIME_SESSION_STOPPING.store(true, Ordering::SeqCst);
                 REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
                 crate::api::tts::TTS_MANAGER.stop();
-
                 IS_ACTIVE = false;
-                destroy_realtime_overlay_windows();
-
+                destroy_realtime_overlay_window();
                 LRESULT(0)
             }
-
             WM_DESTROY => {
-                let main_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
-                if hwnd == main_hwnd {
-                    PostQuitMessage(0);
-                }
+                PostQuitMessage(0);
                 LRESULT(0)
             }
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+            _ => DefWindowProcW(hwnd, message, wparam, lparam),
         }
     }
 }
 
-pub unsafe extern "system" fn translation_wnd_proc(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
+fn transcription_text() -> (String, String) {
+    let Ok(state) = REALTIME_STATE.lock() else {
+        return (String::new(), String::new());
+    };
+    let full = &state.full_transcript;
+    let position = clamp_to_char_boundary(full, state.transcript_committed_pos.min(full.len()));
+    join_committed_and_draft(&full[..position], &full[position..])
+}
+
+fn translation_text() -> (bool, String, String) {
+    let Ok(state) = REALTIME_STATE.lock() else {
+        return (false, String::new(), String::new());
+    };
+    let is_s2s = state.transcription_method
+        == crate::api::realtime_audio::TranscriptionMethod::GeminiLiveS2s;
+    let (old, new) =
+        join_committed_and_draft(&state.committed_translation, &state.uncommitted_translation);
+    (is_s2s, old, new)
+}
+
+fn join_committed_and_draft(committed: &str, draft: &str) -> (String, String) {
+    let old = committed.trim_end();
+    let new = draft.trim_start();
+    if !old.is_empty() && !new.is_empty() {
+        (old.to_string(), format!(" {new}"))
+    } else {
+        (old.to_string(), new.to_string())
+    }
+}
+
+fn update_download_modal() {
+    let (downloading, title, message, progress) = REALTIME_STATE
+        .lock()
+        .map(|state| {
+            (
+                state.is_downloading,
+                state.download_title.clone(),
+                state.download_message.clone(),
+                state.download_progress,
+            )
+        })
+        .unwrap_or_default();
+    if downloading {
+        let title = serde_json::to_string(&title).unwrap_or_else(|_| "\"\"".into());
+        let message = serde_json::to_string(&message).unwrap_or_else(|_| "\"\"".into());
+        run_card_script(
+            CardRole::Transcription,
+            &format!(
+                "if(window.showDownloadModal)window.showDownloadModal({title},{message},{progress});"
+            ),
+        );
+    } else {
+        run_card_script(
+            CardRole::Transcription,
+            "if(window.hideDownloadModal)window.hideDownloadModal();",
+        );
+    }
+}
+
+unsafe fn resize_host_to_virtual_desktop(hwnd: HWND) {
     unsafe {
-        match msg {
-            WM_COPY_TEXT => {
-                let ptr = lparam.0 as *mut String;
-                if !ptr.is_null() {
-                    let text = Box::from_raw(ptr);
-                    crate::overlay::utils::copy_to_clipboard(&text, hwnd);
-                }
-                LRESULT(0)
-            }
-            WM_TRANSLATION_UPDATE => {
-                // Check if we need to close the modal (flag set by app selection)
-                if CLOSE_TTS_MODAL_REQUEST.load(Ordering::SeqCst)
-                    && CLOSE_TTS_MODAL_REQUEST.swap(false, Ordering::SeqCst)
-                {
-                    let hwnd_key = hwnd.0 as isize;
-                    let script = "var m = document.getElementById('tts-modal'); if(m) m.classList.remove('show'); var o = document.getElementById('tts-modal-overlay'); if(o) o.classList.remove('show');";
-                    REALTIME_WEBVIEWS.with(|wvs| {
-                        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                            let _ = webview.evaluate_script(script);
-                        }
-                    });
-                }
+        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
+        let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            x,
+            y,
+            width,
+            height,
+            SWP_NOACTIVATE,
+        );
+        resize_to_virtual_desktop(hwnd);
+        sync_compositor_layout(hwnd);
+    }
+}
 
-                let (is_s2s, old_text, new_text): (bool, String, String) = {
-                    if let Ok(state) = REALTIME_STATE.lock() {
-                        let is_s2s = state.transcription_method
-                            == crate::api::realtime_audio::TranscriptionMethod::GeminiLiveS2s;
-                        let old = state.committed_translation.trim_end();
-                        let new = state.uncommitted_translation.trim_start();
-                        if !old.is_empty() && !new.is_empty() {
-                            (is_s2s, old.to_string(), format!(" {}", new))
-                        } else {
-                            (is_s2s, old.to_string(), new.to_string())
-                        }
-                    } else {
-                        (false, String::new(), String::new())
-                    }
-                };
+#[cfg(test)]
+mod tests {
+    use super::{clamp_to_char_boundary, join_committed_and_draft};
 
-                if is_s2s {
-                    update_webview_text(hwnd, &old_text, &new_text);
-                    return LRESULT(0);
-                }
-
-                controller::process_committed_translation_for_tts(&old_text, hwnd.0 as isize);
-                sync_tts_ui_state(hwnd);
-                update_webview_text(hwnd, &old_text, &new_text);
-                LRESULT(0)
-            }
-            WM_MODEL_SWITCH => {
-                // Animate the model switch in the UI
-                // WPARAM: 0 = text-llm, 1 = google-gtx
-                let model_name = match wparam.0 {
-                    1 => "google-gtx",
-                    _ => "text-llm",
-                };
-                let hwnd_key = hwnd.0 as isize;
-                let script = format!(
-                    "if(window.switchModel) window.switchModel('{}');",
-                    model_name
-                );
-
-                REALTIME_WEBVIEWS.with(|wvs| {
-                    if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                        let _ = webview.evaluate_script(&script);
-                    }
-                });
-                LRESULT(0)
-            }
-            WM_UPDATE_TTS_SPEED => {
-                let speed = wparam.0 as u32;
-                let hwnd_key = hwnd.0 as isize;
-                let script = format!(
-                    "if(window.updateTtsSpeed) window.updateTtsSpeed({});",
-                    speed
-                );
-
-                REALTIME_WEBVIEWS.with(|wvs| {
-                    if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                        let _ = webview.evaluate_script(&script);
-                    }
-                });
-                LRESULT(0)
-            }
-            WM_THEME_UPDATE => {
-                update_webview_theme(hwnd);
-                LRESULT(0)
-            }
-            WM_SIZE => {
-                // Resize WebView to match window size
-                let width = (lparam.0 & 0xFFFF) as u32;
-                let height = ((lparam.0 >> 16) & 0xFFFF) as u32;
-                let hwnd_key = hwnd.0 as isize;
-                REALTIME_WEBVIEWS.with(|wvs| {
-                    if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                        let _ = webview.set_bounds(Rect {
-                            position: wry::dpi::Position::Physical(
-                                wry::dpi::PhysicalPosition::new(0, 0),
-                            ),
-                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                                width, height,
-                            )),
-                        });
-                    }
-                });
-                LRESULT(0)
-            }
-
-            WM_CLOSE => {
-                let _ = PostMessageW(
-                    Some(REALTIME_HWND),
-                    WM_APP_REALTIME_HIDE,
-                    WPARAM(0),
-                    LPARAM(0),
-                );
-                LRESULT(0)
-            }
-            WM_APP_REALTIME_HIDE => {
-                let _ = PostMessageW(
-                    Some(REALTIME_HWND),
-                    WM_APP_REALTIME_HIDE,
-                    WPARAM(0),
-                    LPARAM(0),
-                );
-                LRESULT(0)
-            }
-            WM_DESTROY => LRESULT(0),
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
-        }
+    #[test]
+    fn text_splits_preserve_utf8_boundaries_and_word_spacing() {
+        let text = "a한";
+        assert_eq!(clamp_to_char_boundary(text, 2), 1);
+        assert_eq!(
+            join_committed_and_draft("done ", " next"),
+            ("done".into(), " next".into())
+        );
     }
 }

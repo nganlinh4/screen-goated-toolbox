@@ -5,10 +5,14 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex, Once};
+use std::sync::{Arc, LazyLock, Mutex, Once, mpsc};
+use std::time::Duration;
 use wry::WebViewBuilder;
+
+const LOCAL_PAGE_WORKERS: usize = 8;
+const CONNECTION_IO_TIMEOUT: Duration = Duration::from_secs(2);
 
 static START_SERVER_ONCE: Once = Once::new();
 static PAGE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -65,11 +69,37 @@ fn start_server() {
                 *guard = Some(url);
             }
 
-            for mut stream in listener.incoming().flatten() {
-                let _ = handle_request(&mut stream);
-            }
+            serve_connections(listener);
         });
     });
+}
+
+fn serve_connections(listener: TcpListener) {
+    let (sender, receiver) = mpsc::channel::<TcpStream>();
+    let receiver = Arc::new(Mutex::new(receiver));
+    for worker_id in 0..LOCAL_PAGE_WORKERS {
+        let receiver = Arc::clone(&receiver);
+        let _ = std::thread::Builder::new()
+            .name(format!("sgt-local-page-{worker_id}"))
+            .spawn(move || connection_worker(receiver));
+    }
+    for stream in listener.incoming().flatten() {
+        if sender.send(stream).is_err() {
+            break;
+        }
+    }
+}
+
+fn connection_worker(receiver: Arc<Mutex<mpsc::Receiver<TcpStream>>>) {
+    loop {
+        let stream = receiver.lock().ok().and_then(|guard| guard.recv().ok());
+        let Some(mut stream) = stream else {
+            return;
+        };
+        let _ = stream.set_read_timeout(Some(CONNECTION_IO_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(CONNECTION_IO_TIMEOUT));
+        let _ = handle_request(&mut stream);
+    }
 }
 
 fn handle_request(stream: &mut std::net::TcpStream) -> std::io::Result<()> {
@@ -352,6 +382,30 @@ mod tests {
             + 4;
         assert!(response.starts_with(b"HTTP/1.1 200 OK\r\n"));
         assert_eq!(&response[body_offset..], PRODUCT_FONT_TTF);
+    }
+
+    #[cfg(not(feature = "recorder-worker"))]
+    #[test]
+    fn idle_connection_does_not_block_a_page_request() {
+        let base_url = get_server_url().unwrap();
+        let url = url::Url::parse(&base_url).unwrap();
+        let idle = TcpStream::connect(("127.0.0.1", url.port().unwrap())).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+
+        let page_url = url::Url::parse(&store_html_page("ready".into()).unwrap()).unwrap();
+        let mut stream = TcpStream::connect(("127.0.0.1", page_url.port().unwrap())).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+            page_url.path()
+        );
+        stream.write_all(request.as_bytes()).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        drop(idle);
+        assert!(response.ends_with("ready"));
     }
 
     #[cfg(feature = "recorder-worker")]

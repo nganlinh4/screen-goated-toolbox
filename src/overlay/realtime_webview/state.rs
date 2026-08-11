@@ -3,7 +3,6 @@
 use crate::api::realtime_audio::{RealtimeState, SharedRealtimeState};
 #[cfg(not(feature = "recorder-worker"))]
 pub use crate::win_types::HwndWrapper;
-use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, Once, atomic::AtomicBool};
 use windows::Win32::Foundation::*;
 pub const WM_APP_REALTIME_START: u32 = 0x0400 + 500; // WM_USER + 500
@@ -45,7 +44,7 @@ pub static TRANSCRIPTION_MODEL_CHANGE: LazyLock<Arc<AtomicBool>> =
 /// The new transcription model to use ("gemini", "parakeet", or "qwen3-asr-local")
 pub static NEW_TRANSCRIPTION_MODEL: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new(String::new()));
-/// Visibility state for windows
+/// Visibility state for the two cards in the shared compositor.
 pub static MIC_VISIBLE: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(true)));
 pub static TRANS_VISIBLE: LazyLock<Arc<AtomicBool>> =
@@ -98,17 +97,15 @@ pub static CURRENT_TTS_VOLUME: LazyLock<Arc<std::sync::atomic::AtomicU32>> =
     LazyLock::new(|| Arc::new(std::sync::atomic::AtomicU32::new(100)));
 
 pub static mut REALTIME_HWND: HWND = HWND(std::ptr::null_mut());
-pub static mut TRANSLATION_HWND: HWND = HWND(std::ptr::null_mut());
 pub static mut IS_ACTIVE: bool = false;
 pub static mut IS_WARMED_UP: bool = false;
 pub static mut IS_INITIALIZING: bool = false;
 
 pub static REGISTER_REALTIME_CLASS: Once = Once::new();
-pub static REGISTER_TRANSLATION_CLASS: Once = Once::new();
 
-// Thread-local storage for WebViews
+// The renderer thread owns exactly one WebView and one WebContext.
 thread_local! {
-    pub static REALTIME_WEBVIEWS: std::cell::RefCell<HashMap<isize, wry::WebView>> = std::cell::RefCell::new(HashMap::new());
+    pub static REALTIME_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
     // Shared WebContext for this thread using common data directory
     pub static REALTIME_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
 }
