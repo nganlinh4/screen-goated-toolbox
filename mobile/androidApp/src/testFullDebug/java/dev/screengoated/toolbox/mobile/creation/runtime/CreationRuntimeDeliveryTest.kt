@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.creation.runtime
 
+import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.creation.deleteCreationTreeNoFollow
 import java.io.File
 import java.nio.file.Files
@@ -28,6 +29,27 @@ class CreationRuntimeDeliveryTest {
             .getJSONArray("entries")
             .getJSONObject(0)
             .put("installPath", "../outside.dex")
+
+        assertThrows(IllegalArgumentException::class.java) {
+            parseCreationRuntimeDelivery(manifest)
+        }
+    }
+
+    @Test
+    fun `delivery must target the canonical app version`() {
+        val manifest = manifest().put("hostVersion", "0.0.0")
+
+        assertThrows(IllegalArgumentException::class.java) {
+            parseCreationRuntimeDelivery(manifest)
+        }
+    }
+
+    @Test
+    fun `delivery URL must be the exact content addressed runtime bundle`() {
+        val manifest = manifest()
+        manifest.getJSONObject("android")
+            .getJSONObject("full")
+            .put("downloadUrl", "https://example.invalid/latest.zip")
 
         assertThrows(IllegalArgumentException::class.java) {
             parseCreationRuntimeDelivery(manifest)
@@ -81,6 +103,7 @@ class CreationRuntimeDeliveryTest {
             .put(entry("factory_dex", "runtime/factory.dex", "factory.dex", hash))
             .put(entry("native_library", "lib/runtime.so", "lib/runtime.so", hash))
         return JSONObject()
+            .put("hostVersion", BuildConfig.CANONICAL_APP_VERSION)
             .put("version", "1.2.3")
             .put(
                 "android",
@@ -89,8 +112,13 @@ class CreationRuntimeDeliveryTest {
                     .put(
                         "full",
                         JSONObject()
-                            .put("asset", "runtime.zip")
-                            .put("downloadUrl", "https:" + "//runtime.invalid/bundle")
+                            .put("asset", "sgt-creation-runtime-android-arm64-${hash.take(16)}.zip")
+                            .put(
+                                "downloadUrl",
+                                "https://github.com/nganlinh4/screen-goated-toolbox/releases/" +
+                                    "download/sgt-runtime-bundles/" +
+                                    "sgt-creation-runtime-android-arm64-${hash.take(16)}.zip",
+                            )
                             .put("sizeBytes", 128)
                             .put("sha256", hash),
                     )

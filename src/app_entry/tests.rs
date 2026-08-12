@@ -49,11 +49,12 @@ fn desktop_startup_phases_remain_in_dependency_order() {
 }
 
 #[test]
-fn desktop_startup_prewarms_the_core_result_compositor_only() {
+fn desktop_startup_prewarms_the_shared_overlay_compositors_only() {
     let source = read_source("src/app_entry.rs");
     assert!(!source.contains("spawn_warmup_thread"));
     assert!(!source.contains("warm_up_orb"));
     assert!(source.contains("result::scene_compositor::warmup"));
+    assert!(source.contains("status_compositor::warmup"));
 }
 
 #[test]

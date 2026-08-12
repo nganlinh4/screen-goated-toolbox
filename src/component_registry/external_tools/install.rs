@@ -6,109 +6,121 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use anyhow::{Context, Result, anyhow, bail};
 
 use super::{
-    ExternalArchiveFormat, ExternalTool, ExternalToolDelivery, ExternalToolFile, ExternalToolUse,
-    MAX_COMPONENT_FILES, acquire_delivery, owned_file, receipt, recovery, staging,
-    validate_exact_tree, validate_install_fast, version_root,
+    ExternalArchiveFormat, ExternalTool, ExternalToolDelivery, ExternalToolFile,
+    ExternalToolInstallEvent, ExternalToolUse, MAX_COMPONENT_FILES, acquire_delivery, owned_file,
+    receipt, recovery, staging, validate_exact_tree, validate_install_fast, version_root,
 };
 use crate::component_registry::receipt::{file_matches, is_reparse_point};
 
 static INSTALL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+mod transport;
+
 pub(super) fn ensure(
     tool: ExternalTool,
     delivery: &'static ExternalToolDelivery,
     cancelled: &AtomicBool,
-    on_progress: impl Fn(u64, u64),
+    on_event: impl Fn(ExternalToolInstallEvent),
 ) -> Result<ExternalToolUse> {
     let failure_reason = match acquire_delivery(tool, delivery) {
         Ok(component) => return Ok(component),
         Err(error) => format!("{error:#}"),
     };
-    let _recovery = recovery::quarantine_invalid(delivery, &failure_reason)?;
-    let _install_lease = crate::component_registry::acquire(delivery.id)?;
-    if adopt_legacy(delivery)? {
-        return acquire_delivery(tool, delivery);
+    crate::log_info!(
+        "[ExternalTools] validation_miss component={} reason={failure_reason}",
+        delivery.id
+    );
+    let _recovery = recovery::quarantine_invalid(delivery, &failure_reason)
+        .with_context(|| format!("quarantine invalid {} installation", delivery.id))?;
+    let _install_lease = crate::component_registry::acquire(delivery.id)
+        .with_context(|| format!("acquire installation lease for {}", delivery.id))?;
+    if adopt_legacy(delivery).with_context(|| format!("adopt legacy {} files", delivery.id))? {
+        return acquire_delivery(tool, delivery)
+            .with_context(|| format!("acquire adopted {} installation", delivery.id));
     }
-    install_delivery(delivery, cancelled, on_progress)?;
+    install_delivery(delivery, cancelled, &on_event)
+        .with_context(|| format!("install external tool {}", delivery.id))?;
     acquire_delivery(tool, delivery)
+        .with_context(|| format!("acquire newly installed {} component", delivery.id))
 }
 
 fn install_delivery(
     delivery: &ExternalToolDelivery,
     cancelled: &AtomicBool,
-    on_progress: impl Fn(u64, u64),
+    on_event: &impl Fn(ExternalToolInstallEvent),
 ) -> Result<()> {
     let sequence = INSTALL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let working = crate::paths::app_runtime_local_data_dir();
     let downloads = working.join("component-downloads");
-    staging::ensure_directory_tree(&working, &downloads)?;
+    staging::ensure_directory_tree(&working, &downloads).with_context(|| {
+        format!(
+            "prepare {} download directory {}",
+            delivery.id,
+            downloads.display()
+        )
+    })?;
     let archive = downloads.join(format!(
         "{}-{}-{sequence}.download",
         delivery.id,
         std::process::id()
     ));
     let staging_parent = working.join("component-staging");
-    staging::ensure_directory_tree(&working, &staging_parent)?;
+    staging::ensure_directory_tree(&working, &staging_parent).with_context(|| {
+        format!(
+            "prepare {} staging directory {}",
+            delivery.id,
+            staging_parent.display()
+        )
+    })?;
     let stage = staging_parent.join(format!(
         "{}-{}-{}-{sequence}",
         delivery.id,
         delivery.version,
         std::process::id()
     ));
-    std::fs::create_dir(&stage)?;
+    std::fs::create_dir(&stage)
+        .with_context(|| format!("create {} staging root {}", delivery.id, stage.display()))?;
 
     let result = (|| {
-        download(delivery, &archive, cancelled, on_progress)?;
-        validate_archive(delivery, &archive)?;
-        extract(delivery, &archive, &stage, cancelled)?;
-        validate_staging(delivery, &stage)?;
-        sync_staged_files(delivery, &stage)?;
-        crate::component_registry::write_receipt(&stage, &receipt(delivery))?;
+        transport::download(delivery, &archive, cancelled, on_event)
+            .with_context(|| format!("download {} to {}", delivery.id, archive.display()))?;
+        on_event(ExternalToolInstallEvent::Checking);
+        validate_archive(delivery, &archive)
+            .with_context(|| format!("validate {} archive {}", delivery.id, archive.display()))?;
+        on_event(ExternalToolInstallEvent::Extracting);
+        extract(delivery, &archive, &stage, cancelled)
+            .with_context(|| format!("extract {} into {}", delivery.id, stage.display()))?;
+        on_event(ExternalToolInstallEvent::Finalizing);
+        validate_staging(delivery, &stage).with_context(|| {
+            format!("validate {} staging tree {}", delivery.id, stage.display())
+        })?;
+        sync_staged_files(delivery, &stage)
+            .with_context(|| format!("sync {} staging files", delivery.id))?;
+        crate::component_registry::write_receipt(&stage, &receipt(delivery))
+            .with_context(|| format!("write {} ownership receipt", delivery.id))?;
         finish_staging(delivery, &stage)
+            .with_context(|| format!("publish {} staged component", delivery.id))
     })();
-    let _ = std::fs::remove_file(&archive);
+    if let Err(error) = std::fs::remove_file(&archive)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        crate::log_info!(
+            "[ExternalTools] cleanup_failed component={} path={} error={error}",
+            delivery.id,
+            archive.display()
+        );
+    }
     if stage.exists() {
         let owned = cleanup_paths(delivery, &stage);
-        let _ = staging::cleanup_owned(&stage, &owned);
+        if let Err(error) = staging::cleanup_owned(&stage, &owned) {
+            crate::log_info!(
+                "[ExternalTools] cleanup_failed component={} path={} error={error:#}",
+                delivery.id,
+                stage.display()
+            );
+        }
     }
     result
-}
-
-fn download(
-    delivery: &ExternalToolDelivery,
-    target: &Path,
-    cancelled: &AtomicBool,
-    on_progress: impl Fn(u64, u64),
-) -> Result<()> {
-    let response = crate::api::client::UREQ_DOWNLOAD_AGENT
-        .get(delivery.download_url)
-        .header("User-Agent", "ScreenGoatedToolbox")
-        .call()
-        .with_context(|| format!("{} download failed", delivery.id))?;
-    if response
-        .headers()
-        .get("content-length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .is_some_and(|size| size != delivery.size_bytes)
-    {
-        bail!("{} download size does not match this build", delivery.id);
-    }
-    let mut reader = response.into_body().into_reader();
-    let mut output = std::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(target)?;
-    copy_bounded(
-        &mut reader,
-        &mut output,
-        delivery.size_bytes,
-        cancelled,
-        on_progress,
-    )?;
-    output.flush()?;
-    output.sync_all()?;
-    Ok(())
 }
 
 fn copy_bounded(
@@ -178,11 +190,13 @@ fn extract_raw(
     }
     let expected = &delivery.files[0];
     let target = staging::prepare_target(stage, Path::new(expected.path))?;
-    let mut input = std::fs::File::open(archive)?;
+    let mut input = std::fs::File::open(archive)
+        .with_context(|| format!("open raw external tool archive {}", archive.display()))?;
     let mut output = std::fs::OpenOptions::new()
         .create_new(true)
         .write(true)
-        .open(&target)?;
+        .open(&target)
+        .with_context(|| format!("create extracted external tool {}", target.display()))?;
     copy_bounded(
         &mut input,
         &mut output,
@@ -201,7 +215,8 @@ fn extract_zip(
     stage: &Path,
     cancelled: &AtomicBool,
 ) -> Result<()> {
-    let file = std::fs::File::open(archive_path)?;
+    let file = std::fs::File::open(archive_path)
+        .with_context(|| format!("open external tool ZIP {}", archive_path.display()))?;
     let mut archive = zip::ZipArchive::new(file)?;
     if archive.len() != delivery.files.len() || archive.len() > MAX_COMPONENT_FILES {
         bail!("external tool ZIP has an unexpected entry count");
@@ -236,7 +251,8 @@ fn extract_zip(
         let mut output = std::fs::OpenOptions::new()
             .create_new(true)
             .write(true)
-            .open(&target)?;
+            .open(&target)
+            .with_context(|| format!("create extracted external tool {}", target.display()))?;
         copy_bounded(
             &mut entry,
             &mut output,
@@ -287,9 +303,15 @@ fn validate_staging(delivery: &ExternalToolDelivery, stage: &Path) -> Result<()>
     validate_exact_tree(stage, delivery.files)
 }
 
-fn sync_staged_files(delivery: &ExternalToolDelivery, stage: &Path) -> Result<()> {
+pub(super) fn sync_staged_files(delivery: &ExternalToolDelivery, stage: &Path) -> Result<()> {
     for file in delivery.files {
-        std::fs::File::open(stage.join(file.path))?.sync_all()?;
+        let path = stage.join(file.path);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .with_context(|| format!("open staged external tool file {}", path.display()))?
+            .sync_all()
+            .with_context(|| format!("sync staged external tool file {}", path.display()))?;
     }
     Ok(())
 }
@@ -300,7 +322,13 @@ fn finish_staging(delivery: &ExternalToolDelivery, stage: &Path) -> Result<()> {
     if target.parent() != Some(parent.as_path()) || target.exists() {
         bail!("external tool install target is invalid");
     }
-    std::fs::rename(stage, &target)?;
+    std::fs::rename(stage, &target).with_context(|| {
+        format!(
+            "atomically publish external tool from {} to {}",
+            stage.display(),
+            target.display()
+        )
+    })?;
     validate_install_fast(delivery)
 }
 

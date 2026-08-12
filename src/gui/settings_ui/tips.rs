@@ -28,10 +28,8 @@ pub fn render_tips_modal(
     let layout = dialog_layout(ctx.content_rect().size());
     let mut close_requested = false;
 
-    let modal = egui::Modal::new(egui::Id::new("tips_modal"))
-        .backdrop_color(theme.scrim_color())
-        .frame(theme.dialog_frame())
-        .show(ctx, |ui| {
+    let modal =
+        crate::gui::widgets::material_modal(ctx, &theme, egui::Id::new("tips_modal"), |ui| {
             ui.set_width(layout.width);
 
             if render_header(ui, &theme, text) {

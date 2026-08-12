@@ -127,6 +127,7 @@ export function useAppProjectHarness(args: AppProjectHarnessArgs) {
       getDuration: () => duration,
       getSegment: () => currentProjectDataRef.current?.segment ?? segmentRef.current ?? segment,
       getComposition: () => currentProjectDataRef.current?.composition ?? composition,
+      setCurrentVideoSource: setCurrentVideo,
       setCurrentTime,
     });
   }, [

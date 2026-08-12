@@ -462,7 +462,9 @@ export function useTimelineViewport({
         suppressFollow();
       }
       scheduleScrollbarThumbSync();
-      scheduleVisibleRangeSync();
+      if (pendingWheelAnchorRef.current === null) {
+        scheduleVisibleRangeSync();
+      }
     };
 
     viewport.addEventListener("scroll", handleScroll, { passive: true });

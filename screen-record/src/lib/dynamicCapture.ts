@@ -1,4 +1,5 @@
 import { CropRect, MousePosition } from '@/types/video';
+export { getContainedRect } from '@/lib/videoGeometry';
 
 function sanitizeDimension(value: number | undefined, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 1) {
@@ -117,40 +118,6 @@ export function sampleCaptureDimensionsAtTime(
   return {
     width: prevDims.width + (nextDims.width - prevDims.width) * t,
     height: prevDims.height + (nextDims.height - prevDims.height) * t,
-  };
-}
-
-export function getContainedRect(
-  containerWidth: number,
-  containerHeight: number,
-  contentWidth: number,
-  contentHeight: number,
-  scale = 1
-): { width: number; height: number; left: number; top: number } {
-  const safeContainerW = Math.max(1, containerWidth);
-  const safeContainerH = Math.max(1, containerHeight);
-  const safeContentW = Math.max(1, contentWidth);
-  const safeContentH = Math.max(1, contentHeight);
-  const contentAspect = safeContentW / safeContentH;
-  const containerAspect = safeContainerW / safeContainerH;
-
-  let fitWidth: number;
-  let fitHeight: number;
-  if (contentAspect > containerAspect) {
-    fitWidth = safeContainerW;
-    fitHeight = fitWidth / contentAspect;
-  } else {
-    fitHeight = safeContainerH;
-    fitWidth = fitHeight * contentAspect;
-  }
-
-  const width = fitWidth * scale;
-  const height = fitHeight * scale;
-  return {
-    width,
-    height,
-    left: (safeContainerW - width) / 2,
-    top: (safeContainerH - height) / 2,
   };
 }
 

@@ -1,8 +1,23 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.overlay
 
 import android.content.Context
+import android.graphics.Rect
+import android.os.Build
+import android.view.WindowManager
 
 internal fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+internal fun WindowManager.LayoutParams.configureFullDisplayLayout(bounds: Rect) {
+    width = bounds.width()
+    height = bounds.height()
+    x = bounds.left
+    y = bounds.top
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) fitInsetsTypes = 0
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        layoutInDisplayCutoutMode =
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+    }
+}
 
 internal fun needsOverlayLayoutUpdate(
     forceLayout: Boolean,

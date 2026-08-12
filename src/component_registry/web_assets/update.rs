@@ -86,7 +86,16 @@ fn parse(value: serde_json::Value) -> Result<Vec<WebAssetDelivery>> {
             bail!("signed web-asset delivery is invalid");
         }
         validate_sha(&delivery.sha256)?;
-        validate_url(&delivery.download_url)?;
+        let expected_asset = format!("{}-{version}-{}.zip", delivery.id, &delivery.sha256[..16]);
+        if delivery.asset != expected_asset {
+            bail!("signed web-asset name is not content-addressed");
+        }
+        super::super::update_catalog::validate_runtime_bundle_asset(
+            &delivery.asset,
+            &delivery.download_url,
+            &delivery.sha256,
+            "zip",
+        )?;
         let files = delivery
             .files
             .into_iter()
@@ -124,14 +133,6 @@ fn component(id: &str) -> Result<WebAssetComponent> {
         "tts-playground-web" => Ok(WebAssetComponent::TtsPlayground),
         _ => bail!("signed web-asset component is unknown"),
     }
-}
-
-fn validate_url(value: &str) -> Result<()> {
-    let url = url::Url::parse(value)?;
-    if url.scheme() != "https" || url.host_str().is_none() || url.username() != "" {
-        bail!("signed web-asset URL is invalid");
-    }
-    Ok(())
 }
 
 fn validate_sha(value: &str) -> Result<()> {

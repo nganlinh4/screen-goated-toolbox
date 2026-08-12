@@ -386,11 +386,13 @@ pub fn cleanup_on_app_exit() {
 }
 
 fn push_settings_to_webview() {
-    let (lang, theme_mode) = {
+    let (lang, theme_mode, project_limit, upload_limit) = {
         let app = crate::APP.lock().unwrap();
         (
             app.config.ui_language.clone(),
             app.config.theme_mode.clone(),
+            app.config.max_screen_record_projects.clamp(10, 100),
+            app.config.max_screen_record_recent_uploads.clamp(4, 24),
         )
     };
 
@@ -407,8 +409,8 @@ fn push_settings_to_webview() {
     SR_WEBVIEW.with(|wv| {
         if let Some(webview) = wv.borrow().as_ref() {
             let script = format!(
-                "window.postMessage({{ type: 'sr-set-settings', theme: '{}', lang: '{}' }}, '*');",
-                theme_str, lang
+                "window.postMessage({{ type: 'sr-set-settings', theme: '{}', lang: '{}', projectLimit: {}, uploadLimit: {} }}, '*');",
+                theme_str, lang, project_limit, upload_limit
             );
             let _ = webview.evaluate_script(&script);
         }

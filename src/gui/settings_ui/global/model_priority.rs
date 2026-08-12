@@ -23,10 +23,11 @@ pub fn render_model_priority_modal(
     let theme = AppTheme::from_ui(ui);
     let mut changed = false;
 
-    let modal = egui::Modal::new(egui::Id::new("model_priority_modal"))
-        .backdrop_color(theme.scrim_color())
-        .frame(theme.dialog_frame())
-        .show(ui.ctx(), |ui| {
+    let modal = crate::gui::widgets::material_modal(
+        ui.ctx(),
+        &theme,
+        egui::Id::new("model_priority_modal"),
+        |ui| {
             ui.set_width(760.0);
 
             // Header: title + skip-hint description + close.
@@ -61,7 +62,8 @@ pub fn render_model_priority_modal(
                     changed = true;
                 }
             });
-        });
+        },
+    );
 
     if modal.should_close() {
         *show_modal = false;

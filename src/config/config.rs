@@ -48,6 +48,10 @@ fn default_projects_limit() -> usize {
     DEFAULT_PROJECTS_LIMIT
 }
 
+fn default_screen_record_upload_limit() -> usize {
+    12
+}
+
 fn default_cc_memory_limit() -> usize {
     20
 }
@@ -205,6 +209,10 @@ pub struct Config {
     /// Maximum screen record projects to keep
     #[serde(default = "default_projects_limit")]
     pub max_screen_record_projects: usize,
+
+    /// Maximum uploaded backgrounds shown in Screen Recorder's recent picker.
+    #[serde(default = "default_screen_record_upload_limit")]
+    pub max_screen_record_recent_uploads: usize,
 
     /// Maximum Computer Control conversations kept in searchable memory. Its own
     /// cap so the (numerous) normal history items can't evict CC conversations.
@@ -475,6 +483,7 @@ impl Default for Config {
             ui_language: get_system_ui_language(),
             max_history_items: DEFAULT_HISTORY_LIMIT,
             max_screen_record_projects: DEFAULT_PROJECTS_LIMIT,
+            max_screen_record_recent_uploads: default_screen_record_upload_limit(),
             cc_max_memory_items: default_cc_memory_limit(),
             graphics_mode: "standard".to_string(),
             favorite_overlay_opacity: default_favorite_overlay_opacity(),

@@ -35,6 +35,14 @@ require(manifestFile.isFile) {
 val runtimeContract = manifestFile.let { source ->
     @Suppress("UNCHECKED_CAST")
     val root = JsonSlurper().parse(source) as Map<*, *>
+    val cargoVersion = Regex("(?m)^version\\s*=\\s*\"([^\"]+)\"")
+        .find(repoRoot.resolve("Cargo.toml").readText())
+        ?.groupValues
+        ?.get(1)
+        ?: error("Root Cargo package version is missing")
+    require(root.requiredString("hostVersion") == cargoVersion) {
+        "Creation runtime manifest targets another app version"
+    }
     val play = root.requiredMap("android").requiredMap("play")
     RuntimeArtifactContract(
         asset = (play["asset"] ?: play["file"]) as? String
@@ -53,11 +61,15 @@ val runtimeContract = manifestFile.let { source ->
             contract.sha256.length == 64 &&
                 contract.sha256.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' },
         ) { "Creation runtime manifest has invalid SHA-256" }
-        contract.downloadUrl?.let {
-            require(it.startsWith("https://")) {
-                "Creation runtime download URL must use HTTPS"
-            }
+        val expectedAsset = "sgt-creation-runtime-android-${contract.sha256.take(16)}.aar"
+        require(contract.asset == expectedAsset) {
+            "Creation runtime Play asset is not content-addressed"
         }
+        require(
+            contract.downloadUrl ==
+                "https://github.com/nganlinh4/screen-goated-toolbox/releases/" +
+                "download/sgt-runtime-bundles/${contract.asset}",
+        ) { "Creation runtime Play URL is not immutable" }
     }
 }
 

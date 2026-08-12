@@ -1,14 +1,34 @@
-use super::types::{CookieBrowser, InstallStatus};
+use super::types::{CookieBrowser, DownloadState, InstallStatus};
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
 
 mod ui_action;
+mod ui_deps;
 mod ui_main;
 
 use super::DownloadManager;
 
+fn should_render_dependency_gate(
+    ffmpeg_status: &InstallStatus,
+    ytdlp_status: &InstallStatus,
+    media_workflow_active: bool,
+) -> bool {
+    !media_workflow_active
+        && (!matches!(ffmpeg_status, InstallStatus::Installed)
+            || !matches!(ytdlp_status, InstallStatus::Installed))
+}
+
 impl DownloadManager {
+    fn media_workflow_active(&self) -> bool {
+        self.sessions.iter().any(|session| {
+            matches!(
+                *session.download_state.lock().unwrap(),
+                DownloadState::Downloading(_, _)
+            )
+        })
+    }
+
     fn has_deno_runtime(&self) -> bool {
         matches!(*self.deno_status.lock().unwrap(), InstallStatus::Installed)
     }
@@ -86,18 +106,18 @@ impl DownloadManager {
         // shared dialog_header (title + inline folder/⚙ actions + close),
         // replacing the old egui::Window chrome while preserving the
         // open/close flag semantics.
-        let modal = egui::Modal::new(egui::Id::new("download_manager_modal"))
-            .backdrop_color(theme.scrim_color())
-            .frame(theme.dialog_frame())
-            .show(ctx, |ui| {
+        let modal = crate::gui::widgets::material_modal(
+            ctx,
+            &theme,
+            egui::Id::new("download_manager_modal"),
+            |ui| {
                 ui.set_width(400.0);
 
-                let ffmpeg_ok = matches!(
-                    *self.ffmpeg_status.lock().unwrap(),
-                    InstallStatus::Installed
-                );
-                let ytdlp_ok =
-                    matches!(*self.ytdlp_status.lock().unwrap(), InstallStatus::Installed);
+                let ffmpeg_status = self.ffmpeg_status.lock().unwrap().clone();
+                let ytdlp_status = self.ytdlp_status.lock().unwrap().clone();
+                let ffmpeg_ok = matches!(&ffmpeg_status, InstallStatus::Installed);
+                let ytdlp_ok = matches!(&ytdlp_status, InstallStatus::Installed);
+                let media_workflow_active = self.media_workflow_active();
 
                 // The destination-folder path + ⚙ settings menu live inline in
                 // the title bar, but only once dependencies are ready (they
@@ -116,12 +136,17 @@ impl DownloadManager {
                     close_requested = true;
                 }
 
-                if !ffmpeg_ok || !ytdlp_ok {
+                if should_render_dependency_gate(
+                    &ffmpeg_status,
+                    &ytdlp_status,
+                    media_workflow_active,
+                ) {
                     self.render_deps_check(ui, text);
                 } else {
                     self.render_main_ui(ui, ctx, text);
                 }
-            });
+            },
+        );
 
         // Backdrop click / Escape also dismiss the dialog.
         if modal.should_close() {
@@ -175,6 +200,12 @@ impl DownloadManager {
                             ui.label(text.auxiliary.download.download_deno_extracting);
                         });
                     }
+                    InstallStatus::Finalizing => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(text.auxiliary.download.download_status_finalizing);
+                        });
+                    }
                     InstallStatus::Error(ref err) => {
                         ui.colored_label(
                             theme.danger_text(),
@@ -190,6 +221,12 @@ impl DownloadManager {
                             text.auxiliary.managed_tools.tool_status_unavailable,
                         );
                     }
+                    InstallStatus::Checking => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(text.auxiliary.download.download_status_checking);
+                        });
+                    }
                     _ => {}
                 }
 
@@ -199,6 +236,7 @@ impl DownloadManager {
                         deno_status,
                         InstallStatus::Downloading(_)
                             | InstallStatus::Extracting
+                            | InstallStatus::Finalizing
                             | InstallStatus::Unavailable
                     );
                     if ui
@@ -218,5 +256,29 @@ impl DownloadManager {
                     }
                 });
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_render_dependency_gate;
+    use crate::gui::settings_ui::download_manager::types::InstallStatus;
+
+    #[test]
+    fn active_media_workflow_does_not_reopen_dependency_gate() {
+        assert!(!should_render_dependency_gate(
+            &InstallStatus::Downloading(0.0),
+            &InstallStatus::Installed,
+            true,
+        ));
+    }
+
+    #[test]
+    fn idle_missing_dependency_still_shows_dependency_gate() {
+        assert!(should_render_dependency_gate(
+            &InstallStatus::Missing,
+            &InstallStatus::Installed,
+            false,
+        ));
     }
 }

@@ -1,130 +1,14 @@
 // Main downloader UI panel (tab strip, URL input, format selection, action area).
 
-use super::super::types::{DownloadType, InstallStatus};
-use crate::gui::icons::{Icon, draw_icon_static};
+use super::super::types::DownloadType;
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 
 use super::super::DownloadManager;
 
 impl DownloadManager {
-    /// Render the dependency check section when ffmpeg/yt-dlp are missing.
-    pub(super) fn render_deps_check(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
-        let theme = AppTheme::from_ui(ui);
-        ui.label(text.auxiliary.download.download_deps_missing);
-
-        // yt-dlp section
-        ui.group(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(text.auxiliary.download.download_deps_ytdlp);
-                let status = self.ytdlp_status.lock().unwrap().clone();
-                match status {
-                    InstallStatus::Checking => {
-                        ui.spinner();
-                    }
-                    InstallStatus::Missing | InstallStatus::Error(_) => {
-                        if ui
-                            .button(text.auxiliary.download.download_deps_download_btn)
-                            .clicked()
-                        {
-                            self.start_download_ytdlp();
-                        }
-                        if let InstallStatus::Error(e) = status {
-                            ui.colored_label(theme.danger_text(), e);
-                        }
-                    }
-                    InstallStatus::Unavailable => {
-                        ui.colored_label(
-                            theme.danger_text(),
-                            text.auxiliary.managed_tools.tool_status_unavailable,
-                        );
-                    }
-                    InstallStatus::Downloading(p) => {
-                        ui.label(format!("{:.0}%", p * 100.0));
-                        ui.add(egui::ProgressBar::new(p).desired_width(120.0));
-                        if ui
-                            .button(text.auxiliary.download.download_cancel_btn)
-                            .clicked()
-                        {
-                            self.install_cancel_flag.store(true, Ordering::Relaxed);
-                        }
-                    }
-                    InstallStatus::Extracting => {
-                        ui.label(text.auxiliary.download.download_status_extracting);
-                        ui.spinner();
-                        if ui
-                            .button(text.auxiliary.download.download_cancel_btn)
-                            .clicked()
-                        {
-                            self.install_cancel_flag.store(true, Ordering::Relaxed);
-                        }
-                    }
-                    InstallStatus::Installed => {
-                        draw_icon_static(ui, Icon::CheckCircle, Some(crate::gui::icons::ICON_MD));
-                        ui.label(text.auxiliary.download.download_status_ready);
-                    }
-                }
-            });
-        });
-
-        // ffmpeg section
-        ui.group(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(text.auxiliary.download.download_deps_ffmpeg);
-                let status = self.ffmpeg_status.lock().unwrap().clone();
-                match status {
-                    InstallStatus::Checking => {
-                        ui.spinner();
-                    }
-                    InstallStatus::Missing | InstallStatus::Error(_) => {
-                        if ui
-                            .button(text.auxiliary.download.download_deps_download_btn)
-                            .clicked()
-                        {
-                            self.start_download_ffmpeg();
-                        }
-                        if let InstallStatus::Error(e) = status {
-                            ui.colored_label(theme.danger_text(), e);
-                        }
-                    }
-                    InstallStatus::Unavailable => {
-                        ui.colored_label(
-                            theme.danger_text(),
-                            text.auxiliary.managed_tools.tool_status_unavailable,
-                        );
-                    }
-                    InstallStatus::Downloading(p) => {
-                        ui.label(format!("{:.0}%", p * 100.0));
-                        ui.add(egui::ProgressBar::new(p).desired_width(120.0));
-                        if ui
-                            .button(text.auxiliary.download.download_cancel_btn)
-                            .clicked()
-                        {
-                            self.install_cancel_flag.store(true, Ordering::Relaxed);
-                        }
-                    }
-                    InstallStatus::Extracting => {
-                        ui.label(text.auxiliary.download.download_status_extracting);
-                        ui.spinner();
-                        if ui
-                            .button(text.auxiliary.download.download_cancel_btn)
-                            .clicked()
-                        {
-                            self.install_cancel_flag.store(true, Ordering::Relaxed);
-                        }
-                    }
-                    InstallStatus::Installed => {
-                        draw_icon_static(ui, Icon::CheckCircle, Some(crate::gui::icons::ICON_MD));
-                        ui.label(text.auxiliary.download.download_status_ready);
-                    }
-                }
-            });
-        });
-    }
-
     /// Render the main downloader UI (tabs, URL input, format, actions).
     pub(super) fn render_main_ui(
         &mut self,

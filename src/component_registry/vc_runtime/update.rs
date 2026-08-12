@@ -78,7 +78,21 @@ fn parse(value: serde_json::Value) -> Result<VcRuntimeDelivery> {
         bail!("signed VC runtime delivery is invalid");
     }
     validate_sha(&delivery.sha256)?;
-    validate_url(&delivery.download_url)?;
+    let expected_asset = format!(
+        "{}-{}-{}.zip",
+        delivery.id,
+        contract.version,
+        &delivery.sha256[..16]
+    );
+    if delivery.asset != expected_asset {
+        bail!("signed VC runtime asset is not content-addressed");
+    }
+    super::super::update_catalog::validate_runtime_bundle_asset(
+        &delivery.asset,
+        &delivery.download_url,
+        &delivery.sha256,
+        "zip",
+    )?;
     let files = delivery
         .files
         .into_iter()
@@ -104,14 +118,6 @@ fn parse(value: serde_json::Value) -> Result<VcRuntimeDelivery> {
         unpacked_size_bytes: delivery.unpacked_size_bytes,
         files: Box::leak(files.into_boxed_slice()),
     })
-}
-
-fn validate_url(value: &str) -> Result<()> {
-    let url = url::Url::parse(value)?;
-    if url.scheme() != "https" || url.host_str().is_none() || url.username() != "" {
-        bail!("signed VC runtime URL is invalid");
-    }
-    Ok(())
 }
 
 fn validate_sha(value: &str) -> Result<()> {

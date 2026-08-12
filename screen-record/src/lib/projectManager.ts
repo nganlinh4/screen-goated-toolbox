@@ -21,16 +21,33 @@ import {
 } from "@/lib/projectStorage";
 
 class ProjectManager {
-  private limit = 50;
+  private limit = normalizeProjectLimit(
+    (window as any).__SR_INITIAL_PROJECT_LIMIT__,
+  );
   private migrationPromise: Promise<void> | null = null;
 
   setLimit(newLimit: number) {
-    this.limit = newLimit;
+    this.applyHostLimit(newLimit);
+    void invoke("set_project_limit", { limit: this.limit }).catch(() => {});
+  }
+
+  applyHostLimit(newLimit: number) {
+    this.limit = normalizeProjectLimit(newLimit);
     void this.pruneProjects();
   }
 
   getLimit(): number {
     return this.limit;
+  }
+
+  async getManagedCustomBackgroundUrls(): Promise<string[]> {
+    await this.ensureProjectStoreReady();
+    const projects = await this.getProjectRecords();
+    const urls = projects
+      .map((project) => project.backgroundConfig?.customBackground)
+      .filter((value): value is string => typeof value === "string");
+    const compositionUrls = await idbGetAll<string>("composition_custom_backgrounds");
+    return [...new Set([...urls, ...compositionUrls].filter(Boolean))];
   }
 
   async saveProject(
@@ -529,6 +546,12 @@ class ProjectManager {
       }
     }
   }
+}
+
+export function normalizeProjectLimit(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(100, Math.max(10, Math.round(value)))
+    : 50;
 }
 
 export const projectManager = new ProjectManager();

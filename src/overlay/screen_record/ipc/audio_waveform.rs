@@ -372,7 +372,12 @@ fn save_envelope_to_disk(cache_key: &str, envelope: &SourceWaveformEnvelope) -> 
     }
     writer
         .flush()
-        .map_err(|err| format!("Flush waveform cache {}: {err}", path.display()))
+        .map_err(|err| format!("Flush waveform cache {}: {err}", path.display()))?;
+    drop(writer);
+    if let Some(parent) = path.parent() {
+        super::audio_waveform_cache::maintain(parent, &path);
+    }
+    Ok(())
 }
 
 fn normalize_path(path: &Path) -> String {

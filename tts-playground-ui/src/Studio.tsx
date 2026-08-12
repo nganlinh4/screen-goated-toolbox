@@ -190,11 +190,33 @@ function Player() {
 
 function RecentClips() {
   const s = useTtsState();
-  if (s.player.recent.length === 0) return null;
   return (
     <div className="tts-recent flex min-h-0 flex-1 flex-col gap-2 rounded-lg bg-surface-soft p-3.5 shadow-elevation-2">
-      <div className="tts-recent-title text-xs font-semibold uppercase tracking-wide text-muted">
-        {s.strings.recent}
+      <div className="tts-recent-toolbar flex items-center gap-2">
+        <div className="tts-recent-title mr-auto text-xs font-semibold uppercase tracking-wide text-muted">
+          {s.strings.recent}
+        </div>
+        <label className="tts-recent-limit flex items-center gap-1.5 text-2xs text-muted">
+          <span>{s.strings.recentLimit}</span>
+          <input
+            className="w-16 accent-primary"
+            type="range"
+            min="5"
+            max="50"
+            step="5"
+            value={s.recentLimit}
+            onChange={(event) => void ttsApi.setRecentLimit(Number(event.target.value))}
+          />
+          <span className="w-5 tabular-nums text-fg">{s.recentLimit}</span>
+        </label>
+        <button
+          type="button"
+          className="tts-recent-clear text-2xs text-muted transition hover:text-danger disabled:opacity-40"
+          disabled={s.player.recent.length === 0}
+          onClick={() => void ttsApi.clearRecent()}
+        >
+          {s.strings.clearRecent}
+        </button>
       </div>
       <ul className="tts-recent-list flex flex-col gap-0.5 overflow-y-auto">
         {s.player.recent.map((clip) => (
@@ -222,8 +244,8 @@ function RecentClips() {
                 void ttsApi.deleteRecent(clip.id);
               }}
               className="tts-recent-delete shrink-0 rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"
-              aria-label="Delete"
-              title="Delete"
+              aria-label={s.strings.deleteRecent}
+              title={s.strings.deleteRecent}
             >
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor">
                 <path d="M6.4 19L5 17.6l5.6-5.6L5 6.4L6.4 5l5.6 5.6L17.6 5L19 6.4L13.4 12l5.6 5.6l-1.4 1.4l-5.6-5.6z" />

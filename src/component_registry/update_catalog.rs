@@ -1,7 +1,8 @@
 //! Signed, append-only discovery for independently updateable components.
 
-use std::collections::HashSet;
-use std::sync::{Arc, LazyLock, RwLock};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, LazyLock, Mutex, RwLock, TryLockError};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use semver::Version;
@@ -17,6 +18,12 @@ const MAX_POLICIES: usize = 128;
 const PLATFORM: &str = "windows-x64";
 
 static ACTIVE: LazyLock<RwLock<Option<Arc<UpdateCatalog>>>> = LazyLock::new(|| RwLock::new(None));
+static REFRESH_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static LAST_POLICY_CHECK: LazyLock<Mutex<HashMap<String, Instant>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub(crate) const RUNTIME_BUNDLES_PREFIX: &str =
+    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/";
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -61,6 +68,15 @@ pub(crate) fn refresh_in_background() {
 }
 
 pub(crate) fn refresh_now() -> Result<u64> {
+    let _refresh = REFRESH_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let result = refresh_now_locked();
+    mark_all_policy_checks();
+    result
+}
+
+fn refresh_now_locked() -> Result<u64> {
     let minimum = ACTIVE
         .read()
         .ok()
@@ -72,6 +88,65 @@ pub(crate) fn refresh_now() -> Result<u64> {
     let sequence = catalog.sequence;
     activate(catalog);
     Ok(sequence)
+}
+
+pub(crate) fn refresh_due(id: &str, expected_mode: &str) -> bool {
+    let Some((mode, check_hours, group)) = policy(id) else {
+        return false;
+    };
+    mode == expected_mode && policy_group_due(&group, check_hours)
+}
+
+pub(crate) fn refresh_for_use(id: &str, expected_mode: &str) -> bool {
+    let Some((mode, check_hours, group)) = policy(id) else {
+        return false;
+    };
+    if mode != expected_mode || !policy_group_due(&group, check_hours) {
+        return false;
+    }
+    let _refresh = match REFRESH_LOCK.try_lock() {
+        Ok(guard) => guard,
+        Err(TryLockError::WouldBlock) => return false,
+        Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+    };
+    if !policy_group_due(&group, check_hours) {
+        return false;
+    }
+    LAST_POLICY_CHECK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(group, Instant::now());
+    let before = active_sequence();
+    match refresh_now_locked() {
+        Ok(after) => after > before,
+        Err(error) => {
+            crate::log_info!("[Component updates] {id} refresh skipped: {error:#}");
+            false
+        }
+    }
+}
+
+pub(crate) fn validate_runtime_bundle_asset(
+    asset: &str,
+    download_url: &str,
+    sha256: &str,
+    extension: &str,
+) -> Result<()> {
+    if sha256.len() != 64
+        || !sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        bail!("runtime-bundles digest is invalid");
+    }
+    if asset.is_empty()
+        || asset.contains(['/', '\\'])
+        || !asset.ends_with(&format!("-{}.{}", &sha256[..16], extension))
+        || download_url != format!("{RUNTIME_BUNDLES_PREFIX}{asset}")
+    {
+        bail!("runtime-bundles asset is not immutable and content-addressed");
+    }
+    Ok(())
 }
 
 pub(crate) fn contract(name: &str) -> Option<(u64, Value)> {
@@ -118,6 +193,44 @@ fn activate(catalog: UpdateCatalog) {
             .is_none_or(|current| catalog.sequence > current.sequence)
     {
         *active = Some(Arc::new(catalog));
+    }
+}
+
+fn active_sequence() -> u64 {
+    ACTIVE
+        .read()
+        .ok()
+        .and_then(|catalog| catalog.as_ref().map(|catalog| catalog.sequence))
+        .unwrap_or(0)
+}
+
+fn policy_group_due(group: &str, check_hours: u64) -> bool {
+    LAST_POLICY_CHECK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(group)
+        .is_none_or(|checked| checked.elapsed() >= Duration::from_secs(check_hours * 60 * 60))
+}
+
+fn mark_all_policy_checks() {
+    let groups = ACTIVE
+        .read()
+        .ok()
+        .and_then(|catalog| catalog.clone())
+        .map(|catalog| {
+            catalog
+                .policies
+                .iter()
+                .map(|policy| policy.group.clone())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let now = Instant::now();
+    let mut checks = LAST_POLICY_CHECK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for group in groups {
+        checks.insert(group, now);
     }
 }
 

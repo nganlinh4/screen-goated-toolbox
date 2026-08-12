@@ -59,6 +59,12 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
         }
         "add_hotkey" => handle_add_hotkey(envelope.args),
         "remove_hotkey" => handle_remove_hotkey(envelope.args),
+        "set_transcript_limit" => handle_transcript_limit(envelope.args),
+        "clear_transcripts" => {
+            super::state::clear_transcripts();
+            Ok(Value::Null)
+        }
+        "delete_transcript" => handle_delete_transcript(envelope.args),
         "set_tts_volume" => {
             let vol = envelope
                 .args
@@ -123,6 +129,29 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             json!({ "id": envelope.id, "error": error, "result": Value::Null }),
         ),
     }
+}
+
+fn handle_transcript_limit(args: Value) -> Result<Value, String> {
+    let limit = args
+        .get("limit")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "missing transcript limit".to_string())? as usize;
+    if !(crate::config::types::MIN_TRANSCRIPT_ITEMS..=crate::config::types::MAX_TRANSCRIPT_ITEMS)
+        .contains(&limit)
+    {
+        return Err("transcript limit is outside the supported range".to_string());
+    }
+    super::state::set_transcript_limit(limit);
+    Ok(Value::Null)
+}
+
+fn handle_delete_transcript(args: Value) -> Result<Value, String> {
+    let id = args
+        .get("id")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "missing transcript id".to_string())?;
+    super::state::delete_transcript_group(id);
+    Ok(Value::Null)
 }
 
 fn handle_set_draft(args: Value) -> Result<(), String> {

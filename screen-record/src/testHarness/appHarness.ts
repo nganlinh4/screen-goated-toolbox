@@ -38,6 +38,7 @@ export interface ScreenRecordTestHarness {
   loadSyntheticProjectWithOptions: (options?: SyntheticProjectOptions) => ScreenRecordEditorStateSnapshot;
   getEditorState: () => ScreenRecordEditorStateSnapshot;
   getNarrationAudioPaths: () => string[];
+  setCurrentVideoSource: (url: string | null) => void;
   setCurrentTime: (time: number) => void;
   startPerfProbe: () => void;
   stopPerfProbe: () => FrontendFrameProbeSummary;
@@ -58,6 +59,7 @@ export interface InstallAppTestHarnessOptions {
   getDuration: () => number;
   getSegment: () => VideoSegment | null;
   getComposition: () => ProjectComposition | null;
+  setCurrentVideoSource: (url: string | null) => void;
   setCurrentTime: (time: number) => void;
 }
 
@@ -110,6 +112,7 @@ export function installScreenRecordAppTestHarness(options: InstallAppTestHarness
       (options.getComposition()?.narrationSegments ?? [])
         .map((segment) => segment.rawAudioPath)
         .filter((path): path is string => typeof path === "string" && path.length > 0),
+    setCurrentVideoSource: options.setCurrentVideoSource,
     setCurrentTime: (time: number) => {
       const duration = Math.max(options.getDuration(), 0);
       const nextTime = Number.isFinite(time)

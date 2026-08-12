@@ -40,7 +40,12 @@ pub(super) fn render_zipformer_section(
                 sherpa_onnx::dlls::is_sherpa_dlls_installed,
             );
             let mut s = download_manager.zipformer_dlls_status.lock().unwrap();
-            let in_dl = matches!(*s, InstallStatus::Downloading(_));
+            let in_dl = matches!(
+                *s,
+                InstallStatus::Downloading(_)
+                    | InstallStatus::Extracting
+                    | InstallStatus::Finalizing
+            );
             if !in_dl {
                 match (&*s, disk_ok) {
                     (InstallStatus::Installed, false) => *s = InstallStatus::Missing,
@@ -102,8 +107,13 @@ pub(super) fn render_zipformer_section(
                         ui.spinner();
                         ui.label(text.auxiliary.download.download_status_extracting);
                     }
+                    InstallStatus::Finalizing => {
+                        ui.spinner();
+                        ui.label(text.auxiliary.download.download_status_finalizing);
+                    }
                     InstallStatus::Checking => {
                         ui.spinner();
+                        ui.label(text.auxiliary.download.download_status_checking);
                     }
                     _ => {
                         if ui
@@ -140,7 +150,12 @@ pub(super) fn render_zipformer_section(
                 let mut s = download_manager.zipformer_lang_statuses[&lang]
                     .lock()
                     .unwrap();
-                let in_dl = matches!(*s, InstallStatus::Downloading(_));
+                let in_dl = matches!(
+                    *s,
+                    InstallStatus::Downloading(_)
+                        | InstallStatus::Extracting
+                        | InstallStatus::Finalizing
+                );
                 if !in_dl {
                     match (&*s, disk_ok) {
                         (InstallStatus::Installed, false) => *s = InstallStatus::Missing,
@@ -202,8 +217,17 @@ pub(super) fn render_zipformer_section(
                             ui.spinner();
                             ui.label(format!("{:.0}%", p * 100.0));
                         }
+                        InstallStatus::Extracting => {
+                            ui.spinner();
+                            ui.label(text.auxiliary.download.download_status_extracting);
+                        }
+                        InstallStatus::Finalizing => {
+                            ui.spinner();
+                            ui.label(text.auxiliary.download.download_status_finalizing);
+                        }
                         InstallStatus::Checking => {
                             ui.spinner();
+                            ui.label(text.auxiliary.download.download_status_checking);
                         }
                         _ => {
                             if ui

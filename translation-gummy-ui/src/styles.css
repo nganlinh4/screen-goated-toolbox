@@ -488,6 +488,49 @@ html, body {
   min-height: 0;
 }
 
+.transcript-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 5px 10px 4px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.transcript-toolbar-title { margin-right: auto; color: var(--text); font-size: 11px; font-weight: 650; }
+.transcript-limit-control { display: flex; align-items: center; gap: 6px; font-size: 9px; white-space: nowrap; }
+.transcript-limit-control input { width: 72px; accent-color: var(--accent); }
+.transcript-limit-control output { width: 22px; color: var(--text); font-variant-numeric: tabular-nums; }
+.transcript-clear:disabled { cursor: default; opacity: 0.35; }
+
+.transcript-pill,
+.session-separator { position: relative; }
+
+.transcript-delete {
+  position: absolute;
+  top: 50%;
+  right: -8px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  translate: 0 -50%;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.transcript-delete svg { width: 12px; height: 12px; fill: currentColor; }
+.transcript-pill:hover .transcript-delete,
+.session-separator:hover .transcript-delete,
+.transcript-delete:focus-visible { opacity: 1; }
+.transcript-delete:hover { color: var(--error); }
+
 .transcript-card,
 .transcript-card * {
   user-select: text;

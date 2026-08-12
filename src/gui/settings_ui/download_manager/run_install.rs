@@ -5,7 +5,8 @@ use super::DownloadManager;
 use super::run::install_status;
 use super::types::InstallStatus;
 use super::utils::log;
-use crate::component_registry::external_tools::{self, ExternalTool};
+use crate::component_registry::capabilities;
+use crate::component_registry::external_tools::{self, ExternalTool, ExternalToolInstallEvent};
 
 impl DownloadManager {
     pub fn start_download_ytdlp(&self) {
@@ -26,7 +27,9 @@ impl DownloadManager {
             let mut current = status.lock().unwrap();
             if matches!(
                 *current,
-                InstallStatus::Downloading(_) | InstallStatus::Extracting
+                InstallStatus::Downloading(_)
+                    | InstallStatus::Extracting
+                    | InstallStatus::Finalizing
             ) {
                 return;
             }
@@ -48,11 +51,18 @@ fn install_in_background(
     log(&logs, format!("Installing pinned {} component", tool.id()));
     let component_name = localized_tool_name(tool);
     let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&component_name);
-    let progress_status = status.clone();
-    let result = external_tools::ensure(tool, &cancel, move |done, total| {
-        badge.report(done, total);
-        let progress = done as f32 / total.max(1) as f32;
-        *progress_status.lock().unwrap() = InstallStatus::Downloading(progress);
+    let event_status = status.clone();
+    let result = capabilities::resolve_external_tool(tool, &cancel, move |event| {
+        external_tools::report_badge_event(&badge, &component_name, event);
+        *event_status.lock().unwrap() = match event {
+            ExternalToolInstallEvent::Preparing => InstallStatus::Checking,
+            ExternalToolInstallEvent::Checking => InstallStatus::Checking,
+            ExternalToolInstallEvent::Downloading { downloaded, total } => {
+                InstallStatus::Downloading(downloaded as f32 / total.max(1) as f32)
+            }
+            ExternalToolInstallEvent::Extracting => InstallStatus::Extracting,
+            ExternalToolInstallEvent::Finalizing => InstallStatus::Finalizing,
+        };
     });
     match result {
         Ok(component) => {
@@ -72,6 +82,10 @@ fn install_in_background(
             *status.lock().unwrap() = install_status(tool);
         }
         Err(error) => {
+            crate::log_info!(
+                "[VideoDownloader] manual_install_failed component={} error={error:#}",
+                tool.id()
+            );
             log(
                 &logs,
                 format!("{} installation failed: {error:#}", tool.id()),

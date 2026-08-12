@@ -8,6 +8,7 @@ import { videoRenderer } from './videoRenderer';
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from './trimSegments';
 import { invoke } from '@/lib/ipc';
 import { normalizeBackgroundConfig } from './backgroundConfig';
+import { normalizeAutoCanvasSegment } from './videoGeometry';
 
 import { clamp } from './mathUtils';
 import {
@@ -174,12 +175,19 @@ export class VideoExporter {
       targetVideoBitrateKbps: requestedTargetVideoBitrateKbps = 0,
     } = options;
 
-    const normalizedSegment = segment && video
-      ? normalizeSegmentTrimData(segment, video.duration || segment.trimEnd)
-      : segment ?? null;
-
     const sourceWidth = video?.videoWidth || 1920;
     const sourceHeight = video?.videoHeight || 1080;
+    const canvasSegment = segment
+      ? normalizeAutoCanvasSegment(
+          segment,
+          backgroundConfig,
+          sourceWidth,
+          sourceHeight,
+        )
+      : null;
+    const normalizedSegment = canvasSegment && video
+      ? normalizeSegmentTrimData(canvasSegment, video.duration || canvasSegment.trimEnd)
+      : canvasSegment;
     const { baseW, baseH } = getCanvasBaseDimensions(sourceWidth, sourceHeight, normalizedSegment, backgroundConfig);
     const { width, height } = resolveExportDimensions(options.width, options.height, baseW, baseH);
     const fps = options.fps || 60;

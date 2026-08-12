@@ -53,21 +53,6 @@ pub fn handle_prepare_qwen_local_subtitles(
         .map_err(|err| format!("Serialize Qwen Local subtitle preparation: {err}"));
     }
 
-    let installable_from_tools = capability
-        .reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains("Downloaded Tools"));
-    if !installable_from_tools {
-        return serde_json::to_value(PrepareQwenLocalResult {
-            available: false,
-            started_downloads: false,
-            reason: capability.reason,
-        })
-        .map_err(|err| format!("Serialize Qwen Local subtitle preparation: {err}"));
-    }
-
-    crate::gui::request_open_downloaded_tools();
-
     let missing_model = match variant {
         Qwen3ModelVariant::Small => !assets::is_qwen3_model_downloaded(),
         Qwen3ModelVariant::Large => !assets::is_qwen3_1_7b_model_downloaded(),

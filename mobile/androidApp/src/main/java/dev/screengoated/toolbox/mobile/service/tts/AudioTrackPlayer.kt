@@ -40,7 +40,7 @@ internal class AudioTrackPlayer(
     private val appContext = context.applicationContext
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
     private val outputAudioAttributes = buildOutputAudioAttributes()
-    private val focusListener = AudioManager.OnAudioFocusChangeListener { _ -> Unit }
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { }
     private val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
         .setAudioAttributes(outputAudioAttributes)
         .setOnAudioFocusChangeListener(focusListener)

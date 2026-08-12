@@ -81,18 +81,21 @@ fn response_reader_rejects_oversize_and_incomplete_frames() {
 }
 
 #[test]
-fn ffmpeg_retry_marker_is_an_exact_typed_error() {
+fn recorder_prepares_every_host_managed_external_capability() {
     assert_eq!(
-        MISSING_FFMPEG_MARKER,
-        "MISSING_CAPABILITY:ffmpeg-x64: install FFmpeg from Downloaded Tools"
+        crate::component_registry::capabilities::RECORDER_REQUIRED_EXTERNAL_TOOLS,
+        [crate::component_registry::external_tools::ExternalTool::Ffmpeg]
     );
-    for lookalike in [
-        "MISSING_CAPABILITY:ffmpeg-x64",
-        "MISSING_CAPABILITY:ffmpeg-x64: other",
-        "MISSING_CAPABILITY:ffmpeg-x64-extra: install FFmpeg from Downloaded Tools",
-    ] {
-        assert_ne!(lookalike, MISSING_FFMPEG_MARKER);
-    }
+}
+
+#[test]
+fn recorder_capabilities_are_resolved_before_worker_spawn() {
+    let source = include_str!("../host_launcher.rs");
+    let prepare = source.find("prepare_external_capabilities(cancelled, requested)").unwrap();
+    let spawn = source.find("let mut command = ProcessCommand::new(&executable)").unwrap();
+    assert!(prepare < spawn);
+    assert!(source.contains("SGT_FFMPEG_PATH"));
+    assert!(source.contains("_external_capabilities: external_capabilities"));
 }
 
 #[test]

@@ -284,11 +284,8 @@ tasks.register("verifyPlayReleaseCompliance") {
             (nativeRuntimeContract["archives"] as List<Map<String, Any?>>)
                 .flatMap { archive -> archive["entries"] as List<Map<String, Any?>> }
                 .associateBy { entry -> entry["fileName"] as String }
-        require(nativeRuntimeEntries.keys - "libc++_shared.so" == requiredNativeOwners.keys) {
+        require(nativeRuntimeEntries.keys == requiredNativeOwners.keys) {
             "Play native owners differ from the shared runtime contract"
-        }
-        require("libc++_shared.so" in nativeRuntimeEntries) {
-            "Full-delivery runtime contract is missing its compatibility library"
         }
         val nativeRuntimeContractAsset = "base/assets/native-runtime/contract.json"
         val sherpaRuntimeSpecDir = rootProject.projectDir.resolve("native/sherpa-runtime")

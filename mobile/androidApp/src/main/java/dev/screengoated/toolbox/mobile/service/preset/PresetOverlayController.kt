@@ -117,8 +117,8 @@ internal class PresetOverlayController(
         resolvedPresetById = { presetId -> presetRepository.getResolvedPreset(presetId) },
         launchPreset = ::launchPreset,
     )
-    internal lateinit var inputModule: PresetOverlayInputModule
-    internal lateinit var resultModule: PresetOverlayResultModule
+    internal val inputModule: PresetOverlayInputModule
+    internal val resultModule: PresetOverlayResultModule
 
     internal var catalogJob: Job? = null
     internal var executionJob: Job? = null
@@ -143,7 +143,7 @@ internal class PresetOverlayController(
             onRequestInputFront = { inputModule.bringToFront() },
             onDismissAll = ::dismissAllOverlays,
             onNoOverlaysRemaining = {
-                if (!::inputModule.isInitialized || !inputModule.hasWindow()) {
+                if (!inputModule.hasWindow()) {
                     activePreset = null
                 }
             },

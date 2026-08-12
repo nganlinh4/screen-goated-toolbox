@@ -3,8 +3,6 @@ package dev.screengoated.toolbox.mobile.phonecontrol.overlay
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
-import kotlin.math.ceil
-import kotlin.math.floor
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
@@ -13,7 +11,37 @@ import android.webkit.WebViewClient
 import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
 import dev.screengoated.toolbox.mobile.service.overlay.configureOverlayWebViewRendering
+import java.net.URI
+import kotlin.math.ceil
+import kotlin.math.floor
 import org.json.JSONObject
+
+internal const val PHONE_CONTROL_ORB_ORIGIN =
+    "file:///android_asset/phone_control"
+internal const val PHONE_CONTROL_ORB_FONT_URL =
+    "file:///android_asset/GoogleSansFlex.woff"
+internal const val PHONE_CONTROL_ORB_RENDERER_CSS = """
+    @font-face {
+      font-family:'Google Sans Flex';
+      font-style:normal;
+      font-weight:1 1000;
+      font-stretch:25% 151%;
+      font-display:swap;
+      src:url('$PHONE_CONTROL_ORB_FONT_URL') format('woff');
+    }
+    #c{pointer-events:none!important}
+    #cmd{display:none!important}
+"""
+
+internal fun isPhoneControlOrbFontRequest(url: String, method: String): Boolean {
+    if (method != "GET") return false
+    val uri = runCatching { URI(url) }.getOrNull() ?: return false
+    return uri.scheme == "file" &&
+        uri.rawAuthority == null &&
+        uri.rawPath == "/android_asset/GoogleSansFlex.woff" &&
+        uri.rawQuery == null &&
+        uri.rawFragment == null
+}
 
 internal data class PhoneControlOrbPlacement(
     val centerXFraction: Float,
@@ -28,6 +56,7 @@ internal class PhoneControlOrbView(
     private val onVisibleRegionChanged: (PhoneControlOrbView, OverlayBounds?) -> Unit,
 ) : WebView(context) {
     private var ready = false
+    private var fontCheckStarted = false
     private var disposed = false
     private var visual: PhoneControlOverlayVisual? = null
     private var placement: PhoneControlOrbPlacement? = null
@@ -61,6 +90,12 @@ internal class PhoneControlOrbView(
                 request: WebResourceRequest?,
             ): Boolean = true
 
+            override fun onPageFinished(view: WebView?, url: String?) {
+                if (url?.startsWith(PHONE_CONTROL_ORB_ORIGIN) == true) {
+                    post { awaitProductFont() }
+                }
+            }
+
             override fun onRenderProcessGone(
                 view: WebView?,
                 detail: RenderProcessGoneDetail?,
@@ -73,7 +108,7 @@ internal class PhoneControlOrbView(
         }
         addJavascriptInterface(OrbBridge(), IPC_BRIDGE)
         loadDataWithBaseURL(
-            LOCAL_ORIGIN,
+            "$PHONE_CONTROL_ORB_ORIGIN/",
             canonicalRenderer(),
             "text/html",
             "utf-8",
@@ -129,7 +164,7 @@ internal class PhoneControlOrbView(
         .open(GeneratedPhoneControlContract.ORB_ASSET_PATH)
         .bufferedReader(Charsets.UTF_8)
         .use { it.readText() }
-        .replace("/*FONT_CSS*/", ANDROID_RENDERER_CSS)
+        .replace("/*FONT_CSS*/", PHONE_CONTROL_ORB_RENDERER_CSS)
         .replace("/*CMD_PLACEHOLDER*/", "")
 
     private fun applyVisual(
@@ -173,14 +208,9 @@ internal class PhoneControlOrbView(
             when (message.optString("type")) {
                 "orbReady" -> post {
                     if (disposed) return@post
-                    ready = true
-                    alpha = 1f
-                    scheduleVisualApply()
-                    PhoneControlLog.i(
-                        TAG,
-                        "renderer_ready source=canonical_windows surface=full_display",
-                    )
+                    awaitProductFont()
                 }
+                "orbFontReady" -> finishRendererSetup(message.optBoolean("loaded"))
                 "orbRegion" -> publishVisibleRegion(message)
             }
         }
@@ -190,6 +220,42 @@ internal class PhoneControlOrbView(
             post {
                 if (!disposed) onVisibleRegionChanged(this@PhoneControlOrbView, region)
             }
+        }
+    }
+
+    private fun awaitProductFont() {
+        if (disposed || ready || fontCheckStarted) return
+        fontCheckStarted = true
+        evaluateJavascript(
+            """
+            (() => {
+              const report = loaded => ipc.postMessage(JSON.stringify({type:'orbFontReady', loaded}));
+              if (!document.fonts) { report(false); return; }
+              Promise.race([
+                document.fonts.load('450 17px "Google Sans Flex"').then(faces => faces.length > 0),
+                new Promise(resolve => setTimeout(() => resolve(false), 3000))
+              ]).then(report, () => report(false));
+            })();
+            """.trimIndent(),
+            null,
+        )
+        postDelayed({ finishRendererSetup(fontLoaded = false) }, FONT_READY_TIMEOUT_MS + 500L)
+    }
+
+    private fun finishRendererSetup(fontLoaded: Boolean) {
+        post {
+            if (disposed || ready) return@post
+            ready = true
+            alpha = 1f
+            scheduleVisualApply()
+            if (!fontLoaded) {
+                PhoneControlLog.e(TAG, "renderer_font_unavailable family=google_sans_flex")
+            }
+            PhoneControlLog.i(
+                TAG,
+                "renderer_ready source=canonical_windows surface=full_display " +
+                    "font=${if (fontLoaded) "google_sans_flex" else "fallback"}",
+            )
         }
     }
 
@@ -232,11 +298,7 @@ internal class PhoneControlOrbView(
     private companion object {
         const val TAG = "SGTPhoneControlOverlay"
         const val IPC_BRIDGE = "ipc"
-        const val LOCAL_ORIGIN = "file:///android_asset/phone_control/"
-        const val ANDROID_RENDERER_CSS = """
-            #c{pointer-events:none!important}
-            #cmd{display:none!important}
-        """
+        const val FONT_READY_TIMEOUT_MS = 3_000L
     }
 }
 

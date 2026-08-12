@@ -21,7 +21,9 @@ use windows::Win32::System::JobObjects::{
 use windows::core::PCWSTR;
 
 mod environment;
+mod capabilities;
 
+use capabilities::{MissingExternalCapability, prepare_external_capabilities};
 use environment::{
     forward_provider_credentials, forward_webview_runtime_roots, recorder_debug_port,
     recorder_webview_data_dir,
@@ -44,8 +46,6 @@ const NORMAL_TIMEOUT: Duration = Duration::from_secs(15);
 const REMOVAL_STOP_TIMEOUT: Duration = Duration::from_secs(17);
 const HEADLESS_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 const DROP_WAIT: Duration = Duration::from_millis(500);
-const MISSING_FFMPEG_MARKER: &str =
-    "MISSING_CAPABILITY:ffmpeg-x64: install FFmpeg from Downloaded Tools";
 const RECORDER_WEBVIEW_PROFILE: &str = "screen-recorder-worker";
 
 enum DispatchMessage {
@@ -66,7 +66,7 @@ struct WorkerSession {
     token: String,
     job: OwnedHandle,
     _components: crate::component_registry::recorder::RecorderComponents,
-    _ffmpeg: Option<crate::component_registry::external_tools::ExternalToolUse>,
+    _external_capabilities: Vec<crate::component_registry::external_tools::ExternalToolUse>,
 }
 
 pub(super) struct RemovalGuard;
@@ -76,17 +76,6 @@ impl Drop for RemovalGuard {
         REMOVAL_IN_PROGRESS.store(false, Ordering::Release);
     }
 }
-
-#[derive(Debug)]
-struct MissingFfmpegCapability;
-
-impl std::fmt::Display for MissingFfmpegCapability {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("recorder worker requires ffmpeg-x64")
-    }
-}
-
-impl std::error::Error for MissingFfmpegCapability {}
 
 impl Drop for WorkerSession {
     fn drop(&mut self) {
@@ -211,22 +200,22 @@ fn dispatch_loop(receiver: mpsc::Receiver<DispatchMessage>) {
 
 fn dispatch_interactive(session: &mut Option<WorkerSession>, command: Command) -> Result<()> {
     for pending in super::pending_commands() {
-        request_with_ffmpeg_retry(session, pending, NORMAL_TIMEOUT)?;
+        request_with_capability_retry(session, pending, NORMAL_TIMEOUT)?;
     }
-    request_with_ffmpeg_retry(session, command, NORMAL_TIMEOUT)?;
+    request_with_capability_retry(session, command, NORMAL_TIMEOUT)?;
     Ok(())
 }
 
 fn dispatch_headless(command: Command) -> Result<serde_json::Value> {
     let mut session = None;
-    let result = request_with_ffmpeg_retry(&mut session, command, HEADLESS_TIMEOUT);
+    let result = request_with_capability_retry(&mut session, command, HEADLESS_TIMEOUT);
     if let Some(session) = session.as_mut() {
         let _ = session.request(Command::Shutdown, NORMAL_TIMEOUT);
     }
     result
 }
 
-fn request_with_ffmpeg_retry(
+fn request_with_capability_retry(
     session: &mut Option<WorkerSession>,
     command: Command,
     timeout: Duration,
@@ -243,22 +232,21 @@ fn request_with_ffmpeg_retry(
         Ok(value) => return Ok(value),
         Err(error) => error,
     };
-    if error.downcast_ref::<MissingFfmpegCapability>().is_none() {
+    let Some(capability) = error
+        .downcast_ref::<MissingExternalCapability>()
+        .map(|missing| missing.tool)
+    else {
         return Err(error);
-    }
+    };
 
     session.take();
-    let ffmpeg =
-        crate::gui::settings_ui::download_manager::ffmpeg_dependency::acquire_ffmpeg_with_badge()
-            .map_err(anyhow::Error::msg)
-            .context("install recorder FFmpeg capability")?;
     let cancelled = AtomicBool::new(false);
-    *session = Some(launch(&cancelled, Some(ffmpeg))?);
+    *session = Some(launch(&cancelled, Some(capability))?);
     session
         .as_mut()
         .ok_or_else(|| anyhow!("recorder worker did not restart"))?
         .request(command, timeout)
-        .context("recorder command failed after one FFmpeg capability retry")
+        .context("recorder command failed after one capability repair retry")
 }
 
 fn report_launch_error(error: &anyhow::Error) {
@@ -272,9 +260,10 @@ fn report_launch_error(error: &anyhow::Error) {
 
 fn launch(
     cancelled: &AtomicBool,
-    ffmpeg: Option<crate::component_registry::external_tools::ExternalToolUse>,
+    requested: Option<crate::component_registry::external_tools::ExternalTool>,
 ) -> Result<WorkerSession> {
     let components = crate::component_registry::recorder::ensure_ready_with_badge(cancelled)?;
+    let external_capabilities = prepare_external_capabilities(cancelled, requested)?;
     let executable = canonical_file(&components.worker_path, "worker")?;
     let web_root = canonical_dir(&components.web_root, "web package")?;
     let system_root = std::env::var_os("SystemRoot")
@@ -320,11 +309,16 @@ fn launch(
         command.env("SGT_RECORDER_WEBVIEW2_DEBUG_PORT", port);
     }
     forward_webview_runtime_roots(&mut command, |name| std::env::var_os(name));
-    if let Some(component) = ffmpeg.as_ref() {
-        command.env(
-            "SGT_FFMPEG_PATH",
-            canonical_file(&component.executable(), "FFmpeg capability")?,
-        );
+    for component in &external_capabilities {
+        match component.tool() {
+            crate::component_registry::external_tools::ExternalTool::Ffmpeg => {
+                command.env(
+                    "SGT_FFMPEG_PATH",
+                    canonical_file(&component.executable(), "FFmpeg capability")?,
+                );
+            }
+            tool => bail!("recorder does not accept the {} capability", tool.id()),
+        }
     }
     forward_provider_credentials(&mut command, |name| std::env::var_os(name));
     let mut child = command
@@ -354,7 +348,7 @@ fn launch(
         token,
         job,
         _components: components,
-        _ffmpeg: ffmpeg,
+        _external_capabilities: external_capabilities,
     };
     session.request(Command::Ping, NORMAL_TIMEOUT)?;
     Ok(session)
@@ -387,8 +381,10 @@ impl WorkerSession {
                         .validate(&self.token, request_id)
                         .map_err(anyhow::Error::msg)?;
                     if let Some(error) = response.error {
-                        if error == MISSING_FFMPEG_MARKER {
-                            return Err(MissingFfmpegCapability.into());
+                        if let Some(tool) =
+                            crate::component_registry::capabilities::requested_external_tool(&error)
+                        {
+                            return Err(MissingExternalCapability { tool }.into());
                         }
                         bail!("{error}");
                     }

@@ -21,6 +21,11 @@ val componentUpdatePublicKey = rootProject.projectDir.parentFile
 val creationRuntimeDeliveryManifest = rootProject.projectDir.parentFile.resolve(
     "component-delivery/creation-runtime-v1.json",
 )
+val creationRuntimeHostVersion = Regex("(?m)^version\\s*=\\s*\"([^\"]+)\"")
+    .find(rootProject.projectDir.parentFile.resolve("Cargo.toml").readText())
+    ?.groupValues
+    ?.get(1)
+    ?: error("Root Cargo package version is missing")
 val downloaderRuntimeDeliveryManifest = projectDir.resolve("delivery/downloader-runtime.json")
 val downloaderLauncherSourceRoot = rootProject.projectDir.resolve("../../youtubedl-android")
 val downloaderLauncherContract = linkedMapOf(
@@ -99,6 +104,10 @@ val stageFullCreationRuntimeDelivery by tasks.registering(Sync::class) {
         require(creationRuntimeDeliveryManifest.isFile) {
             "Tracked creation runtime delivery contract is required: " +
                 creationRuntimeDeliveryManifest
+        }
+        val root = JsonSlurper().parse(creationRuntimeDeliveryManifest) as Map<*, *>
+        require(root["hostVersion"] == creationRuntimeHostVersion) {
+            "Creation runtime manifest targets another app version"
         }
     }
     from(creationRuntimeDeliveryManifest) { rename { "delivery.json" } }

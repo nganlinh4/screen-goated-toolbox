@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.creation.runtime
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.componentupdate.ComponentUpdateCatalog
 import org.json.JSONObject
 
@@ -35,6 +36,9 @@ internal fun loadCreationRuntimeDelivery(context: Context): CreationRuntimeDeliv
 }
 
 internal fun parseCreationRuntimeDelivery(root: JSONObject): CreationRuntimeDelivery {
+    require(root.requireString("hostVersion") == BuildConfig.CANONICAL_APP_VERSION) {
+        "Creation runtime manifest targets another app version"
+    }
     val android = root.requireObject("android")
     val full = android.requireObject("full")
     val entriesJson = android.getJSONArray("entries")
@@ -70,13 +74,18 @@ internal fun parseCreationRuntimeDelivery(root: JSONObject): CreationRuntimeDeli
             require(FACTORY_CLASS.matches(it)) { "Invalid creation runtime factory class" }
         },
         asset = full.requireFileName("asset"),
-        downloadUrl = full.requireString("downloadUrl").also {
-            require(it.startsWith("https://")) { "Creation runtime URL must use HTTPS" }
-        },
+        downloadUrl = full.requireString("downloadUrl"),
         sizeBytes = full.requirePositiveLong("sizeBytes"),
         sha256 = full.requireSha256("sha256"),
         entries = entries,
     ).also {
+        val expectedAsset = "sgt-creation-runtime-android-arm64-${it.sha256.take(16)}.zip"
+        require(it.asset == expectedAsset) {
+            "Creation runtime asset is not content-addressed"
+        }
+        require(it.downloadUrl == RUNTIME_BUNDLES_PREFIX + it.asset) {
+            "Creation runtime URL is not immutable"
+        }
         it.entry(ROLE_FACTORY_DEX)
         it.entry(ROLE_NATIVE_LIBRARY)
     }
@@ -120,3 +129,5 @@ private val FACTORY_CLASS =
     Regex("""[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)+""")
 private const val MAXIMUM_DELIVERY_ENTRIES = 64
 private const val MAXIMUM_DELIVERY_BYTES = 1024L * 1024 * 1024
+private const val RUNTIME_BUNDLES_PREFIX =
+    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/"

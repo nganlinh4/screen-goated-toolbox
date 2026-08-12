@@ -12,6 +12,7 @@ static CACHE: LazyLock<Mutex<Option<(u64, &'static RuntimeDelivery)>>> =
 #[serde(rename_all = "camelCase")]
 struct Contract {
     schema_version: u32,
+    host_version: String,
     version: String,
     features: Vec<String>,
     windows: Delivery,
@@ -46,6 +47,7 @@ pub(super) fn delivery() -> Option<&'static RuntimeDelivery> {
 fn parse(value: serde_json::Value) -> Result<RuntimeDelivery> {
     let contract: Contract = serde_json::from_value(value)?;
     if contract.schema_version != 1
+        || contract.host_version != env!("CARGO_PKG_VERSION")
         || contract.features.is_empty()
         || contract.features.len() > 16
         || contract.windows.size_bytes == 0
@@ -54,7 +56,19 @@ fn parse(value: serde_json::Value) -> Result<RuntimeDelivery> {
     }
     crate::component_registry::validate_identifier(&contract.version)?;
     validate_sha(&contract.windows.sha256)?;
-    validate_url(&contract.windows.download_url)?;
+    let expected_asset = format!(
+        "sgt-creation-runtime-windows-x64-{}.exe",
+        &contract.windows.sha256[..16]
+    );
+    if contract.windows.asset != expected_asset {
+        bail!("signed creation-runtime asset is not content-addressed");
+    }
+    crate::component_registry::update_catalog::validate_runtime_bundle_asset(
+        &contract.windows.asset,
+        &contract.windows.download_url,
+        &contract.windows.sha256,
+        "exe",
+    )?;
     let features = contract
         .features
         .into_iter()
@@ -71,14 +85,6 @@ fn parse(value: serde_json::Value) -> Result<RuntimeDelivery> {
         size_bytes: contract.windows.size_bytes,
         sha256: leak(contract.windows.sha256),
     })
-}
-
-fn validate_url(value: &str) -> Result<()> {
-    let url = url::Url::parse(value)?;
-    if url.scheme() != "https" || url.host_str().is_none() || url.username() != "" {
-        bail!("signed creation-runtime URL is invalid");
-    }
-    Ok(())
 }
 
 fn validate_sha(value: &str) -> Result<()> {

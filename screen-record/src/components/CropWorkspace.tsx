@@ -1,22 +1,16 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, Crop, RotateCcw, X } from '@/components/ui/MaterialIcon';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Check, Crop, X } from '@/components/ui/MaterialIcon';
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/Slider";
+import { CropRatioPanel } from "@/components/CropRatioPanel";
 import { useSettings } from "@/hooks/useSettings";
 import { formatTime } from "@/utils/helpers";
 import { CropRect } from "@/types/video";
 import { getContainedRect } from "@/lib/dynamicCapture";
+import { resolveCodecAlignedCropGeometry } from "@/lib/videoGeometry";
+import "./CropWorkspace.css";
 
 const DEFAULT_CROP: CropRect = { x: 0, y: 0, width: 1, height: 1 };
-
-function isDefaultCrop(crop: CropRect): boolean {
-  return (
-    Math.abs(crop.x) < 1e-4 &&
-    Math.abs(crop.y) < 1e-4 &&
-    Math.abs(crop.width - 1) < 1e-4 &&
-    Math.abs(crop.height - 1) < 1e-4
-  );
-}
 
 interface CropWorkspaceProps {
   show: boolean;
@@ -48,6 +42,14 @@ export function CropWorkspace({
     width: number;
     height: number;
   } | null>(null);
+
+  const alignCrop = useCallback((crop: CropRect): CropRect => {
+    const sourceWidth = videoRef.current?.videoWidth || 0;
+    const sourceHeight = videoRef.current?.videoHeight || 0;
+    return sourceWidth && sourceHeight
+      ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, crop).crop
+      : crop;
+  }, []);
 
   useEffect(() => {
     if (!show) return;
@@ -151,6 +153,7 @@ export function CropWorkspace({
       setDuration(nextDuration);
       const nextTime = Math.max(0, Math.min(nextDuration || initialTime, initialTime));
       setPreviewTime(nextTime);
+      setDraftCrop(alignCrop(initialCrop ?? DEFAULT_CROP));
       if (Math.abs(video.currentTime - nextTime) > 0.01) {
         video.currentTime = nextTime;
       }
@@ -170,7 +173,7 @@ export function CropWorkspace({
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
       video.removeEventListener("loadeddata", handleLoadedData);
     };
-  }, [show, videoSrc, initialTime]);
+  }, [alignCrop, show, videoSrc, initialTime]);
 
   useEffect(() => {
     if (!show) return;
@@ -188,16 +191,19 @@ export function CropWorkspace({
 
   const bounds = videoBounds;
 
-  const handleResizeStart = (event: React.MouseEvent, type: string) => {
+  const handleResizeStart = (event: React.PointerEvent, type: string) => {
     if (!bounds) return;
+    if (!event.isPrimary || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     setActiveResizeHandle(type);
+    const pointerId = event.pointerId;
     const startX = event.clientX;
     const startY = event.clientY;
     const startCrop = { ...draftCrop };
 
-    const handleMove = (moveEvent: MouseEvent) => {
+    const handleMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return;
       const dx = moveEvent.clientX - startX;
       const dy = moveEvent.clientY - startY;
       const dXPct = dx / bounds.width;
@@ -232,42 +238,56 @@ export function CropWorkspace({
         newW = Math.max(0.05, Math.min(1 - startCrop.x, desiredW));
       }
 
-      setDraftCrop({ x: newX, y: newY, width: newW, height: newH });
+      setDraftCrop(alignCrop({ x: newX, y: newY, width: newW, height: newH }));
     };
 
-    const handleUp = () => {
+    const handleUp = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId !== pointerId) return;
       setActiveResizeHandle(null);
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
     };
 
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
   };
 
-  const handleBoxMove = (event: React.MouseEvent) => {
+  const handleBoxMove = (event: React.PointerEvent) => {
     if (!bounds) return;
+    if (!event.isPrimary || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
+    const pointerId = event.pointerId;
     const startX = event.clientX;
     const startY = event.clientY;
     const startCrop = { ...draftCrop };
 
-    const handleMove = (moveEvent: MouseEvent) => {
+    const handleMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return;
       const dx = (moveEvent.clientX - startX) / bounds.width;
       const dy = (moveEvent.clientY - startY) / bounds.height;
       const newX = Math.max(0, Math.min(1 - startCrop.width, startCrop.x + dx));
       const newY = Math.max(0, Math.min(1 - startCrop.height, startCrop.y + dy));
-      setDraftCrop({ x: newX, y: newY, width: startCrop.width, height: startCrop.height });
+      setDraftCrop(alignCrop({
+        x: newX,
+        y: newY,
+        width: startCrop.width,
+        height: startCrop.height,
+      }));
     };
 
-    const handleUp = () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
+    const handleUp = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId !== pointerId) return;
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
     };
 
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
   };
 
   const handles = [
@@ -282,6 +302,11 @@ export function CropWorkspace({
   ];
 
   const clampedDuration = duration > 0 ? duration : 0;
+  const sourceWidth = videoRef.current?.videoWidth || 0;
+  const sourceHeight = videoRef.current?.videoHeight || 0;
+  const draftGeometry = sourceWidth && sourceHeight
+    ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, draftCrop)
+    : null;
 
   return (
     <div className="crop-workspace absolute inset-0 z-[140] bg-[color-mix(in_srgb,var(--surface-dim)_90%,black)]">
@@ -297,19 +322,11 @@ export function CropWorkspace({
               </div>
               <div className="crop-workspace-time text-xs text-[var(--on-surface-variant)]">
                 {formatTime(previewTime)} / {formatTime(clampedDuration)}
+                {draftGeometry ? ` · ${draftGeometry.width}×${draftGeometry.height}` : ""}
               </div>
             </div>
           </div>
           <div className="crop-workspace-actions flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setDraftCrop(DEFAULT_CROP)}
-              disabled={isDefaultCrop(draftCrop)}
-              className="crop-workspace-clear-btn h-9 rounded-xl text-xs"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              {t.clearCrop}
-            </Button>
             <Button
               variant="outline"
               onClick={onCancel}
@@ -319,7 +336,7 @@ export function CropWorkspace({
               {t.cancel}
             </Button>
             <Button
-              onClick={() => onApply(draftCrop)}
+              onClick={() => onApply(alignCrop(draftCrop))}
               className="crop-workspace-apply-btn ui-action-button h-9 rounded-xl text-xs"
               data-tone="success"
               data-active="true"
@@ -331,48 +348,70 @@ export function CropWorkspace({
           </div>
         </div>
 
-        <div className="crop-workspace-stage-shell ui-surface flex min-h-0 flex-1 rounded-[1.75rem] p-4">
-          <div
-            ref={stageRef}
-            className="crop-workspace-stage relative flex h-full w-full items-center justify-center rounded-[1.35rem]"
-          >
-            <div className="crop-workspace-stage-backdrop absolute inset-0 rounded-[1.35rem]" />
+        <div className="crop-workspace-body">
+          <div className="crop-workspace-stage-shell ui-surface flex min-h-0 rounded-[1.75rem] p-4">
+            <div
+              ref={stageRef}
+              className="crop-workspace-stage relative flex h-full w-full items-center justify-center rounded-[1.35rem]"
+            >
+              <div className="crop-workspace-stage-backdrop absolute inset-0 rounded-[1.35rem]" />
 
-            {bounds && (
-              <div
-                className="crop-workspace-video-frame absolute z-[5] rounded-[1.2rem]"
-                style={{
-                  left: bounds.left,
-                  top: bounds.top,
-                  width: bounds.width,
-                  height: bounds.height,
-                }}
+              {bounds && (
+                <div
+                  className="crop-workspace-video-frame absolute z-[5] rounded-[1.2rem]"
+                  style={{
+                    left: bounds.left,
+                    top: bounds.top,
+                    width: bounds.width,
+                    height: bounds.height,
+                  }}
+                />
+              )}
+
+              <video
+                ref={videoRef}
+                src={videoSrc}
+                className="crop-workspace-video pointer-events-none absolute z-10 rounded-[1.15rem] object-contain shadow-[var(--shadow-elevation-3)]"
+                style={
+                  bounds
+                    ? {
+                        left: bounds.left,
+                        top: bounds.top,
+                        width: bounds.width,
+                        height: bounds.height,
+                      }
+                    : undefined
+                }
+                crossOrigin="anonymous"
+                playsInline
+                preload="auto"
+                muted
               />
-            )}
 
-            <video
-              ref={videoRef}
-              src={videoSrc}
-              className="crop-workspace-video pointer-events-none absolute z-10 rounded-[1.15rem] object-contain shadow-[var(--shadow-elevation-3)]"
-              style={
-                bounds
-                  ? {
-                      left: bounds.left,
-                      top: bounds.top,
-                      width: bounds.width,
-                      height: bounds.height,
-                    }
-                  : undefined
-              }
-              crossOrigin="anonymous"
-              playsInline
-              preload="auto"
-              muted
-            />
+              {bounds && (
+                <div className="crop-workspace-overlay absolute inset-0 z-20 pointer-events-none">
+                  <div className="crop-workspace-mask-layer absolute inset-0 overflow-hidden rounded-[1.35rem]">
+                    <div
+                      className="crop-workspace-video-bounds absolute"
+                      style={{
+                        left: bounds.left,
+                        top: bounds.top,
+                        width: bounds.width,
+                        height: bounds.height,
+                      }}
+                    >
+                      <div
+                        className="crop-workspace-selection-mask absolute"
+                        style={{
+                          left: `${draftCrop.x * 100}%`,
+                          top: `${draftCrop.y * 100}%`,
+                          width: `${draftCrop.width * 100}%`,
+                          height: `${draftCrop.height * 100}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
 
-            {bounds && (
-              <div className="crop-workspace-overlay absolute inset-0 z-20 pointer-events-none">
-                <div className="crop-workspace-mask-layer absolute inset-0 overflow-hidden rounded-[1.35rem]">
                   <div
                     className="crop-workspace-video-bounds absolute"
                     style={{
@@ -383,66 +422,53 @@ export function CropWorkspace({
                     }}
                   >
                     <div
-                      className="crop-workspace-selection-mask absolute"
+                      className="crop-workspace-selection absolute touch-none border-2 border-[var(--primary-color)] bg-[var(--primary-color)]/10 pointer-events-auto"
+                      data-resizing={activeResizeHandle ? "true" : "false"}
                       style={{
                         left: `${draftCrop.x * 100}%`,
                         top: `${draftCrop.y * 100}%`,
                         width: `${draftCrop.width * 100}%`,
                         height: `${draftCrop.height * 100}%`,
                       }}
-                    />
-                  </div>
-                </div>
+                      onPointerDown={handleBoxMove}
+                    >
+                      <div className="crop-workspace-grid-rows pointer-events-none absolute inset-0 flex flex-col opacity-30">
+                        <div className="flex-1 border-b border-white/50" />
+                        <div className="flex-1 border-b border-white/50" />
+                        <div className="flex-1" />
+                      </div>
+                      <div className="crop-workspace-grid-cols pointer-events-none absolute inset-0 flex opacity-30">
+                        <div className="flex-1 border-r border-white/50" />
+                        <div className="flex-1 border-r border-white/50" />
+                        <div className="flex-1" />
+                      </div>
 
-                <div
-                  className="crop-workspace-video-bounds absolute"
-                  style={{
-                    left: bounds.left,
-                    top: bounds.top,
-                    width: bounds.width,
-                    height: bounds.height,
-                  }}
-                >
-                  <div
-                    className="crop-workspace-selection absolute border-2 border-[var(--primary-color)] bg-[var(--primary-color)]/10 pointer-events-auto"
-                    data-resizing={activeResizeHandle ? "true" : "false"}
-                    style={{
-                      left: `${draftCrop.x * 100}%`,
-                      top: `${draftCrop.y * 100}%`,
-                      width: `${draftCrop.width * 100}%`,
-                      height: `${draftCrop.height * 100}%`,
-                    }}
-                    onMouseDown={handleBoxMove}
-                  >
-                    <div className="crop-workspace-grid-rows pointer-events-none absolute inset-0 flex flex-col opacity-30">
-                      <div className="flex-1 border-b border-white/50" />
-                      <div className="flex-1 border-b border-white/50" />
-                      <div className="flex-1" />
-                    </div>
-                    <div className="crop-workspace-grid-cols pointer-events-none absolute inset-0 flex opacity-30">
-                      <div className="flex-1 border-r border-white/50" />
-                      <div className="flex-1 border-r border-white/50" />
-                      <div className="flex-1" />
-                    </div>
+                      {handles.map((handle) => (
+                        <div
+                          key={handle.key}
+                          className={`crop-workspace-handle absolute z-30 h-3 w-3 rounded-full border border-[var(--primary-color)] bg-white transition-transform hover:scale-125 ${handle.cursor} ${handle.position}`}
+                          data-active={activeResizeHandle === handle.key ? "true" : "false"}
+                          onPointerDown={(event) => handleResizeStart(event, handle.key)}
+                        />
+                      ))}
 
-                    {handles.map((handle) => (
-                      <div
-                        key={handle.key}
-                        className={`crop-workspace-handle absolute z-30 h-3 w-3 rounded-full border border-[var(--primary-color)] bg-white transition-transform hover:scale-125 ${handle.cursor} ${handle.position}`}
-                        data-active={activeResizeHandle === handle.key ? "true" : "false"}
-                        onMouseDown={(event) => handleResizeStart(event, handle.key)}
-                      />
-                    ))}
-
-                    <div className="crop-workspace-crosshair pointer-events-none absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 opacity-50">
-                      <div className="absolute top-1/2 h-px w-full -translate-y-1/2 bg-white shadow-xs" />
-                      <div className="absolute left-1/2 h-full w-px -translate-x-1/2 bg-white shadow-xs" />
+                      <div className="crop-workspace-crosshair pointer-events-none absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 opacity-50">
+                        <div className="absolute top-1/2 h-px w-full -translate-y-1/2 bg-white shadow-xs" />
+                        <div className="absolute left-1/2 h-full w-px -translate-x-1/2 bg-white shadow-xs" />
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
+
+          <CropRatioPanel
+            sourceWidth={sourceWidth}
+            sourceHeight={sourceHeight}
+            crop={draftCrop}
+            onCropChange={setDraftCrop}
+          />
         </div>
 
         <div className="crop-workspace-footer ui-surface-elevated flex items-center gap-4 rounded-[1.35rem] px-4 py-3">

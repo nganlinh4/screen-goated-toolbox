@@ -36,6 +36,8 @@ export const ttsApi = {
   downloadMp3: () => invoke<string | null>("download_mp3"),
   playRecent: (id: string) => invoke("play_recent", { id }),
   deleteRecent: (id: string) => invoke("delete_recent", { id }),
+  setRecentLimit: (limit: number) => invoke("set_recent_limit", { limit }),
+  clearRecent: () => invoke("clear_recent"),
   previewVoice: (speaker: string) => invoke("preview_voice", { speaker }),
   resetProvider: (provider: string) => invoke("reset_provider", { provider }),
 

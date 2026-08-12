@@ -35,6 +35,10 @@ export function CanvasModeToggle({
 }: CanvasModeToggleProps) {
   const { t } = useSettings();
   const canvasMode = backgroundConfig.canvasMode ?? "auto";
+  const autoCanvasConfig = getAutoCanvasSelectionConfig();
+  const autoCanvasSize = autoCanvasConfig.canvasWidth && autoCanvasConfig.canvasHeight
+    ? `${autoCanvasConfig.canvasWidth}×${autoCanvasConfig.canvasHeight}`
+    : "";
 
   if (isAutoCanvasDisabled) {
     // Non-source clip in multi-clip: show locked canvas indicator, no editing
@@ -56,7 +60,6 @@ export function CanvasModeToggle({
         disabled={isAutoCanvasDisabled}
         onClick={() => {
           if (isAutoCanvasDisabled) return;
-          const autoCanvasConfig = getAutoCanvasSelectionConfig();
           setBackgroundConfig((prev) => ({
             ...prev,
             canvasMode: "auto",
@@ -73,7 +76,7 @@ export function CanvasModeToggle({
               : "playback-canvas-mode-btn-inactive text-[var(--overlay-panel-fg)]/70 hover:text-[var(--overlay-panel-fg)]"
         } px-2 py-1 text-[10px] font-semibold`}
       >
-        {t.canvasAuto}
+        {t.canvasAuto}{canvasMode === "auto" && autoCanvasSize ? ` ${autoCanvasSize}` : ""}
       </button>
       <div className="playback-canvas-custom-control relative group/playback-canvas-custom">
         <div className="playback-canvas-ratio-hover-bridge absolute left-0 right-0 bottom-full h-3" />

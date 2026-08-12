@@ -54,7 +54,7 @@ async function ensureDebugAppLaunched() {
     "screen-goated-toolbox.exe",
   );
   if (!fs.existsSync(exePath)) {
-    launchError = `Missing ${exePath}. Run ORT_SKIP_DOWNLOAD=1 cargo build --target x86_64-pc-windows-gnu first.`;
+    launchError = `Missing ${exePath}. Run cargo build from the repository root first.`;
     return;
   }
 
@@ -107,8 +107,8 @@ test.afterAll(() => {
 });
 
 test("connects to the real Wry WebView2 shell over CDP", async () => {
-  test.skip(!!launchError, launchError ?? undefined);
-  const browser = await chromium.connectOverCDP(cdpUrl!);
+  if (launchError) throw new Error(launchError);
+  const browser = await chromium.connectOverCDP(cdpUrl);
   try {
     const context = browser.contexts()[0];
     expect(context, "WebView2 browser context should be available").toBeTruthy();

@@ -1,0 +1,250 @@
+.crop-workspace-shell {
+  --crop-panel-width: 16rem;
+}
+
+.crop-workspace-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--crop-panel-width);
+  gap: 0.75rem;
+  min-height: 0;
+  flex: 1;
+}
+
+.crop-workspace-stage-shell {
+  min-width: 0;
+}
+
+.crop-ratio-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+  border-radius: 1.35rem;
+  padding: 0.9rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--outline-variant) transparent;
+}
+
+.crop-ratio-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.crop-ratio-heading {
+  color: var(--on-surface);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.crop-ratio-hint {
+  max-width: 10rem;
+  margin-top: 0.25rem;
+  color: var(--on-surface-variant);
+  font-size: 0.64rem;
+  line-height: 1.35;
+}
+
+.crop-ratio-active-label {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 34%, var(--ui-border));
+  border-radius: 999px;
+  padding: 0.2rem 0.45rem;
+  background: color-mix(in srgb, var(--primary-color) 11%, var(--ui-surface-3));
+  color: var(--primary-color);
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.crop-ratio-preset-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.crop-ratio-preset {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 3.5rem;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid var(--ui-border);
+  border-radius: 0.9rem;
+  padding: 0.55rem;
+  background: var(--ui-surface-2);
+  color: var(--on-surface);
+  text-align: left;
+  box-shadow: var(--shadow-elevation-1);
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.crop-ratio-preset:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary-color) 34%, var(--ui-border));
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--ui-surface-3));
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-elevation-2);
+}
+
+.crop-ratio-preset:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--primary-color) 60%, var(--ui-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.crop-ratio-preset[data-active="true"] {
+  border-color: color-mix(in srgb, var(--primary-color) 62%, var(--ui-border));
+  background: color-mix(in srgb, var(--primary-color) 14%, var(--ui-surface-3));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 26%, transparent), var(--shadow-elevation-2);
+}
+
+.crop-ratio-preset:disabled {
+  cursor: wait;
+  opacity: 0.48;
+}
+
+.crop-ratio-source-preset {
+  grid-column: 1 / -1;
+}
+
+.crop-ratio-icon-box {
+  display: flex;
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--ui-border-strong) 78%, transparent);
+  border-radius: 0.55rem;
+  background: var(--ui-surface-3);
+  color: var(--on-surface-variant);
+}
+
+.crop-ratio-preset[data-active="true"] .crop-ratio-icon-box {
+  border-color: color-mix(in srgb, var(--primary-color) 42%, var(--ui-border));
+  color: var(--primary-color);
+}
+
+.crop-ratio-preset-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.crop-ratio-preset-name {
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1.1;
+}
+
+.crop-ratio-preset-size {
+  overflow: hidden;
+  color: var(--on-surface-variant);
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.55rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crop-ratio-check {
+  position: absolute;
+  top: 0.42rem;
+  right: 0.42rem;
+  width: 0.68rem;
+  height: 0.68rem;
+  color: var(--primary-color);
+}
+
+.crop-ratio-selection-readout {
+  display: flex;
+  margin-top: auto;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-top: 1px solid var(--ui-border);
+  padding-top: 0.75rem;
+}
+
+.crop-ratio-selection-label {
+  color: var(--on-surface-variant);
+  font-size: 0.62rem;
+}
+
+.crop-ratio-selection-size {
+  color: var(--on-surface);
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 960px) {
+  .crop-workspace-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .crop-ratio-panel {
+    display: grid;
+    grid-template-columns: minmax(8rem, 0.8fr) minmax(0, 2.2fr) minmax(8rem, 0.8fr);
+    align-items: center;
+    overflow: hidden;
+    padding: 0.7rem;
+  }
+
+  .crop-ratio-hint {
+    max-width: 12rem;
+  }
+
+  .crop-ratio-preset-list {
+    display: flex;
+    overflow-x: auto;
+    padding: 0.15rem;
+    scrollbar-width: thin;
+  }
+
+  .crop-ratio-preset,
+  .crop-ratio-source-preset {
+    min-width: 6.5rem;
+    grid-column: auto;
+  }
+
+  .crop-ratio-selection-readout {
+    margin-top: 0;
+    flex-direction: column;
+    align-items: flex-end;
+    border-top: 0;
+    border-left: 1px solid var(--ui-border);
+    padding-top: 0;
+    padding-left: 0.75rem;
+  }
+}
+
+@media (max-height: 650px) and (min-width: 961px) {
+  .crop-workspace-shell {
+    gap: 0.65rem;
+    padding-block: 0.65rem;
+  }
+
+  .crop-ratio-hint {
+    display: none;
+  }
+
+  .crop-ratio-preset {
+    min-height: 2.9rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crop-ratio-preset {
+    transition: none;
+  }
+}

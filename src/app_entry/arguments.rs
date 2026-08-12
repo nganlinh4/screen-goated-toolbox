@@ -6,6 +6,7 @@ const SCREEN_RECORD_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--screen-record-webview2-d
 const CREATION_UI_TEST_FLAG: &str = "--creation-ui-test";
 const CREATION_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--creation-webview2-debug-port";
 const RESULT_COMPOSITOR_SMOKE_FLAG: &str = "--result-compositor-smoke";
+const STATUS_COMPOSITOR_SMOKE_FLAG: &str = "--status-compositor-smoke";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CreationUiTestApp {
@@ -111,6 +112,10 @@ impl StartupArgs {
 
     pub(crate) fn result_compositor_smoke(&self) -> bool {
         self.has(RESULT_COMPOSITOR_SMOKE_FLAG)
+    }
+
+    pub(crate) fn status_compositor_smoke(&self) -> bool {
+        self.has(STATUS_COMPOSITOR_SMOKE_FLAG)
     }
 }
 
@@ -220,5 +225,13 @@ mod tests {
         ] {
             assert_eq!(parse_creation_ui_test_app(value), None);
         }
+    }
+
+    #[test]
+    fn compositor_smoke_flags_are_isolated_ui_tests() {
+        let result = args(&["sgt.exe", RESULT_COMPOSITOR_SMOKE_FLAG]);
+        let status = args(&["sgt.exe", STATUS_COMPOSITOR_SMOKE_FLAG]);
+        assert!(result.result_compositor_smoke());
+        assert!(status.status_compositor_smoke());
     }
 }

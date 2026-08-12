@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::os::windows::process::CommandExt as _;
 
 use super::types::CookieBrowser;
+use crate::component_registry::capabilities;
 use crate::component_registry::external_tools::{self, ExternalTool};
 
 type VideoFormatLists = (Vec<String>, Vec<String>, Vec<String>);
@@ -33,13 +34,13 @@ fn fetch_video_formats_once(
     cookie_browser: CookieBrowser,
 ) -> Result<VideoFormatLists, String> {
     let cancelled = AtomicBool::new(false);
-    let ytdlp = external_tools::ensure(ExternalTool::YtDlp, &cancelled, |_, _| {})
+    let ytdlp = capabilities::resolve_external_tool(ExternalTool::YtDlp, &cancelled, |_| {})
         .map_err(|error| format!("Prepare pinned yt-dlp: {error:#}"))?;
     let deno = if cookie_browser == CookieBrowser::None {
-        external_tools::acquire_installed(ExternalTool::Deno).ok()
+        capabilities::acquire_external_tool(ExternalTool::Deno).ok()
     } else {
         Some(
-            external_tools::ensure(ExternalTool::Deno, &cancelled, |_, _| {})
+            capabilities::resolve_external_tool(ExternalTool::Deno, &cancelled, |_| {})
                 .map_err(|error| format!("Prepare pinned Deno: {error:#}"))?,
         )
     };

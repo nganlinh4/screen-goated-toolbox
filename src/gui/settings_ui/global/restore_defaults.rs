@@ -23,10 +23,11 @@ pub(super) fn render_restore_defaults_modal(
     let mut close_requested = false;
     let mut restore_requested = false;
 
-    let modal = egui::Modal::new(egui::Id::new("restore_defaults_modal"))
-        .backdrop_color(theme.scrim_color())
-        .frame(theme.dialog_frame())
-        .show(ui.ctx(), |ui| {
+    let modal = crate::gui::widgets::material_modal(
+        ui.ctx(),
+        &theme,
+        egui::Id::new("restore_defaults_modal"),
+        |ui| {
             // The settings window is at least 1245 px wide. Spending a little
             // more horizontal space keeps the category explanations on one
             // line and prevents the dialog from crowding the 660 px min height.
@@ -202,7 +203,8 @@ pub(super) fn render_restore_defaults_modal(
                     }
                 });
             });
-        });
+        },
+    );
 
     #[cfg(test)]
     ui.ctx().data_mut(|data| {
@@ -346,6 +348,7 @@ fn apply_selected_config_defaults_from(
         config.theme_mode = defaults.theme_mode.clone();
         config.max_history_items = defaults.max_history_items;
         config.max_screen_record_projects = defaults.max_screen_record_projects;
+        config.max_screen_record_recent_uploads = defaults.max_screen_record_recent_uploads;
         config.cc_max_memory_items = defaults.cc_max_memory_items;
         config.graphics_mode = defaults.graphics_mode.clone();
         config.favorite_overlay_opacity = defaults.favorite_overlay_opacity;

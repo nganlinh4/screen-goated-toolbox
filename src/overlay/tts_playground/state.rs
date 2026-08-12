@@ -104,6 +104,7 @@ struct WebPayload {
     audio_edit: serde_json::Value,
     s2s_target_language: String,
     player: PlayerView,
+    recent_limit: usize,
     catalogs: CatalogsView,
     strings: StringsView,
 }
@@ -224,6 +225,10 @@ impl WebPayload {
                 current: ui.current.clone(),
                 recent: ui.recent.clone(),
             },
+            recent_limit: pg.recent_clip_limit.clamp(
+                super::runtime::MIN_RECENT_LIMIT,
+                super::runtime::MAX_RECENT_LIMIT,
+            ),
             catalogs: CatalogsView::from_config(config, text),
             strings: StringsView::from_locale(text),
         }
@@ -293,6 +298,9 @@ struct StringsView {
     download_wav: String,
     download_mp3: String,
     recent: String,
+    recent_limit: String,
+    clear_recent: String,
+    delete_recent: String,
     voice_per_language: String,
     add_language: String,
     reset: String,
@@ -376,6 +384,9 @@ impl StringsView {
             download_wav: text.tts_playground.tts_playground_download_wav.to_string(),
             download_mp3: text.tts_playground.tts_playground_download_mp3.to_string(),
             recent: text.tts_playground.tts_playground_recent.to_string(),
+            recent_limit: text.workspace.max_items_label.to_string(),
+            clear_recent: text.workspace.clear_all_history_btn.to_string(),
+            delete_recent: text.overlay.history_delete_tooltip.to_string(),
             voice_per_language: text.tts_settings.tts_voice_per_language_label.to_string(),
             add_language: text.tts_settings.tts_add_language_label.to_string(),
             reset: text.tts_settings.tts_reset_to_defaults_label.to_string(),

@@ -14,6 +14,10 @@ class NativeRuntimeContractTest {
         assertEquals(setOf("ort", "moonshine", "sherpa"), manifest.archives.map { it.engine }.toSet())
         assertEquals("verified_download", manifest.archive("ort").fullDelivery)
         assertEquals(
+            3,
+            manifest.archives.map { it.downloadUrl }.distinct().size,
+        )
+        assertEquals(
             setOf("verified_download"),
             manifest.archives.map { it.fullDelivery }.toSet(),
         )
@@ -27,7 +31,10 @@ class NativeRuntimeContractTest {
     fun `manifest rejects undeclared fields and nested members`() {
         val valid = contractFile().readText()
         val extraField = valid.replaceFirst("\"schemaVersion\": 1", "\"schemaVersion\": 1, \"extra\": true")
-        val nestedMember = valid.replaceFirst("libc++_shared.so", "nested/libc++_shared.so")
+        val nestedMember = valid.replaceFirst(
+            "libonnxruntime_real.so",
+            "nested/libonnxruntime_real.so",
+        )
 
         assertThrows(IllegalArgumentException::class.java) {
             NativeRuntimeContract.parse(extraField)

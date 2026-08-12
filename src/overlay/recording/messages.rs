@@ -1,6 +1,3 @@
-// --- RECORDING MESSAGES ---
-// Window procedure and keyboard hook for recording overlay.
-
 use super::state::*;
 use super::window::start_audio_thread;
 use crate::APP;
@@ -11,259 +8,151 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub unsafe extern "system" fn recording_wnd_proc(
     hwnd: HWND,
-    msg: u32,
+    message: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
     unsafe {
-        match msg {
+        match message {
             WM_APP_SHOW => {
-                let preset_idx = wparam.0;
-
-                // Reset JS state
-                RECORDING_WEBVIEW.with(|cell| {
-                    if let Some(wv) = cell.borrow().as_ref() {
-                        let _ = wv.evaluate_script("resetState();");
-                    }
-                });
-
-                // Start Audio Logic
-                start_audio_thread(hwnd, preset_idx);
-
-                // Mark state as Active (Visible)
-                RECORDING_STATE.store(2, Ordering::SeqCst);
-
-                // Check if we should hide the UI
-                let is_hidden = {
-                    let app = APP.lock().unwrap();
-                    if preset_idx < app.config.presets.len() {
-                        app.config.presets[preset_idx].hide_recording_ui
-                    } else {
-                        false
-                    }
-                };
-                CURRENT_RECORDING_HIDDEN.store(is_hidden, Ordering::SeqCst);
-
-                // Fallback Timer (99) - If IPC ready signal doesn't come in 500ms, show anyway
-                if !is_hidden {
-                    SetTimer(Some(hwnd), 99, 500, None);
-                }
-
-                // Record Show Time to prevent race with old threads closing
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                LAST_SHOW_TIME.store(now, Ordering::SeqCst);
-
+                begin_session(hwnd, wparam.0);
                 LRESULT(0)
             }
-
-            WM_TIMER => {
-                if wparam.0 == 2 {
-                    // REAL SHOW TIMER (from IPC "ready")
-                    let _ = KillTimer(Some(hwnd), 2);
-                    let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
-                } else if wparam.0 == 99 {
-                    // FALLBACK TIMER (IPC timed out)
-                    let _ = KillTimer(Some(hwnd), 99);
-                    println!("Warning: Recording overlay IPC timed out, forcing show");
-                    let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
-                } else if wparam.0 == 1 {
-                    // VIZ UPDATE TIMER
-                    let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
-                    let is_paused = AUDIO_PAUSE_SIGNAL.load(Ordering::SeqCst);
-                    let is_initializing = AUDIO_INITIALIZING.load(Ordering::SeqCst);
-                    let warming_up = !AUDIO_WARMUP_COMPLETE.load(Ordering::SeqCst);
-
-                    let rms_bits = CURRENT_RMS.load(Ordering::Relaxed);
-                    let rms = f32::from_bits(rms_bits);
-
-                    let state_str = if is_processing {
-                        "processing"
-                    } else if is_paused {
-                        "paused"
-                    } else if is_initializing {
-                        "initializing"
-                    } else if warming_up {
-                        "warmup"
-                    } else {
-                        "recording"
-                    };
-
-                    let script = format!("updateState('{}', {});", state_str, rms);
-
-                    RECORDING_WEBVIEW.with(|cell| {
-                        if let Some(wv) = cell.borrow().as_ref() {
-                            let _ = wv.evaluate_script(&script);
-                        }
-                    });
-
-                    // Check for theme changes
-                    if let Ok(app) = APP.try_lock() {
-                        let current_is_dark = app.config.theme_mode.is_dark();
-                        let last_dark = LAST_THEME_IS_DARK.load(Ordering::SeqCst);
-
-                        if current_is_dark != last_dark {
-                            LAST_THEME_IS_DARK.store(current_is_dark, Ordering::SeqCst);
-
-                            let (
-                                container_bg,
-                                container_border,
-                                text_color,
-                                subtext_color,
-                                btn_bg,
-                                btn_hover_bg,
-                                btn_color,
-                                text_shadow,
-                            ) = if current_is_dark {
-                                (
-                                    "rgba(18, 18, 18, 0.85)",
-                                    "rgba(255, 255, 255, 0.1)",
-                                    "white",
-                                    "rgba(255, 255, 255, 0.7)",
-                                    "rgba(255, 255, 255, 0.05)",
-                                    "rgba(255, 255, 255, 0.15)",
-                                    "rgba(255, 255, 255, 0.8)",
-                                    "0 1px 2px rgba(0, 0, 0, 0.3)",
-                                )
-                            } else {
-                                (
-                                    "rgba(255, 255, 255, 0.92)",
-                                    "rgba(0, 0, 0, 0.1)",
-                                    "#222222",
-                                    "rgba(0, 0, 0, 0.6)",
-                                    "rgba(0, 0, 0, 0.05)",
-                                    "rgba(0, 0, 0, 0.1)",
-                                    "rgba(0, 0, 0, 0.7)",
-                                    "0 1px 2px rgba(255, 255, 255, 0.3)",
-                                )
-                            };
-
-                            let theme_script = format!(
-                                "if(window.updateTheme) window.updateTheme({}, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}');",
-                                current_is_dark,
-                                container_bg,
-                                container_border,
-                                text_color,
-                                subtext_color,
-                                btn_bg,
-                                btn_hover_bg,
-                                btn_color,
-                                text_shadow
-                            );
-
-                            RECORDING_WEBVIEW.with(|cell| {
-                                if let Some(wv) = cell.borrow().as_ref() {
-                                    let _ = wv.evaluate_script(&theme_script);
-                                }
-                            });
-                        }
-                    }
-                }
+            WM_TIMER if wparam.0 == 1 => {
+                push_visual_state();
                 LRESULT(0)
             }
-
+            WM_TIMER if wparam.0 == 2 || wparam.0 == 99 => {
+                let _ = KillTimer(Some(hwnd), wparam.0);
+                let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
+                LRESULT(0)
+            }
             WM_APP_REAL_SHOW => {
-                if CURRENT_RECORDING_HIDDEN.load(Ordering::SeqCst) {
-                    return LRESULT(0);
-                }
-                // Move to Center Screen
-                let (ui_width, ui_height) = get_ui_dimensions();
-                let screen_x = GetSystemMetrics(SM_CXSCREEN);
-                let screen_y = GetSystemMetrics(SM_CYSCREEN);
-                let center_x = (screen_x - ui_width) / 2;
-                let center_y = (screen_y - ui_height) / 2 + 100;
-
-                let _ = SetWindowPos(
-                    hwnd,
-                    Some(HWND_TOPMOST),
-                    center_x,
-                    center_y,
-                    0,
-                    0,
-                    SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                );
-
-                // Start Visualization Updates NOW that we are visible and ready
-                let _ = SetTimer(Some(hwnd), 1, 16, None);
-
-                // Trigger Fade In
-                RECORDING_WEBVIEW.with(|cell| {
-                    if let Some(wv) = cell.borrow().as_ref() {
-                        let _ = wv.evaluate_script(
-                            "setTimeout(() => document.body.classList.add('visible'), 50);",
-                        );
-                    }
-                });
-
+                show_visual(hwnd);
                 LRESULT(0)
             }
-
             WM_APP_HIDE => {
-                // Stop logic
-                let _ = KillTimer(Some(hwnd), 1);
-                let _ = KillTimer(Some(hwnd), 2);
-                let _ = KillTimer(Some(hwnd), 99);
-
-                // Reset opacity
-                RECORDING_WEBVIEW.with(|cell| {
-                    if let Some(wv) = cell.borrow().as_ref() {
-                        let _ = wv.evaluate_script("hideState();");
-                    }
-                });
-
-                // Move Off-screen
-                let _ = SetWindowPos(
-                    hwnd,
-                    Some(HWND_TOPMOST),
-                    -4000,
-                    -4000,
-                    0,
-                    0,
-                    SWP_NOSIZE | SWP_NOACTIVATE,
-                );
-
-                RECORDING_STATE.store(1, Ordering::SeqCst); // Back to Warmup/Hidden
-
+                hide_visual(hwnd);
                 LRESULT(0)
             }
-
             WM_APP_UPDATE_STATE => {
-                // Force an immediate update cycle if needed
+                push_visual_state();
                 LRESULT(0)
             }
-
             WM_CLOSE => {
-                let is_stop = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
-                let is_abort = AUDIO_ABORT_SIGNAL.load(Ordering::SeqCst);
-
-                if is_stop || is_abort {
-                    let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
-                } else {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                    let last = LAST_SHOW_TIME.load(Ordering::SeqCst);
-                    if now > last && (now - last) < 2000 {
-                        // Ignore Close during first 2 seconds if not explicitly stopped
-                    } else {
-                        let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
-                    }
-                }
+                handle_close(hwnd);
                 LRESULT(0)
             }
-
             WM_USER_FULL_CLOSE => {
                 let _ = DestroyWindow(hwnd);
                 PostQuitMessage(0);
                 LRESULT(0)
             }
-
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+            _ => DefWindowProcW(hwnd, message, wparam, lparam),
         }
     }
+}
+
+fn begin_session(hwnd: HWND, preset_idx: usize) {
+    AUDIO_STOP_SIGNAL.store(false, Ordering::SeqCst);
+    AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
+    AUDIO_ABORT_SIGNAL.store(false, Ordering::SeqCst);
+    AUDIO_WARMUP_COMPLETE.store(false, Ordering::SeqCst);
+    CURRENT_RMS.store(0, Ordering::Relaxed);
+    start_audio_thread(hwnd, preset_idx);
+    RECORDING_STATE.store(2, Ordering::SeqCst);
+
+    let hidden = APP
+        .lock()
+        .unwrap()
+        .config
+        .presets
+        .get(preset_idx)
+        .is_some_and(|preset| preset.hide_recording_ui);
+    CURRENT_RECORDING_HIDDEN.store(hidden, Ordering::SeqCst);
+    LAST_SHOW_TIME.store(now_ms(), Ordering::SeqCst);
+    if hidden {
+        crate::overlay::status_compositor::recording_hide();
+    } else {
+        crate::overlay::status_compositor::recording_prepare(recording_rect());
+        unsafe {
+            let _ = SetTimer(Some(hwnd), 99, 500, None);
+        }
+    }
+}
+
+fn show_visual(hwnd: HWND) {
+    if CURRENT_RECORDING_HIDDEN.load(Ordering::SeqCst) {
+        return;
+    }
+    crate::overlay::status_compositor::recording_show(recording_rect());
+    unsafe {
+        let _ = SetTimer(Some(hwnd), 1, 16, None);
+    }
+    push_visual_state();
+}
+
+fn hide_visual(hwnd: HWND) {
+    unsafe {
+        let _ = KillTimer(Some(hwnd), 1);
+        let _ = KillTimer(Some(hwnd), 2);
+        let _ = KillTimer(Some(hwnd), 99);
+    }
+    crate::overlay::status_compositor::recording_hide();
+    RECORDING_STATE.store(1, Ordering::SeqCst);
+}
+
+fn push_visual_state() {
+    let state = if AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) {
+        "processing"
+    } else if AUDIO_PAUSE_SIGNAL.load(Ordering::SeqCst) {
+        "paused"
+    } else if AUDIO_INITIALIZING.load(Ordering::SeqCst) {
+        "initializing"
+    } else if !AUDIO_WARMUP_COMPLETE.load(Ordering::SeqCst) {
+        "warmup"
+    } else {
+        "recording"
+    };
+    let rms = f32::from_bits(CURRENT_RMS.load(Ordering::Relaxed));
+    crate::overlay::status_compositor::recording_update(state, rms);
+
+    if let Ok(app) = APP.try_lock() {
+        let is_dark = app.config.theme_mode.is_dark();
+        if LAST_THEME_IS_DARK.swap(is_dark, Ordering::SeqCst) != is_dark {
+            crate::overlay::status_compositor::update_theme(is_dark);
+        }
+    }
+}
+
+fn handle_close(hwnd: HWND) {
+    if AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) || AUDIO_ABORT_SIGNAL.load(Ordering::SeqCst) {
+        hide_visual(hwnd);
+        return;
+    }
+    let elapsed = now_ms().saturating_sub(LAST_SHOW_TIME.load(Ordering::SeqCst));
+    if elapsed >= 2_000 {
+        hide_visual(hwnd);
+    }
+}
+
+fn recording_rect() -> crate::overlay::status_compositor::protocol::PhysicalRect {
+    let (width, height) = get_ui_dimensions();
+    let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    crate::overlay::status_compositor::physical_rect(
+        (screen_width - width) / 2,
+        (screen_height - height) / 2 + 100,
+        width,
+        height,
+    )
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub unsafe extern "system" fn recording_hook_proc(
@@ -273,9 +162,9 @@ pub unsafe extern "system" fn recording_hook_proc(
 ) -> LRESULT {
     unsafe {
         if code == HC_ACTION as i32 {
-            let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+            let keyboard = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
             if (wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize)
-                && kbd.vkCode == VK_ESCAPE.0 as u32
+                && keyboard.vkCode == VK_ESCAPE.0 as u32
                 && super::is_recording_overlay_active()
             {
                 super::stop_recording_and_submit();

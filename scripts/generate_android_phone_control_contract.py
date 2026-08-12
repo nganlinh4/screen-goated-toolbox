@@ -299,7 +299,7 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
     }
     if not isinstance(contract, dict) or set(contract) != expected_fields:
         raise ValueError("orb contract has unsupported top-level fields")
-    if contract["schemaVersion"] != 4 or contract["feature"] != "phone-control-orb":
+    if contract["schemaVersion"] != 5 or contract["feature"] != "phone-control-orb":
         raise ValueError("orb contract identity is invalid")
     if contract["canonicalAsset"] != "src/overlay/computer_control/orb/orb.html":
         raise ValueError("orb contract must point at the Windows canonical renderer")
@@ -371,10 +371,18 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
         or invariants.get("sameIncrementalCaptionMotion") is not True
     ):
         raise ValueError("Android must use the canonical incremental caption renderer")
+    if (
+        invariants.get("captionFont") != "Google Sans Flex"
+        or invariants.get("captionFontReadyBeforeVisible") is not True
+        or invariants.get("captionFontPayloadOwner") != "shared_product_font"
+    ):
+        raise ValueError("orb typography must use the ready shared product font")
     if invariants.get("androidVisualHost") != (
         "trusted_accessibility_overlay_with_non_obscuring_fallback"
     ):
         raise ValueError("Android orb host must preserve touch-through rendering")
+    if invariants.get("androidVisualDisplay") != "default_physical_display":
+        raise ValueError("Android orb must render on the default physical display")
     if invariants.get("visualOverlayDoesNotConsumeUnderlyingTouches") is not True:
         raise ValueError("Android orb visuals must not consume underlying touches")
     expected_dismiss = {

@@ -13,7 +13,6 @@ pub struct TextSelectionState {
     pub is_selecting: bool,
     pub is_processing: bool,
     pub hook_handle: HHOOK,
-    pub webview: Option<wry::WebView>,
 }
 unsafe impl Send for TextSelectionState {}
 
@@ -22,7 +21,6 @@ pub static SELECTION_STATE: Mutex<TextSelectionState> = Mutex::new(TextSelection
     is_selecting: false,
     is_processing: false,
     hook_handle: HHOOK(std::ptr::null_mut()),
-    webview: None,
 });
 
 pub static REGISTER_TAG_CLASS: Once = Once::new();
@@ -31,10 +29,6 @@ pub static TAG_ABORT_SIGNAL: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 pub static INITIAL_TEXT_GLOBAL: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new(String::from("Select text...")));
-
-thread_local! {
-    pub static SELECTION_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
-}
 
 // Warmup / Persistence Globals
 pub static TAG_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -99,11 +93,7 @@ pub fn reset_selection_internal_state() {
 
 /// Reset UI state in WebView
 pub fn reset_ui_state(initial_text: &str) {
-    let state = SELECTION_STATE.lock().unwrap();
-    if let Some(wv) = state.webview.as_ref() {
-        let reset_js = format!("updateState(false, '{}')", initial_text);
-        let _ = wv.evaluate_script(&reset_js);
-    }
+    crate::overlay::status_compositor::selection_update(false, initial_text.to_string());
 }
 
 /// Processing guard that resets is_processing on drop

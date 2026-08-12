@@ -64,6 +64,22 @@
 - Models: `.claude/commands/manage-model-catalog.md`.
 - Recorder backgrounds: `.claude/commands/manage-background-presets.md`.
 
+## Optional Component Delivery
+
+- Before changing a downloadable mini-app, worker, runtime, model package, or
+  external-tool contract, read `docs/COMPONENT_DELIVERY.md`.
+- A source change that changes packaged bytes requires rebuilding only the
+  affected deterministic package. Upload the newly content-addressed asset to
+  the append-only `sgt-runtime-bundles` release, read it back, update the exact
+  size/SHA-256 delivery contract, and only then build the host release.
+- Never overwrite or delete a published asset while a released host can
+  reference it. If rebuilt bytes have the same hash, do not upload a duplicate.
+- Debug and release hosts use app-selected external delivery contracts. Do not
+  add local package fallbacks, floating URLs, self-updaters, or bundled payloads.
+- First use/update must verify, install, and then open automatically. Removal
+  must stop the owning UI/process, wait for leases, and delete only receipt-owned
+  unchanged files.
+
 ## Docs Map
 
 - Product/build: `README.md`, `docs/DEVELOPMENT.md`.

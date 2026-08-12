@@ -41,7 +41,9 @@ export function useEditorHistory({
   applySnapshot,
   maxHistory = 30,
 }: UseEditorHistoryParams) {
-  const snapshotRef = useRef<EditorHistorySnapshot>(cloneSnapshot(initialSnapshot));
+  const [snapshotRef] = useState(() => ({
+    current: cloneSnapshot(initialSnapshot),
+  }));
   const batchSnapshotRef = useRef<EditorHistorySnapshot | null>(null);
   const batchDepthRef = useRef(0);
   const suppressHistoryRef = useRef(0);

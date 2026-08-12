@@ -1,4 +1,5 @@
 import {
+  startTransition,
   useCallback,
   useEffect,
   useRef,
@@ -56,9 +57,9 @@ export function useTimelineWheelZoom({
   scheduleScrollbarThumbSync,
   suppressFollow,
 }: UseTimelineWheelZoomOptions): void {
-  const pendingZoomRafRef = useRef<number | null>(null);
+  const pendingZoomCommitTimerRef = useRef<number | null>(null);
   const commitPendingWheelZoom = useCallback(() => {
-    pendingZoomRafRef.current = null;
+    pendingZoomCommitTimerRef.current = null;
     const activeViewport = viewportRef.current;
     const activeDurationForRange = durationRef.current;
     const activeZoomForRange = zoomRef.current;
@@ -77,7 +78,7 @@ export function useTimelineWheelZoom({
             getMaxScroll(activeViewport, contentWidthForRange),
           )
         : activeViewport.scrollLeft;
-      setVisibleTimeRange(
+      const nextVisibleTimeRange =
         activeZoomForRange <= MIN_TIMELINE_ZOOM + 0.001
           ? null
           : buildVisibleTimeRange(
@@ -85,10 +86,14 @@ export function useTimelineWheelZoom({
               visibleWidthForRange,
               contentWidthForRange,
               activeDurationForRange,
-            ),
-      );
+            );
+      startTransition(() => {
+        setVisibleTimeRange(nextVisibleTimeRange);
+        setZoom(zoomRef.current);
+      });
+      return;
     }
-    setZoom(zoomRef.current);
+    startTransition(() => setZoom(zoomRef.current));
   }, [
     durationRef,
     pendingWheelAnchorRef,
@@ -177,9 +182,13 @@ export function useTimelineWheelZoom({
       programmaticScrollRef.current = false;
       releaseProgrammaticScrollRef.current = null;
     });
-    if (pendingZoomRafRef.current === null) {
-      pendingZoomRafRef.current = requestAnimationFrame(commitPendingWheelZoom);
+    if (pendingZoomCommitTimerRef.current !== null) {
+      window.clearTimeout(pendingZoomCommitTimerRef.current);
     }
+    pendingZoomCommitTimerRef.current = window.setTimeout(
+      commitPendingWheelZoom,
+      100,
+    );
   };
 
   useEffect(() => {
@@ -195,8 +204,8 @@ export function useTimelineWheelZoom({
 
   useEffect(() => {
     return () => {
-      if (pendingZoomRafRef.current !== null) {
-        cancelAnimationFrame(pendingZoomRafRef.current);
+      if (pendingZoomCommitTimerRef.current !== null) {
+        window.clearTimeout(pendingZoomCommitTimerRef.current);
       }
     };
   }, []);

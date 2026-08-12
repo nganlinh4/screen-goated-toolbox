@@ -140,11 +140,13 @@ pub(super) unsafe fn internal_create_sr_loop() {
         );
 
         // Read initial theme/lang from config
-        let (init_lang, init_theme_mode) = {
+        let (init_lang, init_theme_mode, init_project_limit, init_upload_limit) = {
             let app = crate::APP.lock().unwrap();
             (
                 app.config.ui_language.clone(),
                 app.config.theme_mode.clone(),
+                app.config.max_screen_record_projects.clamp(10, 100),
+                app.config.max_screen_record_recent_uploads.clamp(4, 24),
             )
         };
         let init_theme = init_theme_mode.as_web_str();
@@ -193,6 +195,8 @@ pub(super) unsafe fn internal_create_sr_loop() {
             // Set initial settings synchronously so React can read on mount
             window.__SR_INITIAL_THEME__ = '{init_theme}';
             window.__SR_INITIAL_LANG__ = '{init_lang}';
+            window.__SR_INITIAL_PROJECT_LIMIT__ = {init_project_limit};
+            window.__SR_INITIAL_UPLOAD_LIMIT__ = {init_upload_limit};
             {test_harness_init}
             document.title = 'SGT Record';
             if (document.documentElement) {{

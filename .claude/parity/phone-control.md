@@ -594,12 +594,18 @@ device timeout or release a still-running production operation.
 - Android renders the caption in that same canonical HTML, including Google Sans
   Flex, transparent background, white text/shadows, placement, and incremental
   word motion. It must not maintain a native substitute caption or restart
-  unchanged words as streaming text grows.
+  unchanged words as streaming text grows. The renderer becomes visible only
+  after that face is ready or a bounded readiness diagnostic expires. Android
+  serves its existing shared WebView product-font asset from the app-owned asset
+  origin; Phone Control must not carry a duplicate font payload or remain hidden
+  because font-readiness reporting failed.
 - The canonical visual renderer is a full-display, non-touchable trusted
   accessibility overlay; a separate orb-sized touch shim owns drag/tap input.
   This preserves exact pixels while underlying apps remain interactive. During
   an accessibility-service reconnect, an application-overlay fallback may render
   only at the platform-reported non-obscuring alpha until the trusted host returns.
+  Both hosts resolve the default physical display explicitly; the MediaProjection
+  virtual display is a capture sink and never a visual-overlay destination.
 - Android follows the shared
   `parity-fixtures/android-webview-overlays/rendering-contract.json`: the overlay
   window owns hardware acceleration, latest visual/drag work is conflated to one

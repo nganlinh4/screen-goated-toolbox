@@ -83,6 +83,7 @@ const ko: Translations = {
   backgroundClickToDownload: '클릭하여 다운로드',
   backgroundDeleteDownloadedFile: '다운로드한 파일 삭제',
   backgroundRemoveUploaded: '업로드한 배경 제거',
+  backgroundRecentUploads: '최근 업로드',
 
   // CameraPanel
   cameraSettings: '카메라',
@@ -396,6 +397,11 @@ const ko: Translations = {
   applyCrop: '자르기 적용',
   clearCrop: '자르기 해제',
   cropVideo: '비디오 자르기',
+  cropAspectRatio: '화면 비율',
+  cropAspectRatioHint: '프레임을 고른 뒤 드래그해 조정하세요.',
+  cropOriginal: '원본',
+  cropCustom: '사용자 지정',
+  cropSelection: '선택 영역',
 
   // Dialogs - Export
   exportingVideo: '비디오 내보내는 중...',

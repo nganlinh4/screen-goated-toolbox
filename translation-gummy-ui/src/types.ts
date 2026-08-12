@@ -36,6 +36,7 @@ export type TranslationGummyState = {
     isFinal: boolean;
     lang: string;
   }>;
+  transcriptLimit: number;
   strings: {
     title: string;
     firstProfile: string;
@@ -56,6 +57,9 @@ export type TranslationGummyState = {
     guide: string;
     guideOk: string;
     chatHistory: string;
+    maxItems: string;
+    clearAll: string;
+    deleteItem: string;
     currentModel: string;
     currentVoice: string;
   };

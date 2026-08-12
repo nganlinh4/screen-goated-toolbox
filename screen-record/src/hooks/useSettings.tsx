@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useLayoutEffect } from 'react';
 import { getTranslations, type Translations } from '@/i18n';
+import { projectManager } from '@/lib/projectManager';
 
 interface SettingsState {
   theme: 'dark' | 'light';
@@ -53,6 +54,12 @@ export function useSettingsProvider(): SettingsState {
         if (e.data.lang) {
           setLang(e.data.lang);
           setT(getTranslations(e.data.lang));
+        }
+        if (typeof e.data.projectLimit === 'number') {
+          projectManager.applyHostLimit(e.data.projectLimit);
+        }
+        if (typeof e.data.uploadLimit === 'number') {
+          window.dispatchEvent(new CustomEvent('sr-upload-limit', { detail: e.data.uploadLimit }));
         }
       }
     };

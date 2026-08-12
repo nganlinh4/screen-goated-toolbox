@@ -17,10 +17,11 @@ impl SettingsApp {
 
         let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
         let mut close_requested = false;
-        let modal = egui::Modal::new(egui::Id::new("computer_control_dialog"))
-            .backdrop_color(theme.scrim_color())
-            .frame(theme.dialog_frame())
-            .show(ctx, |ui| {
+        let modal = crate::gui::widgets::material_modal(
+            ctx,
+            &theme,
+            egui::Id::new("computer_control_dialog"),
+            |ui| {
                 ui.set_width(430.0);
 
                 if dialog_header(ui, &theme, text.shell.computer_control_title, None, |_| {}) {
@@ -53,7 +54,8 @@ impl SettingsApp {
                         close_requested = true;
                     }
                 });
-            });
+            },
+        );
 
         if modal.should_close() {
             close_requested = true;

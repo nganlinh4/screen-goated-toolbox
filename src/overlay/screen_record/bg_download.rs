@@ -7,6 +7,8 @@ use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use std::collections::HashMap;
 #[cfg(feature = "recorder-worker")]
+use std::collections::HashSet;
+#[cfg(feature = "recorder-worker")]
 use std::hash::{Hash, Hasher};
 use std::io::{Read as IoRead, Write};
 use std::path::PathBuf;
@@ -358,6 +360,81 @@ pub fn save_uploaded_data_url(data_url: &str) -> Result<String, String> {
         .unwrap_or(0);
 
     Ok(format!("/bg-downloaded/{file_name}?v={version}"))
+}
+
+#[cfg(feature = "recorder-worker")]
+pub fn reconcile_uploaded_files(retained_urls: &[String]) -> Result<usize, String> {
+    let retained = retained_urls
+        .iter()
+        .filter_map(|url| url.split("/bg-downloaded/").nth(1))
+        .filter_map(|tail| tail.split(['?', '#']).next())
+        .filter(|name| is_uploaded_file_name(name))
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    let dir = backgrounds_dir();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(format!("Failed to inspect uploaded backgrounds: {error}")),
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if retained.contains(name) || !is_uploaded_file_name(name) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        let old_enough = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age >= std::time::Duration::from_secs(60));
+        if metadata.file_type().is_file()
+            && !metadata.file_type().is_symlink()
+            && old_enough
+            && std::fs::remove_file(path).is_ok()
+        {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+#[cfg(feature = "recorder-worker")]
+fn is_uploaded_file_name(name: &str) -> bool {
+    let Some((stem, extension)) = name.rsplit_once('.') else {
+        return false;
+    };
+    let Some(hash) = stem.strip_prefix("upload-") else {
+        return false;
+    };
+    hash.len() == 16
+        && hash.bytes().all(|value| value.is_ascii_hexdigit())
+        && matches!(extension, "jpg" | "png" | "webp")
+}
+
+#[cfg(all(test, feature = "recorder-worker"))]
+mod uploaded_file_tests {
+    use super::is_uploaded_file_name;
+
+    #[test]
+    fn cleanup_accepts_only_content_addressed_upload_names() {
+        assert!(is_uploaded_file_name("upload-0123456789abcdef.png"));
+        assert!(is_uploaded_file_name("upload-ABCDEF0123456789.webp"));
+        for unsafe_name in [
+            "../upload-0123456789abcdef.png",
+            "upload-0123456789abcde.png",
+            "upload-0123456789abcdef.svg",
+            "upload-0123456789abcdef.png.bak",
+            "custom.png",
+        ] {
+            assert!(!is_uploaded_file_name(unsafe_name));
+        }
+    }
 }
 
 /// Start downloading a background image in a background thread.

@@ -1,13 +1,18 @@
 use super::types::DownloadState;
 use super::utils::log;
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+
+const STDERR_TAIL_LINES: usize = 12;
+const STDERR_LINE_CHARS: usize = 2_048;
 
 pub(super) fn run_ytdlp_download_attempt(
     ytdlp_exe: &PathBuf,
@@ -60,10 +65,13 @@ pub(super) fn run_ytdlp_download_attempt(
     });
 
     let logs_clone_err = logs.clone();
+    let stderr_tail = Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL_LINES)));
+    let stderr_tail_writer = stderr_tail.clone();
     let stderr_thread = thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line in reader.lines().map_while(Result::ok) {
             log(&logs_clone_err, format!("ERR: {}", line));
+            push_stderr_tail(&stderr_tail_writer, &line);
         }
     });
 
@@ -90,9 +98,28 @@ pub(super) fn run_ytdlp_download_attempt(
 
     match status {
         Ok(exit_status) if exit_status.success() => Ok(final_filename.lock().unwrap().clone()),
-        Ok(exit_status) => Err(format!("Exit Code: {}", exit_status)),
+        Ok(exit_status) => Err(exit_failure_message(exit_status, &stderr_tail)),
         Err(e) => Err(e.to_string()),
     }
+}
+
+fn push_stderr_tail(tail: &Mutex<VecDeque<String>>, line: &str) {
+    let mut tail = tail.lock().unwrap();
+    if tail.len() == STDERR_TAIL_LINES {
+        tail.pop_front();
+    }
+    tail.push_back(line.chars().take(STDERR_LINE_CHARS).collect());
+}
+
+fn exit_failure_message(exit_status: ExitStatus, tail: &Mutex<VecDeque<String>>) -> String {
+    let tail = tail.lock().unwrap();
+    if tail.is_empty() {
+        return format!("Exit Code: {exit_status}");
+    }
+    format!(
+        "Exit Code: {exit_status}\nyt-dlp stderr:\n{}",
+        tail.iter().cloned().collect::<Vec<_>>().join("\n")
+    )
 }
 
 fn kill_process_tree(pid: u32, logs: &Arc<Mutex<Vec<String>>>) {
@@ -315,4 +342,38 @@ fn is_subtitle_path(path: &str) -> bool {
     [".vtt", ".srt", ".ass", ".lrc"]
         .iter()
         .any(|ext| path.ends_with(ext))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{STDERR_LINE_CHARS, STDERR_TAIL_LINES, push_stderr_tail};
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+
+    #[test]
+    fn stderr_tail_is_bounded_and_keeps_the_latest_lines() {
+        let tail = Mutex::new(VecDeque::new());
+        for index in 0..=STDERR_TAIL_LINES {
+            push_stderr_tail(&tail, &format!("line-{index}"));
+        }
+
+        let tail = tail.lock().unwrap();
+        assert_eq!(tail.len(), STDERR_TAIL_LINES);
+        assert_eq!(tail.front().map(String::as_str), Some("line-1"));
+        let expected_last = format!("line-{STDERR_TAIL_LINES}");
+        assert_eq!(
+            tail.back().map(String::as_str),
+            Some(expected_last.as_str())
+        );
+    }
+
+    #[test]
+    fn stderr_tail_caps_individual_line_length() {
+        let tail = Mutex::new(VecDeque::new());
+        push_stderr_tail(&tail, &"x".repeat(STDERR_LINE_CHARS + 1));
+        assert_eq!(
+            tail.lock().unwrap().front().map(String::len),
+            Some(STDERR_LINE_CHARS)
+        );
+    }
 }

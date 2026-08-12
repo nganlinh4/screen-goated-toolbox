@@ -33,6 +33,25 @@ fn incompatible_or_malformed_catalogs_fail_closed() {
     assert!(super::validate(&catalog).is_err());
 }
 
+#[test]
+fn runtime_bundle_identity_requires_exact_content_addressed_url() {
+    let digest = "0123456789abcdef".repeat(4);
+    let asset = "fixture-1.0.0-0123456789abcdef.zip";
+    let url = format!("{}{}", super::RUNTIME_BUNDLES_PREFIX, asset);
+    super::validate_runtime_bundle_asset(asset, &url, &digest, "zip").unwrap();
+
+    for (candidate_asset, candidate_url) in [
+        ("fixture-latest.zip", url.as_str()),
+        (asset, "https://example.invalid/fixture.zip"),
+        ("../fixture-1.0.0-0123456789abcdef.zip", url.as_str()),
+    ] {
+        assert!(
+            super::validate_runtime_bundle_asset(candidate_asset, candidate_url, &digest, "zip")
+                .is_err()
+        );
+    }
+}
+
 fn decode(value: &str) -> Vec<u8> {
     value
         .as_bytes()

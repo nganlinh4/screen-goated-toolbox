@@ -87,7 +87,7 @@ pub(super) fn generate_popup_html() -> String {
     let restore_options_html = render_restore_options_html(&restore_options);
     let restore_flyout_top = restore_flyout_top_logical(restore_options.len());
 
-    // Get font CSS to preload fonts into WebView2 cache (tray popup warms up first)
+    // Include the shared font face in this independently initialized document.
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
 
     format!(
@@ -515,6 +515,7 @@ window.addEventListener('blur', function() {{
     collapseRestoreMenu();
     window.ipc.postMessage('close');
 }});
+window.ipc.postMessage('ready');
 </script>
 </body>
 </html>"#,

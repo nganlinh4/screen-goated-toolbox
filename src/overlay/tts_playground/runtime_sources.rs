@@ -18,11 +18,18 @@ pub(super) fn pick_source_audio() -> Result<Option<String>, String> {
         Some(path) => {
             let path_str = path.display().to_string();
             if let Ok(mut app) = crate::APP.lock() {
+                let previous = app
+                    .config
+                    .tts_playground
+                    .step_audio_edit_settings
+                    .source_audio_path
+                    .clone();
                 app.config
                     .tts_playground
                     .step_audio_edit_settings
                     .source_audio_path = path_str.clone();
                 crate::config::save_config(&app.config);
+                super::library::delete_replaced_managed_audio(&previous, &path);
             }
             state::sync_to_webview();
             Ok(Some(path_str))
@@ -109,11 +116,18 @@ pub(super) fn stop_mic_recording() {
         return;
     }
     if let Ok(mut app) = crate::APP.lock() {
+        let previous = app
+            .config
+            .tts_playground
+            .step_audio_edit_settings
+            .source_audio_path
+            .clone();
         app.config
             .tts_playground
             .step_audio_edit_settings
             .source_audio_path = path.display().to_string();
         crate::config::save_config(&app.config);
+        super::library::delete_replaced_managed_audio(&previous, &path);
     }
     let duration_sec = samples.len() as f32 / 16_000.0;
     state::with_state(|s| {
@@ -217,11 +231,13 @@ pub(super) fn stop_reference_mic() {
             .iter_mut()
             .find(|reference| reference.id == target_id)
     {
+        let previous = reference.audio_path.clone();
         reference.audio_path = path_str.clone();
         if reference.label.trim().is_empty() || reference.label.starts_with("Reference ") {
             reference.label = "Reference mic".to_string();
         }
         crate::config::save_config(&app.config);
+        super::library::delete_replaced_managed_audio(&previous, &path);
     }
     state::with_state(|s| {
         s.is_mic_recording = false;
@@ -290,11 +306,13 @@ pub(super) fn use_current_as_source() {
     }
     if let Ok(mut app) = crate::APP.lock() {
         let s = &mut app.config.tts_playground.step_audio_edit_settings;
+        let previous = s.source_audio_path.clone();
         s.source_audio_path = path.display().to_string();
         if s.source_text.trim().is_empty() {
             s.source_text = current.text.clone();
         }
         crate::config::save_config(&app.config);
+        super::library::delete_replaced_managed_audio(&previous, &path);
     }
     state::with_state(|s| {
         s.status = "Source audio set from current clip".to_string();
@@ -348,6 +366,12 @@ pub(super) fn delete_reference(id: &str) {
         return;
     }
     if let Ok(mut app) = crate::APP.lock() {
+        let managed_audio = app
+            .config
+            .step_audio_reference_voices
+            .iter()
+            .find(|reference| reference.id == id)
+            .map(|reference| reference.audio_path.clone());
         app.config
             .step_audio_reference_voices
             .retain(|reference| reference.id != id);
@@ -375,6 +399,9 @@ pub(super) fn delete_reference(id: &str) {
             app.config.step_audio_settings.reference_voice_id.clear();
         }
         crate::config::save_config(&app.config);
+        if let Some(path) = managed_audio {
+            super::library::delete_managed_audio(&path);
+        }
     }
     state::sync_to_webview();
 }
@@ -391,6 +418,7 @@ pub(super) fn pick_reference_audio(id: &str) -> Result<Option<String>, String> {
             .iter_mut()
             .find(|reference| reference.id == id)
     {
+        let previous = reference.audio_path.clone();
         reference.audio_path = path_str.clone();
         if reference.label.trim().is_empty() || reference.label.starts_with("Reference ") {
             reference.label = path
@@ -400,6 +428,7 @@ pub(super) fn pick_reference_audio(id: &str) -> Result<Option<String>, String> {
                 .to_string();
         }
         crate::config::save_config(&app.config);
+        super::library::delete_replaced_managed_audio(&previous, &path);
     }
     state::sync_to_webview();
     recognize_reference(id);

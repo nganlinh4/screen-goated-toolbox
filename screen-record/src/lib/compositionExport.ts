@@ -18,6 +18,7 @@ import { buildSequenceTimeline, mergeCompositionSegmentsToSequence } from "@/lib
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from "@/lib/trimSegments";
 import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 import { videoRenderer } from "@/lib/videoRenderer";
+import { normalizeAutoCanvasSegment } from "@/lib/videoGeometry";
 import type {
   BackgroundConfig,
   ExportArtifact,
@@ -99,13 +100,7 @@ function isLockedCanvasSize(backgroundConfig: BackgroundConfig | null | undefine
   if (!backgroundConfig?.canvasWidth || !backgroundConfig.canvasHeight) {
     return false;
   }
-  if (backgroundConfig.canvasMode === "custom") {
-    return true;
-  }
-  return (
-    backgroundConfig.canvasMode === "auto" &&
-    !!backgroundConfig.autoCanvasSourceId
-  );
+  return backgroundConfig.canvasMode === "custom";
 }
 
 async function probeVideoMetadata(
@@ -236,6 +231,7 @@ export async function exportCompositionAndDownload(
     const qualityGatePercent = exportOptions.qualityGatePercent ?? 3;
     const preRenderPolicy = exportOptions.preRenderPolicy || "aggressive";
     const clipJobs: NativeCompositionExportClipJob[] = [];
+    const autoSourceClipId = getCompositionAutoSourceClipId(composition);
 
     for (const clip of composition.clips) {
       const jobId = clip.id;
@@ -246,8 +242,15 @@ export async function exportCompositionAndDownload(
       const backgroundConfig =
         getCompositionResolvedBackgroundConfig(composition, clip.id) ??
         clip.backgroundConfig;
-      const normalizedSegment = normalizeSegmentTrimData(
+      const canvasSegment = normalizeAutoCanvasSegment(
         clip.segment,
+        backgroundConfig,
+        metadata.width,
+        metadata.height,
+        clip.id === autoSourceClipId,
+      );
+      const normalizedSegment = normalizeSegmentTrimData(
+        canvasSegment,
         metadata.duration || clip.segment.trimEnd,
       );
       const trimBounds = getTrimBounds(

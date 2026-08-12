@@ -101,8 +101,13 @@ fn render_tool(
                     ui.spinner();
                     ui.label(text.auxiliary.download.download_status_extracting);
                 }
+                InstallStatus::Finalizing => {
+                    ui.spinner();
+                    ui.label(text.auxiliary.download.download_status_finalizing);
+                }
                 InstallStatus::Checking => {
                     ui.spinner();
+                    ui.label(text.auxiliary.download.download_status_checking);
                 }
                 InstallStatus::Missing => {
                     install_clicked = ui

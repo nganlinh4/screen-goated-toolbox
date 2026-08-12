@@ -26,16 +26,20 @@ import {
 import type { RenderContext, RenderOptions } from './index';
 import { getVisibleSubtitleSegments } from '@/lib/subtitleTracks';
 import {
-  getContainedRect,
   getLogicalCropSize,
   sampleCaptureDimensionsAtTime,
 } from '@/lib/dynamicCapture';
+import {
+  getVideoPlacementRect,
+  resolveCodecAlignedCropGeometry,
+} from '@/lib/videoGeometry';
 import { drawWebcamOverlay } from './drawFrameWebcam';
 import {
   interpolateCursorPosition,
   logPreviewCursorDebug,
   updateSquishAnimation,
 } from './drawFrameCursor';
+import { isUnmaskedCanvasCoveringVideo, traceVideoFramePath } from './videoFrameSurface';
 
 // ---------------------------------------------------------------------------
 // RendererState - all mutable state needed by drawFrame
@@ -161,23 +165,27 @@ export async function drawFrame(
     return;
   }
 
-  const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+  const requestedCrop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+  const autoGeometry = backgroundConfig.canvasMode !== 'custom'
+    ? resolveCodecAlignedCropGeometry(vidW, vidH, requestedCrop)
+    : null;
+  const crop = autoGeometry?.crop ?? requestedCrop;
+  const renderSegment = autoGeometry ? { ...segment, crop } : segment;
   const srcX = vidW * crop.x;
   const srcY = vidH * crop.y;
   const srcW = vidW * crop.width;
   const srcH = vidH * crop.height;
 
-  const hasLockedAutoCanvas =
-    backgroundConfig.canvasMode === 'auto' &&
-    !!backgroundConfig.autoCanvasSourceId &&
-    !!backgroundConfig.canvasWidth &&
-    !!backgroundConfig.canvasHeight;
   const useExplicitCanvas =
-    (backgroundConfig.canvasMode === 'custom' || hasLockedAutoCanvas) &&
+    backgroundConfig.canvasMode === 'custom' &&
     backgroundConfig.canvasWidth &&
     backgroundConfig.canvasHeight;
-  const canvasW = useExplicitCanvas ? backgroundConfig.canvasWidth! : Math.round(srcW);
-  const canvasH = useExplicitCanvas ? backgroundConfig.canvasHeight! : Math.round(srcH);
+  const canvasW = useExplicitCanvas
+    ? backgroundConfig.canvasWidth!
+    : (autoGeometry?.width ?? Math.round(srcW));
+  const canvasH = useExplicitCanvas
+    ? backgroundConfig.canvasHeight!
+    : (autoGeometry?.height ?? Math.round(srcH));
 
   if (canvas.width !== canvasW || canvas.height !== canvasH) {
     canvas.width = canvasW;
@@ -203,19 +211,21 @@ export async function drawFrame(
       crop,
       backgroundConfig.cropBottom || 0
     );
-    const contained = getContainedRect(
+    const contained = getVideoPlacementRect(
       canvasW,
       canvasH,
       logicalCrop.width,
       logicalCrop.height,
-      scale
+      scale,
     );
     const scaledWidth = contained.width;
     const scaledHeight = contained.height;
     const x = contained.left;
     const y = contained.top;
 
-    const zoomState = state.calculateCurrentZoomState(frameTime, segment, canvas.width, canvas.height, srcW, srcH, scale);
+    const zoomState = state.calculateCurrentZoomState(
+      frameTime, renderSegment, canvas.width, canvas.height, srcW, srcH, scale,
+    );
 
     // Supersample to keep zoom crisp
     const zf = zoomState?.zoomFactor ?? 1;
@@ -253,44 +263,29 @@ export async function drawFrame(
     if (ss > 1) tempCtx.scale(ss, ss);
 
     const radius = backgroundConfig.borderRadius;
-    const offset = 0.5;
+    const frameRect = { left: x, top: y, width: scaledWidth, height: scaledHeight };
+    const unmaskedCanvasCover = isUnmaskedCanvasCoveringVideo(
+      frameRect,
+      canvasW,
+      canvasH,
+      radius,
+    );
 
-    if (backgroundConfig.shadow) {
+    if (backgroundConfig.shadow && !unmaskedCanvasCover) {
       tempCtx.save();
       tempCtx.shadowColor = 'rgba(0, 0, 0, 0.5)';
       tempCtx.shadowBlur = backgroundConfig.shadow * ss;
       tempCtx.shadowOffsetY = backgroundConfig.shadow * 0.5 * ss;
-
-      tempCtx.beginPath();
-      tempCtx.moveTo(x + radius + offset, y + offset);
-      tempCtx.lineTo(x + scaledWidth - radius - offset, y + offset);
-      tempCtx.quadraticCurveTo(x + scaledWidth - offset, y + offset, x + scaledWidth - offset, y + radius + offset);
-      tempCtx.lineTo(x + scaledWidth - offset, y + scaledHeight - radius - offset);
-      tempCtx.quadraticCurveTo(x + scaledWidth - offset, y + scaledHeight - offset, x + scaledWidth - radius - offset, y + scaledHeight - offset);
-      tempCtx.lineTo(x + radius + offset, y + scaledHeight - offset);
-      tempCtx.quadraticCurveTo(x + offset, y + scaledHeight - offset, x + offset, y + scaledHeight - radius - offset);
-      tempCtx.lineTo(x + offset, y + radius + offset);
-      tempCtx.quadraticCurveTo(x + offset, y + offset, x + radius + offset, y + offset);
-      tempCtx.closePath();
-
+      traceVideoFramePath(tempCtx, frameRect, radius);
       tempCtx.fillStyle = '#fff';
       tempCtx.fill();
       tempCtx.restore();
     }
 
-    tempCtx.beginPath();
-    tempCtx.moveTo(x + radius + offset, y + offset);
-    tempCtx.lineTo(x + scaledWidth - radius - offset, y + offset);
-    tempCtx.quadraticCurveTo(x + scaledWidth - offset, y + offset, x + scaledWidth - offset, y + radius + offset);
-    tempCtx.lineTo(x + scaledWidth - offset, y + scaledHeight - radius - offset);
-    tempCtx.quadraticCurveTo(x + scaledWidth - offset, y + scaledHeight - offset, x + scaledWidth - radius - offset, y + scaledHeight - offset);
-    tempCtx.lineTo(x + radius + offset, y + scaledHeight - offset);
-    tempCtx.quadraticCurveTo(x + offset, y + scaledHeight - offset, x + offset, y + scaledHeight - radius - offset);
-    tempCtx.lineTo(x + offset, y + radius + offset);
-    tempCtx.quadraticCurveTo(x + offset, y + offset, x + radius + offset, y + offset);
-    tempCtx.closePath();
-
-    tempCtx.clip();
+    if (!unmaskedCanvasCover) {
+      traceVideoFramePath(tempCtx, frameRect, radius);
+      tempCtx.clip();
+    }
 
     if (!isTimelineOnly) {
       try {
@@ -303,9 +298,11 @@ export async function drawFrame(
       }
     }
 
-    tempCtx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
-    tempCtx.lineWidth = 1;
-    tempCtx.stroke();
+    if (!unmaskedCanvasCover) {
+      tempCtx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+      tempCtx.lineWidth = 1;
+      tempCtx.stroke();
+    }
     tempCtx.restore();
 
     // --- Compute cursor state (squish, visibility) once per frame ---
@@ -453,8 +450,8 @@ export async function drawFrame(
       const t0 = frameTime - halfShutter;
       const t1 = frameTime + halfShutter;
       if (blurZoomVal > 0 || blurPanVal > 0) {
-        const z0 = state.calculateCurrentZoomState(t0, segment, canvasW, canvasH, srcW, srcH, scale);
-        const z1 = state.calculateCurrentZoomState(t1, segment, canvasW, canvasH, srcW, srcH, scale);
+        const z0 = state.calculateCurrentZoomState(t0, renderSegment, canvasW, canvasH, srcW, srcH, scale);
+        const z1 = state.calculateCurrentZoomState(t1, renderSegment, canvasW, canvasH, srcW, srcH, scale);
         if (z0 && z1) {
           if (blurZoomVal > 0 && Math.abs(z0.zoomFactor - z1.zoomFactor) > 0.002) cameraMoving = true;
           if (blurPanVal > 0 && (Math.abs(z0.positionX - z1.positionX) > 0.001 || Math.abs(z0.positionY - z1.positionY) > 0.001)) cameraMoving = true;
@@ -489,8 +486,8 @@ export async function drawFrame(
         const cameraPanSubT = frameTime - (panShutterSec / 2) + f * panShutterSec;
         const cursorSubT = frameTime + getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
 
-        const zState = state.calculateCurrentZoomState(cameraZoomSubT, segment, canvasW, canvasH, srcW, srcH, scale);
-        const pState = state.calculateCurrentZoomState(cameraPanSubT, segment, canvasW, canvasH, srcW, srcH, scale);
+        const zState = state.calculateCurrentZoomState(cameraZoomSubT, renderSegment, canvasW, canvasH, srcW, srcH, scale);
+        const pState = state.calculateCurrentZoomState(cameraPanSubT, renderSegment, canvasW, canvasH, srcW, srcH, scale);
         const subZoom: ZoomKeyframe | null = zState ? {
           ...zState,
           zoomFactor: blurZoomVal > 0 ? zState.zoomFactor : (zoomState?.zoomFactor ?? 1),

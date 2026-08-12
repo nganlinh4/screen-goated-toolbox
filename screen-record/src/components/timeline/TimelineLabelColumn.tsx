@@ -1,4 +1,4 @@
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { AudioLines, Download, Plus } from '@/components/ui/MaterialIcon';
 import type {
   AudioDownloadTrackKind,
@@ -81,6 +81,33 @@ export function TimelineLabelColumn({
   beginBatch,
   commitBatch,
 }: TimelineLabelColumnProps) {
+  const [openDelayPopover, setOpenDelayPopover] = useState<string | null>(null);
+  const delayPopoverCloseTimerRef = useRef<number | null>(null);
+
+  const openTrackDelayPopover = (className: string) => {
+    if (delayPopoverCloseTimerRef.current !== null) {
+      window.clearTimeout(delayPopoverCloseTimerRef.current);
+      delayPopoverCloseTimerRef.current = null;
+    }
+    setOpenDelayPopover(className);
+  };
+
+  const scheduleTrackDelayPopoverClose = (className: string) => {
+    if (delayPopoverCloseTimerRef.current !== null) {
+      window.clearTimeout(delayPopoverCloseTimerRef.current);
+    }
+    delayPopoverCloseTimerRef.current = window.setTimeout(() => {
+      delayPopoverCloseTimerRef.current = null;
+      setOpenDelayPopover(current => current === className ? null : current);
+    }, 120);
+  };
+
+  useEffect(() => () => {
+    if (delayPopoverCloseTimerRef.current !== null) {
+      window.clearTimeout(delayPopoverCloseTimerRef.current);
+    }
+  }, []);
+
   const renderDownloadButton = (
     trackKind: AudioDownloadTrackKind,
     label: string,
@@ -131,24 +158,41 @@ export function TimelineLabelColumn({
     action?: ReactNode;
   }) => {
     const delayOffsetPx = action ? 28 : 8;
+    const isPopoverOpen = openDelayPopover === className;
     return (
       <div
         className={`${className} ${heightClassName} relative flex items-center ${
           isAvailable ? "" : "timeline-label-unavailable"
         } ${groupClassName}`}
+        onPointerEnter={() => openTrackDelayPopover(className)}
+        onPointerLeave={() => scheduleTrackDelayPopoverClose(className)}
+        onFocus={() => openTrackDelayPopover(className)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setOpenDelayPopover(current => current === className ? null : current);
+          }
+        }}
       >
         <div
           aria-hidden="true"
-          className="timeline-label-track-delay-hover-bridge absolute left-full top-1/2 z-10 h-14 -translate-y-1/2 bg-transparent pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
+          className={`timeline-label-track-delay-hover-bridge absolute left-full top-1/2 z-10 h-14 -translate-y-1/2 bg-transparent ${
+            isPopoverOpen ? "pointer-events-auto" : "pointer-events-none"
+          }`}
           style={{ width: `${delayOffsetPx + 12}px` }}
+          onPointerEnter={() => openTrackDelayPopover(className)}
         />
         <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
           {label}
         </span>
         {action}
         <div
-          className={`${className}-delay-popover timeline-label-track-delay-popover playback-keystroke-delay-popover absolute left-full top-1/2 z-30 -translate-y-1/2 w-[218px] px-2.5 py-2 rounded-lg border pointer-events-none opacity-0 translate-x-1 transition-all duration-150 group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto`}
+          className={`${className}-delay-popover timeline-label-track-delay-popover playback-keystroke-delay-popover absolute left-full top-1/2 z-30 -translate-y-1/2 w-[218px] px-2.5 py-2 rounded-lg border transition-all duration-150 ${
+            isPopoverOpen
+              ? "pointer-events-auto opacity-100 translate-x-0"
+              : "pointer-events-none opacity-0 translate-x-1"
+          }`}
           style={{ marginLeft: `${delayOffsetPx}px` }}
+          onPointerEnter={() => openTrackDelayPopover(className)}
         >
           <div className="flex items-center gap-3">
             <div className="flex-1 rounded-full px-1 py-[3px]">

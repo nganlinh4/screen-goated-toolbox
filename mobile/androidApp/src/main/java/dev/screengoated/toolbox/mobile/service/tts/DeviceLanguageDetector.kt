@@ -33,14 +33,14 @@ class DeviceLanguageDetector(
             if (result.localeHypothesisCount <= 0) {
                 null
             } else {
-                result.getLocale(0)?.toLanguageTag()
+                result.getLocale(0).toLanguageTag()
             }
         }.getOrNull()
     }
 
     private fun String.toIso639_1(): String {
         val locale = Locale.forLanguageTag(this)
-        val language = locale.language?.lowercase(Locale.US).orEmpty()
+        val language = locale.language.lowercase(Locale.US)
         return if (language.isNotBlank()) {
             language
         } else {

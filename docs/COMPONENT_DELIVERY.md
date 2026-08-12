@@ -18,6 +18,21 @@ Mutable branches, nightly aliases, floating model revisions, and guessed URLs
 are not executable delivery contracts. HTTPS provides transport; the signed
 host's exact size and SHA-256 record provides artifact identity.
 
+## Source-change rule
+
+Any code or frontend change that changes an optional component's packaged bytes
+invalidates that component's current delivery checkpoint. Rebuild only the
+affected deterministic package. If its digest changed, upload a new asset whose
+name contains the component version and digest prefix, read the published bytes
+back, and update the tracked delivery contract before releasing the host. If the
+digest did not change, reuse the existing asset and do not upload a duplicate.
+
+The release tag is an artifact store, not a mutable update channel. Never replace
+an existing asset under the same name and never delete an asset while any signed
+host may reference it. Development may prepare packages locally, but debug and
+release application code must exercise the same external verified contract; it
+must not discover or fall back to a developer build directory.
+
 ## Package boundaries
 
 - Keep every user-visible capability independently installable and removable.
@@ -49,11 +64,51 @@ Executable workers additionally require architecture and protocol compatibility
 checks before launch. A signed catalog or host update may select a newer version;
 downloaded code never selects its own update source.
 
+## Update and launch policy
+
+The signed component catalog is bounded by minimum and maximum host versions.
+It may select only immutable contracts with the same content-addressed URL,
+archive digest, expanded inventory, and protocol checks required at build time.
+Catalog discovery never turns HTTPS, a release filename, or a self-reported
+version into trust.
+
+- Mini-app UI packs check the app-selected compatible contract before open. A
+  missing or newer pack downloads in the background, verifies, installs, and
+  then opens without requiring a second click.
+- Recorder and other workers update at their next open/session boundary, retain
+  their component leases and file handles for the full process lifetime, and
+  keep user-created output outside the component root.
+- Creation is not a delivery exception. Its Windows executable and Android
+  runtime artifacts are content-addressed, fully hashed, and explicitly tied to
+  the main app version. A job repairs the app-selected version first; before job
+  acceptance, a typed start failure may select one newer signed contract that is
+  compatible with that same host and retry once.
+- yt-dlp and Deno may select a newer signed contract after a typed tool failure
+  and retry the operation once. They never invoke an upstream self-updater.
+- FFmpeg checks for an app-approved signed update while idle, no more than the
+  catalog interval, and keeps the current verified version if no update exists.
+- Native dependencies and models advance only through an app-approved catalog
+  contract. They do not update themselves merely because a consumer failed.
+
+If update discovery is offline or unavailable, an already selected verified
+contract remains authoritative. A newly selected package is never published
+into its version directory until its archive and complete installed inventory
+pass verification. Old version directories remain available for safe rollback
+and are removed only through ordinary managed removal.
+
 External process tools follow the same rule. Windows owns `yt-dlp-x64`,
 `ffmpeg-x64`, and `deno-x64` separately, holds every executable and notice file
 open with read-only sharing for the complete child-process lifetime, and never
 exposes a self-update or “latest” operation. Legacy shared-bin bytes are adopted
 only when their complete size and SHA-256 inventory matches the signed host.
+Downloaded workers never discover these tools through `PATH`, a system install,
+or a developer directory. Before spawning a worker, the signed mother SGT host
+resolves every declared tool capability from its component registry, installs
+and verifies any missing contract on demand, passes the canonical managed path
+explicitly, and retains the component lease and locked inventory for the whole
+worker session. A typed missing-capability response may trigger the same
+host-owned resolver and one retry; it must never tell the worker to install or
+locate the tool itself.
 WebView2 is different: SGT verifies and runs an exact Microsoft-signed bootstrapper,
 while the installed Evergreen Runtime remains shared, system-managed software.
 

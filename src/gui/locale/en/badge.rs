@@ -3,7 +3,9 @@ use crate::gui::locale::BadgeLocaleText;
 pub(super) fn get() -> BadgeLocaleText {
     BadgeLocaleText {
         downloading_component_fmt: "Downloading {name}",
-        preparing_component_fmt: "Preparing verified {name} package...",
+        preparing_component_fmt: "Preparing {name}...",
+        checking_component_fmt: "Checking {name}...",
+        finalizing_component_fmt: "Finishing {name}...",
         component_installed_fmt: "{name} installed",
         component_install_failed_fmt: "Failed to install {name}",
         removing_component_fmt: "Removing {name}",

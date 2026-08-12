@@ -44,9 +44,31 @@ class PhoneControlOrbContractTest {
         assertEquals("orb_glow_and_caption", invariants.string("captureRegionIncludes"))
         assertEquals("orb_touch_shim_only", invariants.string("interactionRegion"))
         assertTrue(invariants.getValue("captionGrowthDoesNotExpandTouchSurface").jsonPrimitive.boolean)
+        assertEquals("default_physical_display", invariants.string("androidVisualDisplay"))
         assertTrue(
             invariants.getValue("allPointerProvidersRelocateBeforeIntersectingDispatch")
                 .jsonPrimitive.boolean,
+        )
+    }
+
+    @Test
+    fun productFontIsReadyBeforeTheCanonicalRendererBecomesVisible() {
+        val fixture = Json.parseToJsonElement(fixtureFile().readText()).jsonObject
+        val invariants = fixture.getValue("invariants").jsonObject
+
+        assertEquals("Google Sans Flex", invariants.string("captionFont"))
+        assertTrue(invariants.getValue("captionFontReadyBeforeVisible").jsonPrimitive.boolean)
+        assertEquals("shared_product_font", invariants.string("captionFontPayloadOwner"))
+        assertTrue(PHONE_CONTROL_ORB_RENDERER_CSS.contains("@font-face"))
+        assertTrue(PHONE_CONTROL_ORB_RENDERER_CSS.contains(PHONE_CONTROL_ORB_FONT_URL))
+        assertTrue(isPhoneControlOrbFontRequest(PHONE_CONTROL_ORB_FONT_URL, "GET"))
+        assertTrue(!isPhoneControlOrbFontRequest("$PHONE_CONTROL_ORB_FONT_URL?stale=1", "GET"))
+        assertTrue(!isPhoneControlOrbFontRequest(PHONE_CONTROL_ORB_FONT_URL, "POST"))
+        assertTrue(
+            !isPhoneControlOrbFontRequest(
+                "file:///sdcard/GoogleSansFlex.woff",
+                "GET",
+            ),
         )
     }
 

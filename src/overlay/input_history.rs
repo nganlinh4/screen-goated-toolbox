@@ -6,8 +6,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
 
-/// Maximum number of history entries to keep
-const MAX_HISTORY_SIZE: usize = 100;
+const DEFAULT_HISTORY_SIZE: usize = 50;
+const MAX_HISTORY_SIZE: usize = 200;
+const MAX_STORED_ENTRY_CHARS: usize = 65_536;
 
 /// Global input history manager
 pub static INPUT_HISTORY: LazyLock<Mutex<InputHistory>> =
@@ -50,8 +51,9 @@ impl InputHistory {
         let path = Self::history_path();
         if path.exists()
             && let Ok(data) = fs::read_to_string(&path)
-            && let Ok(history) = serde_json::from_str::<InputHistory>(&data)
+            && let Ok(mut history) = serde_json::from_str::<InputHistory>(&data)
         {
+            history.prune(MAX_HISTORY_SIZE);
             return history;
         }
         Self::default()
@@ -60,14 +62,12 @@ impl InputHistory {
     /// Save history to disk
     fn save(&self) {
         let path = Self::history_path();
-        if let Ok(data) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(path, data);
-        }
+        let _ = crate::atomic_json::write_json_atomic(&path, self);
     }
 
     /// Add a new entry to history (called on submit)
-    pub fn add_entry(&mut self, text: &str) {
-        let text = text.trim().to_string();
+    pub fn add_entry(&mut self, text: &str, max_items: usize) {
+        let text = normalized_entry(text);
         if text.is_empty() {
             return;
         }
@@ -79,9 +79,7 @@ impl InputHistory {
         self.entries.push(text);
 
         // Limit size (remove from front/Oldest)
-        while self.entries.len() > MAX_HISTORY_SIZE {
-            self.entries.remove(0);
-        }
+        self.prune(max_items);
 
         // Reset navigation state
         self.reset_navigation();
@@ -145,18 +143,47 @@ impl InputHistory {
         self.nav_index = -1;
         self.current_draft.clear();
     }
+
+    fn prune(&mut self, max_items: usize) {
+        let max_items = max_items.clamp(10, MAX_HISTORY_SIZE);
+        let overflow = self.entries.len().saturating_sub(max_items);
+        if overflow > 0 {
+            self.entries.drain(..overflow);
+            self.reset_navigation();
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.reset_navigation();
+        self.save();
+    }
+}
+
+fn normalized_entry(text: &str) -> String {
+    text.trim().chars().take(MAX_STORED_ENTRY_CHARS).collect()
+}
+
+fn configured_limit() -> usize {
+    crate::APP
+        .lock()
+        .map(|app| app.config.max_history_items.clamp(10, MAX_HISTORY_SIZE))
+        .unwrap_or(DEFAULT_HISTORY_SIZE)
 }
 
 /// Convenience function to add entry to global history
 pub fn add_to_history(text: &str) {
+    let limit = configured_limit();
     if let Ok(mut history) = INPUT_HISTORY.lock() {
-        history.add_entry(text);
+        history.add_entry(text, limit);
     }
 }
 
 /// Navigate up in history, returns text to show or None
 pub fn navigate_history_up(current_text: &str) -> Option<String> {
+    let limit = configured_limit();
     if let Ok(mut history) = INPUT_HISTORY.lock() {
+        history.prune(limit);
         history.navigate_up(current_text)
     } else {
         None
@@ -172,9 +199,45 @@ pub fn navigate_history_down(current_text: &str) -> Option<String> {
     }
 }
 
+pub fn request_prune(limit: usize) {
+    if let Ok(mut history) = INPUT_HISTORY.lock() {
+        history.prune(limit);
+        history.save();
+    }
+}
+
+pub fn clear_all() {
+    if let Ok(mut history) = INPUT_HISTORY.lock() {
+        history.clear();
+    }
+}
+
 /// Reset history navigation
 pub fn reset_history_navigation() {
     if let Ok(mut history) = INPUT_HISTORY.lock() {
         history.reset_navigation();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InputHistory, MAX_STORED_ENTRY_CHARS, normalized_entry};
+
+    #[test]
+    fn input_history_uses_the_shared_limit_and_bounds_each_entry() {
+        let mut history = InputHistory {
+            entries: (0..15).map(|index| format!("entry-{index}")).collect(),
+            ..InputHistory::default()
+        };
+        history.prune(10);
+        assert_eq!(history.entries.len(), 10);
+        assert_eq!(history.entries.first().map(String::as_str), Some("entry-5"));
+
+        assert_eq!(
+            normalized_entry(&"x".repeat(MAX_STORED_ENTRY_CHARS + 10))
+                .chars()
+                .count(),
+            MAX_STORED_ENTRY_CHARS
+        );
     }
 }

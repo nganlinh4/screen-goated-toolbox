@@ -294,6 +294,23 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
             super::runtime::delete_recent(id);
             Ok(Value::Null)
         }
+        "set_recent_limit" => {
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .ok_or("Missing recent clip limit")? as usize;
+            if !(super::runtime::MIN_RECENT_LIMIT..=super::runtime::MAX_RECENT_LIMIT)
+                .contains(&limit)
+            {
+                return Err("Recent clip limit must be between 5 and 50".to_string());
+            }
+            super::runtime::set_recent_limit(limit);
+            Ok(Value::Null)
+        }
+        "clear_recent" => {
+            super::runtime::clear_recent();
+            Ok(Value::Null)
+        }
         "preview_voice" => {
             let speaker = args.get("speaker").and_then(Value::as_str).unwrap_or("");
             super::runtime::preview_voice(speaker);

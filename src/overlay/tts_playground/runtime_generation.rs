@@ -7,8 +7,8 @@ use crate::api::tts::types::{TtsCollectedAudio, TtsRequestProfile};
 use crate::config::TtsMethod;
 
 use super::runtime::{
-    CANCEL_FLAG, PLAYBACK_TIMER, RECENT_LIMIT, cache_method, cache_put, describe_voice,
-    next_clip_id, persist_recent,
+    CANCEL_FLAG, PLAYBACK_TIMER, cache_method, cache_put, describe_voice, next_clip_id,
+    persist_recent, recent_limit,
 };
 use super::runtime_playback::start_pcm_playback;
 use super::state::{self, CurrentClip, RecentClip};
@@ -94,6 +94,7 @@ pub(super) fn start_generation() {
                 cache_method(id.clone(), method);
                 let total_samples = audio.pcm_samples.len();
                 let sample_rate = audio.sample_rate;
+                let recent_limit = recent_limit();
                 state::with_state(|s| {
                     s.recent.retain(|item| item.id != id);
                     s.recent.insert(
@@ -106,7 +107,7 @@ pub(super) fn start_generation() {
                             duration_sec: clip.duration_sec,
                         },
                     );
-                    s.recent.truncate(RECENT_LIMIT);
+                    s.recent.truncate(recent_limit);
                     s.current = Some(clip);
                     s.is_generating = false;
                     s.error = None;
@@ -203,6 +204,7 @@ fn start_audio_edit_generation() {
                 cache_method(id.clone(), TtsMethod::StepAudioEditX);
                 let total = audio.pcm_samples.len();
                 let sample_rate = audio.sample_rate;
+                let recent_limit = recent_limit();
                 state::with_state(|s| {
                     s.recent.retain(|item| item.id != id);
                     s.recent.insert(
@@ -215,7 +217,7 @@ fn start_audio_edit_generation() {
                             duration_sec: clip.duration_sec,
                         },
                     );
-                    s.recent.truncate(RECENT_LIMIT);
+                    s.recent.truncate(recent_limit);
                     s.current = Some(clip);
                     s.is_generating = false;
                     s.status = format!("Edited in {}ms", started_at.elapsed().as_millis());
@@ -346,6 +348,7 @@ fn start_s2s_generation() {
                 cache_method(id.clone(), TtsMethod::GeminiLive);
                 let total = audio.pcm_samples.len();
                 let sample_rate = audio.sample_rate;
+                let recent_limit = recent_limit();
                 state::with_state(|s| {
                     s.recent.retain(|item| item.id != id);
                     s.recent.insert(
@@ -358,7 +361,7 @@ fn start_s2s_generation() {
                             duration_sec: clip.duration_sec,
                         },
                     );
-                    s.recent.truncate(RECENT_LIMIT);
+                    s.recent.truncate(recent_limit);
                     s.current = Some(clip);
                     s.is_generating = false;
                     s.error = None;

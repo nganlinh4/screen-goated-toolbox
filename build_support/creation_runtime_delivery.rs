@@ -4,6 +4,8 @@ use std::path::Path;
 use serde_json::Value;
 
 const DEFAULT_MANIFEST: &str = "component-delivery/creation-runtime-v1.json";
+const RELEASE_PREFIX: &str =
+    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/";
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
     let configured = manifest_dir.join(DEFAULT_MANIFEST);
@@ -32,6 +34,13 @@ fn delivery_source(path: &Path) -> String {
         .unwrap_or_else(|| panic!("{} is missing windows delivery data", path.display()));
 
     let version = required_string(&value, "version", path);
+    let host_version = required_string(&value, "hostVersion", path);
+    assert_eq!(
+        host_version,
+        std::env::var("CARGO_PKG_VERSION").expect("Cargo package version is unavailable"),
+        "{} is not pinned to this host version",
+        path.display()
+    );
     let schema_version = value
         .get("schemaVersion")
         .and_then(Value::as_u64)
@@ -102,6 +111,18 @@ fn delivery_source(path: &Path) -> String {
     assert!(
         sha256.len() == 64 && sha256.bytes().all(|byte| byte.is_ascii_hexdigit()),
         "{} has an invalid windows.sha256",
+        path.display()
+    );
+    assert_eq!(
+        asset,
+        format!("sgt-creation-runtime-windows-x64-{}.exe", &sha256[..16]),
+        "{} windows.asset must be content-addressed",
+        path.display()
+    );
+    assert_eq!(
+        url,
+        format!("{RELEASE_PREFIX}{asset}"),
+        "{} windows.downloadUrl must use the immutable runtime-bundles asset",
         path.display()
     );
 

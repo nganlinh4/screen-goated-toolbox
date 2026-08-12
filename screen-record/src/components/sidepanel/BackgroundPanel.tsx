@@ -43,6 +43,8 @@ export interface BackgroundPanelProps {
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
   recentUploads: string[];
+  recentUploadLimit: number;
+  onRecentUploadLimitChange: (limit: number) => void;
   onRemoveRecentUpload: (imageUrl: string) => void;
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;
@@ -52,6 +54,8 @@ export function BackgroundPanel({
   backgroundConfig,
   setBackgroundConfig,
   recentUploads,
+  recentUploadLimit,
+  onRecentUploadLimitChange,
   onRemoveRecentUpload,
   onBackgroundUpload,
   isBackgroundUploadProcessing
@@ -64,10 +68,14 @@ export function BackgroundPanel({
     let cancelled = false;
     const syncDownloadableBackgrounds = async () => {
       try {
-        const nativeStates = await invoke<DownloadableBgStateMap>('get_bg_download_states', {
+        const rawNativeStates = await invoke<unknown>('get_bg_download_states', {
           ids: DOWNLOADABLE_BACKGROUNDS.map(bg => bg.id),
         });
         if (cancelled) return;
+        const nativeStates: DownloadableBgStateMap =
+          typeof rawNativeStates === 'object' && rawNativeStates !== null && !Array.isArray(rawNativeStates)
+            ? rawNativeStates as DownloadableBgStateMap
+            : {};
         const nextStates = Object.fromEntries(
           DOWNLOADABLE_BACKGROUNDS.map(bg => [bg.id, nativeBgStateToUiState(nativeStates[bg.id])])
         ) as Record<string, BgDlState>;
@@ -131,7 +139,22 @@ export function BackgroundPanel({
           />
         </div>
         <div className="background-style-field">
-          <label className="text-xs font-medium uppercase tracking-wide text-on-surface-variant mb-2 block">{t.backgroundStyle}</label>
+          <div className="background-style-heading mb-2 flex items-center gap-2">
+            <label className="mr-auto text-xs font-medium uppercase tracking-wide text-on-surface-variant">{t.backgroundStyle}</label>
+            <label className="background-upload-limit flex items-center gap-1.5 text-[10px] text-on-surface-variant">
+              <span>{t.backgroundRecentUploads}</span>
+              <input
+                className="w-14 accent-[var(--primary-color)]"
+                type="range"
+                min="4"
+                max="24"
+                step="1"
+                value={recentUploadLimit}
+                onChange={(event) => onRecentUploadLimitChange(Number(event.target.value))}
+              />
+              <span className="w-4 tabular-nums text-on-surface">{recentUploadLimit}</span>
+            </label>
+          </div>
           <div className="background-presets-grid grid grid-cols-7 gap-2">
             {/* Upload button */}
             <label className={`background-upload-btn ui-choice-tile aspect-square h-10 rounded-lg cursor-pointer relative overflow-hidden group ${

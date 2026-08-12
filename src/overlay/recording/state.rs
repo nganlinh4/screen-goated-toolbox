@@ -1,13 +1,11 @@
 // --- RECORDING STATE ---
 // Global signals, atomics, and shared state for recording overlay.
 
-use std::cell::RefCell;
 use std::sync::{
     Arc, LazyLock, Once,
     atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering},
 };
 use windows::Win32::UI::WindowsAndMessaging::WM_USER;
-use wry::{WebContext, WebView};
 
 // --- GLOBAL SIGNALS ---
 pub static AUDIO_STOP_SIGNAL: LazyLock<Arc<AtomicBool>> =
@@ -32,12 +30,6 @@ pub static RECORDING_HWND_VAL: AtomicIsize = AtomicIsize::new(0);
 pub static REGISTER_RECORDING_CLASS: Once = Once::new();
 pub static LAST_THEME_IS_DARK: AtomicBool = AtomicBool::new(true);
 pub static CURRENT_RECORDING_HIDDEN: AtomicBool = AtomicBool::new(false);
-
-// --- THREAD LOCAL ---
-thread_local! {
-    pub static RECORDING_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
-    pub static RECORDING_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
-}
 
 // --- WINDOW MESSAGES ---
 pub const WM_APP_SHOW: u32 = WM_USER + 20;

@@ -1,4 +1,5 @@
 import { VideoSegment, ZoomKeyframe, ZoomBlock } from '@/types/video';
+import { getVideoPlacementRect } from '@/lib/videoGeometry';
 
 export const DEFAULT_ZOOM_STATE: ZoomKeyframe = {
   time: 0,
@@ -125,7 +126,7 @@ export function calculateCurrentZoomStateInternal(
   viewH: number,
   srcCropW?: number,  // actual cropped video source width (for auto-path coord transform)
   srcCropH?: number,  // actual cropped video source height
-  videoScale?: number  // backgroundConfig.scale / 100 — adjusts auto-zoom contain-fit for preview
+  videoScale?: number,  // backgroundConfig.scale / 100 — adjusts video placement for preview
 ): ZoomKeyframe {
 
   // Source crop dimensions — when provided, auto-path video-pixel coords are
@@ -209,32 +210,22 @@ export function calculateCurrentZoomStateInternal(
     const relX = (cam.x - cropOffsetX) / sCropW;
     const relY = (cam.y - cropOffsetY) / sCropH;
 
-    // Contain-fit of cropped source into canvas, with optional scale adjustment.
-    // When videoScale < 1 (e.g. 90%), the video is smaller and centered — the
-    // auto-zoom anchor must match the actual scaled placement so the camera
-    // centers correctly on the cursor.  Manual keyframes are NOT affected.
-    const srcAspect = sCropW / sCropH;
-    const canvasAspect = viewW / viewH;
-    let fitW: number, fitH: number;
-    if (srcAspect > canvasAspect) {
-      fitW = viewW;
-      fitH = viewW / srcAspect;
-    } else {
-      fitH = viewH;
-      fitW = viewH * srcAspect;
-    }
+    // Match the rendered video placement so auto-zoom anchors remain aligned.
     const vs = videoScale ?? 1;
-    const scaledFitW = fitW * vs;
-    const scaledFitH = fitH * vs;
-    const fitX = (viewW - scaledFitW) / 2;
-    const fitY = (viewH - scaledFitH) / 2;
+    const placement = getVideoPlacementRect(
+      viewW,
+      viewH,
+      sCropW,
+      sCropH,
+      vs,
+    );
 
     autoState = {
       time: currentTime,
       duration: 0,
       zoomFactor: cam.zoom,
-      positionX: (fitX + relX * scaledFitW) / viewW,
-      positionY: (fitY + relY * scaledFitH) / viewH,
+      positionX: (placement.left + relX * placement.width) / viewW,
+      positionY: (placement.top + relY * placement.height) / viewH,
       easingType: 'linear'
     };
   }

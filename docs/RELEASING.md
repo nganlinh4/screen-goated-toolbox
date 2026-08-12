@@ -120,7 +120,8 @@ Android host builds until every item is complete:
 2. Rebuild both Android creation-runtime distributions from that same source.
 3. Regenerate the Windows, Android, and combined delivery manifests only after
    all runtime artifacts have been rebuilt. Never reuse an earlier manifest.
-   The combined manifest must advertise exactly `image_to_3d`.
+   The combined manifest must advertise exactly `image_to_3d` and its
+   `hostVersion` must equal the root `Cargo.toml` package version.
 4. Upload every rebuilt runtime under a new, uniquely versioned asset name on
    the existing GitHub runtime-bundles release. Never replace or delete an asset
    referenced by a released host; older signed hosts must keep resolving the
@@ -150,6 +151,41 @@ The same manifest version and feature handshake must feed Windows, Android Full,
 and Android Play. The tracked contract is build input, so ordinary and canonical
 builds resolve identical immutable locations and integrity metadata. Missing or
 invalid tracked delivery data is a compile-time failure, never a local fallback.
+
+### Mandatory Android native-ASR runtime checkpoint
+
+Android Full downloads ORT, Moonshine, and Sherpa on first use; Android Play
+delivers the same reviewed bytes in on-demand feature modules. Their shared
+authority is `parity-fixtures/phone-control/native-runtime-contract.json`.
+
+When any native runtime changes:
+
+1. Rebuild it from its pinned source contract. A reduced ORT build must also run
+   `mobile/scripts/smoke-ort-runtime.ps1` on a physical arm64 device and produce
+   the expected representative transcript before its archive can be adopted.
+2. Package deterministically, assign a new content-addressed runtime-bundles
+   asset name, and update the exact archive/member sizes and SHA-256 values plus
+   `downloadUrl`. Never overwrite the legacy fixed-name assets.
+3. Upload the new asset without `--clobber`, then verify the checked-in archives
+   and all remote identities:
+
+```powershell
+cd mobile
+.\gradlew.bat verifyNativeRuntimeArchives --console=plain
+cd ..
+py -3 .\scripts\verify_update_catalog_sources.py
+```
+
+Do not accept a successful native link as runtime evidence. The physical ORT
+smoke, ELF64/AArch64 export and dependency checks, 16 KB `PT_LOAD` alignment,
+deterministic archive identity, and remote read-back must all pass.
+
+Whenever mini-app, worker, runtime, or packaged frontend source changes, rerun
+that component's checkpoint below even if the host API did not change. Upload
+only when deterministic packaging produces a new digest; use a new
+content-addressed name, read it back, and retain every older published asset.
+Do not release a host whose tracked contract still describes the pre-change
+bytes.
 
 The `sgt-runtime-bundles` tag is an append-only artifact store. Every executable,
 native library, model, or WebView pack uses a unique asset name and an exact

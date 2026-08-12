@@ -53,6 +53,7 @@ pub(crate) fn ensure_ready(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<RecorderComponents> {
+    super::update_catalog::refresh_for_use(WEB_ID, "before-open");
     let _mutation = super::acquire_mutation_guard()?;
     let web = delivery(WEB_ID)?;
     let worker = delivery(WORKER_ID)?;

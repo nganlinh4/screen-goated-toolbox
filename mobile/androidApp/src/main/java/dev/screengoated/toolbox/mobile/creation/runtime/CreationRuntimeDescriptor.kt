@@ -14,6 +14,11 @@ internal data class CreationRuntimeProductDescriptor(
 internal fun loadCreationRuntimeManifest(context: Context): JSONObject? = runCatching {
     context.assets.open(CREATION_RUNTIME_DELIVERY_ASSET).use {
         JSONObject(readCreationBytesBounded(it, MAXIMUM_RUNTIME_MANIFEST_BYTES).decodeToString())
+            .also { root ->
+                require(
+                    root.getString("hostVersion").trim() == BuildConfig.CANONICAL_APP_VERSION,
+                )
+            }
     }
 }.getOrNull()
 
@@ -28,6 +33,7 @@ internal fun loadCreationRuntimeProductDescriptor(
 ).let { root ->
     root ?: return@let null
     runCatching {
+        require(root.getString("hostVersion").trim() == BuildConfig.CANONICAL_APP_VERSION)
         val version = root.getString("version").trim()
         require(version.isNotEmpty())
         val values = root.getJSONArray("features")
