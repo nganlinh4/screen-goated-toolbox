@@ -131,6 +131,8 @@ pub(crate) fn ensure_worker(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<LocalAsrWorkerUse> {
+    #[cfg(not(feature = "recorder-worker"))]
+    super::update_catalog::refresh_for_use(WORKER_ID, "before-session");
     let _mutation = super::acquire_mutation_guard()?;
     let delivery = delivery(WORKER_ID)?;
     install::ensure_delivery(delivery, cancelled, on_progress)?;

@@ -41,10 +41,11 @@ impl SettingsApp {
 fn show_dialog(ui: &mut egui::Ui, text: &LocaleText) -> PresetModelUpdateAction {
     let theme = AppTheme::from_ui(ui);
     let mut action = PresetModelUpdateAction::None;
-    let _modal = egui::Modal::new(egui::Id::new("preset_model_update_modal"))
-        .backdrop_color(theme.scrim_color())
-        .frame(theme.dialog_frame())
-        .show(ui.ctx(), |ui| {
+    let _modal = crate::gui::widgets::material_modal(
+        ui.ctx(),
+        &theme,
+        egui::Id::new("preset_model_update_modal"),
+        |ui| {
             ui.set_width(520.0);
 
             ui.horizontal(|ui| {
@@ -88,7 +89,8 @@ fn show_dialog(ui: &mut egui::Ui, text: &LocaleText) -> PresetModelUpdateAction 
                     }
                 });
             });
-        });
+        },
+    );
 
     #[cfg(test)]
     ui.ctx().data_mut(|data| {

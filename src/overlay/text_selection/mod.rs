@@ -2,7 +2,7 @@
 // Badge overlay for text selection with continuous mode support.
 
 mod clipboard;
-mod html;
+pub(crate) mod html;
 mod state;
 mod window;
 
@@ -61,11 +61,7 @@ pub fn update_badge_for_continuous_mode() {
 
 /// Hide all badges SYNCHRONOUSLY before screen capture.
 pub fn hide_all_badges_for_capture() {
-    if let Some(hwnd) = valid_tag_hwnd() {
-        unsafe {
-            let _ = ShowWindow(hwnd, SW_HIDE);
-        }
-    }
+    let _ = crate::overlay::status_compositor::set_selection_capture_visible(false);
 }
 
 /// Restore badges after screen capture is complete.
@@ -110,12 +106,6 @@ pub fn set_image_continuous_badge(visible: bool) {
     if let Some(hwnd) = valid_tag_hwnd() {
         unsafe {
             if visible {
-                let mut pt = POINT::default();
-                let _ = GetCursorPos(&mut pt);
-                let target_x = pt.x + OFFSET_X;
-                let target_y = pt.y + OFFSET_Y;
-                let _ = MoveWindow(hwnd, target_x, target_y, BADGE_WIDTH, BADGE_HEIGHT, false);
-
                 let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_IMAGE_BADGE, WPARAM(0), LPARAM(0));
             } else {
                 let _ = PostMessageW(Some(hwnd), WM_APP_HIDE_IMAGE_BADGE, WPARAM(0), LPARAM(0));
@@ -196,13 +186,6 @@ pub fn show_text_selection_tag(preset_idx: usize) {
     // Signal Show
     if let Some(hwnd) = valid_tag_hwnd() {
         unsafe {
-            let mut pt = POINT::default();
-            let _ = GetCursorPos(&mut pt);
-            let target_x = pt.x + OFFSET_X;
-            let target_y = pt.y + OFFSET_Y;
-
-            let _ = MoveWindow(hwnd, target_x, target_y, BADGE_WIDTH, BADGE_HEIGHT, false);
-
             let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
         }
     }

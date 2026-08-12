@@ -144,6 +144,8 @@ interface SidePanelProps {
   setWebcamConfig: React.Dispatch<React.SetStateAction<WebcamConfig>>;
   webcamAvailable: boolean;
   recentUploads: string[];
+  recentUploadLimit: number;
+  setRecentUploadLimit: (limit: number) => void;
   onRemoveRecentUpload: (imageUrl: string) => void;
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;
@@ -228,6 +230,8 @@ export function SidePanel({
   setWebcamConfig,
   webcamAvailable,
   recentUploads,
+  recentUploadLimit,
+  setRecentUploadLimit,
   onRemoveRecentUpload,
   onBackgroundUpload,
   isBackgroundUploadProcessing,
@@ -386,6 +390,8 @@ export function SidePanel({
           backgroundConfig={backgroundConfig}
           setBackgroundConfig={setBackgroundConfig}
           recentUploads={recentUploads}
+          recentUploadLimit={recentUploadLimit}
+          onRecentUploadLimitChange={setRecentUploadLimit}
           onRemoveRecentUpload={onRemoveRecentUpload}
           onBackgroundUpload={onBackgroundUpload}
           isBackgroundUploadProcessing={isBackgroundUploadProcessing}

@@ -271,12 +271,7 @@ class NativeLibManager private constructor(context: Context) {
     private fun contractMatches(engine: Engine): Boolean = runCatching {
         val archive = NativeRuntimeContract.load(context).archive(engine.name.lowercase())
         val contractEntries = archive.entries.map { it.fileName }.toSet()
-        val playEntries = if (engine == Engine.ORT) {
-            contractEntries - FULL_ONLY_ORT_LIBRARIES
-        } else {
-            contractEntries
-        }
-        playEntries == engine.libs.toSet()
+        contractEntries == engine.libs.toSet()
     }.getOrDefault(false)
 
     private fun installedSize(engine: Engine): Long {
@@ -327,5 +322,3 @@ class NativeLibManager private constructor(context: Context) {
 
 internal fun requiredModulesForPlay(engine: NativeLibManager.Engine): List<String> =
     listOf(engine.moduleName)
-
-private val FULL_ONLY_ORT_LIBRARIES = setOf("libc++_shared.so")

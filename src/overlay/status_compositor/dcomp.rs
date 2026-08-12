@@ -1,0 +1,216 @@
+use webview2_com::{
+    AddScriptToExecuteOnDocumentCreatedCompletedHandler,
+    CreateCoreWebView2CompositionControllerCompletedHandler,
+    CreateCoreWebView2EnvironmentCompletedHandler, ExecuteScriptCompletedHandler,
+    Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS, COREWEBVIEW2_COLOR,
+        CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2,
+        ICoreWebView2CompositionController, ICoreWebView2Controller, ICoreWebView2Controller2,
+        ICoreWebView2Controller3, ICoreWebView2Environment3,
+    },
+    NavigationCompletedEventHandler, WebMessageReceivedEventHandler,
+};
+use windows061::Win32::Foundation::{HWND, RECT};
+use windows061::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+use windows061::Win32::Graphics::Direct3D11::{
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
+};
+use windows061::Win32::Graphics::DirectComposition::{
+    DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
+};
+use windows061::Win32::Graphics::Dxgi::IDXGIDevice;
+use windows061::core::{BOOL, Interface, PCWSTR};
+
+const BOOTSTRAP: &str = r#"
+window.ipc={postMessage:function(m){window.chrome.webview.postMessage(m);}};
+window.addEventListener('error',function(e){window.ipc.postMessage(JSON.stringify({type:'renderer_error',source:'page',error:String(e.message)+' @ '+e.lineno+':'+e.colno}));});
+window.addEventListener('unhandledrejection',function(e){window.ipc.postMessage(JSON.stringify({type:'renderer_error',source:'promise',error:String(e.reason)}));});
+"#;
+
+pub(super) struct DcompHost {
+    _device: IDCompositionDevice,
+    _target: IDCompositionTarget,
+    _root: IDCompositionVisual,
+    pub comp: ICoreWebView2CompositionController,
+    pub webview: ICoreWebView2,
+}
+
+pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
+    unsafe {
+        let mut d3d: Option<ID3D11Device> = None;
+        D3D11CreateDevice(
+            None,
+            D3D_DRIVER_TYPE_HARDWARE,
+            Default::default(),
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            None,
+            D3D11_SDK_VERSION,
+            Some(&mut d3d),
+            None,
+            None,
+        )?;
+        let dxgi: IDXGIDevice = d3d.ok_or_else(pointer_error)?.cast()?;
+        let device: IDCompositionDevice = DCompositionCreateDevice(&dxgi)?;
+        let target: IDCompositionTarget = device.CreateTargetForHwnd(hwnd, true)?;
+        let root: IDCompositionVisual = device.CreateVisual()?;
+        target.SetRoot(&root)?;
+
+        let user_data = crate::overlay::get_shared_webview_data_dir(Some("status-compositor"));
+        let user_data = windows061::core::HSTRING::from(user_data.to_string_lossy().as_ref());
+        let environment = {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
+                Box::new(move |handler| {
+                    CreateCoreWebView2EnvironmentWithOptions(
+                        PCWSTR::null(),
+                        PCWSTR(user_data.as_ptr()),
+                        None,
+                        &handler,
+                    )
+                    .map_err(webview2_com::Error::WindowsError)
+                }),
+                Box::new(move |code, environment| {
+                    code?;
+                    let _ = sender.send(environment);
+                    Ok(())
+                }),
+            )
+            .map_err(webview_error)?;
+            receiver.recv().ok().flatten().ok_or_else(pointer_error)?
+        };
+
+        let environment3: ICoreWebView2Environment3 = environment.cast()?;
+        let composition = {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            CreateCoreWebView2CompositionControllerCompletedHandler::wait_for_async_operation(
+                Box::new(move |handler| {
+                    environment3
+                        .CreateCoreWebView2CompositionController(hwnd, &handler)
+                        .map_err(webview2_com::Error::WindowsError)
+                }),
+                Box::new(move |code, controller| {
+                    code?;
+                    let _ = sender.send(controller);
+                    Ok(())
+                }),
+            )
+            .map_err(webview_error)?;
+            receiver.recv().ok().flatten().ok_or_else(pointer_error)?
+        };
+        composition.SetRootVisualTarget(&root)?;
+
+        let controller: ICoreWebView2Controller = composition.cast()?;
+        if let Ok(controller3) = controller.cast::<ICoreWebView2Controller3>() {
+            controller3.SetBoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS)?;
+            controller3.SetShouldDetectMonitorScaleChanges(false)?;
+            controller3.SetRasterizationScale(super::system_dpi_scale())?;
+        }
+        let (_, _, width, height) = super::virtual_screen();
+        controller.SetBounds(RECT {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        })?;
+        let controller2: ICoreWebView2Controller2 = controller.cast()?;
+        controller2.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
+            A: 0,
+            R: 0,
+            G: 0,
+            B: 0,
+        })?;
+        controller.SetIsVisible(true)?;
+
+        let webview = controller.CoreWebView2()?;
+        inject_bootstrap(&webview)?;
+        attach_ipc(&webview)?;
+        attach_navigation_probe(&webview)?;
+        let html = super::html::document();
+        let page_url = crate::overlay::html_components::font_manager::store_html_page(html)
+            .unwrap_or_else(|| "about:blank".to_string());
+        let page_url = windows061::core::HSTRING::from(page_url);
+        webview.Navigate(PCWSTR(page_url.as_ptr()))?;
+        device.Commit()?;
+
+        Ok(DcompHost {
+            _device: device,
+            _target: target,
+            _root: root,
+            comp: composition,
+            webview,
+        })
+    }
+}
+
+unsafe fn attach_navigation_probe(webview: &ICoreWebView2) -> windows061::core::Result<()> {
+    unsafe {
+        let handler = NavigationCompletedEventHandler::create(Box::new(move |webview, args| {
+            let mut success_value = BOOL::default();
+            let success = args.as_ref().is_some_and(|args| {
+                args.IsSuccess(&mut success_value).is_ok() && success_value.as_bool()
+            });
+            let Some(webview) = webview else {
+                eprintln!("navigation completed without a WebView success={success}");
+                return Ok(());
+            };
+            let probe = windows061::core::HSTRING::from(
+                "JSON.stringify({state:document.readyState,bridge:typeof window.ipc,apply:typeof window.applyStatusCommand,frames:document.querySelectorAll('iframe').length})",
+            );
+            let completion =
+                ExecuteScriptCompletedHandler::create(Box::new(move |code, result| {
+                    eprintln!("navigation success={success} script_code={code:?} probe={result}");
+                    Ok(())
+                }));
+            webview.ExecuteScript(PCWSTR(probe.as_ptr()), &completion)
+        }));
+        let mut token = Default::default();
+        webview.add_NavigationCompleted(&handler, &mut token)
+    }
+}
+
+unsafe fn inject_bootstrap(webview: &ICoreWebView2) -> windows061::core::Result<()> {
+    unsafe {
+        let script = windows061::core::HSTRING::from(BOOTSTRAP);
+        let webview = webview.clone();
+        AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
+            Box::new(move |handler| {
+                webview
+                    .AddScriptToExecuteOnDocumentCreated(PCWSTR(script.as_ptr()), &handler)
+                    .map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(|code, _| code),
+        )
+        .map_err(webview_error)
+    }
+}
+
+unsafe fn attach_ipc(webview: &ICoreWebView2) -> windows061::core::Result<()> {
+    unsafe {
+        let handler = WebMessageReceivedEventHandler::create(Box::new(move |_webview, args| {
+            if let Some(args) = args {
+                let mut message = windows061::core::PWSTR(std::ptr::null_mut());
+                if args.TryGetWebMessageAsString(&mut message).is_ok() && !message.is_null() {
+                    let body = webview2_com::CoTaskMemPWSTR::from(message).to_string();
+                    super::child::handle_renderer_message(&body);
+                }
+            }
+            Ok(())
+        }));
+        let mut token = Default::default();
+        webview.add_WebMessageReceived(&handler, &mut token)
+    }
+}
+
+fn webview_error(error: webview2_com::Error) -> windows061::core::Error {
+    match error {
+        webview2_com::Error::WindowsError(error) => error,
+        other => windows061::core::Error::new(
+            windows061::Win32::Foundation::E_FAIL,
+            format!("{other:?}"),
+        ),
+    }
+}
+
+fn pointer_error() -> windows061::core::Error {
+    windows061::core::Error::from(windows061::Win32::Foundation::E_POINTER)
+}

@@ -47,12 +47,28 @@ Set `JAVA_HOME`, `ANDROID_HOME`, and `ANDROID_SDK_ROOT` for the local installati
 
 ## Build and test on Windows
 
-From `mobile/`:
+From `mobile/`, run the affected flavor while iterating:
 
 ```powershell
-.\gradlew.bat :androidApp:assembleFullDebug :androidApp:assemblePlayDebug --console=plain
+# Shared or Full-only code
+.\gradlew.bat :androidApp:testFullDebugUnitTest --console=plain
+
+# Play delivery code
+.\gradlew.bat :androidApp:testPlayDebugUnitTest --console=plain
+
+# Produce only the APK currently needed for device testing
+.\gradlew.bat :androidApp:assembleFullDebug --console=plain
+```
+
+The unit and assemble tasks already compile their selected variants. Do not
+follow them with explicit `compileFullDebugKotlin` or
+`compilePlayDebugKotlin` tasks. Before a cross-flavor checkpoint or release,
+run both unit suites together; assemble both debug APKs only when both
+artifacts are actually needed:
+
+```powershell
 .\gradlew.bat :androidApp:testFullDebugUnitTest :androidApp:testPlayDebugUnitTest --console=plain
-.\gradlew.bat :androidApp:compileFullDebugKotlin :androidApp:compilePlayDebugKotlin --console=plain
+.\gradlew.bat :androidApp:assembleFullDebug :androidApp:assemblePlayDebug --console=plain
 ```
 
 Generated debug APKs:
@@ -246,6 +262,21 @@ archives from the SGT runtime-bundles release and verifies their declared size
 and SHA-256 before installation. Phone Control has no
 flavor-specific grounding runtime; both distributions use the same current-frame
 vision contract, catalog, provider routes, and authority.
+
+The shared native archive authority is
+`../parity-fixtures/phone-control/native-runtime-contract.json`. Each Full
+download uses the contract's unique `downloadUrl`, exact archive size/SHA-256,
+and exact member identities; Play stages the checked-in archive bytes into its
+matching on-demand module. After changing ORT, Moonshine, or Sherpa, upload a new
+content-addressed asset without replacing an older one and run:
+
+```powershell
+.\gradlew.bat verifyNativeRuntimeArchives --console=plain
+py -3 ..\scripts\verify_update_catalog_sources.py
+```
+
+Reduced ORT candidates additionally require the physical arm64 transcription
+gate in `scripts/smoke-ort-runtime.ps1` before replacing `libs/ort-runtime.zip`.
 
 The Image-to-3D result viewer is built from the canonical Windows viewer source
 with `npm run build:viewer` in `3d-generator-ui/`. Its deterministic

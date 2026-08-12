@@ -56,20 +56,20 @@
       },
       {
         "id": "tts-playground-web",
-        "asset": "tts-playground-web-5.4.3-f163a05da294b619.zip",
-        "sizeBytes": 60326,
-        "sha256": "f163a05da294b619868cd865bf38ab061193921b6e107f2b3566a9e96090cbf9",
-        "unpackedSizeBytes": 197721,
+        "asset": "tts-playground-web-5.4.3-5533b8ccc6b01e80.zip",
+        "sizeBytes": 60554,
+        "sha256": "5533b8ccc6b01e808665597927d83414030066ffe3426c530c098c463cea1a42",
+        "unpackedSizeBytes": 198704,
         "files": [
           {
             "path": "assets/index.css",
-            "sizeBytes": 16058,
-            "sha256": "cc479270b2b7986e0ca9567b874a2d2142848bfc8304fddaffa831169b522aac"
+            "sizeBytes": 16163,
+            "sha256": "abedc976f731c334483f8b9fb72ef02fee725a3a601e9deb53bb0f0d36125a0d"
           },
           {
             "path": "assets/index.js",
-            "sizeBytes": 181215,
-            "sha256": "3c0c483d7d9b2be3400eb1611e06dec3078ddba480d7bf2f675e276034069ae5"
+            "sizeBytes": 182093,
+            "sha256": "69eec994a78f6ec4da62fa4d5b41b2616b829502ca959f9d898017acd6826f11"
           },
           {
             "path": "index.html",
@@ -77,7 +77,7 @@
             "sha256": "573c8a4872b4a2d17318348ec877b7b8c3da2dc348601325a2d977b32e1aa0d0"
           }
         ],
-        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/tts-playground-web-5.4.3-f163a05da294b619.zip"
+        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/tts-playground-web-5.4.3-5533b8ccc6b01e80.zip"
       }
     ]
   }

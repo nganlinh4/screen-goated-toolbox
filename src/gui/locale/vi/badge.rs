@@ -3,7 +3,9 @@ use crate::gui::locale::BadgeLocaleText;
 pub(super) fn get() -> BadgeLocaleText {
     BadgeLocaleText {
         downloading_component_fmt: "Đang tải {name}",
-        preparing_component_fmt: "Đang chuẩn bị gói {name} đã xác minh...",
+        preparing_component_fmt: "Đang chuẩn bị {name}...",
+        checking_component_fmt: "Đang kiểm tra {name}...",
+        finalizing_component_fmt: "Đang hoàn tất {name}...",
         component_installed_fmt: "Đã cài {name}",
         component_install_failed_fmt: "Không thể cài {name}",
         removing_component_fmt: "Đang xoá {name}",

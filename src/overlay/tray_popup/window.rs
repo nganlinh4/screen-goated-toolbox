@@ -20,14 +20,14 @@ use super::html::{generate_popup_theme_script, generate_popup_update_script};
 use super::render::generate_popup_html;
 use super::{
     BASE_POPUP_HEIGHT, BASE_POPUP_WIDTH, HAS_PENDING_SHOW_ANCHOR, HwndWrapper,
-    IGNORE_FOCUS_LOSS_UNTIL, IS_WARMED_UP, IS_WARMING_UP, PENDING_SHOW_ANCHOR_X,
+    IGNORE_FOCUS_LOSS_UNTIL, INIT_START_TIME, IS_INITIALIZING, IS_READY, PENDING_SHOW_ANCHOR_X,
     PENDING_SHOW_ANCHOR_Y, POPUP_HWND, POPUP_SURFACE_INSET, POPUP_WEB_CONTEXT, POPUP_WEBVIEW,
-    REGISTER_POPUP_CLASS, WARMUP_START_TIME, WEBVIEW_INIT_FAILED, WM_APP_SHOW, WM_APP_UPDATE_THEME,
+    REGISTER_POPUP_CLASS, SHOW_WHEN_READY, WEBVIEW_INIT_FAILED, WM_APP_SHOW, WM_APP_UPDATE_THEME,
     get_scaled_dimension, hide_tray_popup, popup_window_dimensions, set_popup_bounds,
 };
 
 /// Creates the popup window and runs its message loop forever.
-/// This is called once during warmup - the window is kept alive hidden for reuse.
+/// This is called on the first tray click; the window remains hidden between later uses.
 pub(super) fn create_popup_window() {
     unsafe {
         // Initialize COM for the thread (Critical for WebView2/Wry)
@@ -73,6 +73,10 @@ pub(super) fn create_popup_window() {
         crate::log_info!("[TrayPopup] Window created with HWND: {:?}", hwnd);
 
         if hwnd.is_invalid() {
+            IS_INITIALIZING.store(false, Ordering::SeqCst);
+            INIT_START_TIME.store(0, Ordering::SeqCst);
+            SHOW_WHEN_READY.store(false, Ordering::SeqCst);
+            WEBVIEW_INIT_FAILED.store(true, Ordering::SeqCst);
             return;
         }
 
@@ -104,14 +108,13 @@ pub(super) fn create_popup_window() {
         };
         let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
 
-        // Create WebView using shared context for RAM efficiency
+        // Create WebView using the shared minor-overlay browser profile.
         let wrapper = HwndWrapper(hwnd);
         let html = generate_popup_html();
 
-        // Initialize shared WebContext if needed (uses same data dir as other modules)
+        // Initialize this thread's context against the common data directory.
         POPUP_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
-                // Consolidate all minor overlays to 'common' to share one browser process and keep RAM at ~80MB
                 let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
                 *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
             }
@@ -120,9 +123,6 @@ pub(super) fn create_popup_window() {
         crate::log_info!("[TrayPopup] Starting WebView initialization...");
 
         let mut final_webview: Option<wry::WebView> = None;
-
-        // Stagger startup to avoid collision
-        std::thread::sleep(std::time::Duration::from_millis(250));
 
         for attempt in 1..=3 {
             let res = {
@@ -192,15 +192,10 @@ pub(super) fn create_popup_window() {
         }
 
         if let Some(wv) = final_webview {
-            crate::log_info!("[TrayPopup] WebView initialization SUCCESSFUL");
+            crate::log_info!("[TrayPopup] WebView build completed; awaiting page readiness");
             POPUP_WEBVIEW.with(|cell| {
                 *cell.borrow_mut() = Some(wv);
             });
-
-            // Mark as warmed up - ready for instant display
-            IS_WARMED_UP.store(true, Ordering::SeqCst);
-            IS_WARMING_UP.store(false, Ordering::SeqCst); // Done warming up
-            WARMUP_START_TIME.store(0, Ordering::SeqCst);
 
             // Message loop runs forever to keep window alive
             let mut msg = MSG::default();
@@ -211,13 +206,14 @@ pub(super) fn create_popup_window() {
         } else {
             crate::log_info!("[TrayPopup] FAILED to initialize WebView after 3 attempts.");
             WEBVIEW_INIT_FAILED.store(true, Ordering::SeqCst);
+            SHOW_WHEN_READY.store(false, Ordering::SeqCst);
         }
 
         // Clean up on thread exit
-        IS_WARMED_UP.store(false, Ordering::SeqCst);
-        IS_WARMING_UP.store(false, Ordering::SeqCst);
+        IS_READY.store(false, Ordering::SeqCst);
+        IS_INITIALIZING.store(false, Ordering::SeqCst);
         POPUP_HWND.store(0, Ordering::SeqCst);
-        WARMUP_START_TIME.store(0, Ordering::SeqCst);
+        INIT_START_TIME.store(0, Ordering::SeqCst);
         POPUP_WEBVIEW.with(|cell| {
             *cell.borrow_mut() = None;
         });
@@ -229,6 +225,23 @@ pub(super) fn create_popup_window() {
 /// Handle IPC messages from the WebView
 fn handle_ipc_message(body: &str) {
     match body {
+        "ready" => {
+            IS_READY.store(true, Ordering::SeqCst);
+            IS_INITIALIZING.store(false, Ordering::SeqCst);
+            INIT_START_TIME.store(0, Ordering::SeqCst);
+
+            let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
+            if SHOW_WHEN_READY.swap(false, Ordering::SeqCst) && hwnd_val != 0 {
+                unsafe {
+                    let _ = PostMessageW(
+                        Some(HWND(hwnd_val as *mut std::ffi::c_void)),
+                        WM_APP_SHOW,
+                        WPARAM(0),
+                        LPARAM(0),
+                    );
+                }
+            }
+        }
         "settings" => {
             // Hide popup and restore main window
             hide_tray_popup();
@@ -357,7 +370,7 @@ pub(super) unsafe extern "system" fn popup_wnd_proc(
 
                 set_popup_bounds(hwnd, popup_x, popup_y);
 
-                // Make fully visible (undo the warmup transparency)
+                // Reveal the off-screen initialized window.
                 let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
 
                 // Show and focus
@@ -404,7 +417,7 @@ pub(super) unsafe extern "system" fn popup_wnd_proc(
             }
 
             WM_CLOSE => {
-                // Just hide - don't destroy. Preserves WebView for instant redisplay.
+                // Keep the initialized WebView for later tray clicks.
                 let _ = KillTimer(Some(hwnd), 888);
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 LRESULT(0)

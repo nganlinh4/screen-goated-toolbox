@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 function Invoke-Native {
     param([string]$FilePath, [string[]]$Arguments)
@@ -51,6 +52,21 @@ function Get-NormalizedOperators {
         Where-Object { $_ -and -not $_.StartsWith("#") }
 }
 
+function Get-NormalizedOperatorTuples {
+    param([string[]]$Paths)
+    @(
+        foreach ($path in $Paths) {
+            foreach ($line in (Get-NormalizedOperators $path)) {
+                $parts = $line.Split(";", 3)
+                if ($parts.Count -ne 3) { throw "Invalid operator config line: $line" }
+                foreach ($operator in $parts[2].Split(",")) {
+                    "$($parts[0]);$($parts[1]);$operator"
+                }
+            }
+        }
+    ) | Sort-Object -Unique
+}
+
 function Extract-Range {
     param([string]$Source, [string]$Destination, [long]$Offset, [long]$ByteCount)
     $input = [IO.File]::OpenRead($Source)
@@ -90,7 +106,7 @@ function Assert-Elf {
         [object]$Contract,
         [string]$ForbiddenPath
     )
-    $header = & $ReadElf -h $Library
+    $header = (& $ReadElf -h $Library) -join "`n"
     if ($header -notmatch "Class:\s+ELF64" -or $header -notmatch "Machine:\s+AArch64") {
         throw "$Library is not ELF64 AArch64"
     }
@@ -160,6 +176,8 @@ $specRoot = Join-Path $mobileRoot "native\ort-runtime"
 $contract = Get-Content -Raw -LiteralPath (Join-Path $specRoot "build-contract.json") |
     ConvertFrom-Json
 $operatorConfig = Join-Path $specRoot $contract.operatorGeneration.configFile
+$supplementalOperators = Join-Path $specRoot `
+    $contract.operatorGeneration.supplementalConfigFile
 $operatorModels = Join-Path $specRoot $contract.operatorGeneration.downloadedModelsFile
 $embeddedModels = Join-Path $specRoot $contract.operatorGeneration.embeddedModelsFile
 $proxyCmake = Join-Path $mobileRoot $contract.proxy.cmakeFile
@@ -170,6 +188,8 @@ $smokeInputs = Join-Path $mobileRoot $contract.releaseGate.smokeInputs
 
 Assert-Identity $operatorConfig (Get-Item $operatorConfig).Length `
     $contract.operatorGeneration.configSha256
+Assert-Identity $supplementalOperators (Get-Item $supplementalOperators).Length `
+    $contract.operatorGeneration.supplementalConfigSha256
 Assert-Identity $operatorModels (Get-Item $operatorModels).Length `
     $contract.operatorGeneration.downloadedModelsSha256
 Assert-Identity $embeddedModels (Get-Item $embeddedModels).Length `
@@ -210,7 +230,7 @@ if (-not $AndroidNdkPath) {
 if (-not $AndroidNdkPath -or -not (Test-Path -LiteralPath $AndroidNdkPath)) {
     throw "Android NDK $($contract.ndkVersion) was not found; pass -AndroidNdkPath"
 }
-$ndkProperties = Get-Content -LiteralPath (Join-Path $AndroidNdkPath "source.properties")
+$ndkProperties = Get-Content -Raw -LiteralPath (Join-Path $AndroidNdkPath "source.properties")
 if ($ndkProperties -notmatch "Pkg.Revision\s*=\s*$([regex]::Escape($contract.ndkVersion))") {
     throw "Android NDK version differs from build-contract.json"
 }
@@ -287,8 +307,11 @@ if ($RegenerateOperatorConfig) {
             "-f", "ORT", $allModelsRoot, $generatedConfig
         )
     } finally { $env:PYTHONPATH = $previousPythonPath }
-    if (Compare-Object @(Get-NormalizedOperators $operatorConfig) `
-        @(Get-NormalizedOperators $generatedConfig)) {
+    $expectedOperators = @(Get-NormalizedOperatorTuples @($operatorConfig))
+    $generatedOperators = @(
+        Get-NormalizedOperatorTuples @($generatedConfig, $supplementalOperators)
+    )
+    if (Compare-Object $expectedOperators $generatedOperators) {
         throw "Regenerated ONNX Runtime operator contract differs"
     }
 }

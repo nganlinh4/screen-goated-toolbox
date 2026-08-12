@@ -76,10 +76,11 @@ pub fn render_usage_modal(
         cerebras: use_cerebras,
     };
 
-    let modal = egui::Modal::new(egui::Id::new("usage_statistics_modal"))
-        .backdrop_color(theme.scrim_color())
-        .frame(theme.dialog_frame())
-        .show(ui.ctx(), |ui| {
+    let modal = crate::gui::widgets::material_modal(
+        ui.ctx(),
+        &theme,
+        egui::Id::new("usage_statistics_modal"),
+        |ui| {
             ui.set_width(layout.width);
             let description = if usage_stats.is_empty() {
                 text.desktop_settings.usage_no_live_data
@@ -128,7 +129,8 @@ pub fn render_usage_modal(
                         }
                     });
                 });
-        });
+        },
+    );
 
     if modal.should_close() {
         *show_modal = false;

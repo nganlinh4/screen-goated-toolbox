@@ -14,6 +14,45 @@
 use crate::gui::theme::{AppTheme, blend};
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
 
+/// Shared Material surface for every modal in the egui application.
+///
+/// Content and sizing remain caller-owned, while elevation, scrim, border,
+/// padding, and theme behavior stay impossible to accidentally fork.
+pub fn material_modal<T>(
+    ctx: &egui::Context,
+    theme: &AppTheme,
+    id: egui::Id,
+    content: impl FnOnce(&mut egui::Ui) -> T,
+) -> egui::ModalResponse<T> {
+    egui::Modal::new(id)
+        .backdrop_color(theme.scrim_color())
+        .frame(theme.dialog_frame())
+        .show(ctx, content)
+}
+
+/// Standard standalone dialog title for modals that do not expose a close
+/// action, such as blocking progress and completion states.
+pub fn dialog_title(ui: &mut egui::Ui, theme: &AppTheme, title: &str) {
+    ui.label(
+        egui::RichText::new(title)
+            .size(16.5)
+            .strong()
+            .color(theme.on_surface()),
+    );
+}
+
+/// Standard wrapped supporting copy for a Material dialog.
+pub fn dialog_body(ui: &mut egui::Ui, theme: &AppTheme, body: &str) {
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(body)
+                .size(12.5)
+                .color(theme.on_surface_variant()),
+        )
+        .wrap(),
+    );
+}
+
 /// Standard Material header for the settings modals.
 ///
 /// Lays out, on one row: a large bold `title`, then any inline `actions`

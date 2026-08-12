@@ -28,16 +28,20 @@ export function useBackgroundManager({
 
   const {
     recentUploads,
+    recentUploadLimit,
+    setRecentUploadLimit,
     isBackgroundUploadProcessing,
     handleBackgroundUpload,
     handleRemoveRecentUpload,
-  } = useBackgroundUpload({ setBackgroundConfig });
+  } = useBackgroundUpload({ backgroundConfig, setBackgroundConfig });
 
   return {
     backgroundMutationMetaRef,
     setBackgroundConfig,
     applyLoadedBackgroundConfig,
     recentUploads,
+    recentUploadLimit,
+    setRecentUploadLimit,
     isBackgroundUploadProcessing,
     handleBackgroundUpload,
     handleRemoveRecentUpload,

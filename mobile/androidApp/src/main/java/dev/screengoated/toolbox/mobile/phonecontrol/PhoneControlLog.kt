@@ -526,6 +526,7 @@ internal object PhoneControlLog {
         "feedback",
         "failure_class",
         "format",
+        "font",
         "host",
         "job_id",
         "kind",

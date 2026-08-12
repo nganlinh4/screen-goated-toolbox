@@ -2,8 +2,18 @@ import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@/lib/ipc";
 import { BackgroundConfig } from "@/types/video";
 import { DEFAULT_BUILT_IN_BACKGROUND_ID } from "@/lib/backgroundPresets";
+import { projectManager } from "@/lib/projectManager";
 
 export const RECENT_UPLOADS_KEY = "screen-record-recent-uploads-v1";
+
+export function normalizeRecentUploadLimit(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(24, Math.max(4, Math.round(parsed))) : 12;
+}
+
+function initialUploadLimit() {
+  return normalizeRecentUploadLimit((window as any).__SR_INITIAL_UPLOAD_LIMIT__);
+}
 
 function getInitialRecentUploads(): string[] {
   try {
@@ -13,21 +23,24 @@ function getInitialRecentUploads(): string[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((v): v is string => typeof v === "string" && v.length > 0)
-      .slice(0, 12);
+      .slice(0, initialUploadLimit());
   } catch {
     return [];
   }
 }
 
 interface UseBackgroundUploadParams {
+  backgroundConfig: BackgroundConfig;
   setBackgroundConfig: (
     updater: BackgroundConfig | ((prev: BackgroundConfig) => BackgroundConfig),
   ) => void;
 }
 
 export function useBackgroundUpload({
+  backgroundConfig,
   setBackgroundConfig,
 }: UseBackgroundUploadParams) {
+  const [recentUploadLimit, setRecentUploadLimitState] = useState(initialUploadLimit);
   const [recentUploads, setRecentUploads] = useState<string[]>(
     getInitialRecentUploads,
   );
@@ -41,6 +54,39 @@ export function useBackgroundUpload({
       // ignore persistence failures
     }
   }, [recentUploads]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const reconcile = async () => {
+      const projectUrls = await projectManager.getManagedCustomBackgroundUrls();
+      if (cancelled) return;
+      const retainedUrls = [...new Set([
+        ...recentUploads,
+        ...projectUrls,
+        backgroundConfig.customBackground ?? "",
+      ].filter(Boolean))];
+      await invoke("reconcile_uploaded_backgrounds", { retainedUrls });
+    };
+    void reconcile().catch((error) => console.warn("Failed to reconcile uploaded backgrounds:", error));
+    return () => { cancelled = true; };
+  }, [backgroundConfig.customBackground, recentUploads]);
+
+  useEffect(() => {
+    const applyHostLimit = (event: Event) => {
+      const limit = normalizeRecentUploadLimit((event as CustomEvent<number>).detail);
+      setRecentUploadLimitState(limit);
+      setRecentUploads((previous) => previous.slice(0, limit));
+    };
+    window.addEventListener("sr-upload-limit", applyHostLimit);
+    return () => window.removeEventListener("sr-upload-limit", applyHostLimit);
+  }, []);
+
+  const setRecentUploadLimit = useCallback((value: number) => {
+    const limit = normalizeRecentUploadLimit(value);
+    setRecentUploadLimitState(limit);
+    setRecentUploads((previous) => previous.slice(0, limit));
+    void invoke("set_recent_upload_limit", { limit });
+  }, []);
 
   const handleBackgroundUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -84,7 +130,7 @@ export function useBackgroundUpload({
               customBackground: imageUrl,
             }));
             setRecentUploads((prev) =>
-              [imageUrl, ...prev.filter((v) => v !== imageUrl)].slice(0, 12),
+              [imageUrl, ...prev.filter((v) => v !== imageUrl)].slice(0, recentUploadLimit),
             );
           } catch (err) {
             console.error(
@@ -107,7 +153,7 @@ export function useBackgroundUpload({
         img.src = URL.createObjectURL(file);
       }
     },
-    [setBackgroundConfig, setRecentUploads],
+    [recentUploadLimit, setBackgroundConfig, setRecentUploads],
   );
 
   const handleRemoveRecentUpload = useCallback((imageUrl: string) => {
@@ -129,6 +175,8 @@ export function useBackgroundUpload({
 
   return {
     recentUploads,
+    recentUploadLimit,
+    setRecentUploadLimit,
     setRecentUploads,
     isBackgroundUploadProcessing,
     handleBackgroundUpload,

@@ -117,7 +117,7 @@ fn qwen_local_capability(
             method,
             available: false,
             reason: Some(format!(
-                "Install the {model_label} model from Downloaded Tools to use Qwen Local subtitles."
+                "The {model_label} model will be downloaded when this subtitle method is selected."
             )),
         };
     }
@@ -126,7 +126,7 @@ fn qwen_local_capability(
             method,
             available: false,
             reason: Some(
-                "Install the Qwen3-ASR CUDA Runtime from Downloaded Tools to use Qwen Local subtitles."
+                "The Qwen3-ASR CUDA Runtime will be downloaded when this subtitle method is selected."
                     .to_string(),
             ),
         };
@@ -148,7 +148,7 @@ fn parakeet_tdt_capability() -> SubtitleMethodCapability {
             method,
             available: false,
             reason: Some(
-                "Install the local speech recognition engine from Downloaded Tools to use Parakeet subtitles."
+                "The local speech recognition engine will be downloaded when Parakeet subtitles are selected."
                     .to_string(),
             ),
         };
@@ -158,7 +158,7 @@ fn parakeet_tdt_capability() -> SubtitleMethodCapability {
             method,
             available: false,
             reason: Some(
-                "Install the Parakeet TDT 0.6B v3 model from Downloaded Tools to use Parakeet subtitles."
+                "The Parakeet TDT 0.6B v3 model will be downloaded when this subtitle method is selected."
                     .to_string(),
             ),
         };
@@ -171,7 +171,7 @@ fn parakeet_tdt_capability() -> SubtitleMethodCapability {
             method,
             available: false,
             reason: Some(
-                "Install the local AI runtime from Downloaded Tools to use Parakeet subtitles."
+                "The local AI runtime will be downloaded when Parakeet subtitles are selected."
                     .to_string(),
             ),
         };

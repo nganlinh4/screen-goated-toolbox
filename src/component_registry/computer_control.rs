@@ -58,6 +58,7 @@ pub(crate) fn ensure_engine(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<ComputerControlEngineUse> {
+    super::update_catalog::refresh_for_use(ID, "before-session");
     let _mutation = super::acquire_mutation_guard()?;
     let delivery = delivery()?;
     install::ensure(delivery, cancelled, on_progress)?;

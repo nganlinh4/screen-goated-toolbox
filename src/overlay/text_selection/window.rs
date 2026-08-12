@@ -1,14 +1,13 @@
 // --- TEXT SELECTION WINDOW ---
-// Window procedure and message loop for the badge WebView.
+// Native selection controller. Rendering belongs to the status compositor.
 
 mod wnd_proc;
 mod worker;
 
 use super::clipboard::keyboard_hook_proc;
-use super::html::{get_html, get_localized_badge_text};
+use super::html::get_localized_badge_text;
 use super::state::*;
 use crate::APP;
-use crate::overlay::realtime_webview::state::HwndWrapper;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader::*;
@@ -18,11 +17,8 @@ use windows::core::*;
 
 pub fn internal_create_tag_thread() {
     unsafe {
-        use windows::Win32::System::Com::*;
-        let _coinit = CoInitialize(None);
-
         let instance = GetModuleHandleW(None).unwrap();
-        let class_name = w!("SGT_TextTag_Web_Persistent");
+        let class_name = w!("SGT_TextSelection_Controller");
 
         REGISTER_TAG_CLASS.call_once(|| {
             let wc = WNDCLASSEXW {
@@ -38,14 +34,14 @@ pub fn internal_create_tag_thread() {
         });
 
         let hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
+            WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
             class_name,
             w!("SGT Tag"),
             WS_POPUP,
-            -1000,
-            -1000,
-            200,
-            120,
+            -32_000,
+            -32_000,
+            1,
+            1,
             None,
             None,
             Some(instance.into()),
@@ -72,110 +68,17 @@ pub fn internal_create_tag_thread() {
             _ => "Select text...",
         };
         *INITIAL_TEXT_GLOBAL.lock().unwrap() = initial_text.to_string();
-        let html_content = get_html(initial_text);
-
-        let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-
-        SELECTION_WEB_CONTEXT.with(|ctx| {
-            if ctx.borrow().is_none() {
-                *ctx.borrow_mut() = Some(wry::WebContext::new(Some(shared_data_dir)));
-            }
-        });
-
-        let page_url =
-            crate::overlay::html_components::font_manager::store_html_page(html_content.clone())
-                .unwrap_or_else(|| {
-                    format!("data:text/html,{}", urlencoding::encode(&html_content))
-                });
-
-        let mut final_webview: Option<wry::WebView> = None;
-
-        std::thread::sleep(std::time::Duration::from_millis(150));
-
-        for _attempt in 1..=3 {
-            let res = {
-                let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-
-                SELECTION_WEB_CONTEXT.with(|ctx| {
-                    let mut ctx_ref = ctx.borrow_mut();
-                    let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
-                        wry::WebViewBuilder::new_with_web_context(web_ctx)
-                    } else {
-                        wry::WebViewBuilder::new()
-                    };
-
-                    builder
-                        .with_bounds(wry::Rect {
-                            position: wry::dpi::Position::Physical(
-                                wry::dpi::PhysicalPosition::new(0, 0),
-                            ),
-                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                                BADGE_WIDTH as u32,
-                                BADGE_HEIGHT as u32,
-                            )),
-                        })
-                        .with_url(&page_url)
-                        .with_transparent(true)
-                        .build_as_child(&HwndWrapper(hwnd))
-                })
-            };
-
-            match res {
-                Ok(wv) => {
-                    final_webview = Some(wv);
-                    break;
-                }
-                Err(_e) => {
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-                }
-            }
-        }
-
-        if let Some(webview) = final_webview {
-            let init_script = format!("updateTheme({});", initial_is_dark);
-            let _ = webview.evaluate_script(&init_script);
-            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
-                "text-selection-badge",
-                hwnd,
-                &webview,
-            );
-            SELECTION_STATE.lock().unwrap().webview = Some(webview);
-        } else {
-            let _ = DestroyWindow(hwnd);
-            IS_WARMING_UP.store(false, Ordering::SeqCst);
-            CoUninitialize();
-            return;
-        }
+        crate::overlay::status_compositor::update_theme(initial_is_dark);
 
         TAG_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
         IS_WARMED_UP.store(true, Ordering::SeqCst);
         IS_WARMING_UP.store(false, Ordering::SeqCst);
 
         if PENDING_SHOW_ON_WARMUP.swap(false, Ordering::SeqCst) {
-            let mut pt = POINT::default();
-            let _ = GetCursorPos(&mut pt);
-            let _ = MoveWindow(
-                hwnd,
-                pt.x + OFFSET_X,
-                pt.y + OFFSET_Y,
-                BADGE_WIDTH,
-                BADGE_HEIGHT,
-                false,
-            );
             let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
         }
 
         if IMAGE_CONTINUOUS_PENDING_SHOW.swap(false, Ordering::SeqCst) {
-            let mut pt = POINT::default();
-            let _ = GetCursorPos(&mut pt);
-            let _ = MoveWindow(
-                hwnd,
-                pt.x + OFFSET_X,
-                pt.y + OFFSET_Y,
-                BADGE_WIDTH,
-                BADGE_HEIGHT,
-                false,
-            );
             let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_IMAGE_BADGE, WPARAM(0), LPARAM(0));
         }
 
@@ -240,22 +143,13 @@ pub fn internal_create_tag_thread() {
                     let new_is_dark = crate::overlay::is_dark_mode();
                     if new_is_dark != current_is_dark {
                         current_is_dark = new_is_dark;
-                        if let Some(wv) = state.webview.as_ref() {
-                            let _ =
-                                wv.evaluate_script(&format!("updateTheme({});", current_is_dark));
-                        }
+                        crate::overlay::status_compositor::update_theme(current_is_dark);
                     }
 
-                    if let Some(wv) = state.webview.as_ref() {
-                        let is_continuous = crate::overlay::continuous_mode::is_active();
-                        let lang = {
-                            let app = APP.lock().unwrap();
-                            app.config.ui_language.clone()
-                        };
-                        let badge_text = get_localized_badge_text(&lang, is_continuous);
-                        let reset_js = format!("updateState(false, '{}')", badge_text);
-                        let _ = wv.evaluate_script(&reset_js);
-                    }
+                    let is_continuous = crate::overlay::continuous_mode::is_active();
+                    let lang = APP.lock().unwrap().config.ui_language.clone();
+                    let badge_text = get_localized_badge_text(&lang, is_continuous);
+                    crate::overlay::status_compositor::selection_update(false, badge_text);
                 } else if !crate::overlay::continuous_mode::is_active()
                     && !state.hook_handle.is_invalid()
                 {
@@ -266,6 +160,8 @@ pub fn internal_create_tag_thread() {
 
             if visible {
                 if TAG_ABORT_SIGNAL.load(Ordering::SeqCst) {
+                    crate::overlay::status_compositor::selection_hide();
+                    crate::overlay::status_compositor::image_badge_hide();
                     let _ = ShowWindow(hwnd, SW_HIDE);
                     continue;
                 }
@@ -273,9 +169,7 @@ pub fn internal_create_tag_thread() {
                 let new_is_dark = crate::overlay::is_dark_mode();
                 if new_is_dark != current_is_dark {
                     current_is_dark = new_is_dark;
-                    if let Some(wv) = SELECTION_STATE.lock().unwrap().webview.as_ref() {
-                        let _ = wv.evaluate_script(&format!("updateTheme({});", current_is_dark));
-                    }
+                    crate::overlay::status_compositor::update_theme(current_is_dark);
                 }
 
                 let mut pt = POINT::default();
@@ -283,7 +177,14 @@ pub fn internal_create_tag_thread() {
                 let target_x = pt.x + OFFSET_X;
                 let target_y = pt.y + OFFSET_Y;
 
-                let _ = MoveWindow(hwnd, target_x, target_y, BADGE_WIDTH, BADGE_HEIGHT, false);
+                crate::overlay::status_compositor::selection_position(
+                    crate::overlay::status_compositor::physical_rect(
+                        target_x,
+                        target_y,
+                        BADGE_WIDTH,
+                        BADGE_HEIGHT,
+                    ),
+                );
 
                 // EARLY CONTINUOUS MODE TRIGGER
                 let cm_active = crate::overlay::continuous_mode::is_active();
@@ -418,10 +319,7 @@ pub fn internal_create_tag_thread() {
                             get_localized_badge_text(&lang, is_continuous)
                         };
 
-                        Some(format!(
-                            "updateState({}, '{}')",
-                            state.is_selecting, new_text
-                        ))
+                        Some((state.is_selecting, new_text))
                     } else {
                         None
                     }
@@ -429,10 +327,8 @@ pub fn internal_create_tag_thread() {
                     None
                 };
 
-                if let Some(js) = update_js
-                    && let Some(webview) = SELECTION_STATE.lock().unwrap().webview.as_ref()
-                {
-                    let _ = webview.evaluate_script(&js);
+                if let Some((selecting, text)) = update_js {
+                    crate::overlay::status_compositor::selection_update(selecting, text);
                 }
 
                 if should_spawn_thread {
@@ -447,7 +343,6 @@ pub fn internal_create_tag_thread() {
         // Cleanup
         {
             let mut state = SELECTION_STATE.lock().unwrap();
-            state.webview = None;
             if !state.hook_handle.is_invalid() {
                 let _ = UnhookWindowsHookEx(state.hook_handle);
                 state.hook_handle = HHOOK::default();

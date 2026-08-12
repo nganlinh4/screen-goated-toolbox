@@ -12,6 +12,7 @@ internal data class NativeRuntimeEntry(
 internal data class NativeRuntimeArchive(
     val engine: String,
     val fileName: String,
+    val downloadUrl: String,
     val byteCount: Long,
     val sha256: String,
     val fullDelivery: String,
@@ -50,6 +51,7 @@ internal object NativeRuntimeContract {
                     setOf(
                         "engine",
                         "fileName",
+                        "downloadUrl",
                         "byteCount",
                         "sha256",
                         "fullDelivery",
@@ -85,6 +87,8 @@ internal object NativeRuntimeContract {
                 }
                 val fileName = raw.getString("fileName")
                 requireFlatArchiveName(fileName)
+                val downloadUrl = raw.getString("downloadUrl")
+                requireRuntimeDownloadUrl(downloadUrl)
                 val delivery = raw.getString("fullDelivery")
                 require(delivery == "verified_download") {
                     "Invalid Full native delivery: $delivery"
@@ -93,6 +97,7 @@ internal object NativeRuntimeContract {
                     NativeRuntimeArchive(
                         engine = engine,
                         fileName = fileName,
+                        downloadUrl = downloadUrl,
                         byteCount = raw.getLong("byteCount").also(::requirePositive),
                         sha256 = raw.getString("sha256").also(::requireSha256),
                         fullDelivery = delivery,
@@ -106,6 +111,9 @@ internal object NativeRuntimeContract {
         }
         require(archives.map { it.fileName }.distinct().size == archives.size) {
             "Native runtime contract contains duplicate archives"
+        }
+        require(archives.map { it.downloadUrl }.distinct().size == archives.size) {
+            "Native runtime contract contains duplicate download URLs"
         }
         require(archives.map { it.engine }.toSet() == setOf("ort", "moonshine", "sherpa")) {
             "Native runtime contract has an unexpected engine set"
@@ -130,6 +138,17 @@ private fun requireFlatArchiveName(value: String) {
             value !in setOf(".", "..") &&
             value.endsWith("-runtime.zip"),
     ) { "Native archive name must be flat: $value" }
+}
+
+private fun requireRuntimeDownloadUrl(value: String) {
+    require(value.startsWith("https://")) { "Native runtime URL must use HTTPS" }
+    val assetName = value.substringAfterLast('/')
+    require(
+        assetName.isNotBlank() &&
+            !assetName.contains('/') &&
+            !assetName.contains('\\') &&
+            assetName.endsWith(".zip"),
+    ) { "Native runtime URL must name one flat ZIP asset" }
 }
 
 internal fun requireFlatLibraryName(value: String) {

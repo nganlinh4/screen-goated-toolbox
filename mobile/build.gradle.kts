@@ -170,7 +170,8 @@ tasks.register("verifyNativeRuntimeArchives") {
                 ?: error("Native runtime archive must be an object")
             require(
                 archive.keys == setOf(
-                    "engine", "fileName", "byteCount", "sha256", "fullDelivery", "entries",
+                    "engine", "fileName", "downloadUrl", "byteCount", "sha256",
+                    "fullDelivery", "entries",
                 ),
             ) { "Native runtime archive has unsupported fields" }
             val engine = archive["engine"] as String
@@ -184,6 +185,17 @@ tasks.register("verifyNativeRuntimeArchives") {
                 "Native runtime archive name must be flat: $fileName"
             }
             require(expectedArchiveNames.add(fileName)) { "Duplicate native archive: $fileName" }
+            val downloadUrl = archive["downloadUrl"] as String
+            val runtimeBundlePrefix =
+                "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/" +
+                    "sgt-runtime-bundles/"
+            require(downloadUrl.startsWith(runtimeBundlePrefix)) {
+                "Native runtime URL must use runtime-bundles: $downloadUrl"
+            }
+            val assetName = downloadUrl.removePrefix(runtimeBundlePrefix)
+            require(assetName.isNotBlank() && !assetName.contains('/') && assetName.endsWith(".zip")) {
+                "Native runtime URL must name one flat ZIP asset: $downloadUrl"
+            }
             val archiveFile = nativeRuntimeArchiveDir.resolve(fileName)
             require(archiveFile.isFile) { "Missing native runtime archive: ${archiveFile.absolutePath}" }
             val archiveByteCount = (archive["byteCount"] as Number).toLong()

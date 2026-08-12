@@ -92,7 +92,16 @@ fn parse(value: serde_json::Value) -> Result<QwenRuntimeDelivery> {
         .into_iter()
         .map(|archive| {
             validate_sha(&archive.sha256)?;
-            validate_url(&archive.download_url)?;
+            let asset = archive
+                .download_url
+                .strip_prefix(super::super::update_catalog::RUNTIME_BUNDLES_PREFIX)
+                .ok_or_else(|| anyhow::anyhow!("signed Qwen runtime URL is not immutable"))?;
+            super::super::update_catalog::validate_runtime_bundle_asset(
+                asset,
+                &archive.download_url,
+                &archive.sha256,
+                "zip",
+            )?;
             if archive.size_bytes == 0 {
                 bail!("signed Qwen runtime archive is empty");
             }
@@ -131,14 +140,6 @@ fn parse(value: serde_json::Value) -> Result<QwenRuntimeDelivery> {
         unpacked_size_bytes: delivery.unpacked_size_bytes,
         files: Box::leak(files.into_boxed_slice()),
     })
-}
-
-fn validate_url(value: &str) -> Result<()> {
-    let url = url::Url::parse(value)?;
-    if url.scheme() != "https" || url.host_str().is_none() || url.username() != "" {
-        bail!("signed Qwen runtime URL is invalid");
-    }
-    Ok(())
 }
 
 fn validate_sha(value: &str) -> Result<()> {

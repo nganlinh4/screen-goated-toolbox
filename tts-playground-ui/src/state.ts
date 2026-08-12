@@ -42,6 +42,7 @@ const FALLBACK: TtsPlaygroundState = {
     status: "",
     recent: [],
   },
+  recentLimit: 10,
   catalogs: {
     geminiModels: [],
     geminiVoices: [],
@@ -93,6 +94,9 @@ const FALLBACK: TtsPlaygroundState = {
     downloadWav: "WAV",
     downloadMp3: "MP3",
     recent: "Recent clips",
+    recentLimit: "Max items",
+    clearRecent: "Clear all",
+    deleteRecent: "Delete",
     voicePerLanguage: "Voice per language",
     addLanguage: "Add language",
     reset: "Reset",

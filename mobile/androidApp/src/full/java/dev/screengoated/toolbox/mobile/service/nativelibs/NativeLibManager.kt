@@ -33,7 +33,6 @@ class NativeLibManager private constructor(context: Context) {
             // Readiness and cleanup cover the complete runtime payload. Loading uses
             // the real runtime directly; the API-table proxy remains for compatibility.
             libs = listOf(
-                "libc++_shared.so",
                 "libonnxruntime_real.so",
                 "libonnxruntime.so",
             ),
@@ -222,7 +221,7 @@ class NativeLibManager private constructor(context: Context) {
             require(contract.fullDelivery == "verified_download") {
                 "Unsupported Full native delivery: ${contract.fullDelivery}"
             }
-            val request = Request.Builder().url("$BASE_URL/${contract.fileName}").build()
+            val request = Request.Builder().url(contract.downloadUrl).build()
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
                 val contentLength = response.body.contentLength()
@@ -327,9 +326,6 @@ class NativeLibManager private constructor(context: Context) {
 
         @Volatile
         private var sherpaLoaded = false
-
-        private const val BASE_URL =
-            "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles"
 
         fun get(context: Context): NativeLibManager = instance ?: synchronized(this) {
             instance ?: NativeLibManager(context.applicationContext).also { instance = it }

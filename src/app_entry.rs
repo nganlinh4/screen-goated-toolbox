@@ -11,6 +11,13 @@ use arguments::StartupArgs;
 use single_instance::InstanceOutcome;
 
 pub(crate) fn run() -> eframe::Result<()> {
+    if crate::overlay::status_compositor::is_child_process() {
+        if let Err(error) = crate::overlay::status_compositor::run_child() {
+            eprintln!("status compositor failed: {error:#}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     if crate::overlay::result::scene_compositor::is_child_process() {
         if let Err(error) = crate::overlay::result::scene_compositor::run_child() {
             eprintln!("result compositor failed: {error:#}");
@@ -54,8 +61,11 @@ pub(crate) fn run() -> eframe::Result<()> {
     let screen_record_wry_smoke = startup_args.configure_screen_record_wry_smoke();
     let creation_ui_test = startup_args.configure_creation_ui_test();
     let result_compositor_smoke = startup_args.result_compositor_smoke();
-    let isolated_ui_test =
-        screen_record_wry_smoke || creation_ui_test.is_some() || result_compositor_smoke;
+    let status_compositor_smoke = startup_args.status_compositor_smoke();
+    let isolated_ui_test = screen_record_wry_smoke
+        || creation_ui_test.is_some()
+        || result_compositor_smoke
+        || status_compositor_smoke;
 
     let _ = crate::RESTORE_EVENT.as_ref();
     // Establish process ownership before cleanup, installation, registry edits,
@@ -91,6 +101,7 @@ pub(crate) fn run() -> eframe::Result<()> {
         // Begin the only result renderer as early as possible and overlap its
         // WebView/font bootstrap with the rest of application startup.
         crate::overlay::result::scene_compositor::warmup();
+        crate::overlay::status_compositor::warmup();
     }
 
     crate::log_info!("Ensuring context menu entry...");
@@ -140,6 +151,9 @@ pub(crate) fn run() -> eframe::Result<()> {
 
     if result_compositor_smoke {
         std::process::exit(crate::overlay::result::smoke::run());
+    }
+    if status_compositor_smoke {
+        std::process::exit(crate::overlay::status_compositor::smoke::run());
     }
 
     settings_window::run(screen_record_wry_smoke, creation_ui_test, pending_file_path)

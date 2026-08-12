@@ -7,150 +7,68 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub(super) unsafe extern "system" fn tag_wnd_proc(
     hwnd: HWND,
-    msg: u32,
+    message: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
     unsafe {
-        let lang = {
-            if let Ok(app) = APP.try_lock() {
-                app.config.ui_language.clone()
-            } else {
-                "en".to_string()
-            }
-        };
-
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match msg {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match message {
             WM_APP_SHOW => {
                 TEXT_BADGE_VISIBLE.store(true, Ordering::SeqCst);
                 let _ = KillTimer(Some(hwnd), 1);
-
-                let mut pt = POINT::default();
-                let _ = GetCursorPos(&mut pt);
-                let _ = MoveWindow(
-                    hwnd,
-                    pt.x + OFFSET_X,
-                    pt.y + OFFSET_Y,
-                    BADGE_WIDTH,
-                    BADGE_HEIGHT,
-                    false,
-                );
-
-                let is_continuous = crate::overlay::continuous_mode::is_active();
-                let badge_text = get_localized_badge_text(&lang, is_continuous);
-                {
-                    let state = SELECTION_STATE.lock().unwrap();
-                    if let Some(wv) = state.webview.as_ref() {
-                        let _ = wv.evaluate_script(&format!(
-                            "updateState(false, '{}'); playEntry();",
-                            badge_text
-                        ));
-                    }
-                }
+                let lang = current_language();
+                let text =
+                    get_localized_badge_text(&lang, crate::overlay::continuous_mode::is_active());
+                crate::overlay::status_compositor::selection_show(cursor_rect(), text);
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
                 LRESULT(0)
             }
             WM_APP_HIDE => {
                 TEXT_BADGE_VISIBLE.store(false, Ordering::SeqCst);
-                {
-                    let state = SELECTION_STATE.lock().unwrap();
-                    if let Some(wv) = state.webview.as_ref() {
-                        let _ = wv.evaluate_script("playExit();");
-                    }
-                }
-                SetTimer(Some(hwnd), 1, 150, None);
+                crate::overlay::status_compositor::selection_hide();
+                let _ = SetTimer(Some(hwnd), 1, 150, None);
                 LRESULT(0)
             }
             WM_APP_SHOW_IMAGE_BADGE => {
                 let _ = KillTimer(Some(hwnd), 2);
-
-                let mut pt = POINT::default();
-                let _ = GetCursorPos(&mut pt);
-                let _ = MoveWindow(
-                    hwnd,
-                    pt.x + OFFSET_X,
-                    pt.y + OFFSET_Y,
-                    BADGE_WIDTH,
-                    BADGE_HEIGHT,
-                    false,
-                );
-
-                let image_badge_text = get_localized_image_badge_text(&lang);
-
-                {
-                    let state = SELECTION_STATE.lock().unwrap();
-                    if let Some(wv) = state.webview.as_ref() {
-                        if !TEXT_BADGE_VISIBLE.load(Ordering::SeqCst) {
-                            let _ = wv.evaluate_script("playExit();");
-                        }
-                        let _ = wv.evaluate_script(&format!(
-                            "updateImageText('{}'); showImageBadge();",
-                            image_badge_text
-                        ));
-                    }
-                }
+                let text = get_localized_image_badge_text(&current_language());
+                crate::overlay::status_compositor::image_badge_show(cursor_rect(), text);
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
                 LRESULT(0)
             }
             WM_APP_HIDE_IMAGE_BADGE => {
-                {
-                    let state = SELECTION_STATE.lock().unwrap();
-                    if let Some(wv) = state.webview.as_ref() {
-                        let _ = wv.evaluate_script("hideImageBadge();");
-                    }
-                }
-                SetTimer(Some(hwnd), 2, 150, None);
+                crate::overlay::status_compositor::image_badge_hide();
+                let _ = SetTimer(Some(hwnd), 2, 150, None);
                 LRESULT(0)
             }
             WM_APP_UPDATE_CONTINUOUS => {
                 if TEXT_BADGE_VISIBLE.load(Ordering::SeqCst) {
-                    let continuous_text = get_localized_badge_text(&lang, true);
-                    {
-                        let state = SELECTION_STATE.lock().unwrap();
-                        if let Some(wv) = state.webview.as_ref() {
-                            let _ = wv.evaluate_script(&format!(
-                                "updateState(false, '{}')",
-                                continuous_text
-                            ));
-                        }
-                    }
+                    let text = get_localized_badge_text(&current_language(), true);
+                    crate::overlay::status_compositor::selection_update(false, text);
                 }
                 LRESULT(0)
             }
             WM_APP_RESTORE_AFTER_CAPTURE => {
-                let text_visible = TEXT_BADGE_VISIBLE.load(Ordering::SeqCst);
-                let image_visible = IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst);
-                if text_visible || image_visible {
-                    let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                }
+                let _ = crate::overlay::status_compositor::set_selection_capture_visible(true);
                 LRESULT(0)
             }
-            WM_TIMER => {
-                if wparam.0 == 1 {
-                    let _ = KillTimer(Some(hwnd), 1);
-                    {
-                        let initial_text = INITIAL_TEXT_GLOBAL.lock().unwrap();
-                        reset_ui_state(&initial_text);
-                    }
-                    if !IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst)
-                        && !TEXT_BADGE_VISIBLE.load(Ordering::SeqCst)
-                    {
-                        let _ = ShowWindow(hwnd, SW_HIDE);
-                    }
-                } else if wparam.0 == 2 {
-                    let _ = KillTimer(Some(hwnd), 2);
-                    if !TEXT_BADGE_VISIBLE.load(Ordering::SeqCst)
-                        && !IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst)
-                    {
-                        let _ = ShowWindow(hwnd, SW_HIDE);
-                    }
-                }
+            WM_TIMER if wparam.0 == 1 => {
+                let _ = KillTimer(Some(hwnd), 1);
+                let initial = INITIAL_TEXT_GLOBAL.lock().unwrap().clone();
+                reset_ui_state(&initial);
+                hide_controller_if_idle(hwnd);
+                LRESULT(0)
+            }
+            WM_TIMER if wparam.0 == 2 => {
+                let _ = KillTimer(Some(hwnd), 2);
+                hide_controller_if_idle(hwnd);
                 LRESULT(0)
             }
             WM_CLOSE => {
                 let _ = KillTimer(Some(hwnd), 1);
-                let initial_text = INITIAL_TEXT_GLOBAL.lock().unwrap();
-                reset_ui_state(&initial_text);
+                let _ = KillTimer(Some(hwnd), 2);
+                crate::overlay::status_compositor::selection_hide();
+                crate::overlay::status_compositor::image_badge_hide();
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 LRESULT(0)
             }
@@ -158,11 +76,37 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
                 PostQuitMessage(0);
                 LRESULT(0)
             }
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+            _ => DefWindowProcW(hwnd, message, wparam, lparam),
         }));
-        match result {
-            Ok(lresult) => lresult,
-            Err(_) => DefWindowProcW(hwnd, msg, wparam, lparam),
+        result.unwrap_or_else(|_| DefWindowProcW(hwnd, message, wparam, lparam))
+    }
+}
+
+fn current_language() -> String {
+    APP.try_lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string())
+}
+
+fn cursor_rect() -> crate::overlay::status_compositor::protocol::PhysicalRect {
+    let mut point = POINT::default();
+    unsafe {
+        let _ = GetCursorPos(&mut point);
+    }
+    crate::overlay::status_compositor::physical_rect(
+        point.x + OFFSET_X,
+        point.y + OFFSET_Y,
+        BADGE_WIDTH,
+        BADGE_HEIGHT,
+    )
+}
+
+fn hide_controller_if_idle(hwnd: HWND) {
+    if !TEXT_BADGE_VISIBLE.load(Ordering::SeqCst)
+        && !IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst)
+    {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_HIDE);
         }
     }
 }

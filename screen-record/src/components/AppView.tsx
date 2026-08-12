@@ -72,6 +72,8 @@ export function AppView(props: AppViewProps) {
     handlePreviewMouseDown,
     handleRemoveHotkey,
     handleRemoveRecentUpload,
+    recentUploadLimit,
+    setRecentUploadLimit,
     handleRemoveSequenceClip,
     handleSelectMonitorCapture,
     handleSelectSequenceClip,
@@ -340,6 +342,8 @@ export function AppView(props: AppViewProps) {
         webcamConfig={webcamConfig}
         setWebcamConfig={setWebcamConfig}
         recentUploads={recentUploads}
+        recentUploadLimit={recentUploadLimit}
+        setRecentUploadLimit={setRecentUploadLimit}
         handleRemoveRecentUpload={handleRemoveRecentUpload}
         handleBackgroundUpload={handleBackgroundUpload}
         isBackgroundUploadProcessing={isBackgroundUploadProcessing}

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sequence": 1,
+  "sequence": 2,
   "channel": "stable",
   "minHostVersion": "5.4.3",
   "maxHostVersionExclusive": "5.5.0",
@@ -59,6 +59,11 @@
       "name": "android-moonshine-models-v1",
       "platform": "android-arm64",
       "path": "mobile/androidApp/src/main/assets/moonshine-model-delivery.json"
+    },
+    {
+      "name": "android-native-asr-runtimes-v1",
+      "platform": "android-arm64",
+      "path": "parity-fixtures/phone-control/native-runtime-contract.json"
     }
   ],
   "policies": [

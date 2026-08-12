@@ -7,6 +7,7 @@ use crate::component_registry::RemovalOutcome;
 use crate::component_registry::external_tools::{ExternalTool, ExternalToolStatus};
 use crate::gui::locale::{LocaleText, ManagedToolsLocaleText};
 use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus};
+use crate::gui::settings_ui::{ConfirmModal, ConfirmResult};
 use crate::gui::theme::AppTheme;
 
 use super::utils::clear_downloaded_tools_caches;
@@ -142,72 +143,80 @@ fn render_confirmation(ctx: &egui::Context, text: &LocaleText, download_manager:
     let managed = &text.auxiliary.managed_tools;
     let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
     let downloads_active = downloads_active(download_manager);
-    let mut confirm = false;
-    let mut cancel = false;
-    let modal = egui::Modal::new(egui::Id::new("downloaded_tools_clean_confirm")).show(ctx, |ui| {
-        ui.set_max_width(500.0);
-        ui.heading(managed.downloaded_tools_clean_confirm_title);
-        ui.add_space(8.0);
-        ui.label(managed.downloaded_tools_clean_confirm_body);
-        if downloads_active {
-            ui.add_space(8.0);
-            ui.colored_label(
-                theme.warning(),
-                managed.downloaded_tools_clean_wait_for_downloads,
-            );
+    let warning = downloads_active.then_some(managed.downloaded_tools_clean_wait_for_downloads);
+    match ConfirmModal::new(
+        egui::Id::new("downloaded_tools_clean_confirm"),
+        managed.downloaded_tools_clean_confirm_title,
+        managed.downloaded_tools_clean_confirm_body,
+    )
+    .labels(
+        managed.downloaded_tools_clean_confirm,
+        managed.downloaded_tools_clean_cancel,
+    )
+    .destructive(true)
+    .confirm_enabled(!downloads_active)
+    .warning(warning)
+    .show_ctx(ctx, &theme)
+    {
+        ConfirmResult::Confirmed => {
+            start_cleanup(ctx.clone(), StatusTargets::capture(download_manager));
         }
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
-            cancel = ui.button(managed.downloaded_tools_clean_cancel).clicked();
-            confirm = ui
-                .add_enabled(
-                    !downloads_active,
-                    egui::Button::new(
-                        egui::RichText::new(managed.downloaded_tools_clean_confirm)
-                            .color(theme.danger_text()),
-                    ),
-                )
-                .clicked();
-        });
-    });
-    if cancel || modal.should_close() {
-        set_state(CleanupDialogState::Idle);
-    } else if confirm {
-        start_cleanup(ctx.clone(), StatusTargets::capture(download_manager));
+        ConfirmResult::Cancelled => set_state(CleanupDialogState::Idle),
+        ConfirmResult::Pending => {}
     }
 }
 
 fn render_progress(ctx: &egui::Context, text: &LocaleText, completed: usize, step: CleanupStep) {
     let managed = &text.auxiliary.managed_tools;
     let visible_step = (completed + 1).min(CLEANUP_STEP_COUNT);
-    egui::Modal::new(egui::Id::new("downloaded_tools_clean_progress")).show(ctx, |ui| {
-        ui.set_min_width(420.0);
-        ui.heading(managed.downloaded_tools_clean_progress_title);
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label(
-                managed
-                    .downloaded_tools_clean_progress_fmt
-                    .replace("{done}", &visible_step.to_string())
-                    .replace("{total}", &CLEANUP_STEP_COUNT.to_string())
-                    .replace("{item}", step.label(managed)),
+    let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
+    crate::gui::widgets::material_modal(
+        ctx,
+        &theme,
+        egui::Id::new("downloaded_tools_clean_progress"),
+        |ui| {
+            ui.set_min_width(420.0);
+            crate::gui::widgets::dialog_title(
+                ui,
+                &theme,
+                managed.downloaded_tools_clean_progress_title,
             );
-        });
-        ui.add(
-            egui::ProgressBar::new(cleanup_fraction(completed))
-                .animate(true)
-                .desired_width(390.0),
-        );
-    });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.spinner();
+                crate::gui::widgets::dialog_body(
+                    ui,
+                    &theme,
+                    &managed
+                        .downloaded_tools_clean_progress_fmt
+                        .replace("{done}", &visible_step.to_string())
+                        .replace("{total}", &CLEANUP_STEP_COUNT.to_string())
+                        .replace("{item}", step.label(managed)),
+                );
+            });
+            ui.add(
+                egui::ProgressBar::new(cleanup_fraction(completed))
+                    .animate(true)
+                    .desired_width(390.0),
+            );
+        },
+    );
 }
 
 fn render_complete(ctx: &egui::Context, text: &LocaleText, attention_count: usize) {
     let managed = &text.auxiliary.managed_tools;
-    let modal =
-        egui::Modal::new(egui::Id::new("downloaded_tools_clean_complete")).show(ctx, |ui| {
+    let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
+    let modal = crate::gui::widgets::material_modal(
+        ctx,
+        &theme,
+        egui::Id::new("downloaded_tools_clean_complete"),
+        |ui| {
             ui.set_min_width(420.0);
-            ui.heading(managed.downloaded_tools_clean_progress_title);
+            crate::gui::widgets::dialog_title(
+                ui,
+                &theme,
+                managed.downloaded_tools_clean_progress_title,
+            );
             ui.add_space(8.0);
             let message = if attention_count == 0 {
                 managed.downloaded_tools_clean_complete.to_string()
@@ -216,12 +225,21 @@ fn render_complete(ctx: &egui::Context, text: &LocaleText, attention_count: usiz
                     .downloaded_tools_clean_complete_with_errors_fmt
                     .replace("{count}", &attention_count.to_string())
             };
-            ui.label(message);
+            crate::gui::widgets::dialog_body(ui, &theme, &message);
             ui.add_space(12.0);
-            if ui.button(managed.downloaded_tools_clean_close).clicked() {
+            if crate::gui::widgets::filled_button(
+                ui,
+                managed.downloaded_tools_clean_close,
+                theme.neutral_fill(),
+                theme.on_surface(),
+                16,
+            )
+            .clicked()
+            {
                 set_state(CleanupDialogState::Idle);
             }
-        });
+        },
+    );
     if modal.should_close() {
         set_state(CleanupDialogState::Idle);
     }
@@ -421,7 +439,9 @@ fn downloads_active(manager: &DownloadManager) -> bool {
         status.lock().is_ok_and(|status| {
             matches!(
                 *status,
-                InstallStatus::Downloading(_) | InstallStatus::Extracting
+                InstallStatus::Downloading(_)
+                    | InstallStatus::Extracting
+                    | InstallStatus::Finalizing
             )
         })
     };

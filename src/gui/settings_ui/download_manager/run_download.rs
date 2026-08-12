@@ -6,7 +6,10 @@ use super::DownloadManager;
 use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus};
 use super::utils::{append_cookie_args, fetch_video_formats, log};
 use super::ytdlp_process::run_ytdlp_download_attempt;
-use crate::component_registry::external_tools::{self, ExternalTool, ExternalToolUse};
+use crate::component_registry::capabilities;
+use crate::component_registry::external_tools::{
+    self, ExternalTool, ExternalToolInstallEvent, ExternalToolUse,
+};
 
 fn set_download_stage(state: &Arc<Mutex<DownloadState>>, message: impl Into<String>) {
     *state.lock().unwrap() = DownloadState::Downloading(0.0, message.into());
@@ -43,15 +46,71 @@ fn prepare_tool(
     if cancel.load(Ordering::Relaxed) {
         return Err("Cancelled".to_string());
     }
-    set_download_stage(state, format!("Preparing pinned {}...", tool.id()));
+    let component_name = localized_tool_name(tool);
+    set_download_stage(
+        state,
+        external_tools::localized_install_event_message(
+            &component_name,
+            ExternalToolInstallEvent::Preparing,
+        ),
+    );
+
+    // An ordinary media download must not turn an already-ready dependency
+    // back into a visible installation. Acquisition performs the locked hash
+    // verification needed before launch; only enter the download state when
+    // the component is actually missing or needs repair.
+    if let Ok(component) = capabilities::acquire_external_tool(tool) {
+        *status.lock().unwrap() = InstallStatus::Installed;
+        return Ok(component);
+    }
+
     *status.lock().unwrap() = InstallStatus::Downloading(0.0);
-    let badge =
-        crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&localized_tool_name(tool));
-    let progress_status = status.clone();
-    let result = external_tools::ensure(tool, cancel, move |done, total| {
-        badge.report(done, total);
-        *progress_status.lock().unwrap() =
-            InstallStatus::Downloading(done as f32 / total.max(1) as f32);
+    let preparing_message = external_tools::localized_install_event_message(
+        &component_name,
+        ExternalToolInstallEvent::Preparing,
+    );
+    let checking_message = external_tools::localized_install_event_message(
+        &component_name,
+        ExternalToolInstallEvent::Checking,
+    );
+    let downloading_message = external_tools::localized_install_event_message(
+        &component_name,
+        ExternalToolInstallEvent::Downloading {
+            downloaded: 0,
+            total: 1,
+        },
+    );
+    let extracting_message = external_tools::localized_install_event_message(
+        &component_name,
+        ExternalToolInstallEvent::Extracting,
+    );
+    let finalizing_message = external_tools::localized_install_event_message(
+        &component_name,
+        ExternalToolInstallEvent::Finalizing,
+    );
+    let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&component_name);
+    let event_status = status.clone();
+    let event_state = state.clone();
+    let result = capabilities::resolve_external_tool(tool, cancel, move |event| {
+        let phase = match event {
+            ExternalToolInstallEvent::Preparing => &preparing_message,
+            ExternalToolInstallEvent::Checking => &checking_message,
+            ExternalToolInstallEvent::Downloading { .. } => &downloading_message,
+            ExternalToolInstallEvent::Extracting => &extracting_message,
+            ExternalToolInstallEvent::Finalizing => &finalizing_message,
+        };
+        external_tools::report_badge_event(&badge, &component_name, event);
+        let next_status = match event {
+            ExternalToolInstallEvent::Preparing => InstallStatus::Checking,
+            ExternalToolInstallEvent::Checking => InstallStatus::Checking,
+            ExternalToolInstallEvent::Downloading { downloaded, total } => {
+                InstallStatus::Downloading(downloaded as f32 / total.max(1) as f32)
+            }
+            ExternalToolInstallEvent::Extracting => InstallStatus::Extracting,
+            ExternalToolInstallEvent::Finalizing => InstallStatus::Finalizing,
+        };
+        *event_status.lock().unwrap() = next_status;
+        set_download_stage(&event_state, phase.clone());
     });
     match result {
         Ok(component) => {
@@ -64,6 +123,10 @@ fn prepare_tool(
         }
         Err(error) => {
             let message = format!("Prepare {}: {error:#}", tool.id());
+            crate::log_info!(
+                "[VideoDownloader] dependency_prepare_failed component={} error={error:#}",
+                tool.id()
+            );
             *status.lock().unwrap() = InstallStatus::Error(message.clone());
             Err(message)
         }
@@ -116,7 +179,10 @@ impl DownloadManager {
                         *use_subtitles.lock().unwrap() = false;
                     }
                 }
-                Err(message) => *error.lock().unwrap() = Some(message),
+                Err(message) => {
+                    crate::log_info!("[VideoDownloader] analysis_failed error={message}");
+                    *error.lock().unwrap() = Some(message);
+                }
             }
             *is_analyzing.lock().unwrap() = false;
         });
@@ -166,7 +232,7 @@ impl DownloadManager {
                 let ytdlp = prepare_tool(ExternalTool::YtDlp, &ytdlp_status, &state, &cancel)?;
                 let ffmpeg = prepare_tool(ExternalTool::Ffmpeg, &ffmpeg_status, &state, &cancel)?;
                 let deno = if cookie_browser == CookieBrowser::None {
-                    external_tools::acquire_installed(ExternalTool::Deno).ok()
+                    capabilities::acquire_external_tool(ExternalTool::Deno).ok()
                 } else {
                     Some(prepare_tool(
                         ExternalTool::Deno,
@@ -175,7 +241,7 @@ impl DownloadManager {
                         &cancel,
                     )?)
                 };
-                set_download_stage(&state, "Starting pinned yt-dlp...");
+                set_download_stage(&state, "Starting yt-dlp...");
 
                 let mut args = vec![
                     "--encoding".to_string(),
@@ -255,7 +321,7 @@ impl DownloadManager {
                 )
             };
 
-            let result = match attempt("verified") {
+            let result = match attempt("current") {
                 Ok(path) => Ok(path),
                 Err(error) if cancel.load(Ordering::Relaxed) => Err(error),
                 Err(first_error) => {
@@ -272,11 +338,9 @@ impl DownloadManager {
                                 .join(", ");
                             log(
                                 &logs,
-                                format!(
-                                    "Newer verified tools are available ({names}); retrying once."
-                                ),
+                                format!("Tool updates are available ({names}); retrying once."),
                             );
-                            attempt("verified update")
+                            attempt("updated")
                         }
                         Ok(_) => Err(first_error),
                         Err(refresh_error) => {
@@ -297,6 +361,7 @@ impl DownloadManager {
                 }
                 Err(error) if finish_if_cancelled(&state, &logs, &cancel, &error) => {}
                 Err(error) => {
+                    crate::log_info!("[VideoDownloader] download_failed error={error}");
                     *state.lock().unwrap() = DownloadState::Error(error.clone());
                     log(&logs, format!("Download failed: {error}"));
                 }

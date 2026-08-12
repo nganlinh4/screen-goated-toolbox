@@ -1,9 +1,11 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.overlay
 
 import android.content.Context
+import android.hardware.display.DisplayManager
 import android.hardware.input.InputManager
 import android.os.Build
 import android.provider.Settings
+import android.view.Display
 import android.view.WindowManager
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 
@@ -12,6 +14,7 @@ internal class PhoneControlOverlayWindowHost private constructor(
     val windowManager: WindowManager,
     val windowType: Int,
     val rendererAlpha: Float,
+    val displayId: Int,
     private val accessibilityOwner: SgtAccessibilityService?,
 ) {
     val trusted: Boolean
@@ -29,15 +32,17 @@ internal class PhoneControlOverlayWindowHost private constructor(
     companion object {
         fun resolve(baseContext: Context): PhoneControlOverlayWindowHost {
             SgtAccessibilityService.instance?.let { service ->
+                val displayContext = service.defaultDisplayContext()
                 return PhoneControlOverlayWindowHost(
-                    context = service,
-                    windowManager = service.getSystemService(WindowManager::class.java),
+                    context = displayContext,
+                    windowManager = displayContext.getSystemService(WindowManager::class.java),
                     windowType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                     rendererAlpha = 1f,
+                    displayId = Display.DEFAULT_DISPLAY,
                     accessibilityOwner = service,
                 )
             }
-            val context = baseContext.applicationContext
+            val context = baseContext.applicationContext.defaultDisplayContext()
             val maximumAlpha = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 context.getSystemService(InputManager::class.java)
                     .maximumObscuringOpacityForTouch
@@ -49,8 +54,16 @@ internal class PhoneControlOverlayWindowHost private constructor(
                 windowManager = context.getSystemService(WindowManager::class.java),
                 windowType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 rendererAlpha = maximumAlpha.coerceIn(0f, 1f),
+                displayId = Display.DEFAULT_DISPLAY,
                 accessibilityOwner = null,
             )
         }
     }
+}
+
+private fun Context.defaultDisplayContext(): Context {
+    val display = getSystemService(DisplayManager::class.java)
+        .getDisplay(Display.DEFAULT_DISPLAY)
+        ?: return this
+    return createDisplayContext(display)
 }

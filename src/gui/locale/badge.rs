@@ -1,6 +1,8 @@
 pub struct BadgeLocaleText {
     pub downloading_component_fmt: &'static str,
     pub preparing_component_fmt: &'static str,
+    pub checking_component_fmt: &'static str,
+    pub finalizing_component_fmt: &'static str,
     pub component_installed_fmt: &'static str,
     pub component_install_failed_fmt: &'static str,
     pub removing_component_fmt: &'static str,

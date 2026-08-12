@@ -1,32 +1,51 @@
 use crate::APP;
+#[cfg(feature = "recorder-worker")]
 use std::cell::RefCell;
+#[cfg(feature = "recorder-worker")]
 use std::collections::VecDeque;
+#[cfg(feature = "recorder-worker")]
+use std::sync::Once;
+#[cfg(feature = "recorder-worker")]
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-use std::sync::{LazyLock, Mutex, Once};
+use std::sync::{LazyLock, Mutex};
+#[cfg(feature = "recorder-worker")]
 use windows::Win32::Foundation::*;
+#[cfg(feature = "recorder-worker")]
 use windows::Win32::UI::WindowsAndMessaging::*;
+#[cfg(feature = "recorder-worker")]
 use wry::{WebContext, WebView};
 
 #[path = "../auto_copy_badge_html.rs"]
 mod html;
+#[cfg(feature = "recorder-worker")]
 mod messages;
 mod progress;
+#[cfg(feature = "recorder-worker")]
 mod window;
 
 pub use progress::DownloadProgressBadge;
 
+#[cfg(feature = "recorder-worker")]
 pub(super) static REGISTER_BADGE_CLASS: Once = Once::new();
 
 // Thread-safe handle using atomic (like preset_wheel)
+#[cfg(feature = "recorder-worker")]
 pub(super) static BADGE_HWND: AtomicIsize = AtomicIsize::new(0);
+#[cfg(feature = "recorder-worker")]
 pub(super) static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "recorder-worker")]
 pub(super) static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 
 // Messages
+#[cfg(feature = "recorder-worker")]
 pub(super) const WM_APP_PROCESS_QUEUE: u32 = WM_USER + 201;
+#[cfg(feature = "recorder-worker")]
 pub(super) const WM_APP_UPDATE_PROGRESS: u32 = WM_USER + 202;
+#[cfg(feature = "recorder-worker")]
 pub(super) const WM_APP_HIDE_PROGRESS: u32 = WM_USER + 203;
+#[cfg(feature = "recorder-worker")]
 pub(super) const WM_APP_HIDE_BADGE: u32 = WM_USER + 204;
+#[cfg(feature = "recorder-worker")]
 pub(super) const WM_APP_UPDATE_THEME: u32 = WM_USER + 205;
 
 /// Notification themes
@@ -43,6 +62,7 @@ pub enum NotificationType {
     Error,   // Red - error (e.g., no writable area for auto-paste)
 }
 
+#[cfg(feature = "recorder-worker")]
 #[derive(Clone, Debug)]
 pub(super) struct PendingNotification {
     pub title: String,
@@ -58,19 +78,28 @@ pub(super) struct ProgressNotification {
     pub progress: f32,
 }
 
+#[cfg(feature = "recorder-worker")]
 pub(super) static PENDING_QUEUE: LazyLock<Mutex<VecDeque<PendingNotification>>> =
     LazyLock::new(|| Mutex::new(VecDeque::new()));
 pub(super) static ACTIVE_PROGRESS: LazyLock<Mutex<Option<ProgressNotification>>> =
     LazyLock::new(|| Mutex::new(None));
 
+#[cfg(feature = "recorder-worker")]
 thread_local! {
     pub(super) static BADGE_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
     pub(super) static BADGE_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }
 
 // Dimensions
+#[cfg(feature = "recorder-worker")]
 pub(super) const BADGE_WIDTH: i32 = 1200; // Super wide
+#[cfg(feature = "recorder-worker")]
 pub(super) const BADGE_HEIGHT: i32 = 400; // Taller for stacking
+
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) fn document() -> String {
+    html::get_badge_html()
+}
 
 pub fn locale_text() -> crate::gui::locale::BadgeLocaleText {
     let ui_language = APP
@@ -90,18 +119,7 @@ pub fn format_locale(template: &str, replacements: &[(&str, &str)]) -> String {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn update_theme(is_dark: bool) {
-    let hwnd_value = BADGE_HWND.load(Ordering::SeqCst);
-    if hwnd_value != 0 {
-        let hwnd = HWND(hwnd_value as *mut std::ffi::c_void);
-        unsafe {
-            let _ = PostMessageW(
-                Some(hwnd),
-                WM_APP_UPDATE_THEME,
-                WPARAM(usize::from(is_dark)),
-                LPARAM(0),
-            );
-        }
-    }
+    crate::overlay::status_compositor::update_theme(is_dark);
 }
 
 pub fn enqueue_notification_with_duration(
@@ -110,6 +128,17 @@ pub fn enqueue_notification_with_duration(
     n_type: NotificationType,
     duration_ms: Option<u32>,
 ) {
+    #[cfg(not(feature = "recorder-worker"))]
+    {
+        crate::overlay::status_compositor::add_notification(
+            title,
+            snippet,
+            notification_kind(n_type),
+            duration_ms,
+        );
+        return;
+    }
+    #[cfg(feature = "recorder-worker")]
     {
         let mut q = PENDING_QUEUE.lock().unwrap();
         q.push_back(PendingNotification {
@@ -119,7 +148,18 @@ pub fn enqueue_notification_with_duration(
             duration_ms,
         });
     }
+    #[cfg(feature = "recorder-worker")]
     ensure_window_and_post(WM_APP_PROCESS_QUEUE);
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+fn notification_kind(notification: NotificationType) -> &'static str {
+    match notification {
+        NotificationType::Success => "success",
+        NotificationType::Info => "info",
+        NotificationType::Update => "update",
+        NotificationType::Error => "error",
+    }
 }
 
 fn enqueue_notification(title: String, snippet: String, n_type: NotificationType) {
@@ -228,6 +268,13 @@ fn show_progress_notification(title: &str, snippet: &str, progress: f32) {
             progress: progress.clamp(0.0, 100.0),
         });
     }
+    #[cfg(not(feature = "recorder-worker"))]
+    crate::overlay::status_compositor::progress_upsert(
+        title.to_string(),
+        snippet.to_string(),
+        progress,
+    );
+    #[cfg(feature = "recorder-worker")]
     ensure_window_and_post(WM_APP_UPDATE_PROGRESS);
 }
 
@@ -246,6 +293,13 @@ fn update_progress_notification_if_owned(title: &str, snippet: &str, progress: f
         }
     };
     if updated {
+        #[cfg(not(feature = "recorder-worker"))]
+        crate::overlay::status_compositor::progress_upsert(
+            title.to_string(),
+            snippet.to_string(),
+            progress,
+        );
+        #[cfg(feature = "recorder-worker")]
         ensure_window_and_post(WM_APP_UPDATE_PROGRESS);
     }
 }
@@ -263,6 +317,9 @@ fn hide_progress_notification_for(title: &str) {
         }
     };
     if removed {
+        #[cfg(not(feature = "recorder-worker"))]
+        crate::overlay::status_compositor::progress_remove();
+        #[cfg(feature = "recorder-worker")]
         ensure_window_and_post(WM_APP_HIDE_PROGRESS);
     }
 }
@@ -271,6 +328,7 @@ fn progress_is_owned(active: Option<&ProgressNotification>, title: &str) -> bool
     active.is_some_and(|progress| progress.title == title)
 }
 
+#[cfg(feature = "recorder-worker")]
 pub(super) fn escape_js_text(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -278,6 +336,7 @@ pub(super) fn escape_js_text(text: &str) -> String {
         .replace('\n', " ")
 }
 
+#[cfg(feature = "recorder-worker")]
 fn ensure_window_and_post(msg: u32) {
     // Check if already warmed up
     if !IS_WARMED_UP.load(Ordering::SeqCst) {

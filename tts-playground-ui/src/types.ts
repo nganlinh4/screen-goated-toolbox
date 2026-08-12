@@ -146,6 +146,9 @@ export type LocaleStrings = {
   downloadWav: string;
   downloadMp3: string;
   recent: string;
+  recentLimit: string;
+  clearRecent: string;
+  deleteRecent: string;
   voicePerLanguage: string;
   addLanguage: string;
   reset: string;
@@ -231,6 +234,7 @@ export type TtsPlaygroundState = {
   audioEdit: AudioEditSettings;
   s2sTargetLanguage: string;
   player: PlayerState;
+  recentLimit: number;
   catalogs: ProviderCatalogs;
   strings: LocaleStrings;
 };

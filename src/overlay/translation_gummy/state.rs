@@ -25,13 +25,14 @@ pub(super) struct UiState {
 impl UiState {
     fn from_config() -> Self {
         let applied = super::current_settings();
+        let transcripts = load_persisted_transcripts(applied.max_transcript_items);
         Self {
             draft: applied.clone(),
             applied,
             dirty: false,
             is_running: false,
             connection_state: TranslationGummyConnectionState::NotConfigured,
-            transcripts: load_persisted_transcripts(),
+            transcripts,
             last_error: None,
             hotkey_error: None,
             audio_level: 0.0,
@@ -68,6 +69,7 @@ struct WebPayload {
     hotkey_error: Option<String>,
     last_error: Option<String>,
     transcripts: Vec<TranslationGummyTranscriptItem>,
+    transcript_limit: usize,
     guide_seen: bool,
     tts_model: String,
     tts_voice: String,
@@ -96,6 +98,9 @@ struct WebStrings {
     guide: String,
     guide_ok: String,
     chat_history: String,
+    max_items: String,
+    clear_all: String,
+    delete_item: String,
     current_model: String,
     current_voice: String,
 }
@@ -141,11 +146,7 @@ pub(super) fn insert_session_separator() {
                 is_final: true,
                 lang: String::new(),
             });
-        // Keep max 200 items (100 pairs + separators)
-        if state.transcripts.len() > 200 {
-            let overflow = state.transcripts.len() - 200;
-            state.transcripts.drain(0..overflow);
-        }
+        prune_transcripts(&mut state.transcripts, state.applied.max_transcript_items);
         state.last_error = None;
     });
     persist_transcripts();
@@ -250,10 +251,7 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
                 is_final,
                 lang,
             });
-            if state.transcripts.len() > 200 {
-                let overflow = state.transcripts.len() - 200;
-                state.transcripts.drain(0..overflow);
-            }
+            prune_transcripts(&mut state.transcripts, state.applied.max_transcript_items);
         }
     });
 }
@@ -274,6 +272,76 @@ pub(super) fn finalize_transcripts() {
         }
     });
     persist_transcripts();
+}
+
+pub(super) fn set_transcript_limit(limit: usize) {
+    let limit = limit.clamp(
+        crate::config::types::MIN_TRANSCRIPT_ITEMS,
+        crate::config::types::MAX_TRANSCRIPT_ITEMS,
+    );
+    if let Ok(mut app) = crate::APP.lock() {
+        app.config.translation_gummy.max_transcript_items = limit;
+        crate::config::save_config(&app.config);
+    }
+    with_state(|state| {
+        state.applied.max_transcript_items = limit;
+        state.draft.max_transcript_items = limit;
+        prune_transcripts(&mut state.transcripts, limit);
+    });
+    persist_transcripts();
+    sync_to_webview();
+}
+
+pub(super) fn clear_transcripts() {
+    with_state(|state| state.transcripts.clear());
+    persist_transcripts();
+    sync_to_webview();
+}
+
+pub(super) fn delete_transcript_group(id: u64) {
+    with_state(|state| {
+        let Some(index) = state.transcripts.iter().position(|item| item.id == id) else {
+            return;
+        };
+        let role = state.transcripts[index].role;
+        let (start, end) = if role == "input"
+            && state.transcripts.get(index + 1).map(|item| item.role) == Some("output")
+        {
+            (index, index + 2)
+        } else if role == "output" && index > 0 && state.transcripts[index - 1].role == "input" {
+            (index - 1, index + 1)
+        } else {
+            (index, index + 1)
+        };
+        state.transcripts.drain(start..end);
+        collapse_separators(&mut state.transcripts);
+    });
+    persist_transcripts();
+    sync_to_webview();
+}
+
+fn prune_transcripts(items: &mut Vec<TranslationGummyTranscriptItem>, limit: usize) {
+    let overflow = items.len().saturating_sub(limit);
+    if overflow > 0 {
+        items.drain(0..overflow);
+        if items.first().map(|item| item.role) == Some("output") {
+            items.remove(0);
+        }
+        collapse_separators(items);
+    }
+}
+
+fn collapse_separators(items: &mut Vec<TranslationGummyTranscriptItem>) {
+    while items.first().map(|item| item.role) == Some("separator") {
+        items.remove(0);
+    }
+    let mut previous_separator = false;
+    items.retain(|item| {
+        let separator = item.role == "separator";
+        let keep = !(separator && previous_separator);
+        previous_separator = separator;
+        keep
+    });
 }
 
 pub(super) fn request_sync() {
@@ -315,6 +383,7 @@ pub(super) fn payload_json() -> Option<String> {
             _ => err,
         }),
         transcripts: state.transcripts.clone(),
+        transcript_limit: state.applied.max_transcript_items,
         guide_seen: crate::APP
             .lock()
             .map(|a| a.config.translation_gummy.guide_seen)
@@ -389,6 +458,9 @@ pub(super) fn payload_json() -> Option<String> {
                 .translation_gummy
                 .translation_gummy_chat_history
                 .to_string(),
+            max_items: text.workspace.max_items_label.to_string(),
+            clear_all: text.workspace.clear_all_history_btn.to_string(),
+            delete_item: text.overlay.history_delete_tooltip.to_string(),
             current_model: text
                 .translation_gummy
                 .translation_gummy_current_model
@@ -481,7 +553,7 @@ pub(super) fn persist_transcripts() {
     }
 }
 
-fn load_persisted_transcripts() -> Vec<TranslationGummyTranscriptItem> {
+fn load_persisted_transcripts(limit: usize) -> Vec<TranslationGummyTranscriptItem> {
     let path = if transcripts_path().exists() {
         transcripts_path()
     } else {
@@ -495,7 +567,7 @@ fn load_persisted_transcripts() -> Vec<TranslationGummyTranscriptItem> {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
-    items
+    let mut loaded = items
         .into_iter()
         .map(|p| {
             let role: &'static str = match p.role.as_str() {
@@ -512,5 +584,10 @@ fn load_persisted_transcripts() -> Vec<TranslationGummyTranscriptItem> {
                 lang: p.lang,
             }
         })
-        .collect()
+        .collect();
+    prune_transcripts(&mut loaded, limit);
+    loaded
 }
+
+#[cfg(test)]
+mod tests;

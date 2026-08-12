@@ -117,7 +117,8 @@ pub(crate) fn open(component: WebAssetComponent) -> Result<WebAssetPack> {
 }
 
 pub(crate) fn launch_when_ready(component: WebAssetComponent, launch: fn()) {
-    if is_installed(component) {
+    let update_due = super::update_catalog::refresh_due(component.id(), "before-open");
+    if is_installed(component) && !update_due {
         launch();
         return;
     }
@@ -130,6 +131,7 @@ pub(crate) fn launch_when_ready(component: WebAssetComponent, launch: fn()) {
         }
     }
     std::thread::spawn(move || {
+        super::update_catalog::refresh_for_use(component.id(), "before-open");
         let result = download(component, Arc::new(AtomicBool::new(false)), true);
         INSTALLING
             .lock()

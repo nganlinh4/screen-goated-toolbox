@@ -1,8 +1,4 @@
-//! Structured telemetry for Computer Control.
-//!
-//! The live CC harness used to print ad-hoc `[cc] ...` lines from many threads.
-//! This module keeps the readable breadcrumbs while also writing JSONL records
-//! with stable session/turn/step identifiers and monotonic timing.
+//! Structured Computer Control breadcrumbs and bounded JSONL session telemetry.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,6 +8,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use serde_json::{Value, json};
 
 mod privacy;
+#[path = "telemetry_retention.rs"]
+mod retention;
 
 static START: OnceLock<Instant> = OnceLock::new();
 static TURN_ID: AtomicU64 = AtomicU64::new(0);
@@ -522,6 +520,7 @@ fn new_session_state() -> SessionState {
     let root = std::env::var_os("CC_TRACE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| crate::paths::app_local_data_dir().join("cc-trace"));
+    retention::maintain(&root);
     let sequence = SESSION_SEQUENCE.fetch_add(1, Ordering::SeqCst) + 1;
     let id = format!("cc-{}-{}-{sequence}", unix_ms(), std::process::id());
     SessionState {

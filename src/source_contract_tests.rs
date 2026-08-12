@@ -59,3 +59,24 @@ fn restore_kernel_event_has_one_wait_owner() {
         );
     }
 }
+
+#[test]
+fn egui_modals_use_the_shared_material_surface() {
+    let gui_root = manifest_path("src/gui");
+    let shared_surface = gui_root.join("widgets.rs");
+    let mut sources = Vec::new();
+    rust_sources_below(&gui_root, &mut sources);
+
+    for path in sources {
+        if path == shared_surface {
+            continue;
+        }
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        assert!(
+            !source.contains("egui::Modal::new"),
+            "{} bypasses gui::widgets::material_modal",
+            path.display()
+        );
+    }
+}

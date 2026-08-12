@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use sha2::{Digest, Sha256};
 
 use super::receipt::{
@@ -14,11 +14,15 @@ use super::receipt::{
 use super::{ComponentLease, RemovalOutcome};
 
 mod install;
+mod progress;
 mod recovery;
 mod recovery_io;
 mod staging;
 mod update;
 
+pub(crate) use progress::{
+    ExternalToolInstallEvent, localized_install_event_message, report_badge_event,
+};
 pub(crate) use recovery::{ExternalToolRecovery, RecoveryCleanupOutcome};
 
 const ARCHITECTURE: &str = "x64";
@@ -46,6 +50,10 @@ impl ExternalTool {
         }
     }
 
+    pub(crate) fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|tool| tool.id() == id)
+    }
+
     const fn executable(self) -> &'static str {
         match self {
             Self::YtDlp => "bin/x64/yt-dlp.exe",
@@ -55,7 +63,7 @@ impl ExternalTool {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum ExternalArchiveFormat {
     Raw,
     Zip,
@@ -111,6 +119,10 @@ pub(crate) struct ExternalToolUse {
 }
 
 impl ExternalToolUse {
+    pub(crate) fn tool(&self) -> ExternalTool {
+        self.tool
+    }
+
     pub(crate) fn executable(&self) -> PathBuf {
         self.root.join(self.tool.executable())
     }
@@ -123,15 +135,50 @@ impl ExternalToolUse {
 pub(crate) fn ensure(
     tool: ExternalTool,
     cancelled: &AtomicBool,
-    on_progress: impl Fn(u64, u64),
+    on_event: impl Fn(ExternalToolInstallEvent),
 ) -> Result<ExternalToolUse> {
-    let delivery = delivery(tool)?;
+    let delivery = match delivery(tool) {
+        Ok(delivery) => delivery,
+        Err(error) => {
+            crate::log_info!(
+                "[ExternalTools] ensure_failed component={} stage=resolve_contract error={error:#}",
+                tool.id()
+            );
+            return Err(error);
+        }
+    };
+    let target = version_root(delivery)
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|error| format!("<unresolved: {error:#}>"));
+    crate::log_info!(
+        "[ExternalTools] ensure_start component={} version={} format={:?} target={target}",
+        delivery.id,
+        delivery.version,
+        delivery.archive_format
+    );
+    on_event(ExternalToolInstallEvent::Preparing);
     // External operations intentionally coalesce in-process callers before
     // taking the cross-process registry mutex. Generic removal never takes
     // this local lock, so the local -> global order cannot form a cycle.
     let _local = lock_tool_mutation(tool);
-    let _global = super::acquire_mutation_guard()?;
-    install::ensure(tool, delivery, cancelled, on_progress)
+    let result = (|| {
+        let _global = super::acquire_mutation_guard()
+            .with_context(|| format!("acquire registry mutation guard for {}", delivery.id))?;
+        install::ensure(tool, delivery, cancelled, on_event)
+    })();
+    match &result {
+        Ok(_) => crate::log_info!(
+            "[ExternalTools] ensure_ready component={} version={} target={target}",
+            delivery.id,
+            delivery.version
+        ),
+        Err(error) => crate::log_info!(
+            "[ExternalTools] ensure_failed component={} version={} target={target} error={error:#}",
+            delivery.id,
+            delivery.version
+        ),
+    }
+    result
 }
 
 pub(crate) fn acquire_installed(tool: ExternalTool) -> Result<ExternalToolUse> {
@@ -222,8 +269,8 @@ pub(crate) fn schedule_periodic_updates() {
         let name = localized_tool_name(ExternalTool::Ffmpeg);
         let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&name);
         let cancelled = AtomicBool::new(false);
-        let result = ensure(ExternalTool::Ffmpeg, &cancelled, |done, total| {
-            badge.report(done, total);
+        let result = ensure(ExternalTool::Ffmpeg, &cancelled, |event| {
+            report_badge_event(&badge, &name, event);
         });
         badge.finish();
         match result {
@@ -302,7 +349,7 @@ fn has_prior_managed_install(tool: ExternalTool) -> bool {
     })
 }
 
-fn localized_tool_name(tool: ExternalTool) -> String {
+pub(crate) fn localized_tool_name(tool: ExternalTool) -> String {
     let language = crate::APP
         .lock()
         .map(|app| app.config.ui_language.clone())

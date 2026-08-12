@@ -10,7 +10,8 @@ use crate::gui::locale::LocaleText;
 
 use super::state::{self, CurrentClip, RecentClip};
 
-pub(super) const RECENT_LIMIT: usize = 5;
+pub(super) const MIN_RECENT_LIMIT: usize = 5;
+pub(super) const MAX_RECENT_LIMIT: usize = 50;
 
 pub(super) static ID_GEN: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(0));
 pub(super) static CANCEL_FLAG: LazyLock<Mutex<Option<Arc<AtomicBool>>>> =
@@ -59,20 +60,34 @@ pub(super) fn next_clip_id() -> String {
     format!("clip-{id}")
 }
 
+pub(super) fn recent_limit() -> usize {
+    crate::APP
+        .lock()
+        .map(|app| {
+            app.config
+                .tts_playground
+                .recent_clip_limit
+                .clamp(MIN_RECENT_LIMIT, MAX_RECENT_LIMIT)
+        })
+        .unwrap_or(10)
+}
+
 pub(super) fn cache_put(id: String, audio: TtsCollectedAudio) {
+    let limit = recent_limit();
     let mut cache = CLIP_CACHE.lock().unwrap();
     cache.retain(|(existing, _)| existing != &id);
     cache.insert(0, (id, Arc::new(audio)));
-    while cache.len() > RECENT_LIMIT {
+    while cache.len() > limit {
         cache.pop();
     }
 }
 
 pub(super) fn cache_method(id: String, method: TtsMethod) {
+    let limit = recent_limit();
     let mut methods = CLIP_METHODS.lock().unwrap();
     methods.retain(|(existing, _)| existing != &id);
     methods.insert(0, (id, method));
-    while methods.len() > RECENT_LIMIT {
+    while methods.len() > limit {
         methods.pop();
     }
 }
@@ -93,8 +108,30 @@ pub(super) fn hydrate_recent_once() {
     if already_loaded {
         return;
     }
-    let loaded = super::library::load_recent();
+    let retained = crate::APP.lock().ok().map(|app| {
+        let mut retained = app
+            .config
+            .step_audio_reference_voices
+            .iter()
+            .map(|reference| reference.audio_path.clone())
+            .collect::<Vec<_>>();
+        retained.push(
+            app.config
+                .tts_playground
+                .step_audio_edit_settings
+                .source_audio_path
+                .clone(),
+        );
+        retained
+    });
+    if let Some(retained) = retained {
+        super::library::prune_managed_audio(&retained);
+    }
+    let loaded = super::library::load_recent(recent_limit());
     if loaded.is_empty() {
+        // Reconcile app-owned clip files even when the index is empty or every
+        // indexed WAV is unreadable; otherwise those files can accumulate forever.
+        super::library::save_recent(&[], &[]);
         return;
     }
     let mut recent = Vec::new();
@@ -120,6 +157,7 @@ pub(super) fn hydrate_recent_once() {
         s.current = current;
         s.recent = recent;
     });
+    persist_recent();
 }
 
 pub(super) fn persist_recent() {
@@ -137,6 +175,59 @@ pub(super) fn persist_recent() {
         })
         .collect::<Vec<_>>();
     super::library::save_recent(&clips, &methods);
+}
+
+pub(super) fn set_recent_limit(limit: usize) {
+    let limit = limit.clamp(MIN_RECENT_LIMIT, MAX_RECENT_LIMIT);
+    if let Ok(mut app) = crate::APP.lock() {
+        app.config.tts_playground.recent_clip_limit = limit;
+        crate::config::save_config(&app.config);
+    }
+    trim_recent(limit);
+    persist_recent();
+    state::sync_to_webview();
+}
+
+pub(super) fn clear_recent() {
+    let ids = state::with_state(|s| {
+        let ids = s
+            .recent
+            .iter()
+            .map(|clip| clip.id.clone())
+            .collect::<Vec<_>>();
+        s.recent.clear();
+        s.current = None;
+        s.position_sec = 0.0;
+        s.is_playing = false;
+        ids
+    });
+    for id in ids {
+        cache_remove(&id);
+    }
+    crate::api::tts::TTS_MANAGER.stop();
+    *PLAYBACK_TIMER.lock().unwrap() = None;
+    persist_recent();
+    state::sync_to_webview();
+}
+
+fn trim_recent(limit: usize) {
+    let removed = state::with_state(|s| {
+        let start = limit.min(s.recent.len());
+        let removed = s
+            .recent
+            .drain(start..)
+            .map(|clip| clip.id)
+            .collect::<Vec<_>>();
+        if let Some(current) = &s.current
+            && removed.contains(&current.id)
+        {
+            s.current = None;
+        }
+        removed
+    });
+    for id in removed {
+        cache_remove(&id);
+    }
 }
 
 pub(super) fn describe_voice(method: TtsMethod) -> String {

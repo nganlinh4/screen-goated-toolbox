@@ -291,9 +291,11 @@ class VideoRenderer {
     viewH: number,
     srcCropW?: number,
     srcCropH?: number,
-    videoScale?: number
+    videoScale?: number,
   ): ZoomKeyframe {
-    const state = calculateCurrentZoomStateInternal(currentTime, segment, viewW, viewH, srcCropW, srcCropH, videoScale);
+    const state = calculateCurrentZoomStateInternal(
+      currentTime, segment, viewW, viewH, srcCropW, srcCropH, videoScale,
+    );
     this.lastCalculatedState = state;
     return state;
   }

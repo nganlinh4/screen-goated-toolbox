@@ -13,8 +13,7 @@
     "test:unit": "vitest run tests/unit",
     "test:components": "vitest run tests/components",
     "test:e2e": "playwright test tests/e2e",
-    "test:wry": "node tests/wry/run-wry-smoke.mjs",
-    "test:wry:playwright": "node tests/wry/ensure-windows-debug-build.mjs && playwright test tests/wry",
+    "test:wry": "node tests/wry/ensure-windows-debug-build.mjs && playwright test tests/wry",
     "test:perf": "playwright test tests/perf",
     "test:perf:update": "SGT_UPDATE_PERF_BASELINE=1 playwright test tests/perf"
   },

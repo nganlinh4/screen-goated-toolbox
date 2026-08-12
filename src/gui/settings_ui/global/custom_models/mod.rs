@@ -31,10 +31,11 @@ pub fn render_custom_models_modal(
 
     let theme = AppTheme::from_ui(ui);
     let mut changed = false;
-    let modal = egui::Modal::new(egui::Id::new("custom_models_modal"))
-        .backdrop_color(theme.scrim_color())
-        .frame(theme.dialog_frame())
-        .show(ui.ctx(), |ui| {
+    let modal = crate::gui::widgets::material_modal(
+        ui.ctx(),
+        &theme,
+        egui::Id::new("custom_models_modal"),
+        |ui| {
             ui.set_width(1120.0);
             ui.set_min_height(580.0);
 
@@ -121,7 +122,8 @@ pub fn render_custom_models_modal(
                         }
                     });
                 });
-        });
+        },
+    );
 
     if modal.should_close() {
         *show_modal = false;

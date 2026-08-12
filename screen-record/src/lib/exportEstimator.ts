@@ -8,6 +8,7 @@ import {
   type ExportEstimateCalibrationSnapshot,
 } from './exportEstimatorCalibration';
 import { clamp } from './mathUtils';
+import { resolveCodecAlignedCropGeometry } from './videoGeometry';
 export {
   ESTIMATE_CALIBRATION_STORAGE_KEY,
   MAX_CALIBRATION_BUCKETS,
@@ -451,19 +452,13 @@ export function getCanvasBaseDimensions(
   segment: VideoSegment | null, backgroundConfig: BackgroundConfig | undefined
 ): { baseW: number; baseH: number } {
   const crop = segment?.crop || { x: 0, y: 0, width: 1, height: 1 };
-  const croppedW = Math.round(videoWidth * crop.width);
-  const croppedH = Math.round(videoHeight * crop.height);
-  const hasLockedAutoCanvas =
-    backgroundConfig?.canvasMode === 'auto' &&
-    !!backgroundConfig.autoCanvasSourceId &&
-    !!backgroundConfig.canvasWidth &&
-    !!backgroundConfig.canvasHeight;
   const useExplicitCanvas =
-    (backgroundConfig?.canvasMode === 'custom' || hasLockedAutoCanvas) &&
+    backgroundConfig?.canvasMode === 'custom' &&
     backgroundConfig.canvasWidth &&
     backgroundConfig.canvasHeight;
+  const geometry = resolveCodecAlignedCropGeometry(videoWidth, videoHeight, crop);
   return {
-    baseW: useExplicitCanvas ? backgroundConfig!.canvasWidth! : croppedW,
-    baseH: useExplicitCanvas ? backgroundConfig!.canvasHeight! : croppedH,
+    baseW: useExplicitCanvas ? backgroundConfig!.canvasWidth! : geometry.width,
+    baseH: useExplicitCanvas ? backgroundConfig!.canvasHeight! : geometry.height,
   };
 }

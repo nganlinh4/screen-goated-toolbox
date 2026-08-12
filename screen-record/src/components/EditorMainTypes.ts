@@ -105,6 +105,8 @@ export interface EditorMainProps {
   webcamConfig: WebcamConfig;
   setWebcamConfig: Dispatch<SetStateAction<WebcamConfig>>;
   recentUploads: string[];
+  recentUploadLimit: number;
+  setRecentUploadLimit: (limit: number) => void;
   handleRemoveRecentUpload: (url: string) => void;
   handleBackgroundUpload: (e: ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;

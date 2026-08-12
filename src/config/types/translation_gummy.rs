@@ -35,6 +35,15 @@ pub struct TranslationGummySettings {
     pub hotkeys: Vec<Hotkey>,
     #[serde(default)]
     pub guide_seen: bool,
+    #[serde(default = "default_transcript_limit")]
+    pub max_transcript_items: usize,
+}
+
+pub const MIN_TRANSCRIPT_ITEMS: usize = 20;
+pub const MAX_TRANSCRIPT_ITEMS: usize = 200;
+
+fn default_transcript_limit() -> usize {
+    50
 }
 
 fn default_first_profile() -> TranslationGummyProfile {
@@ -70,6 +79,9 @@ impl TranslationGummySettings {
             hotkey: None,
             hotkeys,
             guide_seen: self.guide_seen,
+            max_transcript_items: self
+                .max_transcript_items
+                .clamp(MIN_TRANSCRIPT_ITEMS, MAX_TRANSCRIPT_ITEMS),
         }
     }
 
@@ -111,13 +123,17 @@ impl Default for TranslationGummySettings {
             hotkey: None,
             hotkeys: Vec::new(),
             guide_seen: false,
+            max_transcript_items: default_transcript_limit(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{TranslationGummyProfile, TranslationGummySettings};
+    use super::{
+        MAX_TRANSCRIPT_ITEMS, MIN_TRANSCRIPT_ITEMS, TranslationGummyProfile,
+        TranslationGummySettings,
+    };
 
     #[test]
     fn build_system_instruction_omits_blank_optional_fields() {
@@ -135,6 +151,7 @@ mod tests {
             hotkey: None,
             hotkeys: Vec::new(),
             guide_seen: false,
+            max_transcript_items: 50,
         };
 
         let prompt = settings.build_system_instruction();
@@ -153,5 +170,24 @@ mod tests {
         assert_eq!(settings.second.accent, "Busan");
         assert_eq!(settings.second.tone, "polite");
         assert!(settings.is_valid());
+        assert_eq!(settings.max_transcript_items, 50);
+    }
+
+    #[test]
+    fn transcript_limit_is_normalized_to_the_supported_range() {
+        let mut settings = TranslationGummySettings {
+            max_transcript_items: 0,
+            ..TranslationGummySettings::default()
+        };
+        assert_eq!(
+            settings.normalized().max_transcript_items,
+            MIN_TRANSCRIPT_ITEMS
+        );
+
+        settings.max_transcript_items = usize::MAX;
+        assert_eq!(
+            settings.normalized().max_transcript_items,
+            MAX_TRANSCRIPT_ITEMS
+        );
     }
 }

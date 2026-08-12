@@ -52,11 +52,23 @@ function groupTranscripts(items: TranslationGummyState["transcripts"]): Transcri
   return entries;
 }
 
-function buildPillInner(pair: TranscriptPair): string {
+function deleteButton(id: number, label: string): string {
+  return `<button class="transcript-delete" type="button" data-delete-transcript="${id}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5l5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6z"/></svg></button>`;
+}
+
+function bindDelete(node: Element) {
+  node.querySelector<HTMLButtonElement>("[data-delete-transcript]")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const id = Number((event.currentTarget as HTMLElement).dataset.deleteTranscript);
+    if (Number.isSafeInteger(id)) void window.invoke?.("delete_transcript", { id });
+  });
+}
+
+function buildPillInner(pair: TranscriptPair, deleteLabel: string): string {
   let html = `<div class="pill-content pill-appear">`;
   if (pair.input) html += `<span class="pill-input">${escapeHtml(pair.input)}</span>`;
   if (pair.output) html += `<span class="pill-output">${escapeHtml(pair.output)}</span>`;
-  html += `</div>`;
+  html += `</div>${deleteButton(pair.id, deleteLabel)}`;
   return html;
 }
 
@@ -178,7 +190,8 @@ export function renderTranscripts(
         node = document.createElement("div");
         (node as HTMLElement).dataset.eid = eid;
         node.className = "session-separator";
-        node.innerHTML = `<span class="separator-time">${escapeHtml(entry.time)}</span>`;
+        node.innerHTML = `<span class="separator-time">${escapeHtml(entry.time)}</span>${deleteButton(entry.id, payload.strings.deleteItem)}`;
+        bindDelete(node);
         insertAfter(body, node, prevNode);
       }
       prevNode = node;
@@ -194,7 +207,8 @@ export function renderTranscripts(
       node = document.createElement("article");
       (node as HTMLElement).dataset.eid = eid;
       node.className = "transcript-pill msg-center";
-      node.innerHTML = buildPillInner(pair);
+      node.innerHTML = buildPillInner(pair, payload.strings.deleteItem);
+      bindDelete(node);
       insertAfter(body, node, prevNode);
       addedPill = true;
 
@@ -224,7 +238,8 @@ export function renderTranscripts(
         if (pair.input) content.insertAdjacentHTML("beforeend", `<span class="pill-input">${escapeHtml(pair.input)}</span>`);
         if (pair.output) content.insertAdjacentHTML("beforeend", `<span class="pill-output">${escapeHtml(pair.output)}</span>`);
       } else {
-        existing.innerHTML = buildPillInner(pair);
+        existing.innerHTML = buildPillInner(pair, payload.strings.deleteItem);
+        bindDelete(existing);
       }
     }
     prevNode = node;

@@ -57,6 +57,7 @@ pub struct TtsPlaygroundSettings {
     pub voxtral_settings: VoxtralSettings,
     pub step_audio_edit_settings: StepAudioEditSettings,
     pub draft_text: String,
+    pub recent_clip_limit: usize,
 }
 
 impl Default for TtsPlaygroundSettings {
@@ -82,6 +83,7 @@ impl Default for TtsPlaygroundSettings {
             voxtral_settings: VoxtralSettings::default(),
             step_audio_edit_settings: StepAudioEditSettings::default(),
             draft_text: "Write anything here and test how it sounds.".to_string(),
+            recent_clip_limit: 10,
         }
     }
 }

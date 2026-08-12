@@ -25,6 +25,7 @@ pub mod recording;
 pub mod result;
 pub mod screen_record;
 pub mod selection; // Made public for extract_crop_from_hbitmap_public
+pub(crate) mod status_compositor;
 pub mod text_input; // NEW MODULE
 pub mod text_selection;
 pub mod three_d_generator;
@@ -55,7 +56,6 @@ pub mod realtime_egui; // Minimal mode (native egui)
 pub mod realtime_html; // HTML generation for realtime overlay
 pub mod realtime_webview; // New WebView2-based with smooth scrolling
 pub mod tray_popup; // Custom non-blocking tray popup menu
-pub mod webview_diagnostics;
 pub mod window_selector;
 
 pub use recording::{
@@ -65,7 +65,7 @@ pub use selection::{is_selection_overlay_active, show_selection_overlay};
 pub use text_selection::show_text_selection_tag;
 // Use the new WebView2-based realtime overlay
 /// Mutex to ensure only one WebView is being initialized at a time globally.
-/// This prevents deadlocks and resource exhaustion during startup warmup loops.
+/// This prevents concurrent on-demand builds from exhausting WebView2 resources.
 pub static GLOBAL_WEBVIEW_MUTEX: LazyLock<std::sync::Mutex<()>> =
     LazyLock::new(|| std::sync::Mutex::new(()));
 

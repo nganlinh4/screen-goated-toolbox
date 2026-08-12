@@ -85,6 +85,20 @@ fn legacy_adoption_requires_exact_x64_bytes() {
 }
 
 #[test]
+fn staged_external_tools_sync_through_writable_windows_handles() {
+    let root = temp_root("writable-sync");
+    let bytes = x64_pe();
+    let delivery = test_delivery(&bytes);
+    let target = root.join("bin/x64/yt-dlp.exe");
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::fs::write(&target, bytes).unwrap();
+
+    install::sync_staged_files(&delivery, &root).unwrap();
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn zip_traversal_is_rejected_before_writing_outside_stage() {
     let root = temp_root("traversal");
     let stage = root.join("stage");

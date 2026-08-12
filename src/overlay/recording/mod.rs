@@ -3,7 +3,7 @@
 
 mod messages;
 mod state;
-mod ui;
+pub(crate) mod ui;
 mod window;
 
 use crate::APP;
@@ -61,6 +61,38 @@ pub fn stop_recording_and_submit() {
                     let _ = PostMessageW(Some(hwnd), WM_APP_UPDATE_STATE, WPARAM(0), LPARAM(0));
                 }
             }
+        }
+    }
+}
+
+pub(crate) fn compositor_ready() {
+    if CURRENT_RECORDING_HIDDEN.load(Ordering::SeqCst) {
+        return;
+    }
+    if let Some(hwnd) = valid_recording_hwnd() {
+        unsafe {
+            let _ = KillTimer(Some(hwnd), 99);
+            let _ = SetTimer(Some(hwnd), 2, 20, None);
+        }
+    }
+}
+
+pub(crate) fn compositor_toggle_pause() {
+    if is_recording_overlay_active() && !AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) {
+        let paused = AUDIO_PAUSE_SIGNAL.load(Ordering::SeqCst);
+        AUDIO_PAUSE_SIGNAL.store(!paused, Ordering::SeqCst);
+    }
+}
+
+pub(crate) fn compositor_cancel() {
+    if !is_recording_overlay_active() {
+        return;
+    }
+    AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+    AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
+    if let Some(hwnd) = valid_recording_hwnd() {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
         }
     }
 }

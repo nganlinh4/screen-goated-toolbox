@@ -22,18 +22,34 @@ Root `run-dev.ps1` builds and copies `dist/` into `src/overlay/screen_record/dis
 
 ## Validation
 
+Fast default validation runs the complete Vitest suite once and produces the
+frontend assets:
+
 ```powershell
 npm test
-npm run test:unit
-npm run test:components
-npm run test:e2e
-npm run test:wry
-npm run test:wry:playwright
-npm run test:perf
 npm run build
 ```
 
-Use focused suites while iterating; run affected integration/Wry tests before shipping cross-boundary changes.
+`test:unit` and `test:components` are focused alternatives to `npm test`; do
+not run them again after the complete suite. Add only the affected boundary
+gate while iterating:
+
+```powershell
+# Browser interaction or editor workflow changes
+npm run test:e2e
+
+# Rust host, WebView2, IPC, packaged routes, or font changes
+npm run test:wry
+
+# Timeline, renderer, history, media import, or large-project hot paths
+npm run test:perf
+```
+
+The Wry command launches an isolated test instance and exercises the real
+WebView2 shell through Playwright. It supersedes the old page-presence smoke
+test, which force-terminated every running SGT process. Run all affected gates
+before packaging the recorder; routine UI changes do not require unrelated
+Wry or performance suites.
 
 ## Architecture map
 
@@ -69,6 +85,15 @@ A Vite dev page working does not prove the desktop app works. New static assets 
 ### Shared background catalog
 
 Built-in data, `defaultId`, and `panelOrder` live in `src/config/shared-background-presets.json`. Preview families are implemented in `src/lib/renderer/builtInBackgrounds.ts`; Rust consumes the same catalog through `src/overlay/screen_record/native_export/background_presets.rs` and the GPU export path.
+
+### Retention and ownership
+
+Recorder projects use the persisted 10–100 project limit (default 50). Recent
+uploaded backgrounds use the persisted 4–24 limit (default 12). Reducing either
+limit must prune its backing storage, not only the visible cards. An uploaded
+background file may be deleted only after reference-scanning the active editor,
+every retained project, and every composition clip. Recordings and exports are
+user output and are never removed by automatic retention or Downloaded Tools.
 
 ## Related guidance
 

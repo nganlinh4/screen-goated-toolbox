@@ -19,6 +19,8 @@ mod tts;
 
 // Re-export all types for easy access
 pub use translation_gummy::TranslationGummySettings;
+#[cfg(not(feature = "recorder-worker"))]
+pub use translation_gummy::{MAX_TRANSCRIPT_ITEMS, MIN_TRANSCRIPT_ITEMS};
 
 pub use custom_models::{CustomModelDefinition, CustomModelType};
 

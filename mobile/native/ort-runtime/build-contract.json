@@ -12,7 +12,9 @@
   },
   "operatorGeneration": {
     "configFile": "required-operators.config",
-    "configSha256": "e3f50aecda1f84e133533af927e174e8a1b2a3c9341978dd283ce323e1ba8f33",
+    "configSha256": "b1f770d69982f0bd663f1bceb74e66532ccb85b3dbeeb514a7dee03d55cdb649",
+    "supplementalConfigFile": "supplemental-operators.config",
+    "supplementalConfigSha256": "5df76f3cc06387b7969062953426c2df264d3791d4820de7fec85ad8f5d72685",
     "downloadedModelsFile": "operator-models.json",
     "downloadedModelsSha256": "ce59ed8a6b9b21af6bf01907948035763dcc5bd0dbd7c22f8e6a37af7f8aca0a",
     "embeddedModelsFile": "embedded-models.json",

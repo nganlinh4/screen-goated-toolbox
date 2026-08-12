@@ -105,6 +105,15 @@ app.innerHTML = `
       </aside>
 
       <section class="transcript-card">
+        <div class="transcript-toolbar">
+          <span class="transcript-toolbar-title" id="transcriptTitle"></span>
+          <label class="transcript-limit-control">
+            <span id="transcriptLimitLabel"></span>
+            <input id="transcriptLimit" type="range" min="20" max="200" step="10">
+            <output id="transcriptLimitValue"></output>
+          </label>
+          <button class="text-btn transcript-clear" id="transcriptClear" type="button"></button>
+        </div>
         <div class="transcript-curtain">
           <div class="transcript-stage">
             <div class="message" id="transcriptMessage"></div>
@@ -147,6 +156,11 @@ const el = {
   messageText: document.querySelector<HTMLElement>("#messageText")!,
   transcriptMessage: document.querySelector<HTMLElement>("#transcriptMessage")!,
   transcriptBody: document.querySelector<HTMLElement>("#transcriptBody")!,
+  transcriptTitle: document.querySelector<HTMLElement>("#transcriptTitle")!,
+  transcriptLimitLabel: document.querySelector<HTMLElement>("#transcriptLimitLabel")!,
+  transcriptLimit: document.querySelector<HTMLInputElement>("#transcriptLimit")!,
+  transcriptLimitValue: document.querySelector<HTMLOutputElement>("#transcriptLimitValue")!,
+  transcriptClear: document.querySelector<HTMLButtonElement>("#transcriptClear")!,
   visualizerCanvas: document.querySelector<HTMLCanvasElement>("#visualizerCanvas")!,
 };
 
@@ -250,6 +264,9 @@ function render(payload: TranslationGummyState) {
     el.secondAccent.placeholder = payload.strings.accentLabel;
     el.secondTone.placeholder = payload.strings.toneLabel;
     setText(el.applyBtn, payload.strings.apply);
+    setText(el.transcriptTitle, payload.strings.transcriptTitle);
+    setText(el.transcriptLimitLabel, payload.strings.maxItems);
+    setText(el.transcriptClear, payload.strings.clearAll);
   }
 
   setText(el.statusText, payload.statusLabel);
@@ -265,6 +282,9 @@ function render(payload: TranslationGummyState) {
   el.applyBtn.hidden = !payload.dirty;
   el.applyBtn.disabled = !payload.dirty || !payload.canApply;
   el.toggleBtn.disabled = !(payload.isRunning || payload.canToggle);
+  el.transcriptLimit.value = String(payload.transcriptLimit);
+  el.transcriptLimitValue.value = String(payload.transcriptLimit);
+  el.transcriptClear.disabled = payload.transcripts.length === 0;
 
   if (document.activeElement !== el.firstLanguage) el.firstLanguage.value = payload.draft.first.language ?? "";
   if (document.activeElement !== el.firstAccent) el.firstAccent.value = payload.draft.first.accent ?? "";
@@ -454,6 +474,13 @@ el.minimizeBtn.addEventListener("click", () => void invoke("minimize_window"));
 el.closeBtn.addEventListener("click", () => void invoke("close_window"));
 el.applyBtn.addEventListener("click", () => void invoke("apply"));
 el.toggleBtn.addEventListener("click", () => void invoke("toggle_run"));
+el.transcriptLimit.addEventListener("input", () => {
+  el.transcriptLimitValue.value = el.transcriptLimit.value;
+});
+el.transcriptLimit.addEventListener("change", () => {
+  void invoke("set_transcript_limit", { limit: Number(el.transcriptLimit.value) });
+});
+el.transcriptClear.addEventListener("click", () => void invoke("clear_transcripts"));
 
 document.addEventListener("keydown", (event) => {
   if (!state.hotkeyCaptureArmed) return;

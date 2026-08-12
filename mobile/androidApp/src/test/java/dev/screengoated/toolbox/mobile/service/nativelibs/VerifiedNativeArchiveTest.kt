@@ -65,6 +65,7 @@ class VerifiedNativeArchiveTest {
         val contract = NativeRuntimeArchive(
             engine = "test",
             fileName = archive.name,
+            downloadUrl = "https://example.invalid/verified-runtime.zip",
             byteCount = archive.length(),
             sha256 = VerifiedNativeArchive.sha256(archive),
             fullDelivery = "bundled_asset",
@@ -139,6 +140,7 @@ class VerifiedNativeArchiveTest {
         NativeRuntimeArchive(
             engine = "test",
             fileName = "test-runtime.zip",
+            downloadUrl = "https://example.invalid/test-runtime.zip",
             byteCount = bytes.size.toLong(),
             sha256 = sha256(bytes),
             fullDelivery = "bundled_asset",

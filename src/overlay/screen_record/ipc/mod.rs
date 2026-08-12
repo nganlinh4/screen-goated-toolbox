@@ -3,11 +3,13 @@
 // Routes commands to specialized submodules.
 
 mod audio_waveform;
+mod audio_waveform_cache;
 mod cursor_svg;
 mod gemini_translate_narration;
 pub(crate) use gemini_translate_narration::run_gt_narration_test_cli;
 mod hotkeys;
 mod job_registry;
+mod managed_files;
 pub mod media_server;
 mod narration;
 mod recording;
@@ -101,6 +103,16 @@ pub fn handle_ipc_command(
             let url = args["url"].as_str().ok_or("Missing url")?;
             native_export::prewarm_custom_background(url)?;
             Ok(serde_json::Value::Null)
+        }
+        "reconcile_uploaded_backgrounds" => {
+            let retained = args["retainedUrls"]
+                .as_array()
+                .ok_or("Missing retained background URLs")?
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect::<Vec<_>>();
+            let removed = bg_download::reconcile_uploaded_files(&retained)?;
+            Ok(serde_json::json!({ "removed": removed }))
         }
         "log_message" => {
             let msg = args["message"].as_str().unwrap_or("");
@@ -264,7 +276,27 @@ pub fn handle_ipc_command(
         }
         "delete_file" => {
             let path = args["path"].as_str().ok_or("Missing path")?;
-            let _ = std::fs::remove_file(path);
+            managed_files::delete_recording_file(path)?;
+            Ok(serde_json::Value::Null)
+        }
+        "set_project_limit" => {
+            let limit = args["limit"].as_u64().ok_or("Missing project limit")? as usize;
+            if !(10..=100).contains(&limit) {
+                return Err("Project limit must be between 10 and 100".to_string());
+            }
+            let mut app = crate::APP.lock().unwrap();
+            app.config.max_screen_record_projects = limit;
+            crate::config::save_config(&app.config);
+            Ok(serde_json::Value::Null)
+        }
+        "set_recent_upload_limit" => {
+            let limit = args["limit"].as_u64().ok_or("Missing upload limit")? as usize;
+            if !(4..=24).contains(&limit) {
+                return Err("Recent upload limit must be between 4 and 24".to_string());
+            }
+            let mut app = crate::APP.lock().unwrap();
+            app.config.max_screen_record_recent_uploads = limit;
+            crate::config::save_config(&app.config);
             Ok(serde_json::Value::Null)
         }
         "pick_export_folder" => {

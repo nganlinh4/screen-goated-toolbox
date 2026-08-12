@@ -1,4 +1,5 @@
 /target
+/target-focus-test/
 Cargo.lock
 !/native/recorder_worker/Cargo.lock
 /native/recorder_worker/target/

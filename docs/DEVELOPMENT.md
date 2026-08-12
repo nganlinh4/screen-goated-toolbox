@@ -35,6 +35,15 @@ from the current source. Cargo output is written under `target/dev-run-logs/`.
 
 ## Rust validation
 
+During implementation, run the narrowest relevant test and a fast host check:
+
+```powershell
+cargo test <module-or-test-name>
+cargo check --bin screen-goated-toolbox
+```
+
+At a repository checkpoint, run the complete non-release gates once:
+
 ```powershell
 cargo fmt -- --check
 cargo test
@@ -45,8 +54,10 @@ After the active frontend assets exist, direct `cargo run` is valid for a
 checkout without the private Image-to-3D runtime. When that private checkout is
 present, prefer `run-dev.ps1` so its sidecar stays synchronized. Archived
 Image-to-SVG and image creation/editing sources are not built or synchronized.
-Do not use a release build as routine validation; release packaging enables
-LTO/stripping and rebuilds every packaged frontend.
+Do not run `cargo check` again after successful all-target Clippy unless the
+target or feature set differs. Do not use a release build as routine
+validation; release packaging enables LTO/stripping and rebuilds every
+packaged frontend.
 
 ## Frontend development
 
@@ -71,13 +82,45 @@ independent, integrity-pinned, registry-owned, and removable.
 
 ## Windows x64 target
 
-Validate the supported MSVC target through the repository wrapper:
+For target-sensitive changes and release checkpoints, validate the supported
+MSVC target through the repository wrapper:
 
 ```powershell
 .\scripts\validate-windows-targets.ps1
 ```
 
 The validation log is written to `target/validation-x86_64_pc_windows_msvc.log`.
+The wrapper is an explicit-target Cargo check, so routine source edits do not
+need it after a successful x64 Clippy run.
+
+## UI design system
+
+The egui shell uses `AppTheme` tokens and the components in `src/gui/widgets.rs`.
+Every modal must go through `material_modal` or `ConfirmModal`; do not construct
+`egui::Modal` directly in feature code. Keep semantic title, body, action, card,
+and state-layer behavior in shared components, while feature modules own only
+their content and state transitions. `source_contract_tests` enforces the modal
+boundary.
+
+## Retained user collections
+
+Every automatically growing, persistent, user-visible repeating collection must
+have a bounded default, automatic pruning, per-item deletion, and a persisted
+localized maximum-items control in the UI that displays it. The Result Library,
+Computer Control memory, Screen Recorder projects and uploaded backgrounds,
+Translation Gummy transcripts, and TTS Playground clips are the reference
+implementations. Changing the limit must prune through the same owner that
+deletes the collection's managed files; a visual-only or process-memory-only
+slider is invalid. Explicitly saved libraries, models, presets, exports, and
+reference voices remain durable until the user removes them.
+The text-input arrow-key recall buffer shares the main History limit and clear
+action instead of creating another settings control.
+
+Invisible derived data such as browser caches, waveforms, diagnostics, staging,
+and download scratch space uses fixed code-owned count/byte/age budgets instead
+of user sliders. Cleanup must be confined to compiled app-owned roots, reject
+reparse points, preserve unknown or modified files, and never delete exports or
+other user-created output.
 
 ## Android
 
@@ -85,8 +128,13 @@ Android uses JDK 17 and Android SDK platform/build tools configured by Gradle. W
 
 ```powershell
 cd mobile
-.\gradlew.bat :androidApp:assembleFullDebug --console=plain
+.\gradlew.bat :androidApp:testFullDebugUnitTest --console=plain
 ```
+
+Run the Play suite instead for Play-only delivery work. Run both flavor suites
+at cross-flavor and release checkpoints. Assemble a debug APK only when it is
+needed for installation; test and assemble tasks already compile their
+variants, so a separate `compile*DebugKotlin` pass is redundant.
 
 WSL delegates to the Windows toolchain:
 

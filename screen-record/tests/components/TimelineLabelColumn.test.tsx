@@ -79,9 +79,16 @@ describe("TimelineLabelColumn audio delay controls", () => {
       "h-14",
       "bg-transparent",
       "pointer-events-none",
-      "group-hover:pointer-events-auto",
-      "group-focus-within:pointer-events-auto",
     );
+
+    const label = document.querySelector(".timeline-label-device-audio") as HTMLElement;
+    fireEvent.pointerEnter(label);
+    expect(hoverBridge).toHaveClass("pointer-events-auto");
+    expect(popover).toHaveClass("opacity-100", "translate-x-0", "pointer-events-auto");
+    fireEvent.pointerLeave(label);
+    fireEvent.pointerEnter(hoverBridge);
+    expect(hoverBridge).toHaveClass("pointer-events-auto");
+    expect(popover).toHaveClass("opacity-100", "translate-x-0", "pointer-events-auto");
 
     const slider = screen.getByRole("slider");
     expect(slider).toHaveAttribute("min", "-2");

@@ -49,21 +49,6 @@ pub fn handle_prepare_parakeet_tdt_subtitles(
         .map_err(|err| format!("Serialize Parakeet TDT subtitle preparation: {err}"));
     }
 
-    let installable_from_tools = capability
-        .reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains("Downloaded Tools"));
-    if !installable_from_tools {
-        return serde_json::to_value(PrepareParakeetTdtResult {
-            available: false,
-            started_downloads: false,
-            reason: capability.reason,
-        })
-        .map_err(|err| format!("Serialize Parakeet TDT subtitle preparation: {err}"));
-    }
-
-    crate::gui::request_open_downloaded_tools();
-
     let missing_model = !parakeet_tdt_assets::is_parakeet_tdt_model_downloaded();
     let worker_status = crate::component_registry::local_asr::current_status(
         crate::component_registry::local_asr::ComponentKind::Worker,

@@ -1,5 +1,7 @@
 //! Ownership and lifecycle boundary for optional downloaded components.
 
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) mod capabilities;
 mod catalog;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod computer_control;

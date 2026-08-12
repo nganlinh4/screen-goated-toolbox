@@ -83,6 +83,7 @@ const vi: Translations = {
   backgroundClickToDownload: 'Click để tải',
   backgroundDeleteDownloadedFile: 'Xóa file đã tải',
   backgroundRemoveUploaded: 'Xóa nền đã tải lên',
+  backgroundRecentUploads: 'Nền gần đây',
 
   // CameraPanel
   cameraSettings: 'Camera',
@@ -396,6 +397,11 @@ const vi: Translations = {
   applyCrop: 'Áp Dụng Cắt',
   clearCrop: 'Xóa Cắt',
   cropVideo: 'Cắt Video',
+  cropAspectRatio: 'Tỷ lệ khung hình',
+  cropAspectRatioHint: 'Chọn khung, rồi kéo để tinh chỉnh.',
+  cropOriginal: 'Gốc',
+  cropCustom: 'Tùy chỉnh',
+  cropSelection: 'Vùng cắt',
 
   // Dialogs - Export
   exportingVideo: 'Đang xuất video...',

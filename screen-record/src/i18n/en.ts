@@ -81,6 +81,7 @@ const en = {
   backgroundClickToDownload: 'Click to download',
   backgroundDeleteDownloadedFile: 'Delete downloaded file',
   backgroundRemoveUploaded: 'Remove uploaded background',
+  backgroundRecentUploads: 'Recent uploads',
 
   // CameraPanel
   cameraSettings: 'Camera',
@@ -394,6 +395,11 @@ const en = {
   applyCrop: 'Apply Crop',
   clearCrop: 'Clear Crop',
   cropVideo: 'Crop Video',
+  cropAspectRatio: 'Aspect ratio',
+  cropAspectRatioHint: 'Choose a frame, then drag to fine-tune.',
+  cropOriginal: 'Original',
+  cropCustom: 'Custom',
+  cropSelection: 'Selection',
 
   // Dialogs - Export
   exportingVideo: 'Exporting video...',

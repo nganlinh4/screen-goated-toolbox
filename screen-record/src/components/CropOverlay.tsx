@@ -1,6 +1,7 @@
 import { useLayoutEffect, useState } from 'react';
 import { VideoSegment, BackgroundConfig, MousePosition } from '@/types/video';
 import { getContainedRect, sampleCaptureDimensionsAtTime } from '@/lib/dynamicCapture';
+import { resolveCodecAlignedCropGeometry } from '@/lib/videoGeometry';
 
 interface CropOverlayProps {
   segment: VideoSegment;
@@ -138,6 +139,13 @@ export function CropOverlay({
   const renderH = canvasBounds.height;
   const renderLeft = canvasBounds.left;
   const renderTop = canvasBounds.top;
+  const alignCrop = (candidate: NonNullable<VideoSegment['crop']>) => {
+    const sourceWidth = videoRef.current?.videoWidth || 0;
+    const sourceHeight = videoRef.current?.videoHeight || 0;
+    return sourceWidth && sourceHeight
+      ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, candidate).crop
+      : candidate;
+  };
 
   const handleResizeStart = (e: React.MouseEvent, type: string) => {
     e.preventDefault();
@@ -182,7 +190,10 @@ export function CropOverlay({
         newW = Math.max(0.05, Math.min(1 - startCrop.x, desiredW));
       }
 
-      onUpdateSegment({ ...segment, crop: { x: newX, y: newY, width: newW, height: newH } });
+      onUpdateSegment({
+        ...segment,
+        crop: alignCrop({ x: newX, y: newY, width: newW, height: newH }),
+      });
     };
 
     const handleUp = () => {
@@ -207,7 +218,15 @@ export function CropOverlay({
       const dy = (me.clientY - startY) / renderH;
       const newX = Math.max(0, Math.min(1 - startCrop.width, startCrop.x + dx));
       const newY = Math.max(0, Math.min(1 - startCrop.height, startCrop.y + dy));
-      onUpdateSegment({ ...segment, crop: { x: newX, y: newY, width: startCrop.width, height: startCrop.height } });
+      onUpdateSegment({
+        ...segment,
+        crop: alignCrop({
+          x: newX,
+          y: newY,
+          width: startCrop.width,
+          height: startCrop.height,
+        }),
+      });
     };
 
     const handleUp = () => {

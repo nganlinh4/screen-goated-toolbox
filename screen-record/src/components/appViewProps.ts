@@ -277,6 +277,8 @@ export interface AppViewProps {
   isImportingAudio: boolean;
   isImportingSubtitle: boolean;
   recentUploads: string[];
+  recentUploadLimit: number;
+  setRecentUploadLimit: (limit: number) => void;
   handleRemoveRecentUpload: (url: string) => void;
   handleBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;

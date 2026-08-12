@@ -9,11 +9,11 @@ class NativeLibManagerOrtContractTest {
         val needed = NativeLibManager.Engine.ORT.libs.toSet()
 
         assertEquals(
-            setOf("libc++_shared.so", "libonnxruntime_real.so", "libonnxruntime.so"),
+            setOf("libonnxruntime_real.so", "libonnxruntime.so"),
             needed,
         )
         assertEquals(
-            listOf("libc++_shared.so", "libonnxruntime_real.so"),
+            listOf("libonnxruntime_real.so"),
             NativeLibraryLoadContract.orderedDependencies(NativeLibManager.Engine.ORT.libs),
         )
     }

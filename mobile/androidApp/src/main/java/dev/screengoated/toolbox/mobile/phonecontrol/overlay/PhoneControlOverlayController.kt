@@ -209,7 +209,7 @@ internal class PhoneControlOverlayController(
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN),
         ).apply {
             alpha = host.rendererAlpha
-            configureFullDisplayLayout()
+            configureFullDisplayLayout(screenBounds())
         }
         val touchLayout = overlayLayoutParams(
             width = orbSize,
@@ -231,7 +231,10 @@ internal class PhoneControlOverlayController(
             detachWindows()
             return
         }
-        PhoneControlLog.i(TAG, "overlay_attached host=${host.describe()}")
+        PhoneControlLog.i(
+            TAG,
+            "overlay_attached host=${host.describe()} display_id=${host.displayId}",
+        )
     }
 
     private fun ensurePowerPrompt() {
@@ -322,7 +325,7 @@ internal class PhoneControlOverlayController(
         val targetLayout = touchParams ?: return
         clampAndSavePosition(persistPosition)
         if (updateRendererLayout) {
-            rendererLayout.configureFullDisplayLayout()
+            rendererLayout.configureFullDisplayLayout(screenBounds())
             runCatching { host.windowManager.updateViewLayout(orbView, rendererLayout) }
         }
         runCatching { host.windowManager.updateViewLayout(touchView, targetLayout) }
@@ -489,19 +492,6 @@ internal class PhoneControlOverlayController(
         WindowManager.LayoutParams(
             width, height, host.windowType, flags, PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START }
-
-    private fun WindowManager.LayoutParams.configureFullDisplayLayout() {
-        val bounds = screenBounds()
-        width = bounds.width()
-        height = bounds.height()
-        x = bounds.left
-        y = bounds.top
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) fitInsetsTypes = 0
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            layoutInDisplayCutoutMode =
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-        }
-    }
 
     private fun screenBounds(): Rect =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

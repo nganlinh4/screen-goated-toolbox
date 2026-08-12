@@ -47,6 +47,8 @@ def hosted_contracts(value: object, source: str) -> list[tuple[str, int, str, st
         url = value.get("downloadUrl") or value.get("url")
         if isinstance(url, str) and url.startswith(RELEASE_PREFIX):
             size = value.get("sizeBytes")
+            if size is None:
+                size = value.get("byteCount")
             digest = value.get("sha256")
             if not isinstance(size, int) or size <= 0:
                 raise RuntimeError(f"{source}: SGT URL lacks an exact positive size")

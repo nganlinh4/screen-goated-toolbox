@@ -45,6 +45,7 @@ pub fn render_history_panel(
                     {
                         history_manager.request_prune(config.max_history_items);
                         crate::overlay::generation_history::request_prune(config.max_history_items);
+                        crate::overlay::input_history::request_prune(config.max_history_items);
                         changed = true;
                     }
                     ui.label(text.workspace.max_items_label);
@@ -120,6 +121,7 @@ pub fn render_history_panel(
                     .clicked()
                     {
                         history_manager.clear_all();
+                        crate::overlay::input_history::clear_all();
                     }
                 });
             });

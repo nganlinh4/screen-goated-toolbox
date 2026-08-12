@@ -219,6 +219,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let vid_center = u.video_offset * u.output_size + u.video_size * 0.5;
         let vid_half = u.video_size * 0.5;
         let dist = sd_box(in.pixel_pos - vid_center, vid_half, u.border_radius);
+        let vid_min = u.video_offset * u.output_size;
+        let vid_max = vid_min + u.video_size;
+        let unmasked_canvas_cover = u.border_radius <= 0.0 &&
+            vid_min.x <= 0.001 && vid_min.y <= 0.001 &&
+            vid_max.x >= u.output_size.x - 0.001 &&
+            vid_max.y >= u.output_size.y - 0.001;
 
         // 2. Shadow
         if u.shadow_opacity > 0.0 {
@@ -235,9 +241,14 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             let vid_uv = (in.pixel_pos - u.video_offset * u.output_size) / u.video_size;
             var vid_col = textureSample(video_tex, video_samp, vid_uv);
 
-            // Anti-aliased video edge
-            let edge = 1.0 - smoothstep(-1.5, 0.0, dist);
-            col = mix(col, vid_col, edge);
+            if unmasked_canvas_cover {
+                // The canvas boundary clips this surface. Mixing the background
+                // here would create a visible fringe despite zero corner radius.
+                col = vid_col;
+            } else {
+                let edge = 1.0 - smoothstep(-1.5, 0.0, dist);
+                col = mix(col, vid_col, edge);
+            }
         }
     }
 

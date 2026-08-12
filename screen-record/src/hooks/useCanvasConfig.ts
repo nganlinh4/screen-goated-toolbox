@@ -8,6 +8,7 @@ import { BackgroundConfig, ProjectComposition, VideoSegment } from "@/types/vide
 import type { ActivePanel } from "@/components/sidepanel/index";
 import { getCompositionAutoSourceClipId } from "@/lib/projectComposition";
 import { getCanvasRatioDimensions } from "@/lib/appUtils";
+import { resolveCodecAlignedCropGeometry } from "@/lib/videoGeometry";
 
 export interface UseCanvasConfigParams {
   segment: VideoSegment | null;
@@ -58,16 +59,13 @@ export function useCanvasConfig({
     const rawVidH = videoRef.current?.videoHeight || 0;
     const sourceWidth = rawVidW > 0 ? rawVidW : 0;
     const sourceHeight = rawVidH > 0 ? rawVidH : 0;
-    const derivedWidth =
-      sourceWidth > 0 ? Math.max(2, Math.round(sourceWidth * crop.width)) : undefined;
-    const derivedHeight =
-      sourceHeight > 0
-        ? Math.max(2, Math.round(sourceHeight * crop.height))
-        : undefined;
+    const geometry = sourceWidth > 0 && sourceHeight > 0
+      ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, crop)
+      : null;
     return {
       canvasMode: "auto" as const,
-      canvasWidth: derivedWidth,
-      canvasHeight: derivedHeight,
+      canvasWidth: geometry?.width,
+      canvasHeight: geometry?.height,
       autoSourceClipId:
         activeClipId ??
         getCompositionAutoSourceClipId(composition) ??
@@ -163,14 +161,19 @@ export function useCanvasConfig({
   const handleApplyCrop = useCallback(
     (crop: VideoSegment["crop"]) => {
       if (segment && crop) {
+        const sourceWidth = videoRef.current?.videoWidth || 0;
+        const sourceHeight = videoRef.current?.videoHeight || 0;
+        const resolvedCrop = sourceWidth && sourceHeight
+          ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, crop).crop
+          : crop;
         setSegment({
           ...segment,
-          crop,
+          crop: resolvedCrop,
         });
       }
       handleCancelCrop();
     },
-    [segment, setSegment, handleCancelCrop],
+    [handleCancelCrop, segment, setSegment, videoRef],
   );
 
   // When canvasMode is "auto", keep canvasWidth/canvasHeight in sync with the
@@ -194,16 +197,15 @@ export function useCanvasConfig({
     const sourceWidth = videoRef.current?.videoWidth || 0;
     const sourceHeight = videoRef.current?.videoHeight || 0;
     if (!sourceWidth || !sourceHeight) return;
-    const derivedWidth = Math.max(2, Math.round(sourceWidth * crop.width));
-    const derivedHeight = Math.max(2, Math.round(sourceHeight * crop.height));
+    const geometry = resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, crop);
     if (
-      derivedWidth === backgroundConfig.canvasWidth &&
-      derivedHeight === backgroundConfig.canvasHeight
+      geometry.width === backgroundConfig.canvasWidth &&
+      geometry.height === backgroundConfig.canvasHeight
     ) return;
     setBackgroundConfig((prev) => ({
       ...prev,
-      canvasWidth: derivedWidth,
-      canvasHeight: derivedHeight,
+      canvasWidth: geometry.width,
+      canvasHeight: geometry.height,
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cropX, cropY, cropW, cropH, backgroundConfig.canvasMode, isVideoReady, composition, activeClipId]);
