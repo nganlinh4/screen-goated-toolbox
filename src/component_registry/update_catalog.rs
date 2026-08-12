@@ -54,6 +54,13 @@ struct CatalogPolicy {
     group: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EmbeddedCatalogBaseline {
+    schema_version: u32,
+    sequence: u64,
+}
+
 pub(crate) fn refresh_in_background() {
     if let Ok(Some(catalog)) = cache::load_highest() {
         activate(catalog);
@@ -154,16 +161,37 @@ pub(crate) fn contract(name: &str) -> Option<(u64, Value)> {
         .read()
         .ok()
         .and_then(|catalog| catalog.clone())
-        .and_then(|catalog| {
-            catalog
-                .contracts
-                .iter()
-                .find(|contract| {
-                    contract.name == name
-                        && matches!(contract.platform.as_str(), PLATFORM | "multi")
-                })
-                .map(|contract| (catalog.sequence, contract.delivery.clone()))
+        .and_then(|catalog| contract_from(&catalog, name, embedded_catalog_sequence()))
+}
+
+fn contract_from(
+    catalog: &UpdateCatalog,
+    name: &str,
+    minimum_sequence: u64,
+) -> Option<(u64, Value)> {
+    if catalog.sequence < minimum_sequence {
+        return None;
+    }
+    catalog
+        .contracts
+        .iter()
+        .find(|contract| {
+            contract.name == name && matches!(contract.platform.as_str(), PLATFORM | "multi")
         })
+        .map(|contract| (catalog.sequence, contract.delivery.clone()))
+}
+
+fn embedded_catalog_sequence() -> u64 {
+    static SEQUENCE: LazyLock<u64> = LazyLock::new(|| {
+        let baseline: EmbeddedCatalogBaseline = serde_json::from_str(include_str!(
+            "../../component-delivery/update-catalog-v1.sources.json"
+        ))
+        .expect("tracked component catalog source must be valid JSON");
+        assert_eq!(baseline.schema_version, 1);
+        assert!(baseline.sequence > 0);
+        baseline.sequence
+    });
+    *SEQUENCE
 }
 
 pub(crate) fn policy(id: &str) -> Option<(String, u64, String)> {

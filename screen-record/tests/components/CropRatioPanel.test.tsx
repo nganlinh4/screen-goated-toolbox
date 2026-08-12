@@ -11,7 +11,9 @@ describe("CropRatioPanel", () => {
         sourceWidth={1920}
         sourceHeight={1080}
         crop={{ x: 0, y: 0, width: 1, height: 1 }}
+        lockedPresetId={null}
         onCropChange={onCropChange}
+        onUnlockRatio={() => {}}
       />,
     );
 
@@ -22,7 +24,10 @@ describe("CropRatioPanel", () => {
       name: "Aspect ratio 9:16, 608×1080",
     }));
 
-    expect(onCropChange).toHaveBeenCalledWith(getAspectRatioCrop(1920, 1080, 9, 16));
+    expect(onCropChange).toHaveBeenCalledWith(
+      getAspectRatioCrop(1920, 1080, 9, 16),
+      "portrait-9-16",
+    );
   });
 
   it("reflects a manually resized crop as custom", () => {
@@ -31,11 +36,33 @@ describe("CropRatioPanel", () => {
         sourceWidth={1920}
         sourceHeight={1080}
         crop={{ x: 0.1, y: 0.1, width: 0.45, height: 0.7 }}
+        lockedPresetId={null}
         onCropChange={() => {}}
+        onUnlockRatio={() => {}}
       />,
     );
 
     expect(screen.getByText("Custom")).toBeInTheDocument();
     expect(screen.getByText("864 × 756")).toBeInTheDocument();
+  });
+
+  it("keeps a selected preset explicit until Free unlocks it", () => {
+    const onUnlockRatio = vi.fn();
+    const crop = getAspectRatioCrop(1920, 1080, 9, 16);
+    render(
+      <CropRatioPanel
+        sourceWidth={1920}
+        sourceHeight={1080}
+        crop={crop}
+        lockedPresetId="portrait-9-16"
+        onCropChange={() => {}}
+        onUnlockRatio={onUnlockRatio}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Aspect ratio 9:16, 608×1080" }))
+      .toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Unlock aspect ratio" }));
+    expect(onUnlockRatio).toHaveBeenCalledOnce();
   });
 });

@@ -401,6 +401,8 @@ const ko: Translations = {
   cropAspectRatioHint: '프레임을 고른 뒤 드래그해 조정하세요.',
   cropOriginal: '원본',
   cropCustom: '사용자 지정',
+  cropFree: '자유',
+  cropUnlockAspectRatio: '화면 비율 잠금 해제',
   cropSelection: '선택 영역',
 
   // Dialogs - Export

@@ -2,18 +2,18 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "recorder-web-5.4.3-29784b9ad83ca550.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.4.3-29784b9ad83ca550.zip",
+      "asset": "recorder-web-5.4.3-1aaa1aa369bfb81f.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.4.3-1aaa1aa369bfb81f.zip",
       "files": [
         {
           "path": "assets/index.css",
-          "sha256": "85be9333015715b5c932a34e867fc29746b41cbfc09c29cefeb9fc8325ccdf55",
-          "sizeBytes": 146781
+          "sha256": "c7589d33d26214863e7ee27e43022e02584c3ead7ce81118332fd0ad0b2505aa",
+          "sizeBytes": 147633
         },
         {
           "path": "assets/index.js",
-          "sha256": "23c241593fdebcea81e9b852e67e0e5e8f8e098531f54235f2659ccf32bb30b8",
-          "sizeBytes": 1074708
+          "sha256": "8ecc277e65d4a9100785e838fd20046047c2d8603501cb39d22ac876b4c1850a",
+          "sizeBytes": 1076385
         },
         {
           "path": "assets/rolldown-runtime.js",
@@ -907,9 +907,9 @@
         }
       ],
       "id": "recorder-web",
-      "sha256": "29784b9ad83ca550fb54353173402aea621a6651f3ada73e602518d876bdf2ca",
-      "sizeBytes": 873928,
-      "unpackedSizeBytes": 2620181,
+      "sha256": "1aaa1aa369bfb81f02105c533e969f97c744b9180d45684196c550be62a56358",
+      "sizeBytes": 874606,
+      "unpackedSizeBytes": 2622710,
       "version": "5.4.3"
     },
     {

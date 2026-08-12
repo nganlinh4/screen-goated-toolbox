@@ -399,6 +399,8 @@ const en = {
   cropAspectRatioHint: 'Choose a frame, then drag to fine-tune.',
   cropOriginal: 'Original',
   cropCustom: 'Custom',
+  cropFree: 'Free',
+  cropUnlockAspectRatio: 'Unlock aspect ratio',
   cropSelection: 'Selection',
 
   // Dialogs - Export

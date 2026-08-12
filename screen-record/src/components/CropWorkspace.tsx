@@ -8,6 +8,16 @@ import { formatTime } from "@/utils/helpers";
 import { CropRect } from "@/types/video";
 import { getContainedRect } from "@/lib/dynamicCapture";
 import { resolveCodecAlignedCropGeometry } from "@/lib/videoGeometry";
+import {
+  getActiveCropAspectRatioId,
+  isSourceCrop,
+  resizeCropWithAspectRatio,
+  type CropResizeHandle,
+} from "@/lib/cropAspectRatio";
+import {
+  POPULAR_ASPECT_RATIO_PRESETS,
+  type AspectRatioPresetId,
+} from "@/lib/aspectRatioPresets";
 import "./CropWorkspace.css";
 
 const DEFAULT_CROP: CropRect = { x: 0, y: 0, width: 1, height: 1 };
@@ -32,7 +42,12 @@ export function CropWorkspace({
   const { t } = useSettings();
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const sessionVideoSrcRef = useRef<string | null>(null);
+  const sessionInitialCropRef = useRef<CropRect>(initialCrop ?? DEFAULT_CROP);
+  const sessionInitialTimeRef = useRef(initialTime);
+  const initialFrameSyncedRef = useRef(false);
   const [draftCrop, setDraftCrop] = useState<CropRect>(initialCrop ?? DEFAULT_CROP);
+  const [lockedPresetId, setLockedPresetId] = useState<AspectRatioPresetId | null>(null);
   const [previewTime, setPreviewTime] = useState(initialTime);
   const [duration, setDuration] = useState(0);
   const [activeResizeHandle, setActiveResizeHandle] = useState<string | null>(null);
@@ -42,6 +57,7 @@ export function CropWorkspace({
     width: number;
     height: number;
   } | null>(null);
+  const lockedPreset = POPULAR_ASPECT_RATIO_PRESETS.find(({ id }) => id === lockedPresetId);
 
   const alignCrop = useCallback((crop: CropRect): CropRect => {
     const sourceWidth = videoRef.current?.videoWidth || 0;
@@ -52,10 +68,22 @@ export function CropWorkspace({
   }, []);
 
   useEffect(() => {
-    if (!show) return;
-    setDraftCrop(initialCrop ?? DEFAULT_CROP);
+    if (!show) {
+      sessionVideoSrcRef.current = null;
+      initialFrameSyncedRef.current = false;
+      return;
+    }
+    if (sessionVideoSrcRef.current === videoSrc) return;
+
+    const sessionCrop = initialCrop ?? DEFAULT_CROP;
+    sessionVideoSrcRef.current = videoSrc;
+    sessionInitialCropRef.current = sessionCrop;
+    sessionInitialTimeRef.current = initialTime;
+    initialFrameSyncedRef.current = false;
+    setDraftCrop(sessionCrop);
+    setLockedPresetId(null);
     setPreviewTime(initialTime);
-  }, [show, initialCrop, initialTime]);
+  }, [show, videoSrc, initialCrop, initialTime]);
 
   useEffect(() => {
     if (!show) return;
@@ -147,33 +175,46 @@ export function CropWorkspace({
     const video = videoRef.current;
     if (!video) return;
 
-    const syncToInitialFrame = () => {
+    const syncVideoState = () => {
       const nextDuration =
         Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
       setDuration(nextDuration);
-      const nextTime = Math.max(0, Math.min(nextDuration || initialTime, initialTime));
+      if (initialFrameSyncedRef.current) return;
+
+      initialFrameSyncedRef.current = true;
+      const sessionInitialTime = sessionInitialTimeRef.current;
+      const nextTime = Math.max(
+        0,
+        Math.min(nextDuration || sessionInitialTime, sessionInitialTime),
+      );
       setPreviewTime(nextTime);
-      setDraftCrop(alignCrop(initialCrop ?? DEFAULT_CROP));
+      const nextCrop = alignCrop(sessionInitialCropRef.current);
+      setDraftCrop(nextCrop);
+      setLockedPresetId(
+        isSourceCrop(video.videoWidth, video.videoHeight, nextCrop)
+          ? null
+          : getActiveCropAspectRatioId(video.videoWidth, video.videoHeight, nextCrop),
+      );
       if (Math.abs(video.currentTime - nextTime) > 0.01) {
         video.currentTime = nextTime;
       }
     };
 
-    const handleLoadedMetadata = () => syncToInitialFrame();
-    const handleLoadedData = () => syncToInitialFrame();
+    const handleLoadedMetadata = () => syncVideoState();
+    const handleLoadedData = () => syncVideoState();
 
     video.addEventListener("loadedmetadata", handleLoadedMetadata);
     video.addEventListener("loadeddata", handleLoadedData);
 
     if (video.readyState >= 1) {
-      syncToInitialFrame();
+      syncVideoState();
     }
 
     return () => {
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
       video.removeEventListener("loadeddata", handleLoadedData);
     };
-  }, [alignCrop, show, videoSrc, initialTime]);
+  }, [alignCrop, show, videoSrc]);
 
   useEffect(() => {
     if (!show) return;
@@ -191,7 +232,7 @@ export function CropWorkspace({
 
   const bounds = videoBounds;
 
-  const handleResizeStart = (event: React.PointerEvent, type: string) => {
+  const handleResizeStart = (event: React.PointerEvent, type: CropResizeHandle) => {
     if (!bounds) return;
     if (!event.isPrimary || event.button !== 0) return;
     event.preventDefault();
@@ -208,6 +249,22 @@ export function CropWorkspace({
       const dy = moveEvent.clientY - startY;
       const dXPct = dx / bounds.width;
       const dYPct = dy / bounds.height;
+
+      if (lockedPreset) {
+        const sourceWidth = videoRef.current?.videoWidth || 0;
+        const sourceHeight = videoRef.current?.videoHeight || 0;
+        setDraftCrop(resizeCropWithAspectRatio(
+          sourceWidth,
+          sourceHeight,
+          startCrop,
+          type,
+          dXPct,
+          dYPct,
+          lockedPreset.width,
+          lockedPreset.height,
+        ));
+        return;
+      }
 
       let newX = startCrop.x;
       let newY = startCrop.y;
@@ -290,7 +347,11 @@ export function CropWorkspace({
     window.addEventListener("pointercancel", handleUp);
   };
 
-  const handles = [
+  const handles: Array<{
+    key: CropResizeHandle;
+    cursor: string;
+    position: string;
+  }> = [
     { key: "nw", cursor: "cursor-nw-resize", position: "-top-1.5 -left-1.5" },
     { key: "n", cursor: "cursor-n-resize", position: "-top-1.5 left-1/2 -translate-x-1/2" },
     { key: "ne", cursor: "cursor-ne-resize", position: "-top-1.5 -right-1.5" },
@@ -467,7 +528,12 @@ export function CropWorkspace({
             sourceWidth={sourceWidth}
             sourceHeight={sourceHeight}
             crop={draftCrop}
-            onCropChange={setDraftCrop}
+            lockedPresetId={lockedPresetId}
+            onCropChange={(crop, nextLockedPresetId) => {
+              setDraftCrop(crop);
+              setLockedPresetId(nextLockedPresetId);
+            }}
+            onUnlockRatio={() => setLockedPresetId(null)}
           />
         </div>
 

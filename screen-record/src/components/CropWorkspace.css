@@ -49,6 +49,9 @@
 }
 
 .crop-ratio-active-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
   flex: none;
   border: 1px solid color-mix(in srgb, var(--primary-color) 34%, var(--ui-border));
   border-radius: 999px;
@@ -59,6 +62,41 @@
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+.crop-ratio-lock-state {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.crop-ratio-lock-icon {
+  width: 0.62rem;
+  height: 0.62rem;
+}
+
+.crop-ratio-unlock-button {
+  border: 1px solid var(--ui-border);
+  border-radius: 999px;
+  padding: 0.2rem 0.42rem;
+  background: var(--ui-surface-2);
+  color: var(--on-surface-variant);
+  font-size: 0.58rem;
+  font-weight: 650;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.crop-ratio-unlock-button:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 38%, var(--ui-border));
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--ui-surface-3));
+  color: var(--primary-color);
+}
+
+.crop-ratio-unlock-button:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--primary-color) 60%, var(--ui-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
 }
 
 .crop-ratio-preset-list {

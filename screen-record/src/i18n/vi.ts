@@ -401,6 +401,8 @@ const vi: Translations = {
   cropAspectRatioHint: 'Chọn khung, rồi kéo để tinh chỉnh.',
   cropOriginal: 'Gốc',
   cropCustom: 'Tùy chỉnh',
+  cropFree: 'Tự do',
+  cropUnlockAspectRatio: 'Mở khóa tỷ lệ khung hình',
   cropSelection: 'Vùng cắt',
 
   // Dialogs - Export

@@ -7,3 +7,4 @@ export const POPULAR_ASPECT_RATIO_PRESETS = [
 ] as const;
 
 export type AspectRatioPreset = (typeof POPULAR_ASPECT_RATIO_PRESETS)[number];
+export type AspectRatioPresetId = AspectRatioPreset["id"];
