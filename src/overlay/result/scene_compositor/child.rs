@@ -1,9 +1,10 @@
 use super::card_document::compositor_document;
+use super::mailbox::{CommandBuffer, PushResult};
 use super::protocol::{ChildEvent, HostCommand, SceneCard};
 use crate::win_types::HwndWrapper;
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -21,8 +22,8 @@ const WM_DRAIN_COMMANDS: u32 = WM_APP + 91;
 const INPUT_TIMER_ID: usize = 1;
 static HOST_HWND: AtomicIsize = AtomicIsize::new(0);
 static RENDERER_READY: AtomicBool = AtomicBool::new(false);
-static COMMANDS: LazyLock<Mutex<VecDeque<HostCommand>>> =
-    LazyLock::new(|| Mutex::new(VecDeque::new()));
+static COMMANDS: LazyLock<Mutex<CommandBuffer>> =
+    LazyLock::new(|| Mutex::new(CommandBuffer::default()));
 pub(super) static CARDS: LazyLock<Mutex<HashMap<isize, SceneCard>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static STDOUT: LazyLock<Mutex<std::io::Stdout>> = LazyLock::new(|| Mutex::new(std::io::stdout()));
@@ -41,6 +42,7 @@ pub fn run() -> anyhow::Result<()> {
     }
     start_input_thread();
     let webview = create_webview(hwnd)?;
+    super::webview_failure::attach(hwnd, &webview);
     WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
     unsafe {
         let mut message = MSG::default();
@@ -102,9 +104,14 @@ fn create_host_window() -> anyhow::Result<HWND> {
 fn create_webview(hwnd: HWND) -> anyhow::Result<WebView> {
     let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1) } as u32;
     let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1) } as u32;
+    let profile = if super::supervisor::software_rendering_requested() {
+        "result-compositor-software"
+    } else {
+        "result-compositor"
+    };
     let data_dir = crate::paths::app_sgt_dir()
         .join("webview_data")
-        .join("result-compositor");
+        .join(profile);
     let wrapper = HwndWrapper(hwnd);
     let isolated_origin = super::isolated_server::start()?;
     let compositor_html = compositor_document(&isolated_origin);
@@ -161,31 +168,28 @@ fn start_input_thread() {
             let Ok(command) = serde_json::from_str::<HostCommand>(&line) else {
                 continue;
             };
-            COMMANDS.lock().unwrap().push_back(command);
-            let hwnd_value = HOST_HWND.load(Ordering::SeqCst);
-            if hwnd_value != 0 {
-                unsafe {
-                    let _ = PostMessageW(
-                        Some(HWND(hwnd_value as *mut std::ffi::c_void)),
-                        WM_DRAIN_COMMANDS,
-                        WPARAM(0),
-                        LPARAM(0),
-                    );
-                }
+            match COMMANDS.lock().unwrap().push(command) {
+                PushResult::Queued => post_host(WM_DRAIN_COMMANDS),
+                PushResult::Overflowed => emit_event(ChildEvent::ResyncRequested),
+                PushResult::AwaitingSnapshot => {}
             }
         }
-        let hwnd_value = HOST_HWND.load(Ordering::SeqCst);
-        if hwnd_value != 0 {
-            unsafe {
-                let _ = PostMessageW(
-                    Some(HWND(hwnd_value as *mut std::ffi::c_void)),
-                    WM_CLOSE,
-                    WPARAM(0),
-                    LPARAM(0),
-                );
-            }
-        }
+        post_host(WM_CLOSE);
     });
+}
+
+fn post_host(message: u32) {
+    let hwnd_value = HOST_HWND.load(Ordering::SeqCst);
+    if hwnd_value != 0 {
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(hwnd_value as *mut std::ffi::c_void)),
+                message,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    }
 }
 
 unsafe extern "system" fn window_proc(
@@ -200,7 +204,7 @@ unsafe extern "system" fn window_proc(
                 drain_commands(hwnd);
                 LRESULT(0)
             }
-            WM_DISPLAYCHANGE => {
+            WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE => {
                 resize_host(hwnd);
                 LRESULT(0)
             }
@@ -257,11 +261,8 @@ fn drain_commands(hwnd: HWND) {
     }
     let mut redraw_region = false;
     let mut handled_command = false;
-    loop {
-        let command = COMMANDS.lock().unwrap().pop_front();
-        let Some(command) = command else {
-            break;
-        };
+    let commands = COMMANDS.lock().unwrap().drain();
+    for command in commands {
         if command == HostCommand::Shutdown {
             unsafe {
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -363,7 +364,10 @@ fn handle_renderer_event(body: &str) {
                     | ChildEvent::CommandError { .. } => {
                         emit_event(event);
                     }
-                    ChildEvent::Ready | ChildEvent::Heartbeat => {}
+                    ChildEvent::Ready
+                    | ChildEvent::Heartbeat
+                    | ChildEvent::ResyncRequested
+                    | ChildEvent::RendererFailure { .. } => {}
                 }
             }
         }
@@ -561,7 +565,7 @@ fn resize_host(hwnd: HWND) {
     }
 }
 
-fn emit_event(event: ChildEvent) {
+pub(super) fn emit_event(event: ChildEvent) {
     if let Ok(line) = serde_json::to_string(&event) {
         let mut stdout = STDOUT.lock().unwrap();
         let _ = writeln!(stdout, "{line}");

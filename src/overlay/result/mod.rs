@@ -54,8 +54,6 @@ pub fn get_active_refine_parent() -> Option<HWND> {
 
 // Helper to update refine text
 pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
-    button_canvas::send_refine_text_update(hwnd, text, is_insert);
-
     // Only update internal state if overwriting (for consistency)
     if !is_insert {
         let hwnd_key = hwnd.0 as isize;
@@ -64,6 +62,7 @@ pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
             state.input_text = text.to_string();
         }
     }
+    button_canvas::send_refine_text_update(hwnd, text, is_insert);
 }
 
 /// Trigger copy action on a result window

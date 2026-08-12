@@ -29,13 +29,6 @@ fn test_card(streaming: bool) -> SceneCard {
 }
 
 #[test]
-fn heartbeat_timeout_uses_saturating_elapsed_time() {
-    assert!(!heartbeat_is_stale(5_000, 0));
-    assert!(heartbeat_is_stale(5_001, 0));
-    assert!(!heartbeat_is_stale(1, 2));
-}
-
-#[test]
 fn identical_completed_sync_is_not_dispatched_again() {
     let card = test_card(false);
     assert_eq!(

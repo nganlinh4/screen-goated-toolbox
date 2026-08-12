@@ -45,6 +45,8 @@ const documents = {documents};
 const frames = Object.fromEntries(['recording','notification','selection'].map(name => [name, document.getElementById(name)]));
 let virtualX = 0;
 let virtualY = 0;
+let displayScale = 1;
+const frameRects = {{}};
 let textVisible = false;
 let imageVisible = false;
 let captureVisible = true;
@@ -57,7 +59,8 @@ function invoke(name, method, ...args) {{
   if (typeof fn === 'function') fn(...args);
 }}
 function place(name, rect) {{
-  const scale = window.devicePixelRatio || 1;
+  frameRects[name] = rect;
+  const scale = displayScale;
   const frame = frames[name];
   frame.style.left = `${{(rect.x - virtualX) / scale}}px`;
   frame.style.top = `${{(rect.y - virtualY) / scale}}px`;
@@ -71,7 +74,7 @@ function recordingElementRect(selector) {{
   const frameRect = frames.recording.getBoundingClientRect();
   const elementRect = frameWindow('recording')?.document.querySelector(selector)?.getBoundingClientRect();
   if (!elementRect) return null;
-  const scale = window.devicePixelRatio || 1;
+  const scale = displayScale;
   return {{
     x: Math.round(virtualX + (frameRect.left + elementRect.left) * scale),
     y: Math.round(virtualY + (frameRect.top + elementRect.top) * scale),
@@ -103,21 +106,34 @@ function updateSelectionFrameVisibility() {{
 }}
 function applySnapshot(scene) {{
   applyTheme(scene.is_dark);
+  invoke('notification', 'resetNotifications');
+  notificationWatermark = 0;
+  hide('notification');
   place('notification', scene.notification_rect);
   if (scene.recording) {{
     place('recording', scene.recording.rect);
     invoke('recording', 'updateState', scene.recording.state, scene.recording.rms);
-    if (scene.recording.visible) {{ show('recording'); frameWindow('recording').document.body.classList.add('visible'); }}
+    frameWindow('recording').document.body.classList.toggle('visible', scene.recording.visible);
+    if (scene.recording.visible) show('recording'); else hide('recording');
+  }} else {{
+    invoke('recording', 'hideState'); hide('recording');
   }}
-  if (scene.progress) {{
+  const notificationItems = (scene.notifications || []).map(notification => ({{
+    order: notification.id || 0, notification
+  }}));
+  if (scene.progress) notificationItems.push({{order: scene.progress.order || 0, progress: scene.progress}});
+  notificationItems.sort((left, right) => left.order - right.order);
+  for (const item of notificationItems) {{
     show('notification');
-    invoke('notification', 'upsertProgressNotification', scene.progress.title, scene.progress.snippet, scene.progress.progress);
-  }}
-  for (const notification of scene.notifications || []) {{
-    notificationWatermark = Math.max(notificationWatermark, notification.id || 0);
-    show('notification');
-    invoke('notification', 'addNotification', notification.title, notification.snippet,
-      notification.kind, notification.duration_ms);
+    if (item.notification) {{
+      const notification = item.notification;
+      notificationWatermark = Math.max(notificationWatermark, notification.id || 0);
+      invoke('notification', 'addNotification', notification.title, notification.snippet,
+        notification.kind, notification.duration_ms);
+    }} else {{
+      const progress = item.progress;
+      invoke('notification', 'upsertProgressNotification', progress.title, progress.snippet, progress.progress);
+    }}
   }}
   const selection = scene.selection;
   place('selection', selection.rect);
@@ -172,7 +188,12 @@ window.applyStatusCommand = command => {{
   }}
 }};
 window.moveStatusRecording = rect => place('recording', rect);
-window.statusDisplayChanged = display => {{ virtualX = display.x; virtualY = display.y; }};
+window.statusDisplayChanged = display => {{
+  virtualX = display.x;
+  virtualY = display.y;
+  displayScale = Math.max(1, Number(display.scale) || 1);
+  for (const [name, rect] of Object.entries(frameRects)) place(name, rect);
+}};
 window.setStatusRecordingPointer = (target, active) => {{
   const pause = frameWindow('recording')?.document.querySelector('#btn-pause');
   const cancel = frameWindow('recording')?.document.querySelector('.btn-close');
@@ -214,5 +235,9 @@ mod tests {
         assert!(html.contains("recording_regions"));
         assert!(html.contains("setStatusRecordingPointer"));
         assert!(html.contains(".btn:hover, .btn.sgt-native-hover"));
+        assert!(html.contains("displayScale = Math.max(1, Number(display.scale) || 1)"));
+        assert!(html.contains("Object.entries(frameRects)"));
+        assert!(html.contains("invoke('notification', 'resetNotifications')"));
+        assert!(html.contains("classList.toggle('visible', scene.recording.visible)"));
     }
 }

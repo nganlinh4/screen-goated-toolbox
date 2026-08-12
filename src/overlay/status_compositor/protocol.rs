@@ -28,6 +28,7 @@ pub struct RecordingScene {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ProgressScene {
+    pub order: u64,
     pub title: String,
     pub snippet: String,
     pub progress: f32,
@@ -117,6 +118,7 @@ pub enum ChildEvent {
     RecordingMoved { rect: PhysicalRect },
     NotificationFinished { through_id: u64 },
     SelectionCaptureApplied { request_id: u64 },
+    ResyncRequested,
     RendererError { source: String, error: String },
 }
 

@@ -11,9 +11,11 @@ use webview2_com::{
     NavigationCompletedEventHandler, WebMessageReceivedEventHandler,
 };
 use windows061::Win32::Foundation::{HWND, RECT};
-use windows061::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+use windows061::Win32::Graphics::Direct3D::{
+    D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
+};
 use windows061::Win32::Graphics::Direct3D11::{
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
 };
 use windows061::Win32::Graphics::DirectComposition::{
     DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
@@ -35,22 +37,29 @@ pub(super) struct DcompHost {
     pub webview: ICoreWebView2,
 }
 
+impl DcompHost {
+    pub(super) fn update_display(
+        &self,
+        display: super::DisplayMetrics,
+    ) -> windows061::core::Result<()> {
+        unsafe {
+            let controller: ICoreWebView2Controller = self.comp.cast()?;
+            if let Ok(controller3) = controller.cast::<ICoreWebView2Controller3>() {
+                controller3.SetRasterizationScale(display.scale)?;
+            }
+            controller.SetBounds(RECT {
+                left: 0,
+                top: 0,
+                right: display.width,
+                bottom: display.height,
+            })
+        }
+    }
+}
+
 pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
     unsafe {
-        let mut d3d: Option<ID3D11Device> = None;
-        D3D11CreateDevice(
-            None,
-            D3D_DRIVER_TYPE_HARDWARE,
-            Default::default(),
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-            None,
-            D3D11_SDK_VERSION,
-            Some(&mut d3d),
-            None,
-            None,
-        )?;
-        let dxgi: IDXGIDevice = d3d.ok_or_else(pointer_error)?.cast()?;
-        let device: IDCompositionDevice = DCompositionCreateDevice(&dxgi)?;
+        let device = create_composition_device()?;
         let target: IDCompositionTarget = device.CreateTargetForHwnd(hwnd, true)?;
         let root: IDCompositionVisual = device.CreateVisual()?;
         target.SetRoot(&root)?;
@@ -100,17 +109,17 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
         composition.SetRootVisualTarget(&root)?;
 
         let controller: ICoreWebView2Controller = composition.cast()?;
+        let display = super::display_metrics(hwnd);
         if let Ok(controller3) = controller.cast::<ICoreWebView2Controller3>() {
             controller3.SetBoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS)?;
             controller3.SetShouldDetectMonitorScaleChanges(false)?;
-            controller3.SetRasterizationScale(super::system_dpi_scale())?;
+            controller3.SetRasterizationScale(display.scale)?;
         }
-        let (_, _, width, height) = super::virtual_screen();
         controller.SetBounds(RECT {
             left: 0,
             top: 0,
-            right: width,
-            bottom: height,
+            right: display.width,
+            bottom: display.height,
         })?;
         let controller2: ICoreWebView2Controller2 = controller.cast()?;
         controller2.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
@@ -140,6 +149,34 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
             webview,
         })
     }
+}
+
+fn create_composition_device() -> windows061::core::Result<IDCompositionDevice> {
+    let try_create = |driver_type: D3D_DRIVER_TYPE| unsafe {
+        let mut device = None;
+        D3D11CreateDevice(
+            None,
+            driver_type,
+            Default::default(),
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            None,
+            D3D11_SDK_VERSION,
+            Some(&mut device),
+            None,
+            None,
+        )?;
+        let dxgi: IDXGIDevice = device.ok_or_else(pointer_error)?.cast()?;
+        DCompositionCreateDevice(&dxgi)
+    };
+    let [hardware, warp] = driver_candidates();
+    try_create(hardware).or_else(|hardware_error| {
+        eprintln!("hardware D3D device unavailable ({hardware_error}); using WARP");
+        try_create(warp)
+    })
+}
+
+fn driver_candidates() -> [D3D_DRIVER_TYPE; 2] {
+    [D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP]
 }
 
 unsafe fn attach_navigation_probe(webview: &ICoreWebView2) -> windows061::core::Result<()> {
@@ -213,4 +250,16 @@ fn webview_error(error: webview2_com::Error) -> windows061::core::Error {
 
 fn pointer_error() -> windows061::core::Error {
     windows061::core::Error::from(windows061::Win32::Foundation::E_POINTER)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn software_rasterization_is_the_required_hardware_fallback() {
+        let drivers = driver_candidates();
+        assert_eq!(drivers[0], D3D_DRIVER_TYPE_HARDWARE);
+        assert_eq!(drivers[1], D3D_DRIVER_TYPE_WARP);
+    }
 }
