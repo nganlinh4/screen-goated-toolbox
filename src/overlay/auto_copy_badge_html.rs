@@ -354,6 +354,10 @@ pub(super) fn get_badge_html() -> String {
             }}
         }}
 
+        window.resetNotifications = () => {{
+            document.getElementById('notifications').replaceChildren();
+        }};
+
         window.addNotification = (title, snippet, type, durationOverride) => {{
             const container = document.getElementById('notifications');
             const colors = getColors(type, isDarkMode);
@@ -369,21 +373,24 @@ pub(super) fn get_badge_html() -> String {
             const hasSnippet = (snippet && snippet.length > 0);
             const checkDisplay = hasSnippet ? 'flex' : 'none';
             const snippetDisplay = hasSnippet ? 'flex' : 'none';
-            const leadingIcon = getLeadingIcon(type);
-
             badge.innerHTML = `
                 <div class="row title-row">
                     <div class="title">
-                        <span class="check" style="display: ${{checkDisplay}}">
-                            ${{leadingIcon}}
-                        </span>
-                        <span>${{title}}</span>
+                        <span class="check"></span>
+                        <span class="title-text"></span>
                     </div>
                 </div>
-                <div class="row snippet-container" style="display: ${{snippetDisplay}}">
-                    <div class="snippet">${{snippet}}</div>
+                <div class="row snippet-container">
+                    <div class="snippet"></div>
                 </div>
             `;
+            const check = badge.querySelector('.check');
+            const snippetContainer = badge.querySelector('.snippet-container');
+            check.style.display = checkDisplay;
+            check.innerHTML = getLeadingIcon(type);
+            snippetContainer.style.display = snippetDisplay;
+            badge.querySelector('.title-text').textContent = title || '';
+            badge.querySelector('.snippet').textContent = snippet || '';
 
             container.appendChild(badge);
 
@@ -457,4 +464,18 @@ pub(super) fn get_badge_html() -> String {
 </body>
 </html>"#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notification_content_is_assigned_as_text_not_markup() {
+        let html = get_badge_html();
+        assert!(!html.contains("${title}"));
+        assert!(!html.contains("${snippet}"));
+        assert!(html.contains(".title-text').textContent = title || ''"));
+        assert!(html.contains(".snippet').textContent = snippet || ''"));
+    }
 }

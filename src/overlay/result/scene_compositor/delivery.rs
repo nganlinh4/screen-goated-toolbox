@@ -1,11 +1,27 @@
-use super::parent::{ensure_process, restart_process_now, write_command};
+use super::mailbox::{CommandBuffer, PushResult};
 use super::protocol::HostCommand;
-use std::collections::HashMap;
-use std::sync::LazyLock;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use super::supervisor::{ProcessState, ensure_process, restart_now, start_watchdog, write_command};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::{LazyLock, Mutex};
 
-static SENDER: LazyLock<Sender<Message>> = LazyLock::new(|| {
-    let (sender, receiver) = channel();
+#[derive(Default)]
+struct PendingDelivery {
+    commands: CommandBuffer,
+    restart: bool,
+    warmup: bool,
+    snapshot_required: bool,
+}
+
+struct DeliveryBatch {
+    commands: Vec<HostCommand>,
+    restart: bool,
+    warmup: bool,
+}
+
+static PENDING: LazyLock<Mutex<PendingDelivery>> =
+    LazyLock::new(|| Mutex::new(PendingDelivery::default()));
+static SIGNAL: LazyLock<SyncSender<()>> = LazyLock::new(|| {
+    let (sender, receiver) = sync_channel(1);
     std::thread::Builder::new()
         .name("sgt-result-delivery".to_string())
         .spawn(move || delivery_loop(receiver))
@@ -13,147 +29,139 @@ static SENDER: LazyLock<Sender<Message>> = LazyLock::new(|| {
     sender
 });
 
-enum Message {
-    Command(HostCommand),
-    Restart,
-    Warmup,
-}
-
 pub(super) fn warmup() {
-    let _ = SENDER.send(Message::Warmup);
+    start_watchdog();
+    PENDING.lock().unwrap().warmup = true;
+    signal_delivery();
 }
 
 pub(super) fn send_command(command: HostCommand) {
-    let _ = SENDER.send(Message::Command(command));
+    start_watchdog();
+    let mut pending = PENDING.lock().unwrap();
+    if pending.commands.push(command) != PushResult::Queued {
+        pending.snapshot_required = true;
+    }
+    drop(pending);
+    signal_delivery();
 }
 
 pub(super) fn request_restart() {
-    let _ = SENDER.send(Message::Restart);
+    PENDING.lock().unwrap().restart = true;
+    signal_delivery();
 }
 
-fn delivery_loop(receiver: Receiver<Message>) {
-    while let Ok(message) = receiver.recv() {
-        let mut commands = Vec::new();
-        let mut restart = false;
-        let mut warmup = false;
-        collect(message, &mut commands, &mut restart, &mut warmup);
-        while let Ok(message) = receiver.try_recv() {
-            collect(message, &mut commands, &mut restart, &mut warmup);
-        }
+pub(super) fn queue_snapshot() {
+    let mut pending = PENDING.lock().unwrap();
+    pending
+        .commands
+        .replace_with_snapshot(super::parent::scene_snapshot());
+    pending.commands.push(HostCommand::Theme {
+        theme: super::parent::current_theme(),
+    });
+    pending.snapshot_required = false;
+    drop(pending);
+    signal_delivery();
+}
 
-        if restart {
-            restart_process_now();
-        } else if warmup || !commands.is_empty() {
-            ensure_process();
+fn delivery_loop(receiver: Receiver<()>) {
+    while receiver.recv().is_ok() {
+        while receiver.try_recv().is_ok() {}
+        let batch = take_pending();
+        if batch.restart {
+            deliver_batch(restart_now(), batch.commands);
+            continue;
         }
-        for command in coalesce_stream_commands(commands) {
-            if write_command(&command).is_err() {
-                restart_process_now();
-                break;
-            }
-        }
+        let process = if batch.warmup || !batch.commands.is_empty() {
+            ensure_process()
+        } else {
+            ProcessState::Unavailable
+        };
+        deliver_batch(process, batch.commands);
     }
 }
 
-fn collect(
-    message: Message,
-    commands: &mut Vec<HostCommand>,
-    restart: &mut bool,
-    warmup: &mut bool,
-) {
-    match message {
-        Message::Command(command) => commands.push(command),
-        Message::Restart => *restart = true,
-        Message::Warmup => *warmup = true,
+fn deliver_batch(process: ProcessState, mut commands: Vec<HostCommand>) {
+    match process {
+        ProcessState::Running => {}
+        ProcessState::Spawned => commands.retain(is_operation_after_snapshot),
+        ProcessState::Unavailable => {
+            defer_operations(commands);
+            return;
+        }
     }
-}
-
-fn coalesce_stream_commands(commands: Vec<HostCommand>) -> Vec<HostCommand> {
-    let mut output: Vec<Option<HostCommand>> = Vec::with_capacity(commands.len());
-    let mut latest_stream = HashMap::new();
     for command in commands {
-        match &command {
-            HostCommand::Stream { card } => {
-                if let Some(index) = latest_stream.get(&card.id).copied() {
-                    output[index] = Some(command);
-                } else {
-                    latest_stream.insert(card.id, output.len());
-                    output.push(Some(command));
-                }
-            }
-            HostCommand::Finalize { card } => {
-                if let Some(index) = latest_stream.remove(&card.id) {
-                    output[index] = None;
-                }
-                output.push(Some(command));
-            }
-            HostCommand::Upsert { card } => {
-                latest_stream.remove(&card.id);
-                output.push(Some(command));
-            }
-            HostCommand::Remove { id } => {
-                latest_stream.remove(id);
-                output.push(Some(command));
-            }
-            _ => output.push(Some(command)),
+        if let Err(error) = write_command(&command) {
+            crate::log_info!("[ResultCompositor] command delivery failed: {error:#}");
+            super::supervisor::fail_live_renderer("command delivery failed", true);
+            break;
         }
     }
-    output.into_iter().flatten().collect()
+}
+
+fn defer_operations(commands: Vec<HostCommand>) {
+    let mut pending = PENDING.lock().unwrap();
+    for command in commands.into_iter().filter(is_operation_after_snapshot) {
+        if pending.commands.push(command) != PushResult::Queued {
+            pending.snapshot_required = true;
+        }
+    }
+}
+
+fn is_operation_after_snapshot(command: &HostCommand) -> bool {
+    matches!(
+        command,
+        HostCommand::RefineText {
+            is_insert: true,
+            ..
+        } | HostCommand::NavigateBack { .. }
+            | HostCommand::NavigateForward { .. }
+    )
+}
+
+fn take_pending() -> DeliveryBatch {
+    let mut pending = PENDING.lock().unwrap();
+    if pending.snapshot_required {
+        pending
+            .commands
+            .replace_with_snapshot(super::parent::scene_snapshot());
+        pending.commands.push(HostCommand::Theme {
+            theme: super::parent::current_theme(),
+        });
+        pending.snapshot_required = false;
+    }
+    DeliveryBatch {
+        commands: pending.commands.drain(),
+        restart: std::mem::take(&mut pending.restart),
+        warmup: std::mem::take(&mut pending.warmup),
+    }
+}
+
+fn signal_delivery() {
+    let _ = SIGNAL.try_send(());
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::overlay::result::scene_compositor::protocol::{SceneFinalize, SceneStream};
-
-    fn stream(id: isize, body: &str) -> HostCommand {
-        HostCommand::Stream {
-            card: SceneStream {
-                id,
-                body: body.to_string(),
-                document: None,
-                refining: false,
-                background: "#ffffff".to_string(),
-                opacity: 100,
-                visible: true,
-                streaming_enabled: true,
-                controls: Default::default(),
-            },
-        }
-    }
-
-    fn finalize(id: isize, body: &str) -> HostCommand {
-        HostCommand::Finalize {
-            card: SceneFinalize {
-                id,
-                body: body.to_string(),
-                document: None,
-                refining: false,
-                background: "#ffffff".to_string(),
-                opacity: 100,
-                visible: true,
-                streaming_enabled: false,
-                controls: Default::default(),
-            },
-        }
-    }
 
     #[test]
-    fn keeps_only_the_latest_pending_stream_per_card() {
-        let commands = coalesce_stream_commands(vec![
-            stream(1, "old"),
-            stream(2, "other"),
-            stream(1, "latest"),
-        ]);
-        assert_eq!(commands.len(), 2);
-        assert!(matches!(&commands[0], HostCommand::Stream { card } if card.body == "latest"));
-        assert!(matches!(&commands[1], HostCommand::Stream { card } if card.body == "other"));
-    }
-
-    #[test]
-    fn finalize_supersedes_a_pending_stream_for_the_same_card() {
-        let commands = coalesce_stream_commands(vec![stream(1, "partial"), finalize(1, "done")]);
-        assert_eq!(commands.len(), 1);
-        assert!(matches!(&commands[0], HostCommand::Finalize { card } if card.body == "done"));
+    fn only_operations_missing_from_the_snapshot_are_replayed_after_spawn() {
+        assert!(is_operation_after_snapshot(&HostCommand::RefineText {
+            id: 42,
+            text: "dictated".to_string(),
+            is_insert: true,
+        }));
+        assert!(is_operation_after_snapshot(&HostCommand::NavigateBack {
+            id: 42
+        }));
+        assert!(!is_operation_after_snapshot(&HostCommand::RefineText {
+            id: 42,
+            text: "canonical".to_string(),
+            is_insert: false,
+        }));
+        assert!(!is_operation_after_snapshot(&HostCommand::Opacity {
+            id: 42,
+            opacity: 75,
+        }));
     }
 }

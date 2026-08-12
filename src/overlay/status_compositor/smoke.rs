@@ -24,7 +24,7 @@ pub(crate) fn run() -> i32 {
         "Unified status compositor".to_string(),
         "Notifications, progress, selection, and recording share one renderer.".to_string(),
         "success",
-        Some(6_000),
+        Some(20_000),
     );
     super::progress_upsert(
         "Status compositor smoke".to_string(),
@@ -32,7 +32,7 @@ pub(crate) fn run() -> i32 {
         42.0,
     );
 
-    for frame in 0..180 {
+    for frame in 0..900 {
         let phase = frame as f32 * 0.14;
         super::recording_update("recording", 0.2 + phase.sin().abs() * 0.65);
         if frame % 12 == 0 {

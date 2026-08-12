@@ -185,11 +185,37 @@ pub enum HostCommand {
     Shutdown,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RendererFailureKind {
+    BrowserProcessExited,
+    RenderProcessExited,
+    RenderProcessUnresponsive,
+    FrameRenderProcessExited,
+    GpuProcessExited,
+}
+
+impl RendererFailureKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::BrowserProcessExited => "browser process exited",
+            Self::RenderProcessExited => "render process exited",
+            Self::RenderProcessUnresponsive => "render process unresponsive",
+            Self::FrameRenderProcessExited => "frame render process exited",
+            Self::GpuProcessExited => "GPU process exited",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChildEvent {
     Ready,
     Heartbeat,
+    ResyncRequested,
+    RendererFailure {
+        kind: RendererFailureKind,
+    },
     FontReady {
         duration_ms: f64,
     },

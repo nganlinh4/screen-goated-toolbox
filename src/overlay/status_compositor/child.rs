@@ -1,26 +1,26 @@
 use super::dcomp::DcompHost;
+use super::mailbox::{CommandBuffer, PushResult};
 use super::protocol::{ChildEvent, HostCommand, RecordingScene, StatusSnapshot};
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{LazyLock, Mutex, Once};
 use webview2_com::ExecuteScriptCompletedHandler;
-use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller;
-use windows061::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows061::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};
 use windows061::Win32::Graphics::Gdi::HBRUSH;
 use windows061::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
 use windows061::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows061::Win32::UI::WindowsAndMessaging::*;
-use windows061::core::{HSTRING, Interface, PCWSTR, w};
+use windows061::core::{HSTRING, PCWSTR, w};
 
 const WM_DRAIN_COMMANDS: u32 = WM_APP + 81;
 static HOST_HWND: AtomicIsize = AtomicIsize::new(0);
 static INPUT_HWND: AtomicIsize = AtomicIsize::new(0);
 static RENDERER_READY: AtomicBool = AtomicBool::new(false);
+static SCRIPT_RESYNC_PENDING: AtomicBool = AtomicBool::new(false);
 static REGISTER_CLASS: Once = Once::new();
-static COMMANDS: LazyLock<Mutex<VecDeque<HostCommand>>> =
-    LazyLock::new(|| Mutex::new(VecDeque::new()));
+static COMMANDS: LazyLock<Mutex<CommandBuffer>> =
+    LazyLock::new(|| Mutex::new(CommandBuffer::default()));
 static SCENE: LazyLock<Mutex<StatusSnapshot>> =
     LazyLock::new(|| Mutex::new(StatusSnapshot::default()));
 static STDOUT: LazyLock<Mutex<std::io::Stdout>> = LazyLock::new(|| Mutex::new(std::io::stdout()));
@@ -137,8 +137,11 @@ fn start_input_thread() {
             let Ok(command) = serde_json::from_str::<HostCommand>(&line) else {
                 continue;
             };
-            COMMANDS.lock().unwrap().push_back(command);
-            post_host(WM_DRAIN_COMMANDS);
+            match COMMANDS.lock().unwrap().push(command) {
+                PushResult::Queued => post_host(WM_DRAIN_COMMANDS),
+                PushResult::Overflowed => emit_event(ChildEvent::ResyncRequested),
+                PushResult::AwaitingSnapshot => {}
+            }
         }
         post_host(WM_CLOSE);
     });
@@ -171,7 +174,7 @@ unsafe extern "system" fn window_proc(
                 drain_commands(hwnd);
                 LRESULT(0)
             }
-            WM_DISPLAYCHANGE => {
+            WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE => {
                 resize_host(hwnd);
                 LRESULT(0)
             }
@@ -228,9 +231,8 @@ fn drain_commands(hwnd: HWND) {
     if !RENDERER_READY.load(Ordering::SeqCst) {
         return;
     }
-    loop {
-        let command = COMMANDS.lock().unwrap().pop_front();
-        let Some(command) = command else { break };
+    let commands = COMMANDS.lock().unwrap().drain();
+    for command in commands {
         if matches!(command, HostCommand::Shutdown) {
             unsafe {
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -330,9 +332,10 @@ pub(super) fn handle_renderer_message(body: &str) {
         if value != 0 {
             unsafe {
                 let hwnd = HWND(value as *mut std::ffi::c_void);
-                let (x, y, width, height) = super::virtual_screen();
+                let display = super::display_metrics(hwnd);
                 execute_script(&format!(
-                    "window.statusDisplayChanged({{x:{x},y:{y},width:{width},height:{height}}});"
+                    "window.statusDisplayChanged({{x:{},y:{},width:{},height:{},scale:{}}});",
+                    display.x, display.y, display.width, display.height, display.scale
                 ));
                 drain_commands(hwnd);
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -435,14 +438,31 @@ fn execute_script(script: &str) {
     HOST.with(|slot| {
         if let Some(host) = slot.borrow().as_ref() {
             let script = HSTRING::from(script);
-            let handler = ExecuteScriptCompletedHandler::create(Box::new(|_, _| Ok(())));
+            let handler = ExecuteScriptCompletedHandler::create(Box::new(|code, _| {
+                if code.is_ok() {
+                    SCRIPT_RESYNC_PENDING.store(false, Ordering::SeqCst);
+                } else {
+                    request_script_resync();
+                }
+                Ok(())
+            }));
             unsafe {
-                let _ = host
+                if host
                     .webview
-                    .ExecuteScript(PCWSTR(script.as_ptr()), &handler);
+                    .ExecuteScript(PCWSTR(script.as_ptr()), &handler)
+                    .is_err()
+                {
+                    request_script_resync();
+                }
             }
         }
     });
+}
+
+fn request_script_resync() {
+    if !SCRIPT_RESYNC_PENDING.swap(true, Ordering::SeqCst) {
+        emit_event(ChildEvent::ResyncRequested);
+    }
 }
 
 fn emit_event(event: ChildEvent) {
@@ -492,33 +512,48 @@ unsafe fn set_recording_cursor(
 }
 
 fn resize_host(hwnd: HWND) {
-    let (x, y, width, height) = super::virtual_screen();
+    let display = super::display_metrics(hwnd);
     unsafe {
         let _ = SetWindowPos(
             hwnd,
             None,
-            x,
-            y,
-            width,
-            height,
+            display.x,
+            display.y,
+            display.width,
+            display.height,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
     }
     HOST.with(|slot| {
-        if let Some(host) = slot.borrow().as_ref()
-            && let Ok(controller) = host.comp.cast::<ICoreWebView2Controller>()
-        {
-            unsafe {
-                let _ = controller.SetBounds(RECT {
-                    left: 0,
-                    top: 0,
-                    right: width,
-                    bottom: height,
-                });
-            }
+        if let Some(host) = slot.borrow().as_ref() {
+            let _ = host.update_display(display);
         }
     });
     execute_script(&format!(
-        "window.statusDisplayChanged({{x:{x},y:{y},width:{width},height:{height}}});"
+        "window.statusDisplayChanged({{x:{},y:{},width:{},height:{},scale:{}}});",
+        display.x, display.y, display.width, display.height, display.scale
     ));
+    reconcile_recording_after_display_change(display);
+}
+
+fn reconcile_recording_after_display_change(display: super::DisplayMetrics) {
+    let moved = {
+        let mut scene = SCENE.lock().unwrap();
+        scene.recording.as_mut().and_then(|recording| {
+            let fitted = super::fit_rect_to_display(recording.rect, display);
+            (fitted != recording.rect).then(|| {
+                recording.rect = fitted;
+                recording.clone()
+            })
+        })
+    };
+    if let Some(recording) = moved {
+        sync_input_window(Some(&recording));
+        if let Ok(rect) = serde_json::to_string(&recording.rect) {
+            execute_script(&format!("window.moveStatusRecording({rect});"));
+        }
+        emit_event(ChildEvent::RecordingMoved {
+            rect: recording.rect,
+        });
+    }
 }

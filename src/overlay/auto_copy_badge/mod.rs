@@ -136,7 +136,6 @@ pub fn enqueue_notification_with_duration(
             notification_kind(n_type),
             duration_ms,
         );
-        return;
     }
     #[cfg(feature = "recorder-worker")]
     {
