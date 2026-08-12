@@ -11,8 +11,8 @@ body{font-family:'Google Sans Flex';user-select:none}
 #scene{pointer-events:none}
 .font-prewarm{position:absolute;visibility:hidden;pointer-events:none;font:400 16px 'Google Sans Flex'}
 .result-card{position:absolute;overflow:hidden;border-radius:var(--sgt-box-radius,__SGT_BOX_RADIUS_PX__px);pointer-events:auto;
-  left:0;top:0;box-shadow:inset 0 0 0 1px var(--result-outline);contain:layout paint style}
-.direct-host,.result-frame{display:block;width:100%;height:100%;border:0;background:transparent}
+  left:0;top:0;box-shadow:inset 0 0 0 1px var(--result-outline);contain:layout paint style;user-select:text}
+.direct-host,.result-frame{display:block;width:100%;height:100%;border:0;background:transparent;user-select:text}
 </style>
 </head>
 <body>
@@ -59,6 +59,15 @@ function installCardStyles(shadow) {
   const style = document.createElement('style');
   style.textContent = cardStyleText;
   shadow.appendChild(style);
+}
+function publishSelectionCopy(event, id) {
+  const selection = window.getSelection();
+  const text = selection ? selection.toString() : '';
+  if (!text) return;
+  event.preventDefault();
+  window.ipc.postMessage(JSON.stringify({
+    action: 'copy_selection', hwnd: String(id), text: text
+  }));
 }
 function ensureCard(id) {
   const key = String(id);
@@ -149,6 +158,9 @@ function ensureCard(id) {
     if (!/^https?:\/\//i.test(anchor.href)) return;
     event.preventDefault();
     navigateTo(entry, anchor.href);
+  }, true);
+  shadow.addEventListener('copy', function(event) {
+    publishSelectionCopy(event, id);
   }, true);
   cards.set(key, entry);
   reportCardDiagnostic(id, entry, 'shared_surface_ready', {});
@@ -544,52 +556,16 @@ window.addEventListener('message', function(event) {
     } else if (event.data.type === 'card_interaction') {
       raiseCard(entry);
       window.ipc.postMessage(JSON.stringify({ type: 'interaction', id: Number(id) }));
+    } else if (event.data.type === 'copy_selection') {
+      window.ipc.postMessage(JSON.stringify({
+        action: 'copy_selection', hwnd: id, text: String(event.data.text || '')
+      }));
     } else if (event.data.type === 'card_navigation') {
       navigateTo(entry, event.data.url);
     }
 });
 
-window.applyHostCommand = function(command) {
-  if (command.type === 'snapshot') {
-    const incoming = new Set(command.cards.map(card => String(card.id)));
-    for (const key of cards.keys()) if (!incoming.has(key)) removeCard(key);
-    for (const card of command.cards) upsertCard(card);
-  } else if (command.type === 'upsert') upsertCard(command.card);
-  else if (command.type === 'stream') streamCard(command.card);
-  else if (command.type === 'finalize') finalizeCard(command.card);
-  else if (command.type === 'geometry') {
-    for (const card of command.cards) updateGeometry(card);
-  } else if (command.type === 'theme') applyTheme(command.theme);
-  else if (command.type === 'raise') {
-    const entry = cards.get(String(command.id));
-    if (entry) applyStacking(entry, command.stack_order);
-  } else if (command.type === 'remove') removeCard(command.id);
-  else if (command.type === 'navigate_back') {
-    const entry = cards.get(String(command.id));
-    if (entry && entry.navigationDepth > 0) {
-      entry.navigationDepth--;
-      if (entry.navigationDepth === 0) {
-        if (entry.document === null) {
-          useDirectSurface(entry);
-          activateCard(entry, true);
-        } else {
-          entry.pendingContent = null;
-          loadIsolatedDocument(entry, entry.document);
-          queueCardContent(entry, { type: 'finalize', html: entry.body, refining: entry.refining });
-        }
-      } else {
-        entry.ready = false;
-        entry.frame.src = entry.navigationUrls[entry.navigationDepth - 1];
-      }
-      reportNavigation(command.id, entry);
-    }
-  } else if (command.type === 'navigate_forward') {
-    const entry = cards.get(String(command.id));
-    if (entry && entry.navigationDepth < entry.navigationUrls.length) {
-      navigateTo(entry, entry.navigationUrls[entry.navigationDepth]);
-    }
-  }
-};
+__SGT_HOST_COMMAND_RUNTIME__
 
 </script><script>__SGT_BUTTON_SCRIPT__</script><script>__SGT_BUTTON_SCENE_RUNTIME__</script><script>__SGT_SETTLED_REVEAL_RUNTIME__</script><script>__SGT_RENDERER_BOOTSTRAP__</script>
 </body>

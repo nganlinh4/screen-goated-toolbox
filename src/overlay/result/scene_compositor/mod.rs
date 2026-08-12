@@ -1,3 +1,4 @@
+mod activation;
 mod button_input;
 mod card_bridge;
 mod card_document;

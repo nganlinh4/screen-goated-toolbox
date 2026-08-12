@@ -92,9 +92,19 @@ fn resizing_debounces_fit_without_penalizing_position_only_dragging() {
 
 #[test]
 fn theme_and_interaction_updates_stay_inside_the_shared_scene() {
+    let document = super::super::card_document::compositor_document("http://127.0.0.1:32123");
+
     assert!(DOCUMENT.contains("document.getElementById('sgt-theme-css').textContent"));
     assert!(DOCUMENT.contains("card.addEventListener('pointerdown'"));
-    assert!(DOCUMENT.contains("command.type === 'raise'"));
+    assert!(document.contains("command.type === 'raise'"));
+}
+
+#[test]
+fn result_text_is_selectable() {
+    assert!(DOCUMENT.contains("contain:layout paint style;user-select:text"));
+    assert!(DOCUMENT.contains("shadow.addEventListener('copy'"));
+    assert!(DOCUMENT.contains("action: 'copy_selection'"));
+    assert!(DOCUMENT.contains("event.data.type === 'copy_selection'"));
 }
 
 #[test]

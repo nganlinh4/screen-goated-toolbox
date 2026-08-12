@@ -29,7 +29,7 @@ fn build_compositor_document() -> String {
         r#"
 :host{{display:block;width:100%;height:100%;overflow:hidden}}
 .result-body,.result-body *{{font-family:'Google Sans Flex' !important}}
-.result-body{{width:100%;height:100%;min-height:0;overflow:hidden}}
+.result-body{{width:100%;height:100%;min-height:0;overflow:hidden;user-select:text}}
 .result-body[data-sgt-mode="refining"]{{display:flex;align-items:center;justify-content:center;
 text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
 {}
@@ -67,6 +67,10 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
         .replace("__SGT_CARD_CSS_JSON__", &card_css_json)
         .replace("__SGT_DIRECT_RUNTIME__", &direct_runtime)
         .replace(
+            "__SGT_HOST_COMMAND_RUNTIME__",
+            include_str!("host_command_runtime.js"),
+        )
+        .replace(
             "__SGT_SETTLED_REVEAL_RUNTIME__",
             include_str!("settled_reveal_runtime.js"),
         )
@@ -101,6 +105,7 @@ mod tests {
         assert!(document.contains("inset 0 0 0 1px var(--result-outline)"));
         assert!(!document.contains("__SGT_CARD_CSS_JSON__"));
         assert!(!document.contains("__SGT_DIRECT_RUNTIME__"));
+        assert!(!document.contains("__SGT_HOST_COMMAND_RUNTIME__"));
         assert!(!document.contains("__SGT_SETTLED_REVEAL_RUNTIME__"));
         assert!(!document.contains("__SGT_FIT_RUNTIME__"));
         assert!(!document.contains("__SGT_RENDERER_BOOTSTRAP__"));

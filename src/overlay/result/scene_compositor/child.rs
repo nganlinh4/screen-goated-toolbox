@@ -204,7 +204,17 @@ unsafe extern "system" fn window_proc(
                 resize_host(hwnd);
                 LRESULT(0)
             }
-            WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+            WM_PARENTNOTIFY
+                if wparam.0 & 0xffff == WM_LBUTTONDOWN as usize
+                    && super::activation::cursor_is_over_result_card() =>
+            {
+                super::activation::focus_renderer(hwnd);
+                DefWindowProcW(hwnd, message, wparam, lparam)
+            }
+            WM_ACTIVATE if wparam.0 & 0xffff == WA_INACTIVE as usize => {
+                super::activation::restore_nonactivating_style(hwnd);
+                DefWindowProcW(hwnd, message, wparam, lparam)
+            }
             WM_MOUSEMOVE if super::button_input::handle_mouse_move() => LRESULT(0),
             WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP
                 if super::button_input::has_active_drag() =>
@@ -231,6 +241,14 @@ unsafe extern "system" fn window_proc(
             _ => DefWindowProcW(hwnd, message, wparam, lparam),
         }
     }
+}
+
+pub(super) fn focus_webview() {
+    WEBVIEW.with(|slot| {
+        if let Some(webview) = slot.borrow().as_ref() {
+            let _ = webview.focus();
+        }
+    });
 }
 
 fn drain_commands(hwnd: HWND) {
@@ -295,6 +313,7 @@ fn handle_renderer_event(body: &str) {
         };
         match outcome {
             super::button_input::RendererInput::Unhandled => {}
+            super::button_input::RendererInput::Handled => return,
             super::button_input::RendererInput::RefreshRegion => {
                 super::region::update(host, true);
                 return;
