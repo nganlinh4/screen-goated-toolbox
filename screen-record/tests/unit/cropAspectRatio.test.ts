@@ -3,6 +3,7 @@ import {
   getActiveCropAspectRatioId,
   getAspectRatioCrop,
   isSourceCrop,
+  resizeCropWithAspectRatio,
 } from "@/lib/cropAspectRatio";
 import { resolveCodecAlignedCropGeometry } from "@/lib/videoGeometry";
 
@@ -66,5 +67,109 @@ describe("crop aspect ratio geometry", () => {
       width: 0.45,
       height: 0.7,
     })).toBeNull();
+  });
+
+  it("keeps a corner resize locked while preserving the opposite anchor", () => {
+    const start = getAspectRatioCrop(1920, 1080, 9, 16);
+    const resized = resizeCropWithAspectRatio(
+      1920,
+      1080,
+      start,
+      "se",
+      -0.08,
+      -0.1,
+      9,
+      16,
+    );
+    const geometry = resolveCodecAlignedCropGeometry(1920, 1080, resized);
+
+    expect(geometry.width / geometry.height).toBeCloseTo(9 / 16, 2);
+    expect(resized.x).toBeCloseTo(start.x, 3);
+    expect(resized.y).toBeCloseTo(start.y, 3);
+    expect(resized.width).toBeLessThan(start.width);
+    expect(resized.height).toBeLessThan(start.height);
+  });
+
+  it("centers the secondary axis during a locked edge resize", () => {
+    const start = getAspectRatioCrop(1920, 1080, 1, 1);
+    const resized = resizeCropWithAspectRatio(
+      1920,
+      1080,
+      start,
+      "e",
+      -0.12,
+      0,
+      1,
+      1,
+    );
+    const geometry = resolveCodecAlignedCropGeometry(1920, 1080, resized);
+
+    expect(geometry.width).toBe(geometry.height);
+    expect(resized.x).toBeCloseTo(start.x, 3);
+    expect(resized.y + resized.height / 2).toBeCloseTo(
+      start.y + start.height / 2,
+      3,
+    );
+  });
+
+  it("clamps locked resizing at the source boundary and minimum size", () => {
+    const start = getAspectRatioCrop(1920, 1080, 21, 9);
+    const expanded = resizeCropWithAspectRatio(
+      1920,
+      1080,
+      start,
+      "nw",
+      -1,
+      -1,
+      21,
+      9,
+    );
+    const collapsed = resizeCropWithAspectRatio(
+      1920,
+      1080,
+      start,
+      "se",
+      -1,
+      -1,
+      21,
+      9,
+    );
+
+    expect(expanded.x).toBeGreaterThanOrEqual(0);
+    expect(expanded.y).toBeGreaterThanOrEqual(0);
+    expect(expanded.x + expanded.width).toBeLessThanOrEqual(1);
+    expect(expanded.y + expanded.height).toBeLessThanOrEqual(1);
+    expect(collapsed.width).toBeGreaterThanOrEqual(0.05);
+    expect(collapsed.height).toBeGreaterThanOrEqual(0.05);
+  });
+
+  it.each([
+    ["nw", 0.04, 0.04],
+    ["n", 0, 0.04],
+    ["ne", -0.04, 0.04],
+    ["w", 0.04, 0],
+    ["e", -0.04, 0],
+    ["sw", 0.04, -0.04],
+    ["s", 0, -0.04],
+    ["se", -0.04, -0.04],
+  ] as const)("keeps the %s handle on the selected ratio", (handle, deltaX, deltaY) => {
+    const start = getAspectRatioCrop(1920, 1080, 4, 5);
+    const resized = resizeCropWithAspectRatio(
+      1920,
+      1080,
+      start,
+      handle,
+      deltaX,
+      deltaY,
+      4,
+      5,
+    );
+    const geometry = resolveCodecAlignedCropGeometry(1920, 1080, resized);
+
+    expect(geometry.width / geometry.height).toBeCloseTo(4 / 5, 2);
+    expect(resized.x).toBeGreaterThanOrEqual(0);
+    expect(resized.y).toBeGreaterThanOrEqual(0);
+    expect(resized.x + resized.width).toBeLessThanOrEqual(1);
+    expect(resized.y + resized.height).toBeLessThanOrEqual(1);
   });
 });

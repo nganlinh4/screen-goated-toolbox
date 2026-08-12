@@ -57,18 +57,49 @@ test("crop presets expose exact dimensions and remain usable across layouts", as
   await expect(portrait).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".crop-ratio-selection-size")).toHaveText("406 × 720");
 
+  await page.evaluate(() => {
+    window.__SGT_TEST__?.setCurrentTime(1);
+    document.querySelector(".crop-workspace-video")?.dispatchEvent(new Event("loadeddata"));
+  });
+  await expect(portrait).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".crop-ratio-active-label")).toContainText("9:16");
+
   const eastHandle = page.locator('.crop-workspace-handle[data-active="false"].cursor-e-resize');
   const eastBox = await eastHandle.boundingBox();
   expect(eastBox).not.toBeNull();
   if (eastBox) {
     await page.mouse.move(eastBox.x + eastBox.width / 2, eastBox.y + eastBox.height / 2);
     await page.mouse.down();
-    await page.mouse.move(eastBox.x + eastBox.width / 2 + 48, eastBox.y + eastBox.height / 2);
+    await page.mouse.move(eastBox.x + eastBox.width / 2 - 48, eastBox.y + eastBox.height / 2);
+    await page.mouse.up();
+  }
+  await expect(page.locator(".crop-ratio-active-label")).toContainText("9:16");
+  await expect(portrait).toHaveAttribute("aria-pressed", "true");
+  const lockedSize = await page.locator(".crop-ratio-selection-size").innerText();
+  const lockedDimensions = lockedSize.match(/(\d+) × (\d+)/);
+  expect(lockedDimensions).not.toBeNull();
+  if (lockedDimensions) {
+    const [, width, height] = lockedDimensions.map(Number);
+    expect(width / height).toBeCloseTo(9 / 16, 2);
+    expect(lockedSize).not.toBe("406 × 720");
+  }
+
+  await page.getByRole("button", { name: "Unlock aspect ratio" }).click();
+  const unlockedEastBox = await eastHandle.boundingBox();
+  expect(unlockedEastBox).not.toBeNull();
+  if (unlockedEastBox) {
+    await page.mouse.move(
+      unlockedEastBox.x + unlockedEastBox.width / 2,
+      unlockedEastBox.y + unlockedEastBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      unlockedEastBox.x + unlockedEastBox.width / 2 + 48,
+      unlockedEastBox.y + unlockedEastBox.height / 2,
+    );
     await page.mouse.up();
   }
   await expect(page.locator(".crop-ratio-active-label")).toHaveText("Custom");
-  await portrait.click();
-  await expect(portrait).toHaveAttribute("aria-pressed", "true");
 
   await page.setViewportSize({ width: 900, height: 700 });
   await expect(page.locator(".crop-ratio-panel")).toBeVisible();

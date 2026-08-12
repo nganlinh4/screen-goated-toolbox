@@ -1,9 +1,11 @@
 import { CanvasRatioIcon } from "@/components/CanvasRatioIcon";
-import { Check } from "@/components/ui/MaterialIcon";
+import { Check, Lock } from "@/components/ui/MaterialIcon";
 import { useSettings } from "@/hooks/useSettings";
-import { POPULAR_ASPECT_RATIO_PRESETS } from "@/lib/aspectRatioPresets";
 import {
-  getActiveCropAspectRatioId,
+  POPULAR_ASPECT_RATIO_PRESETS,
+  type AspectRatioPresetId,
+} from "@/lib/aspectRatioPresets";
+import {
   getAspectRatioCrop,
   isSourceCrop,
 } from "@/lib/cropAspectRatio";
@@ -16,31 +18,30 @@ interface CropRatioPanelProps {
   sourceWidth: number;
   sourceHeight: number;
   crop: CropRect;
-  onCropChange: (crop: CropRect) => void;
+  lockedPresetId: AspectRatioPresetId | null;
+  onCropChange: (crop: CropRect, lockedPresetId: AspectRatioPresetId | null) => void;
+  onUnlockRatio: () => void;
 }
 
 export function CropRatioPanel({
   sourceWidth,
   sourceHeight,
   crop,
+  lockedPresetId,
   onCropChange,
+  onUnlockRatio,
 }: CropRatioPanelProps) {
   const { t } = useSettings();
   const hasSource = sourceWidth > 0 && sourceHeight > 0;
-  const sourceIsActive = isSourceCrop(sourceWidth, sourceHeight, crop);
-  const activePresetId = sourceIsActive
-    ? null
-    : getActiveCropAspectRatioId(sourceWidth, sourceHeight, crop);
+  const sourceIsActive = lockedPresetId === null && isSourceCrop(sourceWidth, sourceHeight, crop);
   const cropGeometry = hasSource
     ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, crop)
     : null;
   const sourceGeometry = hasSource
     ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, DEFAULT_CROP)
     : null;
-  const activeLabel = sourceIsActive
-    ? t.cropOriginal
-    : POPULAR_ASPECT_RATIO_PRESETS.find(({ id }) => id === activePresetId)?.label
-      ?? t.cropCustom;
+  const lockedPreset = POPULAR_ASPECT_RATIO_PRESETS.find(({ id }) => id === lockedPresetId);
+  const activeLabel = lockedPreset?.label ?? (sourceIsActive ? t.cropOriginal : t.cropCustom);
 
   return (
     <aside className="crop-ratio-panel ui-surface-elevated" aria-label={t.cropAspectRatio}>
@@ -49,7 +50,22 @@ export function CropRatioPanel({
           <h2 className="crop-ratio-heading">{t.cropAspectRatio}</h2>
           <p className="crop-ratio-hint">{t.cropAspectRatioHint}</p>
         </div>
-        <span className="crop-ratio-active-label">{activeLabel}</span>
+        <div className="crop-ratio-lock-state">
+          <span className="crop-ratio-active-label" data-locked={lockedPreset ? "true" : "false"}>
+            {lockedPreset && <Lock className="crop-ratio-lock-icon" />}
+            {activeLabel}
+          </span>
+          {lockedPreset && (
+            <button
+              type="button"
+              className="crop-ratio-unlock-button"
+              onClick={onUnlockRatio}
+              aria-label={t.cropUnlockAspectRatio}
+            >
+              {t.cropFree}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="crop-ratio-preset-list" role="group" aria-label={t.cropAspectRatio}>
@@ -60,7 +76,7 @@ export function CropRatioPanel({
           aria-pressed={sourceIsActive}
           aria-label={`${t.cropOriginal}, ${sourceGeometry?.width ?? 0}×${sourceGeometry?.height ?? 0}`}
           disabled={!hasSource}
-          onClick={() => sourceGeometry && onCropChange(sourceGeometry.crop)}
+          onClick={() => sourceGeometry && onCropChange(sourceGeometry.crop, null)}
         >
           <span className="crop-ratio-icon-box">
             <CanvasRatioIcon ratioWidth={sourceWidth || 16} ratioHeight={sourceHeight || 9} />
@@ -87,7 +103,7 @@ export function CropRatioPanel({
           const geometry = hasSource
             ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, presetCrop)
             : null;
-          const isActive = activePresetId === preset.id;
+          const isActive = lockedPresetId === preset.id;
           const dimensions = geometry ? `${geometry.width}×${geometry.height}` : "—";
 
           return (
@@ -99,7 +115,7 @@ export function CropRatioPanel({
               aria-pressed={isActive}
               aria-label={`${t.cropAspectRatio} ${preset.label}, ${dimensions}`}
               disabled={!hasSource}
-              onClick={() => onCropChange(presetCrop)}
+              onClick={() => onCropChange(presetCrop, preset.id)}
             >
               <span className="crop-ratio-icon-box">
                 <CanvasRatioIcon ratioWidth={preset.width} ratioHeight={preset.height} />

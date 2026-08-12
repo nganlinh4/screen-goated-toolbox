@@ -52,6 +52,28 @@ fn runtime_bundle_identity_requires_exact_content_addressed_url() {
     }
 }
 
+#[test]
+fn older_catalog_cannot_downgrade_the_embedded_contract() {
+    let baseline = super::embedded_catalog_sequence();
+    let mut catalog = super::UpdateCatalog {
+        schema_version: 1,
+        sequence: baseline - 1,
+        channel: "stable".into(),
+        min_host_version: env!("CARGO_PKG_VERSION").into(),
+        max_host_version_exclusive: "999.0.0".into(),
+        contracts: vec![super::CatalogContract {
+            name: "fixture-v1".into(),
+            platform: "windows-x64".into(),
+            delivery: serde_json::json!({"revision": "older"}),
+        }],
+        policies: Vec::new(),
+    };
+
+    assert!(super::contract_from(&catalog, "fixture-v1", baseline).is_none());
+    catalog.sequence = baseline;
+    assert!(super::contract_from(&catalog, "fixture-v1", baseline).is_some());
+}
+
 fn decode(value: &str) -> Vec<u8> {
     value
         .as_bytes()
