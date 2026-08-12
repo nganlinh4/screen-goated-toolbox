@@ -4,32 +4,51 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::Memory::*;
+use windows::core::w;
+
+const CF_UNICODETEXT: u32 = 13;
+
+fn set_global_clipboard_data(format: u32, data: &[u8]) -> bool {
+    unsafe {
+        let Ok(memory) = GlobalAlloc(GMEM_MOVEABLE, data.len()) else {
+            return false;
+        };
+        let pointer = GlobalLock(memory) as *mut u8;
+        if pointer.is_null() {
+            let _ = GlobalFree(Some(memory));
+            return false;
+        }
+        std::ptr::copy_nonoverlapping(data.as_ptr(), pointer, data.len());
+        let _ = GlobalUnlock(memory);
+        if SetClipboardData(format, Some(HANDLE(memory.0))).is_ok() {
+            true
+        } else {
+            let _ = GlobalFree(Some(memory));
+            false
+        }
+    }
+}
+
+fn request_clipboard_history_capture() -> bool {
+    let format = unsafe { RegisterClipboardFormatW(w!("CanIncludeInClipboardHistory")) };
+    format != 0 && set_global_clipboard_data(format, &1u32.to_ne_bytes())
+}
 
 // --- CLIPBOARD SUPPORT ---
-pub fn copy_to_clipboard(text: &str, hwnd: HWND) {
+pub fn copy_to_clipboard(text: &str, hwnd: HWND) -> bool {
+    let utf16: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    let bytes = unsafe {
+        std::slice::from_raw_parts(utf16.as_ptr().cast::<u8>(), std::mem::size_of_val(&*utf16))
+    };
     unsafe {
         // Retry loop to handle temporary clipboard locks
         for attempt in 0..5 {
             if OpenClipboard(Some(hwnd)).is_ok() {
                 let _ = EmptyClipboard();
-
-                // Convert text to UTF-16
-                let wide_text: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-                let mem_size = wide_text.len() * 2;
-
-                // Allocate global memory
-                if let Ok(h_mem) = GlobalAlloc(GMEM_MOVEABLE, mem_size) {
-                    let ptr = GlobalLock(h_mem) as *mut u16;
-                    std::ptr::copy_nonoverlapping(wide_text.as_ptr(), ptr, wide_text.len());
-                    let _ = GlobalUnlock(h_mem);
-
-                    // Set clipboard data (CF_UNICODETEXT = 13)
-                    let h_mem_handle = HANDLE(h_mem.0);
-                    let _ = SetClipboardData(13u32, Some(h_mem_handle));
-                }
-
+                let text_published = set_global_clipboard_data(CF_UNICODETEXT, bytes);
+                let history_requested = request_clipboard_history_capture();
                 let _ = CloseClipboard();
-                return; // Success
+                return text_published && history_requested;
             }
 
             // If failed and not last attempt, wait before retrying
@@ -40,6 +59,7 @@ pub fn copy_to_clipboard(text: &str, hwnd: HWND) {
             }
         }
     }
+    false
 }
 
 pub fn copy_image_to_clipboard(image_bytes: &[u8]) {

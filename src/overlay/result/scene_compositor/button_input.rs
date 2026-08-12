@@ -14,6 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 #[derive(Debug, PartialEq)]
 pub(super) enum RendererInput {
     Unhandled,
+    Handled,
     RefreshRegion,
     Event(ChildEvent),
     EventAndRefresh(ChildEvent),
@@ -61,12 +62,26 @@ pub(super) fn handle_renderer_message(
     if id == 0 {
         return RendererInput::RefreshRegion;
     }
+    if action == "copy_selection" {
+        let text = message
+            .get("text")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        if text.is_empty() || !cards.get(&id).is_some_and(|card| card.visible) {
+            return RendererInput::Handled;
+        }
+        let captured = crate::overlay::utils::copy_to_clipboard(text, host);
+        crate::debug_log::log_debug(&format!(
+            "[ResultClipboard] id={id} status={} chars={}",
+            if captured { "published" } else { "failed" },
+            text.chars().count()
+        ));
+        return RendererInput::Handled;
+    }
     match action {
         "interact" => RendererInput::Event(ChildEvent::Interaction { id }),
         "request_focus" => {
-            unsafe {
-                let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(host);
-            }
+            super::activation::focus_renderer(host);
             RendererInput::RefreshRegion
         }
         "result_drag_start" => begin_drag(host, id, DragMode::One, cards),
@@ -311,6 +326,12 @@ mod tests {
             })
         );
         assert!(button_action(42, "unknown", &message).is_none());
+    }
+
+    #[test]
+    fn selection_copy_is_not_a_parent_button_action() {
+        let message = serde_json::json!({ "text": "selected result" });
+        assert!(button_action(42, "copy_selection", &message).is_none());
     }
 
     #[test]

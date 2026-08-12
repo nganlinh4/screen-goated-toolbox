@@ -11,6 +11,8 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
   var pendingFontFit = false;
   var nextFrameHandle = 0;
   var frameCallbacks = new Map();
+  document.documentElement.style.setProperty('user-select', 'text', 'important');
+  if (document.body) document.body.style.setProperty('user-select', 'text', 'important');
   function postToParent(message, transfer) {
     message.card_id = cardId;
     message.document_revision = documentRevision;
@@ -179,6 +181,13 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
     channel.port1.addEventListener('message', handleHostMessage);
     channel.port1.start();
   }
+  document.addEventListener('copy', function(event) {
+    var selection = window.getSelection();
+    var text = selection ? selection.toString() : '';
+    if (!text) return;
+    event.preventDefault();
+    postToParent({ type: 'copy_selection', text: text });
+  }, true);
   document.addEventListener('pointerdown', function() {
     postToParent({ type: 'card_interaction' });
   }, true);
@@ -227,6 +236,8 @@ mod tests {
     fn isolated_final_render_finishes_presentation_before_settled_fit() {
         let html = with_card_bridge("<html><body></body></html>".to_string());
 
+        assert!(html.contains("style.setProperty('user-select', 'text', 'important')"));
+        assert!(html.contains("postToParent({ type: 'copy_selection', text: text })"));
         assert!(html.contains("if (event.data.settle_before_reveal) finishBodyPresentation()"));
         assert!(html.contains("style.setProperty('animation', 'none', 'important')"));
         assert!(html.contains("style.setProperty('opacity', '1', 'important')"));
