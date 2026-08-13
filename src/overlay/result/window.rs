@@ -5,7 +5,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
 
 use super::event_handler::result_wnd_proc;
-use super::state::{RefineContext, WINDOW_STATES, WindowState, WindowType};
+use super::state::{
+    RefineContext, ResultDismissControl, ResultPresentation, WINDOW_STATES, WindowState, WindowType,
+};
 
 pub const CHAIN_PALETTE: [u32; 5] = [
     0x001a1a1c, // Slate Gray (Primary)
@@ -144,6 +146,10 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
             states.insert(
                 hwnd.0 as isize,
                 WindowState {
+                    presentation: ResultPresentation::Standard,
+                    dismiss_control: None,
+                    backdrop_data_url: None,
+                    foreground_color: None,
                     copy_success: false,
                     is_editing: start_editing,
                     context_data: context,
@@ -196,6 +202,33 @@ pub(crate) fn initialize_result_window(hwnd: HWND) {
 
 pub fn create_result_window(params: ResultWindowParams) -> HWND {
     let hwnd = create_result_window_shell(params);
+    initialize_result_window(hwnd);
+    hwnd
+}
+
+pub fn create_text_only_result_window(
+    params: ResultWindowParams,
+    backdrop_data_url: String,
+    foreground_color: String,
+    chain_id: String,
+    dismiss_control: Option<ResultDismissControl>,
+) -> HWND {
+    let hwnd = create_result_window_shell(params);
+    {
+        let mut states = WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+            state.presentation = ResultPresentation::TextOnly;
+            state.dismiss_control = dismiss_control;
+            state.backdrop_data_url = Some(backdrop_data_url);
+            state.foreground_color = Some(foreground_color);
+            state.chain_id = Some(chain_id);
+            state.opacity_percent = 100;
+        }
+    }
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (style | WS_EX_TRANSPARENT.0) as isize);
+    }
     initialize_result_window(hwnd);
     hwnd
 }

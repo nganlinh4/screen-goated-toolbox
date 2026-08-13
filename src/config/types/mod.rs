@@ -14,10 +14,12 @@ mod model_priority;
 mod preset_model_update;
 mod profile;
 mod restore_defaults;
+mod screen_translate;
 mod translation_gummy;
 mod tts;
 
 // Re-export all types for easy access
+pub use screen_translate::ScreenTranslateSettings;
 pub use translation_gummy::TranslationGummySettings;
 #[cfg(not(feature = "recorder-worker"))]
 pub use translation_gummy::{MAX_TRANSCRIPT_ITEMS, MIN_TRANSCRIPT_ITEMS};

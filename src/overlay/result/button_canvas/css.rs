@@ -55,6 +55,41 @@ html, body {
     margin: 3px 0;
 }
 
+.button-group.dismiss-only {
+    width: 44px;
+    height: auto;
+    padding: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+.btn.dismiss-chain-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    color: var(--chain-control-color, var(--btn-color));
+    background: rgba(22, 22, 26, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+}
+.btn.dismiss-chain-btn svg {
+    width: 22px;
+    height: 22px;
+}
+.btn.copy-chain-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    color: var(--chain-control-color, var(--btn-color));
+    background: rgba(22, 22, 26, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
+}
+.btn.copy-chain-btn svg {
+    width: 22px;
+    height: 22px;
+}
+
 .btn:hover {
     background: var(--btn-hover-bg);
     color: var(--btn-hover-color);

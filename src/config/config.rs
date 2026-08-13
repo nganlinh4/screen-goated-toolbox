@@ -11,9 +11,10 @@ use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
     CustomModelDefinition, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey,
     KokoroSettings, MagpieSettings, ModelPriorityChains, PendingPresetModelUpdate, PresetProfile,
-    RestoreDefaultsSelection, StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings,
-    ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
-    VieneuSettings, VoxtralSettings, default_tts_language_conditions, get_system_ui_language,
+    RestoreDefaultsSelection, ScreenTranslateSettings, StepAudioReferenceVoice, StepAudioSettings,
+    SupertonicSettings, ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod,
+    TtsPlaygroundSettings, VieneuSettings, VoxtralSettings, default_tts_language_conditions,
+    get_system_ui_language,
 };
 
 // ============================================================================
@@ -150,6 +151,10 @@ fn default_ollama_base_url() -> String {
 
 fn default_translation_gummy_settings() -> TranslationGummySettings {
     TranslationGummySettings::default()
+}
+
+fn default_screen_translate_settings() -> ScreenTranslateSettings {
+    ScreenTranslateSettings::default()
 }
 
 // ============================================================================
@@ -449,6 +454,10 @@ pub struct Config {
         alias = "bilingual_relay"
     )]
     pub translation_gummy: TranslationGummySettings,
+
+    /// Settings for the in-place Screen Translate mini app.
+    #[serde(default = "default_screen_translate_settings")]
+    pub screen_translate: ScreenTranslateSettings,
 }
 
 fn default_screen_record_hotkeys() -> Vec<Hotkey> {
@@ -553,6 +562,7 @@ impl Default for Config {
             computer_control_hotkeys: Vec::new(),
             screen_record_window_size: default_screen_record_window_size(),
             translation_gummy: default_translation_gummy_settings(),
+            screen_translate: default_screen_translate_settings(),
         }
     }
 }

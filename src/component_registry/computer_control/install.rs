@@ -7,8 +7,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 
+use super::super::staging;
 use super::{
-    EngineDelivery, ID, MAX_COMPONENT_FILES, owned_file, receipt, staging, validate_exact_tree,
+    EngineDelivery, ID, MAX_COMPONENT_FILES, owned_file, receipt, validate_exact_tree,
     validate_install, version_root,
 };
 use crate::component_registry::RemovalOutcome;

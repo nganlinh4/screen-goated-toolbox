@@ -11,6 +11,7 @@ mod overlay;
 mod preset_basics;
 mod preset_editor;
 mod realtime;
+mod screen_translate;
 mod shell;
 mod tool_runtime;
 mod translation_gummy;
@@ -33,6 +34,7 @@ pub fn get() -> LocaleText {
         tts_settings: tts_settings::get(),
         tts_advanced: tts_advanced::get(),
         realtime: realtime::get(),
+        screen_translate: screen_translate::get(),
         shell: shell::get(),
         translation_gummy: translation_gummy::get(),
         tool_runtime: tool_runtime::get(),

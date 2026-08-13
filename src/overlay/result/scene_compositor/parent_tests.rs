@@ -25,6 +25,9 @@ fn test_card(streaming: bool) -> SceneCard {
         streaming_enabled: streaming,
         stack_order: 7,
         controls: Default::default(),
+        presentation: crate::overlay::result::ResultPresentation::Standard,
+        backdrop_data_url: None,
+        foreground_color: None,
     }
 }
 

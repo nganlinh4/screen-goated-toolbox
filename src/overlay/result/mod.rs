@@ -12,9 +12,13 @@ mod window;
 
 pub use refine::{trigger_edit, trigger_refine_cancel, trigger_refine_submit};
 pub use state::{
-    ChainCancelToken, RefineContext, WINDOW_STATES, WindowType, close_chain_windows, link_windows,
+    ChainCancelToken, RefineContext, ResultDismissControl, ResultPresentation, WINDOW_STATES,
+    WindowType, close_chain_windows, link_windows,
 };
-pub use window::{ResultWindowParams, create_result_window, get_chain_color, update_window_text};
+pub use window::{
+    ResultWindowParams, create_result_window, create_text_only_result_window, get_chain_color,
+    update_window_text,
+};
 pub(crate) use window::{create_result_window_shell, initialize_result_window};
 
 pub(crate) fn subtle_outline_color(is_dark: bool) -> &'static str {
@@ -111,6 +115,44 @@ pub fn trigger_copy(hwnd: HWND) {
             }
         });
     }
+}
+
+/// Copy the explicit aggregate payload owned by a chain-level control.
+pub fn trigger_copy_all(hwnd: HWND) {
+    let hwnd_key = hwnd.0 as isize;
+    let text = WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get(&hwnd_key)
+        .and_then(|state| state.dismiss_control.as_ref())
+        .and_then(|control| control.copy_text.clone())
+        .unwrap_or_default();
+    if text.is_empty() || !crate::overlay::utils::copy_to_clipboard(&text, hwnd) {
+        return;
+    }
+    crate::overlay::auto_copy_badge::show_auto_copy_badge_text(&text);
+    {
+        let mut states = WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get_mut(&hwnd_key) {
+            state.copy_success = true;
+        }
+    }
+    button_canvas::update_window_position(hwnd);
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(1_500));
+        {
+            let mut states = WINDOW_STATES.lock().unwrap();
+            if let Some(state) = states.get_mut(&hwnd_key) {
+                state.copy_success = false;
+            }
+        }
+        let hwnd = HWND(hwnd_key as *mut std::ffi::c_void);
+        unsafe {
+            if IsWindow(Some(hwnd)).as_bool() {
+                button_canvas::update_window_position(hwnd);
+            }
+        }
+    });
 }
 
 /// Trigger undo action on a result window

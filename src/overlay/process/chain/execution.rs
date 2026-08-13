@@ -354,6 +354,7 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
             provider: provider.to_string(),
             streaming_enabled,
             use_json_format: false,
+            response_schema: None,
             search_label,
             ui_language: &config.ui_language,
             cancel_token: Some(api_cancel),

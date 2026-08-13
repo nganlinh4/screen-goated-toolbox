@@ -19,9 +19,9 @@ Their completed live candidate evaluation is recorded in
 The post-Ling free-route screen is recorded in
 [`OPENROUTER-SCREEN-2026-07-24-R2.md`](OPENROUTER-SCREEN-2026-07-24-R2.md).
 
-This opt-in Rust benchmark exercises the production catalog and provider request paths. It measures text translation, image coordinate grounding, and image OCR. Each suite has ten cases of increasing difficulty. Scheduling is round-major: every selected model sees difficulty 1 before any model moves to difficulty 2. Coordinate attempts reuse Computer Control's exact point prompt, schema, tolerant parser, 1600 px short-edge JPEG preparation, crosshair crop, verification prompt/schema/parser, and 70% acceptance threshold.
+This opt-in Rust benchmark exercises the production catalog and provider request paths. It measures text translation, image coordinate grounding, and image OCR. Each catalog-history suite has ten cases of increasing difficulty. A separate three-level Screen Translate diagnostic tests the production structured text contract across the configured text-priority models; it never contributes to catalog history. Scheduling is round-major: every selected model sees difficulty 1 before any model moves to difficulty 2. Coordinate attempts reuse Computer Control's exact point prompt, schema, tolerant parser, 1600 px short-edge JPEG preparation, crosshair crop, verification prompt/schema/parser, and 70% acceptance threshold.
 
-Normal `cargo test` does not call providers. It validates the manifest, all image decodes, difficulty coverage, coordinate bounds, OCR crop bounds, and each OCR input origin. Open `review.html` before the first live run and check all twenty model inputs, the ten red coordinate boxes and zooms, both OCR crops, and OCR references in `manifest.json`.
+Normal `cargo test` does not call providers. It validates the manifest, all image decodes, difficulty coverage, coordinate bounds, OCR crop bounds, each OCR input origin, and the three localization goldens. Open `review.html` before the first live run and check all 23 image inputs, the ten red coordinate boxes and zooms, the green localization regions, both OCR crops, and OCR references in `manifest.json`.
 
 ## Live run
 
@@ -313,3 +313,33 @@ helper's own scheduling. A larger `CATALOG_BENCH_MIN_INTERVAL_MS` still wins.
 It similarly applies a 12.5-second Cerebras minimum for the free-trial
 five-requests/minute bucket. Both waits are excluded from measured model
 latency.
+
+## Screen-text localization diagnostic
+
+This non-history probe is deliberately small: three screenshots and every
+enabled model in the default text-to-text priority stack. It uses Screen
+Translate's exact OCR-region prompt, strict response schema, detector-owned ids,
+and parser. The reviewed boxes remain attached only to ids, so the language
+model cannot change geometry.
+
+The report writes the normal `attempts.jsonl`, `summary.json`, and `summary.md`,
+plus `localization-review.html` and paired PNG overlays. Green is reviewed
+ground truth, cyan is the raw model box, and magenta is the bounded source-only
+paint region. Raw-versus-painted IoU, source coverage, and excess overpaint are
+retained per attempt.
+
+```powershell
+$env:CATALOG_BENCH_LOCALIZATION_PROBE = "1"
+$env:CATALOG_BENCH_OUTPUT = "target/catalog-benchmark/localization-check"
+cargo test catalog_benchmark_localization_probe -- --ignored --nocapture
+```
+
+Optional focused controls:
+
+- `CATALOG_BENCH_LOCALIZATION_MODELS=id-a,id-b` selects text models; omission
+  selects the entire default text-to-text priority stack.
+- `CATALOG_BENCH_LOCALIZATION_LEVELS=1,2` selects a subset of the three levels.
+
+Because this is diagnostic evidence rather than a catalog ranking, its fixture
+bytes and attempts are intentionally excluded from the catalog-history
+fingerprint and latest-row selection.

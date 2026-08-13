@@ -19,6 +19,7 @@ pub struct TranslateTextRequest<'a> {
     pub provider: String,
     pub streaming_enabled: bool,
     pub use_json_format: bool,
+    pub response_schema: Option<&'a serde_json::Value>,
     pub search_label: Option<String>,
     pub ui_language: &'a str,
     pub cancel_token: Option<Arc<AtomicBool>>,
@@ -52,6 +53,7 @@ where
         provider,
         streaming_enabled,
         use_json_format,
+        response_schema,
         search_label,
         ui_language,
         cancel_token,
@@ -107,6 +109,11 @@ where
     );
 
     match Provider::from_wire(&provider) {
+        Some(Provider::Ollama | Provider::GeminiLive | Provider::GoogleGtx | Provider::Taalas)
+            if response_schema.is_some() =>
+        {
+            return Err(anyhow::anyhow!("STRUCTURED_OUTPUT_UNSUPPORTED:{provider}"));
+        }
         Some(Provider::Ollama) => {
             // --- OLLAMA LOCAL API ---
             let ollama_base_url = crate::APP
@@ -187,8 +194,14 @@ where
         }
         Some(Provider::Google) => {
             // --- GEMINI TEXT API ---
-            full_content =
-                translate_gemini(gemini_api_key, &model, &prompt, transport, &mut on_chunk)?;
+            full_content = translate_gemini(
+                gemini_api_key,
+                &model,
+                &prompt,
+                response_schema,
+                transport,
+                &mut on_chunk,
+            )?;
         }
         Some(Provider::Cerebras) => {
             // --- CEREBRAS API ---
@@ -202,6 +215,7 @@ where
                     ui_language,
                     cancel_token: &cancel_token,
                     request_timeout,
+                    response_schema,
                 },
                 &mut on_chunk,
             )?;
@@ -212,6 +226,7 @@ where
                 &openrouter_api_key,
                 &model,
                 &prompt,
+                response_schema,
                 transport,
                 &mut on_chunk,
             )?;
@@ -240,6 +255,7 @@ where
                     &model,
                     &prompt,
                     use_json_format,
+                    response_schema,
                     transport,
                     on_chunk,
                 );

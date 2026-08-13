@@ -60,10 +60,13 @@ pub(crate) fn run() -> eframe::Result<()> {
 
     let screen_record_wry_smoke = startup_args.configure_screen_record_wry_smoke();
     let creation_ui_test = startup_args.configure_creation_ui_test();
+    let screen_translate_ui_test = startup_args.screen_translate_ui_test();
+    let screen_translate_ui_test_image = startup_args.screen_translate_ui_test_image();
     let result_compositor_smoke = startup_args.result_compositor_smoke();
     let status_compositor_smoke = startup_args.status_compositor_smoke();
     let isolated_ui_test = screen_record_wry_smoke
         || creation_ui_test.is_some()
+        || screen_translate_ui_test
         || result_compositor_smoke
         || status_compositor_smoke;
 
@@ -156,5 +159,11 @@ pub(crate) fn run() -> eframe::Result<()> {
         std::process::exit(crate::overlay::status_compositor::smoke::run());
     }
 
-    settings_window::run(screen_record_wry_smoke, creation_ui_test, pending_file_path)
+    settings_window::run(
+        screen_record_wry_smoke,
+        creation_ui_test,
+        screen_translate_ui_test,
+        screen_translate_ui_test_image,
+        pending_file_path,
+    )
 }

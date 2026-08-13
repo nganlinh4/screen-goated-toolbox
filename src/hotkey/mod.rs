@@ -29,11 +29,13 @@ pub const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
 pub const WM_UNREGISTER_HOTKEYS: u32 = WM_USER + 103;
 pub const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
 pub const COMPUTER_CONTROL_HOTKEY_ID: i32 = 9700;
+pub const SCREEN_TRANSLATE_HOTKEY_ID: i32 = 9600;
 pub const TRANSLATION_GUMMY_HOTKEY_ID: i32 = 9800;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HotkeyRegistrationGroup {
     Preset(usize),
+    ScreenTranslate,
     ComputerControl,
     ScreenRecord,
     TranslationGummy,
@@ -43,6 +45,7 @@ impl HotkeyRegistrationGroup {
     fn log_name(self) -> String {
         match self {
             Self::Preset(index) => format!("preset[{index}]"),
+            Self::ScreenTranslate => "screen_translate".to_string(),
             Self::ComputerControl => "computer_control".to_string(),
             Self::ScreenRecord => "screen_record".to_string(),
             Self::TranslationGummy => "translation_gummy".to_string(),
@@ -149,6 +152,19 @@ pub fn register_all_hotkeys(hwnd: HWND) {
             hwnd,
             HotkeyRegistrationGroup::ComputerControl,
             COMPUTER_CONTROL_HOTKEY_ID + idx as i32,
+            hotkey,
+            &mut registered_ids,
+        );
+    }
+
+    for (idx, hotkey) in app.config.screen_translate.hotkeys.iter().enumerate() {
+        if idx >= 100 || [0x04, 0x05, 0x06].contains(&hotkey.code) {
+            continue;
+        }
+        register_and_track(
+            hwnd,
+            HotkeyRegistrationGroup::ScreenTranslate,
+            SCREEN_TRANSLATE_HOTKEY_ID + idx as i32,
             hotkey,
             &mut registered_ids,
         );
@@ -264,6 +280,22 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                     }
 
                     // Check global app hotkeys.
+                    if found_id.is_none() {
+                        for (idx, hk) in app
+                            .config
+                            .screen_translate
+                            .hotkeys
+                            .iter()
+                            .take(100)
+                            .enumerate()
+                        {
+                            if hk.code == vk && hk.modifiers == mods {
+                                found_id = Some(SCREEN_TRANSLATE_HOTKEY_ID + idx as i32);
+                                break;
+                            }
+                        }
+                    }
+
                     if found_id.is_none() {
                         for (idx, hk) in app
                             .config
@@ -444,6 +476,7 @@ mod tests {
     fn every_registration_group_has_a_stable_log_name() {
         let cases = [
             (HotkeyRegistrationGroup::Preset(3), "preset[3]"),
+            (HotkeyRegistrationGroup::ScreenTranslate, "screen_translate"),
             (HotkeyRegistrationGroup::ComputerControl, "computer_control"),
             (HotkeyRegistrationGroup::ScreenRecord, "screen_record"),
             (

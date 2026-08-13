@@ -18,6 +18,9 @@ mod receipt;
 pub(crate) mod recorder;
 mod removal;
 #[cfg(not(feature = "recorder-worker"))]
+pub(crate) mod screen_text_detector;
+mod staging;
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod update_catalog;
 pub(crate) mod vc_runtime;
 #[cfg(not(feature = "recorder-worker"))]
@@ -48,6 +51,18 @@ pub(crate) fn components_root() -> std::path::PathBuf {
     ));
     #[cfg(not(test))]
     crate::paths::app_runtime_local_data_dir().join("components")
+}
+
+pub(crate) fn worker_workspace(id: &str) -> anyhow::Result<std::path::PathBuf> {
+    catalog::validate_identifier(id)?;
+    let root = crate::paths::app_runtime_local_data_dir().join("worker-workspaces");
+
+    ensure_regular_directory(&root)?;
+    let workspace = root.join(id);
+    ensure_regular_directory(&workspace)?;
+    let canonical = std::fs::canonicalize(&workspace)?;
+    validate_regular_directory(&canonical)?;
+    Ok(canonical)
 }
 
 pub(crate) fn component_version_root(

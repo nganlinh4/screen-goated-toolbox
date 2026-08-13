@@ -222,6 +222,7 @@ pub(super) fn translate_groq_standard<F>(
     model: &str,
     prompt: &str,
     use_json_format: bool,
+    response_schema: Option<&serde_json::Value>,
     transport: TranslateTransportOptions<'_>,
     mut on_chunk: F,
 ) -> Result<String>
@@ -245,7 +246,13 @@ where
             "stream": false
         });
 
-        if use_json_format {
+        if let Some(schema) = response_schema {
+            payload_obj["response_format"] = crate::api::groq::structured_response_format(
+                model,
+                "translation_result",
+                schema.clone(),
+            );
+        } else if use_json_format {
             payload_obj["response_format"] = crate::api::groq::structured_response_format(
                 model,
                 "translation_result",

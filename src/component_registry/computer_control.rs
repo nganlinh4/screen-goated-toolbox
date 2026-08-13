@@ -15,8 +15,9 @@ use super::receipt::{
 use super::{ComponentLease, RemovalOutcome};
 
 mod install;
-mod staging;
 mod update;
+
+use super::staging;
 
 pub(crate) const ID: &str = "computer-control-engine";
 const ARCHITECTURE: &str = "x64";

@@ -436,7 +436,7 @@ fn markdown(summary: &Summary) -> String {
             format_optional(model.latency_cv),
         ));
     }
-    output.push_str("\nCatalog vision latency uses only the representative small-image cohort. All ten levels still contribute to accuracy, reliability, and all-case stress diagnostics. Translation accuracy is an automatic reference-similarity aid; inspect `attempts.jsonl` against each rubric before ranking models.\n");
+    output.push_str("\nCatalog vision latency uses only the representative small-image cohort. Every selected case still contributes to accuracy, reliability, and all-case stress diagnostics. Translation accuracy is an automatic reference-similarity aid; inspect `attempts.jsonl` against each rubric before ranking models.\n");
     output
 }
 

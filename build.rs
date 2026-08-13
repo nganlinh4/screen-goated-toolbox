@@ -14,6 +14,8 @@ mod model_catalog;
 mod qwen_runtime_delivery;
 #[path = "build_support/recorder_delivery.rs"]
 mod recorder_delivery;
+#[path = "build_support/screen_text_detector_delivery.rs"]
+mod screen_text_detector_delivery;
 #[path = "build_support/vc_runtime_delivery.rs"]
 mod vc_runtime_delivery;
 #[path = "build_support/web_asset_delivery.rs"]
@@ -42,6 +44,7 @@ fn main() {
     local_asr_delivery::generate(&manifest_dir, &out_dir);
     qwen_runtime_delivery::generate(&manifest_dir, &out_dir);
     recorder_delivery::generate(&manifest_dir, &out_dir);
+    screen_text_detector_delivery::generate(&manifest_dir, &out_dir);
     web_asset_delivery::generate(&manifest_dir, &out_dir);
     vc_runtime_delivery::generate(&manifest_dir, &out_dir);
 
@@ -104,6 +107,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/local_asr_delivery.rs");
     println!("cargo:rerun-if-changed=build_support/qwen_runtime_delivery.rs");
     println!("cargo:rerun-if-changed=build_support/recorder_delivery.rs");
+    println!("cargo:rerun-if-changed=build_support/screen_text_detector_delivery.rs");
     println!("cargo:rerun-if-changed=build_support/vc_runtime_delivery.rs");
     println!("cargo:rerun-if-changed={}", model_manifest_path.display());
 }

@@ -5,6 +5,22 @@ use std::sync::{
 };
 use windows::Win32::Foundation::*;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResultPresentation {
+    #[default]
+    Standard,
+    TextOnly,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResultDismissControl {
+    pub always_visible: bool,
+    pub anchor_rect: Option<[i32; 4]>,
+    pub copy_text: Option<String>,
+    pub control_color: Option<String>,
+}
+
 // --- HIERARCHICAL CANCEL TOKEN ---
 
 /// Tree-structured cancellation token for chain processing.
@@ -65,6 +81,10 @@ pub enum RefineContext {
 }
 
 pub struct WindowState {
+    pub presentation: ResultPresentation,
+    pub dismiss_control: Option<ResultDismissControl>,
+    pub backdrop_data_url: Option<String>,
+    pub foreground_color: Option<String>,
     pub copy_success: bool,
 
     // Edit Mode

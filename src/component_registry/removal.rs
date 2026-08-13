@@ -10,6 +10,8 @@ use super::receipt::{
 };
 
 static REMOVAL_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+const MAX_EMPTY_DIRECTORY_SCAN: usize = 4_096;
+const MAX_EMPTY_DIRECTORY_DEPTH: usize = 32;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum RemovalOutcome {
@@ -254,6 +256,7 @@ fn remove_version(
             preserved.push(path);
         }
     }
+    prune_empty_directories(version_root, version_root, 0, &mut 0)?;
     for entry in std::fs::read_dir(version_root)? {
         let path = entry?.path();
         if path != receipt_path && !preserved.contains(&path) {
@@ -263,6 +266,37 @@ fn remove_version(
     if preserved.len() == preserved_before {
         std::fs::remove_file(receipt_path)?;
         let _ = std::fs::remove_dir(version_root);
+    }
+    Ok(())
+}
+
+fn prune_empty_directories(
+    root: &Path,
+    directory: &Path,
+    depth: usize,
+    visited: &mut usize,
+) -> Result<()> {
+    if depth > MAX_EMPTY_DIRECTORY_DEPTH {
+        bail!("component directory tree is too deep");
+    }
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if !metadata.is_dir() || is_reparse_point(&metadata) {
+            continue;
+        }
+        *visited += 1;
+        if *visited > MAX_EMPTY_DIRECTORY_SCAN {
+            bail!("component directory tree contains too many directories");
+        }
+        prune_empty_directories(root, &path, depth + 1, visited)?;
+    }
+    if directory != root {
+        match std::fs::remove_dir(directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => {}
+            Err(error) => return Err(error.into()),
+        }
     }
     Ok(())
 }
@@ -387,5 +421,50 @@ mod tests {
         assert!(!runtime_root.exists());
         assert_eq!(request_remove(runtime_id).unwrap(), RemovalOutcome::Missing);
         assert!(!worker_root.exists());
+    }
+
+    #[test]
+    fn empty_runtime_directories_do_not_block_managed_removal() {
+        let id = "test-empty-runtime-directories";
+        let bytes = b"worker";
+        let version_root = {
+            let _mutation = super::super::acquire_mutation_guard().unwrap();
+            let _guard = lock_removal_filesystem();
+            let root = super::super::ensure_version_root(id, "1.0.0").unwrap();
+            std::fs::create_dir(root.join("bin")).unwrap();
+            std::fs::write(root.join("bin/tool.exe"), bytes).unwrap();
+            std::fs::create_dir_all(root.join("bin/runtime/vendor/logs")).unwrap();
+            super::super::write_receipt(&root, &receipt_for(id, bytes)).unwrap();
+            root
+        };
+
+        assert_eq!(request_remove(id).unwrap(), RemovalOutcome::Removed);
+        assert!(!version_root.exists());
+    }
+
+    #[test]
+    fn unknown_runtime_files_are_still_preserved() {
+        let id = "test-unknown-runtime-file";
+        let bytes = b"worker";
+        let unknown = {
+            let _mutation = super::super::acquire_mutation_guard().unwrap();
+            let _guard = lock_removal_filesystem();
+            let root = super::super::ensure_version_root(id, "1.0.0").unwrap();
+            std::fs::create_dir(root.join("bin")).unwrap();
+            std::fs::write(root.join("bin/tool.exe"), bytes).unwrap();
+            let unknown = root.join("bin/runtime/output.log");
+            std::fs::create_dir_all(unknown.parent().unwrap()).unwrap();
+            std::fs::write(&unknown, b"runtime output").unwrap();
+            super::super::write_receipt(&root, &receipt_for(id, bytes)).unwrap();
+            unknown
+        };
+
+        let RemovalOutcome::PreservedModified(paths) = request_remove(id).unwrap() else {
+            panic!("unknown runtime file should block managed removal");
+        };
+        assert!(unknown.exists());
+        assert!(paths.iter().any(|path| unknown.starts_with(path)));
+        std::fs::remove_file(&unknown).unwrap();
+        assert_eq!(request_remove(id).unwrap(), RemovalOutcome::Removed);
     }
 }

@@ -102,6 +102,8 @@ pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
         let left = virtual_x + card.control_rect.x;
         let top = virtual_y + card.control_rect.y;
         card.visible
+            && !card.controls.hidden
+            && !card.controls.dismiss_only
             && x >= left - padding
             && x <= left + card.control_rect.width + padding
             && y >= top - padding
@@ -132,6 +134,27 @@ fn from_state(
     states: &HashMap<isize, WindowState>,
 ) -> SceneControls {
     SceneControls {
+        hidden: state.presentation == crate::overlay::result::ResultPresentation::TextOnly
+            && state.dismiss_control.is_none(),
+        dismiss_only: state.dismiss_control.is_some(),
+        dismiss_always_visible: state
+            .dismiss_control
+            .as_ref()
+            .is_some_and(|control| control.always_visible),
+        dismiss_anchor: state
+            .dismiss_control
+            .as_ref()
+            .and_then(|control| control.anchor_rect),
+        copy_all: state
+            .dismiss_control
+            .as_ref()
+            .and_then(|control| control.copy_text.as_ref())
+            .is_some(),
+        control_color: state
+            .dismiss_control
+            .as_ref()
+            .and_then(|control| control.control_color.clone())
+            .or_else(|| state.foreground_color.clone()),
         copy_success: state.copy_success,
         has_undo: !state.text_history.is_empty(),
         has_redo: !state.redo_history.is_empty(),
@@ -177,6 +200,10 @@ mod tests {
 
     fn state(linked_windows: Vec<HWND>) -> WindowState {
         WindowState {
+            presentation: crate::overlay::result::ResultPresentation::Standard,
+            dismiss_control: None,
+            backdrop_data_url: None,
+            foreground_color: None,
             copy_success: false,
             is_editing: false,
             context_data: RefineContext::None,

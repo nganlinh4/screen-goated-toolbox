@@ -5,6 +5,7 @@ mod computer_control;
 mod footer;
 mod overlays;
 mod preset_model_update;
+mod screen_translate;
 mod title_bar;
 
 use super::types::{DetailPane, SettingsApp};

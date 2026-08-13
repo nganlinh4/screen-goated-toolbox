@@ -54,14 +54,13 @@ impl EngineProcess {
             .ok_or_else(|| anyhow!("SystemRoot is unavailable"))?;
         let system32 = canonical_dir(&system_root.join("System32"), "Windows System32")?;
         let token = launch_token()?;
+        let workspace = crate::component_registry::worker_workspace(
+            crate::component_registry::computer_control::ID,
+        )?;
         let mut command = ProcessCommand::new(&executable);
         command
             .arg("--stdio")
-            .current_dir(
-                executable
-                    .parent()
-                    .ok_or_else(|| anyhow!("Computer Control engine has no parent"))?,
-            )
+            .current_dir(workspace)
             .env_clear()
             .env("SystemRoot", &system_root)
             .env("WINDIR", &system_root)

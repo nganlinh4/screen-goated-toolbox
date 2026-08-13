@@ -1,8 +1,9 @@
 use super::{
     AuxiliaryLocaleText, BadgeLocaleText, DesktopSettingsLocaleText, GlobalSettingsLocaleText,
     ModelCatalogLocaleText, OverlayLocaleText, PresetBasicsLocaleText, PresetEditorLocaleText,
-    RealtimeLocaleText, ShellLocaleText, ToolRuntimeLocaleText, TranslationGummyLocaleText,
-    TtsAdvancedLocaleText, TtsPlaygroundLocaleText, TtsSettingsLocaleText, WorkspaceLocaleText,
+    RealtimeLocaleText, ScreenTranslateLocaleText, ShellLocaleText, ToolRuntimeLocaleText,
+    TranslationGummyLocaleText, TtsAdvancedLocaleText, TtsPlaygroundLocaleText,
+    TtsSettingsLocaleText, WorkspaceLocaleText,
 };
 
 pub struct LocaleText {
@@ -18,6 +19,7 @@ pub struct LocaleText {
     pub tts_settings: TtsSettingsLocaleText,
     pub tts_advanced: TtsAdvancedLocaleText,
     pub realtime: RealtimeLocaleText,
+    pub screen_translate: ScreenTranslateLocaleText,
     pub shell: ShellLocaleText,
     pub translation_gummy: TranslationGummyLocaleText,
     pub tool_runtime: ToolRuntimeLocaleText,

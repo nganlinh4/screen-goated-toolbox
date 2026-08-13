@@ -283,6 +283,8 @@ impl SettingsApp {
             recording_sr_hotkey: false,
             recording_computer_control_hotkey: false,
             computer_control_hotkey_conflict_msg: None,
+            recording_screen_translate_hotkey: false,
+            screen_translate_hotkey_conflict_msg: None,
             splash: None, // DELAYED CREATION to stage 35 for perfect $t=0$ timing
             fade_in_start: None,
             startup_stage: 0,
@@ -334,6 +336,7 @@ impl SettingsApp {
             show_translation_gummy: false,
             show_tts_playground: false,
             show_computer_control_dialog: false,
+            show_screen_translate_dialog: false,
             // -----------------------------
 
             // --- ARGUMENT HANDLING ---

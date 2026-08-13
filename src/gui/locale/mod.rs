@@ -9,6 +9,7 @@ mod overlay;
 mod preset_basics;
 mod preset_editor;
 mod realtime;
+mod screen_translate;
 mod shell;
 mod text;
 mod tips;
@@ -30,6 +31,7 @@ pub use overlay::OverlayLocaleText;
 pub use preset_basics::PresetBasicsLocaleText;
 pub use preset_editor::PresetEditorLocaleText;
 pub use realtime::RealtimeLocaleText;
+pub use screen_translate::ScreenTranslateLocaleText;
 pub use shell::ShellLocaleText;
 pub use text::LocaleText;
 pub use tips::UsageTipSection;
@@ -65,6 +67,9 @@ impl LocaleText {
             HotkeyConflict::Global { owner, hotkey_name } => {
                 let owner_name = match owner {
                     GlobalHotkeyOwner::ScreenRecord => self.tool_runtime.screen_record_btn,
+                    GlobalHotkeyOwner::ScreenTranslate => {
+                        self.screen_translate.screen_translate_title
+                    }
                     GlobalHotkeyOwner::TranslationGummy => {
                         self.translation_gummy.translation_gummy_title
                     }

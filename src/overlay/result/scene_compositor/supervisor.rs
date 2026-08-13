@@ -69,6 +69,20 @@ pub(crate) fn wait_until_ready(timeout: Duration) -> bool {
     false
 }
 
+pub(crate) fn restart_and_wait(timeout: Duration) -> bool {
+    let previous_generation = GENERATION.load(Ordering::SeqCst);
+    super::delivery::request_restart();
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        let live = LIVE_GENERATION.load(Ordering::SeqCst);
+        if live > previous_generation && READY_GENERATION.load(Ordering::SeqCst) == live {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
 pub(super) fn ensure_process() -> ProcessState {
     if LIVE_GENERATION.load(Ordering::SeqCst) != 0 && PROCESS.lock().unwrap().is_some() {
         return ProcessState::Running;

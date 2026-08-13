@@ -1,0 +1,211 @@
+use std::io::{BufReader, BufWriter};
+use std::os::windows::ffi::OsStrExt as _;
+use std::process::{Child, ChildStdin};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, Result, anyhow, bail};
+use sgt_screen_text_detector_protocol::{
+    ClientMessage, DetectedRegion, ServerMessage, WORKER_VERSION, read_server, write_client,
+};
+
+use super::process::{LaunchResources, create_kill_on_close_job, spawn_worker, terminate_job};
+
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
+const DETECT_TIMEOUT: Duration = Duration::from_secs(15);
+const WAIT_INTERVAL: Duration = Duration::from_millis(40);
+
+enum ReaderEvent {
+    Message(u64, ServerMessage),
+    Failed(String),
+}
+
+pub(super) struct DetectorClient {
+    child: Child,
+    stdin: Option<BufWriter<ChildStdin>>,
+    responses: Receiver<ReaderEvent>,
+    reader: Option<JoinHandle<()>>,
+    job: std::os::windows::io::OwnedHandle,
+    next_request_id: u64,
+    resources: LaunchResources,
+}
+
+impl DetectorClient {
+    pub(super) fn start(cancelled: &AtomicBool) -> Result<Self> {
+        let resources = LaunchResources::ensure(cancelled)?;
+        let mut child = spawn_worker(&resources)?;
+        let job = match create_kill_on_close_job(&child) {
+            Ok(job) => job,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
+        let stdin = child.stdin.take().context("open text detector stdin")?;
+        let stdout = child.stdout.take().context("open text detector stdout")?;
+        let (sender, responses) = std::sync::mpsc::sync_channel(4);
+        let reader = std::thread::spawn(move || {
+            let mut stdout = BufReader::new(stdout);
+            loop {
+                match read_server(&mut stdout) {
+                    Ok((request_id, message)) => {
+                        if sender
+                            .send(ReaderEvent::Message(request_id, message))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = sender.send(ReaderEvent::Failed(error.to_string()));
+                        return;
+                    }
+                }
+            }
+        });
+        let mut client = Self {
+            child,
+            stdin: Some(BufWriter::new(stdin)),
+            responses,
+            reader: Some(reader),
+            job,
+            next_request_id: 1,
+            resources,
+        };
+        client.handshake(cancelled)?;
+        Ok(client)
+    }
+
+    pub(super) fn detect(
+        &mut self,
+        jpeg: &[u8],
+        cancelled: &AtomicBool,
+    ) -> Result<(u32, u32, Vec<DetectedRegion>)> {
+        let response = self.request(
+            ClientMessage::DetectJpeg(jpeg.to_vec()),
+            DETECT_TIMEOUT,
+            cancelled,
+        )?;
+        match response {
+            ServerMessage::Regions {
+                image_width,
+                image_height,
+                regions,
+            } => Ok((image_width, image_height, regions)),
+            ServerMessage::Error(error) => Err(anyhow!(error)),
+            _ => bail!("text detector returned an unexpected response"),
+        }
+    }
+
+    fn handshake(&mut self, cancelled: &AtomicBool) -> Result<()> {
+        let mut nonce = [0_u8; 32];
+        getrandom::fill(&mut nonce).map_err(|error| anyhow!("create detector nonce: {error}"))?;
+        let response = self.request(
+            ClientMessage::Hello {
+                nonce,
+                runtime_dir: self
+                    .resources
+                    .runtime
+                    .bin_dir()
+                    .as_os_str()
+                    .encode_wide()
+                    .collect(),
+                model_dir: self
+                    .resources
+                    .detector
+                    .model_dir()
+                    .as_os_str()
+                    .encode_wide()
+                    .collect(),
+            },
+            HANDSHAKE_TIMEOUT,
+            cancelled,
+        )?;
+        match response {
+            ServerMessage::Ready {
+                nonce: echoed,
+                worker_version,
+            } if echoed == nonce && worker_version == WORKER_VERSION => Ok(()),
+            ServerMessage::Error(error) => Err(anyhow!(error)),
+            _ => bail!("text detector handshake identity mismatch"),
+        }
+    }
+
+    fn request(
+        &mut self,
+        message: ClientMessage,
+        timeout: Duration,
+        cancelled: &AtomicBool,
+    ) -> Result<ServerMessage> {
+        let request_id = self.next_request_id;
+        self.next_request_id = self
+            .next_request_id
+            .checked_add(1)
+            .ok_or_else(|| anyhow!("text detector request counter exhausted"))?;
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| anyhow!("text detector input is closed"))?;
+        write_client(stdin, request_id, &message).context("send text detector request")?;
+        let deadline = Instant::now() + timeout;
+        loop {
+            if cancelled.load(Ordering::SeqCst) {
+                self.terminate();
+                bail!("text detector request cancelled");
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                self.terminate();
+                bail!("text detector timed out");
+            }
+            match self.responses.recv_timeout(remaining.min(WAIT_INTERVAL)) {
+                Ok(ReaderEvent::Message(response_id, response)) if response_id == request_id => {
+                    return Ok(response);
+                }
+                Ok(ReaderEvent::Message(response_id, _)) => {
+                    self.terminate();
+                    bail!(
+                        "text detector response id mismatch: expected {request_id}, got {response_id}"
+                    );
+                }
+                Ok(ReaderEvent::Failed(error)) => {
+                    let status = self
+                        .child
+                        .try_wait()
+                        .ok()
+                        .flatten()
+                        .map(|status| format!(" ({status})"))
+                        .unwrap_or_default();
+                    bail!("text detector protocol failed{status}: {error}");
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    bail!("text detector response channel closed")
+                }
+            }
+        }
+    }
+
+    fn terminate(&mut self) {
+        self.stdin.take();
+        if !matches!(self.child.try_wait(), Ok(Some(_))) {
+            terminate_job(&self.job);
+            let _ = self.child.wait();
+        }
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
+}
+
+impl Drop for DetectorClient {
+    fn drop(&mut self) {
+        if let Some(stdin) = self.stdin.as_mut() {
+            let _ = write_client(stdin, self.next_request_id, &ClientMessage::Shutdown);
+        }
+        self.terminate();
+    }
+}

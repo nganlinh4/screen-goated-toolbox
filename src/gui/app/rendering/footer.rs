@@ -38,18 +38,23 @@ impl SettingsApp {
                     .stroke(egui::Stroke::NONE),
             )
             .show_inside(root_ui, |ui| {
+                let screen_translate_was_open = self.show_screen_translate_dialog;
                 render_footer(
                     ui,
                     &text,
                     FooterToggles {
                         show_modal: &mut self.show_tips_modal,
                         show_computer_control: &mut self.show_computer_control_dialog,
+                        show_screen_translate: &mut self.show_screen_translate_dialog,
                         show_pointer_gallery: &mut self.pointer_gallery.show_window,
                         show_translation_gummy: &mut self.show_translation_gummy,
                         show_tts_playground: &mut self.show_tts_playground,
                         show_download: &mut self.download_manager.show_window,
                     },
                 );
+                if !screen_translate_was_open && self.show_screen_translate_dialog {
+                    crate::overlay::screen_translate::prepare_detector();
+                }
             });
 
         render_tips_modal(
@@ -59,6 +64,7 @@ impl SettingsApp {
             &mut self.selected_tips_category,
         );
         self.render_computer_control_dialog(ctx, &text);
+        self.render_screen_translate_dialog(ctx, &text);
 
         // Pointer Gallery Window
         self.pointer_gallery.render(ctx, &text);

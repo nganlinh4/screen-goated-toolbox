@@ -3,6 +3,7 @@
 mod actions;
 mod css;
 mod js;
+mod js_refine;
 mod theme;
 
 use windows::Win32::Foundation::HWND;
@@ -37,10 +38,11 @@ pub(crate) fn document_script() -> String {
         "cleaning_services": icon("cleaning_services"), "content_copy": icon("content_copy"),
         "check": icon("check"), "download": icon("download"),
         "volume_up": icon("volume_up"), "mic": icon("mic"),
-        "send": icon("send"), "opacity": icon("opacity"),
+        "send": icon("send"), "opacity": icon("opacity"), "close": icon("close"),
     })
     .to_string();
-    js::get_javascript()
+    [js::get_javascript(), js_refine::get_javascript()]
+        .concat()
         .replace("#L10N_JSON#", &l10n)
         .replace("#ICON_SVGS_JSON#", &icons)
 }
@@ -110,5 +112,25 @@ mod tests {
         assert!(script.contains("JSON.stringify(structuralState)"));
         assert!(actions.contains("scene_compositor::set_opacity(hwnd, value)"));
         assert!(!actions.contains("scene_compositor::sync_window"));
+    }
+
+    #[test]
+    fn chain_dismiss_uses_capture_anchor_and_canonical_proximity_opacity() {
+        let script = super::document_script();
+        let css = super::document_css();
+
+        assert!(script.contains("dismiss_chain"));
+        assert!(script.contains("copy_all"));
+        assert!(script.contains("state.copyAll"));
+        assert!(script.contains("state.dismissAnchor"));
+        assert!(script.contains("candidateX = anchor.x + anchor.w + 8"));
+        assert!(script.contains("candidateX = anchor.x - actualW - 8"));
+        assert!(script.contains("proximity-pinned"));
+        assert!(script.contains("const maxRadius = 150"));
+        assert!(css.contains(".btn.dismiss-chain-btn"));
+        assert!(css.contains("border-radius: 50%"));
+        assert!(css.contains("width: 44px"));
+        assert!(css.contains(".btn.copy-chain-btn"));
+        assert!(css.contains("var(--chain-control-color, var(--btn-color))"));
     }
 }

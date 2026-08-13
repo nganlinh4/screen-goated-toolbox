@@ -115,6 +115,28 @@ fn visual_review_uses_the_manifest_boxes_crops_and_input_modes() {
             );
         }
     }
+
+    for case in &manifest.localization_cases {
+        let boxes = case
+            .regions
+            .iter()
+            .map(|region| {
+                region
+                    .box_px
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .collect::<Vec<_>>()
+            .join(";");
+        let marker = format!("data-case-id=\"{}\" data-boxes-px=\"{boxes}\"", case.id);
+        assert!(
+            review.contains(&marker),
+            "review localization boxes drifted for {}",
+            case.id
+        );
+    }
 }
 
 #[test]

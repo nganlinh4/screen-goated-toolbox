@@ -13,6 +13,7 @@ mod model_card;
 mod model_sections;
 mod pointer_packs;
 mod recorder;
+mod screen_text_detector;
 mod three_d_generator;
 mod tts_models;
 mod utils;
@@ -29,6 +30,7 @@ use self::{
     },
     pointer_packs::render_pointer_pack_downloads_section,
     recorder::render_recorder_card,
+    screen_text_detector::render as render_screen_text_detector_card,
     three_d_generator::render_three_d_generator_card,
     tts_models::{render_magpie_card, render_step_audio_card, render_vieneu_card},
     video_downloader::render_video_downloader_card,
@@ -163,6 +165,10 @@ pub fn render_downloaded_tools_modal(
                                 ui.add_space(8.0);
                                 time_downloaded_tools_section("computer-control", || {
                                     render_computer_control_card(ui, text)
+                                });
+                                ui.add_space(8.0);
+                                time_downloaded_tools_section("screen-text-detector", || {
+                                    render_screen_text_detector_card(ui, text)
                                 });
                             });
 
