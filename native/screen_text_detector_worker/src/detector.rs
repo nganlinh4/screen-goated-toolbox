@@ -16,7 +16,7 @@ use crate::recognizer_cascade::RecognizerCascade;
 
 const MAX_IMAGE_SIDE: u32 = 8_192;
 const MAX_IMAGE_PIXELS: u64 = 40_000_000;
-const INFERENCE_LONG_SIDE: u32 = 1_920;
+const INFERENCE_LONG_SIDE: u32 = 1_600;
 const DIRECT_ML_LOCATOR_MIN_PIXELS: u64 = 600_000;
 const WARMUP_SIDE: usize = 320;
 
@@ -71,7 +71,7 @@ impl TextDetector {
                 true,
             )
             .and_then(|mut cascade| {
-                cascade.warm_primary()?;
+                cascade.warm_all()?;
                 Ok(cascade)
             });
             let _ = recognizer_sender.send(loaded);
@@ -86,7 +86,7 @@ impl TextDetector {
                 });
             let _ = locator_sender.send(loaded);
         });
-        Ok(Self {
+        let mut loaded = Self {
             cpu,
             direct_ml_recognizer: None,
             direct_ml_recognizer_receiver: Some(recognizer_receiver),
@@ -94,7 +94,24 @@ impl TextDetector {
             direct_ml_locator_receiver: Some(locator_receiver),
             _direct_ml_recognizer_loader: recognizer_loader,
             _direct_ml_locator_loader: locator_loader,
-        })
+        };
+        loaded.finish_acceleration_setup();
+        Ok(loaded)
+    }
+
+    fn finish_acceleration_setup(&mut self) {
+        receive_optional(
+            &mut self.direct_ml_recognizer,
+            &mut self.direct_ml_recognizer_receiver,
+            true,
+            "recognizer",
+        );
+        receive_optional(
+            &mut self.direct_ml_locator,
+            &mut self.direct_ml_locator_receiver,
+            true,
+            "locator",
+        );
     }
 
     pub(crate) fn detect_jpeg(&mut self, jpeg: &[u8]) -> Result<DetectionResult> {
@@ -383,10 +400,12 @@ mod tests {
     #[test]
     fn inference_dimensions_are_stride_aligned_and_bounded() {
         assert_eq!(inference_size(651, 398), (640, 384));
-        assert_eq!(inference_size(1_080, 1_920), (1_088, 1_920));
+        let tall = inference_size(1_080, 1_920);
+        assert_eq!(tall.0 % 32, 0);
+        assert_eq!(tall.1, INFERENCE_LONG_SIDE);
         let four_k = inference_size(3_840, 2_160);
         assert_eq!(four_k.0 % 32, 0);
         assert_eq!(four_k.1 % 32, 0);
-        assert!(four_k.0 <= INFERENCE_LONG_SIDE);
+        assert_eq!(four_k.0.max(four_k.1), INFERENCE_LONG_SIDE);
     }
 }

@@ -30,27 +30,19 @@ pub struct CapturedRegion {
 pub use render::extract_crop_from_hbitmap_public;
 pub use state::is_selection_overlay_active;
 
-#[allow(static_mut_refs)]
-pub fn show_selection_overlay(preset_idx: usize, hotkey_id: i32) {
-    clear_capture_request();
-    show_overlay(preset_idx, hotkey_id);
-}
-
-pub fn show_capture_overlay(sender: std::sync::mpsc::Sender<CapturedRegion>) {
-    clear_capture_request();
-    if let Ok(mut request) = CAPTURE_REQUEST.lock() {
-        *request = Some(sender);
-    } else {
-        return;
+pub(crate) fn show_image_capture_overlay(
+    target: crate::overlay::image_capture_target::ImageCaptureTarget,
+    hotkey_id: i32,
+) {
+    if let Ok(mut current) = CAPTURE_TARGET.lock() {
+        *current = target;
     }
-    show_overlay(0, 0);
-    clear_capture_request();
+    show_overlay(hotkey_id);
 }
 
 #[allow(static_mut_refs)]
-fn show_overlay(preset_idx: usize, hotkey_id: i32) {
+fn show_overlay(hotkey_id: i32) {
     unsafe {
-        CURRENT_PRESET_IDX = preset_idx;
         CURRENT_HOTKEY_ID = hotkey_id;
         SELECTION_OVERLAY_ACTIVE.store(true, Ordering::SeqCst);
         CURRENT_ALPHA = 1; // Start at 1 to make the layered window hit-testable immediately
@@ -74,12 +66,7 @@ fn show_overlay(preset_idx: usize, hotkey_id: i32) {
         }
 
         // Initialize Hotkey Tracking for Continuous Mode
-        if has_capture_request() {
-            IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
-            TRIGGER_MODIFIERS = 0;
-            TRIGGER_VK_CODE = 0;
-        } else if let Some((mods, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info()
-        {
+        if let Some((mods, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info() {
             TRIGGER_MODIFIERS = mods;
             TRIGGER_VK_CODE = vk;
 

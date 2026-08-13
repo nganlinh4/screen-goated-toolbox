@@ -6,6 +6,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const MAX_CANDIDATES: usize = 240;
+pub(crate) const MAX_SOURCE_CANDIDATES: usize = 3;
 const MAX_TRANSLATED_REGIONS: usize = MAX_CANDIDATES;
 const MAX_TEXT_CHARS: usize = 2_000;
 
@@ -67,18 +68,26 @@ impl From<NormalizedBounds> for [u16; 4] {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TranslationResponse {
-    regions: Vec<TranslatedRegionResponse>,
+    regions: Vec<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum TranslationResponseEnvelope {
+    Object(TranslationResponse),
+    Array(Vec<serde_json::Value>),
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TranslatedRegionResponse {
     id: u16,
-    source_text: String,
+    source_candidate_index: usize,
     translated_text: String,
 }
 
 pub(crate) fn response_schema(region_count: usize) -> serde_json::Value {
+    let max_candidate_index = MAX_SOURCE_CANDIDATES - 1;
     serde_json::json!({
         "type": "object",
         "properties": {
@@ -90,10 +99,14 @@ pub(crate) fn response_schema(region_count: usize) -> serde_json::Value {
                     "type": "object",
                     "properties": {
                         "id": { "type": "integer" },
-                        "sourceText": { "type": "string", "minLength": 1, "maxLength": MAX_TEXT_CHARS },
+                        "sourceCandidateIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": max_candidate_index
+                        },
                         "translatedText": { "type": "string", "minLength": 1, "maxLength": MAX_TEXT_CHARS }
                     },
-                    "required": ["id", "sourceText", "translatedText"],
+                    "required": ["id", "sourceCandidateIndex", "translatedText"],
                     "additionalProperties": false
                 }
             }
@@ -103,7 +116,11 @@ pub(crate) fn response_schema(region_count: usize) -> serde_json::Value {
     })
 }
 
-pub(crate) fn prompt(target_language: &str, candidates: &[DetectedTextRegion]) -> Result<String> {
+pub(crate) fn prompt_with_instruction(
+    target_language: &str,
+    translation_instruction: &str,
+    candidates: &[DetectedTextRegion],
+) -> Result<String> {
     if candidates.is_empty() || candidates.len() > MAX_CANDIDATES {
         bail!("detector candidate count is outside the translation contract");
     }
@@ -117,11 +134,17 @@ pub(crate) fn prompt(target_language: &str, candidates: &[DetectedTextRegion]) -
         })
         .collect::<Vec<_>>();
     let source_regions = serde_json::to_string(&source_regions)?;
+    let translation_instruction = translation_instruction
+        .replace("{target_language}", target_language)
+        .trim()
+        .to_string();
     Ok(format!(
-        "Translate the supplied OCR text regions into {target_language}. Treat every region independently because one image can contain multiple source languages. Each region contains bounded recognition candidates for the same image box. Select the most linguistically coherent candidate and return it as sourceText. A region is readable when any one candidate is coherent, even if its other candidates are gibberish.\n\
-         Preserve every supplied integer id exactly once. Never omit a region. If a region is noise, an icon, a counter, a proper noun, an identifier, or already in the target language, return the selected sourceText unchanged.\n\
+        "Translation preference:\n{translation_instruction}\n\n\
+         Required screen-translation contract:\n\
+         Translate the supplied OCR text regions into {target_language}. Treat every region independently because one image can contain multiple source languages. Each region contains an ordered array of bounded recognition candidates for the same image box. Select the most linguistically coherent candidate and return its zero-based array position as sourceCandidateIndex. A region is readable when any one candidate is coherent, even if its other candidates are gibberish.\n\
+         Preserve every supplied integer id exactly once. Never omit a region. If a region is noise, an icon, a counter, a proper noun, an identifier, or already in the target language, return the selected candidate unchanged as translatedText.\n\
          Translate all readable language, including ordinary interface labels, menu items, buttons, headings, navigation terms, and mixed-language text; preserve product or brand names, identifiers, numbers, punctuation, and tone.\n\
-         sourceText must exactly equal one supplied sourceCandidate. translatedText contains only its translation.\n\
+         translatedText contains only the translation of the selected source candidate.\n\
          Return one JSON object matching the supplied schema, without Markdown or commentary.\n\
          OCR regions:\n{source_regions}"
     ))
@@ -132,62 +155,39 @@ pub(crate) fn parse_response(
     candidates: &[DetectedTextRegion],
 ) -> Result<TranslationDocument> {
     let json = unwrap_json(response);
-    let response: TranslationResponse =
+    let response: TranslationResponseEnvelope =
         serde_json::from_str(json).context("response did not match the translation schema")?;
-    if response.regions.len() > MAX_TRANSLATED_REGIONS {
+    let values = match response {
+        TranslationResponseEnvelope::Object(response) => response.regions,
+        TranslationResponseEnvelope::Array(regions) => regions,
+    };
+    if values.len() > MAX_TRANSLATED_REGIONS {
         bail!("response contains too many translated regions");
     }
     let candidate_data = candidates
         .iter()
-        .map(|candidate| {
-            (
-                candidate.id,
-                (candidate.bounds, candidate.source_alternatives.as_slice()),
-            )
-        })
+        .map(|candidate| (candidate.id, candidate))
         .collect::<HashMap<_, _>>();
     if candidate_data.len() != candidates.len() {
         bail!("detector returned duplicate candidate ids");
     }
     let mut seen = HashSet::new();
-    let mut regions = Vec::with_capacity(response.regions.len());
-    for region in response.regions {
-        let (bounds, alternatives) = candidate_data.get(&region.id).copied().ok_or_else(|| {
-            anyhow::anyhow!("response references unknown detector region {}", region.id)
-        })?;
-        if !seen.insert(region.id) {
-            bail!("response repeats detector region {}", region.id);
+    let mut regions = Vec::with_capacity(values.len());
+    for value in values {
+        let Ok(region) = serde_json::from_value::<TranslatedRegionResponse>(value) else {
+            continue;
+        };
+        if seen.contains(&region.id) {
+            continue;
         }
-        let source_text = region.source_text.trim();
-        if !alternatives
-            .iter()
-            .any(|candidate| candidate == source_text)
-        {
-            bail!(
-                "response selected an unknown recognition candidate for region {}",
-                region.id
-            );
-        }
-        let translated_text = region.translated_text.trim();
-        if source_text.is_empty() || translated_text.is_empty() {
-            bail!(
-                "response contains an empty text for detector region {}",
-                region.id
-            );
-        }
-        regions.push(TranslationRegion {
-            id: region.id,
-            source_text: clean_text(source_text, MAX_TEXT_CHARS)
-                .ok_or_else(|| anyhow::anyhow!("a source text region is empty or too long"))?,
-            translated_text: clean_text(translated_text, MAX_TEXT_CHARS)
-                .ok_or_else(|| anyhow::anyhow!("a translated text region is empty or too long"))?,
-            bounds,
-            background_color: None,
-            text_color: None,
-        });
-    }
-    if seen.len() != candidate_data.len() {
-        bail!("response omitted one or more detector regions");
+        let Some(candidate) = candidate_data.get(&region.id).copied() else {
+            continue;
+        };
+        let Ok(region) = validated_region(region, candidate) else {
+            continue;
+        };
+        seen.insert(region.id);
+        regions.push(region);
     }
     regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
     Ok(TranslationDocument { regions })
@@ -203,28 +203,29 @@ pub(crate) fn parse_streamed_region(
         .iter()
         .find(|candidate| candidate.id == response.id)
         .ok_or_else(|| anyhow::anyhow!("streamed region references an unknown id"))?;
-    let source_text = clean_text(&response.source_text, MAX_TEXT_CHARS)
-        .ok_or_else(|| anyhow::anyhow!("streamed source text is empty or too long"))?;
-    if !candidate
+    let id = response.id;
+    Ok((id, validated_region(response, candidate)?))
+}
+
+fn validated_region(
+    response: TranslatedRegionResponse,
+    candidate: &DetectedTextRegion,
+) -> Result<TranslationRegion> {
+    let source_text = candidate
         .source_alternatives
-        .iter()
-        .any(|known| known == &source_text)
-    {
-        bail!("streamed region selected an unknown recognition candidate");
-    }
+        .get(response.source_candidate_index)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("source candidate index is outside its detector region"))?;
     let translated_text = clean_text(&response.translated_text, MAX_TEXT_CHARS)
-        .ok_or_else(|| anyhow::anyhow!("streamed translated text is empty or too long"))?;
-    Ok((
-        response.id,
-        TranslationRegion {
-            id: response.id,
-            source_text,
-            translated_text,
-            bounds: candidate.bounds,
-            background_color: None,
-            text_color: None,
-        },
-    ))
+        .ok_or_else(|| anyhow::anyhow!("translated text is empty or too long"))?;
+    Ok(TranslationRegion {
+        id: response.id,
+        source_text,
+        translated_text,
+        bounds: candidate.bounds,
+        background_color: None,
+        text_color: None,
+    })
 }
 
 fn unwrap_json(response: &str) -> &str {
@@ -268,15 +269,38 @@ mod tests {
 
     #[test]
     fn prompt_supplies_detector_owned_text_without_geometry() {
-        let instructions = prompt("Target Language", &candidates()).unwrap();
+        let instructions = prompt_with_instruction(
+            "Target Language",
+            &crate::config::types::ScreenTranslateSettings::default_prompt(),
+            &candidates(),
+        )
+        .unwrap();
         assert!(instructions.contains(r#"{"id":1,"sourceCandidates":["first","f1rst"]}"#));
+        assert!(instructions.contains("sourceCandidateIndex"));
+        assert!(
+            !response_schema(candidates().len())
+                .to_string()
+                .contains("sourceText")
+        );
         assert!(!instructions.contains("box_2d"));
+    }
+
+    #[test]
+    fn prompt_expands_the_configured_target_language_placeholder() {
+        let instructions = prompt_with_instruction(
+            "Korean",
+            "Use concise wording in {target_language}.",
+            &candidates(),
+        )
+        .unwrap();
+        assert!(instructions.contains("Use concise wording in Korean."));
+        assert!(!instructions.contains("{target_language}"));
     }
 
     #[test]
     fn parser_maps_ids_to_detector_bounds_and_orders_them() {
         let result = parse_response(
-            r##"{"regions":[{"id":2,"sourceText":"second","translatedText":"two"},{"id":1,"sourceText":"first","translatedText":"one"}]}"##,
+            r##"{"regions":[{"id":2,"sourceCandidateIndex":0,"translatedText":"two"},{"id":1,"sourceCandidateIndex":0,"translatedText":"one"}]}"##,
             &candidates(),
         )
         .unwrap();
@@ -286,26 +310,58 @@ mod tests {
     }
 
     #[test]
-    fn parser_rejects_unknown_duplicate_and_model_owned_geometry() {
-        let cases = [
-            r#"{"regions":[{"id":9,"sourceText":"first","translatedText":"b"}]}"#,
-            r#"{"regions":[{"id":1,"sourceText":"first","translatedText":"b"},{"id":1,"sourceText":"first","translatedText":"b"}]}"#,
-            r#"{"regions":[{"id":1,"sourceText":"first","translatedText":"b","box_2d":[1,2,3,4]}]}"#,
-            r#"{"regions":[{"id":1,"sourceText":"invented","translatedText":"b"},{"id":2,"sourceText":"second","translatedText":"c"}]}"#,
-        ];
-        for value in cases {
-            assert!(parse_response(value, &candidates()).is_err());
-        }
+    fn parser_keeps_valid_regions_when_neighbors_are_invalid() {
+        let result = parse_response(
+            r#"{"regions":[
+                {"id":9,"sourceCandidateIndex":0,"translatedText":"unknown"},
+                {"id":1,"sourceCandidateIndex":1,"translatedText":"valid"},
+                {"id":1,"sourceCandidateIndex":0,"translatedText":"duplicate"},
+                {"id":2,"sourceCandidateIndex":9,"translatedText":"bad index"},
+                {"id":2,"sourceCandidateIndex":0,"translatedText":"extra","box_2d":[1,2,3,4]}
+            ]}"#,
+            &candidates(),
+        )
+        .unwrap();
+
+        assert_eq!(result.regions.len(), 1);
+        assert_eq!(result.regions[0].id, 1);
+        assert_eq!(result.regions[0].source_text, "f1rst");
+        assert_eq!(result.regions[0].translated_text, "valid");
     }
 
     #[test]
-    fn parser_rejects_missing_or_empty_detector_regions() {
-        let cases = [
-            r#"{"regions":[{"id":2,"sourceText":"second","translatedText":"two"}]}"#,
-            r#"{"regions":[{"id":1,"sourceText":"first","translatedText":""},{"id":2,"sourceText":"second","translatedText":"two"}]}"#,
-        ];
-        for value in cases {
-            assert!(parse_response(value, &candidates()).is_err());
-        }
+    fn parser_returns_valid_partial_output_for_missing_or_empty_neighbors() {
+        let missing = parse_response(
+            r#"{"regions":[{"id":2,"sourceCandidateIndex":0,"translatedText":"two"}]}"#,
+            &candidates(),
+        )
+        .unwrap();
+        assert_eq!(missing.regions.len(), 1);
+        assert_eq!(missing.regions[0].id, 2);
+
+        let empty_neighbor = parse_response(
+            r#"{"regions":[{"id":1,"sourceCandidateIndex":0,"translatedText":""},{"id":2,"sourceCandidateIndex":0,"translatedText":"two"}]}"#,
+            &candidates(),
+        )
+        .unwrap();
+        assert_eq!(empty_neighbor.regions.len(), 1);
+        assert_eq!(empty_neighbor.regions[0].id, 2);
+    }
+
+    #[test]
+    fn parser_accepts_the_equivalent_top_level_region_array() {
+        let candidates = candidates();
+        let parsed = parse_response(
+            r#"[{"id":1,"sourceCandidateIndex":0,"translatedText":"uno"}]"#,
+            &candidates,
+        )
+        .unwrap();
+        assert_eq!(parsed.regions.len(), 1);
+        assert_eq!(parsed.regions[0].translated_text, "uno");
+    }
+
+    #[test]
+    fn parser_rejects_a_malformed_top_level_contract() {
+        assert!(parse_response(r#"{"regions":"not-an-array"}"#, &candidates()).is_err());
     }
 }

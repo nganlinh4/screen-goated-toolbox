@@ -4,15 +4,10 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 pub(super) fn handle(id: isize, action: ButtonAction) {
     let hwnd = HWND(id as *mut std::ffi::c_void);
-    if !matches!(
-        action,
-        ButtonAction::SetOpacity { .. } | ButtonAction::DismissChain | ButtonAction::CopyAll
-    ) {
+    if !matches!(action, ButtonAction::SetOpacity { .. }) {
         crate::overlay::result::raise_window(hwnd);
     }
     match action {
-        ButtonAction::DismissChain => dismiss_chain(hwnd),
-        ButtonAction::CopyAll => crate::overlay::result::trigger_copy_all(hwnd),
         ButtonAction::Copy => post(hwnd, super::super::event_handler::misc::WM_COPY_CLICK),
         ButtonAction::Undo => post(hwnd, super::super::event_handler::misc::WM_UNDO_CLICK),
         ButtonAction::Redo => post(hwnd, super::super::event_handler::misc::WM_REDO_CLICK),
@@ -22,7 +17,7 @@ pub(super) fn handle(id: isize, action: ButtonAction) {
         ButtonAction::Forward => post(hwnd, super::super::event_handler::misc::WM_FORWARD_CLICK),
         ButtonAction::Speaker => post(hwnd, super::super::event_handler::misc::WM_SPEAKER_CLICK),
         ButtonAction::SetOpacity { value } => {
-            crate::overlay::result::scene_compositor::set_opacity(hwnd, value)
+            crate::overlay::result::scene_compositor::set_control_scope_opacity(hwnd, value)
         }
         ButtonAction::SubmitRefine { text } => {
             crate::overlay::result::trigger_refine_submit(hwnd, &text)
@@ -31,19 +26,6 @@ pub(super) fn handle(id: isize, action: ButtonAction) {
         ButtonAction::HistoryUpRefine { text } => update_history(hwnd, &text, true),
         ButtonAction::HistoryDownRefine { text } => update_history(hwnd, &text, false),
         ButtonAction::Mic => start_microphone(),
-    }
-}
-
-fn dismiss_chain(hwnd: HWND) {
-    let chain_id = crate::overlay::result::WINDOW_STATES
-        .lock()
-        .unwrap()
-        .get(&(hwnd.0 as isize))
-        .and_then(|state| state.chain_id.clone());
-    if let Some(chain_id) = chain_id {
-        crate::overlay::result::close_chain_windows(&chain_id);
-    } else {
-        crate::overlay::result::trigger_close_window(hwnd);
     }
 }
 

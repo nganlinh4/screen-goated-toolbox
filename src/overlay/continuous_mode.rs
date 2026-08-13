@@ -151,7 +151,7 @@ pub fn show_activation_notification(preset_id: &str, hotkey_name: &str) {
 }
 
 /// Show the continuous mode activation notification for IMAGE mode (includes right mouse instruction)
-pub fn show_image_continuous_notification(preset_id: &str, hotkey_name: &str) {
+pub fn show_image_continuous_notification(display_name: &str, hotkey_name: &str) {
     let lang = {
         if let Ok(app) = crate::APP.lock() {
             app.config.ui_language.clone()
@@ -162,11 +162,9 @@ pub fn show_image_continuous_notification(preset_id: &str, hotkey_name: &str) {
 
     crate::log_info!(
         "[Continuous] Image Notification Request - Preset: {}, Hotkey: '{}'",
-        preset_id,
+        display_name,
         hotkey_name
     );
-
-    let localized_name = crate::gui::settings_ui::get_localized_preset_name(preset_id, &lang);
 
     // 1. Title Suffix
     let suffix = match lang.as_str() {
@@ -174,7 +172,7 @@ pub fn show_image_continuous_notification(preset_id: &str, hotkey_name: &str) {
         "ko" => "연속 모드",
         _ => "Continuous Mode",
     };
-    let title = format!("{} - {}", localized_name, suffix);
+    let title = format!("{} - {}", display_name, suffix);
 
     // 2. Prepare message from locale
     let locale = crate::gui::locale::LocaleText::get(&lang);

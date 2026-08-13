@@ -1,6 +1,9 @@
 use super::button_canvas;
-use super::state::{WINDOW_STATES, link_windows};
-use super::{RefineContext, ResultWindowParams, WindowType, create_result_window};
+use super::state::{ResultControlOptions, ResultPresentation, WINDOW_STATES, link_windows};
+use super::{
+    RefineContext, ResultWindowParams, WindowType, create_result_window,
+    create_text_only_result_window,
+};
 use crate::win_types::SendHwnd;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
@@ -35,6 +38,10 @@ struct RestorableWindowSnapshot {
     is_editing: bool,
     input_text: String,
     linked_restore_ids: Vec<u64>,
+    presentation: ResultPresentation,
+    control_options: Option<ResultControlOptions>,
+    backdrop_data_url: Option<String>,
+    foreground_color: Option<String>,
 }
 
 #[derive(Clone)]
@@ -59,11 +66,63 @@ pub fn recent_restore_option_counts() -> Vec<usize> {
             continue;
         }
 
-        cumulative += batch.windows.len();
+        cumulative += logical_overlay_count(&batch.windows);
         counts.push(cumulative);
     }
 
     counts
+}
+
+fn logical_overlay_count(windows: &[RestorableWindowSnapshot]) -> usize {
+    let restore_ids: Vec<u64> = windows.iter().map(|window| window.restore_id).collect();
+    let links: Vec<(u64, u64)> = windows
+        .iter()
+        .flat_map(|window| {
+            window
+                .linked_restore_ids
+                .iter()
+                .map(move |linked| (window.restore_id, *linked))
+        })
+        .collect();
+    connected_component_count(&restore_ids, &links)
+}
+
+fn connected_component_count(restore_ids: &[u64], links: &[(u64, u64)]) -> usize {
+    let captured: HashSet<u64> = restore_ids.iter().copied().collect();
+    let mut adjacency: HashMap<u64, Vec<u64>> = restore_ids
+        .iter()
+        .copied()
+        .map(|restore_id| (restore_id, Vec::new()))
+        .collect();
+
+    for &(left, right) in links {
+        if !captured.contains(&left) || !captured.contains(&right) {
+            continue;
+        }
+        adjacency.entry(left).or_default().push(right);
+        adjacency.entry(right).or_default().push(left);
+    }
+
+    let mut visited = HashSet::new();
+    let mut count = 0usize;
+    for &restore_id in restore_ids {
+        if !visited.insert(restore_id) {
+            continue;
+        }
+
+        count += 1;
+        let mut pending = vec![restore_id];
+        while let Some(current) = pending.pop() {
+            if let Some(neighbors) = adjacency.get(&current) {
+                for &neighbor in neighbors {
+                    if visited.insert(neighbor) {
+                        pending.push(neighbor);
+                    }
+                }
+            }
+        }
+    }
+    count
 }
 
 pub fn remember_last_closed(targets: &[HWND]) {
@@ -151,7 +210,7 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
     std::thread::spawn(move || {
         let coinit = unsafe { CoInitialize(None) };
 
-        let hwnd = create_result_window(ResultWindowParams {
+        let params = ResultWindowParams {
             target_rect: window.rect,
             win_type: WindowType::Primary,
             context: window.context.clone(),
@@ -165,7 +224,17 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
             preset_id: window.preset_id.clone(),
             is_chain_root: window.is_chain_root,
             latency_trace_id: None,
-        });
+        };
+        let hwnd = match window.presentation {
+            ResultPresentation::Standard => create_result_window(params),
+            ResultPresentation::TextOnly => create_text_only_result_window(
+                params,
+                window.backdrop_data_url.clone().unwrap_or_default(),
+                window.foreground_color.clone().unwrap_or_default(),
+                format!("restored-overlay-{}", window.restore_id),
+                window.control_options.clone(),
+            ),
+        };
 
         if hwnd.is_invalid() {
             let _ = tx.send(None);
@@ -287,6 +356,10 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
                 .filter(|linked| target_set.contains(linked))
                 .filter_map(|linked| restore_ids.get(&linked).copied())
                 .collect(),
+            presentation: state.presentation,
+            control_options: state.control_options.clone(),
+            backdrop_data_url: state.backdrop_data_url.clone(),
+            foreground_color: state.foreground_color.clone(),
         });
     }
 
@@ -294,5 +367,20 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
         None
     } else {
         Some(RestoreBatchSnapshot { windows })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::connected_component_count;
+
+    #[test]
+    fn linked_result_windows_count_as_one_logical_overlay() {
+        let restore_ids = [1, 2, 3, 4];
+        let links = [(1, 2), (2, 3)];
+
+        assert_eq!(connected_component_count(&restore_ids, &links), 2);
+        assert_eq!(connected_component_count(&restore_ids[..3], &links), 1);
+        assert_eq!(connected_component_count(&[], &[]), 0);
     }
 }

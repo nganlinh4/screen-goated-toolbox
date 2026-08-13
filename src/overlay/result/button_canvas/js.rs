@@ -9,6 +9,7 @@ let lastSentRegions = new Map();
 let highestButtonStackOrder = 0;
 let cursorX = 0, cursorY = 0;
 const activeGrabbingSources = new Set();
+let activeResultDragPreview = null;
 window.raiseWindowButtons = function(hwnd) {
     const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
     if (!group) return;
@@ -22,6 +23,21 @@ window.setWindowButtonStackOrder = function(hwnd, stackOrder) {
     highestButtonStackOrder = Math.max(highestButtonStackOrder, order);
     group.style.zIndex = String(order);
 };
+
+function contrastingControlSurface(color) {
+    const match = /^#([0-9a-f]{6})$/i.exec(String(color || '').trim());
+    if (!match) return '';
+    const value = parseInt(match[1], 16);
+    const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255]
+        .map(channel => {
+            const normalized = channel / 255;
+            return normalized <= 0.04045
+                ? normalized / 12.92
+                : Math.pow((normalized + 0.055) / 1.055, 2.4);
+        });
+    const luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+    return luminance <= 0.179 ? 'light' : 'dark';
+}
 
 function setResultDraggingCursor(active) {
     if (active) {
@@ -126,9 +142,7 @@ function updateButtonOpacity() {
                 const isVertical = group.classList.contains('vertical');
                 let region;
 
-                if (group.classList.contains('dismiss-only')) {
-                    region = { x: rect.left - 8, y: rect.top - 8, w: rect.width + 16, h: rect.height + 16 };
-                } else if (isVertical) {
+                if (isVertical) {
                     region = {
                         x: rect.left + 1,
                         y: rect.top - 200,
@@ -163,11 +177,11 @@ function updateButtonOpacity() {
     }
 }
 
-function calculateButtonPosition(winRect) {
+function calculateButtonPosition(winRect, controlScale) {
     const screenW = window.innerWidth;
     const screenH = window.innerHeight;
-    const longDim = 300;
-    const shortDim = 32;
+    const longDim = 300 * controlScale;
+    const shortDim = 32 * controlScale;
     const margin = 4;
     const spaceBottom = screenH - (winRect.y + winRect.h);
     const spaceTop = winRect.y;
@@ -205,15 +219,6 @@ function calculateButtonPosition(winRect) {
 }
 
 function generateButtonsHTML(hwnd, state, isVertical) {
-    if (state.dismissOnly) {
-        let buttons = `<button class="btn dismiss-chain-btn"
-            onclick="action('${hwnd}', 'dismiss_chain')" title="${window.L10N.cancel}">${window.iconSvgs.close}</button>`;
-        if (state.copyAll) {
-            buttons += `<button class="btn copy-chain-btn ${state.copySuccess ? 'success' : ''}"
-                onclick="action('${hwnd}', 'copy_all')" title="${window.L10N.copy}">${window.iconSvgs[state.copySuccess ? 'check' : 'content_copy']}</button>`;
-        }
-        return buttons;
-    }
     const canGoBack = state.navDepth > 0;
     const canGoForward = state.navDepth < state.maxNavDepth;
     const isBrowsing = state.isBrowsing || false;
@@ -225,15 +230,17 @@ function generateButtonsHTML(hwnd, state, isVertical) {
 
     let buttons = '';
 
-    const backHideClass = canGoBack ? '' : 'hidden';
-    buttons += `<div class="btn ${backHideClass}" onclick="action('${hwnd}', 'back')" title="${window.L10N.back}">
-        ${window.iconSvgs.arrow_back}
-    </div>`;
+    if (!state.groupActions) {
+        const backHideClass = canGoBack ? '' : 'hidden';
+        buttons += `<div class="btn ${backHideClass}" onclick="action('${hwnd}', 'back')" title="${window.L10N.back}">
+            ${window.iconSvgs.arrow_back}
+        </div>`;
 
-    const forwardHideClass = canGoForward ? '' : 'hidden';
-    buttons += `<div class="btn ${forwardHideClass}" onclick="action('${hwnd}', 'forward')" title="${window.L10N.forward}">
-        ${window.iconSvgs.arrow_forward}
-    </div>`;
+        const forwardHideClass = canGoForward ? '' : 'hidden';
+        buttons += `<div class="btn ${forwardHideClass}" onclick="action('${hwnd}', 'forward')" title="${window.L10N.forward}">
+            ${window.iconSvgs.arrow_forward}
+        </div>`;
+    }
 
     const opacityValue = state.opacityPercent || 100;
     const verticalClass = isVertical ? 'vertical-slider' : '';
@@ -252,19 +259,19 @@ function generateButtonsHTML(hwnd, state, isVertical) {
         ${window.iconSvgs[state.copySuccess ? 'check' : 'content_copy']}
     </div>`;
 
-    if (state.hasUndo) {
+    if (!state.groupActions && state.hasUndo) {
         buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'undo')" title="${window.L10N.undo}">
             ${window.iconSvgs.undo}
         </div>`;
     }
 
-    if (state.hasRedo) {
+    if (!state.groupActions && state.hasRedo) {
         buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'redo')" title="${window.L10N.redo}">
             ${window.iconSvgs.redo}
         </div>`;
     }
 
-    buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'edit')" title="${window.L10N.edit}">
+    if (state.editEnabled !== false) buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'edit')" title="${window.L10N.edit}">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 258" width="14" height="14" style="fill: currentColor; stroke: currentColor; stroke-width: 20; stroke-linejoin: round; opacity: 0.9;">
             <path d="m122.062 172.77l-10.27 23.52c-3.947 9.042-16.459 9.042-20.406 0l-10.27-23.52c-9.14-20.933-25.59-37.595-46.108-46.703L6.74 113.52c-8.987-3.99-8.987-17.064 0-21.053l27.385-12.156C55.172 70.97 71.917 53.69 80.9 32.043L91.303 6.977c3.86-9.303 16.712-9.303 20.573 0l10.403 25.066c8.983 21.646 25.728 38.926 46.775 48.268l27.384 12.156c8.987 3.99 8.987 17.063 0 21.053l-28.267 12.547c-20.52 9.108-36.97 25.77-46.109 46.703"/>
             <path d="m217.5 246.937l-2.888 6.62c-2.114 4.845-8.824 4.845-10.937 0l-2.889-6.62c-5.148-11.803-14.42-21.2-25.992-26.34l-8.898-3.954c-4.811-2.137-4.811-9.131 0-11.269l8.4-3.733c11.87-5.273 21.308-15.017 26.368-27.22l2.966-7.154c2.067-4.985 8.96-4.985 11.027 0l2.966 7.153c5.06 12.204 14.499 21.948 26.368 27.221l8.4 3.733c4.812 2.138 4.812 9.132 0 11.27l-8.898 3.953c-11.571 5.14-20.844 14.537-25.992 26.34"/>
@@ -282,7 +289,7 @@ function generateButtonsHTML(hwnd, state, isVertical) {
     </div>`;
 
     buttons += `<div class="btn result-handle"
-        onmousedown="handleResultDrag(event, '${hwnd}')"
+        onmousedown="handleResultDrag(event, '${hwnd}', ${Boolean(state.groupActions)})"
         oncontextmenu="return false;"
         title="${window.L10N.result_handle}">
         ${window.iconSvgs.cleaning_services}
@@ -291,18 +298,20 @@ function generateButtonsHTML(hwnd, state, isVertical) {
     return buttons;
 }
 
-function handleResultDrag(e, hwnd) {
+function handleResultDrag(e, hwnd, groupActions) {
     if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
     setResultDraggingCursor(true);
-    const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
-    if (group) {
-        group.style.opacity = '0';
-        group.style.pointerEvents = 'none';
-        lastVisibleState.set(hwnd, false);
-    }
+    const root = window.registeredWindows[String(hwnd)];
+    const groupIds = root?.state?.groupIds?.map(String) || [String(hwnd)];
+    const allIds = [...new Set(Object.entries(window.registeredWindows).flatMap(([id, model]) =>
+        model?.state?.groupIds?.map(String) || [id]))];
+    const targets = e.button === 1 ? allIds
+        : ((groupActions || e.button === 2) ? groupIds : [String(hwnd)]);
+    activeResultDragPreview = { hwnd: String(hwnd), targets: targets };
 
     let action = 'result_drag_start';
-    if (e.button === 1) action = 'result_all_drag_start';
+    if (e.button === 0 && groupActions) action = 'result_group_drag_start';
+    else if (e.button === 1) action = 'result_all_drag_start';
     else if (e.button === 2) action = 'result_group_drag_start';
 
     window.ipc.postMessage(JSON.stringify({
@@ -310,6 +319,22 @@ function handleResultDrag(e, hwnd) {
         hwnd: hwnd
     }));
 }
+
+window.previewResultDrag = function(dx, dy) {
+    if (!activeResultDragPreview) return;
+    const scale = window.devicePixelRatio || 1;
+    const offset = (dx / scale) + 'px ' + (dy / scale) + 'px';
+    for (const id of activeResultDragPreview.targets) {
+        const card = document.querySelector('.result-card[data-id="' + id + '"]');
+        if (card) card.style.translate = offset;
+        const group = document.querySelector('.button-group[data-hwnd="' + id + '"]');
+        if (group) group.style.translate = offset;
+    }
+};
+window.finishResultDragPreview = function() { activeResultDragPreview = null; };
+window.clearResultDragControlPreview = function() {
+    document.querySelectorAll('.button-group').forEach(group => { group.style.translate = ''; });
+};
 
 window.addEventListener("mouseup", () => setResultDraggingCursor(false));
 window.addEventListener("blur", () => setResultDraggingCursor(false));
@@ -355,7 +380,14 @@ function updateWindows(windowsData) {
 
     for (const [hwnd, data] of Object.entries(windowsData)) {
         const state = data.state || {};
-        let pos = calculateButtonPosition(data.rect);
+        const rawAnchor = state.controlAnchor;
+        const deviceScale = window.devicePixelRatio || 1;
+        const placementRect = Array.isArray(rawAnchor) && rawAnchor.length === 4
+            ? { x: rawAnchor[0] / deviceScale, y: rawAnchor[1] / deviceScale,
+                w: rawAnchor[2] / deviceScale, h: rawAnchor[3] / deviceScale }
+            : data.rect;
+        const controlScale = Math.max(0.5, Math.min(3, Number(state.controlScalePercent || 100) / 100));
+        let pos = calculateButtonPosition(placementRect, controlScale);
         let group = existingGroups.get(hwnd);
 
         if (!group) {
@@ -386,45 +418,36 @@ function updateWindows(windowsData) {
         } else {
             group.style.removeProperty('--chain-control-color');
         }
+        const localSurface = contrastingControlSurface(state.controlColor);
+        group.classList.toggle('local-control-surface-light', localSurface === 'light');
+        group.classList.toggle('local-control-surface-dark', localSurface === 'dark');
+        group.style.setProperty('--control-scale', String(controlScale));
         if (isVertical) {
             group.classList.add('vertical');
         } else {
             group.classList.remove('vertical');
         }
-        group.classList.toggle('dismiss-only', Boolean(state.dismissOnly));
-        group.classList.toggle('proximity-pinned', Boolean(state.dismissAlwaysVisible));
         const actualW = group.offsetWidth || (isVertical ? 50 : 400);
         const actualH = group.offsetHeight || (isVertical ? 400 : 50);
-        if (state.dismissOnly) {
-            const raw = state.dismissAnchor, scale = window.devicePixelRatio || 1;
-            const anchor = Array.isArray(raw) && raw.length === 4
-                ? { x: raw[0] / scale, y: raw[1] / scale, w: raw[2] / scale, h: raw[3] / scale }
-                : data.rect;
-            let candidateX = anchor.x + anchor.w + 8; if (candidateX + actualW > screenW) candidateX = anchor.x - actualW - 8;
-            const finalX = Math.max(0, Math.min(candidateX, screenW - actualW));
-            const finalY = Math.max(0, Math.min(anchor.y, screenH - actualH));
-            group.style.left = finalX + 'px'; group.style.right = 'auto'; group.style.top = finalY + 'px'; group.style.bottom = 'auto';
-            continue;
-        }
         let finalX = pos.x;
         let finalY = pos.y;
         if (pos.direction === 'bottom') {
-            finalX = data.rect.x + data.rect.w - actualW;
-            finalY = data.rect.y + data.rect.h + 4;
+            finalX = placementRect.x + placementRect.w - actualW;
+            finalY = placementRect.y + placementRect.h + 4;
         } else if (pos.direction === 'top') {
-            finalX = data.rect.x + (data.rect.w - actualW) / 2;
-            finalY = data.rect.y - actualH - 4;
+            finalX = placementRect.x + (placementRect.w - actualW) / 2;
+            finalY = placementRect.y - actualH - 4;
         } else if (pos.direction === 'right') {
-            finalX = data.rect.x + data.rect.w + 4;
-            finalY = data.rect.y + (data.rect.h - actualH) / 2;
+            finalX = placementRect.x + placementRect.w + 4;
+            finalY = placementRect.y + (placementRect.h - actualH) / 2;
         } else if (pos.direction === 'left') {
-            finalX = data.rect.x - actualW - 4;
-            finalY = data.rect.y + (data.rect.h - actualH) / 2;
+            finalX = placementRect.x - actualW - 4;
+            finalY = placementRect.y + (placementRect.h - actualH) / 2;
         } else {
-            finalX = data.rect.x + data.rect.w - actualW - 8;
-            finalY = data.rect.y + data.rect.h - actualH - 8;
-            finalX = Math.max(data.rect.x, finalX);
-            finalY = Math.max(data.rect.y, finalY);
+            finalX = placementRect.x + placementRect.w - actualW - 8;
+            finalY = placementRect.y + placementRect.h - actualH - 8;
+            finalX = Math.max(placementRect.x, finalX);
+            finalY = Math.max(placementRect.y, finalY);
         }
         const clamp = (val, size, max) => Math.max(0, Math.min(val, max - size));
 

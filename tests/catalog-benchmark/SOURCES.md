@@ -27,5 +27,8 @@ The benchmark keeps the downloaded source image unchanged apart from source-prov
 | `localization/01-comment-thread.png` | User-provided screenshot | Private benchmark fixture supplied for this feature diagnosis | Exact copied PNG; no editing or baked overlay |
 | `localization/02-mobile-settings.png` | [Commons app Settings screen](https://commons.wikimedia.org/wiki/File:Commons_app_Settings_screen.png) | CC BY-SA 4.0, Misaochan | Original 1080×1920 PNG |
 | `localization/03-desktop-audio.png` | [KDE System Settings audio screenshot](https://commons.wikimedia.org/wiki/File:KDE_System_Settings_5.23.90_audio_screenshot.png) | GPL free-software screenshot; screenshot by VulcanSphere | Original 1365×857 PNG |
+| `localization/04-vlc-korean.png` | [Korean VLC Media Player screenshot](https://commons.wikimedia.org/wiki/File:VLC_Screenshot_Korean.png) | GPL free-software screenshot; source metadata also records CC BY-SA 3.0 | Original 824×546 PNG |
+| `localization/05-mobile-wikipedia-japanese.png` | [Related pages on mobile Japanese Wikipedia](https://commons.wikimedia.org/wiki/File:Screenshot_of_related_pages_on_beta_mobile_Japanese_Wikipedia.png) | CC BY-SA 4.0, Melamrawy (WMF) | Original 640×1136 PNG |
+| `localization/06-firefox-arabic.png` | [Arabic Firefox screenshot](https://commons.wikimedia.org/wiki/File:Firefox_Version_141.0.3_Arabic.png) | CC0 1.0, LAnwalt | Original 1920×1017 PNG |
 
 Review source pages before redistributing fixtures outside this repository; they remain the authority for attribution and license details.

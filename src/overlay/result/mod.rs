@@ -12,7 +12,7 @@ mod window;
 
 pub use refine::{trigger_edit, trigger_refine_cancel, trigger_refine_submit};
 pub use state::{
-    ChainCancelToken, RefineContext, ResultDismissControl, ResultPresentation, WINDOW_STATES,
+    ChainCancelToken, RefineContext, ResultControlOptions, ResultPresentation, WINDOW_STATES,
     WindowType, close_chain_windows, link_windows,
 };
 pub use window::{
@@ -73,17 +73,13 @@ pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
 pub fn trigger_copy(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
 
-    // Get text and copy to clipboard
-    let text = {
-        let states = WINDOW_STATES.lock().unwrap();
-        states
-            .get(&hwnd_key)
-            .map(|s| s.full_text.clone())
-            .unwrap_or_default()
-    };
+    let (text, group_actions) = control_action_text(hwnd);
 
     if !text.is_empty() {
         crate::overlay::utils::copy_to_clipboard(&text, hwnd);
+        if group_actions {
+            crate::overlay::auto_copy_badge::show_auto_copy_badge_text(&text);
+        }
 
         // Set copy success flag
         {
@@ -115,44 +111,6 @@ pub fn trigger_copy(hwnd: HWND) {
             }
         });
     }
-}
-
-/// Copy the explicit aggregate payload owned by a chain-level control.
-pub fn trigger_copy_all(hwnd: HWND) {
-    let hwnd_key = hwnd.0 as isize;
-    let text = WINDOW_STATES
-        .lock()
-        .unwrap()
-        .get(&hwnd_key)
-        .and_then(|state| state.dismiss_control.as_ref())
-        .and_then(|control| control.copy_text.clone())
-        .unwrap_or_default();
-    if text.is_empty() || !crate::overlay::utils::copy_to_clipboard(&text, hwnd) {
-        return;
-    }
-    crate::overlay::auto_copy_badge::show_auto_copy_badge_text(&text);
-    {
-        let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get_mut(&hwnd_key) {
-            state.copy_success = true;
-        }
-    }
-    button_canvas::update_window_position(hwnd);
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(1_500));
-        {
-            let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&hwnd_key) {
-                state.copy_success = false;
-            }
-        }
-        let hwnd = HWND(hwnd_key as *mut std::ffi::c_void);
-        unsafe {
-            if IsWindow(Some(hwnd)).as_bool() {
-                button_canvas::update_window_position(hwnd);
-            }
-        }
-    });
 }
 
 /// Trigger undo action on a result window
@@ -236,12 +194,13 @@ pub fn trigger_speaker(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
     crate::log_info!("[TTS] trigger_speaker called for hwnd: {}", hwnd_key);
 
-    let (full_text, current_tts_id, is_loading, state_exists) = {
+    let (full_text, _) = control_action_text(hwnd);
+    let (current_tts_id, is_loading, state_exists) = {
         let states = WINDOW_STATES.lock().unwrap();
         if let Some(s) = states.get(&hwnd_key) {
-            (s.full_text.clone(), s.tts_request_id, s.tts_loading, true)
+            (s.tts_request_id, s.tts_loading, true)
         } else {
-            (String::new(), 0, false, false)
+            (0, false, false)
         }
     };
 
@@ -304,6 +263,37 @@ pub fn trigger_speaker(hwnd: HWND) {
     }
 
     button_canvas::update_window_position(hwnd);
+}
+
+pub(crate) fn control_action_text(hwnd: HWND) -> (String, bool) {
+    let hwnd_key = hwnd.0 as isize;
+    let group_actions = WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get(&hwnd_key)
+        .and_then(|state| state.control_options.as_ref())
+        .is_some_and(|options| options.group_actions);
+    if !group_actions {
+        let text = WINDOW_STATES
+            .lock()
+            .unwrap()
+            .get(&hwnd_key)
+            .map(|state| state.full_text.clone())
+            .unwrap_or_default();
+        return (text, false);
+    }
+
+    let mut group = state::get_window_group(hwnd);
+    group.sort_by_key(|(_, rect)| (rect.top, rect.left));
+    let states = WINDOW_STATES.lock().unwrap();
+    let text = group
+        .into_iter()
+        .filter_map(|(target, _)| states.get(&(target.0 as isize)))
+        .map(|state| state.full_text.trim())
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\r\n");
+    (text, true)
 }
 
 /// Whether the last user-closed overlay batch can be restored.

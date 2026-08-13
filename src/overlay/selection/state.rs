@@ -3,7 +3,7 @@
 
 use crate::win_types::{SendHbitmap, SendHwnd};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, mpsc::Sender};
+use std::sync::{Arc, LazyLock, Mutex};
 use windows::Win32::Foundation::{HMODULE, HWND, POINT};
 use windows::Win32::Graphics::Gdi::HBITMAP;
 use windows::Win32::UI::WindowsAndMessaging::HHOOK;
@@ -12,8 +12,9 @@ use windows_core::BOOL;
 // --- ABORT SIGNAL ---
 pub static SELECTION_ABORT_SIGNAL: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
-pub(super) static CAPTURE_REQUEST: LazyLock<Mutex<Option<Sender<super::CapturedRegion>>>> =
-    LazyLock::new(|| Mutex::new(None));
+pub(super) static CAPTURE_TARGET: LazyLock<
+    Mutex<crate::overlay::image_capture_target::ImageCaptureTarget>,
+> = LazyLock::new(|| Mutex::new(Default::default()));
 
 // --- MAGNIFICATION API FFI ---
 pub type MagInitializeFn = unsafe extern "system" fn() -> BOOL;
@@ -39,7 +40,6 @@ pub const ZOOM_TIMER_ID: usize = 3;
 pub const CONTINUOUS_CHECK_TIMER_ID: usize = 4;
 
 // --- MAIN STATE ---
-pub static mut CURRENT_PRESET_IDX: usize = 0;
 pub static mut CURRENT_HOTKEY_ID: i32 = 0;
 pub static mut START_POS: POINT = POINT { x: 0, y: 0 };
 pub static mut CURR_POS: POINT = POINT { x: 0, y: 0 };
@@ -86,18 +86,9 @@ pub fn is_selection_overlay_active() -> bool {
     SELECTION_OVERLAY_ACTIVE.load(Ordering::SeqCst)
 }
 
-pub(super) fn has_capture_request() -> bool {
-    CAPTURE_REQUEST
+pub(super) fn capture_target() -> crate::overlay::image_capture_target::ImageCaptureTarget {
+    CAPTURE_TARGET
         .lock()
-        .is_ok_and(|request| request.is_some())
-}
-
-pub(super) fn take_capture_request() -> Option<Sender<super::CapturedRegion>> {
-    CAPTURE_REQUEST.lock().ok()?.take()
-}
-
-pub(super) fn clear_capture_request() {
-    if let Ok(mut request) = CAPTURE_REQUEST.lock() {
-        *request = None;
-    }
+        .map(|target| *target)
+        .unwrap_or_default()
 }

@@ -2,7 +2,8 @@
 
 ## Canonical Source
 
-- Windows compact entry and localized short labels: [src/gui/settings_ui/footer.rs](../../src/gui/settings_ui/footer.rs)
+- Windows compact entry and localized short labels: [src/gui/settings_ui/tips_entry.rs](../../src/gui/settings_ui/tips_entry.rs)
+- Windows entry placement: [src/gui/app/rendering/title_bar.rs](../../src/gui/app/rendering/title_bar.rs)
 - Windows categorized modal: [src/gui/settings_ui/tips.rs](../../src/gui/settings_ui/tips.rs)
 - Windows localized tip catalog: [src/gui/locale/tips.rs](../../src/gui/locale/tips.rs)
 - Windows localized shell fields: [src/gui/locale/workspace.rs](../../src/gui/locale/workspace.rs)
@@ -58,8 +59,8 @@ category left empty by that filtering.
 
 ## Deliberate Presentation Deviations
 
-- Windows places a compact trailing entry in the footer after the mini-app
-  launchers and uses a fixed category rail with one focused reading pane.
+- Windows places a compact title-bar entry immediately after Settings and uses
+  a fixed category rail with one focused reading pane.
 - Android places a static lightbulb card in Settings and uses stacked categorized
   sections suited to a narrow screen.
 - The Android card may show a localized hint because it has more room than the

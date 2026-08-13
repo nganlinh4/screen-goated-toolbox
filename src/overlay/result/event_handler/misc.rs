@@ -93,12 +93,7 @@ pub unsafe fn handle_forward_click(hwnd: HWND) -> LRESULT {
 }
 
 pub unsafe fn handle_download_click(hwnd: HWND) -> LRESULT {
-    let text = WINDOW_STATES
-        .lock()
-        .unwrap()
-        .get(&(hwnd.0 as isize))
-        .map(|state| state.full_text.clone())
-        .unwrap_or_default();
+    let (text, _) = crate::overlay::result::control_action_text(hwnd);
     if !text.is_empty() {
         super::super::markdown_view::save_html_file(&text);
     }

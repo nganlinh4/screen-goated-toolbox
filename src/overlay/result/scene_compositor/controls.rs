@@ -69,6 +69,22 @@ pub fn set_opacity(hwnd: HWND, value: u8) {
     }
 }
 
+pub fn set_control_scope_opacity(hwnd: HWND, value: u8) {
+    let group_actions = WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get(&(hwnd.0 as isize))
+        .and_then(|state| state.control_options.as_ref())
+        .is_some_and(|options| options.group_actions);
+    if !group_actions {
+        set_opacity(hwnd, value);
+        return;
+    }
+    for (target, _) in crate::overlay::result::state::get_window_group(hwnd) {
+        set_opacity(target, value);
+    }
+}
+
 pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
     send_command(HostCommand::RefineText {
         id: hwnd.0 as isize,
@@ -103,7 +119,6 @@ pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
         let top = virtual_y + card.control_rect.y;
         card.visible
             && !card.controls.hidden
-            && !card.controls.dismiss_only
             && x >= left - padding
             && x <= left + card.control_rect.width + padding
             && y >= top - padding
@@ -135,26 +150,28 @@ fn from_state(
 ) -> SceneControls {
     SceneControls {
         hidden: state.presentation == crate::overlay::result::ResultPresentation::TextOnly
-            && state.dismiss_control.is_none(),
-        dismiss_only: state.dismiss_control.is_some(),
-        dismiss_always_visible: state
-            .dismiss_control
-            .as_ref()
-            .is_some_and(|control| control.always_visible),
-        dismiss_anchor: state
-            .dismiss_control
+            && state.control_options.is_none(),
+        control_anchor: state
+            .control_options
             .as_ref()
             .and_then(|control| control.anchor_rect),
-        copy_all: state
-            .dismiss_control
-            .as_ref()
-            .and_then(|control| control.copy_text.as_ref())
-            .is_some(),
         control_color: state
-            .dismiss_control
+            .control_options
             .as_ref()
             .and_then(|control| control.control_color.clone())
             .or_else(|| state.foreground_color.clone()),
+        control_scale_percent: state
+            .control_options
+            .as_ref()
+            .map_or(100, |control| control.scale_percent.clamp(50, 300)),
+        group_actions: state
+            .control_options
+            .as_ref()
+            .is_some_and(|control| control.group_actions),
+        edit_enabled: state
+            .control_options
+            .as_ref()
+            .is_none_or(|control| control.edit_enabled),
         copy_success: state.copy_success,
         has_undo: !state.text_history.is_empty(),
         has_redo: !state.redo_history.is_empty(),
@@ -193,15 +210,17 @@ fn connected_ids(root: isize, states: &HashMap<isize, WindowState>) -> Vec<isize
 
 #[cfg(test)]
 mod tests {
-    use super::connected_ids;
-    use crate::overlay::result::state::{RefineContext, WindowState};
+    use super::{connected_ids, from_state};
+    use crate::overlay::result::state::{
+        RefineContext, ResultControlOptions, ResultPresentation, WindowState,
+    };
     use std::collections::HashMap;
     use windows::Win32::Foundation::HWND;
 
     fn state(linked_windows: Vec<HWND>) -> WindowState {
         WindowState {
             presentation: crate::overlay::result::ResultPresentation::Standard,
-            dismiss_control: None,
+            control_options: None,
             backdrop_data_url: None,
             foreground_color: None,
             copy_success: false,
@@ -245,5 +264,33 @@ mod tests {
 
         assert_eq!(connected_ids(1, &states), vec![1, 2, 3]);
         assert_eq!(connected_ids(4, &states), vec![4]);
+    }
+
+    #[test]
+    fn text_only_batch_exposes_one_scaled_group_control() {
+        let hwnd = |id: isize| HWND(id as *mut std::ffi::c_void);
+        let mut root = state(vec![hwnd(2)]);
+        root.presentation = ResultPresentation::TextOnly;
+        root.control_options = Some(ResultControlOptions {
+            anchor_rect: Some([10, 20, 300, 180]),
+            control_color: Some("#123456".to_string()),
+            scale_percent: 125,
+            group_actions: true,
+            edit_enabled: false,
+        });
+        let mut child = state(vec![hwnd(1)]);
+        child.presentation = ResultPresentation::TextOnly;
+        let states = HashMap::from([(1, root), (2, child)]);
+
+        let root_controls = from_state(1, states.get(&1).unwrap(), &states);
+        assert!(!root_controls.hidden);
+        assert_eq!(root_controls.control_anchor, Some([10, 20, 300, 180]));
+        assert_eq!(root_controls.control_scale_percent, 125);
+        assert!(root_controls.group_actions);
+        assert!(!root_controls.edit_enabled);
+        assert_eq!(root_controls.group_ids, vec![1, 2]);
+
+        let child_controls = from_state(2, states.get(&2).unwrap(), &states);
+        assert!(child_controls.hidden);
     }
 }

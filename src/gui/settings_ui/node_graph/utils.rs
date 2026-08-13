@@ -49,19 +49,29 @@ pub fn show_language_selector(
     language_vars: &mut HashMap<String, String>,
     changed: &mut bool,
 ) {
-    if !language_vars.contains_key(key) {
-        language_vars.insert(key.to_string(), "Vietnamese".to_string());
+    let value = language_vars
+        .entry(key.to_string())
+        .or_insert_with(|| "Vietnamese".to_string());
+    if show_language_value_selector(ui, label, id_num, value) {
+        *changed = true;
     }
+}
 
+pub fn show_language_value_selector(
+    ui: &mut egui::Ui,
+    label: impl Into<String>,
+    id: impl std::hash::Hash,
+    value: &mut String,
+) -> bool {
     let label = label.into();
-
+    let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(label);
-        let current_val = language_vars.get(key).cloned().unwrap_or_default();
+        let current_val = value.clone();
 
         // Create unique IDs for this specific language selector
 
-        let search_id = egui::Id::new(format!("lang_search_{}", id_num));
+        let search_id = ui.id().with(("language_search", &id));
 
         // Styled button to open popup
         let theme = AppTheme::from_ui(ui);
@@ -112,8 +122,8 @@ pub fn show_language_selector(
                             if matches_search {
                                 let is_selected = current_val == *lang;
                                 if ui.selectable_label(is_selected, lang).clicked() {
-                                    language_vars.insert(key.to_string(), lang.clone());
-                                    *changed = true;
+                                    value.clone_from(lang);
+                                    changed = true;
                                     // Clear search and close popup
                                     ui.data_mut(|d| {
                                         d.insert_temp::<String>(search_id, String::new())
@@ -125,6 +135,35 @@ pub fn show_language_selector(
                     });
             });
     });
+    changed
+}
+
+pub fn show_prompt_editor(
+    ui: &mut egui::Ui,
+    label: &str,
+    hint: &str,
+    prompt: &mut String,
+    desired_width: f32,
+    desired_rows: usize,
+) -> bool {
+    if !label.is_empty() {
+        ui.label(egui::RichText::new(label).strong());
+    }
+    let changed = ui
+        .add(
+            egui::TextEdit::multiline(prompt)
+                .desired_width(desired_width)
+                .desired_rows(desired_rows),
+        )
+        .changed();
+    if !hint.is_empty() {
+        ui.label(
+            egui::RichText::new(hint)
+                .small()
+                .color(AppTheme::from_ui(ui).on_surface_variant()),
+        );
+    }
+    changed
 }
 
 pub fn insert_next_language_tag(prompt: &mut String, language_vars: &mut HashMap<String, String>) {

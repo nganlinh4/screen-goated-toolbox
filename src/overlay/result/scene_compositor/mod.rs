@@ -19,8 +19,8 @@ mod web_response;
 mod webview_failure;
 
 pub use controls::{
-    is_dragging, is_point_over_result_window, set_external_drag, set_opacity, set_refine_text,
-    sync as sync_controls, sync_all as sync_all_controls,
+    is_dragging, is_point_over_result_window, set_control_scope_opacity, set_external_drag,
+    set_refine_text, sync as sync_controls, sync_all as sync_all_controls,
 };
 pub use parent::{
     go_back, go_forward, raise_window, register_window, remove_window, sync_geometry, sync_window,

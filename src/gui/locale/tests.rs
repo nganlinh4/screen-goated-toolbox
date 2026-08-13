@@ -134,7 +134,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         ("tts_settings", include_str!("tts_settings.rs"), 29),
         ("tts_advanced", include_str!("tts_advanced.rs"), 35),
         ("realtime", include_str!("realtime.rs"), 32),
-        ("screen_translate", include_str!("screen_translate.rs"), 9),
+        ("screen_translate", include_str!("screen_translate.rs"), 17),
         ("shell", include_str!("shell.rs"), 47),
         (
             "translation_gummy",
@@ -158,7 +158,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 532);
+    assert_eq!(owners.len(), 540);
     assert_eq!(owners["cancel_label"], "preset_basics");
     assert_eq!(owners["favorites_keep_open"], "shell");
     assert_eq!(owners["image_creator_btn"], "shell");

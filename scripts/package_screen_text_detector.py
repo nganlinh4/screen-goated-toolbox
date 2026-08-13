@@ -106,6 +106,13 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def manifest_asset_path(repo: Path, target: Path) -> str:
+    try:
+        return target.relative_to(repo).as_posix()
+    except ValueError:
+        return str(target)
+
+
 def worker_version(manifest: Path) -> str:
     match = re.search(
         r'^version\s*=\s*"([^"]+)"',
@@ -405,7 +412,7 @@ def package(
         "id": COMPONENT_ID,
         "version": version,
         "asset": asset,
-        "assetPath": target.relative_to(repo).as_posix(),
+        "assetPath": manifest_asset_path(repo, target),
         "sizeBytes": target.stat().st_size,
         "sha256": archive_hash,
         "unpackedSizeBytes": sum(record["sizeBytes"] for record in records),
@@ -433,9 +440,8 @@ def main() -> int:
     recognizer_root = Path(args.recognizer_root).resolve()
     model_readme = Path(args.model_readme).resolve()
     paddle_license = (repo / args.paddle_license).resolve()
-    output.relative_to(repo)
-    worker.relative_to(repo)
     for source in (
+        worker,
         detector_model,
         detector_onnx,
         model_readme,

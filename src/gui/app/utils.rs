@@ -106,9 +106,6 @@ impl SettingsApp {
         self.config.favorite_bubble_position = state.config.favorite_bubble_position;
         self.config.favorite_bubble_size = state.config.favorite_bubble_size;
         self.config.favorites_keep_open = state.config.favorites_keep_open;
-        self.config.screen_translate.dismiss_button_impressions =
-            state.config.screen_translate.dismiss_button_impressions;
-
         state.hotkeys_updated = true;
         state.config = self.config.clone();
         drop(state);

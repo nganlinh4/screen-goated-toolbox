@@ -24,7 +24,7 @@
   }
 
   function rebuild() {
-    if (externalDrag || nativeDrag) {
+    if (externalDrag) {
       if (!controlsHiddenForDrag) {
         controlsHiddenForDrag = true;
         window.updateWindows({});
@@ -32,6 +32,7 @@
       }
       return;
     }
+    if (nativeDrag) return;
     controlsHiddenForDrag = false;
     const scale = window.devicePixelRatio || 1;
     const windows = {};
@@ -65,6 +66,7 @@
     } else if (command.type === 'stream' || command.type === 'finalize') {
       mergeCard(command.card);
     } else if (command.type === 'geometry') {
+      if (!nativeDrag) window.clearResultDragControlPreview?.();
       for (const card of command.cards || []) mergeCard(card);
     } else if (command.type === 'controls') {
       for (const card of command.cards || []) mergeCard(card);
@@ -94,7 +96,6 @@
 
   function setDragActive(active) {
     nativeDrag = Boolean(active);
-    rebuild();
   }
 
   const applyResultCommand = window.applyHostCommand;

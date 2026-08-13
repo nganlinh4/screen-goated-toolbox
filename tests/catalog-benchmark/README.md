@@ -21,7 +21,7 @@ The post-Ling free-route screen is recorded in
 
 This opt-in Rust benchmark exercises the production catalog and provider request paths. It measures text translation, image coordinate grounding, and image OCR. Each catalog-history suite has ten cases of increasing difficulty. A separate three-level Screen Translate diagnostic tests the production structured text contract across the configured text-priority models; it never contributes to catalog history. Scheduling is round-major: every selected model sees difficulty 1 before any model moves to difficulty 2. Coordinate attempts reuse Computer Control's exact point prompt, schema, tolerant parser, 1600 px short-edge JPEG preparation, crosshair crop, verification prompt/schema/parser, and 70% acceptance threshold.
 
-Normal `cargo test` does not call providers. It validates the manifest, all image decodes, difficulty coverage, coordinate bounds, OCR crop bounds, each OCR input origin, and the three localization goldens. Open `review.html` before the first live run and check all 23 image inputs, the ten red coordinate boxes and zooms, the green localization regions, both OCR crops, and OCR references in `manifest.json`.
+Normal `cargo test` does not call providers. It validates the manifest, all image decodes, difficulty coverage, coordinate bounds, OCR crop bounds, each OCR input origin, and every localization golden. Open `review.html` before the first live run and check the image inputs, the ten red coordinate boxes and zooms, the green localization regions, both OCR crops, and OCR references in `manifest.json`.
 
 ## Live run
 
@@ -316,11 +316,13 @@ latency.
 
 ## Screen-text localization diagnostic
 
-This non-history probe is deliberately small: three screenshots and every
-enabled model in the default text-to-text priority stack. It uses Screen
+This non-history probe is deliberately bounded to three difficulty levels and
+every enabled model in the default text-to-text priority stack. Each level may
+contain multiple scripts and layouts. It uses Screen
 Translate's exact OCR-region prompt, strict response schema, detector-owned ids,
-and parser. The reviewed boxes remain attached only to ids, so the language
-model cannot change geometry.
+streaming transport, and parser. Time to first output is the first paintable
+region when available, rather than full-response latency. The reviewed boxes
+remain attached only to ids, so the language model cannot change geometry.
 
 The report writes the normal `attempts.jsonl`, `summary.json`, and `summary.md`,
 plus `localization-review.html` and paired PNG overlays. Green is reviewed
@@ -339,6 +341,8 @@ Optional focused controls:
 - `CATALOG_BENCH_LOCALIZATION_MODELS=id-a,id-b` selects text models; omission
   selects the entire default text-to-text priority stack.
 - `CATALOG_BENCH_LOCALIZATION_LEVELS=1,2` selects a subset of the three levels.
+- `CATALOG_BENCH_LOCALIZATION_CASES=localization-04-korean-player` selects exact
+  case ids and can be combined with the level filter.
 
 Because this is diagnostic evidence rather than a catalog ranking, its fixture
 bytes and attempts are intentionally excluded from the catalog-history

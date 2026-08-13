@@ -11,7 +11,7 @@ pub(crate) const INPUT_HEIGHT: u32 = 48;
 const MIN_INPUT_WIDTH: u32 = 32;
 const MAX_INPUT_WIDTH: u32 = 1_600;
 const MAX_CHARACTERS: usize = 1_024;
-const MAX_BATCH_SIZE: usize = 4;
+const MAX_BATCH_SIZE: usize = 16;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Recognition {

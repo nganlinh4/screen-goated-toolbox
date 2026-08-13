@@ -13,7 +13,7 @@ const CATALOG_LIMIT_BYTES: u64 = 32 * 1024;
 const MODEL_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_FALLBACKS: usize = 15;
 const WARMUP_WIDTH: u32 = 320;
-const FAST_PATH_CONFIDENCE: f32 = 0.92;
+const FAST_PATH_CONFIDENCE: f32 = 0.98;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
 pub(crate) struct RecognizerCascade {
@@ -116,13 +116,30 @@ impl RecognizerCascade {
         self.primary.recognize_batch(sources)
     }
 
-    pub(crate) fn warm_primary(&mut self) -> Result<()> {
+    pub(crate) fn warm_all(&mut self) -> Result<()> {
         let source = RgbImage::from_pixel(
             WARMUP_WIDTH,
             crate::recognizer::INPUT_HEIGHT,
             image::Rgb([255, 255, 255]),
         );
-        self.primary.recognize_batch(&[source])?;
+        self.primary
+            .recognize_batch(std::slice::from_ref(&source))?;
+        std::thread::scope(|scope| {
+            let workers = self
+                .fallbacks
+                .iter_mut()
+                .map(|recognizer| {
+                    let source = &source;
+                    scope.spawn(move || recognizer.recognize_batch(std::slice::from_ref(source)))
+                })
+                .collect::<Vec<_>>();
+            for worker in workers {
+                worker
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("recognizer warm-up thread panicked"))??;
+            }
+            Ok::<(), anyhow::Error>(())
+        })?;
         Ok(())
     }
 
@@ -257,12 +274,7 @@ fn load_models(
 }
 
 fn needs_alternatives(result: &Recognition) -> bool {
-    result.text.is_empty()
-        || result.confidence < FAST_PATH_CONFIDENCE
-        || result
-            .text
-            .chars()
-            .any(|character| character.is_alphabetic() && !character.is_ascii())
+    result.text.is_empty() || result.confidence < FAST_PATH_CONFIDENCE
 }
 
 fn resolve_model(
@@ -343,7 +355,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fast_path_requires_confident_plain_text() {
+    fn fast_path_requires_confident_text() {
         assert!(!needs_alternatives(&Recognition {
             text: "ordinary text".to_string(),
             confidence: FAST_PATH_CONFIDENCE,

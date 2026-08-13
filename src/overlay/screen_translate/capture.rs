@@ -12,25 +12,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::overlay::selection::CapturedRegion;
 
-pub(super) fn start() {
-    if crate::overlay::is_busy() || crate::overlay::is_selection_overlay_active() {
-        return;
-    }
-    crate::overlay::set_is_busy(true);
-    let (job_id, cancel) = super::runtime::begin_job();
-    super::detector::prepare(Arc::clone(&cancel));
-    std::thread::spawn(move || {
-        if let Err(error) = capture_and_translate(job_id, Arc::clone(&cancel))
-            && super::runtime::is_current(job_id)
-            && !cancel.load(Ordering::SeqCst)
-        {
-            crate::log_info!("[Screen Translate] {error:#}");
-            notify_error(&error.to_string());
-        }
-        crate::overlay::set_is_busy(false);
-    });
-}
-
 pub(super) fn start_foreground() {
     if crate::overlay::is_busy() {
         return;
@@ -82,32 +63,24 @@ pub(super) fn start_image(path: std::path::PathBuf) {
     });
 }
 
-fn capture_and_translate(job_id: u64, cancel: Arc<AtomicBool>) -> Result<()> {
-    let capture = crate::screen_capture::capture_screen_fast().context("screen capture failed")?;
-    {
-        let mut app = crate::APP
-            .lock()
-            .map_err(|_| anyhow::anyhow!("app state is unavailable"))?;
-        app.screenshot_handle = Some(capture);
-    }
-
-    let (sender, receiver) = std::sync::mpsc::channel();
-    crate::overlay::show_capture_overlay(sender);
-    let Some(region) = receive_selection(receiver) else {
-        return Ok(());
+pub(super) fn process_captured_region(image: image::RgbaImage, rect: RECT) {
+    let region = CapturedRegion {
+        width: image.width(),
+        height: image.height(),
+        image,
+        left: rect.left,
+        top: rect.top,
     };
-    crate::overlay::set_is_busy(false);
-    if !super::runtime::is_current(job_id) || cancel.load(Ordering::SeqCst) {
-        return Ok(());
-    }
-
-    translate_region(job_id, cancel, region)
-}
-
-fn receive_selection(
-    receiver: std::sync::mpsc::Receiver<CapturedRegion>,
-) -> Option<CapturedRegion> {
-    receiver.recv().ok()
+    let (job_id, cancel) = super::runtime::begin_job();
+    std::thread::spawn(move || {
+        if let Err(error) = translate_region(job_id, Arc::clone(&cancel), region)
+            && super::runtime::is_current(job_id)
+            && !cancel.load(Ordering::SeqCst)
+        {
+            crate::log_info!("[Screen Translate] {error:#}");
+            notify_error(&error.to_string());
+        }
+    });
 }
 
 fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion) -> Result<()> {
@@ -115,22 +88,27 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
     crate::overlay::result::latency::begin(&trace_id);
     let region_width = i32::try_from(region.width).context("selected region is too wide")?;
     let region_height = i32::try_from(region.height).context("selected region is too tall")?;
-    let (target_language, ui_language, graphics_mode) = crate::APP
-        .lock()
-        .map(|app| {
-            (
-                app.config.screen_translate.target_language.clone(),
-                app.config.ui_language.clone(),
-                app.config.graphics_mode.clone(),
-            )
-        })
-        .unwrap_or_else(|_| {
-            (
-                "Vietnamese".to_string(),
-                "en".to_string(),
-                "standard".to_string(),
-            )
-        });
+    let (target_language, translation_model, translation_prompt, ui_language, graphics_mode) =
+        crate::APP
+            .lock()
+            .map(|app| {
+                (
+                    app.config.screen_translate.target_language.clone(),
+                    app.config.screen_translate.translation_model.clone(),
+                    app.config.screen_translate.translation_prompt.clone(),
+                    app.config.ui_language.clone(),
+                    app.config.graphics_mode.clone(),
+                )
+            })
+            .unwrap_or_else(|_| {
+                (
+                    "Vietnamese".to_string(),
+                    crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
+                    crate::config::types::ScreenTranslateSettings::default_prompt(),
+                    "en".to_string(),
+                    "standard".to_string(),
+                )
+            });
     let text = crate::gui::locale::LocaleText::get(&ui_language);
     let processing = crate::overlay::process::ProcessingIndicator::show(
         RECT {
@@ -145,8 +123,9 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
     let jpeg = encode_jpeg(&region.image)?;
     crate::overlay::result::latency::mark(&trace_id, "capture_encoded");
 
-    let candidates =
-        super::detector::detect(&jpeg, region.image.width(), region.image.height(), &cancel)?;
+    let candidates = std::sync::Arc::<[super::contract::DetectedTextRegion]>::from(
+        super::detector::detect(&jpeg, region.image.width(), region.image.height(), &cancel)?,
+    );
     crate::overlay::result::latency::mark(&trace_id, "detector_complete");
     if candidates.is_empty() {
         crate::overlay::auto_copy_badge::show_notification(
@@ -155,9 +134,13 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         return Ok(());
     }
 
+    let (mut overlay, first_visible) = super::render::start(
+        job_id,
+        region,
+        std::sync::Arc::clone(&candidates),
+        &trace_id,
+    )?;
     crate::overlay::result::latency::mark(&trace_id, "translation_dispatched");
-    let (mut overlay, first_visible) =
-        super::render::start(job_id, &region, &candidates, &trace_id)?;
     let paint_trace_id = trace_id.clone();
     std::thread::spawn(move || {
         if first_visible.recv().is_ok()
@@ -174,14 +157,16 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
     let mut provider_started = false;
     let document = super::inference::translate(
         &target_language,
+        &translation_model,
+        &translation_prompt,
         &candidates,
         Arc::clone(&cancel),
-        |event| {
-            if !provider_started && matches!(event, super::inference::TranslationEvent::Region(_)) {
+        |region| {
+            if !provider_started {
                 provider_started = true;
                 crate::overlay::result::latency::mark(&trace_id, "provider_first_output");
             }
-            overlay.send(event);
+            overlay.send(region);
         },
     )?;
     crate::overlay::result::latency::mark(&trace_id, "translation_complete");
@@ -257,16 +242,4 @@ pub(crate) fn encode_jpeg(image: &image::RgbaImage) -> Result<Vec<u8>> {
         ExtendedColorType::Rgb8,
     )?;
     Ok(jpeg)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::receive_selection;
-
-    #[test]
-    fn a_closed_selection_channel_is_a_normal_cancellation() {
-        let (sender, receiver) = std::sync::mpsc::channel();
-        drop(sender);
-        assert!(receive_selection(receiver).is_none());
-    }
 }

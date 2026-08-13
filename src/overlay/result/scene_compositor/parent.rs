@@ -177,22 +177,35 @@ pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
     let Some(geometry) = read_geometry(hwnd, requested_visible, presentation) else {
         return;
     };
-    let updated = {
+    let anchor_delta = {
         let mut scenes = SCENES.lock().unwrap();
         let Some(card) = scenes.get_mut(&geometry.id) else {
             return;
         };
+        let delta = (
+            geometry.control_rect.x - card.control_rect.x,
+            geometry.control_rect.y - card.control_rect.y,
+        );
         card.rect = geometry.rect.clone();
         card.control_rect = geometry.control_rect.clone();
         card.visible = geometry.visible;
-        true
+        delta
     };
-    if updated {
-        PENDING_GEOMETRY
+    PENDING_GEOMETRY
+        .lock()
+        .unwrap()
+        .insert(geometry.id, geometry);
+    let _ = GEOMETRY_SIGNAL.try_send(());
+    if anchor_delta != (0, 0) {
+        let shifted = WINDOW_STATES
             .lock()
             .unwrap()
-            .insert(geometry.id, geometry);
-        let _ = GEOMETRY_SIGNAL.try_send(());
+            .get_mut(&(hwnd.0 as isize))
+            .and_then(|state| state.control_options.as_mut())
+            .is_some_and(|options| options.shift_anchor(anchor_delta.0, anchor_delta.1));
+        if shifted {
+            super::controls::sync(hwnd);
+        }
     }
 }
 

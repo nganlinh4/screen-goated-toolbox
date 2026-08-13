@@ -3,6 +3,7 @@
 
 use crate::APP;
 use crate::overlay;
+use crate::overlay::image_capture_target::ImageCaptureTarget;
 use crate::screen_capture::{capture_screen_fast, format_gui_resources, gui_resources_snapshot};
 use crate::win_types::SendHwnd;
 use std::sync::OnceLock;
@@ -47,7 +48,7 @@ fn handle_hotkey(id: i32) {
     if (crate::hotkey::SCREEN_TRANSLATE_HOTKEY_ID..crate::hotkey::COMPUTER_CONTROL_HOTKEY_ID)
         .contains(&id)
     {
-        overlay::screen_translate::translate_screen();
+        handle_screen_translate_hotkey(id);
         return;
     }
 
@@ -77,27 +78,7 @@ fn handle_hotkey(id: i32) {
         return;
     }
 
-    // Debounce logic
-    static mut LAST_HOTKEY_TIMESTAMP: Option<std::time::Instant> = None;
-    let now = std::time::Instant::now();
-    let is_repeat = unsafe {
-        if let Some(t) = LAST_HOTKEY_TIMESTAMP {
-            if now.duration_since(t).as_millis() < 150 {
-                true
-            } else {
-                LAST_HOTKEY_TIMESTAMP = Some(now);
-                false
-            }
-        } else {
-            LAST_HOTKEY_TIMESTAMP = Some(now);
-            false
-        }
-    };
-
-    if !is_repeat {
-        overlay::continuous_mode::reset_heartbeat();
-    }
-    overlay::continuous_mode::update_last_trigger_time();
+    let is_repeat = track_hotkey_heartbeat();
 
     if is_repeat {
         return;
@@ -109,18 +90,17 @@ fn handle_hotkey(id: i32) {
 
     // Check image continuous mode
     if overlay::image_continuous_mode::is_active() {
-        let active_idx = overlay::image_continuous_mode::get_preset_idx();
+        let active_target = overlay::image_continuous_mode::get_target();
         let trigger_id = overlay::image_continuous_mode::get_trigger_id();
+        let requested_target = ImageCaptureTarget::Preset(preset_idx_early);
 
         crate::log_info!(
-            "[Hotkey] ImageContinuous Active: active_idx={}, trigger_id={}, current_id={}, early_idx={}",
-            active_idx,
+            "[Hotkey] ImageContinuous Active: active_target={active_target:?}, trigger_id={}, current_id={}, requested_target={requested_target:?}",
             trigger_id,
             id,
-            preset_idx_early
         );
 
-        if preset_idx_early == active_idx {
+        if requested_target == active_target {
             if id == trigger_id && overlay::image_continuous_mode::can_exit_now() {
                 crate::log_info!("[Hotkey] Toggling ImageContinuous OFF (id matches)");
                 overlay::image_continuous_mode::exit();
@@ -128,9 +108,7 @@ fn handle_hotkey(id: i32) {
             }
             return;
         }
-        crate::log_info!(
-            "[Hotkey] ImageContinuous active but diff preset triggered. Allowing fallthrough."
-        );
+        overlay::image_continuous_mode::exit();
     }
 
     // Check text continuous mode
@@ -211,8 +189,56 @@ fn handle_hotkey(id: i32) {
             &hotkey_name,
             just_activated_continuous,
         ),
-        _ => handle_image_preset(preset_idx, id),
+        _ => handle_image_capture_target(
+            ImageCaptureTarget::Preset(preset_idx),
+            id,
+            Some(preset_idx),
+        ),
     }
+}
+
+fn handle_screen_translate_hotkey(id: i32) {
+    let is_repeat = track_hotkey_heartbeat();
+    let target = overlay::screen_translate::capture_target();
+    if overlay::image_continuous_mode::is_active() {
+        let active_target = overlay::image_continuous_mode::get_target();
+        if active_target == target {
+            if id == overlay::image_continuous_mode::get_trigger_id()
+                && overlay::image_continuous_mode::can_exit_now()
+            {
+                overlay::image_continuous_mode::exit();
+            }
+            return;
+        }
+        overlay::image_continuous_mode::exit();
+    }
+    let index = (id - crate::hotkey::SCREEN_TRANSLATE_HOTKEY_ID) as usize;
+    if let Some(hotkey) = APP
+        .lock()
+        .ok()
+        .and_then(|app| app.config.screen_translate.hotkeys.get(index).cloned())
+    {
+        overlay::continuous_mode::set_current_hotkey(hotkey.modifiers, hotkey.code);
+        overlay::continuous_mode::set_latest_hotkey_name(hotkey.name);
+    }
+    if !is_repeat {
+        handle_image_capture_target(target, id, None);
+    }
+}
+
+fn track_hotkey_heartbeat() -> bool {
+    static LAST_HOTKEY_TIMESTAMP: std::sync::Mutex<Option<std::time::Instant>> =
+        std::sync::Mutex::new(None);
+    let now = std::time::Instant::now();
+    let mut last = LAST_HOTKEY_TIMESTAMP.lock().unwrap();
+    let is_repeat = last.is_some_and(|previous| now.duration_since(previous).as_millis() < 150);
+    if !is_repeat {
+        *last = Some(now);
+        overlay::continuous_mode::reset_heartbeat();
+    }
+    drop(last);
+    overlay::continuous_mode::update_last_trigger_time();
+    is_repeat
 }
 
 /// Get preset context information.
@@ -427,7 +453,11 @@ fn handle_text_type_mode(preset_idx: usize, hotkey_name: &str) {
 }
 
 /// Handle image preset hotkey.
-fn handle_image_preset(preset_idx: usize, id: i32) {
+fn handle_image_capture_target(
+    target: ImageCaptureTarget,
+    id: i32,
+    continuous_preset_idx: Option<usize>,
+) {
     if overlay::is_busy() || overlay::is_selection_overlay_active() {
         overlay::continuous_mode::update_last_trigger_time();
         return;
@@ -435,8 +465,9 @@ fn handle_image_preset(preset_idx: usize, id: i32) {
 
     overlay::set_is_busy(true);
 
+    target.prepare();
+
     let app_clone = APP.clone();
-    let p_idx = preset_idx;
     std::thread::spawn(move || {
         let mut capture_attempt = 0usize;
         let diag_enabled = capture_diag_enabled();
@@ -446,9 +477,8 @@ fn handle_image_preset(preset_idx: usize, id: i32) {
             let started_at = std::time::Instant::now();
             if diag_enabled {
                 crate::log_info!(
-                    "[CaptureDiag] attempt={} preset_idx={} hotkey_id={} thread_id={} before={}",
+                    "[CaptureDiag] attempt={} target={target:?} hotkey_id={} thread_id={} before={}",
                     capture_attempt,
-                    p_idx,
                     id,
                     unsafe { GetCurrentThreadId() },
                     format_gui_resources(before)
@@ -476,7 +506,7 @@ fn handle_image_preset(preset_idx: usize, id: i32) {
                         break;
                     }
 
-                    overlay::show_selection_overlay(p_idx, id);
+                    overlay::show_image_capture_overlay(target, id);
                 }
                 Err(e) => {
                     let after = gui_resources_snapshot();
@@ -494,7 +524,12 @@ fn handle_image_preset(preset_idx: usize, id: i32) {
                 }
             }
 
-            if !overlay::continuous_mode::is_active()
+            if continuous_preset_idx.is_none() && !overlay::image_continuous_mode::is_active() {
+                break;
+            }
+
+            if continuous_preset_idx.is_some()
+                && !overlay::continuous_mode::is_active()
                 && !overlay::image_continuous_mode::is_active()
             {
                 break;

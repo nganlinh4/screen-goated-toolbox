@@ -2,6 +2,7 @@ use super::protocol::{ButtonAction, ChildEvent, DragOutcome, SceneCard, SceneRec
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetCapture, ReleaseCapture, SetCapture, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
@@ -31,7 +32,7 @@ struct ActiveDrag {
     id: isize,
     targets: Vec<isize>,
     start: POINT,
-    last: POINT,
+    last_preview_at: Instant,
     click_outcome: DragOutcome,
 }
 
@@ -102,8 +103,6 @@ fn button_action(id: isize, name: &str, message: &serde_json::Value) -> Option<C
             .to_string()
     };
     let action = match name {
-        "dismiss_chain" => ButtonAction::DismissChain,
-        "copy_all" => ButtonAction::CopyAll,
         "copy" => ButtonAction::Copy,
         "undo" => ButtonAction::Undo,
         "redo" => ButtonAction::Redo,
@@ -191,7 +190,7 @@ fn begin_drag(
         id,
         targets,
         start: cursor,
-        last: cursor,
+        last_preview_at: Instant::now(),
         click_outcome,
     });
     BUTTON_REGIONS.lock().unwrap().clear();
@@ -224,25 +223,19 @@ pub(super) fn has_active_drag() -> bool {
     ACTIVE_DRAG.lock().unwrap().is_some()
 }
 
-pub(super) unsafe fn handle_mouse_move() -> bool {
+pub(super) unsafe fn handle_mouse_move() -> Option<Option<(i32, i32)>> {
     let mut active = ACTIVE_DRAG.lock().unwrap();
-    let Some(drag) = active.as_mut() else {
-        return false;
-    };
+    let drag = active.as_mut()?;
+    let now = Instant::now();
+    if now.duration_since(drag.last_preview_at) < Duration::from_millis(8) {
+        return Some(None);
+    }
     let mut cursor = POINT::default();
     if unsafe { GetCursorPos(&mut cursor) }.is_err() {
-        return true;
+        return Some(None);
     }
-    let dx = cursor.x - drag.last.x;
-    let dy = cursor.y - drag.last.y;
-    if dx == 0 && dy == 0 {
-        return true;
-    }
-    unsafe {
-        move_targets(&drag.targets, dx, dy);
-    }
-    drag.last = cursor;
-    true
+    drag.last_preview_at = now;
+    Some(Some((cursor.x - drag.start.x, cursor.y - drag.start.y)))
 }
 
 unsafe fn move_targets(targets: &[isize], dx: i32, dy: i32) {
@@ -272,7 +265,7 @@ unsafe fn move_targets(targets: &[isize], dx: i32, dy: i32) {
     }
 }
 
-pub(super) unsafe fn finish_drag() -> Option<ChildEvent> {
+pub(super) unsafe fn finish_drag() -> Option<(ChildEvent, (i32, i32))> {
     let drag = ACTIVE_DRAG.lock().unwrap().take()?;
     unsafe {
         let _ = ReleaseCapture();
@@ -284,16 +277,20 @@ pub(super) unsafe fn finish_drag() -> Option<ChildEvent> {
     let outcome = if dx.saturating_mul(dx) + dy.saturating_mul(dy) < 25 {
         drag.click_outcome
     } else {
+        unsafe { move_targets(&drag.targets, dx, dy) };
         DragOutcome::Moved
     };
-    Some(ChildEvent::DragFinished {
-        id: drag.id,
-        targets: drag.targets,
-        outcome,
-    })
+    Some((
+        ChildEvent::DragFinished {
+            id: drag.id,
+            targets: drag.targets,
+            outcome,
+        },
+        (dx, dy),
+    ))
 }
 
-pub(super) unsafe fn recover_stale_drag(host: HWND) -> Option<ChildEvent> {
+pub(super) unsafe fn recover_stale_drag(host: HWND) -> Option<(ChildEvent, (i32, i32))> {
     let active = ACTIVE_DRAG.lock().unwrap();
     let drag = active.as_ref()?;
     let target = HWND(drag.id as *mut std::ffi::c_void);
@@ -328,20 +325,6 @@ mod tests {
             })
         );
         assert!(button_action(42, "unknown", &message).is_none());
-        assert_eq!(
-            button_action(42, "dismiss_chain", &message),
-            Some(ChildEvent::ButtonAction {
-                id: 42,
-                action: ButtonAction::DismissChain
-            })
-        );
-        assert_eq!(
-            button_action(42, "copy_all", &message),
-            Some(ChildEvent::ButtonAction {
-                id: 42,
-                action: ButtonAction::CopyAll
-            })
-        );
     }
 
     #[test]

@@ -5,7 +5,6 @@ use super::magnification::load_magnification_api;
 use super::render::{extract_crop_from_hbitmap, sync_layered_window_contents};
 use super::state::*;
 use crate::APP;
-use crate::overlay::process::start_processing_pipeline;
 use crate::win_types::SendHbitmap;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
@@ -157,9 +156,7 @@ pub unsafe extern "system" fn selection_wnd_proc(
                     let height = (rect.bottom - rect.top).abs();
 
                     if width <= 10 && height <= 10 {
-                        if !has_capture_request() {
-                            handle_color_picker(hwnd);
-                        }
+                        handle_color_picker(hwnd);
                         IS_FADING_OUT = true;
                         if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM
                         {
@@ -284,43 +281,10 @@ unsafe fn handle_color_picker(hwnd: HWND) {
 #[allow(static_mut_refs)]
 unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
     unsafe {
-        if let Some(sender) = take_capture_request() {
-            let image = {
-                let guard = APP.lock().unwrap();
-                let capture = guard
-                    .screenshot_handle
-                    .as_ref()
-                    .expect("Screenshot handle missing");
-                extract_crop_from_hbitmap(capture, rect)
-            };
-            let _ = sender.send(super::CapturedRegion {
-                width: image.width(),
-                height: image.height(),
-                image,
-                left: rect.left,
-                top: rect.top,
-            });
-            IS_FADING_OUT = true;
-            if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
-                let _ = transform_fn(1.0, 0, 0);
-            }
-            let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
-            return Some(LRESULT(0));
-        }
-
-        // Check if this is a MASTER preset
-        let is_master = {
-            let guard = APP.lock().unwrap();
-            guard
-                .config
-                .presets
-                .get(CURRENT_PRESET_IDX)
-                .map(|p| p.is_master)
-                .unwrap_or(false)
-        };
+        let target = capture_target();
 
         // For MASTER presets, show the preset wheel first
-        let final_preset_idx = if is_master {
+        let final_target = if target.is_master() {
             let mut cursor_pos = POINT::default();
             let _ = GetCursorPos(&mut cursor_pos);
 
@@ -330,98 +294,78 @@ unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
             let selected =
                 crate::overlay::preset_wheel::show_preset_wheel("image", None, cursor_pos);
 
-            if let Some(idx) = selected {
-                Some(idx)
+            if let Some(index) = selected {
+                crate::overlay::image_capture_target::ImageCaptureTarget::Preset(index)
             } else {
                 IS_FADING_OUT = true;
                 SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
                 return Some(LRESULT(0));
             }
         } else {
-            Some(CURRENT_PRESET_IDX)
+            target
         };
 
-        if let Some(preset_idx) = final_preset_idx {
-            // CHECK FOR CONTINUOUS MODE ACTIVATION
-            let is_held = {
-                if TRIGGER_VK_CODE != 0 {
-                    (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0
-                } else {
-                    false
-                }
-            };
+        // CHECK FOR CONTINUOUS MODE ACTIVATION
+        let is_held = {
+            if TRIGGER_VK_CODE != 0 {
+                (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0
+            } else {
+                false
+            }
+        };
 
-            let held_detected = HOLD_DETECTED_THIS_SESSION.load(Ordering::SeqCst);
+        let held_detected = HOLD_DETECTED_THIS_SESSION.load(Ordering::SeqCst);
 
-            if (is_held || held_detected)
-                && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst)
-            {
-                let mut hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
-                if hotkey_name.is_empty() {
-                    hotkey_name = crate::overlay::continuous_mode::get_latest_hotkey_name();
-                }
-                if hotkey_name.is_empty() {
-                    hotkey_name = "Hotkey".to_string();
-                }
-
-                crate::overlay::image_continuous_mode::enter(
-                    preset_idx,
-                    hotkey_name.clone(),
-                    CURRENT_HOTKEY_ID,
-                );
-
-                IS_FADING_OUT = true;
-                let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
+        if (is_held || held_detected) && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst) {
+            let mut hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
+            if hotkey_name.is_empty() {
+                hotkey_name = crate::overlay::continuous_mode::get_latest_hotkey_name();
+            }
+            if hotkey_name.is_empty() {
+                hotkey_name = "Hotkey".to_string();
             }
 
-            // EXTRACT CROP
-            let (cropped_img, config, preset) = {
-                let mut guard = APP.lock().unwrap();
-                guard.config.active_preset_idx = preset_idx;
+            crate::overlay::image_continuous_mode::enter(
+                final_target,
+                hotkey_name,
+                CURRENT_HOTKEY_ID,
+            );
 
-                let capture = guard
-                    .screenshot_handle
-                    .as_ref()
-                    .expect("Screenshot handle missing");
-                let config_clone = guard.config.clone();
-                let preset_clone = guard.config.presets[preset_idx].clone();
-
-                let img = extract_crop_from_hbitmap(capture, rect);
-
-                (img, config_clone, preset_clone)
-            };
-
-            // TRIGGER PROCESSING
-            std::thread::spawn(move || {
-                start_processing_pipeline(cropped_img, rect, config, preset);
-            });
-
-            // CHECK IF NEW MODE IS ACTIVE
-            if crate::overlay::image_continuous_mode::is_active() {
-                IS_FADING_OUT = true;
-                let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
-                return Some(LRESULT(0));
-            }
-
-            if crate::overlay::continuous_mode::is_active() {
-                START_POS = POINT::default();
-                CURR_POS = POINT::default();
-                ZOOM_ALPHA_OVERRIDE = None;
-                sync_layered_window_contents(hwnd);
-                return Some(LRESULT(0));
-            }
-
-            // START FADE OUT
             IS_FADING_OUT = true;
-            if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
-                let _ = transform_fn(1.0, 0, 0);
-            }
             let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
+        }
 
+        let cropped_img = {
+            let guard = APP.lock().unwrap();
+            let capture = guard
+                .screenshot_handle
+                .as_ref()
+                .expect("Screenshot handle missing");
+            extract_crop_from_hbitmap(capture, rect)
+        };
+        final_target.process(cropped_img, rect);
+
+        if crate::overlay::image_continuous_mode::is_active() {
+            IS_FADING_OUT = true;
+            let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
             return Some(LRESULT(0));
         }
 
-        None
+        if crate::overlay::continuous_mode::is_active() {
+            START_POS = POINT::default();
+            CURR_POS = POINT::default();
+            ZOOM_ALPHA_OVERRIDE = None;
+            sync_layered_window_contents(hwnd);
+            return Some(LRESULT(0));
+        }
+
+        IS_FADING_OUT = true;
+        if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
+            let _ = transform_fn(1.0, 0, 0);
+        }
+        let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
+
+        Some(LRESULT(0))
     }
 }
 
@@ -518,19 +462,9 @@ unsafe fn handle_continuous_check_timer(hwnd: HWND) {
             if heartbeat {
                 HOLD_DETECTED_THIS_SESSION.store(true, Ordering::SeqCst);
 
-                let is_master = {
-                    if let Ok(app) = APP.lock() {
-                        app.config
-                            .presets
-                            .get(CURRENT_PRESET_IDX)
-                            .map(|p| p.is_master)
-                            .unwrap_or(false)
-                    } else {
-                        false
-                    }
-                };
+                let target = capture_target();
 
-                if !is_master {
+                if !target.is_master() {
                     let mut hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
                     if hotkey_name.is_empty() {
                         hotkey_name = crate::overlay::continuous_mode::get_latest_hotkey_name();
@@ -540,8 +474,8 @@ unsafe fn handle_continuous_check_timer(hwnd: HWND) {
                     }
 
                     crate::overlay::image_continuous_mode::enter(
-                        CURRENT_PRESET_IDX,
-                        hotkey_name.clone(),
+                        target,
+                        hotkey_name,
                         CURRENT_HOTKEY_ID,
                     );
 
