@@ -48,9 +48,51 @@ async function openCropWorkspace(page: Page) {
   await expect(page.getByRole("button", { name: "Original, 1280×720" })).toBeVisible();
 }
 
+test("saves the composed canvas from a compact action beside Crop", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/?sgtTestHarness=1");
+  await expect(page.locator(".app-container")).toBeVisible();
+  await page.evaluate(() => window.__SGT_TEST__?.loadSyntheticProject("small"));
+  const videoUrl = await createCanvasVideoUrl(page);
+  await page.evaluate((url) => window.__SGT_TEST__?.setCurrentVideoSource(url), videoUrl);
+
+  const cropButton = page.locator(".playback-crop-toggle-btn");
+  const frameButton = page.locator(".playback-frame-download-btn");
+  await expect(cropButton).toBeVisible();
+  await expect(frameButton).toBeVisible();
+  await expect(cropButton.evaluate((button) => button.nextElementSibling?.classList.contains("playback-frame-download-btn")))
+    .resolves.toBe(true);
+
+  await frameButton.click();
+  await expect(page.getByRole("button", { name: "Frame saved" })).toBeVisible();
+  const frameCall = await page.evaluate(() => (
+    window.__SGT_TEST_IPC_CALLS__?.find((call) => call.cmd === "save_current_frame")
+  ));
+  expect(frameCall?.args?.dataUrl).toEqual(expect.stringMatching(/^data:image\/png;base64,/));
+  expect(frameCall?.args?.defaultFileName).toEqual(expect.stringMatching(/-frame-\d{2}-\d{2}-\d{2}-\d{3}\.png$/));
+
+  await page.evaluate(() => {
+    window.postMessage({ type: "sr-set-settings", theme: "light" }, "*");
+  });
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await expect(frameButton).toBeVisible();
+});
+
 test("crop presets expose exact dimensions and remain usable across layouts", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openCropWorkspace(page);
+
+  await expect(page.getByRole("region", { name: "Common" })).toBeVisible();
+  await expect(page.locator(".crop-ratio-group-grid .crop-ratio-preset")).toHaveCount(6);
+  await page.getByRole("button", { name: "More ratios, 13" }).click();
+  await expect(page.getByRole("region", { name: "Landscape" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Portrait" })).toBeVisible();
+  await expect(page.locator(".crop-ratio-group-grid .crop-ratio-preset")).toHaveCount(19);
+
+  const cinema = page.getByRole("button", { name: /^Aspect ratio 2\.39:1, / });
+  await cinema.click();
+  await expect(cinema).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".crop-ratio-active-label")).toContainText("2.39:1");
 
   const portrait = page.getByRole("button", { name: "Aspect ratio 9:16, 406×720" });
   await portrait.click();

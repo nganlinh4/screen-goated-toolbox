@@ -33,6 +33,8 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
     case "get_default_export_dir":
     case "pick_export_folder":
       return "C:\\Users\\user\\Downloads";
+    case "save_current_frame":
+      return { savedPath: "C:\\Users\\user\\Downloads\\recording-frame.png" };
     case "get_media_server_port":
       return { port: 1420, token: "test-harness-token" };
     case "is_maximized":

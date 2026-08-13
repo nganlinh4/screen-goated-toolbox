@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Video, Loader2, Play, Pause, Crop, Music4, Pencil, Check, X } from '@/components/ui/MaterialIcon';
+import { AlertTriangle, Video, Loader2, Play, Pause, Crop, Music4, Pencil, PhotoCamera, Check, X } from '@/components/ui/MaterialIcon';
 import { VideoSegment, BackgroundConfig, MousePosition, type ImportedAudioSegment } from '@/types/video';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
@@ -184,6 +184,7 @@ interface PlaybackControlsProps {
   wallClockDuration?: number;
   onTogglePlayPause: () => void;
   onToggleCrop: () => void;
+  onDownloadFrame?: () => Promise<string>;
   showCropButton?: boolean;
   onSetProjectDuration?: (duration: number) => void;
   canvasModeToggle?: React.ReactNode;
@@ -206,6 +207,7 @@ export function PlaybackControls({
   wallClockDuration,
   onTogglePlayPause,
   onToggleCrop,
+  onDownloadFrame,
   showCropButton = true,
   onSetProjectDuration,
   canvasModeToggle,
@@ -218,6 +220,34 @@ export function PlaybackControls({
   const { t } = useSettings();
   const [isEditingDuration, setIsEditingDuration] = useState(false);
   const [durationInput, setDurationInput] = useState("");
+  const [frameSaveStatus, setFrameSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const frameStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (frameStatusTimerRef.current) clearTimeout(frameStatusTimerRef.current);
+  }, []);
+
+  const handleDownloadFrame = async () => {
+    if (!onDownloadFrame || frameSaveStatus === "saving") return;
+    if (frameStatusTimerRef.current) clearTimeout(frameStatusTimerRef.current);
+    setFrameSaveStatus("saving");
+    try {
+      await onDownloadFrame();
+      setFrameSaveStatus("saved");
+    } catch (error) {
+      console.error("[FrameDownload] Failed to save current frame:", error);
+      setFrameSaveStatus("error");
+    }
+    frameStatusTimerRef.current = setTimeout(() => setFrameSaveStatus("idle"), 1800);
+  };
+
+  const frameButtonLabel = frameSaveStatus === "saving"
+    ? t.savingFrame
+    : frameSaveStatus === "saved"
+      ? t.frameSaved
+      : frameSaveStatus === "error"
+        ? t.frameSaveFailed
+        : t.downloadCurrentFrame;
 
   const openDurationEditor = () => {
     setDurationInput((wallClockDuration ?? duration).toFixed(2));
@@ -284,6 +314,29 @@ export function PlaybackControls({
           >
             <Crop className="w-3.5 h-3.5" />
           </Button>
+          {onDownloadFrame && (
+            <Button
+              onClick={() => { void handleDownloadFrame(); }}
+              disabled={isProcessing || !isVideoReady || frameSaveStatus === "saving"}
+              variant="ghost"
+              size="icon"
+              className="playback-frame-download-btn ui-action-button w-8 h-8 rounded-lg transition-colors text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--ui-hover)]"
+              data-tone={frameSaveStatus === "error" ? "danger" : "success"}
+              data-active={frameSaveStatus === "saved" || frameSaveStatus === "error" ? "true" : "false"}
+              title={frameButtonLabel}
+              aria-label={frameButtonLabel}
+            >
+              {frameSaveStatus === "saving" ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : frameSaveStatus === "saved" ? (
+                <Check className="w-3.5 h-3.5" />
+              ) : frameSaveStatus === "error" ? (
+                <AlertTriangle className="w-3.5 h-3.5" />
+              ) : (
+                <PhotoCamera className="w-3.5 h-3.5" />
+              )}
+            </Button>
+          )}
           <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
         </>
       )}

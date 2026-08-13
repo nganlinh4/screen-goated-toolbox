@@ -1,8 +1,13 @@
+import { useEffect, useRef, useState } from "react";
 import { CanvasRatioIcon } from "@/components/CanvasRatioIcon";
 import { Check, Lock } from "@/components/ui/MaterialIcon";
 import { useSettings } from "@/hooks/useSettings";
 import {
-  POPULAR_ASPECT_RATIO_PRESETS,
+  CROP_ASPECT_RATIO_ORIENTATIONS,
+  CROP_ASPECT_RATIO_PRESETS,
+  COMMON_CROP_ASPECT_RATIO_PRESET_IDS,
+  type CropAspectRatioPreset,
+  type CropAspectRatioOrientation,
   type AspectRatioPresetId,
 } from "@/lib/aspectRatioPresets";
 import {
@@ -40,8 +45,68 @@ export function CropRatioPanel({
   const sourceGeometry = hasSource
     ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, DEFAULT_CROP)
     : null;
-  const lockedPreset = POPULAR_ASPECT_RATIO_PRESETS.find(({ id }) => id === lockedPresetId);
+  const lockedPreset = CROP_ASPECT_RATIO_PRESETS.find(({ id }) => id === lockedPresetId);
   const activeLabel = lockedPreset?.label ?? (sourceIsActive ? t.cropOriginal : t.cropCustom);
+  const activePresetRef = useRef<HTMLButtonElement>(null);
+  const [showAllPresets, setShowAllPresets] = useState(false);
+  const commonPresetIds = new Set<string>(COMMON_CROP_ASPECT_RATIO_PRESET_IDS);
+  const commonPresets = COMMON_CROP_ASPECT_RATIO_PRESET_IDS
+    .map((id) => CROP_ASPECT_RATIO_PRESETS.find((preset) => preset.id === id))
+    .filter((preset): preset is CropAspectRatioPreset => preset !== undefined);
+  const additionalPresets = CROP_ASPECT_RATIO_PRESETS.filter(({ id }) => !commonPresetIds.has(id));
+  const orientationLabels: Record<CropAspectRatioOrientation, string> = {
+    landscape: t.cropLandscape,
+    square: t.cropSquare,
+    portrait: t.cropPortrait,
+  };
+
+  useEffect(() => {
+    activePresetRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [lockedPresetId, sourceIsActive]);
+
+  useEffect(() => {
+    if (lockedPresetId && !commonPresetIds.has(lockedPresetId)) setShowAllPresets(true);
+  }, [lockedPresetId]);
+
+  const renderPreset = (preset: CropAspectRatioPreset) => {
+    const presetCrop = hasSource
+      ? getAspectRatioCrop(
+          sourceWidth,
+          sourceHeight,
+          preset.width,
+          preset.height,
+          crop,
+        )
+      : DEFAULT_CROP;
+    const geometry = hasSource
+      ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, presetCrop)
+      : null;
+    const isActive = lockedPresetId === preset.id;
+    const dimensions = geometry ? `${geometry.width}×${geometry.height}` : "—";
+
+    return (
+      <button
+        ref={isActive ? activePresetRef : undefined}
+        type="button"
+        key={preset.id}
+        className="crop-ratio-preset"
+        data-active={isActive ? "true" : "false"}
+        aria-pressed={isActive}
+        aria-label={`${t.cropAspectRatio} ${preset.label}, ${dimensions}`}
+        disabled={!hasSource}
+        onClick={() => onCropChange(presetCrop, preset.id)}
+      >
+        <span className="crop-ratio-icon-box">
+          <CanvasRatioIcon ratioWidth={preset.width} ratioHeight={preset.height} />
+        </span>
+        <span className="crop-ratio-preset-copy">
+          <span className="crop-ratio-preset-name">{preset.label}</span>
+          <span className="crop-ratio-preset-size">{dimensions}</span>
+        </span>
+        {isActive && <Check className="crop-ratio-check" />}
+      </button>
+    );
+  };
 
   return (
     <aside className="crop-ratio-panel ui-surface-elevated" aria-label={t.cropAspectRatio}>
@@ -68,8 +133,9 @@ export function CropRatioPanel({
         </div>
       </div>
 
-      <div className="crop-ratio-preset-list" role="group" aria-label={t.cropAspectRatio}>
+      <div className="crop-ratio-preset-list" aria-label={t.cropAspectRatio}>
         <button
+          ref={sourceIsActive ? activePresetRef : undefined}
           type="button"
           className="crop-ratio-preset crop-ratio-source-preset"
           data-active={sourceIsActive ? "true" : "false"}
@@ -90,42 +156,42 @@ export function CropRatioPanel({
           {sourceIsActive && <Check className="crop-ratio-check" />}
         </button>
 
-        {POPULAR_ASPECT_RATIO_PRESETS.map((preset) => {
-          const presetCrop = hasSource
-            ? getAspectRatioCrop(
-                sourceWidth,
-                sourceHeight,
-                preset.width,
-                preset.height,
-                crop,
-              )
-            : DEFAULT_CROP;
-          const geometry = hasSource
-            ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, presetCrop)
-            : null;
-          const isActive = lockedPresetId === preset.id;
-          const dimensions = geometry ? `${geometry.width}×${geometry.height}` : "—";
+        <section className="crop-ratio-preset-group" aria-label={t.cropCommonRatios}>
+          <h3 className="crop-ratio-group-heading">{t.cropCommonRatios}</h3>
+          <div className="crop-ratio-group-grid">
+            {commonPresets.map(renderPreset)}
+          </div>
+        </section>
 
+        <button
+          type="button"
+          className="crop-ratio-more-toggle"
+          aria-expanded={showAllPresets}
+          aria-label={`${showAllPresets ? t.cropFewerRatios : t.cropMoreRatios}, ${additionalPresets.length}`}
+          onClick={() => setShowAllPresets((current) => !current)}
+        >
+          <span>{showAllPresets ? t.cropFewerRatios : t.cropMoreRatios}</span>
+          <span className="crop-ratio-more-count">{additionalPresets.length}</span>
+        </button>
+
+        {showAllPresets && CROP_ASPECT_RATIO_ORIENTATIONS.map((orientation) => {
+          const orientationPresets = additionalPresets.filter(
+            (preset) => preset.orientation === orientation,
+          );
+          if (orientationPresets.length === 0) return null;
           return (
-            <button
-              type="button"
-              key={preset.id}
-              className="crop-ratio-preset"
-              data-active={isActive ? "true" : "false"}
-              aria-pressed={isActive}
-              aria-label={`${t.cropAspectRatio} ${preset.label}, ${dimensions}`}
-              disabled={!hasSource}
-              onClick={() => onCropChange(presetCrop, preset.id)}
+            <section
+              key={orientation}
+              className="crop-ratio-preset-group crop-ratio-additional-group"
+              aria-label={orientationLabels[orientation]}
             >
-              <span className="crop-ratio-icon-box">
-                <CanvasRatioIcon ratioWidth={preset.width} ratioHeight={preset.height} />
-              </span>
-              <span className="crop-ratio-preset-copy">
-                <span className="crop-ratio-preset-name">{preset.label}</span>
-                <span className="crop-ratio-preset-size">{dimensions}</span>
-              </span>
-              {isActive && <Check className="crop-ratio-check" />}
-            </button>
+              <h3 className="crop-ratio-group-heading">
+                {orientationLabels[orientation]}
+              </h3>
+              <div className="crop-ratio-group-grid">
+                {orientationPresets.map(renderPreset)}
+              </div>
+            </section>
           );
         })}
       </div>

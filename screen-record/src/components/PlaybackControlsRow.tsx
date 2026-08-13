@@ -25,6 +25,7 @@ export interface PlaybackControlsRowProps {
   wallClockDuration: number;
   onTogglePlayPause: () => void;
   onToggleCrop: () => void;
+  onDownloadFrame: () => Promise<string>;
   onSetProjectDuration?: (duration: number) => void;
   // CanvasModeToggle props
   backgroundConfig: BackgroundConfig;
@@ -68,6 +69,7 @@ export function PlaybackControlsRow({
   wallClockDuration,
   onTogglePlayPause,
   onToggleCrop,
+  onDownloadFrame,
   onSetProjectDuration,
   backgroundConfig,
   setBackgroundConfig,
@@ -139,6 +141,7 @@ export function PlaybackControlsRow({
           wallClockDuration={wallClockDuration}
           onTogglePlayPause={onTogglePlayPause}
           onToggleCrop={onToggleCrop}
+          onDownloadFrame={onDownloadFrame}
           showCropButton={true}
           onSetProjectDuration={onSetProjectDuration}
           canvasModeToggle={

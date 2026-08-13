@@ -6,6 +6,7 @@ import {
   resizeCropWithAspectRatio,
 } from "@/lib/cropAspectRatio";
 import { resolveCodecAlignedCropGeometry } from "@/lib/videoGeometry";
+import { CROP_ASPECT_RATIO_PRESETS } from "@/lib/aspectRatioPresets";
 
 describe("crop aspect ratio geometry", () => {
   it("fits portrait presets inside the source with codec-aligned dimensions", () => {
@@ -68,6 +69,20 @@ describe("crop aspect ratio geometry", () => {
       height: 0.7,
     })).toBeNull();
   });
+
+  it.each(CROP_ASPECT_RATIO_PRESETS)(
+    "recognizes $label after codec alignment",
+    (preset) => {
+      const crop = getAspectRatioCrop(
+        3840,
+        2160,
+        preset.width,
+        preset.height,
+      );
+
+      expect(getActiveCropAspectRatioId(3840, 2160, crop)).toBe(preset.id);
+    },
+  );
 
   it("keeps a corner resize locked while preserving the opposite anchor", () => {
     const start = getAspectRatioCrop(1920, 1080, 9, 16);
