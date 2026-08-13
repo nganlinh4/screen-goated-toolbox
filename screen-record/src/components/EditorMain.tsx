@@ -6,6 +6,7 @@ import { PlaybackControlsRow } from "@/components/PlaybackControlsRow";
 import { SidePanel } from "@/components/sidepanel/index";
 import { TimelineArea } from "@/components/timeline";
 import { useSettings } from "@/hooks/useSettings";
+import { saveCurrentFrame } from "@/lib/frameDownload";
 import type { EditorMainProps } from "./EditorMainTypes";
 import { useEditorMainTimelineState } from "./useEditorMainTimelineState";
 
@@ -306,6 +307,12 @@ export function EditorMain({
             wallClockDuration={wallClockDuration}
             onTogglePlayPause={handleTogglePlayPause}
             onToggleCrop={handleToggleCrop}
+            onDownloadFrame={() => saveCurrentFrame({
+              canvas: canvasRef.current,
+              currentTime,
+              notificationTitle: t.frameSaved,
+              projectName: currentProjectName,
+            })}
             onSetProjectDuration={onSetProjectDuration}
             backgroundConfig={backgroundConfig}
             setBackgroundConfig={setBackgroundConfig}

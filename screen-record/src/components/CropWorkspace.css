@@ -19,7 +19,7 @@
   min-height: 0;
   flex-direction: column;
   gap: 0.75rem;
-  overflow-y: auto;
+  overflow: hidden;
   border-radius: 1.35rem;
   padding: 0.9rem;
   scrollbar-width: thin;
@@ -100,9 +100,76 @@
 }
 
 .crop-ratio-preset-list {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.7rem;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--outline-variant) transparent;
+}
+
+.crop-ratio-preset-group {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.crop-ratio-group-heading {
+  color: var(--on-surface-variant);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.crop-ratio-group-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.45rem;
+}
+
+.crop-ratio-more-toggle {
+  display: flex;
+  min-height: 2rem;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px dashed var(--ui-border-strong);
+  border-radius: 0.75rem;
+  padding: 0.4rem 0.55rem;
+  background: transparent;
+  color: var(--on-surface-variant);
+  font-size: 0.62rem;
+  font-weight: 650;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.crop-ratio-more-toggle:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 42%, var(--ui-border));
+  background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+  color: var(--primary-color);
+}
+
+.crop-ratio-more-toggle:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--primary-color) 60%, var(--ui-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.crop-ratio-more-count {
+  min-width: 1.25rem;
+  border-radius: 999px;
+  padding: 0.12rem 0.3rem;
+  background: var(--ui-surface-3);
+  color: var(--on-surface-variant);
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.55rem;
+  text-align: center;
 }
 
 .crop-ratio-preset {
@@ -147,7 +214,7 @@
 }
 
 .crop-ratio-source-preset {
-  grid-column: 1 / -1;
+  flex: none;
 }
 
 .crop-ratio-icon-box {
@@ -244,9 +311,25 @@
 
   .crop-ratio-preset-list {
     display: flex;
+    flex-direction: row;
+    align-items: stretch;
     overflow-x: auto;
+    overflow-y: hidden;
     padding: 0.15rem;
     scrollbar-width: thin;
+  }
+
+  .crop-ratio-preset-group {
+    min-width: max-content;
+  }
+
+  .crop-ratio-more-toggle {
+    min-width: 6.5rem;
+    align-self: stretch;
+  }
+
+  .crop-ratio-group-grid {
+    display: flex;
   }
 
   .crop-ratio-preset,

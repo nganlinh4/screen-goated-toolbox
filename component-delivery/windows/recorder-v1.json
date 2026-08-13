@@ -2,18 +2,18 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "recorder-web-5.4.3-1aaa1aa369bfb81f.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.4.3-1aaa1aa369bfb81f.zip",
+      "asset": "recorder-web-5.4.3-55d91ef5060a8365.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.4.3-55d91ef5060a8365.zip",
       "files": [
         {
           "path": "assets/index.css",
-          "sha256": "c7589d33d26214863e7ee27e43022e02584c3ead7ce81118332fd0ad0b2505aa",
-          "sizeBytes": 147633
+          "sha256": "4d08b29d3d1b9ceb0473fd6e2078d54d6c101ef99de2aea140580792134a0268",
+          "sizeBytes": 149215
         },
         {
           "path": "assets/index.js",
-          "sha256": "8ecc277e65d4a9100785e838fd20046047c2d8603501cb39d22ac876b4c1850a",
-          "sizeBytes": 1076385
+          "sha256": "dc3bd74c5d67d4f219231ff6766f82f587412771da7109ae5509d32434f51013",
+          "sizeBytes": 1083071
         },
         {
           "path": "assets/rolldown-runtime.js",
@@ -907,24 +907,24 @@
         }
       ],
       "id": "recorder-web",
-      "sha256": "1aaa1aa369bfb81f02105c533e969f97c744b9180d45684196c550be62a56358",
-      "sizeBytes": 874606,
-      "unpackedSizeBytes": 2622710,
+      "sha256": "55d91ef5060a836509669765839c0b3abf2c83cc664c15e60c4f65cf2190d903",
+      "sizeBytes": 876608,
+      "unpackedSizeBytes": 2630978,
       "version": "5.4.3"
     },
     {
-      "asset": "recorder-worker-5.4.3-48e69d2dc24e2df1.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.4.3-48e69d2dc24e2df1.zip",
+      "asset": "recorder-worker-5.4.3-3f0994425b447c54.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.4.3-3f0994425b447c54.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "ca70545727b416b9f3d4bb68f2cc907eb157263268aa3156757dedfe55f6cafb",
-          "sizeBytes": 9596416
+          "sha256": "1a71e02c24426ef2f8b392ac9687dd61705023e869f3e3eda560d59149437ea7",
+          "sizeBytes": 9597952
         },
         {
           "path": "licenses/THIRD-PARTY-LICENSES.json",
-          "sha256": "f1dd6110cff30c7aef806f531a1fd6aebe8bb128893eec3746d8c095cf2a809d",
-          "sizeBytes": 3955014
+          "sha256": "d40771ec6861ae2c7e7f4543a90b62de28e7bc0b019c5e5a2f460cfd3dda9b07",
+          "sizeBytes": 3955346
         },
         {
           "path": "licenses/THIRD-PARTY-NOTICES.txt",
@@ -933,9 +933,9 @@
         }
       ],
       "id": "recorder-worker",
-      "sha256": "48e69d2dc24e2df179fc135d53ef46712a4bfb16ec7f6512b8beade573ec4691",
-      "sizeBytes": 4854818,
-      "unpackedSizeBytes": 13552502,
+      "sha256": "3f0994425b447c5498d887859b3be896aab45dc15e3f2889c9e398ab7c7a4c52",
+      "sizeBytes": 4862345,
+      "unpackedSizeBytes": 13554370,
       "version": "5.4.3"
     }
   ],

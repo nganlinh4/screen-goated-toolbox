@@ -1,6 +1,6 @@
 import type { CropRect } from "@/types/video";
 import {
-  POPULAR_ASPECT_RATIO_PRESETS,
+  CROP_ASPECT_RATIO_PRESETS,
   type AspectRatioPresetId,
 } from "@/lib/aspectRatioPresets";
 import { resolveCodecAlignedCropGeometry } from "@/lib/videoGeometry";
@@ -51,7 +51,7 @@ export function getActiveCropAspectRatioId(
   if (sourceWidth <= 0 || sourceHeight <= 0) return null;
   const geometry = resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, crop);
   const currentRatio = geometry.width / geometry.height;
-  const preset = POPULAR_ASPECT_RATIO_PRESETS.find(({ width, height }) => {
+  const preset = CROP_ASPECT_RATIO_PRESETS.find(({ width, height }) => {
     const targetRatio = width / height;
     return Math.abs(currentRatio / targetRatio - 1) <= RATIO_MATCH_TOLERANCE;
   });

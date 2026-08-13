@@ -33,6 +33,7 @@ describe('CanvasModeToggle', () => {
 
     const autoButton = screen.getByRole('button', { name: 'Auto 376×108' });
     expect(autoButton).toHaveAttribute('aria-pressed', 'true');
+    expect(document.querySelectorAll('.playback-canvas-ratio-btn')).toHaveLength(5);
 
     fireEvent.click(autoButton);
     expect(setBackgroundConfig).toHaveBeenCalledOnce();

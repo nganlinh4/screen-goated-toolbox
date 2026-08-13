@@ -15,7 +15,7 @@ import {
   type CropResizeHandle,
 } from "@/lib/cropAspectRatio";
 import {
-  POPULAR_ASPECT_RATIO_PRESETS,
+  CROP_ASPECT_RATIO_PRESETS,
   type AspectRatioPresetId,
 } from "@/lib/aspectRatioPresets";
 import "./CropWorkspace.css";
@@ -57,7 +57,7 @@ export function CropWorkspace({
     width: number;
     height: number;
   } | null>(null);
-  const lockedPreset = POPULAR_ASPECT_RATIO_PRESETS.find(({ id }) => id === lockedPresetId);
+  const lockedPreset = CROP_ASPECT_RATIO_PRESETS.find(({ id }) => id === lockedPresetId);
 
   const alignCrop = useCallback((crop: CropRect): CropRect => {
     const sourceWidth = videoRef.current?.videoWidth || 0;
