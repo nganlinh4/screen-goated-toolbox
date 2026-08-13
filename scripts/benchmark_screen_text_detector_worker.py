@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-dir", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--cases",
+        help="Comma-separated localization case ids; omission selects every case",
+    )
+    parser.add_argument("--repeat", type=int, default=1)
     return parser.parse_args()
 
 
@@ -219,13 +224,36 @@ def main() -> None:
         raise RuntimeError("detector worker handshake failed")
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+    selected_ids = {
+        value.strip() for value in (args.cases or "").split(",") if value.strip()
+    }
+    cases = [
+        case
+        for case in manifest["localization_cases"]
+        if not selected_ids or case["id"] in selected_ids
+    ]
+    if not cases:
+        raise RuntimeError("detector benchmark selected no localization cases")
+    if selected_ids != {case["id"] for case in cases} and selected_ids:
+        raise RuntimeError("detector benchmark contains an unknown case id")
+    if args.repeat < 1:
+        raise RuntimeError("detector benchmark repeat count must be positive")
     image_root = args.manifest.parent
     reports = []
-    for request_id, case in enumerate(manifest["localization_cases"], start=2):
+    requests = [
+        (case, iteration)
+        for iteration in range(1, args.repeat + 1)
+        for case in cases
+    ]
+    for request_id, (case, iteration) in enumerate(requests, start=2):
         image = Image.open(image_root / case["image"])
         started = time.perf_counter()
-        write_frame(process.stdin, DETECT, request_id, jpeg_bytes(image))
+        encoded = jpeg_bytes(image)
+        encode_ms = round((time.perf_counter() - started) * 1000, 2)
+        worker_started = time.perf_counter()
+        write_frame(process.stdin, DETECT, request_id, encoded)
         kind, response_id, payload = read_frame(process.stdout)
+        worker_ms = round((time.perf_counter() - worker_started) * 1000, 2)
         latency_ms = round((time.perf_counter() - started) * 1000, 2)
         if kind != REGIONS or response_id != request_id:
             raise RuntimeError("detector worker returned an unexpected response")
@@ -233,7 +261,8 @@ def main() -> None:
         if (width, height) != image.size:
             raise RuntimeError("detector worker changed the image coordinate space")
         metrics = evaluate(case, predictions)
-        overlay = args.output / f"{case['id']}-worker.png"
+        suffix = f"-run-{iteration}" if args.repeat > 1 else ""
+        overlay = args.output / f"{case['id']}{suffix}-worker.png"
         draw_overlay(
             image,
             [region["box_px"] for region in case["regions"]],
@@ -244,6 +273,9 @@ def main() -> None:
             {
                 "case_id": case["id"],
                 "difficulty": case["difficulty"],
+                "iteration": iteration,
+                "encode_ms": encode_ms,
+                "worker_ms": worker_ms,
                 "latency_ms": latency_ms,
                 "predictions": predictions,
                 "metrics": metrics,

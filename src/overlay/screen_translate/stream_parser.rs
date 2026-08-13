@@ -1,10 +1,8 @@
 use std::collections::HashSet;
 
-use anyhow::Result;
-
 use super::contract::{DetectedTextRegion, TranslationRegion, parse_streamed_region};
 
-pub(super) struct TranslationStreamParser<'a> {
+pub(crate) struct TranslationStreamParser<'a> {
     candidates: &'a [DetectedTextRegion],
     buffer: String,
     scan: usize,
@@ -14,10 +12,11 @@ pub(super) struct TranslationStreamParser<'a> {
     in_string: bool,
     escaped: bool,
     emitted: HashSet<u16>,
+    rejected: usize,
 }
 
 impl<'a> TranslationStreamParser<'a> {
-    pub(super) fn new(candidates: &'a [DetectedTextRegion]) -> Self {
+    pub(crate) fn new(candidates: &'a [DetectedTextRegion]) -> Self {
         Self {
             candidates,
             buffer: String::new(),
@@ -28,10 +27,11 @@ impl<'a> TranslationStreamParser<'a> {
             in_string: false,
             escaped: false,
             emitted: HashSet::new(),
+            rejected: 0,
         }
     }
 
-    pub(super) fn push(&mut self, chunk: &str) -> Result<Vec<(u16, TranslationRegion)>> {
+    pub(crate) fn push(&mut self, chunk: &str) -> Vec<(u16, TranslationRegion)> {
         if let Some(replacement) = chunk.strip_prefix(crate::api::WIPE_SIGNAL) {
             self.reset();
             self.buffer.push_str(replacement);
@@ -39,13 +39,38 @@ impl<'a> TranslationStreamParser<'a> {
             self.buffer.push_str(chunk);
         }
         if !self.array_started {
-            let Some(marker) = self.buffer.find("\"regions\"") else {
-                return Ok(Vec::new());
-            };
-            let Some(offset) = self.buffer[marker + 9..].find('[') else {
-                return Ok(Vec::new());
-            };
-            self.scan = marker + 9 + offset + 1;
+            if let Some(marker) = self.buffer.find("\"regions\"") {
+                let Some(offset) = self.buffer[marker + 9..].find('[') else {
+                    return Vec::new();
+                };
+                self.scan = marker + 9 + offset + 1;
+            } else {
+                let Some(start) = self
+                    .buffer
+                    .char_indices()
+                    .find_map(|(index, character)| (!character.is_whitespace()).then_some(index))
+                else {
+                    return Vec::new();
+                };
+                let remaining = &self.buffer[start..];
+                let array = remaining
+                    .strip_prefix("```")
+                    .map(|fenced| {
+                        let fenced = fenced
+                            .strip_prefix("json")
+                            .or_else(|| fenced.strip_prefix("JSON"))
+                            .unwrap_or(fenced);
+                        self.buffer.len() - fenced.trim_start().len()
+                    })
+                    .or_else(|| remaining.starts_with('[').then_some(start));
+                let Some(array_start) = array else {
+                    return Vec::new();
+                };
+                let Some(offset) = self.buffer[array_start..].find('[') else {
+                    return Vec::new();
+                };
+                self.scan = array_start + offset + 1;
+            }
             self.array_started = true;
         }
 
@@ -75,9 +100,12 @@ impl<'a> TranslationStreamParser<'a> {
                         if self.depth == 0 {
                             let start = self.object_start.take().expect("object start is tracked");
                             let object = &self.buffer[start..=self.scan];
-                            let (id, region) = parse_streamed_region(object, self.candidates)?;
-                            if self.emitted.insert(id) {
-                                completed.push((id, region));
+                            match parse_streamed_region(object, self.candidates) {
+                                Ok((id, region)) if self.emitted.insert(id) => {
+                                    completed.push((id, region));
+                                }
+                                Ok(_) => {}
+                                Err(_) => self.rejected += 1,
                             }
                         }
                     }
@@ -86,15 +114,11 @@ impl<'a> TranslationStreamParser<'a> {
             }
             self.scan += 1;
         }
-        Ok(completed)
+        completed
     }
 
-    pub(super) fn emitted(&self, id: u16) -> bool {
-        self.emitted.contains(&id)
-    }
-
-    pub(super) fn emitted_any(&self) -> bool {
-        !self.emitted.is_empty()
+    pub(crate) fn rejected_count(&self) -> usize {
+        self.rejected
     }
 
     fn reset(&mut self) {
@@ -106,6 +130,7 @@ impl<'a> TranslationStreamParser<'a> {
         self.in_string = false;
         self.escaped = false;
         self.emitted.clear();
+        self.rejected = 0;
     }
 }
 
@@ -132,12 +157,43 @@ mod tests {
     fn emits_a_region_as_soon_as_its_object_closes() {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
-        assert!(parser.push("{\"reg").unwrap().is_empty());
+        assert!(parser.push("{\"reg").is_empty());
         let regions = parser
-            .push("ions\":[{\"id\":7,\"sourceText\":\"alternate\",\"translatedText\":\"done\"},")
-            .unwrap();
+            .push("ions\":[{\"id\":7,\"sourceCandidateIndex\":1,\"translatedText\":\"done\"},");
         assert_eq!(regions.len(), 1);
         assert_eq!(regions[0].1.source_text, "alternate");
-        assert!(parser.push("]}").unwrap().is_empty());
+        assert!(parser.push("]}").is_empty());
+    }
+
+    #[test]
+    fn malformed_region_is_skipped_without_blocking_later_regions() {
+        let candidates = candidates();
+        let mut parser = TranslationStreamParser::new(&candidates);
+        let regions = parser.push(
+            "{\"regions\":[{\"id\":7,\"sourceCandidateIndex\":99,\"translatedText\":\"bad\"},{\"id\":7,\"sourceCandidateIndex\":0,\"translatedText\":\"good\"}]}",
+        );
+
+        assert_eq!(parser.rejected_count(), 1);
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].1.translated_text, "good");
+    }
+
+    #[test]
+    fn emits_regions_from_an_equivalent_top_level_array() {
+        let mut candidates = candidates();
+        let mut second = candidates[0].clone();
+        second.id = 8;
+        candidates.push(second);
+        let mut parser = TranslationStreamParser::new(&candidates);
+        let emitted = parser.push(
+            r#"[{"id":7,"sourceCandidateIndex":0,"translatedText":"first"},{"id":8,"sourceCandidateIndex":0,"translatedText":"second"}]"#,
+        );
+        assert_eq!(
+            emitted
+                .iter()
+                .map(|(_, region)| region.translated_text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "second"]
+        );
     }
 }

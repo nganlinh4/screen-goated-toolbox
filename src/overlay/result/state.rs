@@ -13,12 +13,36 @@ pub enum ResultPresentation {
     TextOnly,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ResultDismissControl {
-    pub always_visible: bool,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResultControlOptions {
     pub anchor_rect: Option<[i32; 4]>,
-    pub copy_text: Option<String>,
     pub control_color: Option<String>,
+    pub scale_percent: u16,
+    pub group_actions: bool,
+    pub edit_enabled: bool,
+}
+
+impl Default for ResultControlOptions {
+    fn default() -> Self {
+        Self {
+            anchor_rect: None,
+            control_color: None,
+            scale_percent: 100,
+            group_actions: false,
+            edit_enabled: true,
+        }
+    }
+}
+
+impl ResultControlOptions {
+    pub(crate) fn shift_anchor(&mut self, dx: i32, dy: i32) -> bool {
+        let Some(anchor) = self.anchor_rect.as_mut() else {
+            return false;
+        };
+        anchor[0] = anchor[0].saturating_add(dx);
+        anchor[1] = anchor[1].saturating_add(dy);
+        true
+    }
 }
 
 // --- HIERARCHICAL CANCEL TOKEN ---
@@ -82,7 +106,7 @@ pub enum RefineContext {
 
 pub struct WindowState {
     pub presentation: ResultPresentation,
-    pub dismiss_control: Option<ResultDismissControl>,
+    pub control_options: Option<ResultControlOptions>,
     pub backdrop_data_url: Option<String>,
     pub foreground_color: Option<String>,
     pub copy_success: bool,
@@ -236,4 +260,20 @@ pub fn get_window_group(hwnd: HWND) -> Vec<(HWND, RECT)> {
     }
 
     group
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ResultControlOptions;
+
+    #[test]
+    fn anchored_controls_follow_committed_result_movement() {
+        let mut options = ResultControlOptions {
+            anchor_rect: Some([10, 20, 300, 180]),
+            ..Default::default()
+        };
+
+        assert!(options.shift_anchor(7, -4));
+        assert_eq!(options.anchor_rect, Some([17, 16, 300, 180]));
+    }
 }

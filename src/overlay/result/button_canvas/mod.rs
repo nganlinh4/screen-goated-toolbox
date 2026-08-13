@@ -110,27 +110,45 @@ mod tests {
         assert!(script.contains("const { opacityPercent, ...structuralState } = state;"));
         assert!(script.contains("opacity.value = opacityPercent;"));
         assert!(script.contains("JSON.stringify(structuralState)"));
-        assert!(actions.contains("scene_compositor::set_opacity(hwnd, value)"));
+        assert!(actions.contains("scene_compositor::set_control_scope_opacity(hwnd, value)"));
         assert!(!actions.contains("scene_compositor::sync_window"));
     }
 
     #[test]
-    fn chain_dismiss_uses_capture_anchor_and_canonical_proximity_opacity() {
+    fn anchored_controls_keep_canonical_proximity_and_support_scaled_buttons() {
         let script = super::document_script();
         let css = super::document_css();
 
-        assert!(script.contains("dismiss_chain"));
-        assert!(script.contains("copy_all"));
-        assert!(script.contains("state.copyAll"));
-        assert!(script.contains("state.dismissAnchor"));
-        assert!(script.contains("candidateX = anchor.x + anchor.w + 8"));
-        assert!(script.contains("candidateX = anchor.x - actualW - 8"));
-        assert!(script.contains("proximity-pinned"));
+        assert!(script.contains("state.controlAnchor"));
+        assert!(script.contains("state.controlScalePercent"));
+        assert!(script.contains("placementRect.x + placementRect.w"));
+        assert!(script.contains("e.button === 0 && groupActions"));
+        assert!(script.contains("result_all_drag_start"));
+        assert!(script.contains("window.previewResultDrag"));
+        assert!(script.contains("card.style.translate = offset"));
+        assert!(script.contains("function contrastingControlSurface"));
+        assert!(script.contains("local-control-surface-light"));
+        assert!(script.contains("local-control-surface-dark"));
+        let drag_handler = script
+            .split_once("function handleResultDrag")
+            .expect("drag handler should exist")
+            .1
+            .split_once("window.previewResultDrag")
+            .expect("drag preview should follow the pointer handler")
+            .0;
+        assert!(!drag_handler.contains(".style.opacity"));
+        assert!(script.contains("action('${hwnd}', 'copy')"));
+        assert!(script.contains("action('${hwnd}', 'download')"));
+        assert!(script.contains("action('${hwnd}', 'speaker')"));
         assert!(script.contains("const maxRadius = 150"));
-        assert!(css.contains(".btn.dismiss-chain-btn"));
-        assert!(css.contains("border-radius: 50%"));
-        assert!(css.contains("width: 44px"));
-        assert!(css.contains(".btn.copy-chain-btn"));
-        assert!(css.contains("var(--chain-control-color, var(--btn-color))"));
+        assert!(css.contains("--control-scale: 1"));
+        assert!(css.contains("calc(24px * var(--control-scale))"));
+        assert!(css.contains("calc(6px * var(--control-scale))"));
+        assert!(css.contains("calc(12px * var(--control-scale))"));
+        assert!(css.contains("calc(9px * var(--control-scale))"));
+        assert!(css.contains(".button-group.local-control-surface-light"));
+        assert!(css.contains(".button-group.local-control-surface-dark"));
+        assert!(!script.contains("dismiss_chain"));
+        assert!(!script.contains("copy_all"));
     }
 }

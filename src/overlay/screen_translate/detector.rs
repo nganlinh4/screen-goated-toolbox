@@ -9,7 +9,9 @@ use std::sync::{LazyLock, Mutex};
 use anyhow::{Result, bail};
 use sgt_screen_text_detector_protocol::DetectedRegion;
 
-use super::contract::{DetectedTextRegion, MAX_CANDIDATES, NormalizedBounds};
+use super::contract::{
+    DetectedTextRegion, MAX_CANDIDATES, MAX_SOURCE_CANDIDATES, NormalizedBounds,
+};
 
 static CLIENT: LazyLock<Mutex<Option<client::DetectorClient>>> = LazyLock::new(|| Mutex::new(None));
 const MIN_TEXT_CONFIDENCE: f32 = 0.5;
@@ -106,16 +108,26 @@ fn has_readable_recognition(region: &DetectedRegion) -> bool {
 }
 
 fn recognition_candidates(region: &DetectedRegion) -> Vec<String> {
-    let mut candidates = Vec::with_capacity(region.alternatives.len() + 1);
-    for text in std::iter::once(region.text.as_str()).chain(
-        region
-            .alternatives
-            .iter()
-            .map(|candidate| candidate.text.as_str()),
-    ) {
-        let text = text.trim();
-        if !text.is_empty() && !candidates.iter().any(|known| known == text) {
+    let mut ranked = std::iter::once((region.text.as_str(), region.text_confidence))
+        .chain(
+            region
+                .alternatives
+                .iter()
+                .map(|candidate| (candidate.text.as_str(), candidate.confidence)),
+        )
+        .filter_map(|(text, confidence)| {
+            let text = text.trim();
+            (!text.is_empty() && confidence >= MIN_TEXT_CONFIDENCE).then_some((text, confidence))
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|left, right| right.1.total_cmp(&left.1));
+    let mut candidates = Vec::with_capacity(MAX_SOURCE_CANDIDATES);
+    for (text, _) in ranked {
+        if !candidates.iter().any(|known| known == text) {
             candidates.push(text.to_string());
+            if candidates.len() == MAX_SOURCE_CANDIDATES {
+                break;
+            }
         }
     }
     candidates
@@ -187,5 +199,40 @@ mod tests {
         assert_eq!(bounds.right, 500);
         assert_eq!(bounds.top, 100);
         assert_eq!(bounds.bottom, 500);
+    }
+
+    #[test]
+    fn recognition_candidates_are_confidence_ranked_deduplicated_and_bounded() {
+        let region = DetectedRegion {
+            left: 0,
+            top: 0,
+            right: 100,
+            bottom: 20,
+            confidence: 0.9,
+            text: "weak".to_string(),
+            text_confidence: 0.6,
+            alternatives: vec![
+                sgt_screen_text_detector_protocol::RecognitionAlternative {
+                    text: "correct".to_string(),
+                    confidence: 0.98,
+                },
+                sgt_screen_text_detector_protocol::RecognitionAlternative {
+                    text: "correct".to_string(),
+                    confidence: 0.9,
+                },
+                sgt_screen_text_detector_protocol::RecognitionAlternative {
+                    text: "second".to_string(),
+                    confidence: 0.8,
+                },
+                sgt_screen_text_detector_protocol::RecognitionAlternative {
+                    text: "fourth".to_string(),
+                    confidence: 0.7,
+                },
+            ],
+        };
+        assert_eq!(
+            recognition_candidates(&region),
+            vec!["correct", "second", "fourth"]
+        );
     }
 }

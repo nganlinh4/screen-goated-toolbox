@@ -1,7 +1,7 @@
 // --- TITLE BAR RENDERING ---
 // Window title bar: theme/language/history/settings on the left; admin status &
 // version painted in the draggable gap; branding + window controls on the
-// right. (The mini-app launch buttons and Tips entry live in the footer.)
+// right. (Mini-app launch buttons live in the footer; Tips follows Settings.)
 
 use super::super::types::{DetailPane, SettingsApp};
 use crate::gui::locale::LocaleText;
@@ -274,6 +274,10 @@ impl SettingsApp {
             {
                 self.view_mode = ViewMode::Global;
             }
+        }
+
+        if crate::gui::settings_ui::render_tips_entry_button(ui, &text.workspace).clicked() {
+            self.show_tips_modal = true;
         }
 
         ui.spacing_mut().item_spacing.x = 6.0;

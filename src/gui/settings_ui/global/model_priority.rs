@@ -1,14 +1,9 @@
 use crate::config::{Config, ModelPriorityChains};
 use crate::gui::locale::LocaleText;
+use crate::gui::settings_ui::model_selector;
 use crate::gui::theme::AppTheme;
-use crate::model_config::{
-    ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm,
-    model_search_tool_enabled_by_default_by_id,
-};
 use crate::retry_model_chain::RetryChainKind;
 use eframe::egui;
-
-const MODEL_SELECTOR_WIDTH: f32 = 240.0 - crate::gui::model_performance::PREFIX_WIDTH;
 
 pub fn render_model_priority_modal(
     ui: &mut egui::Ui,
@@ -95,7 +90,6 @@ fn render_chain_section(
         RetryChainKind::ImageToText => "model_priority_image_chain",
         RetryChainKind::TextToText => "model_priority_text_chain",
     };
-    let available_models = compatible_models(chain_kind);
     let theme = AppTheme::from_ui(ui);
     let section_title_color = match chain_kind {
         RetryChainKind::ImageToText => theme.node_special_title(),
@@ -146,47 +140,13 @@ fn render_chain_section(
             ui.horizontal(|ui| {
                 ui.label(format!("{}.", row_idx + 2));
 
-                let selected_model = get_model_by_id(&chain[row_idx]);
-                if let Some(model) = selected_model.as_ref() {
-                    crate::gui::model_performance::render_prefix(ui, model);
-                    crate::gui::icons::draw_icon_static(
-                        ui,
-                        crate::gui::icons::provider_icon(&model.provider),
-                        Some(crate::gui::icons::ICON_MD),
-                    );
-                } else {
-                    crate::gui::model_performance::render_unknown_prefix(ui);
-                }
-
-                let selected_text = model_short_label(&chain[row_idx], ui_language);
-                crate::gui::widgets::combo((section_id, "combo", row_idx))
-                    .selected_text(selected_text)
-                    .width(MODEL_SELECTOR_WIDTH)
-                    .show_ui(ui, |ui| {
-                        for model in &available_models {
-                            let label = model_option_label(model, ui_language);
-                            let selected = chain[row_idx] == model.id;
-                            ui.horizontal(|ui| {
-                                crate::gui::model_performance::render_prefix(ui, model);
-                                crate::gui::icons::draw_icon_static(
-                                    ui,
-                                    crate::gui::icons::provider_icon(&model.provider),
-                                    Some(crate::gui::icons::ICON_MD),
-                                );
-                                if ui.selectable_label(selected, label).clicked() {
-                                    chain[row_idx] = model.id.clone();
-                                    changed = true;
-                                }
-                                if model_search_tool_enabled_by_default_by_id(&model.id) {
-                                    crate::gui::icons::draw_icon_static(
-                                        ui,
-                                        crate::gui::icons::Icon::Search,
-                                        Some(crate::gui::icons::ICON_XS),
-                                    );
-                                }
-                            });
-                        }
-                    });
+                changed |= model_selector::render_model_combo(
+                    ui,
+                    (section_id, "combo", row_idx),
+                    &mut chain[row_idx],
+                    chain_kind,
+                    ui_language,
+                );
 
                 if crate::gui::icons::icon_button_sized(
                     ui,
@@ -246,7 +206,7 @@ fn render_chain_section(
             .button(text.model_catalog.model_priority_add_model)
             .clicked()
         {
-            chain.push(default_insert_model_id(&available_models));
+            chain.push(model_selector::default_model_id(chain_kind));
             changed = true;
         }
 
@@ -268,43 +228,4 @@ fn render_chain_section(
     });
 
     changed
-}
-
-fn compatible_models(chain_kind: RetryChainKind) -> Vec<crate::model_config::ModelConfig> {
-    let model_type = match chain_kind {
-        RetryChainKind::ImageToText => ModelType::Vision,
-        RetryChainKind::TextToText => ModelType::Text,
-    };
-
-    get_all_models_with_ollama()
-        .into_iter()
-        .filter(|model| {
-            model.enabled && model.model_type == model_type && !model_is_non_llm(&model.id)
-        })
-        .collect()
-}
-
-fn default_insert_model_id(models: &[crate::model_config::ModelConfig]) -> String {
-    models
-        .first()
-        .map(|model| model.id.clone())
-        .unwrap_or_default()
-}
-
-/// Full label shown inside the expanded dropdown list: friendly name +
-/// model id + quota. The provider icon is rendered separately via egui.
-fn model_option_label(model: &crate::model_config::ModelConfig, ui_language: &str) -> String {
-    let name = model.localized_name(ui_language);
-    let quota = model.localized_quota(ui_language);
-
-    format!("{} - {} - {}", name, model.full_name, quota)
-}
-
-/// Compact label for the collapsed dropdown button: friendly name only.
-/// Keeps every row the same width so the reorder controls don't drift — full
-/// details stay in the expanded list. The provider icon is rendered separately.
-fn model_short_label(model_id: &str, ui_language: &str) -> String {
-    get_model_by_id(model_id)
-        .map(|model| model.localized_name(ui_language).to_string())
-        .unwrap_or_else(|| model_id.to_string())
 }

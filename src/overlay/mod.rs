@@ -15,6 +15,7 @@ pub mod creation_runtime;
 pub mod creation_source;
 mod creation_source_snapshot;
 pub mod generation_history;
+pub(crate) mod image_capture_target;
 pub mod image_continuous_mode; // Non-blocking image selection mode (right-click gestures)
 pub mod input_history; // Persistent input history for arrow up/down navigation
 pub mod paint_utils;
@@ -63,7 +64,8 @@ pub mod window_selector;
 pub use recording::{
     is_recording_overlay_active, show_recording_overlay, stop_recording_and_submit,
 };
-pub use selection::{is_selection_overlay_active, show_capture_overlay, show_selection_overlay};
+pub use selection::is_selection_overlay_active;
+pub(crate) use selection::show_image_capture_overlay;
 pub use text_selection::show_text_selection_tag;
 // Use the new WebView2-based realtime overlay
 /// Mutex to ensure only one WebView is being initialized at a time globally.

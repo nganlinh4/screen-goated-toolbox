@@ -136,9 +136,7 @@ impl Manifest {
                 .iter()
                 .map(|case| (&case.id, case.difficulty)),
         )?;
-        validate_difficulties(
-            "localization",
-            3,
+        validate_localization_levels(
             self.localization_cases
                 .iter()
                 .map(|case| (&case.id, case.difficulty)),
@@ -323,6 +321,31 @@ fn validate_difficulties<'a>(
     ensure!(
         levels == expected,
         "{suite} difficulties must be exactly 1 through {rounds}"
+    );
+    Ok(())
+}
+
+fn validate_localization_levels<'a>(cases: impl Iterator<Item = (&'a String, u8)>) -> Result<()> {
+    let cases = cases.collect::<Vec<_>>();
+    ensure!(
+        cases.len() >= 3,
+        "localization suite must contain at least one case per level"
+    );
+    let ids = cases
+        .iter()
+        .map(|(id, _)| id.as_str())
+        .collect::<HashSet<_>>();
+    ensure!(
+        ids.len() == cases.len(),
+        "localization case IDs must be unique"
+    );
+    let levels = cases
+        .iter()
+        .map(|(_, difficulty)| *difficulty)
+        .collect::<HashSet<_>>();
+    ensure!(
+        levels == HashSet::from([1, 2, 3]),
+        "localization difficulties must cover exactly levels 1 through 3"
     );
     Ok(())
 }

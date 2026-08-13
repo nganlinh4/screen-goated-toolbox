@@ -11,7 +11,7 @@ use super::setup::{Credentials, Pacer};
 use crate::api::{TranslateTextRequest, translate_text_streaming};
 use crate::model_config::{ModelConfig, ModelType};
 use crate::overlay::screen_translate::contract::{
-    DetectedTextRegion, NormalizedBounds, parse_response, prompt, response_schema,
+    DetectedTextRegion, NormalizedBounds, parse_response, prompt_with_instruction, response_schema,
 };
 
 mod review;
@@ -29,17 +29,30 @@ pub(super) fn run() -> Result<()> {
     );
     order_by_priority(&mut models);
     let levels = levels_from_env()?;
+    let cases = case_filter()?;
+    let selected_cases = manifest
+        .localization_cases
+        .iter()
+        .filter(|case| levels.contains(&case.difficulty))
+        .filter(|case| cases.as_ref().is_none_or(|ids| ids.contains(&case.id)))
+        .collect::<Vec<_>>();
+    ensure!(
+        !selected_cases.is_empty(),
+        "localization filters selected no benchmark cases"
+    );
+    if let Some(ids) = &cases {
+        ensure!(
+            selected_cases.len() == ids.len(),
+            "CATALOG_BENCH_LOCALIZATION_CASES contains an unknown or level-filtered case"
+        );
+    }
     let output = localization_output_dir();
     let mut recorder = Recorder::new(&output)?;
     let mut review_entries = Vec::new();
     let mut pacer = Pacer::from_env()?;
     let timeout = super::setup::request_timeout()?.or(Some(Duration::from_secs(35)));
 
-    for case in manifest
-        .localization_cases
-        .iter()
-        .filter(|case| levels.contains(&case.difficulty))
-    {
+    for case in selected_cases {
         for model in &models {
             pacer.wait(&model.provider);
             let (attempt, review) =
@@ -78,7 +91,11 @@ fn run_case(
         }
     };
     let candidates = reference_candidates(case, image.width(), image.height());
-    let request_text = match prompt(&case.target_language, &candidates) {
+    let request_text = match prompt_with_instruction(
+        &case.target_language,
+        &crate::config::types::ScreenTranslateSettings::default_prompt(),
+        &candidates,
+    ) {
         Ok(value) => value,
         Err(error) => {
             return (
@@ -89,6 +106,10 @@ fn run_case(
     };
     let schema = response_schema(candidates.len());
     let started = Instant::now();
+    let mut parser =
+        crate::overlay::screen_translate::stream_parser::TranslationStreamParser::new(&candidates);
+    let mut first_chunk_ms = None;
+    let mut first_region_ms = None;
     let result = credentials.with_provider_key(&model.provider, |gemini_api_key| {
         translate_text_streaming(
             TranslateTextRequest {
@@ -98,7 +119,7 @@ fn run_case(
                 instruction: "Return only the requested structured screen translation.".to_string(),
                 model: model.full_name.clone(),
                 provider: model.provider.clone(),
-                streaming_enabled: false,
+                streaming_enabled: true,
                 use_json_format: true,
                 response_schema: Some(&schema),
                 search_label: None,
@@ -107,7 +128,15 @@ fn run_case(
                 request_timeout: timeout,
                 target_language: Some(case.target_language.clone()),
             },
-            |_| {},
+            |chunk| {
+                if first_chunk_ms.is_none() && !chunk.trim().is_empty() {
+                    first_chunk_ms = Some(started.elapsed().as_millis());
+                }
+                let parsed = parser.push(chunk);
+                if first_region_ms.is_none() && !parsed.is_empty() {
+                    first_region_ms = Some(started.elapsed().as_millis());
+                }
+            },
         )
     });
     let latency_ms = started.elapsed().as_millis();
@@ -157,6 +186,7 @@ fn run_case(
         }
     };
     let response_chars = response.chars().count();
+    let time_to_first_output_ms = first_region_ms.or(first_chunk_ms).unwrap_or(latency_ms);
     let attempt = Attempt {
         suite: "screen-translate-structured-text".to_string(),
         round: case.difficulty,
@@ -168,8 +198,8 @@ fn run_case(
         reasoning_policy: reasoning_policy_label(model),
         status: "success".to_string(),
         latency_ms,
-        time_to_first_output_ms: Some(latency_ms),
-        generation_duration_ms: Some(0),
+        time_to_first_output_ms: Some(time_to_first_output_ms),
+        generation_duration_ms: Some(latency_ms.saturating_sub(time_to_first_output_ms)),
         output_chars: Some(response_chars),
         end_to_end_chars_per_second: rate(response_chars, latency_ms),
         generation_chars_per_second: None,
@@ -182,6 +212,9 @@ fn run_case(
             "changed_translation_ratio": changed_ratio,
             "returned_regions": document.regions.len(),
             "input_regions": candidates.len(),
+            "first_chunk_ms": first_chunk_ms,
+            "first_usable_region_ms": first_region_ms,
+            "stream_rejected_regions": parser.rejected_count(),
             "metrics": evaluation.metrics,
             "matches": evaluation.matches,
         }),
@@ -298,6 +331,24 @@ fn levels_from_env() -> Result<BTreeSet<u8>> {
         "localization levels must be between 1 and 3"
     );
     Ok(levels)
+}
+
+fn case_filter() -> Result<Option<HashSet<String>>> {
+    let Some(value) = std::env::var_os("CATALOG_BENCH_LOCALIZATION_CASES") else {
+        return Ok(None);
+    };
+    let cases = value
+        .to_string_lossy()
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    ensure!(
+        !cases.is_empty(),
+        "CATALOG_BENCH_LOCALIZATION_CASES cannot be empty"
+    );
+    Ok(Some(cases))
 }
 
 fn localization_output_dir() -> std::path::PathBuf {

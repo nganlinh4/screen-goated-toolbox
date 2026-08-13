@@ -4,6 +4,7 @@ mod footer;
 mod global;
 pub mod help_assistant;
 mod history;
+pub(crate) mod model_selector;
 pub mod node_graph;
 pub mod pointer_gallery;
 mod preset;
@@ -20,6 +21,7 @@ pub(crate) use sidebar::cached_grid_width;
 pub use sidebar::get_localized_preset_name;
 pub use sidebar::{SidebarRenderResponse, render_sidebar};
 pub use tips::render_tips_modal;
+pub(crate) use tips_entry::render_tips_entry_button;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum ViewMode {

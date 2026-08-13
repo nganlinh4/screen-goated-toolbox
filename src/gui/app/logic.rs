@@ -193,6 +193,11 @@ impl SettingsApp {
                 updater.check_for_updates();
             }
 
+            // Keep optional delivery optional: never download here. Once the user
+            // has installed Screen Translate, compile its detector sessions behind
+            // the splash so the hotkey does not pay process/model cold start.
+            crate::overlay::screen_translate::prepare_installed_detector();
+
             self.startup_stage = 2;
             ctx.request_repaint();
         } else if self.startup_stage < 35 {

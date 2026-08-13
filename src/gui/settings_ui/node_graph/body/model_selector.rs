@@ -175,14 +175,7 @@ pub fn show_model_and_settings(
         });
 
         // Row 3: Prompt TextEdit
-        if ui
-            .add(
-                egui::TextEdit::multiline(prompt)
-                    .desired_width(PROMPT_EDITOR_WIDTH)
-                    .desired_rows(2),
-            )
-            .changed()
-        {
+        if super::super::utils::show_prompt_editor(ui, "", "", prompt, PROMPT_EDITOR_WIDTH, 2) {
             viewer.changed = true;
         }
 

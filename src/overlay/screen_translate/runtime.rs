@@ -45,28 +45,6 @@ pub(super) fn register_overlay(job_id: u64, chain_id: String) {
     }
 }
 
-pub(super) fn record_dismiss_button_impression() -> bool {
-    if super::is_ui_test() {
-        return true;
-    }
-    let Ok(mut app) = crate::APP.lock() else {
-        return false;
-    };
-    let impressions = &mut app.config.screen_translate.dismiss_button_impressions;
-    let always_visible = dismiss_button_is_pinned(*impressions);
-    if always_visible {
-        *impressions += 1;
-        let config = app.config.clone();
-        drop(app);
-        crate::config::save_config(&config);
-    }
-    always_visible
-}
-
-fn dismiss_button_is_pinned(impressions: u8) -> bool {
-    impressions < 3
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,14 +56,5 @@ mod tests {
         assert!(first_cancel.load(Ordering::SeqCst));
         assert!(!is_current(first_id));
         assert!(is_current(second_id));
-    }
-
-    #[test]
-    fn dismiss_button_is_pinned_for_exactly_three_presentations() {
-        for impressions in 0..3 {
-            assert!(dismiss_button_is_pinned(impressions));
-        }
-        assert!(!dismiss_button_is_pinned(3));
-        assert!(!dismiss_button_is_pinned(u8::MAX));
     }
 }

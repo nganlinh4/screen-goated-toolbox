@@ -21,18 +21,33 @@ html, body {
 }
 
 .button-group {
+    --control-scale: 1;
     position: absolute;
     display: flex;
-    gap: 4px;
-    padding: 2px;
+    gap: calc(4px * var(--control-scale));
+    padding: calc(2px * var(--control-scale));
     pointer-events: auto;
     transition: opacity 0.15s ease-out;
 }
 
+.button-group.local-control-surface-light {
+    --btn-bg: rgba(250, 250, 250, 0.94);
+    --btn-border: rgba(0, 0, 0, 0.24);
+    --btn-hover-bg: rgba(255, 255, 255, 0.98);
+    --btn-active-bg: rgba(255, 255, 255, 0.98);
+}
+
+.button-group.local-control-surface-dark {
+    --btn-bg: rgba(24, 24, 27, 0.92);
+    --btn-border: rgba(255, 255, 255, 0.22);
+    --btn-hover-bg: rgba(45, 45, 48, 0.98);
+    --btn-active-bg: rgba(45, 45, 48, 0.98);
+}
+
 .btn {
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
+    width: calc(24px * var(--control-scale));
+    height: calc(24px * var(--control-scale));
+    border-radius: calc(6px * var(--control-scale));
     background: var(--btn-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -42,52 +57,21 @@ html, body {
     justify-content: center;
     cursor: pointer;
     transition: opacity 0.15s ease-out, background-color 0.15s ease-out, color 0.15s ease-out;
-    color: var(--btn-color);
+    color: var(--chain-control-color, var(--btn-color));
+}
+.btn svg {
+    width: calc(16px * var(--control-scale));
+    height: calc(16px * var(--control-scale));
 }
 
 .button-group.vertical {
     flex-direction: column;
-    padding: 6px 3px;
+    padding: calc(6px * var(--control-scale)) calc(3px * var(--control-scale));
     height: auto;
-    width: 32px;
+    width: calc(32px * var(--control-scale));
 }
 .button-group.vertical .btn {
-    margin: 3px 0;
-}
-
-.button-group.dismiss-only {
-    width: 44px;
-    height: auto;
-    padding: 0;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-}
-.btn.dismiss-chain-btn {
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    color: var(--chain-control-color, var(--btn-color));
-    background: rgba(22, 22, 26, 0.82);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
-}
-.btn.dismiss-chain-btn svg {
-    width: 22px;
-    height: 22px;
-}
-.btn.copy-chain-btn {
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    color: var(--chain-control-color, var(--btn-color));
-    background: rgba(22, 22, 26, 0.82);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
-}
-.btn.copy-chain-btn svg {
-    width: 22px;
-    height: 22px;
+    margin: calc(3px * var(--control-scale)) 0;
 }
 
 .btn:hover {
@@ -207,20 +191,20 @@ html, body {
 }
 
 .opacity-btn-expandable {
-    width: 24px;
-    height: 24px;
+    width: calc(24px * var(--control-scale));
+    height: calc(24px * var(--control-scale));
     transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.15s, color 0.15s !important;
     overflow: hidden;
-    padding: 0 4px !important;
+    padding: 0 calc(4px * var(--control-scale)) !important;
     display: flex !important;
     align-items: center;
     justify-content: flex-end !important;
     white-space: nowrap;
-    border-radius: 6px;
+    border-radius: calc(6px * var(--control-scale));
 }
 
 .opacity-btn-expandable:not(.vertical-slider):hover {
-    width: 110px !important;
+    width: calc(110px * var(--control-scale)) !important;
     background: var(--btn-hover-bg) !important;
     transform: none !important;
 }
@@ -228,19 +212,19 @@ html, body {
 .opacity-btn-expandable.vertical-slider {
     flex-direction: column !important;
     justify-content: flex-end !important;
-    padding: 4px 0 !important;
+    padding: calc(4px * var(--control-scale)) 0 !important;
 }
 
 .opacity-btn-expandable.vertical-slider:hover {
-    height: 110px !important;
+    height: calc(110px * var(--control-scale)) !important;
     background: var(--btn-hover-bg) !important;
     transform: none !important;
 }
 
 .opacity-icon-wrapper {
-    width: 16px;
-    min-width: 16px;
-    height: 24px;
+    width: calc(16px * var(--control-scale));
+    min-width: calc(16px * var(--control-scale));
+    height: calc(24px * var(--control-scale));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -249,28 +233,28 @@ html, body {
 }
 
 .opacity-btn-expandable.vertical-slider .opacity-icon-wrapper {
-    height: 16px;
-    width: 24px;
+    height: calc(16px * var(--control-scale));
+    width: calc(24px * var(--control-scale));
 }
 
 .opacity-slider-wrapper {
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: calc(4px * var(--control-scale));
     opacity: 0;
     transition: opacity 0.2s ease;
     pointer-events: none;
     order: 1;
-    padding-right: 4px;
+    padding-right: calc(4px * var(--control-scale));
     min-width: 0;
 }
 
 .opacity-btn-expandable.vertical-slider .opacity-slider-wrapper {
     flex-direction: column;
     padding-right: 0;
-    padding-bottom: 2px;
-    gap: 2px;
+    padding-bottom: calc(2px * var(--control-scale));
+    gap: calc(2px * var(--control-scale));
     justify-content: center;
 }
 
@@ -285,7 +269,7 @@ html, body {
     appearance: none;
     flex: 1;
     min-width: 0;
-    height: 3px;
+    height: calc(3px * var(--control-scale));
     background: var(--btn-border);
     border-radius: 2px;
     cursor: grab;
@@ -299,8 +283,8 @@ html, body {
 .opacity-slider-inline::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 12px;
-    height: 12px;
+    width: calc(12px * var(--control-scale));
+    height: calc(12px * var(--control-scale));
     background: var(--btn-active-color);
     border-radius: 50%;
     cursor: grab;
@@ -314,19 +298,19 @@ html, body {
 .opacity-btn-expandable.vertical-slider .opacity-slider-inline {
     -webkit-appearance: none;
     appearance: none;
-    width: 3px !important;
-    min-width: 3px !important;
-    height: 55px !important;
+    width: calc(3px * var(--control-scale)) !important;
+    min-width: calc(3px * var(--control-scale)) !important;
+    height: calc(55px * var(--control-scale)) !important;
     flex: none;
-    margin: 5px auto;
+    margin: calc(5px * var(--control-scale)) auto;
     writing-mode: vertical-lr;
     direction: rtl;
 }
 
 .opacity-value-inline {
-    font-size: 9px;
-    color: var(--btn-color);
-    min-width: 25px;
+    font-size: calc(9px * var(--control-scale));
+    color: var(--chain-control-color, var(--btn-color));
+    min-width: calc(25px * var(--control-scale));
     text-align: center;
 }
 "#

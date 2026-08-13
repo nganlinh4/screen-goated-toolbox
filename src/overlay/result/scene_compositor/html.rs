@@ -382,6 +382,7 @@ function selectSurface(entry, documentHtml) {
 }
 function applyGeometry(entry, model) {
   const scale = window.devicePixelRatio || 1; entry.card.style.setProperty('--sgt-box-radius', (__SGT_BOX_RADIUS_PX__ / scale) + 'px');
+  entry.card.style.translate = '';
   const width = model.rect.width / scale;
   const height = model.rect.height / scale;
   const resized = entry.card.clientWidth !== width || entry.card.clientHeight !== height;

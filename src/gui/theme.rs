@@ -152,6 +152,12 @@ impl AppTheme {
         )
     }
 
+    pub fn launch_screen_translate(&self) -> Color32 {
+        self.pick(
+            Color32::from_rgb(79, 209, 196),
+            Color32::from_rgb(20, 116, 148),
+        )
+    }
     /// TTS Playground footer launcher — warm amber (dark) / terracotta (light).
     pub fn launch_tts(&self) -> Color32 {
         self.pick(

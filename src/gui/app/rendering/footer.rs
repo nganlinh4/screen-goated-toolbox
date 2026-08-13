@@ -43,7 +43,6 @@ impl SettingsApp {
                     ui,
                     &text,
                     FooterToggles {
-                        show_modal: &mut self.show_tips_modal,
                         show_computer_control: &mut self.show_computer_control_dialog,
                         show_screen_translate: &mut self.show_screen_translate_dialog,
                         show_pointer_gallery: &mut self.pointer_gallery.show_window,

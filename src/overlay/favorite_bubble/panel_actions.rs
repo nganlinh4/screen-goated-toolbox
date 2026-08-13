@@ -66,7 +66,7 @@ pub(super) fn activate_continuous_from_panel(preset_idx: usize) {
     if p_type == "image" {
         // IMAGE CONTINUOUS MODE: Directly enter non-blocking image continuous mode
         crate::overlay::image_continuous_mode::enter(
-            preset_idx,
+            crate::overlay::image_capture_target::ImageCaptureTarget::Preset(preset_idx),
             hotkey_name.clone(),
             (preset_idx as i32 * 1000) + 1,
         );

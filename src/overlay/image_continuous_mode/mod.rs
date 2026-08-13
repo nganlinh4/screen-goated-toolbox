@@ -12,7 +12,7 @@ pub(crate) use graphics::{FrozenSelectionRender, dim_pixels, render_frozen_with_
 use crate::GdiCapture;
 use crate::win_types::SendHbitmap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, Ordering};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
@@ -22,7 +22,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 // === STATE ===
 
 static IS_ACTIVE: AtomicBool = AtomicBool::new(false);
-static PRESET_IDX: AtomicUsize = AtomicUsize::new(0);
+static CAPTURE_TARGET: Mutex<crate::overlay::image_capture_target::ImageCaptureTarget> =
+    Mutex::new(crate::overlay::image_capture_target::ImageCaptureTarget::Preset(0));
 static TRIGGER_VK: AtomicU32 = AtomicU32::new(0);
 static TRIGGER_ID: AtomicI32 = AtomicI32::new(0);
 static HAS_RELEASED_SINCE_ACTIVATION: AtomicBool = AtomicBool::new(false);
@@ -80,12 +81,16 @@ pub fn is_active() -> bool {
     IS_ACTIVE.load(Ordering::SeqCst)
 }
 
-pub fn enter(preset_idx: usize, hotkey_name: String, hotkey_id: i32) {
+pub fn enter(
+    target: crate::overlay::image_capture_target::ImageCaptureTarget,
+    hotkey_name: String,
+    hotkey_id: i32,
+) {
     if IS_ACTIVE.load(Ordering::SeqCst) {
         return;
     }
 
-    PRESET_IDX.store(preset_idx, Ordering::SeqCst);
+    *CAPTURE_TARGET.lock().unwrap() = target;
     TRIGGER_ID.store(hotkey_id, Ordering::SeqCst);
     *HOTKEY_NAME.lock().unwrap() = hotkey_name;
 
@@ -114,22 +119,16 @@ pub fn enter(preset_idx: usize, hotkey_name: String, hotkey_id: i32) {
     crate::overlay::text_selection::set_image_continuous_badge(true);
 
     // NEW: Show activation notification manually since we detached from global state
-    let (p_id, h_name) = {
+    let (display_name, h_name) = {
         let name = HOTKEY_NAME.lock().unwrap().clone();
-        if let Ok(app) = crate::APP.lock() {
-            let id = app
-                .config
-                .presets
-                .get(preset_idx)
-                .map(|p| p.id.clone())
-                .unwrap_or_default();
-            (id, name)
-        } else {
-            (String::new(), name)
-        }
+        let language = crate::APP
+            .lock()
+            .map(|app| app.config.ui_language.clone())
+            .unwrap_or_else(|_| "en".to_string());
+        (target.localized_name(&language), name)
     };
-    if !p_id.is_empty() {
-        crate::overlay::continuous_mode::show_image_continuous_notification(&p_id, &h_name);
+    if !display_name.is_empty() {
+        crate::overlay::continuous_mode::show_image_continuous_notification(&display_name, &h_name);
     }
 
     // Spawn the dedicated thread that owns the Window AND the Hooks
@@ -137,7 +136,7 @@ pub fn enter(preset_idx: usize, hotkey_name: String, hotkey_id: i32) {
         overlay_thread_entry();
     });
 
-    crate::log_info!("[ImageContinuous] Mode entered for preset {}", preset_idx);
+    crate::log_info!("[ImageContinuous] Mode entered for target {target:?}");
 }
 
 pub fn exit() {
@@ -171,8 +170,8 @@ pub fn exit() {
     crate::log_info!("[ImageContinuous] Mode exited (Quit signal posted)");
 }
 
-pub fn get_preset_idx() -> usize {
-    PRESET_IDX.load(Ordering::SeqCst)
+pub fn get_target() -> crate::overlay::image_capture_target::ImageCaptureTarget {
+    *CAPTURE_TARGET.lock().unwrap()
 }
 
 pub fn get_trigger_id() -> i32 {

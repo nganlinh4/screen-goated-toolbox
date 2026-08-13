@@ -37,15 +37,15 @@ pub struct SceneCard {
     pub foreground_color: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SceneControls {
     pub hidden: bool,
-    pub dismiss_only: bool,
-    pub dismiss_always_visible: bool,
-    pub dismiss_anchor: Option<[i32; 4]>,
-    pub copy_all: bool,
+    pub control_anchor: Option<[i32; 4]>,
     pub control_color: Option<String>,
+    pub control_scale_percent: u16,
+    pub group_actions: bool,
+    pub edit_enabled: bool,
     pub copy_success: bool,
     pub has_undo: bool,
     pub has_redo: bool,
@@ -58,6 +58,31 @@ pub struct SceneControls {
     pub input_text: String,
     pub opacity_percent: u8,
     pub group_ids: Vec<isize>,
+}
+
+impl Default for SceneControls {
+    fn default() -> Self {
+        Self {
+            hidden: false,
+            control_anchor: None,
+            control_color: None,
+            control_scale_percent: 100,
+            group_actions: false,
+            edit_enabled: true,
+            copy_success: false,
+            has_undo: false,
+            has_redo: false,
+            nav_depth: 0,
+            max_nav_depth: 0,
+            tts_loading: false,
+            tts_speaking: false,
+            is_browsing: false,
+            is_editing: false,
+            input_text: String::new(),
+            opacity_percent: 100,
+            group_ids: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -121,8 +146,6 @@ pub struct SceneTheme {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ButtonAction {
-    DismissChain,
-    CopyAll,
     Copy,
     Undo,
     Redo,

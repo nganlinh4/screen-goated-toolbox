@@ -1,8 +1,6 @@
 //! Core logic: color picking, region capture, zoom, and magnification.
 
 use super::*;
-use crate::APP;
-use crate::overlay::process::start_processing_pipeline;
 use crate::overlay::selection::extract_crop_from_hbitmap_public;
 
 const ZOOM_STEP: f32 = 0.25;
@@ -56,24 +54,10 @@ pub(super) fn handle_region_capture(start_x: i32, start_y: i32, end_x: i32, end_
         return;
     }
 
-    let preset_idx = PRESET_IDX.load(Ordering::SeqCst);
-
     let capture_guard = GESTURE_CAPTURE.lock().unwrap();
     if let Some(capture) = capture_guard.as_ref() {
         let cropped = extract_crop_from_hbitmap_public(capture, rect);
-
-        // Prepare config on main app
-        let (config, preset) = if let Ok(mut app) = APP.lock() {
-            app.config.active_preset_idx = preset_idx;
-            (app.config.clone(), app.config.presets[preset_idx].clone())
-        } else {
-            return;
-        };
-
-        // Processing on separate thread
-        std::thread::spawn(move || {
-            start_processing_pipeline(cropped, rect, config, preset);
-        });
+        get_target().process(cropped, rect);
     }
 }
 

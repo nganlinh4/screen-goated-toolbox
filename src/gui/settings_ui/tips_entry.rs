@@ -3,7 +3,7 @@ use crate::gui::locale::WorkspaceLocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
 
-pub(super) fn render_tips_entry_button(
+pub(crate) fn render_tips_entry_button(
     ui: &mut egui::Ui,
     text: &WorkspaceLocaleText,
 ) -> egui::Response {
@@ -84,7 +84,10 @@ pub(super) fn render_tips_entry_button(
     };
     #[cfg(test)]
     ui.ctx().data_mut(|data| {
-        data.insert_temp(egui::Id::new("footer_tips_entry_test_rect"), response.rect);
+        data.insert_temp(
+            egui::Id::new("title_bar_tips_entry_test_rect"),
+            response.rect,
+        );
     });
     response
 }
@@ -94,7 +97,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn footer_entry_is_localized_and_matches_the_shared_fixture() {
+    fn title_bar_entry_is_localized_and_matches_the_shared_fixture() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../parity-fixtures/mobile-shell/usage-tips.json"
         ))
@@ -105,8 +108,11 @@ mod tests {
             .iter()
             .find(|case| case["name"] == "windows_static_entry_contract")
             .expect("Windows tips fixture case");
-        assert_eq!(windows_case["entry_surface"], "footer_button");
-        assert_eq!(windows_case["entry_placement"], "after_mini_app_launchers");
+        assert_eq!(windows_case["entry_surface"], "title_bar_button");
+        assert_eq!(
+            windows_case["entry_placement"],
+            "immediately_after_settings"
+        );
 
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(240.0, 40.0));
         for (language, expected_label) in [("en", "Tips"), ("vi", "Mẹo"), ("ko", "팁")] {
@@ -130,7 +136,7 @@ mod tests {
 
             let rect = context
                 .data(|data| {
-                    data.get_temp::<egui::Rect>(egui::Id::new("footer_tips_entry_test_rect"))
+                    data.get_temp::<egui::Rect>(egui::Id::new("title_bar_tips_entry_test_rect"))
                 })
                 .expect("footer Tips entry rect");
             assert!(

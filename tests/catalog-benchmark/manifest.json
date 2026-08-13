@@ -385,6 +385,58 @@
         { "source_text": "Playback Streams", "box_px": [294, 704, 124, 20] },
         { "source_text": "Notification Sounds", "box_px": [352, 729, 132, 21] }
       ]
+    },
+    {
+      "id": "localization-04-korean-player",
+      "difficulty": 1,
+      "image": "images/localization/04-vlc-korean.png",
+      "target_language": "Vietnamese",
+      "regions": [
+        { "source_text": "VLC 미디어 재생기", "box_px": [344, 4, 132, 23] },
+        { "source_text": "미디어(M) 재생(L) 오디오(A) 비디오(V) 자막(T) 도구(O) 보기(I) 도움말(H)", "box_px": [10, 29, 486, 23] }
+      ]
+    },
+    {
+      "id": "localization-05-japanese-mobile",
+      "difficulty": 2,
+      "image": "images/localization/05-mobile-wikipedia-japanese.png",
+      "target_language": "Vietnamese",
+      "regions": [
+        { "source_text": "最終編集: 9 時間前、Highcollar", "box_px": [103, 211, 373, 32] },
+        { "source_text": "関連ページ", "box_px": [32, 353, 145, 33] },
+        { "source_text": "ほぼ日刊イトイ新聞", "box_px": [214, 462, 297, 39] },
+        { "source_text": "MOTHERシリーズ", "box_px": [214, 602, 267, 40] },
+        { "source_text": "任天堂のコンピュータゲームシ...", "box_px": [214, 647, 365, 35] },
+        { "source_text": "宮本茂", "box_px": [214, 764, 121, 40] },
+        { "source_text": "日本のゲームクリエイター", "box_px": [214, 807, 319, 36] },
+        { "source_text": "Wikipedia®", "box_px": [31, 969, 172, 39] },
+        { "source_text": "コンテンツは、特に記載されていない限", "box_px": [32, 1048, 504, 36] },
+        { "source_text": "り、CC BY-SA 3.0のもとで利用可能です。", "box_px": [31, 1086, 557, 39] }
+      ]
+    },
+    {
+      "id": "localization-06-arabic-browser",
+      "difficulty": 3,
+      "image": "images/localization/06-firefox-arabic.png",
+      "target_language": "Vietnamese",
+      "regions": [
+        { "source_text": "فيرفكس", "box_px": [1497, 278, 96, 41] },
+        { "source_text": "المحتويات", "box_px": [1768, 337, 83, 26] },
+        { "source_text": "المقدمة", "box_px": [1785, 385, 70, 25] },
+        { "source_text": "التاريخ", "box_px": [1799, 427, 53, 25] },
+        { "source_text": "المميزات", "box_px": [1783, 464, 72, 25] },
+        { "source_text": "المعايير", "box_px": [1784, 501, 71, 25] },
+        { "source_text": "اللغات", "box_px": [1791, 538, 63, 25] },
+        { "source_text": "التسمية", "box_px": [1785, 575, 70, 25] },
+        { "source_text": "ميزات المتصفح", "box_px": [1724, 612, 131, 29] },
+        { "source_text": "النقد", "box_px": [1807, 649, 48, 25] },
+        { "source_text": "وقت البدء", "box_px": [1779, 686, 76, 25] },
+        { "source_text": "استخدام الذاكرة", "box_px": [1748, 723, 107, 25] },
+        { "source_text": "تنسيق صفحات الويب", "box_px": [1718, 760, 137, 26] },
+        { "source_text": "دعم تحميل الويندوز", "box_px": [1706, 797, 149, 27] },
+        { "source_text": "آراء المنافسين", "box_px": [1747, 834, 108, 26] },
+        { "source_text": "تاريخ الإصدارات", "box_px": [1734, 871, 121, 26] }
+      ]
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "catalog_contract": {
     "ordinal_markers": false,
     "stable_tip_ids": true,
@@ -50,8 +50,8 @@
   "cases": [
     {
       "name": "windows_static_entry_contract",
-      "entry_surface": "footer_button",
-      "entry_placement": "after_mini_app_launchers",
+      "entry_surface": "title_bar_button",
+      "entry_placement": "immediately_after_settings",
       "icon": "lightbulb",
       "icon_tone": "warning",
       "rotating_preview": false,

@@ -203,7 +203,19 @@ pub fn filled_icon_button(
     text: Color32,
     corner_radius: u8,
 ) -> egui::Response {
-    filled_icon_button_with_spacing(ui, icon, label, fill, text, corner_radius, (10.0, 6.0))
+    filled_icon_button_with_spacing(
+        ui,
+        icon,
+        label,
+        fill,
+        text,
+        corner_radius,
+        FilledIconButtonLayout {
+            minimum_horizontal_padding: 10.0,
+            icon_gap: 6.0,
+            text_style: egui::TextStyle::Button,
+        },
+    )
 }
 
 /// A horizontally compact [`filled_icon_button`] with the same control height.
@@ -218,7 +230,25 @@ pub fn compact_filled_icon_button(
     text: Color32,
     corner_radius: u8,
 ) -> egui::Response {
-    filled_icon_button_with_spacing(ui, icon, label, fill, text, corner_radius, (3.0, 3.0))
+    filled_icon_button_with_spacing(
+        ui,
+        icon,
+        label,
+        fill,
+        text,
+        corner_radius,
+        FilledIconButtonLayout {
+            minimum_horizontal_padding: 3.0,
+            icon_gap: 3.0,
+            text_style: egui::TextStyle::Small,
+        },
+    )
+}
+
+struct FilledIconButtonLayout {
+    minimum_horizontal_padding: f32,
+    icon_gap: f32,
+    text_style: egui::TextStyle,
 }
 
 fn filled_icon_button_with_spacing(
@@ -228,12 +258,11 @@ fn filled_icon_button_with_spacing(
     fill: Color32,
     text: Color32,
     corner_radius: u8,
-    spacing: (f32, f32),
+    layout: FilledIconButtonLayout,
 ) -> egui::Response {
-    let (minimum_horizontal_padding, icon_gap) = spacing;
     let label_galley = ui.painter().layout_no_wrap(
         label.to_string(),
-        egui::TextStyle::Button.resolve(ui.style()),
+        layout.text_style.resolve(ui.style()),
         text,
     );
     let icon_size = crate::gui::icons::ICON_MD;
@@ -241,9 +270,9 @@ fn filled_icon_button_with_spacing(
         .spacing()
         .button_padding
         .x
-        .max(minimum_horizontal_padding);
+        .max(layout.minimum_horizontal_padding);
     let button_size = egui::vec2(
-        h_pad + icon_size + icon_gap + label_galley.rect.width() + h_pad,
+        h_pad + icon_size + layout.icon_gap + label_galley.rect.width() + h_pad,
         ui.spacing()
             .interact_size
             .y
@@ -274,7 +303,7 @@ fn filled_icon_button_with_spacing(
     crate::gui::icons::paint_icon(painter, icon_rect, icon, text);
     painter.galley(
         egui::pos2(
-            icon_rect.right() + icon_gap,
+            icon_rect.right() + layout.icon_gap,
             button_rect.center().y - label_galley.rect.height() / 2.0,
         ),
         label_galley,

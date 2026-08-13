@@ -6,7 +6,7 @@ use windows::core::*;
 
 use super::event_handler::result_wnd_proc;
 use super::state::{
-    RefineContext, ResultDismissControl, ResultPresentation, WINDOW_STATES, WindowState, WindowType,
+    RefineContext, ResultControlOptions, ResultPresentation, WINDOW_STATES, WindowState, WindowType,
 };
 
 pub const CHAIN_PALETTE: [u32; 5] = [
@@ -147,7 +147,7 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
                 hwnd.0 as isize,
                 WindowState {
                     presentation: ResultPresentation::Standard,
-                    dismiss_control: None,
+                    control_options: None,
                     backdrop_data_url: None,
                     foreground_color: None,
                     copy_success: false,
@@ -211,18 +211,17 @@ pub fn create_text_only_result_window(
     backdrop_data_url: String,
     foreground_color: String,
     chain_id: String,
-    dismiss_control: Option<ResultDismissControl>,
+    control_options: Option<ResultControlOptions>,
 ) -> HWND {
     let hwnd = create_result_window_shell(params);
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
             state.presentation = ResultPresentation::TextOnly;
-            state.dismiss_control = dismiss_control;
+            state.control_options = control_options;
             state.backdrop_data_url = Some(backdrop_data_url);
             state.foreground_color = Some(foreground_color);
             state.chain_id = Some(chain_id);
-            state.opacity_percent = 100;
         }
     }
     unsafe {

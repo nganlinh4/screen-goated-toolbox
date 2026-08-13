@@ -11,6 +11,8 @@ Cargo.lock
 !/native/computer_control_protocol/Cargo.lock
 /native/computer_control_engine/target/
 /native/computer_control_protocol/target/
+/native/screen_text_detector_protocol/target/
+/native/screen_text_detector_worker/target/
 /native/language_catalog/target/
 .env
 .DS_Store
