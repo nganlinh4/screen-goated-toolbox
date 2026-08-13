@@ -85,6 +85,18 @@ fn result_card_outline_does_not_bleed_into_the_control_gap() {
 }
 
 #[test]
+fn text_only_cards_keep_the_fitter_without_card_chrome() {
+    assert!(DOCUMENT.contains("data-presentation=\"text_only\""));
+    assert!(DOCUMENT.contains("background:transparent!important;box-shadow:none"));
+    assert!(DOCUMENT.contains("const backdrop = document.createElement('img')"));
+    assert!(DOCUMENT.contains("model.backdrop_data_url || ''"));
+    assert!(DOCUMENT.contains("entry.directHost.style.setProperty('--text-color'"));
+    assert!(DOCUMENT.contains("window.__SGT_RUN_FIT__"));
+    assert!(DOCUMENT.contains("border-radius:3px;pointer-events:auto;user-select:text"));
+    assert!(DOCUMENT.contains("user-select:text;cursor:text"));
+}
+
+#[test]
 fn resizing_debounces_fit_without_penalizing_position_only_dragging() {
     assert!(DOCUMENT.contains("const resized = entry.card.clientWidth !== width"));
     assert!(DOCUMENT.contains("setTimeout(function() { queueFit(entry, entry.streaming); }, 40)"));

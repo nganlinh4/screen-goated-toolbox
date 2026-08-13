@@ -24,5 +24,8 @@ The benchmark keeps the downloaded source image unchanged apart from source-prov
 | `ocr/08-issue-list.png` | [ScreenSpot test row 850](https://huggingface.co/datasets/bevaya/ScreenSpot) | Apache-2.0 dataset | Source-provided 2560×1440 image |
 | `ocr/09-product-grid.png` | [ScreenSpot test row 1250](https://huggingface.co/datasets/bevaya/ScreenSpot) | Apache-2.0 dataset | Source-provided 2560×1440 image |
 | `ocr/10-handwritten-address.jpg` | [Gettysburg Address, Nicolay Copy, page 1](https://www.loc.gov/exhibits/gettysburg-address/exhibition-items.html#obj4) | Public-domain 1863 manuscript via Library of Congress | LOC enlarged image; reference follows the LOC Nicolay transcription |
+| `localization/01-comment-thread.png` | User-provided screenshot | Private benchmark fixture supplied for this feature diagnosis | Exact copied PNG; no editing or baked overlay |
+| `localization/02-mobile-settings.png` | [Commons app Settings screen](https://commons.wikimedia.org/wiki/File:Commons_app_Settings_screen.png) | CC BY-SA 4.0, Misaochan | Original 1080×1920 PNG |
+| `localization/03-desktop-audio.png` | [KDE System Settings audio screenshot](https://commons.wikimedia.org/wiki/File:KDE_System_Settings_5.23.90_audio_screenshot.png) | GPL free-software screenshot; screenshot by VulcanSphere | Original 1365×857 PNG |
 
 Review source pages before redistributing fixtures outside this repository; they remain the authority for attribution and license details.

@@ -73,7 +73,7 @@ fn public_field_names(source: &str) -> Vec<&str> {
 }
 
 #[test]
-fn locale_root_contains_only_the_sixteen_typed_sections() {
+fn locale_root_contains_only_the_seventeen_typed_sections() {
     let LocaleText {
         locale_code: _,
         badge: _,
@@ -87,6 +87,7 @@ fn locale_root_contains_only_the_sixteen_typed_sections() {
         tts_settings: _,
         tts_advanced: _,
         realtime: _,
+        screen_translate: _,
         shell: _,
         translation_gummy: _,
         tool_runtime: _,
@@ -109,6 +110,7 @@ fn locale_root_contains_only_the_sixteen_typed_sections() {
             "tts_settings",
             "tts_advanced",
             "realtime",
+            "screen_translate",
             "shell",
             "translation_gummy",
             "tool_runtime",
@@ -132,6 +134,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         ("tts_settings", include_str!("tts_settings.rs"), 29),
         ("tts_advanced", include_str!("tts_advanced.rs"), 35),
         ("realtime", include_str!("realtime.rs"), 32),
+        ("screen_translate", include_str!("screen_translate.rs"), 9),
         ("shell", include_str!("shell.rs"), 47),
         (
             "translation_gummy",
@@ -155,7 +158,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 523);
+    assert_eq!(owners.len(), 532);
     assert_eq!(owners["cancel_label"], "preset_basics");
     assert_eq!(owners["favorites_keep_open"], "shell");
     assert_eq!(owners["image_creator_btn"], "shell");
@@ -168,7 +171,7 @@ fn locale_leaf_fields_have_one_section_owner() {
 fn downloaded_tools_progress_and_cards_are_localized() {
     assert_eq!(
         public_field_names(include_str!("managed_tools.rs")).len(),
-        146
+        149
     );
     let english = LocaleText::get("en");
     for code in ["en", "ko", "vi"] {
@@ -191,6 +194,9 @@ fn downloaded_tools_progress_and_cards_are_localized() {
         for value in [
             managed.tool_screen_recorder_card,
             managed.tool_computer_control_card,
+            managed.tool_screen_translate_card,
+            managed.tool_screen_translate_detector,
+            managed.tool_desc_screen_translate_detector,
             managed.tool_creation_interface,
             managed.tool_prompt_dj_interface,
             managed.tool_tts_playground_interface,

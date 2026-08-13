@@ -179,6 +179,34 @@ pub fn resolve_next_retry_model(
     chain_kind: RetryChainKind,
     config: &Config,
 ) -> Option<ModelConfig> {
+    resolve_next_configured_model(
+        current_model_id,
+        failed_model_ids,
+        blocked_providers,
+        chain_kind,
+        config,
+    )
+    .or_else(|| {
+        let must_support_search =
+            model_supports_search_by_id_with_custom(current_model_id, &config.custom_models);
+        resolve_auto_retry_model(
+            current_model_id,
+            failed_model_ids,
+            blocked_providers,
+            &chain_kind.target_model_type(),
+            must_support_search,
+            config,
+        )
+    })
+}
+
+pub fn resolve_next_configured_model(
+    current_model_id: &str,
+    failed_model_ids: &[String],
+    blocked_providers: &HashSet<String>,
+    chain_kind: RetryChainKind,
+    config: &Config,
+) -> Option<ModelConfig> {
     let must_support_search =
         model_supports_search_by_id_with_custom(current_model_id, &config.custom_models);
 
@@ -204,15 +232,7 @@ pub fn resolve_next_retry_model(
             return Some(model);
         }
     }
-
-    resolve_auto_retry_model(
-        current_model_id,
-        failed_model_ids,
-        blocked_providers,
-        &chain_kind.target_model_type(),
-        must_support_search,
-        config,
-    )
+    None
 }
 
 fn resolve_auto_retry_model(
@@ -293,7 +313,8 @@ fn is_retry_candidate_compatible(
 #[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::{
-        RetryChainKind, preflight_skip_reason, rate_limit_error, resolve_next_retry_model,
+        RetryChainKind, preflight_skip_reason, rate_limit_error, resolve_next_configured_model,
+        resolve_next_retry_model,
     };
     use crate::config::Config;
     use std::collections::HashSet;
@@ -342,5 +363,24 @@ mod tests {
         assert_eq!(next.id, "google-gemini-3-1-flash-lite-vision");
         assert!(crate::model_config::model_supports_search_by_id_with_custom(&next.id, &[]));
         assert_ne!(next.id, "google-gemma-4-31b-vision");
+    }
+
+    #[test]
+    fn configured_retry_does_not_escape_the_priority_chain() {
+        let mut config = Config {
+            api_key: "test-groq-key".to_string(),
+            ..Default::default()
+        };
+        config.model_priority_chains.text_to_text = vec!["missing-model".to_string()];
+
+        let next = resolve_next_configured_model(
+            "",
+            &[],
+            &HashSet::new(),
+            RetryChainKind::TextToText,
+            &config,
+        );
+
+        assert!(next.is_none());
     }
 }

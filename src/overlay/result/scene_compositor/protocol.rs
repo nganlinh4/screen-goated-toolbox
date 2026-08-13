@@ -1,3 +1,4 @@
+use crate::overlay::result::ResultPresentation;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -28,11 +29,23 @@ pub struct SceneCard {
     pub stack_order: u64,
     #[serde(default)]
     pub controls: SceneControls,
+    #[serde(default)]
+    pub presentation: ResultPresentation,
+    #[serde(default)]
+    pub backdrop_data_url: Option<String>,
+    #[serde(default)]
+    pub foreground_color: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SceneControls {
+    pub hidden: bool,
+    pub dismiss_only: bool,
+    pub dismiss_always_visible: bool,
+    pub dismiss_anchor: Option<[i32; 4]>,
+    pub copy_all: bool,
+    pub control_color: Option<String>,
     pub copy_success: bool,
     pub has_undo: bool,
     pub has_redo: bool,
@@ -108,6 +121,8 @@ pub struct SceneTheme {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ButtonAction {
+    DismissChain,
+    CopyAll,
     Copy,
     Undo,
     Redo,
@@ -290,6 +305,9 @@ mod tests {
                 streaming: false,
                 streaming_enabled: false,
                 controls: SceneControls::default(),
+                presentation: ResultPresentation::Standard,
+                backdrop_data_url: None,
+                foreground_color: None,
             },
         };
 

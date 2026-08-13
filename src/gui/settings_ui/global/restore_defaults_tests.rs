@@ -77,7 +77,11 @@ const AUDIO: &[&str] = &[
     "voxtral_settings",
     "tts_playground",
 ];
-const SHORTCUTS: &[&str] = &["screen_record_window_size", "translation_gummy"];
+const SHORTCUTS: &[&str] = &[
+    "screen_record_window_size",
+    "screen_translate",
+    "translation_gummy",
+];
 const LOCAL_DATA: &[&str] = &["clear_webview_on_startup"];
 
 #[test]
@@ -270,6 +274,16 @@ fn each_category_resets_only_its_owned_fields() {
                     assert_eq!(
                         actual[*key],
                         serde_json::to_value(expected_gummy).unwrap(),
+                        "unexpected policy for {key}"
+                    );
+                    continue;
+                }
+                if *key == "screen_translate" {
+                    let mut expected_screen_translate = defaults.screen_translate.clone();
+                    expected_screen_translate.hotkeys = config.screen_translate.hotkeys.clone();
+                    assert_eq!(
+                        actual[*key],
+                        serde_json::to_value(expected_screen_translate).unwrap(),
                         "unexpected policy for {key}"
                     );
                     continue;
@@ -505,6 +519,8 @@ fn non_default_config() -> Config {
     config.translation_gummy.hotkey = Some(Hotkey::new(5, "Legacy", 6));
     config.translation_gummy.hotkeys = vec![Hotkey::new(7, "Gummy", 8)];
     config.translation_gummy.guide_seen = true;
+    config.screen_translate.target_language = "Korean".to_string();
+    config.screen_translate.hotkeys = vec![Hotkey::new(9, "Translate", 10)];
     config
 }
 

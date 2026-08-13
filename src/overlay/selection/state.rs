@@ -2,9 +2,8 @@
 // Static variables, atomics, and constants for selection overlay.
 
 use crate::win_types::{SendHbitmap, SendHwnd};
-use std::sync::Arc;
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex, mpsc::Sender};
 use windows::Win32::Foundation::{HMODULE, HWND, POINT};
 use windows::Win32::Graphics::Gdi::HBITMAP;
 use windows::Win32::UI::WindowsAndMessaging::HHOOK;
@@ -13,6 +12,8 @@ use windows_core::BOOL;
 // --- ABORT SIGNAL ---
 pub static SELECTION_ABORT_SIGNAL: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+pub(super) static CAPTURE_REQUEST: LazyLock<Mutex<Option<Sender<super::CapturedRegion>>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 // --- MAGNIFICATION API FFI ---
 pub type MagInitializeFn = unsafe extern "system" fn() -> BOOL;
@@ -83,4 +84,20 @@ pub static mut ZOOM_ALPHA_OVERRIDE: Option<u8> = None;
 
 pub fn is_selection_overlay_active() -> bool {
     SELECTION_OVERLAY_ACTIVE.load(Ordering::SeqCst)
+}
+
+pub(super) fn has_capture_request() -> bool {
+    CAPTURE_REQUEST
+        .lock()
+        .is_ok_and(|request| request.is_some())
+}
+
+pub(super) fn take_capture_request() -> Option<Sender<super::CapturedRegion>> {
+    CAPTURE_REQUEST.lock().ok()?.take()
+}
+
+pub(super) fn clear_capture_request() {
+    if let Ok(mut request) = CAPTURE_REQUEST.lock() {
+        *request = None;
+    }
 }

@@ -1,0 +1,191 @@
+//! Persistent host client for detector-owned Screen Translate geometry.
+
+mod client;
+mod process;
+
+use std::sync::atomic::AtomicBool;
+use std::sync::{LazyLock, Mutex};
+
+use anyhow::{Result, bail};
+use sgt_screen_text_detector_protocol::DetectedRegion;
+
+use super::contract::{DetectedTextRegion, MAX_CANDIDATES, NormalizedBounds};
+
+static CLIENT: LazyLock<Mutex<Option<client::DetectorClient>>> = LazyLock::new(|| Mutex::new(None));
+const MIN_TEXT_CONFIDENCE: f32 = 0.5;
+
+pub(super) fn prepare(cancelled: std::sync::Arc<AtomicBool>) {
+    let _ = std::thread::Builder::new()
+        .name("sgt-screen-text-detector-prepare".to_string())
+        .spawn(move || {
+            let mut client = CLIENT.lock().unwrap_or_else(|value| value.into_inner());
+            if client.is_none() {
+                match client::DetectorClient::start(&cancelled) {
+                    Ok(started) => *client = Some(started),
+                    Err(error) if !cancelled.load(std::sync::atomic::Ordering::SeqCst) => {
+                        crate::log_info!(
+                            "[Screen Translate] detector preparation failed: {error:#}"
+                        );
+                    }
+                    Err(_) => {}
+                }
+            }
+        });
+}
+
+pub(super) fn detect(
+    jpeg: &[u8],
+    expected_width: u32,
+    expected_height: u32,
+    cancelled: &AtomicBool,
+) -> Result<Vec<DetectedTextRegion>> {
+    let mut client = CLIENT.lock().unwrap_or_else(|value| value.into_inner());
+    if client.is_none() {
+        *client = Some(client::DetectorClient::start(cancelled)?);
+    }
+    let result = client
+        .as_mut()
+        .expect("detector client initialized")
+        .detect(jpeg, cancelled);
+    let (width, height, mut regions) = match result {
+        Ok(response) => response,
+        Err(error) => {
+            client.take();
+            return Err(error);
+        }
+    };
+    if width != expected_width || height != expected_height {
+        client.take();
+        bail!(
+            "text detector image dimensions changed: expected {expected_width}x{expected_height}, got {width}x{height}"
+        );
+    }
+
+    regions.retain(|region| {
+        region.right - region.left >= super::geometry::MIN_READABLE_WIDTH
+            && region.bottom - region.top >= super::geometry::MIN_READABLE_HEIGHT
+            && has_readable_recognition(region)
+    });
+
+    if regions.len() > MAX_CANDIDATES {
+        regions.sort_by(|left, right| {
+            right
+                .confidence
+                .total_cmp(&left.confidence)
+                .then_with(|| area(right).cmp(&area(left)))
+        });
+        regions.truncate(MAX_CANDIDATES);
+    }
+    regions.sort_by_key(|region| (region.top, region.left, region.bottom, region.right));
+    Ok(regions
+        .into_iter()
+        .enumerate()
+        .map(|(index, region)| {
+            let source_alternatives = recognition_candidates(&region);
+            DetectedTextRegion {
+                id: u16::try_from(index + 1).expect("candidate cap fits u16"),
+                bounds: normalized_bounds(&region, width, height),
+                source_text: source_alternatives[0].clone(),
+                source_alternatives,
+            }
+        })
+        .collect())
+}
+
+fn has_readable_recognition(region: &DetectedRegion) -> bool {
+    std::iter::once((region.text.as_str(), region.text_confidence))
+        .chain(
+            region
+                .alternatives
+                .iter()
+                .map(|candidate| (candidate.text.as_str(), candidate.confidence)),
+        )
+        .any(|(text, confidence)| {
+            confidence >= MIN_TEXT_CONFIDENCE && text.chars().any(char::is_alphabetic)
+        })
+}
+
+fn recognition_candidates(region: &DetectedRegion) -> Vec<String> {
+    let mut candidates = Vec::with_capacity(region.alternatives.len() + 1);
+    for text in std::iter::once(region.text.as_str()).chain(
+        region
+            .alternatives
+            .iter()
+            .map(|candidate| candidate.text.as_str()),
+    ) {
+        let text = text.trim();
+        if !text.is_empty() && !candidates.iter().any(|known| known == text) {
+            candidates.push(text.to_string());
+        }
+    }
+    candidates
+}
+
+pub(super) fn stop() {
+    CLIENT
+        .lock()
+        .unwrap_or_else(|value| value.into_inner())
+        .take();
+}
+
+fn area(region: &DetectedRegion) -> u64 {
+    u64::from(region.right - region.left) * u64::from(region.bottom - region.top)
+}
+
+fn normalized_bounds(region: &DetectedRegion, width: u32, height: u32) -> NormalizedBounds {
+    fn coordinate(value: u32, extent: u32) -> u16 {
+        let scaled = (u64::from(value) * 1000 + u64::from(extent) / 2) / u64::from(extent);
+        scaled.min(1000) as u16
+    }
+    fn axis(start: u16, end: u16) -> (u16, u16) {
+        if end > start {
+            return (start, end);
+        }
+        if start < 1000 {
+            (start, start + 1)
+        } else {
+            (999, 1000)
+        }
+    }
+    let (left, right) = axis(
+        coordinate(region.left, width),
+        coordinate(region.right, width),
+    );
+    let (top, bottom) = axis(
+        coordinate(region.top, height),
+        coordinate(region.bottom, height),
+    );
+    NormalizedBounds {
+        left,
+        top,
+        right,
+        bottom,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pixel_boxes_map_both_width_and_height_to_the_normalized_grid() {
+        let bounds = normalized_bounds(
+            &DetectedRegion {
+                left: 100,
+                top: 50,
+                right: 500,
+                bottom: 250,
+                confidence: 0.9,
+                text: "Settings".to_string(),
+                text_confidence: 0.95,
+                alternatives: Vec::new(),
+            },
+            1_000,
+            500,
+        );
+        assert_eq!(bounds.left, 100);
+        assert_eq!(bounds.right, 500);
+        assert_eq!(bounds.top, 100);
+        assert_eq!(bounds.bottom, 500);
+    }
+}

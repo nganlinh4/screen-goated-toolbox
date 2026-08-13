@@ -1,4 +1,5 @@
 mod history;
+mod localization_probe;
 mod manifest;
 mod reasoning;
 mod report;
@@ -67,4 +68,15 @@ fn catalog_benchmark_transport_probe() {
         "set CATALOG_BENCH_TRANSPORT_PROBE=1 for the non-history transport experiment"
     );
     transport_probe::run().expect("run catalog benchmark transport probe");
+}
+
+#[test]
+#[ignore = "requires CATALOG_BENCH_LOCALIZATION_PROBE=1 and real vision credentials"]
+fn catalog_benchmark_localization_probe() {
+    assert_eq!(
+        std::env::var("CATALOG_BENCH_LOCALIZATION_PROBE").as_deref(),
+        Ok("1"),
+        "set CATALOG_BENCH_LOCALIZATION_PROBE=1 for the non-history localization diagnostic"
+    );
+    localization_probe::run().expect("run screen-text localization probe");
 }

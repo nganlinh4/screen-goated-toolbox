@@ -4,6 +4,7 @@ use crate::config::types::PresetProfile;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GlobalHotkeyOwner {
     ScreenRecord,
+    ScreenTranslate,
     TranslationGummy,
     ComputerControl,
 }
@@ -151,6 +152,15 @@ impl Config {
             if h.code == vk && h.modifiers == mods {
                 return Some(HotkeyConflict::Global {
                     owner: GlobalHotkeyOwner::TranslationGummy,
+                    hotkey_name: h.name.clone(),
+                });
+            }
+        }
+
+        for h in &self.screen_translate.hotkeys {
+            if h.code == vk && h.modifiers == mods {
+                return Some(HotkeyConflict::Global {
+                    owner: GlobalHotkeyOwner::ScreenTranslate,
                     hotkey_name: h.name.clone(),
                 });
             }

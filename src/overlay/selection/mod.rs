@@ -18,12 +18,37 @@ use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
 
+pub struct CapturedRegion {
+    pub image: image::RgbaImage,
+    pub left: i32,
+    pub top: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 // Re-export public items
 pub use render::extract_crop_from_hbitmap_public;
 pub use state::is_selection_overlay_active;
 
 #[allow(static_mut_refs)]
 pub fn show_selection_overlay(preset_idx: usize, hotkey_id: i32) {
+    clear_capture_request();
+    show_overlay(preset_idx, hotkey_id);
+}
+
+pub fn show_capture_overlay(sender: std::sync::mpsc::Sender<CapturedRegion>) {
+    clear_capture_request();
+    if let Ok(mut request) = CAPTURE_REQUEST.lock() {
+        *request = Some(sender);
+    } else {
+        return;
+    }
+    show_overlay(0, 0);
+    clear_capture_request();
+}
+
+#[allow(static_mut_refs)]
+fn show_overlay(preset_idx: usize, hotkey_id: i32) {
     unsafe {
         CURRENT_PRESET_IDX = preset_idx;
         CURRENT_HOTKEY_ID = hotkey_id;
@@ -49,7 +74,12 @@ pub fn show_selection_overlay(preset_idx: usize, hotkey_id: i32) {
         }
 
         // Initialize Hotkey Tracking for Continuous Mode
-        if let Some((mods, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info() {
+        if has_capture_request() {
+            IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
+            TRIGGER_MODIFIERS = 0;
+            TRIGGER_VK_CODE = 0;
+        } else if let Some((mods, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info()
+        {
             TRIGGER_MODIFIERS = mods;
             TRIGGER_VK_CODE = vk;
 

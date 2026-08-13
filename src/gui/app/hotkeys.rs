@@ -133,6 +133,49 @@ impl SettingsApp {
         self.computer_control_hotkey_conflict_msg = None;
         self.save_and_sync();
     }
+
+    pub(crate) fn update_screen_translate_hotkey_recording(&mut self, ctx: &egui::Context) {
+        if !self.recording_screen_translate_hotkey {
+            return;
+        }
+
+        let mut key_recorded = None;
+        let mut cancel = false;
+        ctx.input(|input| {
+            if input.key_pressed(egui::Key::Escape) {
+                cancel = true;
+            } else {
+                let modifiers = current_modifiers_bitmap(input);
+                collect_keyboard_hotkey(input, modifiers, &mut key_recorded);
+                if key_recorded.is_none() {
+                    collect_mouse_hotkey(input, modifiers, &mut key_recorded);
+                }
+            }
+        });
+
+        if cancel {
+            self.recording_screen_translate_hotkey = false;
+            self.screen_translate_hotkey_conflict_msg = None;
+            return;
+        }
+        let Some((code, modifiers, key_name)) = key_recorded else {
+            return;
+        };
+
+        self.sync_global_hotkeys();
+        if let Some(conflict) = self.config.check_hotkey_conflict(code, modifiers, None) {
+            self.screen_translate_hotkey_conflict_msg = Some(conflict);
+            return;
+        }
+        self.config.screen_translate.hotkeys.push(Hotkey {
+            code,
+            modifiers,
+            name: format_hotkey_name(modifiers, key_name),
+        });
+        self.recording_screen_translate_hotkey = false;
+        self.screen_translate_hotkey_conflict_msg = None;
+        self.save_and_sync();
+    }
 }
 
 fn current_modifiers_bitmap(input: &egui::InputState) -> u32 {

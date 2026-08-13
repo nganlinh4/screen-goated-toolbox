@@ -68,16 +68,18 @@ pub(crate) fn run() -> i32 {
         super::raise_window(*hwnd);
     }
 
-    let passed = cards.iter().all(|(_, trace_id, _)| {
+    let rendered = cards.iter().all(|(_, trace_id, _)| {
         super::latency::wait_for_phase(trace_id, "final_fit_completed", Duration::from_secs(8))
     });
+    let restarted = super::scene_compositor::restart_and_wait(Duration::from_secs(10));
+    let passed = rendered && restarted;
     std::thread::sleep(Duration::from_millis(500));
     close_cards(&cards);
     for (_, _, thread) in cards {
         let _ = thread.join();
     }
     crate::debug_log::log_debug(&format!(
-        "[OverlaySmoke] status={} cards={CARD_COUNT}",
+        "[OverlaySmoke] status={} cards={CARD_COUNT} restart_restored={restarted}",
         if passed { "passed" } else { "failed" }
     ));
     std::thread::sleep(Duration::from_millis(150));

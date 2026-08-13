@@ -295,7 +295,10 @@ fn gemini_payload(
             "responseMimeType".to_string(),
             serde_json::json!("application/json"),
         );
-        gen_config.insert("responseJsonSchema".to_string(), schema.clone());
+        gen_config.insert(
+            "responseJsonSchema".to_string(),
+            super::gemini_schema::response_json_schema(schema),
+        );
     }
     if !gen_config.is_empty() {
         payload["generationConfig"] = serde_json::Value::Object(gen_config);

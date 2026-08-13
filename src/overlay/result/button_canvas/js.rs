@@ -2,22 +2,19 @@
 
 pub fn get_javascript() -> &'static str {
     r#"
-window.registeredWindows = {};
-window.L10N = #L10N_JSON#;
+window.registeredWindows = {}; window.L10N = #L10N_JSON#;
 window.iconSvgs = #ICON_SVGS_JSON#;
 let lastVisibleState = new Map();
 let lastSentRegions = new Map();
 let highestButtonStackOrder = 0;
 let cursorX = 0, cursorY = 0;
 const activeGrabbingSources = new Set();
-
 window.raiseWindowButtons = function(hwnd) {
     const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
     if (!group) return;
     highestButtonStackOrder += 1;
     group.style.zIndex = String(highestButtonStackOrder);
 };
-
 window.setWindowButtonStackOrder = function(hwnd, stackOrder) {
     const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
     if (!group) return;
@@ -34,7 +31,6 @@ function setResultDraggingCursor(active) {
     }
     applyGrabbingCursorState();
 }
-
 function setOpacityDraggingCursor(active) {
     if (active) {
         activeGrabbingSources.add("opacity");
@@ -43,7 +39,6 @@ function setOpacityDraggingCursor(active) {
     }
     applyGrabbingCursorState();
 }
-
 function applyGrabbingCursorState() {
     const html = document.documentElement;
     if (!html) return;
@@ -58,7 +53,6 @@ function applyGrabbingCursorState() {
 }
 
 window.setResultDraggingCursor = setResultDraggingCursor;
-
 window.updateOpacity = function(hwnd, value) {
     value = parseInt(value);
     window.ipc.postMessage(JSON.stringify({
@@ -73,13 +67,11 @@ window.updateOpacity = function(hwnd, value) {
         if (span) span.textContent = value + '%';
     }
 };
-
 window.updateCursorPosition = (x, y) => {
     cursorX = x;
     cursorY = y;
     updateButtonOpacity();
 };
-
 function updateButtonOpacity() {
     const groups = document.querySelectorAll('.button-group');
     let needsUpdate = false;
@@ -97,7 +89,7 @@ function updateButtonOpacity() {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         const maxRadius = 150;
-        let opacity = Math.max(0, Math.min(1, 1 - (dist / maxRadius)));
+        let opacity = group.classList.contains('proximity-pinned') ? 1 : Math.max(0, Math.min(1, 1 - (dist / maxRadius)));
 
         group.style.opacity = opacity;
 
@@ -134,7 +126,9 @@ function updateButtonOpacity() {
                 const isVertical = group.classList.contains('vertical');
                 let region;
 
-                if (isVertical) {
+                if (group.classList.contains('dismiss-only')) {
+                    region = { x: rect.left - 8, y: rect.top - 8, w: rect.width + 16, h: rect.height + 16 };
+                } else if (isVertical) {
                     region = {
                         x: rect.left + 1,
                         y: rect.top - 200,
@@ -175,12 +169,10 @@ function calculateButtonPosition(winRect) {
     const longDim = 300;
     const shortDim = 32;
     const margin = 4;
-
     const spaceBottom = screenH - (winRect.y + winRect.h);
     const spaceTop = winRect.y;
     const spaceRight = screenW - (winRect.x + winRect.w);
     const spaceLeft = winRect.x;
-
     const clamp = (val, max) => Math.max(0, Math.min(val, max));
 
     if (spaceBottom >= shortDim + margin) {
@@ -213,6 +205,15 @@ function calculateButtonPosition(winRect) {
 }
 
 function generateButtonsHTML(hwnd, state, isVertical) {
+    if (state.dismissOnly) {
+        let buttons = `<button class="btn dismiss-chain-btn"
+            onclick="action('${hwnd}', 'dismiss_chain')" title="${window.L10N.cancel}">${window.iconSvgs.close}</button>`;
+        if (state.copyAll) {
+            buttons += `<button class="btn copy-chain-btn ${state.copySuccess ? 'success' : ''}"
+                onclick="action('${hwnd}', 'copy_all')" title="${window.L10N.copy}">${window.iconSvgs[state.copySuccess ? 'check' : 'content_copy']}</button>`;
+        }
+        return buttons;
+    }
     const canGoBack = state.navDepth > 0;
     const canGoForward = state.navDepth < state.maxNavDepth;
     const isBrowsing = state.isBrowsing || false;
@@ -293,7 +294,6 @@ function generateButtonsHTML(hwnd, state, isVertical) {
 function handleResultDrag(e, hwnd) {
     if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
     setResultDraggingCursor(true);
-
     const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
     if (group) {
         group.style.opacity = '0';
@@ -354,6 +354,7 @@ function updateWindows(windowsData) {
     });
 
     for (const [hwnd, data] of Object.entries(windowsData)) {
+        const state = data.state || {};
         let pos = calculateButtonPosition(data.rect);
         let group = existingGroups.get(hwnd);
 
@@ -367,7 +368,6 @@ function updateWindows(windowsData) {
             existingGroups.delete(hwnd);
         }
 
-        const state = data.state || {};
         const { opacityPercent, ...structuralState } = state;
         const isVertical = pos.direction === 'left' || pos.direction === 'right';
         const newStateStr = JSON.stringify(structuralState) + isVertical;
@@ -381,19 +381,33 @@ function updateWindows(windowsData) {
             opacity.value = opacityPercent;
             if (opacityLabel) opacityLabel.textContent = opacityPercent + '%';
         }
-
+        if (state.controlColor) {
+            group.style.setProperty('--chain-control-color', state.controlColor);
+        } else {
+            group.style.removeProperty('--chain-control-color');
+        }
         if (isVertical) {
             group.classList.add('vertical');
         } else {
             group.classList.remove('vertical');
         }
-
+        group.classList.toggle('dismiss-only', Boolean(state.dismissOnly));
+        group.classList.toggle('proximity-pinned', Boolean(state.dismissAlwaysVisible));
         const actualW = group.offsetWidth || (isVertical ? 50 : 400);
         const actualH = group.offsetHeight || (isVertical ? 400 : 50);
-
+        if (state.dismissOnly) {
+            const raw = state.dismissAnchor, scale = window.devicePixelRatio || 1;
+            const anchor = Array.isArray(raw) && raw.length === 4
+                ? { x: raw[0] / scale, y: raw[1] / scale, w: raw[2] / scale, h: raw[3] / scale }
+                : data.rect;
+            let candidateX = anchor.x + anchor.w + 8; if (candidateX + actualW > screenW) candidateX = anchor.x - actualW - 8;
+            const finalX = Math.max(0, Math.min(candidateX, screenW - actualW));
+            const finalY = Math.max(0, Math.min(anchor.y, screenH - actualH));
+            group.style.left = finalX + 'px'; group.style.right = 'auto'; group.style.top = finalY + 'px'; group.style.bottom = 'auto';
+            continue;
+        }
         let finalX = pos.x;
         let finalY = pos.y;
-
         if (pos.direction === 'bottom') {
             finalX = data.rect.x + data.rect.w - actualW;
             finalY = data.rect.y + data.rect.h + 4;
@@ -412,7 +426,6 @@ function updateWindows(windowsData) {
             finalX = Math.max(data.rect.x, finalX);
             finalY = Math.max(data.rect.y, finalY);
         }
-
         const clamp = (val, size, max) => Math.max(0, Math.min(val, max - size));
 
         finalX = clamp(finalX, actualW, screenW);
@@ -450,150 +463,5 @@ function updateWindows(windowsData) {
 }
 
 window.updateWindows = updateWindows;
-
-function generateRefineInputHTML(hwnd, state) {
-    const micSvg = window.iconSvgs.mic;
-    const sendSvg = window.iconSvgs.send;
-
-    return `<div class="refine-bar">
-        <input type="text"
-               id="input-${hwnd}"
-               class="refine-input"
-               placeholder="${window.L10N.overlay_refine_placeholder || 'Refine...'}"
-               value="${state.inputText || ''}"
-               onkeydown="handleRefineKey(event, '${hwnd}')"
-               oninput="handleInput(event, '${hwnd}')"
-               onfocus="ensureNativeFocus('${hwnd}');"
-               onclick="ensureNativeFocus('${hwnd}');"
-               autofocus
-               autocomplete="off">
-        <div class="refine-action-btn"
-             onmousedown="event.preventDefault();"
-             onclick="action('${hwnd}', 'mic')">
-            ${micSvg}
-        </div>
-        <div class="refine-action-btn send" onclick="submitRefine('${hwnd}')">
-            ${sendSvg}
-        </div>
-        <div class="btn" style="width:24px;height:24px;border:none;background:transparent;box-shadow:none;cursor:pointer;display:flex;align-items:center;justify-content:center;"
-            onclick="action('${hwnd}', 'cancel_refine')"
-            title="${window.L10N.cancel}">
-            <span style="font-size:14px;color:var(--refine-placeholder);pointer-events:none;">✕</span>
-        </div>
-    </div>`;
-}
-
-let focusedInput = null;
-let selectionStart = 0;
-let selectionEnd = 0;
-let inputValues = new Map();
-
-function ensureNativeFocus(hwnd) {
-    window.focus();
-    window.ipc.postMessage(JSON.stringify({ action: "request_focus", hwnd: hwnd }));
-}
-
-function handleInput(e, hwnd) {
-    ensureNativeFocus(hwnd);
-    inputValues.set(hwnd, e.target.value);
-}
-
-function handleRefineKey(e, hwnd) {
-    ensureNativeFocus(hwnd);
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        submitRefine(hwnd);
-    } else if (e.key === 'Escape') {
-        e.preventDefault();
-        action(hwnd, 'cancel_refine');
-    } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        const val = inputValues.get(hwnd) || '';
-        window.ipc.postMessage(JSON.stringify({
-            action: 'history_up_refine',
-            hwnd: hwnd,
-            text: val
-        }));
-    } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        const val = inputValues.get(hwnd) || '';
-        window.ipc.postMessage(JSON.stringify({
-            action: 'history_down_refine',
-            hwnd: hwnd,
-            text: val
-        }));
-    }
-
-    focusedInput = e.target.id;
-    selectionStart = e.target.selectionStart;
-    selectionEnd = e.target.selectionEnd;
-}
-
-function submitRefine(hwnd) {
-    const inputId = 'input-' + hwnd;
-    const el = document.getElementById(inputId);
-    const text = el ? el.value : (inputValues.get(hwnd) || '');
-    if (text && text.trim().length > 0) {
-        window.ipc.postMessage(JSON.stringify({
-            action: 'submit_refine',
-            hwnd: hwnd,
-            text: text
-        }));
-        inputValues.delete(hwnd);
-    }
-}
-
-window.setRefineText = (hwnd, text, isInsert) => {
-    const inputId = 'input-' + hwnd;
-    const el = document.getElementById(inputId);
-    if (el) {
-        if (isInsert) {
-            const start = el.selectionStart;
-            const end = el.selectionEnd;
-            const val = el.value;
-            el.value = val.substring(0, start) + text + val.substring(end);
-            el.selectionStart = el.selectionEnd = start + text.length;
-        } else {
-            el.value = text;
-        }
-        inputValues.set(hwnd, el.value);
-        el.focus();
-    }
-};
-
-const originalUpdateWindows = window.updateWindows;
-window.updateWindows = function(data) {
-    const activeEl = document.activeElement;
-    if (activeEl && activeEl.tagName === 'INPUT') {
-        focusedInput = activeEl.id;
-        selectionStart = activeEl.selectionStart;
-        selectionEnd = activeEl.selectionEnd;
-    }
-
-    originalUpdateWindows(data);
-
-    let focusedFound = false;
-    if (focusedInput) {
-        const el = document.getElementById(focusedInput);
-        if (el) {
-            el.focus();
-            focusedFound = true;
-            const trackingHwnd = focusedInput.replace('input-', '');
-            if (inputValues.has(trackingHwnd)) {
-                el.value = inputValues.get(trackingHwnd);
-            }
-            try {
-                el.setSelectionRange(selectionStart, selectionEnd);
-            } catch(e) {}
-        }
-    }
-
-    if (!focusedFound) {
-        const editBars = document.querySelectorAll('.refine-input');
-        if (editBars.length > 0) {
-            editBars[0].focus();
-        }
-    }
-};
 "#
 }

@@ -102,6 +102,8 @@ fn button_action(id: isize, name: &str, message: &serde_json::Value) -> Option<C
             .to_string()
     };
     let action = match name {
+        "dismiss_chain" => ButtonAction::DismissChain,
+        "copy_all" => ButtonAction::CopyAll,
         "copy" => ButtonAction::Copy,
         "undo" => ButtonAction::Undo,
         "redo" => ButtonAction::Redo,
@@ -326,6 +328,20 @@ mod tests {
             })
         );
         assert!(button_action(42, "unknown", &message).is_none());
+        assert_eq!(
+            button_action(42, "dismiss_chain", &message),
+            Some(ChildEvent::ButtonAction {
+                id: 42,
+                action: ButtonAction::DismissChain
+            })
+        );
+        assert_eq!(
+            button_action(42, "copy_all", &message),
+            Some(ChildEvent::ButtonAction {
+                id: 42,
+                action: ButtonAction::CopyAll
+            })
+        );
     }
 
     #[test]

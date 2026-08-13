@@ -11,8 +11,24 @@ pub struct Manifest {
     pub text_cases: Vec<TextCase>,
     pub coordinate_cases: Vec<CoordinateCase>,
     pub ocr_cases: Vec<OcrCase>,
+    pub localization_cases: Vec<LocalizationCase>,
     #[serde(skip)]
     root: PathBuf,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LocalizationCase {
+    pub id: String,
+    pub difficulty: u8,
+    pub image: String,
+    pub target_language: String,
+    pub regions: Vec<LocalizationRegion>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LocalizationRegion {
+    pub source_text: String,
+    pub box_px: [u32; 4],
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -120,6 +136,13 @@ impl Manifest {
                 .iter()
                 .map(|case| (&case.id, case.difficulty)),
         )?;
+        validate_difficulties(
+            "localization",
+            3,
+            self.localization_cases
+                .iter()
+                .map(|case| (&case.id, case.difficulty)),
+        )?;
 
         for case in &self.text_cases {
             ensure!(
@@ -216,6 +239,33 @@ impl Manifest {
                 "{} has a blank alternate OCR reference",
                 case.id
             );
+        }
+        for case in &self.localization_cases {
+            let path = self.image_path(&case.image);
+            let image = image::open(&path).with_context(|| format!("decode {}", path.display()))?;
+            ensure!(
+                !case.target_language.trim().is_empty(),
+                "{} has no target language",
+                case.id
+            );
+            ensure!(!case.regions.is_empty(), "{} has no gold regions", case.id);
+            for region in &case.regions {
+                ensure!(
+                    !region.source_text.trim().is_empty(),
+                    "{} has an empty source region",
+                    case.id
+                );
+                let [x, y, width, height] = region.box_px;
+                ensure!(width >= 2 && height >= 2, "{} has an empty region", case.id);
+                ensure!(
+                    x.saturating_add(width) <= image.width()
+                        && y.saturating_add(height) <= image.height(),
+                    "{} region is outside its {}x{} image",
+                    case.id,
+                    image.width(),
+                    image.height()
+                );
+            }
         }
         ensure!(
             representative_coordinate_cases >= latency_policy.minimum_cases_per_suite,

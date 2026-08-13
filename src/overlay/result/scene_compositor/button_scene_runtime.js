@@ -36,7 +36,7 @@
     const scale = window.devicePixelRatio || 1;
     const windows = {};
     for (const [key, model] of models) {
-      if (!model.visible || !model.controlRect || !model.controls) continue;
+      if (!model.visible || !model.controlRect || !model.controls || model.controls.hidden) continue;
       windows[key] = {
         rect: {
           x: model.controlRect.x / scale,

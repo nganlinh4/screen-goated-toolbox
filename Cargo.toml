@@ -70,6 +70,7 @@ windows-core = "0.62"
 sgt-local-asr-protocol = { path = "native/local_asr_protocol" }
 sgt-recorder-protocol = { path = "native/recorder_protocol" }
 sgt-computer-control-protocol = { path = "native/computer_control_protocol" }
+sgt-screen-text-detector-protocol = { path = "native/screen_text_detector_protocol" }
 parking_lot = "0.12"
 libloading = "0.8"
 

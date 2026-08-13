@@ -8,6 +8,7 @@ use super::protocol::{
     ChildEvent, HostCommand, SceneAppearance, SceneCard, SceneFinalize, SceneGeometry, SceneRect,
     SceneStream, SceneTheme,
 };
+use crate::overlay::result::ResultPresentation;
 use crate::overlay::result::markdown_view::conversion::render_for_compositor;
 use crate::overlay::result::state::WINDOW_STATES;
 use std::collections::HashMap;
@@ -70,6 +71,9 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
             state.opacity_percent,
             state.is_streaming_active,
             state.streaming_enabled,
+            state.presentation,
+            state.backdrop_data_url.clone(),
+            state.foreground_color.clone(),
         )
     };
 
@@ -78,7 +82,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
     let document = rendered
         .isolated_document
         .map(|document| with_card_bridge(with_fit(document)));
-    let Some(geometry) = read_geometry(hwnd, requested_visible) else {
+    let Some(geometry) = read_geometry(hwnd, requested_visible, snapshot.8) else {
         return;
     };
     let controls = super::controls::snapshot(hwnd_key).unwrap_or_default();
@@ -101,6 +105,9 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         streaming_enabled: snapshot.7,
         stack_order,
         controls,
+        presentation: snapshot.8,
+        backdrop_data_url: snapshot.9,
+        foreground_color: snapshot.10,
     };
 
     let previous = scenes.insert(hwnd_key, card.clone());
@@ -161,7 +168,13 @@ pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
         remove_window(hwnd);
         return;
     }
-    let Some(geometry) = read_geometry(hwnd, requested_visible) else {
+    let presentation = WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get(&(hwnd.0 as isize))
+        .map(|state| state.presentation)
+        .unwrap_or_default();
+    let Some(geometry) = read_geometry(hwnd, requested_visible, presentation) else {
         return;
     };
     let updated = {
@@ -183,7 +196,11 @@ pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
     }
 }
 
-fn read_geometry(hwnd: HWND, requested_visible: bool) -> Option<SceneGeometry> {
+fn read_geometry(
+    hwnd: HWND,
+    requested_visible: bool,
+    presentation: ResultPresentation,
+) -> Option<SceneGeometry> {
     let mut screen_rect = RECT::default();
     unsafe { GetWindowRect(hwnd, &mut screen_rect) }.ok()?;
     let virtual_x = unsafe {
@@ -196,13 +213,17 @@ fn read_geometry(hwnd: HWND, requested_visible: bool) -> Option<SceneGeometry> {
             windows::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN,
         )
     };
+    let (x_inset, y_inset, width_inset, height_inset) = match presentation {
+        ResultPresentation::Standard => (4, 2, 8, 4),
+        ResultPresentation::TextOnly => (0, 0, 0, 0),
+    };
     Some(SceneGeometry {
         id: hwnd.0 as isize,
         rect: SceneRect {
-            x: screen_rect.left - virtual_x + 4,
-            y: screen_rect.top - virtual_y + 2,
-            width: (screen_rect.right - screen_rect.left - 8).max(1),
-            height: (screen_rect.bottom - screen_rect.top - 4).max(1),
+            x: screen_rect.left - virtual_x + x_inset,
+            y: screen_rect.top - virtual_y + y_inset,
+            width: (screen_rect.right - screen_rect.left - width_inset).max(1),
+            height: (screen_rect.bottom - screen_rect.top - height_inset).max(1),
         },
         control_rect: SceneRect {
             x: screen_rect.left - virtual_x,

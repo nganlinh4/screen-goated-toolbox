@@ -44,6 +44,13 @@ pub unsafe extern "system" fn hotkey_proc(
 
 /// Handle a hotkey message.
 fn handle_hotkey(id: i32) {
+    if (crate::hotkey::SCREEN_TRANSLATE_HOTKEY_ID..crate::hotkey::COMPUTER_CONTROL_HOTKEY_ID)
+        .contains(&id)
+    {
+        overlay::screen_translate::translate_screen();
+        return;
+    }
+
     if (crate::hotkey::COMPUTER_CONTROL_HOTKEY_ID..crate::hotkey::TRANSLATION_GUMMY_HOTKEY_ID)
         .contains(&id)
     {

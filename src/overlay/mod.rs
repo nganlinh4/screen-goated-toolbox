@@ -24,6 +24,7 @@ pub mod prompt_dj;
 pub mod recording;
 pub mod result;
 pub mod screen_record;
+pub mod screen_translate;
 pub mod selection; // Made public for extract_crop_from_hbitmap_public
 pub(crate) mod status_compositor;
 pub mod text_input; // NEW MODULE
@@ -62,7 +63,7 @@ pub mod window_selector;
 pub use recording::{
     is_recording_overlay_active, show_recording_overlay, stop_recording_and_submit,
 };
-pub use selection::{is_selection_overlay_active, show_selection_overlay};
+pub use selection::{is_selection_overlay_active, show_capture_overlay, show_selection_overlay};
 pub use text_selection::show_text_selection_tag;
 // Use the new WebView2-based realtime overlay
 /// Mutex to ensure only one WebView is being initialized at a time globally.

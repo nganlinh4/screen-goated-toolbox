@@ -1,4 +1,8 @@
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+
+const DORMANT: u8 = 0;
+const ACTIVE: u8 = 1;
+const FINISHED: u8 = 2;
 
 /// Localized, throttled ownership wrapper for component-download progress.
 ///
@@ -6,9 +10,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 /// drop path only hides the notification if this download still owns it.
 pub struct DownloadProgressBadge {
     title: String,
+    initial_message: String,
     progress_message: String,
     last_percent: AtomicU32,
-    finished: AtomicBool,
+    state: AtomicU8,
 }
 
 impl DownloadProgressBadge {
@@ -28,12 +33,12 @@ impl DownloadProgressBadge {
     }
 
     fn with_messages(title: &str, initial_message: &str, progress_message: &str) -> Self {
-        super::show_progress_notification(title, initial_message, 0.0);
         Self {
             title: title.to_string(),
+            initial_message: initial_message.to_string(),
             progress_message: progress_message.to_string(),
-            last_percent: AtomicU32::new(0),
-            finished: AtomicBool::new(false),
+            last_percent: AtomicU32::new(u32::MAX),
+            state: AtomicU8::new(DORMANT),
         }
     }
 
@@ -42,6 +47,9 @@ impl DownloadProgressBadge {
     }
 
     pub fn report_with_message(&self, downloaded: u64, total: u64, message: &str) {
+        if !self.start() {
+            return;
+        }
         let percent = downloaded
             .saturating_mul(100)
             .checked_div(total.max(1))
@@ -54,11 +62,40 @@ impl DownloadProgressBadge {
 
     #[cfg(not(feature = "recorder-worker"))]
     pub fn set_phase(&self, message: &str, progress: f32) {
+        if !self.start() {
+            return;
+        }
         super::update_progress_notification_if_owned(&self.title, message, progress);
     }
 
+    /// Make the progress surface visible once real component work has begun.
+    ///
+    /// Constructors are intentionally silent. Readiness checks commonly create
+    /// a badge before discovering that the verified component is already
+    /// installed; rendering at construction time made every open look like a
+    /// fresh download even though no network request occurred.
+    fn start(&self) -> bool {
+        loop {
+            match self.state.load(Ordering::Acquire) {
+                ACTIVE => return true,
+                FINISHED => return false,
+                DORMANT => {
+                    if self
+                        .state
+                        .compare_exchange(DORMANT, ACTIVE, Ordering::AcqRel, Ordering::Acquire)
+                        .is_ok()
+                    {
+                        super::show_progress_notification(&self.title, &self.initial_message, 0.0);
+                        return true;
+                    }
+                }
+                _ => unreachable!("invalid download badge state"),
+            }
+        }
+    }
+
     pub fn finish(&self) {
-        if !self.finished.swap(true, Ordering::AcqRel) {
+        if self.state.swap(FINISHED, Ordering::AcqRel) == ACTIVE {
             super::hide_progress_notification_for(&self.title);
         }
     }
@@ -67,5 +104,19 @@ impl DownloadProgressBadge {
 impl Drop for DownloadProgressBadge {
     fn drop(&mut self) {
         self.finish();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn readiness_only_badge_stays_silent() {
+        let badge = DownloadProgressBadge::with_messages("component", "preparing", "downloading");
+        assert_eq!(badge.state.load(Ordering::Acquire), DORMANT);
+        badge.finish();
+        assert_eq!(badge.state.load(Ordering::Acquire), FINISHED);
+        assert!(!badge.start());
     }
 }

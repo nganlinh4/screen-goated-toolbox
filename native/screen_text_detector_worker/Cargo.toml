@@ -1,0 +1,22 @@
+[package]
+name = "sgt-screen-text-detector-worker"
+version = "3.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1.0"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "api-24", "directml", "load-dynamic"] }
+sgt-screen-text-detector-protocol = { path = "../screen_text_detector_protocol" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+debug = 0

@@ -128,6 +128,7 @@ fn migrate_config(config: &mut Config) {
         &custom_models,
     );
     normalize_translation_gummy_settings(config);
+    config.screen_translate = config.screen_translate.clone().normalized();
     normalize_removed_tts_methods(config);
 
     if config.realtime_translation_model == "taalas-rt" {

@@ -1,0 +1,198 @@
+use std::cmp::Ordering;
+
+use sgt_screen_text_detector_protocol::{DetectedRegion, MAX_REGIONS};
+
+const PIXEL_THRESHOLD: f32 = 0.3;
+const BOX_THRESHOLD: f32 = 0.6;
+const UNCLIP_RATIO: f32 = 1.5;
+const MIN_SIDE: u32 = 3;
+
+#[derive(Clone, Copy, Debug)]
+struct ComponentBox {
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+}
+
+impl ComponentBox {
+    fn width(self) -> u32 {
+        self.right - self.left + 1
+    }
+
+    fn height(self) -> u32 {
+        self.bottom - self.top + 1
+    }
+}
+
+pub(crate) fn extract_regions(
+    probabilities: &[f32],
+    map_width: u32,
+    map_height: u32,
+    image_width: u32,
+    image_height: u32,
+) -> Vec<DetectedRegion> {
+    let expected = map_width as usize * map_height as usize;
+    if probabilities.len() != expected || expected == 0 {
+        return Vec::new();
+    }
+    let mut visited = vec![false; expected];
+    let mut regions = Vec::new();
+    for index in 0..expected {
+        if regions.len() >= MAX_REGIONS || visited[index] || probabilities[index] <= PIXEL_THRESHOLD
+        {
+            continue;
+        }
+        let bounds = visit_component(probabilities, &mut visited, index, map_width, map_height);
+        if bounds.width().min(bounds.height()) < MIN_SIDE {
+            continue;
+        }
+        let confidence = rectangle_mean(probabilities, map_width, bounds);
+        if confidence < BOX_THRESHOLD {
+            continue;
+        }
+        let expanded = expand_box(bounds, map_width, map_height);
+        if expanded.width().min(expanded.height()) < MIN_SIDE + 2 {
+            continue;
+        }
+        regions.push(scale_box(
+            expanded,
+            confidence,
+            map_width,
+            map_height,
+            image_width,
+            image_height,
+        ));
+    }
+    regions.retain(|region| region.left < region.right && region.top < region.bottom);
+    regions.sort_by(reading_order);
+    regions
+}
+
+fn visit_component(
+    probabilities: &[f32],
+    visited: &mut [bool],
+    start: usize,
+    width: u32,
+    height: u32,
+) -> ComponentBox {
+    let mut stack = vec![start];
+    visited[start] = true;
+    let mut bounds = ComponentBox {
+        left: start as u32 % width,
+        top: start as u32 / width,
+        right: start as u32 % width,
+        bottom: start as u32 / width,
+    };
+    while let Some(index) = stack.pop() {
+        let x = index as u32 % width;
+        let y = index as u32 / width;
+        bounds.left = bounds.left.min(x);
+        bounds.top = bounds.top.min(y);
+        bounds.right = bounds.right.max(x);
+        bounds.bottom = bounds.bottom.max(y);
+        let x0 = x.saturating_sub(1);
+        let y0 = y.saturating_sub(1);
+        let x1 = (x + 1).min(width - 1);
+        let y1 = (y + 1).min(height - 1);
+        for neighbor_y in y0..=y1 {
+            for neighbor_x in x0..=x1 {
+                let neighbor = (neighbor_y * width + neighbor_x) as usize;
+                if !visited[neighbor] && probabilities[neighbor] > PIXEL_THRESHOLD {
+                    visited[neighbor] = true;
+                    stack.push(neighbor);
+                }
+            }
+        }
+    }
+    bounds
+}
+
+fn rectangle_mean(probabilities: &[f32], width: u32, bounds: ComponentBox) -> f32 {
+    let mut total = 0.0_f32;
+    let mut count = 0_u32;
+    for y in bounds.top..=bounds.bottom {
+        let row = y as usize * width as usize;
+        for x in bounds.left..=bounds.right {
+            total += probabilities[row + x as usize];
+            count += 1;
+        }
+    }
+    total / count.max(1) as f32
+}
+
+fn expand_box(bounds: ComponentBox, width: u32, height: u32) -> ComponentBox {
+    let box_width = bounds.width() as f32;
+    let box_height = bounds.height() as f32;
+    let distance = box_width * box_height * UNCLIP_RATIO / (2.0 * (box_width + box_height));
+    ComponentBox {
+        left: (bounds.left as f32 - distance).floor().max(0.0) as u32,
+        top: (bounds.top as f32 - distance).floor().max(0.0) as u32,
+        right: (bounds.right as f32 + distance)
+            .ceil()
+            .min((width - 1) as f32) as u32,
+        bottom: (bounds.bottom as f32 + distance)
+            .ceil()
+            .min((height - 1) as f32) as u32,
+    }
+}
+
+fn scale_box(
+    bounds: ComponentBox,
+    confidence: f32,
+    map_width: u32,
+    map_height: u32,
+    image_width: u32,
+    image_height: u32,
+) -> DetectedRegion {
+    let scale_x = image_width as f64 / map_width as f64;
+    let scale_y = image_height as f64 / map_height as f64;
+    DetectedRegion {
+        left: (bounds.left as f64 * scale_x).round() as u32,
+        top: (bounds.top as f64 * scale_y).round() as u32,
+        right: (((bounds.right + 1) as f64 * scale_x).round() as u32).min(image_width),
+        bottom: (((bounds.bottom + 1) as f64 * scale_y).round() as u32).min(image_height),
+        confidence: confidence.clamp(0.0, 1.0),
+        text: String::new(),
+        text_confidence: 0.0,
+        alternatives: Vec::new(),
+    }
+}
+
+fn reading_order(left: &DetectedRegion, right: &DetectedRegion) -> Ordering {
+    let tolerance = ((left.bottom - left.top).min(right.bottom - right.top) / 2).max(2);
+    if left.top.abs_diff(right.top) <= tolerance {
+        left.left
+            .cmp(&right.left)
+            .then_with(|| left.top.cmp(&right.top))
+    } else {
+        left.top
+            .cmp(&right.top)
+            .then_with(|| left.left.cmp(&right.left))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connected_probability_regions_expand_and_sort() {
+        let mut map = vec![0.0_f32; 32 * 32];
+        for y in 4..8 {
+            for x in 10..20 {
+                map[y * 32 + x] = 0.9;
+            }
+        }
+        for y in 20..24 {
+            for x in 2..12 {
+                map[y * 32 + x] = 0.8;
+            }
+        }
+        let regions = extract_regions(&map, 32, 32, 320, 160);
+        assert_eq!(regions.len(), 2);
+        assert!(regions[0].top < regions[1].top);
+        assert!(regions[0].left < 100 && regions[0].right > 200);
+        assert!(regions.iter().all(|region| region.confidence >= 0.79));
+    }
+}

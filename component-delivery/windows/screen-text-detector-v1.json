@@ -1,0 +1,43 @@
+{
+  "architecture": "x64",
+  "component": {
+    "asset": "screen-text-detector-3.1.0-1a47a4766a72401a.zip",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.1.0-1a47a4766a72401a.zip",
+    "files": [
+      {"path": "bin/x64/sgt-screen-text-detector-worker.exe", "sha256": "eea958d7011c478367a1f7adb6be0b8dfaa637ef9dfa30301eebc5b5b63efe01", "sizeBytes": 778240},
+      {"path": "licenses/PP-OCRv5-mobile-det-README.md", "sha256": "951c155673ac6c15feb85857c9024a62266e5956d15319ce578a8f508f399d66", "sizeBytes": 1828},
+      {"path": "licenses/PaddleOCR-LICENSE.txt", "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90", "sizeBytes": 10850},
+      {"path": "licenses/PaddleOCR-MODELS.json", "sha256": "844d8fb665c4ae3efe1e3171a2e76ffd77dc234d237020db40965531ae7dfd5b", "sizeBytes": 2969},
+      {"path": "licenses/THIRD-PARTY-LICENSES.json", "sha256": "d29333d69554d6a7fc8ac979fd75889a2dd3c457b748a4b77c1a1f15495880e2", "sizeBytes": 557536},
+      {"path": "licenses/THIRD-PARTY-NOTICES.txt", "sha256": "67a7006def16c16b1429fac5b659746d649e286c68a5f7655a7aa70d6fab3a41", "sizeBytes": 422710},
+      {"path": "models/pp-ocr-screen-text/detector.onnx", "sha256": "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d", "sizeBytes": 4826518},
+      {"path": "models/pp-ocr-screen-text/detector.ort", "sha256": "39133f78eb2cac057bfd4d66ec08e94f8cf5e921da9075bcf2bd68cfbbb91b36", "sizeBytes": 4989616},
+      {"path": "models/pp-ocr-screen-text/recognizers.json", "sha256": "db3531a3f6f75b7fd4f03d498b2f207c2b461182107c96efd5d28e98d263a849", "sizeBytes": 866},
+      {"path": "models/pp-ocr-screen-text/recognizers/arabic/config.yml", "sha256": "21368419e6c016c31db55d316d59e11c128e1913e6e6fe10287084710043d3a6", "sizeBytes": 6165},
+      {"path": "models/pp-ocr-screen-text/recognizers/arabic/model.onnx", "sha256": "799113ebf267fbe742deb99eb36e8d42c9ddc5291ceacf92add41b4d52a59110", "sizeBytes": 7998947},
+      {"path": "models/pp-ocr-screen-text/recognizers/cyrillic/config.yml", "sha256": "5c76cc91fa98410178a09f498db10050d0ec1634a660053d3005ab7be581f501", "sizeBytes": 6991},
+      {"path": "models/pp-ocr-screen-text/recognizers/cyrillic/model.onnx", "sha256": "5371ee1ddaa7983cc62d0818d99e982b6804638c85e4f960d59a574094e172e5", "sizeBytes": 8048799},
+      {"path": "models/pp-ocr-screen-text/recognizers/devanagari/config.yml", "sha256": "9bd172dd26440c8ce94d1cde5d5baea6aefdc7cf3c5c8492e0beedef656d4e54", "sizeBytes": 5027},
+      {"path": "models/pp-ocr-screen-text/recognizers/devanagari/model.onnx", "sha256": "cb789212ce96c69d3e74728ae4309d179281d68cb3945d0616b67cafab41c986", "sizeBytes": 7912311},
+      {"path": "models/pp-ocr-screen-text/recognizers/greek/config.yml", "sha256": "17d85b2fe2d2f24cd4ab07bcbc33e0c126859b956ced36e281dc65e2d0c1f0bf", "sizeBytes": 3317},
+      {"path": "models/pp-ocr-screen-text/recognizers/greek/model.onnx", "sha256": "2acf17fcaea2bc81b878e311e6263b8885f48bb03796f75f9f30ed3242bbaa6d", "sizeBytes": 7808735},
+      {"path": "models/pp-ocr-screen-text/recognizers/hangul/config.yml", "sha256": "f757fa1c40e99edcf27e9cce879b93eb2a51fa46f5ef39095689b8c37dd75998", "sizeBytes": 96039},
+      {"path": "models/pp-ocr-screen-text/recognizers/hangul/model.onnx", "sha256": "92f0b7785e64fc9090106a241cf4c1eb97472824558272751b88a2a4476d3a08", "sizeBytes": 13418787},
+      {"path": "models/pp-ocr-screen-text/recognizers/tamil/config.yml", "sha256": "88a28f5a1bb30cabe38a0985cb5e6619fa4f0c7c78e57a08274674228c5219a6", "sizeBytes": 4579},
+      {"path": "models/pp-ocr-screen-text/recognizers/tamil/model.onnx", "sha256": "c6d2b682d2a0ea4cb1fccdba295976f93fd439964d16cdc666cadef531accbee", "sizeBytes": 7885691},
+      {"path": "models/pp-ocr-screen-text/recognizers/telugu/config.yml", "sha256": "acebbe53f1831bf28ddfed75aedf58225d7aa5d09100c1d5a9140a2a53b137ce", "sizeBytes": 4795},
+      {"path": "models/pp-ocr-screen-text/recognizers/telugu/model.onnx", "sha256": "8238bfc46d4cffe720ed6706e3842802467343497428693ff2bfb4e6b3caa36b", "sizeBytes": 7898759},
+      {"path": "models/pp-ocr-screen-text/recognizers/thai/config.yml", "sha256": "f6ba7fefc38ca1ff398ddafa75d67d16e0b3757c4e6c833adffee98a981766c9", "sizeBytes": 4667},
+      {"path": "models/pp-ocr-screen-text/recognizers/thai/model.onnx", "sha256": "27618be66018f8598ac0a526a593f9f1cebf794e7eded93428e8fb016e537f5f", "sizeBytes": 7891015},
+      {"path": "models/pp-ocr-screen-text/recognizers/unified/config.yml", "sha256": "ab078671bb49f06228eadccd34f1bb501e157f7a047095ffb943ba81512c77d1", "sizeBytes": 150579},
+      {"path": "models/pp-ocr-screen-text/recognizers/unified/model-cpu.ort", "sha256": "5e30d865e91c61953e317e21a7d449c6ce429e5b97c2e5b9faa44c1981c764d3", "sizeBytes": 21310216},
+      {"path": "models/pp-ocr-screen-text/recognizers/unified/model.onnx", "sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634", "sizeBytes": 21159378}
+    ],
+    "id": "screen-text-detector",
+    "sha256": "1a47a4766a72401a482f2d91a867bbe4cd436343176655dd0a768211ca079bf0",
+    "sizeBytes": 105965101,
+    "unpackedSizeBytes": 123205930,
+    "version": "3.1.0"
+  },
+  "schemaVersion": 1
+}

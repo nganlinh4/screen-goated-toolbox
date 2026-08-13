@@ -396,6 +396,9 @@ fn apply_selected_config_defaults_from(
 
     if selection.shortcuts_and_mini_apps {
         config.screen_record_window_size = defaults.screen_record_window_size;
+        let screen_translate_hotkeys = config.screen_translate.hotkeys.clone();
+        config.screen_translate = defaults.screen_translate.clone();
+        config.screen_translate.hotkeys = screen_translate_hotkeys;
         let legacy_hotkey = config.translation_gummy.hotkey.clone();
         let hotkeys = config.translation_gummy.hotkeys.clone();
         config.translation_gummy = defaults.translation_gummy.clone();

@@ -70,6 +70,8 @@ pub struct SettingsApp {
     pub(crate) recording_sr_hotkey: bool,
     pub(crate) recording_computer_control_hotkey: bool,
     pub(crate) computer_control_hotkey_conflict_msg: Option<HotkeyConflict>,
+    pub(crate) recording_screen_translate_hotkey: bool,
+    pub(crate) screen_translate_hotkey_conflict_msg: Option<HotkeyConflict>,
     pub(crate) splash: Option<crate::gui::splash::SplashScreen>,
     pub(crate) fade_in_start: Option<f64>,
 
@@ -126,6 +128,7 @@ pub struct SettingsApp {
     pub(crate) show_translation_gummy: bool,
     pub(crate) show_tts_playground: bool,
     pub(crate) show_computer_control_dialog: bool,
+    pub(crate) show_screen_translate_dialog: bool,
 
     // --- ARGUMENT HANDLING ---
     pub(crate) pending_file_path: Option<std::path::PathBuf>,

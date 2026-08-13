@@ -12,7 +12,10 @@ body{font-family:'Google Sans Flex';user-select:none}
 .font-prewarm{position:absolute;visibility:hidden;pointer-events:none;font:400 16px 'Google Sans Flex'}
 .result-card{position:absolute;overflow:hidden;border-radius:var(--sgt-box-radius,__SGT_BOX_RADIUS_PX__px);pointer-events:auto;
   left:0;top:0;box-shadow:inset 0 0 0 1px var(--result-outline);contain:layout paint style;user-select:text}
-.direct-host,.result-frame{display:block;width:100%;height:100%;border:0;background:transparent;user-select:text}
+.result-card[data-presentation="text_only"]{background:transparent!important;box-shadow:none;border-radius:3px;pointer-events:auto;user-select:text}
+.region-backdrop{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:0}
+.direct-host,.result-frame{position:relative;z-index:1;display:block;width:100%;height:100%;border:0;background:transparent;user-select:text}
+.result-card[data-presentation="text_only"] .direct-host,.result-card[data-presentation="text_only"] .result-frame{user-select:text;cursor:text}
 </style>
 </head>
 <body>
@@ -88,11 +91,16 @@ function ensureCard(id) {
   frame.className = 'result-frame';
   frame.hidden = true;
   frame.referrerPolicy = 'no-referrer';
+  const backdrop = document.createElement('img');
+  backdrop.className = 'region-backdrop';
+  backdrop.hidden = true;
+  card.appendChild(backdrop);
   card.appendChild(directHost);
   card.appendChild(frame);
   scene.appendChild(card);
   entry = {
     card: card,
+    backdrop: backdrop,
     directHost: directHost,
     bodyElement: bodyElement,
     frame: frame,
@@ -399,6 +407,18 @@ function raiseCard(entry, stackOrder) {
 }
 function applyAppearance(entry, model) {
   const becameVisible = !entry.visible && model.visible;
+  entry.card.dataset.presentation = model.presentation || 'standard';
+  const backdropUrl = model.backdrop_data_url || '';
+  if (entry.backdrop.dataset.url !== backdropUrl) {
+    entry.backdrop.dataset.url = backdropUrl;
+    entry.backdrop.src = backdropUrl;
+  }
+  entry.backdrop.hidden = !backdropUrl;
+  if (model.foreground_color) {
+    entry.directHost.style.setProperty('--text-color', model.foreground_color, 'important');
+  } else {
+    entry.directHost.style.removeProperty('--text-color');
+  }
   entry.card.style.background = model.background;
   entry.card.style.opacity = String(Math.max(0, Math.min(100, model.opacity)) / 100);
   entry.visible = model.visible;

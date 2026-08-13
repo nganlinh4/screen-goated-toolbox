@@ -526,23 +526,9 @@ fn required_system_drive() -> Result<OsString> {
 }
 
 fn recorder_worker_workspace() -> Result<PathBuf> {
-    let root = crate::paths::app_runtime_local_data_dir();
-    std::fs::create_dir_all(&root)?;
-    let root = canonical_dir(&root, "runtime state")?;
-    let workspace_parent = root.join("worker-workspaces");
-    std::fs::create_dir(&workspace_parent).or_else(|error| {
-        (error.kind() == std::io::ErrorKind::AlreadyExists)
-            .then_some(())
-            .ok_or(error)
-    })?;
-    let workspace_parent = canonical_dir(&workspace_parent, "worker workspace parent")?;
-    let workspace = workspace_parent.join("recorder");
-    std::fs::create_dir(&workspace).or_else(|error| {
-        (error.kind() == std::io::ErrorKind::AlreadyExists)
-            .then_some(())
-            .ok_or(error)
-    })?;
-    canonical_dir(&workspace, "worker workspace")
+    crate::component_registry::worker_workspace(
+        crate::component_registry::recorder::WORKER_ID,
+    )
 }
 
 fn canonical_file(path: &Path, label: &str) -> Result<PathBuf> {

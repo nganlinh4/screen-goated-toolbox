@@ -10,6 +10,7 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
     let FooterToggles {
         show_modal,
         show_computer_control,
+        show_screen_translate,
         show_pointer_gallery,
         show_translation_gummy,
         show_tts_playground,
@@ -71,6 +72,20 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
         .clicked()
         {
             *show_translation_gummy = true;
+        }
+
+        if compact_filled_icon_button(
+            ui,
+            Icon::Translate,
+            "",
+            theme.launch_translation(),
+            btn_text,
+            6,
+        )
+        .on_hover_text(text.screen_translate.screen_translate_btn)
+        .clicked()
+        {
+            *show_screen_translate = true;
         }
 
         if compact_filled_icon_button(
@@ -156,6 +171,7 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
 pub struct FooterToggles<'a> {
     pub show_modal: &'a mut bool,
     pub show_computer_control: &'a mut bool,
+    pub show_screen_translate: &'a mut bool,
     pub show_pointer_gallery: &'a mut bool,
     pub show_translation_gummy: &'a mut bool,
     pub show_tts_playground: &'a mut bool,
@@ -179,6 +195,7 @@ mod tests {
             let text = LocaleText::get(language);
             let mut show_modal = false;
             let mut show_computer_control = false;
+            let mut show_screen_translate = false;
             let mut show_pointer_gallery = false;
             let mut show_translation_gummy = false;
             let mut show_tts_playground = false;
@@ -199,6 +216,7 @@ mod tests {
                                 FooterToggles {
                                     show_modal: &mut show_modal,
                                     show_computer_control: &mut show_computer_control,
+                                    show_screen_translate: &mut show_screen_translate,
                                     show_pointer_gallery: &mut show_pointer_gallery,
                                     show_translation_gummy: &mut show_translation_gummy,
                                     show_tts_playground: &mut show_tts_playground,

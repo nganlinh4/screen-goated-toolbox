@@ -29,6 +29,8 @@ fn native_options_for_wgpu(viewport: eframe::egui::ViewportBuilder) -> eframe::N
 pub(super) fn run(
     screen_record_wry_smoke: bool,
     creation_ui_test: Option<CreationUiTestApp>,
+    screen_translate_ui_test: bool,
+    screen_translate_ui_test_image: Option<PathBuf>,
     pending_file_path: Option<PathBuf>,
 ) -> eframe::Result<()> {
     let initial_config = APP.lock().unwrap().config.clone();
@@ -99,6 +101,13 @@ pub(super) fn run(
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     crate::log_info!("[CreationUiTest] Opening creation window");
                     crate::overlay::three_d_generator::show_three_d_generator();
+                });
+            }
+            if screen_translate_ui_test {
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    crate::log_info!("[ScreenTranslateUiTest] Running Screen Translate");
+                    crate::overlay::screen_translate::run_ui_test(screen_translate_ui_test_image);
                 });
             }
 

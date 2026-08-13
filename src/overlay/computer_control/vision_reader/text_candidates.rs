@@ -72,6 +72,7 @@ pub(in crate::overlay::computer_control) fn read_text_pref_where(
                 provider: model.provider.clone(),
                 streaming_enabled: false,
                 use_json_format: true,
+                response_schema: None,
                 search_label: None,
                 ui_language: "en",
                 cancel_token: Some(Arc::clone(&cancel_token)),

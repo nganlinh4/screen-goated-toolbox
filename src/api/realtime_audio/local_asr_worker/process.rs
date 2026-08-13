@@ -74,15 +74,14 @@ pub(super) fn spawn_worker(resources: &LaunchResources) -> Result<Child> {
     let system32 = canonical_dir(&system_root.join("System32"), "Windows System32")?;
     let path = std::env::join_paths([runtime.as_path(), vc.as_path(), system32.as_path()])?;
     let temp = std::env::temp_dir();
+    let workspace = crate::component_registry::worker_workspace(
+        crate::component_registry::local_asr::WORKER_ID,
+    )?;
 
     let mut command = Command::new(&executable);
     command
         .arg("--stdio")
-        .current_dir(
-            executable
-                .parent()
-                .ok_or_else(|| anyhow!("local ASR worker has no parent directory"))?,
-        )
+        .current_dir(workspace)
         .env_clear()
         .env("SystemRoot", &system_root)
         .env("WINDIR", &system_root)

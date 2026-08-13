@@ -117,6 +117,7 @@ fn run_text(
                 provider: model.provider.clone(),
                 streaming_enabled: true,
                 use_json_format: false,
+                response_schema: None,
                 search_label: None,
                 ui_language: "en",
                 cancel_token: None,

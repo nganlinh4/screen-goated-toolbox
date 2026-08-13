@@ -157,8 +157,9 @@ pub unsafe extern "system" fn selection_wnd_proc(
                     let height = (rect.bottom - rect.top).abs();
 
                     if width <= 10 && height <= 10 {
-                        // COLOR PICKER
-                        handle_color_picker(hwnd);
+                        if !has_capture_request() {
+                            handle_color_picker(hwnd);
+                        }
                         IS_FADING_OUT = true;
                         if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM
                         {
@@ -283,6 +284,30 @@ unsafe fn handle_color_picker(hwnd: HWND) {
 #[allow(static_mut_refs)]
 unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
     unsafe {
+        if let Some(sender) = take_capture_request() {
+            let image = {
+                let guard = APP.lock().unwrap();
+                let capture = guard
+                    .screenshot_handle
+                    .as_ref()
+                    .expect("Screenshot handle missing");
+                extract_crop_from_hbitmap(capture, rect)
+            };
+            let _ = sender.send(super::CapturedRegion {
+                width: image.width(),
+                height: image.height(),
+                image,
+                left: rect.left,
+                top: rect.top,
+            });
+            IS_FADING_OUT = true;
+            if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
+                let _ = transform_fn(1.0, 0, 0);
+            }
+            let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
+            return Some(LRESULT(0));
+        }
+
         // Check if this is a MASTER preset
         let is_master = {
             let guard = APP.lock().unwrap();

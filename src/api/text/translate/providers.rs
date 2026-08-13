@@ -12,6 +12,7 @@ pub(super) fn translate_gemini<F>(
     gemini_api_key: &str,
     model: &str,
     prompt: &str,
+    response_schema: Option<&serde_json::Value>,
     transport: TranslateTransportOptions<'_>,
     on_chunk: &mut F,
 ) -> Result<String>
@@ -35,7 +36,7 @@ where
             error_label: Some("Gemini Text API Error"),
             map_auth_errors: true,
             request_timeout: transport.request_timeout,
-            response_schema: None,
+            response_schema,
             media_resolution: None,
             retry_observer: None,
         },
@@ -53,6 +54,7 @@ pub(super) struct TranslateCerebrasRequest<'a> {
     pub ui_language: &'a str,
     pub cancel_token: &'a Option<Arc<AtomicBool>>,
     pub request_timeout: Option<Duration>,
+    pub response_schema: Option<&'a serde_json::Value>,
 }
 
 pub(super) fn translate_cerebras<F>(
@@ -71,6 +73,7 @@ where
         ui_language,
         cancel_token,
         request_timeout,
+        response_schema,
     } = request;
     // Static instructions precede dynamic input so Cerebras automatic prefix
     // caching can reuse the stable portion across repeated preset runs.
@@ -87,7 +90,9 @@ where
             ui_language,
             cancel_token,
             error_label: "Cerebras API Error",
-            response_format: None,
+            response_format: response_schema.and_then(|schema| {
+                cerebras::structured_response_format(model, "translation_result", schema)
+            }),
             prediction: None,
             request_timeout,
         },
@@ -115,6 +120,7 @@ pub(super) fn translate_openrouter<F>(
     openrouter_api_key: &str,
     model: &str,
     prompt: &str,
+    response_schema: Option<&serde_json::Value>,
     transport: TranslateTransportOptions<'_>,
     on_chunk: &mut F,
 ) -> Result<String>
@@ -130,6 +136,16 @@ where
         "messages": [{ "role": "user", "content": prompt }],
         "stream": transport.streaming_enabled
     });
+    if let Some(schema) = response_schema {
+        payload["response_format"] = serde_json::json!({
+            "type": "json_schema",
+            "json_schema": {
+                "name": "translation_result",
+                "strict": true,
+                "schema": schema
+            }
+        });
+    }
     crate::api::apply_ordinary_openrouter_reasoning_policy(&mut payload, model);
 
     stream_openai_compat_payload(
