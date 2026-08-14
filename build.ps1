@@ -1,3 +1,8 @@
+if ($env:SGT_COMPONENT_DELIVERY_CHANNEL -eq "staging" -or
+    -not [string]::IsNullOrWhiteSpace($env:SGT_STAGING_DELIVERY_ROOT)) {
+    throw "Release builds cannot use mutable staging component delivery. Start a clean shell."
+}
+
 # Re-patch egui-snarl to ensure custom scroll-to-zoom is applied
 Write-Host "Setting up patched egui-snarl..." -ForegroundColor Cyan
 $snarlDir = Join-Path $PSScriptRoot "libs\egui-snarl"
@@ -211,7 +216,31 @@ function Assert-TrackedDelivery {
     }
 }
 
+function Initialize-DeliveryOutput {
+    param(
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string]$Tracked,
+        [Parameter(Mandatory = $true)][string]$FileName
+    )
+
+    New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+    Copy-Item -LiteralPath $Tracked -Destination (Join-Path $Directory $FileName) -Force
+}
+
 $trackedDeliveryRoot = Join-Path $PSScriptRoot "component-delivery\windows"
+$developmentCache = if (-not [string]::IsNullOrWhiteSpace($env:SGT_DEV_CACHE_ROOT)) {
+    [IO.Path]::GetFullPath($env:SGT_DEV_CACHE_ROOT)
+}
+else {
+    Join-Path ([Environment]::GetFolderPath(
+        [Environment+SpecialFolder]::LocalApplicationData
+    )) "SGT-Development\cache"
+}
+$releasePackageRoot = Join-Path $developmentCache "packages\release"
+$packageCargoTarget = Join-Path $developmentCache "cargo\package"
+$env:SGT_DEV_CACHE_ROOT = $developmentCache
+New-Item -ItemType Directory -Path $releasePackageRoot -Force | Out-Null
+Write-Host "Optional-package workspace: $releasePackageRoot" -ForegroundColor DarkGray
 
 # The tracked creation contract is shared by Windows and both Android flavors
 # and is verified against the immutable release before the host build starts.
@@ -230,28 +259,50 @@ if ($LASTEXITCODE -ne 0) {
 # Build deterministic optional frontend packs and require read-back-verified delivery metadata.
 # This prevents a signed host from referencing an asset that has not reached the immutable release.
 Write-Host "Packaging optional frontend bundles..." -ForegroundColor Cyan
-& py -3 (Join-Path $PSScriptRoot "scripts\package_web_assets.py") --require-delivery
+$webAssetOutput = Join-Path $releasePackageRoot "sgt_web_assets"
+& py -3 (Join-Path $PSScriptRoot "scripts\package_web_assets.py") `
+    --output-dir $webAssetOutput --require-delivery
 if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: optional frontend delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$webAssetDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_web_assets\sgt_web_assets.delivery.json"
+$webAssetDelivery = Join-Path $webAssetOutput "sgt_web_assets.delivery.json"
 Assert-TrackedDelivery $webAssetDelivery (Join-Path $trackedDeliveryRoot "web-assets-v1.json")
 
 # Pin external executables and the signed WebView2 bootstrapper to bytes read
 # back from immutable release locations. None of these payloads enters the host.
 Write-Host "Verifying Windows external-tool delivery..." -ForegroundColor Cyan
-& (Join-Path $PSScriptRoot "scripts\build-external-tool-packs.ps1") -RequireDelivery
+$externalToolOutput = Join-Path $releasePackageRoot "sgt_external_tools"
+Initialize-DeliveryOutput $externalToolOutput `
+    (Join-Path $trackedDeliveryRoot "external-tools-v1.json") `
+    "sgt_external_tools.delivery.json"
+& (Join-Path $PSScriptRoot "scripts\build-external-tool-packs.ps1") `
+    -OutputDir $externalToolOutput -RequireDelivery
 if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: Windows external-tool delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$externalToolDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_external_tools\sgt_external_tools.delivery.json"
+$externalToolDelivery = Join-Path $externalToolOutput "sgt_external_tools.delivery.json"
 Assert-TrackedDelivery $externalToolDelivery (Join-Path $trackedDeliveryRoot "external-tools-v1.json")
 
 # Require the canonical Windows model package inventory and prove that its
 # deterministic tracked delivery plus every local package entry still match.
-$windowsModelDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_windows_models\sgt_windows_model_packages.json"
+$windowsModelDelivery = if (-not [string]::IsNullOrWhiteSpace(
+    $env:SGT_WINDOWS_MODEL_PACKAGE_MANIFEST
+)) {
+    [IO.Path]::GetFullPath($env:SGT_WINDOWS_MODEL_PACKAGE_MANIFEST)
+}
+else {
+    $cachedModels = Join-Path $releasePackageRoot `
+        "sgt_windows_models\sgt_windows_model_packages.json"
+    if (Test-Path -LiteralPath $cachedModels -PathType Leaf) {
+        $cachedModels
+    }
+    else {
+        Join-Path $PSScriptRoot `
+            "local-runtime-bundles\sgt_windows_models\sgt_windows_model_packages.json"
+    }
+}
 if (-not (Test-Path -LiteralPath $windowsModelDelivery -PathType Leaf)) {
     Write-Host "FAILED: canonical Windows model delivery manifest is missing." -ForegroundColor Red
     exit 1
@@ -268,30 +319,48 @@ if ($LASTEXITCODE -ne 0) {
 # Pin the independently removable VC support component to bytes read back from the
 # append-only runtime-bundles release. No VC payload is embedded in the host.
 Write-Host "Packaging Windows VC runtime support..." -ForegroundColor Cyan
-& py -3 (Join-Path $PSScriptRoot "scripts\package_vc_runtime.py") --require-delivery
+$vcRuntimeOutput = Join-Path $releasePackageRoot "sgt_vc_runtime"
+Initialize-DeliveryOutput $vcRuntimeOutput `
+    (Join-Path $trackedDeliveryRoot "vc-runtime-v1.json") `
+    "sgt_vc_runtime.delivery.json"
+& py -3 (Join-Path $PSScriptRoot "scripts\package_vc_runtime.py") `
+    --output-dir $vcRuntimeOutput --require-delivery
 if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: VC runtime delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$vcRuntimeDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_vc_runtime\sgt_vc_runtime.delivery.json"
+$vcRuntimeDelivery = Join-Path $vcRuntimeOutput "sgt_vc_runtime.delivery.json"
 Assert-TrackedDelivery $vcRuntimeDelivery (Join-Path $trackedDeliveryRoot "vc-runtime-v1.json")
 
 # Reproduce the split Qwen3 CUDA packs and require delivery metadata generated by
 # hashing the published assets after upload. This is intentionally fail-closed.
 Write-Host "Verifying Qwen3 CUDA runtime delivery..." -ForegroundColor Cyan
-& py -3 (Join-Path $PSScriptRoot "scripts\package_qwen3_runtime.py") --require-delivery
+$qwenRuntimeOutput = Join-Path $releasePackageRoot "sgt_qwen3_runtime"
+Initialize-DeliveryOutput $qwenRuntimeOutput `
+    (Join-Path $trackedDeliveryRoot "qwen-runtime-v1.json") `
+    "sgt_qwen3_runtime.delivery.json"
+& py -3 (Join-Path $PSScriptRoot "scripts\package_qwen3_runtime.py") `
+    --output-dir $qwenRuntimeOutput --require-delivery
 if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: Qwen3 CUDA runtime delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$qwenRuntimeDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json"
+$qwenRuntimeDelivery = Join-Path $qwenRuntimeOutput "sgt_qwen3_runtime.delivery.json"
 Assert-TrackedDelivery $qwenRuntimeDelivery (Join-Path $trackedDeliveryRoot "qwen-runtime-v1.json")
 
 # Local ASR packs are built explicitly because they include a separate release
 # worker. Canonical host builds consume only the read-back-verified manifest.
-$localAsrDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_local_asr\sgt_local_asr.delivery.json"
+$localAsrOutput = Join-Path $releasePackageRoot "sgt_local_asr"
+New-Item -ItemType Directory -Path $localAsrOutput -Force | Out-Null
+$localAsrDelivery = Join-Path $localAsrOutput "sgt_local_asr.delivery.json"
+$localAsrPackages = Join-Path $localAsrOutput "sgt_local_asr.packages.json"
+if (-not (Test-Path -LiteralPath $localAsrPackages -PathType Leaf)) {
+    $localAsrPackages = Join-Path $PSScriptRoot `
+        "local-runtime-bundles\sgt_local_asr\sgt_local_asr.packages.json"
+}
 Write-Host "Reading back local ASR component delivery..." -ForegroundColor Cyan
-& py -3 (Join-Path $PSScriptRoot "scripts\verify_local_asr_release.py") --output $localAsrDelivery
+& py -3 (Join-Path $PSScriptRoot "scripts\verify_local_asr_release.py") `
+    --packages $localAsrPackages --output $localAsrDelivery
 if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: local ASR delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
@@ -302,23 +371,33 @@ Assert-TrackedDelivery $localAsrDelivery (Join-Path $trackedDeliveryRoot "local-
 # The host build is blocked unless their uploaded bytes were read back and
 # recorded in the verified delivery manifest.
 Write-Host "Verifying Screen Recorder component delivery..." -ForegroundColor Cyan
-& (Join-Path $PSScriptRoot "scripts\build-recorder-component-packs.ps1") -RequireDelivery
+$recorderOutput = Join-Path $releasePackageRoot "sgt_recorder"
+Initialize-DeliveryOutput $recorderOutput `
+    (Join-Path $trackedDeliveryRoot "recorder-v1.json") `
+    "sgt_recorder.delivery.json"
+& (Join-Path $PSScriptRoot "scripts\build-recorder-component-packs.ps1") `
+    -OutputDir $recorderOutput -CargoTargetDir $packageCargoTarget -RequireDelivery
 if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: Screen Recorder component delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$recorderDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_recorder\sgt_recorder.delivery.json"
+$recorderDelivery = Join-Path $recorderOutput "sgt_recorder.delivery.json"
 Assert-TrackedDelivery $recorderDelivery (Join-Path $trackedDeliveryRoot "recorder-v1.json")
 
 # Build the standalone Computer Control cognition engine and require delivery
 # metadata produced only after the immutable release asset was read back.
 Write-Host "Verifying Computer Control engine delivery..." -ForegroundColor Cyan
-& (Join-Path $PSScriptRoot "scripts\build-computer-control-engine-pack.ps1") -RequireDelivery
+$computerControlOutput = Join-Path $releasePackageRoot "sgt_computer_control"
+Initialize-DeliveryOutput $computerControlOutput `
+    (Join-Path $trackedDeliveryRoot "computer-control-v1.json") `
+    "sgt_computer_control.delivery.json"
+& (Join-Path $PSScriptRoot "scripts\build-computer-control-engine-pack.ps1") `
+    -OutputDir $computerControlOutput -CargoTargetDir $packageCargoTarget -RequireDelivery
 if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: Computer Control engine delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-$computerControlDelivery = Join-Path $PSScriptRoot "local-runtime-bundles\sgt_computer_control\sgt_computer_control.delivery.json"
+$computerControlDelivery = Join-Path $computerControlOutput "sgt_computer_control.delivery.json"
 Assert-TrackedDelivery $computerControlDelivery (Join-Path $trackedDeliveryRoot "computer-control-v1.json")
 
 # --- Continue Main Build ---
