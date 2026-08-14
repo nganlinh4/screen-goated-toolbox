@@ -223,7 +223,7 @@ fn create_region_window(
     let control_options = is_root.then(|| ResultControlOptions {
         anchor_rect: Some(controls.anchor),
         control_color: Some(controls.color.clone()),
-        scale_percent: 125,
+        scale_percent: 200,
         group_actions: true,
         edit_enabled: false,
     });
