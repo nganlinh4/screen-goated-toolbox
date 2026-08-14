@@ -11,6 +11,7 @@ pub(super) fn get() -> GlobalSettingsLocaleText {
         donate_note: "Bank transfer is available to Vietnamese donors only.",
         donate_vietnamese: false,
         startup_display_header: "Startup & Display",
+        show_startup_animation: "Show startup animation",
         favorite_overlay_opacity_label: "Favorite overlay opacity",
         model_thinking: "Thinking...",
         ollama_url_guide: "View guide at ollama.com",

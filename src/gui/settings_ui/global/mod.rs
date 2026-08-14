@@ -284,6 +284,16 @@ pub fn render_global_settings(
                         .strong()
                         .size(14.0),
                 );
+                ui.add_space(12.0);
+                if ui
+                    .checkbox(
+                        &mut config.show_startup_animation,
+                        text.global_settings.show_startup_animation,
+                    )
+                    .changed()
+                {
+                    changed = true;
+                }
             });
             ui.add_space(6.0);
 

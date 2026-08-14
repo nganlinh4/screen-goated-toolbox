@@ -353,6 +353,7 @@ fn apply_selected_config_defaults_from(
         config.graphics_mode = defaults.graphics_mode.clone();
         config.favorite_overlay_opacity = defaults.favorite_overlay_opacity;
         config.start_in_tray = defaults.start_in_tray;
+        config.show_startup_animation = defaults.show_startup_animation;
         config.run_as_admin_on_startup = defaults.run_as_admin_on_startup;
         config.run_at_startup = defaults.run_at_startup;
         config.authorized_startup_path = defaults.authorized_startup_path.clone();
