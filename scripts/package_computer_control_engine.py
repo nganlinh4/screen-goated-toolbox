@@ -13,6 +13,8 @@ import struct
 import subprocess
 import sys
 import zipfile
+
+from dev_cache_paths import manifest_path, require_repo_or_managed_cache
 from pathlib import Path
 
 
@@ -227,7 +229,7 @@ def package(repo: Path, output: Path, executable: Path, manifest: Path) -> dict[
         "id": COMPONENT_ID,
         "version": version,
         "asset": asset,
-        "assetPath": target.relative_to(repo).as_posix(),
+        "assetPath": manifest_path(repo, target),
         "sizeBytes": target.stat().st_size,
         "sha256": archive_hash,
         "unpackedSizeBytes": sum(record["sizeBytes"] for record in records),
@@ -259,10 +261,12 @@ def main() -> int:
     parser.add_argument("--require-delivery", action="store_true")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    output = (repo / args.output_dir).resolve()
-    executable = (repo / args.worker_exe).resolve()
-    output.relative_to(repo)
-    executable.relative_to(repo)
+    output = require_repo_or_managed_cache(
+        repo, repo / args.output_dir, "Computer Control output"
+    )
+    executable = require_repo_or_managed_cache(
+        repo, repo / args.worker_exe, "Computer Control worker"
+    )
     output.mkdir(parents=True, exist_ok=True)
     manifest = repo / "native/computer_control_engine/Cargo.toml"
     component = package(repo, output, executable, manifest)

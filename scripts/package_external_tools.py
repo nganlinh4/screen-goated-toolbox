@@ -13,6 +13,8 @@ import struct
 import subprocess
 import sys
 import zipfile
+
+from dev_cache_paths import require_repo_or_managed_cache
 from pathlib import Path
 
 
@@ -303,10 +305,12 @@ def main() -> int:
     parser.add_argument("--require-delivery", action="store_true")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    audit = (repo / args.audit_dir).resolve()
-    output = (repo / args.output_dir).resolve()
-    audit.relative_to(repo)
-    output.relative_to(repo)
+    audit = require_repo_or_managed_cache(
+        repo, repo / args.audit_dir, "external-tool audit"
+    )
+    output = require_repo_or_managed_cache(
+        repo, repo / args.output_dir, "external-tool output"
+    )
     output.mkdir(parents=True, exist_ok=True)
     descriptor = {
         "schemaVersion": 1,

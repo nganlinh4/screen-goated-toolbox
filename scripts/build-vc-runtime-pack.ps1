@@ -1,9 +1,15 @@
 [CmdletBinding()]
-param([switch]$RequireDelivery)
+param(
+    [switch]$RequireDelivery,
+    [string]$OutputDir
+)
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $arguments = @((Join-Path $PSScriptRoot "package_vc_runtime.py"))
+if (-not [string]::IsNullOrWhiteSpace($OutputDir)) {
+    $arguments += @("--output-dir", [IO.Path]::GetFullPath($OutputDir))
+}
 if ($RequireDelivery) {
     $arguments += "--require-delivery"
 }

@@ -5,8 +5,6 @@ use std::path::Path;
 use serde_json::{Map, Value};
 
 const DEFAULT_MANIFEST: &str = "component-delivery/windows/vc-runtime-v1.json";
-const RELEASE_PREFIX: &str =
-    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/";
 const COMPONENT_ID: &str = "vc14-x64-runtime";
 const EXPECTED_FILES: &[&str] = &[
     "bin/x64/concrt140.dll",
@@ -24,8 +22,8 @@ const EXPECTED_FILES: &[&str] = &[
 ];
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
-    let configured = manifest_dir.join(DEFAULT_MANIFEST);
-    println!("cargo:rerun-if-changed={}", configured.display());
+    let selected = crate::delivery_channel::select(manifest_dir, DEFAULT_MANIFEST);
+    let configured = selected.path;
     for file in EXPECTED_FILES
         .iter()
         .filter(|file| file.starts_with("bin/x64/"))
@@ -43,13 +41,13 @@ pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
         "missing verified VC runtime delivery: {}",
         configured.display()
     );
-    let generated = delivery_source(&configured);
+    let generated = delivery_source(&configured, selected.channel);
     let output = out_dir.join("vc_runtime_delivery.rs");
     fs::write(&output, generated)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));
 }
 
-fn delivery_source(path: &Path) -> String {
+fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChannel) -> String {
     let raw = fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     let value: Value = serde_json::from_str(&raw)
@@ -102,12 +100,7 @@ fn delivery_source(path: &Path) -> String {
         "{} asset must be versioned and content-addressed",
         path.display()
     );
-    assert_eq!(
-        url,
-        format!("{RELEASE_PREFIX}{asset}"),
-        "{} must use the immutable runtime-bundles asset URL",
-        path.display()
-    );
+    crate::delivery_channel::assert_owned_asset_url(channel, asset, url, "VC runtime URL");
     let size_bytes = required_positive_u64(component, "sizeBytes", path);
     let unpacked_size_bytes = required_positive_u64(component, "unpackedSizeBytes", path);
     let files = component

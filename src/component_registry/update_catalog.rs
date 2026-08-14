@@ -62,6 +62,10 @@ struct EmbeddedCatalogBaseline {
 }
 
 pub(crate) fn refresh_in_background() {
+    if cfg!(sgt_staging_delivery) {
+        crate::log_info!("[Component updates] Production catalog disabled for staging debug build");
+        return;
+    }
     if let Ok(Some(catalog)) = cache::load_highest() {
         activate(catalog);
         super::external_tools::schedule_periodic_updates();
@@ -75,6 +79,9 @@ pub(crate) fn refresh_in_background() {
 }
 
 pub(crate) fn refresh_now() -> Result<u64> {
+    if cfg!(sgt_staging_delivery) {
+        bail!("production component updates are disabled for staging debug builds");
+    }
     let _refresh = REFRESH_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -98,6 +105,9 @@ fn refresh_now_locked() -> Result<u64> {
 }
 
 pub(crate) fn refresh_due(id: &str, expected_mode: &str) -> bool {
+    if cfg!(sgt_staging_delivery) {
+        return false;
+    }
     let Some((mode, check_hours, group)) = policy(id) else {
         return false;
     };
@@ -105,6 +115,9 @@ pub(crate) fn refresh_due(id: &str, expected_mode: &str) -> bool {
 }
 
 pub(crate) fn refresh_for_use(id: &str, expected_mode: &str) -> bool {
+    if cfg!(sgt_staging_delivery) {
+        return false;
+    }
     let Some((mode, check_hours, group)) = policy(id) else {
         return false;
     };
@@ -157,6 +170,9 @@ pub(crate) fn validate_runtime_bundle_asset(
 }
 
 pub(crate) fn contract(name: &str) -> Option<(u64, Value)> {
+    if cfg!(sgt_staging_delivery) {
+        return None;
+    }
     ACTIVE
         .read()
         .ok()
@@ -195,6 +211,9 @@ fn embedded_catalog_sequence() -> u64 {
 }
 
 pub(crate) fn policy(id: &str) -> Option<(String, u64, String)> {
+    if cfg!(sgt_staging_delivery) {
+        return None;
+    }
     ACTIVE
         .read()
         .ok()

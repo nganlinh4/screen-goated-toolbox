@@ -9,6 +9,8 @@ import json
 import re
 import sys
 import zipfile
+
+from dev_cache_paths import manifest_path, require_repo_or_managed_cache
 from pathlib import Path
 
 
@@ -110,7 +112,7 @@ def package_component(repo: Path, output: Path, version: str) -> dict:
     return {
         "id": COMPONENT_ID,
         "asset": asset,
-        "assetPath": target.relative_to(repo).as_posix(),
+        "assetPath": manifest_path(repo, target),
         "sizeBytes": len(archive_bytes),
         "sha256": archive_hash,
         "unpackedSizeBytes": sum(file["sizeBytes"] for file in files),
@@ -149,8 +151,7 @@ def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     if not re.fullmatch(r"[a-z0-9._-]{1,80}", args.version):
         raise RuntimeError("VC runtime version is not a valid component version")
-    output = (repo / args.output_dir).resolve()
-    output.relative_to(repo)
+    output = require_repo_or_managed_cache(repo, repo / args.output_dir, "VC output")
     output.mkdir(parents=True, exist_ok=True)
     component = package_component(repo, output, args.version)
     descriptor = {

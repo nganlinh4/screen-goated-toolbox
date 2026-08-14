@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([switch]$SkipNpmInstall)
+param(
+    [switch]$SkipNpmInstall,
+    [string]$OutputDir
+)
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -49,7 +52,11 @@ try {
     Build-Frontend -Name "3D Creation" -Project "3d-generator-ui"
     Build-Frontend -Name "PromptDJ" -Project "promptdj-midi" -Target "src\overlay\prompt_dj\dist"
     Build-Frontend -Name "TTS Playground" -Project "tts-playground-ui" -Target "src\overlay\tts_playground\dist"
-    & py -3 (Join-Path $PSScriptRoot "package_web_assets.py")
+    $packageArguments = @((Join-Path $PSScriptRoot "package_web_assets.py"))
+    if (-not [string]::IsNullOrWhiteSpace($OutputDir)) {
+        $packageArguments += @("--output-dir", [IO.Path]::GetFullPath($OutputDir))
+    }
+    & py -3 @packageArguments
     if ($LASTEXITCODE -ne 0) {
         throw "web asset packaging failed"
     }

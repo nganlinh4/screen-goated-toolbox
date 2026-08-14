@@ -9,6 +9,8 @@ import json
 import re
 import sys
 import zipfile
+
+from dev_cache_paths import manifest_path, require_repo_or_managed_cache
 from pathlib import Path
 
 
@@ -140,7 +142,7 @@ def finalize_asset(
         raise RuntimeError(f"{asset_name} exceeds the safe GitHub release asset limit")
     return {
         "asset": asset_name,
-        "assetPath": target.relative_to(repo).as_posix(),
+        "assetPath": manifest_path(repo, target),
         "sizeBytes": target.stat().st_size,
         "sha256": asset_hash,
     }
@@ -311,15 +313,16 @@ def main() -> int:
     if not re.fullmatch(r"[a-z0-9._-]{1,80}", args.version):
         raise RuntimeError("Qwen3 runtime version is invalid")
     repo = Path(__file__).resolve().parents[1]
-    output = (repo / args.output_dir).resolve()
-    output.relative_to(repo)
+    output = require_repo_or_managed_cache(repo, repo / args.output_dir, "Qwen output")
     output.mkdir(parents=True, exist_ok=True)
     archive_path = (
         (repo / args.libtorch_archive).resolve()
         if args.libtorch_archive
         else output / LIBTORCH_NAME
     )
-    archive_path.relative_to(repo)
+    archive_path = require_repo_or_managed_cache(
+        repo, archive_path, "libtorch archive"
+    )
     runtime, runtime_files = runtime_asset(repo, output, args.version)
     entries = inspect_libtorch(archive_path)
     libtorch, libtorch_files = libtorch_assets(

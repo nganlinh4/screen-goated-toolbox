@@ -5,25 +5,32 @@ use std::path::Path;
 use serde_json::{Map, Value};
 
 const DEFAULT_MANIFEST: &str = "component-delivery/windows/external-tools-v1.json";
-const RUNTIME_BUNDLES: &str =
-    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/";
 const IDS: &[&str] = &["yt-dlp-x64", "ffmpeg-x64", "deno-x64"];
 
+struct SourceContract<'a> {
+    id: &'a str,
+    version: &'a str,
+    asset: &'a str,
+    url: &'a str,
+    digest: &'a str,
+    format: &'a str,
+}
+
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
-    let configured = manifest_dir.join(DEFAULT_MANIFEST);
-    println!("cargo:rerun-if-changed={}", configured.display());
+    let selected = crate::delivery_channel::select(manifest_dir, DEFAULT_MANIFEST);
+    let configured = selected.path;
     assert!(
         configured.is_file(),
         "missing verified external-tool delivery: {}",
         configured.display()
     );
-    let generated = delivery_source(&configured);
+    let generated = delivery_source(&configured, selected.channel);
     let output = out_dir.join("external_tool_delivery.rs");
     fs::write(&output, generated)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));
 }
 
-fn delivery_source(path: &Path) -> String {
+fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChannel) -> String {
     let raw = fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     let root: Value = serde_json::from_str(&raw)
@@ -72,7 +79,18 @@ fn delivery_source(path: &Path) -> String {
         assert!(matches!(archive_format, "raw" | "zip"));
         let digest = field_str(component, "sha256", path);
         sha256(digest, path);
-        validate_source(id, version, asset, url, digest, archive_format, path);
+        validate_source(
+            SourceContract {
+                id,
+                version,
+                asset,
+                url,
+                digest,
+                format: archive_format,
+            },
+            path,
+            channel,
+        );
         let size = positive_u64(component, "sizeBytes", path);
         let unpacked = positive_u64(component, "unpackedSizeBytes", path);
         let files = component["files"]
@@ -109,19 +127,23 @@ fn delivery_source(path: &Path) -> String {
     }
     assert_eq!(seen.len(), IDS.len());
     source.push_str("];\n");
-    source.push_str(&webview_source(&root, path));
+    source.push_str(&webview_source(&root, path, channel));
     source
 }
 
 fn validate_source(
-    id: &str,
-    version: &str,
-    asset: &str,
-    url: &str,
-    digest: &str,
-    format: &str,
+    source: SourceContract<'_>,
     path: &Path,
+    channel: crate::delivery_channel::DeliveryChannel,
 ) {
+    let SourceContract {
+        id,
+        version,
+        asset,
+        url,
+        digest,
+        format,
+    } = source;
     match id {
         "yt-dlp-x64" => {
             assert_eq!(format, "raw");
@@ -142,7 +164,7 @@ fn validate_source(
         "ffmpeg-x64" => {
             assert_eq!(format, "zip");
             assert_eq!(asset, format!("{id}-{version}-{}.zip", &digest[..16]));
-            assert_eq!(url, format!("{RUNTIME_BUNDLES}{asset}"));
+            crate::delivery_channel::assert_owned_asset_url(channel, asset, url, "FFmpeg URL");
         }
         _ => panic!("{} has an unsupported tool", path.display()),
     }
@@ -162,7 +184,11 @@ fn expected_paths(id: &str) -> &'static [&'static str] {
     }
 }
 
-fn webview_source(root: &Value, path: &Path) -> String {
+fn webview_source(
+    root: &Value,
+    path: &Path,
+    channel: crate::delivery_channel::DeliveryChannel,
+) -> String {
     let value = root["webview2Bootstrapper"]
         .as_object()
         .unwrap_or_else(|| panic!("{} is missing webview2Bootstrapper", path.display()));
@@ -176,7 +202,12 @@ fn webview_source(root: &Value, path: &Path) -> String {
         format!("webview2-bootstrapper-{version}-{}.exe", &digest[..16])
     );
     let url = field_str(value, "downloadUrl", path);
-    assert_eq!(url, format!("{RUNTIME_BUNDLES}{asset}"));
+    crate::delivery_channel::assert_owned_asset_url(
+        channel,
+        asset,
+        url,
+        "WebView2 bootstrapper URL",
+    );
     let size = positive_u64(value, "sizeBytes", path);
     let publisher = field_str(value, "expectedPublisher", path);
     assert_eq!(publisher, "Microsoft Corporation");
