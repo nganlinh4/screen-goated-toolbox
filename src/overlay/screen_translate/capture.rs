@@ -123,23 +123,50 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
     let jpeg = encode_jpeg(&region.image)?;
     crate::overlay::result::latency::mark(&trace_id, "capture_encoded");
 
-    let candidates = std::sync::Arc::<[super::contract::DetectedTextRegion]>::from(
-        super::detector::detect(&jpeg, region.image.width(), region.image.height(), &cancel)?,
+    let mut evidence = super::diagnostics::RunEvidence::begin(
+        &trace_id,
+        &region,
+        &jpeg,
+        &target_language,
+        &translation_model,
+        &translation_prompt,
     );
+
+    let detected = match super::detector::detect(
+        &jpeg,
+        region.image.width(),
+        region.image.height(),
+        &cancel,
+    ) {
+        Ok(detected) => detected,
+        Err(error) => {
+            evidence.fail("detector", &error);
+            return Err(error);
+        }
+    };
+    let candidates = std::sync::Arc::<[super::contract::DetectedTextRegion]>::from(detected);
     crate::overlay::result::latency::mark(&trace_id, "detector_complete");
+    evidence.detected(&candidates);
     if candidates.is_empty() {
+        evidence.no_text();
         crate::overlay::auto_copy_badge::show_notification(
             text.screen_translate.screen_translate_no_text,
         );
         return Ok(());
     }
 
-    let (mut overlay, first_visible) = super::render::start(
+    let (mut overlay, first_visible) = match super::render::start(
         job_id,
         region,
         std::sync::Arc::clone(&candidates),
         &trace_id,
-    )?;
+    ) {
+        Ok(renderer) => renderer,
+        Err(error) => {
+            evidence.fail("renderer_start", &error);
+            return Err(error);
+        }
+    };
     crate::overlay::result::latency::mark(&trace_id, "translation_dispatched");
     let paint_trace_id = trace_id.clone();
     std::thread::spawn(move || {
@@ -155,7 +182,8 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         processing.close();
     });
     let mut provider_started = false;
-    let document = super::inference::translate(
+    let document = match super::inference::translate(
+        &trace_id,
         &target_language,
         &translation_model,
         &translation_prompt,
@@ -168,17 +196,32 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
             }
             overlay.send(region);
         },
-    )?;
+    ) {
+        Ok(document) => document,
+        Err(error) => {
+            evidence.fail("translation", &error);
+            return Err(error);
+        }
+    };
     crate::overlay::result::latency::mark(&trace_id, "translation_complete");
     crate::overlay::result::latency::mark(&trace_id, "provider_complete");
     if super::runtime::is_current(job_id) && !cancel.load(Ordering::SeqCst) {
         if document.regions.is_empty() {
+            evidence.no_text();
             crate::overlay::auto_copy_badge::show_notification(
                 text.screen_translate.screen_translate_no_text,
             );
             return Ok(());
         }
-        let region_count = overlay.complete(document)?;
+        let evidence_document = document.clone();
+        let region_count = match overlay.complete(document) {
+            Ok(region_count) => region_count,
+            Err(error) => {
+                evidence.fail("renderer_complete", &error);
+                return Err(error);
+            }
+        };
+        evidence.finish(evidence_document, region_count);
         if region_count == 0 {
             crate::overlay::auto_copy_badge::show_notification(
                 text.screen_translate.screen_translate_no_text,

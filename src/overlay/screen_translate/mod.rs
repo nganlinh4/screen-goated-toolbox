@@ -4,6 +4,7 @@ mod backdrop;
 mod capture;
 pub(crate) mod contract;
 mod detector;
+mod diagnostics;
 pub(crate) mod geometry;
 mod inference;
 mod render;

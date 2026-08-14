@@ -1,5 +1,5 @@
 use super::state::WINDOW_STATES;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 use windows::Win32::Foundation::HWND;
@@ -8,7 +8,7 @@ const MAX_ACTIVE_TRACES: usize = 512;
 
 struct Trace {
     started: Instant,
-    phases: HashSet<&'static str>,
+    phases: HashMap<&'static str, f64>,
 }
 
 static TRACES: LazyLock<Mutex<HashMap<String, Trace>>> =
@@ -30,7 +30,7 @@ pub(crate) fn begin(trace_id: &str) {
         trace_id.to_string(),
         Trace {
             started: Instant::now(),
-            phases: HashSet::new(),
+            phases: HashMap::new(),
         },
     );
     drop(traces);
@@ -43,10 +43,12 @@ pub(crate) fn mark(trace_id: &str, phase: &'static str) {
         let Some(trace) = traces.get_mut(trace_id) else {
             return;
         };
-        if !trace.phases.insert(phase) {
+        if trace.phases.contains_key(phase) {
             return;
         }
-        trace.started.elapsed().as_secs_f64() * 1000.0
+        let elapsed_ms = trace.started.elapsed().as_secs_f64() * 1000.0;
+        trace.phases.insert(phase, elapsed_ms);
+        elapsed_ms
     };
     crate::debug_log::log_debug(&format!(
         "[OverlayPerf] trace={trace_id} phase={phase} elapsed_ms={elapsed_ms:.1}"
@@ -81,7 +83,7 @@ fn mark_id_after(id: isize, phase: &'static str, prerequisite: &'static str) {
         .lock()
         .unwrap()
         .get(&trace_id)
-        .is_some_and(|trace| trace.phases.contains(prerequisite));
+        .is_some_and(|trace| trace.phases.contains_key(prerequisite));
     if ready {
         mark(&trace_id, phase);
     }
@@ -140,13 +142,31 @@ pub(crate) fn wait_for_phase(
             .lock()
             .unwrap()
             .get(trace_id)
-            .is_some_and(|trace| trace.phases.contains(phase))
+            .is_some_and(|trace| trace.phases.contains_key(phase))
         {
             return true;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     false
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn snapshot(trace_id: &str) -> Vec<(&'static str, f64)> {
+    let mut phases = TRACES
+        .lock()
+        .unwrap()
+        .get(trace_id)
+        .map(|trace| {
+            trace
+                .phases
+                .iter()
+                .map(|(phase, elapsed_ms)| (*phase, *elapsed_ms))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    phases.sort_unstable_by(|left, right| left.1.total_cmp(&right.1));
+    phases
 }
 
 #[cfg(test)]
