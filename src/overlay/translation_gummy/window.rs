@@ -242,7 +242,7 @@ unsafe fn internal_create_loop() {
         }
 
         let webview_result = {
-            let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+            let init = crate::overlay::webview_init::acquire("translation-gummy");
 
             let url = page_url.as_deref().unwrap_or("about:blank");
 
@@ -255,10 +255,17 @@ unsafe fn internal_create_loop() {
                 .with_url(url);
 
             builder = crate::overlay::html_components::font_manager::configure_webview(builder);
-            builder.build_as_child(&wrapper)
+            let result = builder.build_as_child(&wrapper);
+            init.finish(result.is_ok());
+            result
         };
 
         if let Ok(webview) = webview_result {
+            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+                "translation-gummy",
+                hwnd,
+                &webview,
+            );
             super::WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
         }
     });

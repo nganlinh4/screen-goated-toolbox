@@ -246,8 +246,8 @@ pub fn show_selector(
         let on_select = callbacks.on_select.clone();
         let on_cancel = callbacks.on_cancel.clone();
         let webview_result = {
-            let _lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-            SELECTOR_WEB_CONTEXT.with(|ctx_cell| {
+            let init = crate::overlay::webview_init::acquire("window-selector");
+            let result = SELECTOR_WEB_CONTEXT.with(|ctx_cell| {
                 let mut ctx_ref = ctx_cell.borrow_mut();
                 let builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap());
                 let builder =
@@ -266,7 +266,9 @@ pub fn show_selector(
                         close_selector();
                     })
                     .build_as_child(&wrapper)
-            })
+            });
+            init.finish(result.is_ok());
+            result
         };
 
         let webview = match webview_result {
@@ -279,6 +281,11 @@ pub fn show_selector(
                 return;
             }
         };
+        crate::overlay::webview_diagnostics::attach_webview2_close_on_failure(
+            "window-selector",
+            hwnd,
+            &webview,
+        );
 
         let _ = webview.set_bounds(Rect {
             position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
