@@ -1,12 +1,23 @@
 param(
-    [switch]$RequireDelivery
+    [switch]$RequireDelivery,
+    [string]$OutputDir,
+    [string]$CargoTargetDir
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $workerManifest = Join-Path $repoRoot "native\computer_control_engine\Cargo.toml"
-$workerExe = Join-Path $repoRoot "native\computer_control_engine\target\x86_64-pc-windows-msvc\release\sgt-computer-control-engine.exe"
-$output = Join-Path $repoRoot "local-runtime-bundles\sgt_computer_control"
+$workerTarget = if ([string]::IsNullOrWhiteSpace($CargoTargetDir)) {
+    Join-Path $repoRoot "native\computer_control_engine\target"
+} else {
+    [IO.Path]::GetFullPath($CargoTargetDir)
+}
+$workerExe = Join-Path $workerTarget "x86_64-pc-windows-msvc\release\sgt-computer-control-engine.exe"
+$output = if ([string]::IsNullOrWhiteSpace($OutputDir)) {
+    Join-Path $repoRoot "local-runtime-bundles\sgt_computer_control"
+} else {
+    [IO.Path]::GetFullPath($OutputDir)
+}
 $separator = [char]0x1f
 $cargoCacheRoot = if ($env:CARGO_HOME) {
     [IO.Path]::GetFullPath($env:CARGO_HOME).TrimEnd('\')
@@ -41,7 +52,8 @@ try {
         --locked `
         --manifest-path $workerManifest `
         --release `
-        --target x86_64-pc-windows-msvc
+        --target x86_64-pc-windows-msvc `
+        --target-dir $workerTarget
     if ($LASTEXITCODE -ne 0) {
         throw "Computer Control engine build failed"
     }

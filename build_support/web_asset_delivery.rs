@@ -5,8 +5,6 @@ use std::path::Path;
 use serde_json::{Map, Value};
 
 const DEFAULT_MANIFEST: &str = "component-delivery/windows/web-assets-v1.json";
-const RELEASE_PREFIX: &str =
-    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/";
 const EXPECTED_COMPONENTS: &[(&str, &str)] = &[
     ("creation-3d-web", "Creation3d"),
     ("prompt-dj-web", "PromptDj"),
@@ -15,21 +13,21 @@ const EXPECTED_COMPONENTS: &[(&str, &str)] = &[
 const EXPECTED_FILES: &[&str] = &["assets/index.css", "assets/index.js", "index.html"];
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
-    let configured = manifest_dir.join(DEFAULT_MANIFEST);
-    println!("cargo:rerun-if-changed={}", configured.display());
+    let selected = crate::delivery_channel::select(manifest_dir, DEFAULT_MANIFEST);
+    let configured = selected.path;
 
     assert!(
         configured.is_file(),
         "missing verified web-asset delivery: {}",
         configured.display()
     );
-    let generated = delivery_source(&configured);
+    let generated = delivery_source(&configured, selected.channel);
     let output = out_dir.join("web_asset_delivery.rs");
     fs::write(&output, generated)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));
 }
 
-fn delivery_source(path: &Path) -> String {
+fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChannel) -> String {
     let raw = fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     let value: Value = serde_json::from_str(&raw)
@@ -90,12 +88,7 @@ fn delivery_source(path: &Path) -> String {
             "{} component asset must be versioned and content-addressed",
             path.display()
         );
-        assert_eq!(
-            url,
-            format!("{RELEASE_PREFIX}{asset}"),
-            "{} component URL must use the immutable runtime-bundles asset",
-            path.display()
-        );
+        crate::delivery_channel::assert_owned_asset_url(channel, asset, url, "web component URL");
         let size_bytes = required_positive_u64(component, "sizeBytes", path);
         let unpacked_size_bytes = required_positive_u64(component, "unpackedSizeBytes", path);
         let files = component

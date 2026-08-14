@@ -5,8 +5,6 @@ use std::path::Path;
 use serde_json::{Map, Value};
 
 const DEFAULT_MANIFEST: &str = "component-delivery/windows/qwen-runtime-v1.json";
-const RELEASE_PREFIX: &str =
-    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/";
 const COMPONENT_ID: &str = "qwen3-cuda-runtime";
 const DEPENDENCY_ID: &str = "vc14-x64-runtime";
 const MAX_ASSET_BYTES: u64 = 2_000_000_000;
@@ -52,20 +50,20 @@ const LIBTORCH_PATHS: &[&str] = &[
 ];
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
-    let configured = manifest_dir.join(DEFAULT_MANIFEST);
-    println!("cargo:rerun-if-changed={}", configured.display());
+    let selected = crate::delivery_channel::select(manifest_dir, DEFAULT_MANIFEST);
+    let configured = selected.path;
     assert!(
         configured.is_file(),
         "missing verified Qwen runtime delivery: {}",
         configured.display()
     );
-    let generated = delivery_source(&configured);
+    let generated = delivery_source(&configured, selected.channel);
     let output = out_dir.join("qwen_runtime_delivery.rs");
     fs::write(&output, generated)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));
 }
 
-fn delivery_source(path: &Path) -> String {
+fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChannel) -> String {
     let value: Value = serde_json::from_str(
         &fs::read_to_string(path)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display())),
@@ -125,7 +123,7 @@ fn delivery_source(path: &Path) -> String {
             format!("qwen3-cuda-libtorch-{version}-part{index}-")
         };
         assert_eq!(name, format!("{prefix}{}.zip", &sha[..16]));
-        assert_eq!(url, format!("{RELEASE_PREFIX}{name}"));
+        crate::delivery_channel::assert_owned_asset_url(channel, name, url, "Qwen runtime URL");
         asset_source.push_str(&format!(
             "        QwenRuntimeArchive {{ url: {url:?}, size_bytes: {size}, sha256: {sha:?} }},\n"
         ));

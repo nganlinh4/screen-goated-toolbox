@@ -20,7 +20,7 @@ mod staging;
 #[cfg(not(feature = "recorder-worker"))]
 mod update;
 
-const DELIVERY_JSON: &str = include_str!("../../../model-delivery/windows-v1.json");
+const DELIVERY_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/windows_model_delivery.json"));
 const MAX_MODELS: usize = 32;
 const MAX_MODEL_FILES: usize = 4_096;
 const MAX_MODEL_BYTES: u64 = 8 * 1024 * 1024 * 1024;

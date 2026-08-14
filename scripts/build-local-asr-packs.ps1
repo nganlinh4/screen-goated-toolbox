@@ -1,14 +1,23 @@
 param(
-    [switch]$Debug
+    [switch]$Debug,
+    [string]$OutputDir,
+    [string]$CargoTargetDir
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $manifest = Join-Path $repo 'native\local_asr_worker\Cargo.toml'
 $target = 'x86_64-pc-windows-msvc'
-$workerTarget = Join-Path $repo 'native\local_asr_worker\target'
+$workerTarget = if ([string]::IsNullOrWhiteSpace($CargoTargetDir)) {
+    Join-Path $repo 'native\local_asr_worker\target'
+} else {
+    [IO.Path]::GetFullPath($CargoTargetDir)
+}
 $configuration = if ($Debug) { 'debug' } else { 'release' }
-$cargoArgs = @('build', '--manifest-path', $manifest, '--target', $target, '--locked')
+$cargoArgs = @(
+    'build', '--manifest-path', $manifest, '--target', $target,
+    '--target-dir', $workerTarget, '--locked'
+)
 if (-not $Debug) {
     $cargoArgs += '--release'
 }
@@ -36,7 +45,11 @@ if ($Debug) {
     exit 0
 }
 
-$output = Join-Path $repo 'local-runtime-bundles\sgt_local_asr'
+$output = if ([string]::IsNullOrWhiteSpace($OutputDir)) {
+    Join-Path $repo 'local-runtime-bundles\sgt_local_asr'
+} else {
+    [IO.Path]::GetFullPath($OutputDir)
+}
 $sources = Join-Path $output 'sources'
 New-Item -ItemType Directory -Force -Path $sources | Out-Null
 $onnx = Join-Path $sources 'microsoft.ml.onnxruntime.directml.1.24.2.nupkg'

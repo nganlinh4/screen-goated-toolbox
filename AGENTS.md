@@ -76,6 +76,14 @@
   reference it. If rebuilt bytes have the same hash, do not upload a duplicate.
 - Debug and release hosts use app-selected external delivery contracts. Do not
   add local package fallbacks, floating URLs, self-updaters, or bundled payloads.
+- Iteration packages belong in the bounded external SGT development cache. Use
+  the mutable `sgt-runtime-staging` prerelease only for a current remote test
+  candidate; an opted-in debug build may consume its exact read-back-verified
+  contract from an isolated runtime-state root.
+- Promote tested bytes once to append-only `sgt-runtime-bundles`. Production
+  promotion must download and hash staging, upload without overwrite, read back
+  and hash production, then update the reviewed tracked contract. Release builds
+  must fail if any staging channel or URL is selected.
 - First use/update must verify, install, and then open automatically. Removal
   must stop the owning UI/process, wait for leases, and delete only receipt-owned
   unchanged files.

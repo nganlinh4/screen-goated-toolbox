@@ -9,6 +9,8 @@ import json
 import re
 import sys
 import zipfile
+
+from dev_cache_paths import manifest_path, require_repo_or_managed_cache
 from pathlib import Path
 
 
@@ -72,7 +74,7 @@ def package_component(repo: Path, output: Path, component_id: str, source_rel: s
     return {
         "id": component_id,
         "asset": asset,
-        "assetPath": target.relative_to(repo).as_posix(),
+        "assetPath": manifest_path(repo, target),
         "sizeBytes": len(archive_bytes),
         "sha256": archive_hash,
         "unpackedSizeBytes": sum(entry["sizeBytes"] for entry in file_entries),
@@ -120,8 +122,7 @@ def main() -> int:
     version = args.version or cargo_version(repo)
     if not re.fullmatch(r"[a-z0-9._-]{1,80}", version):
         raise RuntimeError("package version is not a valid component version")
-    output = (repo / args.output_dir).resolve()
-    output.relative_to(repo)
+    output = require_repo_or_managed_cache(repo, repo / args.output_dir, "web-pack output")
     output.mkdir(parents=True, exist_ok=True)
 
     entries = [

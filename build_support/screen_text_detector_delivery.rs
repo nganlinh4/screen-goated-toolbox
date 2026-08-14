@@ -5,8 +5,6 @@ use std::path::Path;
 use serde_json::{Map, Value};
 
 const DEFAULT_MANIFEST: &str = "component-delivery/windows/screen-text-detector-v1.json";
-const RELEASE_PREFIX: &str =
-    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/";
 const COMPONENT_ID: &str = "screen-text-detector";
 const REQUIRED_FILES: &[&str] = &[
     "bin/x64/sgt-screen-text-detector-worker.exe",
@@ -40,20 +38,20 @@ const REQUIRED_FILES: &[&str] = &[
 ];
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
-    let configured = manifest_dir.join(DEFAULT_MANIFEST);
-    println!("cargo:rerun-if-changed={}", configured.display());
+    let selected = crate::delivery_channel::select(manifest_dir, DEFAULT_MANIFEST);
+    let configured = selected.path;
     assert!(
         configured.is_file(),
         "missing verified Screen Translate detector delivery: {}",
         configured.display()
     );
-    let generated = delivery_source(&configured);
+    let generated = delivery_source(&configured, selected.channel);
     let output = out_dir.join("screen_text_detector_delivery.rs");
     fs::write(&output, generated)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));
 }
 
-fn delivery_source(path: &Path) -> String {
+fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChannel) -> String {
     let raw = fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     let value: Value = serde_json::from_str(&raw)
@@ -80,7 +78,12 @@ fn delivery_source(path: &Path) -> String {
         path.display()
     );
     let download_url = required_string(component, "downloadUrl", path);
-    assert_eq!(download_url, format!("{RELEASE_PREFIX}{asset}"));
+    crate::delivery_channel::assert_owned_asset_url(
+        channel,
+        asset,
+        download_url,
+        "screen-text detector URL",
+    );
     let size_bytes = required_u64(component, "sizeBytes", path);
     let unpacked_size_bytes = required_u64(component, "unpackedSizeBytes", path);
     let files = component
