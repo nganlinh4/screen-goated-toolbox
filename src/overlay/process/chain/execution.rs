@@ -9,7 +9,8 @@ use crate::config::{Config, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
 use crate::overlay::result::{ChainCancelToken, RefineContext, WINDOW_STATES, update_window_text};
 use crate::retry_model_chain::{
-    RetryChainKind, preflight_skip_reason, record_model_failure, resolve_next_retry_model,
+    RetryChainKind, claim_model_attempt, interactive_request_timeout, preflight_skip_reason,
+    record_model_failure, record_model_success, release_model_probe, resolve_next_retry_model,
 };
 use crate::win_types::SendHwnd;
 use std::collections::HashSet;
@@ -17,8 +18,11 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
+use std::time::Duration;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+
+const MAX_INTERACTIVE_PROVIDER_ATTEMPTS: usize = 2;
 
 pub struct ExecuteBlockRequest<'a> {
     pub block: &'a ProcessingBlock,
@@ -86,6 +90,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     let mut current_model_full_name = model_full_name.to_string();
     let mut failed_model_ids: Vec<String> = Vec::new();
     let mut blocked_providers: HashSet<String> = HashSet::new();
+    let mut provider_attempts = 0;
     let retry_chain_kind = RetryChainKind::from_block_type(&block.block_type)
         .filter(|_| !crate::model_config::model_is_non_llm(model_id));
 
@@ -111,6 +116,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 config,
                 &blocked_providers,
             )
+            .or_else(|| claim_model_attempt(&current_model_id))
         {
             if crate::overlay::utils::should_block_retry_provider(&skip_reason) {
                 blocked_providers.insert(current_provider.clone());
@@ -140,6 +146,9 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
             break Err(anyhow::anyhow!(skip_reason));
         }
 
+        provider_attempts += 1;
+        let request_timeout =
+            interactive_request_timeout(&current_model_id, config, actual_streaming_enabled);
         let res_inner = if is_first_processing_block
             && block.block_type == "image"
             && matches!(context, RefineContext::Image(_))
@@ -152,6 +161,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 model_full_name: &current_model_full_name,
                 provider: &current_provider,
                 streaming_enabled: actual_streaming_enabled,
+                request_timeout,
                 accumulated: acc_clone,
                 my_hwnd,
                 window_shown: window_shown_clone,
@@ -168,6 +178,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 model_full_name: &current_model_full_name,
                 provider: &current_provider,
                 streaming_enabled: actual_streaming_enabled,
+                request_timeout,
                 preset_id,
                 config,
                 accumulated: acc_clone,
@@ -177,16 +188,21 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
         };
 
         match res_inner {
-            Ok(val) => break Ok(val),
+            Ok(val) => {
+                record_model_success(&current_model_id);
+                break Ok(val);
+            }
             Err(e) => {
                 // Never retry after explicit user cancellation.
                 if cancel_token.is_cancelled() {
+                    release_model_probe(&current_model_id);
                     break Err(e);
                 }
 
                 record_model_failure(&current_model_id, &e.to_string());
 
-                if let Some(chain_kind) = retry_chain_kind
+                if may_retry_provider(provider_attempts)
+                    && let Some(chain_kind) = retry_chain_kind
                     && crate::overlay::utils::should_advance_retry_chain(&e.to_string())
                 {
                     if crate::overlay::utils::should_block_retry_provider(&e.to_string()) {
@@ -239,6 +255,7 @@ struct ExecuteImageBlockRequest<'a> {
     model_full_name: &'a str,
     provider: &'a str,
     streaming_enabled: bool,
+    request_timeout: Option<Duration>,
     accumulated: Arc<Mutex<String>>,
     my_hwnd: Option<HWND>,
     window_shown: Arc<Mutex<bool>>,
@@ -255,6 +272,7 @@ fn execute_image_block(request: ExecuteImageBlockRequest<'_>) -> anyhow::Result<
         model_full_name,
         provider,
         streaming_enabled,
+        request_timeout,
         accumulated,
         my_hwnd,
         window_shown,
@@ -283,7 +301,7 @@ fn execute_image_block(request: ExecuteImageBlockRequest<'_>) -> anyhow::Result<
                 streaming_enabled,
                 response_schema: None,
                 cancel_token: Some(api_cancel),
-                request_timeout: None,
+                request_timeout,
             },
             move |chunk| {
                 if chain_token_cb.is_cancelled() {
@@ -314,6 +332,7 @@ struct ExecuteTextBlockRequest<'a> {
     model_full_name: &'a str,
     provider: &'a str,
     streaming_enabled: bool,
+    request_timeout: Option<Duration>,
     preset_id: &'a str,
     config: &'a Config,
     accumulated: Arc<Mutex<String>>,
@@ -331,6 +350,7 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
         model_full_name,
         provider,
         streaming_enabled,
+        request_timeout,
         preset_id,
         config,
         accumulated,
@@ -358,7 +378,7 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
             search_label,
             ui_language: &config.ui_language,
             cancel_token: Some(api_cancel),
-            request_timeout: None,
+            request_timeout,
             target_language,
         },
         move |chunk| {
@@ -387,6 +407,10 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
             }
         },
     )
+}
+
+fn may_retry_provider(completed_attempts: usize) -> bool {
+    completed_attempts < MAX_INTERACTIVE_PROVIDER_ATTEMPTS
 }
 
 fn gtx_target_language(block: &ProcessingBlock) -> Option<String> {
@@ -523,5 +547,16 @@ fn handle_execution_result(
             }
             String::new()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::may_retry_provider;
+
+    #[test]
+    fn interactive_retry_is_limited_to_one_fallback() {
+        assert!(may_retry_provider(1));
+        assert!(!may_retry_provider(2));
     }
 }

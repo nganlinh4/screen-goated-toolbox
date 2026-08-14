@@ -7,7 +7,8 @@ use anyhow::{Context, Result, bail};
 
 use crate::api::{TranslateTextRequest, translate_text_streaming};
 use crate::retry_model_chain::{
-    RetryChainKind, preflight_skip_reason, record_model_failure, resolve_next_retry_model,
+    RetryChainKind, claim_model_attempt, preflight_skip_reason, record_model_failure,
+    record_model_success, release_model_probe, resolve_next_retry_model,
 };
 
 use super::contract::{
@@ -17,6 +18,7 @@ use super::contract::{
 use super::stream_parser::TranslationStreamParser;
 
 pub(super) fn translate<F>(
+    trace_id: &str,
     target_language: &str,
     translation_model: &str,
     translation_prompt: &str,
@@ -59,12 +61,22 @@ where
         let request_text = prompt_with_instruction(target_language, translation_prompt, &pending)?;
         if let Some(reason) =
             preflight_skip_reason(&current.id, &current.provider, &config, &blocked_providers)
+                .or_else(|| claim_model_attempt(&current.id))
         {
+            crate::log_info!(
+                "[Screen Translate] trace={trace_id} model skipped model={} reason={reason}",
+                current.id
+            );
             failed.push(current.id.clone());
             if crate::overlay::utils::should_block_retry_provider(&reason) {
                 blocked_providers.insert(current.provider.clone());
             }
         } else {
+            crate::log_info!(
+                "[Screen Translate] trace={trace_id} model attempt model={} provider={}",
+                current.id,
+                current.provider
+            );
             let mut parser = TranslationStreamParser::new(&pending);
             let response = translate_text_streaming(
                 TranslateTextRequest {
@@ -101,6 +113,12 @@ where
                         }
                     }
                     if let Some(document) = completed_document(candidates, &accepted) {
+                        record_model_success(&current.id);
+                        crate::log_info!(
+                            "[Screen Translate] trace={trace_id} model complete model={} regions={}",
+                            current.id,
+                            document.regions.len()
+                        );
                         return Ok(document);
                     }
                     anyhow::anyhow!(
@@ -111,18 +129,28 @@ where
                 }
                 Err(error) => {
                     if let Some(document) = completed_document(candidates, &accepted) {
+                        record_model_success(&current.id);
+                        crate::log_info!(
+                            "[Screen Translate] trace={trace_id} model complete model={} regions={}",
+                            current.id,
+                            document.regions.len()
+                        );
                         return Ok(document);
                     }
                     error
                 }
             };
+            if cancel.load(Ordering::SeqCst) {
+                release_model_probe(&current.id);
+                bail!("screen translation was cancelled");
+            }
             record_model_failure(&current.id, &error.to_string());
             if crate::overlay::utils::should_block_retry_provider(&error.to_string()) {
                 blocked_providers.insert(current.provider.clone());
             }
             failed.push(current.id.clone());
             crate::log_info!(
-                "[Screen Translate] text model failed model={} reason={error}",
+                "[Screen Translate] trace={trace_id} text model failed model={} reason={error}",
                 current.id
             );
         }
