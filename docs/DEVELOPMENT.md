@@ -26,12 +26,60 @@ Useful options:
 .\run-dev.ps1 -CargoCommand test
 ```
 
+`run-dev.ps1` uses `%LOCALAPPDATA%/SGT-Development/cache/cargo/dev` instead of a
+repository `target/` tree. Logs use the same external cache under
+`evidence/dev-run-logs`. The separate package-build lane is `cargo/package`, so
+routine host iteration does not invalidate expensive worker/package artifacts.
+The cache is capped at 28 GiB by default and prunes inactive evidence,
+candidate packages, and unprotected Cargo lanes. It never deletes a repository,
+source checkout, user output, or the lane used by the current command.
+
+```powershell
+.\scripts\dev-cache.ps1 -Action Status
+.\scripts\dev-cache.ps1 -Action Prune                  # dry run
+.\scripts\dev-cache.ps1 -Action Prune -Apply
+```
+
+Set `SGT_DEV_CACHE_ROOT` to relocate the cache. Use `-DevCacheLimitGiB` on
+`run-dev.ps1` only when the machine deliberately needs a different bound.
+
 When the separately tracked private creation-runtime checkout is present,
 `run-dev.ps1` builds its debug sidecar before launching the desktop host. The
 script stops if a running process keeps that executable locked, preventing a
 stale sidecar from being selected silently. Use
 `-SkipCreationRuntimeBuild` only when the private runtime was already built
-from the current source. Cargo output is written under `target/dev-run-logs/`.
+from the current source.
+
+## Optional-component candidate loop
+
+Production components are immutable, but development candidates do not belong
+on the append-only production release. Use the mutable prerelease
+`sgt-runtime-staging`, which stores at most the current candidate for each
+delivery contract. The package wrapper writes all archives, Cargo artifacts,
+and evidence into the bounded external cache:
+
+```powershell
+.\scripts\build-component-candidate.ps1 -Component recorder -Stage
+.\run-dev.ps1 -UseStagingDelivery
+```
+
+Supported wrapper names are `web-assets`, `recorder`, `computer-control`,
+`local-asr`, `vc-runtime`, `qwen-runtime`, and `external-tools`. `-Select <id>`
+may update one component in a multi-component contract; repeat it when several
+components changed.
+
+Staging is a real network install: the script verifies local bytes, uploads a
+content-addressed candidate, downloads it again, and writes its exact contract
+under `%LOCALAPPDATA%/SGT-Development/cache/staging/contracts`. A staging debug
+build has its own `runtime/staging` registry root, installs on first use, and
+then reuses that verified install across ordinary rebuilds. It disables the
+production update catalog for the session. It does not read a package from the
+checkout or fall back to a local worker.
+
+`-UseStagingDelivery` is compile-time restricted to the debug profile.
+`build.ps1` rejects staging environment variables before doing work, and the
+Rust build script independently rejects staging for any non-debug profile.
+Close the staging debug app before pruning its runtime cache.
 
 ## Rust validation
 
@@ -49,6 +97,14 @@ cargo fmt -- --check
 cargo test
 cargo clippy --all-targets -- -D warnings
 ```
+
+## User diagnostic log
+
+The desktop app keeps diagnostic output in the single file
+`%LOCALAPPDATA%\SGT\logs\session.log`. When the file would exceed 16 MiB, SGT
+atomically compacts it to its newest 12 MiB at a complete-line boundary. The
+retention window is therefore activity-based rather than a fixed number of
+days. For support, request only `session.log`.
 
 After the active frontend assets exist, direct `cargo run` is valid for a
 checkout without the private Image-to-3D runtime. When that private checkout is
