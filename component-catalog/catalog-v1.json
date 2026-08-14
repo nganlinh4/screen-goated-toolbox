@@ -42,6 +42,14 @@
       "removable": true
     },
     {
+      "id": "screen-text-detector",
+      "displayName": "Screen Translate text detector",
+      "kind": "sidecar",
+      "capabilities": ["screen_text_detection"],
+      "dependencies": ["onnx-directml-runtime"],
+      "removable": true
+    },
+    {
       "id": "recorder-web",
       "displayName": "Screen Recorder interface",
       "kind": "web-assets",
