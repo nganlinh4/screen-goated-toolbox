@@ -44,6 +44,7 @@ export function renderFrame(host: RenderHost): void {
     webcamConfig: host.renderOptions.webcamConfig,
     mousePositions: host.renderOptions.mousePositions,
     currentTime: getAdjustedTime(host, host.video.currentTime),
+    outputFrameRate: host.renderOptions.outputFrameRate,
     interactiveBackgroundPreview: host.renderOptions.interactiveBackgroundPreview,
   };
   if (host.video.readyState >= 2) {
@@ -97,6 +98,7 @@ export async function generateThumbnail(
       webcamConfig: options.webcamConfig,
       mousePositions: options.mousePositions,
       currentTime: options.segment.trimStart,
+      outputFrameRate: options.outputFrameRate,
       interactiveBackgroundPreview: false,
     });
     return thumbCanvas.toDataURL("image/jpeg", 0.7);
@@ -139,6 +141,7 @@ export function renderImmediate(
     webcamConfig: options.webcamConfig,
     mousePositions: options.mousePositions,
     currentTime: options.segment.trimStart,
+    outputFrameRate: options.outputFrameRate,
     interactiveBackgroundPreview: options.interactiveBackgroundPreview,
   };
   videoRenderer.updateRenderContext(ctx);

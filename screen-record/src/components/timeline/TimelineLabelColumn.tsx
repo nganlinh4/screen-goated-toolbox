@@ -197,6 +197,7 @@ export function TimelineLabelColumn({
           <div className="flex items-center gap-3">
             <div className="flex-1 rounded-full px-1 py-[3px]">
               <Slider
+                aria-label={`${label} ${t.trackDelay}`}
                 min={-TRACK_DELAY_LIMIT_SEC}
                 max={TRACK_DELAY_LIMIT_SEC}
                 step={0.01}
@@ -392,6 +393,7 @@ export function TimelineLabelColumn({
             aria-hidden="true"
           />
           <Switch
+            aria-label={t.volumeView}
             checked={volumeViewEnabled}
             onCheckedChange={setVolumeViewEnabled}
           />

@@ -3,6 +3,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { motion } from 'motion/react';
 import { X } from '@/components/ui/MaterialIcon';
 import { cn } from '@/lib/utils';
+import { useSettings } from '@/hooks/useSettings';
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -38,40 +39,46 @@ interface DialogContentProps extends React.ComponentPropsWithoutRef<typeof Dialo
 const DialogContent = React.forwardRef<
   React.ComponentRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, size, hideClose, ...props }, ref) => (
-  <DialogPortal>
-    <DialogOverlay />
-    <div className="dialog-shell fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-      <DialogPrimitive.Content
-        ref={ref}
-        asChild
-        aria-describedby={props["aria-describedby"] ?? undefined}
-        {...props}
-      >
-        <motion.div
-          className={cn(
-            'dialog-content material-surface-elevated relative z-[101]',
-            'flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden',
-            size ?? 'max-w-md',
-            'rounded-[1.85rem]',
-            'focus:outline-hidden',
-            className,
-          )}
-          initial={{ opacity: 0, scale: 0.965, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+>(({ className, children, size, hideClose, ...props }, ref) => {
+  const { t } = useSettings();
+  return (
+    <DialogPortal>
+      <DialogOverlay />
+      <div className="dialog-shell fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+        <DialogPrimitive.Content
+          ref={ref}
+          asChild
+          aria-describedby={props["aria-describedby"] ?? undefined}
+          {...props}
         >
-          {children}
-          {!hideClose && (
-            <DialogPrimitive.Close className="dialog-close-btn ui-icon-button absolute right-3 top-3 p-1.5">
-              <X className="w-4 h-4" />
-            </DialogPrimitive.Close>
-          )}
-        </motion.div>
-      </DialogPrimitive.Content>
-    </div>
-  </DialogPortal>
-));
+          <motion.div
+            className={cn(
+              'dialog-content material-surface-elevated relative z-[101]',
+              'flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden',
+              size ?? 'max-w-md',
+              'rounded-[1.85rem]',
+              'focus:outline-hidden',
+              className,
+            )}
+            initial={{ opacity: 0, scale: 0.965, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+          >
+            {children}
+            {!hideClose && (
+              <DialogPrimitive.Close
+                className="dialog-close-btn ui-icon-button absolute right-3 top-3 p-1.5"
+                aria-label={t.close}
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </DialogPrimitive.Close>
+            )}
+          </motion.div>
+        </DialogPrimitive.Content>
+      </div>
+    </DialogPortal>
+  );
+});
 DialogContent.displayName = 'DialogContent';
 
 function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

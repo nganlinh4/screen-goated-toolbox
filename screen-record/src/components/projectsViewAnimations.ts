@@ -186,7 +186,7 @@ export function useProjectsAnimations({
 
   const handleProjectClick = (
     projectId: string,
-    e: React.MouseEvent<HTMLDivElement>,
+    e: React.MouseEvent<HTMLElement>,
   ) => {
     if (animatingRef.current) return;
 
@@ -197,7 +197,7 @@ export function useProjectsAnimations({
     const portalRect = getPreviewStageRect(previewTargetSnapshot);
 
     if (!thumbnailImg || !container || !portalRect) {
-      onLoadProject(projectId);
+      void Promise.resolve(onLoadProject(projectId)).catch(() => undefined);
       return;
     }
 
@@ -420,14 +420,19 @@ export function useProjectsAnimations({
         fill: "forwards",
       },
     ).onfinish = () => {
-      animatingRef.current = false;
-      Promise.resolve(onLoadProject(projectId)).then(() => {
-        requestAnimationFrame(() => {
+      Promise.resolve(onLoadProject(projectId))
+        .then(() => {
           requestAnimationFrame(() => {
-            settleCloneToLiveCanvas();
+            requestAnimationFrame(() => {
+              settleCloneToLiveCanvas();
+            });
           });
+        })
+        .catch(() => {
+          clone.remove();
+          animatingRef.current = false;
+          setAnimatingId(null);
         });
-      });
     };
   };
 

@@ -9,6 +9,7 @@ import type { ActivePanel } from "@/components/sidepanel/index";
 import { getCompositionAutoSourceClipId } from "@/lib/projectComposition";
 import { getCanvasRatioDimensions } from "@/lib/appUtils";
 import { resolveCodecAlignedCropGeometry } from "@/lib/videoGeometry";
+import { resolveOutputCanvasDimensions } from "@/lib/canvasRenderBudget";
 
 export interface UseCanvasConfigParams {
   segment: VideoSegment | null;
@@ -62,10 +63,13 @@ export function useCanvasConfig({
     const geometry = sourceWidth > 0 && sourceHeight > 0
       ? resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, crop)
       : null;
+    const dimensions = geometry
+      ? resolveOutputCanvasDimensions(geometry.width, geometry.height)
+      : null;
     return {
       canvasMode: "auto" as const,
-      canvasWidth: geometry?.width,
-      canvasHeight: geometry?.height,
+      canvasWidth: dimensions?.width,
+      canvasHeight: dimensions?.height,
       autoSourceClipId:
         activeClipId ??
         getCompositionAutoSourceClipId(composition) ??
@@ -91,32 +95,27 @@ export function useCanvasConfig({
   const liveAutoH = backgroundConfig.canvasMode === "auto" && isVideoReady
     ? (customCanvasAutoConfig.canvasHeight ?? videoRef.current?.videoHeight)
     : undefined;
-  const customCanvasBaseDimensions = {
-    width: Math.max(
-      2,
-      liveAutoW ??
-        backgroundConfig.canvasWidth ??
-        customCanvasAutoConfig.canvasWidth ??
-        (videoRef.current?.videoWidth || undefined) ??
-        1920,
-    ),
-    height: Math.max(
-      2,
-      liveAutoH ??
-        backgroundConfig.canvasHeight ??
-        customCanvasAutoConfig.canvasHeight ??
-        (videoRef.current?.videoHeight || undefined) ??
-        1080,
-    ),
-  };
+  const customCanvasBaseDimensions = resolveOutputCanvasDimensions(
+    liveAutoW ??
+      backgroundConfig.canvasWidth ??
+      customCanvasAutoConfig.canvasWidth ??
+      (videoRef.current?.videoWidth || undefined) ??
+      1920,
+    liveAutoH ??
+      backgroundConfig.canvasHeight ??
+      customCanvasAutoConfig.canvasHeight ??
+      (videoRef.current?.videoHeight || undefined) ??
+      1080,
+  );
 
   const applyCustomCanvasDimensions = useCallback(
     (canvasWidth: number, canvasHeight: number) => {
+      const dimensions = resolveOutputCanvasDimensions(canvasWidth, canvasHeight);
       setBackgroundConfig((prev) => ({
         ...prev,
         canvasMode: "custom",
-        canvasWidth,
-        canvasHeight,
+        canvasWidth: dimensions.width,
+        canvasHeight: dimensions.height,
         autoCanvasSourceId: null,
       }));
     },
@@ -198,14 +197,15 @@ export function useCanvasConfig({
     const sourceHeight = videoRef.current?.videoHeight || 0;
     if (!sourceWidth || !sourceHeight) return;
     const geometry = resolveCodecAlignedCropGeometry(sourceWidth, sourceHeight, crop);
+    const dimensions = resolveOutputCanvasDimensions(geometry.width, geometry.height);
     if (
-      geometry.width === backgroundConfig.canvasWidth &&
-      geometry.height === backgroundConfig.canvasHeight
+      dimensions.width === backgroundConfig.canvasWidth &&
+      dimensions.height === backgroundConfig.canvasHeight
     ) return;
     setBackgroundConfig((prev) => ({
       ...prev,
-      canvasWidth: geometry.width,
-      canvasHeight: geometry.height,
+      canvasWidth: dimensions.width,
+      canvasHeight: dimensions.height,
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cropX, cropY, cropW, cropH, backgroundConfig.canvasMode, isVideoReady, composition, activeClipId]);

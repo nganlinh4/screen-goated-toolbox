@@ -7,7 +7,7 @@ import {
 import { normalizeMousePositionsToVideoSpace } from '@/lib/dynamicCapture';
 import { logPreviewCursorState } from '@/lib/cursorDebug';
 import { getKeystrokeDelaySec } from './keystrokeRenderer';
-import type { RendererState } from './drawFrame';
+import type { RendererState } from './rendererState';
 
 // Constants
 export const CLICK_FUSE_THRESHOLD  = 0.05;

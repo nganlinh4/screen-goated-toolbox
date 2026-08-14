@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from '@/lib/ipc';
+import { notifyUserError } from '@/lib/userNotifications';
 
 const RAW_AUTO_COPY_KEY = 'screen-record-raw-auto-copy-v1';
 const RAW_SAVE_DIR_KEY = 'screen-record-raw-save-dir-v1';
@@ -124,7 +125,7 @@ export function useRawVideoHandler(): UseRawVideoHandlerReturn {
       setIsRawActionBusy(true);
       await ensureRawVideoSaved();
     } catch (e) {
-      console.error('[RawVideo] Failed to save raw video on dialog open:', e);
+      notifyUserError('rawVideoSaveFailed', e);
     } finally {
       setIsRawActionBusy(false);
     }
@@ -143,7 +144,7 @@ export function useRawVideoHandler(): UseRawVideoHandlerReturn {
     let active = true;
     setIsRawActionBusy(true);
     ensureRawVideoSaved()
-      .catch(e => console.error('[RawVideo] Dialog refresh save failed:', e))
+      .catch(e => notifyUserError('rawVideoSaveFailed', e))
       .finally(() => { if (active) setIsRawActionBusy(false); });
     return () => { active = false; };
   // Only retrigger on path change — dialog-open save is handleOpenRawVideoDialog's job.
@@ -170,7 +171,7 @@ export function useRawVideoHandler(): UseRawVideoHandlerReturn {
         }
       }
     } catch (e) {
-      console.error('[RawVideo] Failed to change raw save path:', e);
+      notifyUserError('rawVideoSaveFailed', e);
     } finally {
       setIsRawActionBusy(false);
     }
@@ -184,7 +185,7 @@ export function useRawVideoHandler(): UseRawVideoHandlerReturn {
       await invoke('copy_video_file_to_clipboard', { filePath: savedPath });
       flashRawSavedButton();
     } catch (e) {
-      console.error('[RawVideo] Failed to copy raw video to clipboard:', e);
+      notifyUserError('rawVideoCopyFailed', e);
     } finally {
       setIsRawActionBusy(false);
     }
@@ -205,7 +206,7 @@ export function useRawVideoHandler(): UseRawVideoHandlerReturn {
       await invoke('copy_video_file_to_clipboard', { filePath: savedPath });
       flashRawSavedButton();
     } catch (e) {
-      console.error('[RawVideo] Failed to enable auto-copy for raw video:', e);
+      notifyUserError('rawVideoCopyFailed', e);
     } finally {
       setIsRawActionBusy(false);
     }

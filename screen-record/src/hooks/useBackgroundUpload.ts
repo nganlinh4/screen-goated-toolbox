@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@/lib/ipc";
-import { BackgroundConfig } from "@/types/video";
+import { BackgroundConfig, type ProjectComposition } from "@/types/video";
 import { DEFAULT_BUILT_IN_BACKGROUND_ID } from "@/lib/backgroundPresets";
 import { projectManager } from "@/lib/projectManager";
+import { collectProjectCustomBackgroundUrls } from "@/lib/projectMetadata";
 
 export const RECENT_UPLOADS_KEY = "screen-record-recent-uploads-v1";
 
@@ -31,6 +32,7 @@ function getInitialRecentUploads(): string[] {
 
 interface UseBackgroundUploadParams {
   backgroundConfig: BackgroundConfig;
+  composition: ProjectComposition | null;
   setBackgroundConfig: (
     updater: BackgroundConfig | ((prev: BackgroundConfig) => BackgroundConfig),
   ) => void;
@@ -38,6 +40,7 @@ interface UseBackgroundUploadParams {
 
 export function useBackgroundUpload({
   backgroundConfig,
+  composition,
   setBackgroundConfig,
 }: UseBackgroundUploadParams) {
   const [recentUploadLimit, setRecentUploadLimitState] = useState(initialUploadLimit);
@@ -46,6 +49,14 @@ export function useBackgroundUpload({
   );
   const [isBackgroundUploadProcessing, setIsBackgroundUploadProcessing] =
     useState(false);
+  const activeProjectBackgrounds = collectProjectCustomBackgroundUrls([
+    { backgroundConfig, composition: composition ?? undefined },
+  ]);
+  const activeProjectBackgroundKey = [...activeProjectBackgrounds]
+    .sort()
+    .join("\u0000");
+  const activeProjectBackgroundsRef = useRef(activeProjectBackgrounds);
+  activeProjectBackgroundsRef.current = activeProjectBackgrounds;
 
   useEffect(() => {
     try {
@@ -63,13 +74,13 @@ export function useBackgroundUpload({
       const retainedUrls = [...new Set([
         ...recentUploads,
         ...projectUrls,
-        backgroundConfig.customBackground ?? "",
+        ...activeProjectBackgroundsRef.current,
       ].filter(Boolean))];
       await invoke("reconcile_uploaded_backgrounds", { retainedUrls });
     };
     void reconcile().catch((error) => console.warn("Failed to reconcile uploaded backgrounds:", error));
     return () => { cancelled = true; };
-  }, [backgroundConfig.customBackground, recentUploads]);
+  }, [activeProjectBackgroundKey, recentUploads]);
 
   useEffect(() => {
     const applyHostLimit = (event: Event) => {
@@ -79,13 +90,6 @@ export function useBackgroundUpload({
     };
     window.addEventListener("sr-upload-limit", applyHostLimit);
     return () => window.removeEventListener("sr-upload-limit", applyHostLimit);
-  }, []);
-
-  const setRecentUploadLimit = useCallback((value: number) => {
-    const limit = normalizeRecentUploadLimit(value);
-    setRecentUploadLimitState(limit);
-    setRecentUploads((previous) => previous.slice(0, limit));
-    void invoke("set_recent_upload_limit", { limit });
   }, []);
 
   const handleBackgroundUpload = useCallback(
@@ -175,9 +179,6 @@ export function useBackgroundUpload({
 
   return {
     recentUploads,
-    recentUploadLimit,
-    setRecentUploadLimit,
-    setRecentUploads,
     isBackgroundUploadProcessing,
     handleBackgroundUpload,
     handleRemoveRecentUpload,

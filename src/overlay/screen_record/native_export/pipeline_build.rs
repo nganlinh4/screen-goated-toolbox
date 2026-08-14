@@ -88,6 +88,8 @@ pub(super) fn setup_gpu_and_uniforms(
     src_h: u32,
     crop_w: u32,
     crop_h: u32,
+    camera_crop_w: u32,
+    camera_crop_h: u32,
     crop_x_offset: f64,
     crop_y_offset: f64,
     out_w: u32,
@@ -188,6 +190,8 @@ pub(super) fn setup_gpu_and_uniforms(
             src_h,
             crop_w,
             crop_h,
+            camera_crop_w,
+            camera_crop_h,
             crop_x_offset,
             crop_y_offset,
             out_w,
@@ -223,6 +227,8 @@ pub(super) struct UniformBuildParams {
     pub src_h: u32,
     pub crop_w: u32,
     pub crop_h: u32,
+    pub camera_crop_w: u32,
+    pub camera_crop_h: u32,
     pub crop_x_offset: f64,
     pub crop_y_offset: f64,
     pub out_w: u32,
@@ -261,21 +267,19 @@ impl UniformBuildParams {
             self.src_w as f64,
             self.src_h as f64,
         );
-        let logical_crop_w = if let Some(c) = crop {
-            (capture_w * c.width).max(1.0)
-        } else {
-            capture_w.max(1.0)
-        };
-        let logical_crop_h = if let Some(c) = crop {
-            (capture_h * c.height).max(1.0)
-        } else {
-            capture_h.max(1.0)
-        };
+        let (logical_crop_w, logical_crop_h) = super::crop_geometry::logical_crop_size(
+            capture_w,
+            capture_h,
+            crop.as_ref(),
+            config.background_config.crop_bottom,
+        );
 
         let ow = self.out_w as f64;
         let oh = self.out_h as f64;
         let cw = self.crop_w as f64;
         let ch = self.crop_h as f64;
+        let camera_cw = self.camera_crop_w as f64;
+        let camera_ch = self.camera_crop_h as f64;
         let ow32 = self.out_w as f32;
         let oh32 = self.out_h as f32;
 
@@ -295,8 +299,8 @@ impl UniformBuildParams {
         let cam_y = cam_y_raw - self.crop_y_offset;
         let zvw = video_w * zoom;
         let zvh = video_h * zoom;
-        let rx = (cam_x / cw).clamp(0.0, 1.0);
-        let ry = (cam_y / ch).clamp(0.0, 1.0);
+        let rx = (cam_x / camera_cw).clamp(0.0, 1.0);
+        let ry = (cam_y / camera_ch).clamp(0.0, 1.0);
         let zsx = (1.0 - zoom) * rx;
         let zsy = (1.0 - zoom) * ry;
         let bcx = (1.0 - video_w / ow) / 2.0 * zoom;

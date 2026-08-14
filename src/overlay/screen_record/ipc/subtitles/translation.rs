@@ -19,7 +19,7 @@ use self::models::{
     localized_model_label,
 };
 use self::retry::{AttemptModelArgs, AttemptOutcome, attempt_model};
-use super::super::job_registry::{self, JobHandle};
+use super::super::job_registry::{self, JobHandle, JobState};
 use super::translation_providers::{
     TranslationConversationTurn, translate_subtitle_chunk, translate_subtitle_chunk_with_gtx,
 };
@@ -37,6 +37,12 @@ const GTX_TRANSLATION_MODEL_LABEL: &str = "GTX";
 static SUBTITLE_TRANSLATION_JOBS: OnceLock<
     Mutex<HashMap<String, JobHandle<SubtitleTranslationJobSnapshot>>>,
 > = OnceLock::new();
+
+impl JobState for SubtitleTranslationJobSnapshot {
+    fn state(&self) -> &str {
+        &self.state
+    }
+}
 
 fn subtitle_translation_jobs()
 -> &'static Mutex<HashMap<String, JobHandle<SubtitleTranslationJobSnapshot>>> {
@@ -57,16 +63,18 @@ pub fn handle_start_subtitle_translation(
         ..SubtitleTranslationJobSnapshot::default()
     }));
     let cancelled = Arc::new(AtomicBool::new(false));
-    subtitle_translation_jobs()
+    let mut jobs = subtitle_translation_jobs()
         .lock()
-        .map_err(|_| "Subtitle translation jobs lock poisoned".to_string())?
-        .insert(
-            job_id.clone(),
-            JobHandle {
-                snapshot: snapshot.clone(),
-                cancelled: cancelled.clone(),
-            },
-        );
+        .map_err(|_| "Subtitle translation jobs lock poisoned".to_string())?;
+    job_registry::prepare_for_insert(&mut jobs)?;
+    jobs.insert(
+        job_id.clone(),
+        JobHandle {
+            snapshot: snapshot.clone(),
+            cancelled: cancelled.clone(),
+        },
+    );
+    drop(jobs);
 
     let thread_job_id = job_id.clone();
     std::thread::spawn(move || {
@@ -112,6 +120,12 @@ pub fn handle_cancel_subtitle_translation(
         snapshot.message_key = Some("subtitleTranslationStatusCancelled".to_string());
     }
     Ok(serde_json::Value::Null)
+}
+
+pub(super) fn cancel_all_jobs() {
+    if let Ok(jobs) = subtitle_translation_jobs().lock() {
+        job_registry::cancel_all(&jobs);
+    }
 }
 
 pub fn handle_get_subtitle_translation_capabilities(

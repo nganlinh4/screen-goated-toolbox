@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { equalBackgroundConfig } from "@/lib/backgroundConfig";
 import type {
   BackgroundConfig,
   ProjectComposition,
@@ -34,6 +35,14 @@ function cloneSnapshot(snapshot: EditorHistorySnapshot): EditorHistorySnapshot {
 
 function snapshotsEqual(left: EditorHistorySnapshot, right: EditorHistorySnapshot) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function shallowObjectEqual<T extends object>(left: T, right: T) {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left) as Array<keyof T>;
+  const rightKeys = Object.keys(right) as Array<keyof T>;
+  return leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => Object.is(left[key], right[key]));
 }
 
 export function useEditorHistory({
@@ -173,7 +182,7 @@ export function useEditorHistory({
     const next = typeof value === "function"
       ? (value as (prev: BackgroundConfig) => BackgroundConfig)(previous)
       : value;
-    if (next === previous) return;
+    if (next === previous || equalBackgroundConfig(next, previous)) return;
     recordBeforeChange();
     replaceSnapshot({ backgroundConfig: next });
   }, [recordBeforeChange, replaceSnapshot]);
@@ -183,7 +192,7 @@ export function useEditorHistory({
     const next = typeof value === "function"
       ? (value as (prev: WebcamConfig) => WebcamConfig)(previous)
       : value;
-    if (next === previous) return;
+    if (next === previous || shallowObjectEqual(next, previous)) return;
     recordBeforeChange();
     replaceSnapshot({ webcamConfig: next });
   }, [recordBeforeChange, replaceSnapshot]);

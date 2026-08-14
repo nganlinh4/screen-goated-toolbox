@@ -4,6 +4,7 @@ import { AlertTriangle, Video, Loader2, Play, Pause, Crop, Music4, Pencil, Photo
 import { VideoSegment, BackgroundConfig, MousePosition, type ImportedAudioSegment } from '@/types/video';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
+import { notifyUserError } from '@/lib/userNotifications';
 
 // Re-export sub-components for backwards compatibility
 export { CropOverlay } from './CropOverlay';
@@ -235,7 +236,7 @@ export function PlaybackControls({
       await onDownloadFrame();
       setFrameSaveStatus("saved");
     } catch (error) {
-      console.error("[FrameDownload] Failed to save current frame:", error);
+      notifyUserError("frameSaveFailed", error);
       setFrameSaveStatus("error");
     }
     frameStatusTimerRef.current = setTimeout(() => setFrameSaveStatus("idle"), 1800);

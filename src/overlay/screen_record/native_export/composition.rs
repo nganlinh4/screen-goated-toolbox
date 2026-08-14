@@ -13,10 +13,27 @@ use super::native_stitch::{StitchClip, StitchConfig, stitch_clips_to_mp4};
 use super::progress::{ExportProgressUpdate, push_export_progress_update};
 use super::staging;
 
-fn temp_export_root(session_id: &str) -> PathBuf {
-    crate::paths::app_local_data_dir()
-        .join("composition-export")
-        .join(session_id)
+fn temp_export_root(session_id: &str) -> Result<(PathBuf, PathBuf), String> {
+    super::validation::validate_identifier(session_id, "session id")?;
+    let owner_root = crate::paths::app_local_data_dir().join("composition-export");
+    let target = owner_root.join(session_id);
+    if target.parent() != Some(owner_root.as_path()) {
+        return Err("Composition temp directory escaped its owned root".to_string());
+    }
+    Ok((owner_root, target))
+}
+
+fn remove_temp_export_tree(owner_root: &Path, target: &Path) -> Result<(), String> {
+    if target.parent() != Some(owner_root) || target.file_name().is_none() {
+        return Err("Refusing to remove a directory outside the composition temp root".to_string());
+    }
+    match fs::remove_dir_all(target) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "Failed to remove composition temp directory: {error}"
+        )),
+    }
 }
 
 fn output_base_dir(config: &CompositionExportConfig) -> PathBuf {
@@ -194,13 +211,11 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
     super::EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     let export: CompositionExportConfig = parse_json_with_path(args)?;
-    if export.clips.is_empty() {
-        return Err("Composition export has no clips".to_string());
-    }
+    export.validate()?;
 
-    let temp_root = temp_export_root(&export.session_id);
+    let (temp_owner_root, temp_root) = temp_export_root(&export.session_id)?;
     if temp_root.exists() {
-        let _ = fs::remove_dir_all(&temp_root);
+        remove_temp_export_tree(&temp_owner_root, &temp_root)?;
     }
     fs::create_dir_all(&temp_root)
         .map_err(|e| format!("Failed to create composition temp directory: {e}"))?;
@@ -388,7 +403,9 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
         cleanup_file(&final_gif_path);
         cleanup_file(&merged_temp_mp4);
     }
-    let _ = fs::remove_dir_all(&temp_root);
+    if let Err(error) = remove_temp_export_tree(&temp_owner_root, &temp_root) {
+        eprintln!("[CompositionExport] {error}");
+    }
     staging::clear_session(&export.session_id);
 
     result

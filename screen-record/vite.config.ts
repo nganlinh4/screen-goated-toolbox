@@ -35,10 +35,26 @@ export default defineConfig(async () => ({
     },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
+      checks: {
+        // Build duration varies with host load; correctness and bundle-size
+        // warnings remain enabled while this nondeterministic advisory stays off.
+        pluginTimings: false,
+      },
       output: {
         manualChunks(id) {
-          if (!id.includes("node_modules")) return undefined;
+          const normalizedId = id.replace(/\\/g, "/");
+          if (normalizedId.includes("/src/lib/renderer/")) {
+            return "editor-renderer";
+          }
+          if (!normalizedId.includes("node_modules")) return undefined;
+          if (normalizedId.includes("motion") || normalizedId.includes("framer-motion")) {
+            return "vendor-motion";
+          }
+          if (normalizedId.includes("@radix-ui")) return "vendor-radix";
+          if (normalizedId.includes("react-dom") || normalizedId.includes("/react/")) {
+            return "vendor-react";
+          }
           return "vendor";
         },
         entryFileNames: `assets/[name].js`,

@@ -13,7 +13,6 @@ use super::super::{MEDIA_SERVER_TOKEN, SERVER_PORT, input_capture};
 use super::media_server::start_global_media_server;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
-use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
 use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 use windows_capture::capture::GraphicsCaptureApiHandler;
 use windows_capture::monitor::Monitor;
@@ -39,7 +38,7 @@ pub(super) fn handle_start_recording(
         return super::super::compatibility_capture::start(args);
     }
 
-    IS_RECORDING.store(true, std::sync::atomic::Ordering::SeqCst);
+    let start_claim = super::recording_state::RecordingStartClaim::claim(true)?;
     let target_type = args["targetType"].as_str().unwrap_or("monitor");
     let target_id = args["targetId"]
         .as_str()
@@ -72,7 +71,13 @@ pub(super) fn handle_start_recording(
     super::super::engine::EXTERNAL_CAPTURE_CONTROL.lock().take();
     *CAPTURE_ERROR.lock() = None;
 
-    let fps: Option<u32> = args["fps"].as_u64().map(|v| v as u32);
+    let fps = args["fps"]
+        .as_u64()
+        .map(|value| u32::try_from(value).map_err(|_| "capture FPS is too large".to_string()))
+        .transpose()?;
+    if fps.is_some_and(|value| !(1..=240).contains(&value)) {
+        return Err("capture FPS must be between 1 and 240".to_string());
+    }
     let flag_str = serde_json::to_string(&serde_json::json!({
         "target_type": target_type,
         "target_id": target_id,
@@ -96,12 +101,6 @@ pub(super) fn handle_start_recording(
         webcam_enabled
     );
 
-    // Request 1ms timer resolution so thread::sleep(1ms) actually sleeps ~1ms
-    // instead of the default ~15.6ms Windows scheduler quantum.
-    unsafe {
-        timeBeginPeriod(1);
-    }
-
     if target_type == "window" {
         let hwnd_val = target_id.parse::<usize>().unwrap_or(0);
         let hwnd = HWND(hwnd_val as *mut _);
@@ -122,19 +121,11 @@ pub(super) fn handle_start_recording(
         if hwnd_val == 0
             || !unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() }
         {
-            IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
-            unsafe {
-                timeEndPeriod(1);
-            }
             return Err(format!("Invalid window handle: 0x{:X}", hwnd_val));
         }
         if super::super::window_capture_eligibility::classify(hwnd)
             == super::super::window_capture_eligibility::WindowCaptureEligibility::DisplayOnly
         {
-            IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
-            unsafe {
-                timeEndPeriod(1);
-            }
             return Err(
                 "This fullscreen or presentation window requires Display capture.".to_string(),
             );
@@ -194,7 +185,6 @@ pub(super) fn handle_start_recording(
                 let msg = format!("Window capture failed: {}", e);
                 eprintln!("[CaptureBackend] {}", msg);
                 *CAPTURE_ERROR.lock() = Some(msg.clone());
-                IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
                 return Err(msg);
             }
         }
@@ -266,7 +256,6 @@ pub(super) fn handle_start_recording(
                 let msg = format!("Display capture failed: {}", e);
                 eprintln!("[CaptureBackend] {}", msg);
                 *CAPTURE_ERROR.lock() = Some(msg.clone());
-                IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
                 return Err(msg);
             }
         }
@@ -289,6 +278,7 @@ pub(super) fn handle_start_recording(
         }
     );
 
+    start_claim.commit();
     Ok(serde_json::Value::Null)
 }
 
@@ -307,10 +297,7 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
     super::super::engine::TARGET_HWND.store(0, std::sync::atomic::Ordering::SeqCst);
     super::super::capture_border::hide_capture_border();
 
-    // Restore default timer resolution (matching the timeBeginPeriod in start_recording).
-    unsafe {
-        timeEndPeriod(1);
-    }
+    super::recording_state::end_timer_resolution();
     let active_stop_start = std::time::Instant::now();
     if let Some(control) = ACTIVE_CAPTURE_CONTROL.lock().take() {
         control.stop();

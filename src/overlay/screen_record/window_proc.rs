@@ -36,11 +36,7 @@ pub(super) unsafe extern "system" fn sr_wnd_proc(
             }
             WM_CLOSE => {
                 crate::log_info!("[ScreenRecord] WM_CLOSE received; destroying window");
-                if super::engine::IS_RECORDING.load(std::sync::atomic::Ordering::SeqCst)
-                    || super::engine::ENCODER_ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
-                {
-                    cleanup_on_app_exit();
-                }
+                cleanup_on_app_exit();
                 let _ = DestroyWindow(hwnd);
                 LRESULT(0)
             }

@@ -10,7 +10,7 @@ import type { SubtitleSource } from "@/lib/subtitleGenerationPlan";
 import { useVideoImport } from "@/hooks/useVideoImport";
 import { useImportedAudioImport } from "@/hooks/useImportedAudioImport";
 import { useSubtitleImport } from "@/hooks/useSubtitleSrtImport";
-import { logToHost } from "@/lib/ipc";
+import { invoke, logToHost } from "@/lib/ipc";
 import { createAudioPlaceholderVideo, getMediaServerUrl } from "@/lib/mediaServer";
 import { getTimelineContentEnd, resizeSegmentDuration } from "@/lib/timelineDuration";
 import type { VideoController } from "@/lib/videoController";
@@ -56,6 +56,7 @@ interface AppMediaImportsOptions {
   setComposition: CompositionSetter;
   setCurrentVideo: Dispatch<SetStateAction<string | null>>;
   setEditingSubtitleId: (id: string | null) => void;
+  setError: (message: string) => void;
   setSegment: SegmentSetter;
   setSubtitleSource: (source: SubtitleSource) => void;
   updateCurrentMusicSegments: (
@@ -83,6 +84,7 @@ export function useAppMediaImports({
   setComposition,
   setCurrentVideo,
   setEditingSubtitleId,
+  setError,
   setSegment,
   setSubtitleSource,
   updateCurrentMusicSegments,
@@ -100,7 +102,13 @@ export function useAppMediaImports({
     useImportedAudioImport({
       getCurrentProjectId: () =>
         currentProjectIdRef.current ?? currentProjectDataRef.current?.id ?? null,
-      onAttachToCurrentProject: async (segments) => {
+      onAttachToCurrentProject: async (segments, expectedProjectId) => {
+        const assertProjectUnchanged = () => {
+          if (currentProjectIdRef.current !== expectedProjectId) {
+            throw new Error("The open project changed while audio was importing");
+          }
+        };
+        assertProjectUnchanged();
         if (isPlaceholderBackedProject && segmentRef.current) {
           const baseComposition =
             currentProjectDataRef.current?.composition ?? composition ?? null;
@@ -136,6 +144,12 @@ export function useAppMediaImports({
             nextDuration,
             "attach-audio-to-placeholder-project",
           );
+          if (currentProjectIdRef.current !== expectedProjectId) {
+            await invoke("delete_file", { path: placeholder.path }).catch(
+              () => undefined,
+            );
+            assertProjectUnchanged();
+          }
           const nextComposition = {
             ...baseComposition,
             audioSegments: nextAudioSegments,
@@ -163,12 +177,15 @@ export function useAppMediaImports({
             "attach-audio-to-placeholder-project",
             placeholder.path,
           );
+          assertProjectUnchanged();
           const mediaUrl = await getMediaServerUrl(placeholder.path);
+          assertProjectUnchanged();
           const loadedUrl = await videoControllerRef.current?.loadVideo({
             videoUrl: mediaUrl,
             initialTime: currentTime,
             debugLabel: "attach-audio-to-placeholder-project",
           });
+          assertProjectUnchanged();
           setCurrentVideo(loadedUrl ?? mediaUrl);
           setSubtitleSource("audio");
           return;
@@ -207,6 +224,7 @@ export function useAppMediaImports({
         }
         logToHost(`[AudioImport][Frontend] load project complete id="${project.id}"`);
       },
+      onError: setError,
     });
 
   const {
@@ -218,6 +236,8 @@ export function useAppMediaImports({
     duration,
     getCurrentProjectId: () =>
       currentProjectIdRef.current ?? currentProjectDataRef.current?.id ?? null,
+    getCurrentSegment: () =>
+      segmentRef.current ?? currentProjectDataRef.current?.segment ?? null,
     setSegment,
     setActivePanel,
     setEditingSubtitleId,
@@ -236,6 +256,7 @@ export function useAppMediaImports({
       }
       logToHost(`[SubtitleImport][Frontend] load project complete id="${project.id}"`);
     },
+    onError: setError,
   });
 
   return {

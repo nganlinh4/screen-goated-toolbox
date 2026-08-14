@@ -2,13 +2,15 @@ use anyhow::{Result, anyhow};
 use windows::Win32::Foundation::{
     CloseHandle, HANDLE, WAIT_ABANDONED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
+#[cfg(not(test))]
+use windows::Win32::System::Threading::INFINITE;
 use windows::Win32::System::Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
 use windows::core::PCWSTR;
 
 #[cfg(not(test))]
 const MUTATION_MUTEX_NAME: &str = "Global\\ScreenGoatedToolboxComponentRegistryMutation-v1";
 #[cfg(not(test))]
-const MUTATION_WAIT_MS: u32 = 2_000;
+const MUTATION_WAIT_MS: u32 = INFINITE;
 #[cfg(test)]
 const MUTATION_WAIT_MS: u32 = 10_000;
 

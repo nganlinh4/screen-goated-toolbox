@@ -15,15 +15,44 @@ $scalePatchFile = Join-Path $PSScriptRoot "egui-scale-no-default-fonts.patch"
 $snarlRevision = "5bdc34e4ebdb9d7a0968f21564dce51a1a027ee8"
 $scaleRevision = "abb9b647cf9478c6de876a980e4355cdc2d141c8"
 
-# Clone egui-snarl if needed
-if (-not (Test-Path $snarlDir)) {
-    Write-Host "Cloning egui-snarl..."
-    git clone --depth 20 https://github.com/zakarumych/egui-snarl.git $snarlDir
+function Initialize-PinnedCheckout {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string]$Repository,
+        [switch]$Shallow
+    )
+
+    if (Test-Path -LiteralPath $Directory) {
+        if (Test-Path -LiteralPath (Join-Path $Directory ".git")) {
+            return
+        }
+        $children = @(Get-ChildItem -LiteralPath $Directory -Force)
+        if ($children.Count -ne 0) {
+            Write-Error "$Name path exists but is not a Git checkout: $Directory"
+            exit 1
+        }
+        Remove-Item -LiteralPath $Directory
+    }
+
+    Write-Host "Cloning $Name..."
+    $arguments = @("clone")
+    if ($Shallow) {
+        $arguments += @("--depth", "20")
+    }
+    $arguments += @($Repository, $Directory)
+    git @arguments
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to clone egui-snarl."
+        Write-Error "Failed to clone $Name."
         exit 1
     }
 }
+
+Initialize-PinnedCheckout `
+    -Name "egui-snarl" `
+    -Directory $snarlDir `
+    -Repository "https://github.com/zakarumych/egui-snarl.git" `
+    -Shallow
 
 Write-Host "Checking out egui-snarl revision $snarlRevision..."
 git -C $snarlDir checkout --force $snarlRevision
@@ -60,14 +89,10 @@ if (-not (Select-String -Path $snarlCargoPath -Pattern 'egui = \{ version = "0.3
     }
 }
 
-if (-not (Test-Path $scaleDir)) {
-    Write-Host "Cloning egui-scale..."
-    git clone https://github.com/zakarumych/egui-scale.git $scaleDir
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to clone egui-scale."
-        exit 1
-    }
-}
+Initialize-PinnedCheckout `
+    -Name "egui-scale" `
+    -Directory $scaleDir `
+    -Repository "https://github.com/zakarumych/egui-scale.git"
 
 Write-Host "Checking out egui-scale revision $scaleRevision..."
 git -C $scaleDir checkout --force $scaleRevision

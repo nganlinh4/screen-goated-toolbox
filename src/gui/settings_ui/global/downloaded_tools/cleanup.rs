@@ -291,6 +291,21 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
         },
     );
     run_step(ctx, 2, CleanupStep::Recoveries, || {
+        match crate::component_registry::recorder::clean_all_recoveries() {
+            Ok(outcomes) => {
+                for outcome in outcomes {
+                    if !outcome.preserved_paths.is_empty() {
+                        attention_count += 1;
+                        crate::log_info!(
+                            "[Downloaded Tools] recorder recovery at {} preserved {} path(s)",
+                            outcome.path.display(),
+                            outcome.preserved_paths.len()
+                        );
+                    }
+                }
+            }
+            Err(error) => record_error("recorder recovery files", error, &mut attention_count),
+        }
         match crate::component_registry::external_tools::clean_all_recoveries() {
             Ok(outcomes) => {
                 for outcome in outcomes {

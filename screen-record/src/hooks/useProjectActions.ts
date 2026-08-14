@@ -17,6 +17,7 @@ import {
   summarizeSegment,
   toPreviewRectSnapshot,
 } from "@/lib/appUtils";
+import { useSettings } from "@/hooks/useSettings";
 
 export interface UseProjectActionsParams {
   // From useProjects
@@ -61,6 +62,8 @@ export interface UseProjectActionsParams {
   backgroundConfig: BackgroundConfig;
   segment: VideoSegment | null;
   currentProjectData: Project | null;
+  currentProjectDataRef: MutableRefObject<Project | null>;
+  currentProjectIdRef: MutableRefObject<string | null>;
   setCurrentProjectData: (p: Project | null) => void;
   setCurrentRawMicAudioPath: (path: string) => void;
   setCurrentRawWebcamVideoPath: (path: string) => void;
@@ -85,7 +88,10 @@ export interface UseProjectActionsParams {
   persistCurrentProjectNow: (opts?: {
     refreshList?: boolean;
     includeMedia?: boolean;
+    allowDuringProjectTransition?: boolean;
+    throwOnError?: boolean;
   }) => Promise<void>;
+  setError: (message: string) => void;
 }
 
 export interface UseProjectActionsResult {
@@ -118,6 +124,8 @@ export function useProjectActions({
   backgroundConfig,
   segment,
   currentProjectData,
+  currentProjectDataRef,
+  currentProjectIdRef,
   setCurrentProjectData,
   setCurrentRawMicAudioPath,
   setCurrentRawWebcamVideoPath,
@@ -134,7 +142,9 @@ export function useProjectActions({
   debugProject,
   logProjectSwitch,
   persistCurrentProjectNow,
+  setError,
 }: UseProjectActionsParams): UseProjectActionsResult {
+  const { t } = useSettings();
   const onProjectLoaded = useCallback(
     (project: Project) => {
       clearClipMediaCaches({
@@ -147,11 +157,14 @@ export function useProjectActions({
       clipExportWebcamPathCacheRef.current.clear();
       isSwitchingCompositionClipRef.current = true;
       clipLoadRequestSeqRef.current += 1;
-      setCurrentProjectData({
+      const loadedProject = {
         ...project,
         backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
         webcamConfig: cloneWebcamConfig(project.webcamConfig),
-      });
+      };
+      currentProjectIdRef.current = project.id;
+      currentProjectDataRef.current = loadedProject;
+      setCurrentProjectData(loadedProject);
       setCurrentRawMicAudioPath(project.rawMicAudioPath ?? "");
       setCurrentRawWebcamVideoPath(project.rawWebcamVideoPath ?? "");
       setWebcamConfig(cloneWebcamConfig(project.webcamConfig));
@@ -240,10 +253,21 @@ export function useProjectActions({
       beginProjectInteractionShield();
       abortEditorInteractions();
       projectInteractionShieldReleaseRef.current?.();
-      await persistCurrentProjectNow({
-        refreshList: false,
-        includeMedia: false,
-      });
+      try {
+        await persistCurrentProjectNow({
+          refreshList: false,
+          includeMedia: false,
+          allowDuringProjectTransition: true,
+          throwOnError: true,
+        });
+      } catch (error) {
+        isProjectTransitionRef.current = false;
+        setIsProjectInteractionShieldVisible(false);
+        projectInteractionBlockCleanupRef.current?.();
+        console.error("Could not save current project before switching", error);
+        setError(t.projectSaveFailed);
+        throw error;
+      }
       setLastCaptureFps(null);
       try {
         await projects.handleLoadProject(projectId);
@@ -269,6 +293,8 @@ export function useProjectActions({
       segment,
       setIsProjectInteractionShieldVisible,
       setLastCaptureFps,
+      setError,
+      t.projectSaveFailed,
     ],
   );
 

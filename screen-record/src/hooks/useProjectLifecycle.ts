@@ -31,6 +31,7 @@ export interface UseProjectLifecycleParams {
   } | null>;
   // useProjectPersistence params
   currentProjectId: string | null;
+  currentProjectIdRef: MutableRefObject<string | null>;
   projects: {
     projects: Project[];
     loadProjects: () => Promise<void>;
@@ -42,6 +43,7 @@ export interface UseProjectLifecycleParams {
   currentWebcamVideo: string | null;
   loadedClipId: string | null;
   currentProjectData: Project | null;
+  currentProjectDataRef: MutableRefObject<Project | null>;
   segment: VideoSegment | null;
   composition: ProjectComposition | null;
   backgroundConfig: BackgroundConfig;
@@ -145,6 +147,7 @@ export function useProjectLifecycle({
   restoreImageRef,
   projectsPreviewTargetSnapshotRef,
   currentProjectId,
+  currentProjectIdRef,
   projects,
   currentVideo,
   currentAudio,
@@ -152,6 +155,7 @@ export function useProjectLifecycle({
   currentWebcamVideo,
   loadedClipId,
   currentProjectData,
+  currentProjectDataRef,
   segment,
   composition,
   backgroundConfig,
@@ -210,6 +214,7 @@ export function useProjectLifecycle({
   const { persistCurrentProjectNow, debugProject, logProjectSwitch } =
     useProjectPersistence({
       currentProjectId,
+      currentProjectIdRef,
       projects: { projects: projects.projects, loadProjects: projects.loadProjects },
       currentVideo,
       currentAudio,
@@ -217,6 +222,7 @@ export function useProjectLifecycle({
       currentWebcamVideo,
       loadedClipId,
       currentProjectData,
+      currentProjectDataRef,
       segment,
       composition,
       backgroundConfig,
@@ -301,6 +307,8 @@ export function useProjectLifecycle({
     backgroundConfig,
     segment,
     currentProjectData,
+    currentProjectDataRef,
+    currentProjectIdRef,
     setCurrentProjectData,
     setCurrentRawMicAudioPath,
     setCurrentRawWebcamVideoPath,
@@ -317,6 +325,7 @@ export function useProjectLifecycle({
     debugProject,
     logProjectSwitch,
     persistCurrentProjectNow,
+    setError,
   });
 
   const { onStopRecording } = useStopRecording({

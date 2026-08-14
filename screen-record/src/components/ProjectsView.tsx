@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { Video, Trash2, Play, X, Upload, AudioLines } from '@/components/ui/MaterialIcon';
 import { Project } from "@/types/video";
 import { projectManager } from "@/lib/projectManager";
+import { MAX_PROJECT_NAME_LENGTH } from "@/lib/projectMetadata";
 import { useSettings } from "@/hooks/useSettings";
 import { ConfirmDialog } from "./dialogs";
 import { formatDuration } from "./projectsViewUtils";
@@ -18,6 +19,9 @@ interface ProjectsViewProps {
   onBeginProjectOpen?: () => void;
   onLoadProject: (projectId: string) => void | Promise<void>;
   onProjectsChange: () => void;
+  onClearProjects: () => Promise<void>;
+  onDeleteProject: (id: string) => Promise<void>;
+  onRenameProject: (id: string, name: string) => Promise<void>;
   onClose: () => void;
   currentProjectId?: string | null;
   restoreImage?: string | null;
@@ -33,6 +37,9 @@ export function ProjectsView({
   onBeginProjectOpen,
   onLoadProject,
   onProjectsChange,
+  onClearProjects,
+  onDeleteProject,
+  onRenameProject,
   onClose,
   currentProjectId,
   restoreImage,
@@ -67,29 +74,18 @@ export function ProjectsView({
   });
 
   const handleRename = async (id: string) => {
-    if (!renameValue.trim()) return;
-    const project = await projectManager.loadProject(id);
-    if (project) {
-      await projectManager.updateProject(id, {
-        ...project,
-        name: renameValue.trim(),
-      });
-      onProjectsChange();
-    }
+    await onRenameProject(id, renameValue);
     setEditingNameId(null);
   };
 
   const handleClearAll = async () => {
     setShowClearConfirm(false);
-    for (const p of projects) {
-      await projectManager.deleteProject(p.id);
-    }
-    onProjectsChange();
+    await onClearProjects();
   };
 
   const handleProjectClick = (
     projectId: string,
-    e: React.MouseEvent<HTMLDivElement>,
+    e: React.MouseEvent<HTMLButtonElement>,
   ) => {
     if (isPickerMode) {
       void onPickProject?.(projectId);
@@ -161,10 +157,12 @@ export function ProjectsView({
           <div className="projects-limit-control flex items-center gap-4 shrink-0 whitespace-nowrap">
             {!isPickerMode && (
               <>
-                <span className="text-[10px] text-[var(--outline)]">
+                <label htmlFor="projects-limit" className="text-[10px] text-[var(--outline)]">
                   {t.max}
-                </span>
+                </label>
                 <input
+                  id="projects-limit"
+                  aria-label={t.max}
                   type="range"
                   min="10"
                   max="100"
@@ -181,6 +179,9 @@ export function ProjectsView({
               </>
             )}
             <button
+              type="button"
+              aria-label={t.close}
+              title={t.close}
               onClick={handleAnimatedClose}
               className="projects-close-btn ui-icon-button p-1"
             >
@@ -216,8 +217,10 @@ export function ProjectsView({
                       isThumbnailMasked ? "pointer-events-none" : ""
                     }`}
                   >
-                    <div
-                      className="project-thumbnail bg-[var(--surface-container-high)] relative cursor-pointer overflow-hidden"
+                    <button
+                      type="button"
+                      aria-label={project.name}
+                      className="project-thumbnail block w-full border-0 p-0 text-left bg-[var(--surface-container-high)] relative cursor-pointer overflow-hidden"
                       onMouseDownCapture={() => {
                         if (!isPickerMode) {
                           onBeginProjectOpen?.();
@@ -263,7 +266,7 @@ export function ProjectsView({
                           {formatDuration(project.duration)}
                         </span>
                       )}
-                    </div>
+                    </button>
                     <div className="project-card-footer p-2 flex items-start justify-between gap-1">
                       <div className="project-info min-w-0 flex-1">
                         {editingNameId === project.id ? (
@@ -271,6 +274,7 @@ export function ProjectsView({
                             autoFocus
                             className="project-rename-input ui-input w-full rounded-md border-b border-[var(--primary-color)] text-[var(--on-surface)] text-xs outline-hidden py-1 px-1.5"
                             value={renameValue}
+                            maxLength={MAX_PROJECT_NAME_LENGTH}
                             onChange={(e) => setRenameValue(e.target.value)}
                             onBlur={() => handleRename(project.id)}
                             onKeyDown={(e) =>
@@ -294,10 +298,11 @@ export function ProjectsView({
                       </div>
                       {!isPickerMode && (
                         <button
+                          type="button"
+                          aria-label={`Delete project: ${project.name}`}
                           onClick={async (e) => {
                             e.stopPropagation();
-                            await projectManager.deleteProject(project.id);
-                            onProjectsChange();
+                            await onDeleteProject(project.id);
                           }}
                           className="project-delete-btn ui-icon-button text-[var(--outline)] hover:text-red-400 opacity-0 group-hover:opacity-100 p-0.5 shrink-0"
                         >

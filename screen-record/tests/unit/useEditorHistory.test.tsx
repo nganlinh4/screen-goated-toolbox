@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   useEditorHistory,
@@ -47,5 +47,32 @@ describe("useEditorHistory", () => {
     rerender({ snapshot: createSnapshot(2) });
 
     expect(cloneSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not clone or push history for equivalent editor values", () => {
+    const cloneSpy = vi.spyOn(globalThis, "structuredClone");
+    const initialSnapshot = createSnapshot(1);
+    const { result } = renderHook(() => useEditorHistory({
+      initialSnapshot,
+      applySnapshot: vi.fn(),
+    }));
+
+    act(() => {
+      result.current.setSegment((previous) => previous);
+      result.current.setComposition((previous) => previous);
+      result.current.setBackgroundConfig({
+        ...initialSnapshot.backgroundConfig,
+      });
+      result.current.setWebcamConfig({
+        ...initialSnapshot.webcamConfig,
+      });
+      result.current.setDuration(initialSnapshot.duration);
+      result.current.setCurrentRawVideoPath(
+        initialSnapshot.currentRawVideoPath,
+      );
+    });
+
+    expect(cloneSpy).toHaveBeenCalledTimes(1);
+    expect(result.current.canUndo).toBe(false);
   });
 });

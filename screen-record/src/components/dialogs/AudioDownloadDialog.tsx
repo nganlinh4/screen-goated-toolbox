@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { FolderOpen } from '@/components/ui/MaterialIcon';
 import { invoke } from "@/lib/ipc";
 import { useSettings } from "@/hooks/useSettings";
+import { notifyUserError } from "@/lib/userNotifications";
 import type { AudioDownloadFormat } from "@/types/video";
 import {
   Dialog,
@@ -45,7 +46,7 @@ export function AudioDownloadDialog({
       });
       if (selected) onOutputDirChange(selected);
     } catch (error) {
-      console.error("[AudioDownload] pick output dir failed:", error);
+      notifyUserError("folderPickerFailed", error);
     } finally {
       setIsPickingDir(false);
     }

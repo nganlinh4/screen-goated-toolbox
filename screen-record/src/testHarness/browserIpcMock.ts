@@ -151,6 +151,7 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
         trackKind: args?.trackKind ?? "imported",
       };
     case "start_export_server":
+    case "start_composition_export_server":
       return { status: "success", path: "C:\\Users\\user\\Downloads\\SGT_Test_Export.mp4" };
     default:
       return null;

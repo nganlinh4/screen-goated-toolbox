@@ -36,6 +36,7 @@ export interface AppProjectLifecycleControllerArgs {
   currentMicAudio: string | null;
   currentProjectData: Project | null;
   currentProjectDataRef: MutableRefObject<Project | null>;
+  currentProjectIdRef: MutableRefObject<string | null>;
   currentProjectId: string | null;
   currentRawMicAudioPath: string;
   currentRawVideoPath: string;
@@ -125,6 +126,7 @@ export function useAppProjectLifecycleController(args: AppProjectLifecycleContro
     currentProjectData,
     currentProjectDataRef,
     currentProjectId,
+    currentProjectIdRef,
     currentRawMicAudioPath,
     currentRawVideoPath,
     currentRawWebcamVideoPath,
@@ -198,6 +200,7 @@ export function useAppProjectLifecycleController(args: AppProjectLifecycleContro
     restoreImageRef,
     projectsPreviewTargetSnapshotRef,
     currentProjectId,
+    currentProjectIdRef,
     projects: {
       projects: projects.projects,
       loadProjects: projects.loadProjects,
@@ -209,6 +212,7 @@ export function useAppProjectLifecycleController(args: AppProjectLifecycleContro
     currentWebcamVideo,
     loadedClipId,
     currentProjectData,
+    currentProjectDataRef,
     segment,
     composition,
     backgroundConfig,

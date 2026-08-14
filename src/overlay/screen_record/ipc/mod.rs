@@ -4,6 +4,7 @@
 
 mod audio_waveform;
 mod audio_waveform_cache;
+mod cursor_anim_cache;
 mod cursor_svg;
 mod frame_export;
 mod gemini_translate_narration;
@@ -13,7 +14,9 @@ mod job_registry;
 mod managed_files;
 pub mod media_server;
 mod narration;
+mod path_validation;
 mod recording;
+pub(super) mod recording_state;
 mod s2s_narration;
 mod stage_export;
 mod subtitle_export;
@@ -27,13 +30,19 @@ use super::mf_decode;
 use super::native_export;
 use super::raw_video;
 use super::{MEDIA_SERVER_TOKEN, SERVER_PORT, SR_HWND};
-use base64::Engine as _;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 // Re-exports used by the parent module.
 pub use media_server::start_global_media_server;
 pub(crate) use window_monitor::capture_window_thumbnail;
+
+pub(super) fn cancel_all_jobs() {
+    subtitles::cancel_all_jobs();
+    narration::cancel_all_jobs();
+    s2s_narration::cancel_all_jobs();
+    gemini_translate_narration::cancel_all_jobs();
+}
 
 pub fn handle_ipc_command(
     cmd: String,
@@ -42,6 +51,7 @@ pub fn handle_ipc_command(
     match cmd.as_str() {
         "check_bg_downloaded" => {
             let id = args["id"].as_str().unwrap_or("");
+            bg_download::validate_catalog_background_id(id)?;
             let info = bg_download::download_info(id);
             Ok(serde_json::json!({
                 "downloaded": info.is_some(),
@@ -52,11 +62,12 @@ pub fn handle_ipc_command(
         "start_bg_download" => {
             let id = args["id"].as_str().unwrap_or("").to_string();
             let url = args["url"].as_str().unwrap_or("").to_string();
-            bg_download::start_download(id, url);
+            bg_download::start_download(id, url)?;
             Ok(serde_json::Value::Null)
         }
         "get_bg_download_progress" => {
             let id = args["id"].as_str().unwrap_or("");
+            bg_download::validate_catalog_background_id(id)?;
             let status = bg_download::get_download_status(id);
             Ok(serde_json::to_value(&status).unwrap())
         }
@@ -67,8 +78,12 @@ pub fn handle_ipc_command(
                 .iter()
                 .filter_map(|value| value.as_str())
                 .collect::<Vec<_>>();
+            if ids.len() > 256 {
+                return Err("Too many background states requested".to_string());
+            }
             let mut states = serde_json::Map::new();
             for id in ids {
+                bg_download::validate_catalog_background_id(id)?;
                 let info = bg_download::download_info(id);
                 let status = bg_download::get_download_status(id);
                 states.insert(
@@ -85,7 +100,7 @@ pub fn handle_ipc_command(
         }
         "delete_bg_download" => {
             let id = args["id"].as_str().unwrap_or("");
-            bg_download::delete_downloaded(id);
+            bg_download::delete_downloaded(id)?;
             Ok(serde_json::Value::Null)
         }
         "read_bg_as_data_url" => {
@@ -106,9 +121,13 @@ pub fn handle_ipc_command(
             Ok(serde_json::Value::Null)
         }
         "reconcile_uploaded_backgrounds" => {
-            let retained = args["retainedUrls"]
+            let retained_values = args["retainedUrls"]
                 .as_array()
-                .ok_or("Missing retained background URLs")?
+                .ok_or("Missing retained background URLs")?;
+            if retained_values.len() > 4_096 {
+                return Err("Too many retained background URLs".to_string());
+            }
+            let retained = retained_values
                 .iter()
                 .filter_map(|value| value.as_str().map(str::to_string))
                 .collect::<Vec<_>>();
@@ -129,32 +148,8 @@ pub fn handle_ipc_command(
             Ok(serde_json::Value::Null)
         }
         "stage_export_data" => stage_export::handle_stage_export_data(&args),
-        // Check disk cache for pre-rendered animated cursor frames.
-        // Returns cached preview PNGs (base64) + populates export store, or null.
-        "load_cursor_anim_cache" => {
-            let slot_id = args["slotId"].as_u64().ok_or("missing slotId")? as u32;
-            let svg_hash = args["svgHash"].as_str().ok_or("missing svgHash")?;
-            match native_export::anim_cache::load_cache(slot_id, svg_hash) {
-                Some(result) => {
-                    let preview_b64: Vec<String> = result
-                        .preview_pngs
-                        .iter()
-                        .map(|png| base64::engine::general_purpose::STANDARD.encode(png))
-                        .collect();
-                    Ok(serde_json::json!({
-                        "cached": true,
-                        "loopDuration": result.loop_duration,
-                        "naturalWidth": result.natural_width,
-                        "naturalHeight": result.natural_height,
-                        "previewFrames": preview_b64,
-                    }))
-                }
-                None => Ok(serde_json::json!({ "cached": false })),
-            }
-        }
-        // Save pre-rendered animated cursor frames to disk cache.
-        // Also decodes export PNGs to RGBA and populates the persistent export store.
-        "save_cursor_anim_cache" => handle_save_cursor_anim_cache(&args),
+        "load_cursor_anim_cache" => cursor_anim_cache::handle_load(&args),
+        "save_cursor_anim_cache" => cursor_anim_cache::handle_save(&args),
         "start_export_server" => {
             let result = native_export::start_native_export(args);
             native_export::persist_export_result(&result);
@@ -271,7 +266,27 @@ pub fn handle_ipc_command(
             let path_str = args["path"].as_str().ok_or("Missing path")?;
             let new_name = args["newName"].as_str().ok_or("Missing newName")?;
             let path = std::path::PathBuf::from(path_str);
+            let new_name = path_validation::validate_file_name(new_name)?;
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|error| format!("Media file is unavailable: {error}"))?;
+            if !metadata.is_file() || path_validation::metadata_is_reparse(&metadata) {
+                return Err("Refusing to rename a non-regular media file".to_string());
+            }
+            let old_extension = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default();
+            let new_extension = std::path::Path::new(&new_name)
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default();
+            if old_extension.is_empty() || !old_extension.eq_ignore_ascii_case(new_extension) {
+                return Err("Renaming must preserve the media file extension".to_string());
+            }
             let new_path = path.with_file_name(new_name);
+            if new_path.exists() {
+                return Err("A file with that name already exists".to_string());
+            }
             std::fs::rename(&path, &new_path).map_err(|e| e.to_string())?;
             Ok(serde_json::json!(new_path.to_string_lossy().to_string()))
         }
@@ -547,45 +562,4 @@ fn handle_read_subtitle_file_path(args: &serde_json::Value) -> Result<serde_json
         "content": content,
         "format": extension,
     }))
-}
-
-fn handle_save_cursor_anim_cache(args: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let slot_id = args["slotId"].as_u64().ok_or("missing slotId")? as u32;
-    let svg_hash = args["svgHash"].as_str().ok_or("missing svgHash")?;
-    let loop_duration = args["loopDuration"]
-        .as_f64()
-        .ok_or("missing loopDuration")?;
-    let natural_width = args["naturalWidth"]
-        .as_u64()
-        .ok_or("missing naturalWidth")? as u32;
-    let natural_height = args["naturalHeight"]
-        .as_u64()
-        .ok_or("missing naturalHeight")? as u32;
-
-    let decode_png_array = |key: &str| -> Result<Vec<Vec<u8>>, String> {
-        let arr = args[key].as_array().ok_or(format!("missing {key}"))?;
-        let mut out = Vec::with_capacity(arr.len());
-        for (i, v) in arr.iter().enumerate() {
-            let b64 = v.as_str().ok_or(format!("{key}[{i}] not string"))?;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(b64)
-                .map_err(|e| format!("{key}[{i}] b64: {e}"))?;
-            out.push(bytes);
-        }
-        Ok(out)
-    };
-
-    let export_pngs = decode_png_array("exportPngs")?;
-    let preview_pngs = decode_png_array("previewFrames")?;
-
-    native_export::anim_cache::save_cache(
-        slot_id,
-        svg_hash,
-        loop_duration,
-        natural_width,
-        natural_height,
-        &export_pngs,
-        &preview_pngs,
-    )?;
-    Ok(serde_json::Value::Null)
 }

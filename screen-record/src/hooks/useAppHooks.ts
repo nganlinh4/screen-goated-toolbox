@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@/lib/ipc';
 import { useSettings } from '@/hooks/useSettings';
 import { sortMonitorsByPosition } from '@/utils/helpers';
+import { notifyUserError } from '@/lib/userNotifications';
 
 // Re-export types for convenience
 export interface MonitorInfo {
@@ -34,17 +35,20 @@ export interface WindowInfo {
 // ============================================================================
 // useThrottle
 // ============================================================================
-export const useThrottle = (callback: Function, limit: number) => {
+export function useThrottle<Args extends unknown[]>(
+  callback: (...args: Args) => void,
+  limit: number,
+) {
   const lastRunRef = useRef<number>(0);
 
-  return useCallback((...args: any[]) => {
+  return useCallback((...args: Args) => {
     const now = Date.now();
     if (now - lastRunRef.current >= limit) {
       callback(...args);
       lastRunRef.current = now;
     }
   }, [callback, limit]);
-};
+}
 
 // ============================================================================
 // useHotkeys
@@ -55,7 +59,9 @@ export function useHotkeys() {
   const [listeningForKey, setListeningForKey] = useState(false);
 
   useEffect(() => {
-    invoke<Hotkey[]>('get_hotkeys').then(setHotkeys).catch(() => {});
+    invoke<Hotkey[]>('get_hotkeys')
+      .then(setHotkeys)
+      .catch((error) => notifyUserError('hotkeyLoadFailed', error));
   }, []);
 
   const handleRemoveHotkey = async (index: number) => {
@@ -63,7 +69,7 @@ export function useHotkeys() {
       await invoke('remove_hotkey', { index });
       setHotkeys(prev => prev.filter((_, i) => i !== index));
     } catch (err) {
-      console.error("Failed to remove hotkey:", err);
+      notifyUserError('hotkeyRemoveFailed', err);
     }
   };
 
@@ -95,7 +101,7 @@ export function useHotkeys() {
           setListeningForKey(false);
           setShowHotkeyDialog(false);
         } catch (err) {
-          console.error("Failed to set hotkey:", err);
+          notifyUserError('hotkeySetFailed', err);
           setListeningForKey(false);
         }
       };
@@ -126,7 +132,7 @@ export function useMonitors() {
       setMonitors(sortedMonitors);
       return sortedMonitors;
     } catch (err) {
-      console.error("Failed to get monitors:", err);
+      notifyUserError('monitorLoadFailed', err);
       return [];
     }
   }, [t]);
@@ -156,7 +162,7 @@ export function useWindows() {
       setWindows(wins);
       return wins;
     } catch (err) {
-      console.error('Failed to get windows:', err);
+      notifyUserError('windowLoadFailed', err);
       return [];
     }
   }, []);

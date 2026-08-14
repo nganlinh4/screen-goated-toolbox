@@ -83,8 +83,6 @@ export function EditorMain({
   webcamConfig,
   setWebcamConfig,
   recentUploads,
-  recentUploadLimit,
-  setRecentUploadLimit,
   handleRemoveRecentUpload,
   handleBackgroundUpload,
   isBackgroundUploadProcessing,
@@ -242,7 +240,11 @@ export function EditorMain({
       style={{ height: "calc(100vh - 44px)" }}
     >
       {error && (
-        <p className="error-message text-[var(--tertiary-color)] mb-2 shrink-0">
+        <p
+          className="error-message text-[var(--tertiary-color)] mb-2 shrink-0"
+          role="alert"
+          aria-live="assertive"
+        >
           {error}
         </p>
       )}
@@ -356,8 +358,6 @@ export function EditorMain({
             setWebcamConfig={setWebcamConfig}
             webcamAvailable={Boolean(segment?.webcamAvailable)}
             recentUploads={recentUploads}
-            recentUploadLimit={recentUploadLimit}
-            setRecentUploadLimit={setRecentUploadLimit}
             onRemoveRecentUpload={handleRemoveRecentUpload}
             onBackgroundUpload={handleBackgroundUpload}
             isBackgroundUploadProcessing={isBackgroundUploadProcessing}

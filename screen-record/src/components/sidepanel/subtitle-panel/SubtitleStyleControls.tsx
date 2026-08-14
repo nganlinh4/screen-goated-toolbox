@@ -114,6 +114,7 @@ export function SubtitleStyleControls({
       <div className="subtitle-color-row flex items-center gap-3">
         <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">{t.color}</span>
         <ColorPicker
+          label={t.color}
           value={resolvedStyle.color}
           onChange={(color) => onUpdateSelectedSubtitles((subtitle) => ({
             ...subtitle,

@@ -234,6 +234,7 @@ export function CursorPanel({
         <div className="cursor-custom-toggle-field flex items-center justify-between gap-2">
           <span className="text-[10px] text-on-surface-variant">{t.useCustomCursor}</span>
           <Switch
+            aria-label={t.useCustomCursor}
             checked={useCustomCursor}
             disabled={!canToggleCustomCursor}
             onCheckedChange={(val) => {

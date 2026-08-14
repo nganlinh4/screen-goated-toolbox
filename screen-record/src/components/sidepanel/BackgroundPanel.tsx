@@ -43,8 +43,6 @@ export interface BackgroundPanelProps {
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
   recentUploads: string[];
-  recentUploadLimit: number;
-  onRecentUploadLimitChange: (limit: number) => void;
   onRemoveRecentUpload: (imageUrl: string) => void;
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;
@@ -54,8 +52,6 @@ export function BackgroundPanel({
   backgroundConfig,
   setBackgroundConfig,
   recentUploads,
-  recentUploadLimit,
-  onRecentUploadLimitChange,
   onRemoveRecentUpload,
   onBackgroundUpload,
   isBackgroundUploadProcessing
@@ -134,26 +130,14 @@ export function BackgroundPanel({
         <div className="background-zoom-with-video-field flex items-center justify-between gap-3">
           <span className="text-[11px] font-medium text-on-surface-variant">{t.backgroundZoomWithVideo}</span>
           <Switch
+            aria-label={t.backgroundZoomWithVideo}
             checked={backgroundConfig.backgroundZoomWithVideo !== false}
             onCheckedChange={(checked) => setBackgroundConfig(prev => ({ ...prev, backgroundZoomWithVideo: checked }))}
           />
         </div>
         <div className="background-style-field">
-          <div className="background-style-heading mb-2 flex items-center gap-2">
-            <label className="mr-auto text-xs font-medium uppercase tracking-wide text-on-surface-variant">{t.backgroundStyle}</label>
-            <label className="background-upload-limit flex items-center gap-1.5 text-[10px] text-on-surface-variant">
-              <span>{t.backgroundRecentUploads}</span>
-              <input
-                className="w-14 accent-[var(--primary-color)]"
-                type="range"
-                min="4"
-                max="24"
-                step="1"
-                value={recentUploadLimit}
-                onChange={(event) => onRecentUploadLimitChange(Number(event.target.value))}
-              />
-              <span className="w-4 tabular-nums text-on-surface">{recentUploadLimit}</span>
-            </label>
+          <div className="background-style-heading mb-2">
+            <label className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">{t.backgroundStyle}</label>
           </div>
           <div className="background-presets-grid grid grid-cols-7 gap-2">
             {/* Upload button */}
@@ -161,7 +145,7 @@ export function BackgroundPanel({
               isBackgroundUploadProcessing
                 ? 'opacity-80 cursor-wait'
                 : ''
-            }`}>
+            }`} aria-label={t.uploadBackground}>
               <input type="file" accept="image/*" onChange={onBackgroundUpload} className="hidden" disabled={isBackgroundUploadProcessing} />
               <div className="upload-icon absolute inset-0 flex items-center justify-center">
                 {isBackgroundUploadProcessing ? (

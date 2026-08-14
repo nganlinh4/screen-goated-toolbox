@@ -31,6 +31,7 @@ export interface SubtitleImportPayload {
 
 interface UseSubtitleImportOpts {
   segment: VideoSegment | null;
+  getCurrentSegment?: () => VideoSegment | null;
   duration: number;
   getCurrentProjectId: () => string | null;
   setSegment: (segment: VideoSegment | null) => void;
@@ -38,6 +39,7 @@ interface UseSubtitleImportOpts {
   setEditingSubtitleId: (id: string | null) => void;
   onCreateSubtitleProject: (project: Project) => void | Promise<void>;
   onImportedIntoCurrentProject?: (subtitles: SubtitleSegment[]) => void;
+  onError?: (message: string) => void;
 }
 
 function buildSubtitleImportTraceId() {
@@ -140,22 +142,28 @@ export function useSubtitleImport(opts: UseSubtitleImportOpts) {
           placeholderVideoForSubtitles: true,
         },
       });
-      await opts.onCreateSubtitleProject(project);
+      return project;
     },
     [opts],
   );
 
-  const importSubtitlePayload = useCallback(
-    async (payload: SubtitleImportPayload) => {
+  const importSubtitlePayloadForProject = useCallback(
+    async (
+      payload: SubtitleImportPayload,
+      expectedProjectId: string | null,
+    ) => {
       if (isImportingRef.current) return;
       isImportingRef.current = true;
       setIsImporting(true);
       const traceId = buildSubtitleImportTraceId();
       try {
-        const projectId = opts.getCurrentProjectId();
-        if (projectId && opts.segment) {
+        if (opts.getCurrentProjectId() !== expectedProjectId) {
+          throw new Error("The open project changed while subtitles were importing");
+        }
+        const currentSegment = opts.getCurrentSegment?.() ?? opts.segment;
+        if (expectedProjectId && currentSegment) {
           const { segment, subtitles } = importSubtitleFileIntoSegment(
-            opts.segment,
+            currentSegment,
             payload,
             opts.duration,
           );
@@ -175,11 +183,17 @@ export function useSubtitleImport(opts: UseSubtitleImportOpts) {
           console.error(`[SubtitleImport:${traceId}] import failed: no valid subtitles found`);
           return;
         }
-        await createSubtitleProject(payload, subtitles);
+        const project = await createSubtitleProject(payload, subtitles);
+        if (opts.getCurrentProjectId() !== expectedProjectId) {
+          await projectManager.deleteProject(project.id);
+          throw new Error("The open project changed while subtitles were importing");
+        }
+        await opts.onCreateSubtitleProject(project);
         opts.setEditingSubtitleId(subtitles[0]?.id ?? null);
         opts.setActivePanel("subtitles");
       } catch (error) {
         console.error(`[SubtitleImport:${traceId}] import failed`, error);
+        opts.onError?.(`Subtitle import failed: ${String(error)}`);
       } finally {
         isImportingRef.current = false;
         setIsImporting(false);
@@ -188,21 +202,34 @@ export function useSubtitleImport(opts: UseSubtitleImportOpts) {
     [createSubtitleProject, opts],
   );
 
+  const importSubtitlePayload = useCallback(
+    async (
+      payload: SubtitleImportPayload,
+      expectedProjectId = opts.getCurrentProjectId(),
+    ) => {
+      return importSubtitlePayloadForProject(payload, expectedProjectId);
+    },
+    [importSubtitlePayloadForProject, opts],
+  );
+
   const importSubtitleSrtFile = useCallback(
     async (file: File) => {
-      await importSubtitlePayload({
+      const expectedProjectId = opts.getCurrentProjectId();
+      const content = await file.text();
+      await importSubtitlePayloadForProject({
         fileName: file.name,
-        content: await file.text(),
+        content,
         mimeType: file.type,
-      });
+      }, expectedProjectId);
     },
-    [importSubtitlePayload],
+    [importSubtitlePayloadForProject, opts],
   );
 
   return {
     isImporting,
     importSubtitleFile: importSubtitleSrtFile,
     importSubtitlePayload,
+    importSubtitlePayloadForProject,
     importSubtitleSrtFile,
     importSubtitleSrtPayload: importSubtitlePayload,
   };

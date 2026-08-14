@@ -70,3 +70,47 @@ test("keeps the Device Audio delay popover open across its transparent hover bri
   await page.mouse.move(popoverBox.x + 8, popoverBox.y + 8, { steps: 8 });
   await expect(popover).toHaveCSS("opacity", "1");
 });
+
+test("exports every composition clip with text, subtitle, and webcam staging", async ({ page }) => {
+  await page.goto("/?sgtTestHarness=1");
+  await expect(page.locator(".app-container")).toBeVisible();
+  await page.evaluate(() => window.__SGT_TEST__?.loadSyntheticProjectWithOptions({
+    profile: "small",
+    clipCount: 2,
+    subtitleCount: 2,
+    narrationCount: 1,
+    audioCount: 1,
+    durationSec: 2,
+  }));
+
+  await page.evaluate(() => window.__SGT_TEST__?.startExport());
+  const exportCalls = await page.evaluate(() => (
+    (window as Window & {
+      __SGT_TEST_IPC_CALLS__?: Array<{ cmd: string; args?: Record<string, unknown> }>;
+    }).__SGT_TEST_IPC_CALLS__ ?? []
+  ).filter((call) => [
+    "stage_export_data",
+    "start_composition_export_server",
+    "clear_export_staging",
+  ].includes(call.cmd)));
+
+  const request = exportCalls.find((call) => call.cmd === "start_composition_export_server");
+  const clips = request?.args?.clips as Array<{
+    clipId: string;
+    segment: { textSegments?: unknown[]; subtitleSegments?: unknown[] };
+    webcamVideoPath: string;
+  }>;
+  expect(clips).toHaveLength(2);
+  expect(clips.map((clip) => clip.clipId)).toEqual(["root", "clip-1"]);
+  for (const clip of clips) {
+    expect(clip.segment.textSegments).toHaveLength(1);
+    expect(clip.segment.subtitleSegments).toHaveLength(2);
+    expect(clip.webcamVideoPath).toContain("synthetic-webcam");
+  }
+
+  const stagedJobIds = new Set(exportCalls
+    .filter((call) => call.cmd === "stage_export_data")
+    .map((call) => call.args?.jobId));
+  expect(stagedJobIds).toEqual(new Set(["root", "clip-1"]));
+  expect(exportCalls.filter((call) => call.cmd === "clear_export_staging")).toHaveLength(2);
+});

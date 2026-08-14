@@ -19,6 +19,7 @@ pub(crate) mod recorder;
 mod removal;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod screen_text_detector;
+#[cfg(not(feature = "recorder-worker"))]
 mod staging;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod update_catalog;

@@ -2,6 +2,8 @@
 mod computer_control_delivery;
 #[path = "build_support/creation_runtime_delivery.rs"]
 mod creation_runtime_delivery;
+#[path = "build_support/delivery_channel.rs"]
+mod delivery_channel;
 #[path = "build_support/external_tool_delivery.rs"]
 mod external_tool_delivery;
 #[path = "build_support/icon_atlas.rs"]
@@ -32,6 +34,12 @@ fn main() {
 
     // Declare the custom configuration 'nopack' to avoid warnings
     println!("cargo::rustc-check-cfg=cfg(nopack)");
+    delivery_channel::configure_build();
+    delivery_channel::copy_selected_manifest(
+        &manifest_dir,
+        "model-delivery/windows-v1.json",
+        &out_dir.join("windows_model_delivery.json"),
+    );
 
     model_catalog::generate(
         &model_manifest_path,
@@ -101,6 +109,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation/presentation.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation/vision.rs");
     println!("cargo:rerun-if-changed=build_support/creation_runtime_delivery.rs");
+    println!("cargo:rerun-if-changed=build_support/delivery_channel.rs");
     println!("cargo:rerun-if-changed=build_support/icon_atlas.rs");
     println!("cargo:rerun-if-changed=build_support/computer_control_delivery.rs");
     println!("cargo:rerun-if-changed=build_support/external_tool_delivery.rs");

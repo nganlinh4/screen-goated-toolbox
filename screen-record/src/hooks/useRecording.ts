@@ -51,7 +51,7 @@ import {
 // ============================================================================
 // useRecording
 // ============================================================================
-interface UseRecordingProps {
+export interface UseRecordingProps {
   videoControllerRef: React.MutableRefObject<
     ReturnType<typeof createVideoController> | undefined
   >;
@@ -98,6 +98,7 @@ export function useRecording(props: UseRecordingProps) {
   const [videoFilePath, setVideoFilePath] = useState("");
   const [videoFilePathOwnerUrl, setVideoFilePathOwnerUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const recordingStartInFlightRef = useRef(false);
   const activeRecordingAudioSelectionRef = useRef<RecordingAudioSelection>(
     sanitizeRecordingAudioSelection({
       deviceEnabled: true,
@@ -114,6 +115,8 @@ export function useRecording(props: UseRecordingProps) {
     targetFps?: number,
     recordingAudioSelection?: RecordingAudioSelection,
   ) => {
+    if (isRecording || recordingStartInFlightRef.current) return;
+    recordingStartInFlightRef.current = true;
     try {
       if (props.currentVideo) {
         // User is editing a video — don't touch the preview at all. The canvas,
@@ -172,6 +175,8 @@ export function useRecording(props: UseRecordingProps) {
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      recordingStartInFlightRef.current = false;
     }
   };
 

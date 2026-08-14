@@ -14,7 +14,10 @@ import type {
   WebcamConfig,
 } from "@/types/video";
 import { useEditorHistory, type EditorHistorySnapshot } from "@/hooks/useEditorHistory";
-import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
+import {
+  cloneBackgroundConfig,
+  equalBackgroundConfig,
+} from "@/lib/backgroundConfig";
 import { cloneWebcamConfig } from "@/lib/webcam";
 
 type CompositionSetter = (
@@ -72,28 +75,71 @@ function preserveSilentAudioLanes(
   if (!nextComposition) return nextComposition;
   const fallbackComposition = projectComposition ?? previousComposition;
   if (!fallbackComposition) return nextComposition;
+  const audioSegments =
+    (nextComposition.audioSegments?.length ?? 0) === 0 &&
+    (fallbackComposition.audioSegments?.length ?? 0) > 0
+      ? fallbackComposition.audioSegments
+      : nextComposition.audioSegments;
+  const audioTrackVolumePoints =
+    (nextComposition.audioTrackVolumePoints?.length ?? 0) === 0 &&
+    (fallbackComposition.audioTrackVolumePoints?.length ?? 0) > 0
+      ? fallbackComposition.audioTrackVolumePoints
+      : nextComposition.audioTrackVolumePoints;
+  const narrationSegments =
+    (nextComposition.narrationSegments?.length ?? 0) === 0 &&
+    (fallbackComposition.narrationSegments?.length ?? 0) > 0
+      ? fallbackComposition.narrationSegments
+      : nextComposition.narrationSegments;
+  const narrationTrackVolumePoints =
+    (nextComposition.narrationTrackVolumePoints?.length ?? 0) === 0 &&
+    (fallbackComposition.narrationTrackVolumePoints?.length ?? 0) > 0
+      ? fallbackComposition.narrationTrackVolumePoints
+      : nextComposition.narrationTrackVolumePoints;
+  const retainedSource = nextComposition.retainedRemovedClips ??
+    fallbackComposition.retainedRemovedClips;
+  const activeClipIds = new Set(nextComposition.clips.map((clip) => clip.id));
+  const filteredRetained = retainedSource?.filter(
+    (retained) => !activeClipIds.has(retained.id),
+  );
+  const retainedRemovedClips =
+    retainedSource && filteredRetained?.length === retainedSource.length
+      ? retainedSource
+      : filteredRetained;
+
+  if (
+    audioSegments === nextComposition.audioSegments &&
+    audioTrackVolumePoints === nextComposition.audioTrackVolumePoints &&
+    narrationSegments === nextComposition.narrationSegments &&
+    narrationTrackVolumePoints === nextComposition.narrationTrackVolumePoints &&
+    retainedRemovedClips === nextComposition.retainedRemovedClips
+  ) {
+    return nextComposition;
+  }
   return {
     ...nextComposition,
-    audioSegments:
-      (nextComposition.audioSegments?.length ?? 0) === 0 &&
-      (fallbackComposition.audioSegments?.length ?? 0) > 0
-        ? fallbackComposition.audioSegments
-        : nextComposition.audioSegments,
-    audioTrackVolumePoints:
-      (nextComposition.audioTrackVolumePoints?.length ?? 0) === 0 &&
-      (fallbackComposition.audioTrackVolumePoints?.length ?? 0) > 0
-        ? fallbackComposition.audioTrackVolumePoints
-        : nextComposition.audioTrackVolumePoints,
-    narrationSegments:
-      (nextComposition.narrationSegments?.length ?? 0) === 0 &&
-      (fallbackComposition.narrationSegments?.length ?? 0) > 0
-        ? fallbackComposition.narrationSegments
-        : nextComposition.narrationSegments,
-    narrationTrackVolumePoints:
-      (nextComposition.narrationTrackVolumePoints?.length ?? 0) === 0 &&
-      (fallbackComposition.narrationTrackVolumePoints?.length ?? 0) > 0
-        ? fallbackComposition.narrationTrackVolumePoints
-        : nextComposition.narrationTrackVolumePoints,
+    audioSegments,
+    audioTrackVolumePoints,
+    narrationSegments,
+    narrationTrackVolumePoints,
+    retainedRemovedClips,
+  };
+}
+
+function shallowObjectEqual<T extends object>(left: T, right: T) {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left) as Array<keyof T>;
+  const rightKeys = Object.keys(right) as Array<keyof T>;
+  return leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => Object.is(left[key], right[key]));
+}
+
+function applyCompositionToProject(
+  project: Project,
+  composition: ProjectComposition | null,
+): Project {
+  return {
+    ...project,
+    composition: composition ?? undefined,
   };
 }
 
@@ -193,11 +239,6 @@ export function useAppHistoryState({
   } = editorHistory;
 
   const setSegment = useCallback<SegmentSetter>((value) => {
-    if (pendingSilentSegmentTimerRef.current !== null) {
-      window.clearTimeout(pendingSilentSegmentTimerRef.current);
-      pendingSilentSegmentTimerRef.current = null;
-    }
-    pendingSilentSegmentRef.current = null;
     const baseSegment =
       segmentRef.current ??
       currentProjectDataRef.current?.segment ??
@@ -205,6 +246,12 @@ export function useAppHistoryState({
     const nextSegment = typeof value === "function"
       ? (value as (current: VideoSegment | null) => VideoSegment | null)(baseSegment)
       : value;
+    if (nextSegment === baseSegment) return;
+    if (pendingSilentSegmentTimerRef.current !== null) {
+      window.clearTimeout(pendingSilentSegmentTimerRef.current);
+      pendingSilentSegmentTimerRef.current = null;
+    }
+    pendingSilentSegmentRef.current = null;
     editorHistory.setSegment(nextSegment);
     rawSetSegment(nextSegment);
     if (nextSegment && currentProjectDataRef.current) {
@@ -212,6 +259,7 @@ export function useAppHistoryState({
         ...currentProjectDataRef.current,
         segment: nextSegment,
       };
+      setCurrentProjectData(currentProjectDataRef.current);
     }
   }, [
     currentProjectDataRef,
@@ -221,6 +269,7 @@ export function useAppHistoryState({
     rawSetSegment,
     segment,
     segmentRef,
+    setCurrentProjectData,
   ]);
 
   const flushPendingSilentSegment = useCallback(() => {
@@ -238,12 +287,14 @@ export function useAppHistoryState({
     const nextSegment = typeof value === "function"
       ? (value as (current: VideoSegment | null) => VideoSegment | null)(baseSegment)
       : value;
+    if (nextSegment === baseSegment) return;
     segmentRef.current = nextSegment;
     if (nextSegment && currentProjectDataRef.current) {
       currentProjectDataRef.current = {
         ...currentProjectDataRef.current,
         segment: nextSegment,
       };
+      setCurrentProjectData(currentProjectDataRef.current);
     }
     if (!isPlayingRef.current) {
       rawSetSegment(nextSegment);
@@ -262,6 +313,7 @@ export function useAppHistoryState({
     rawSetSegment,
     segment,
     segmentRef,
+    setCurrentProjectData,
   ]);
 
   useEffect(() => {
@@ -281,46 +333,103 @@ export function useAppHistoryState({
   ]);
 
   const setComposition = useCallback<CompositionSetter>((value) => {
-    editorHistory.setComposition(value);
-    rawSetComposition(value);
-  }, [editorHistory, rawSetComposition]);
+    const previous = currentProjectDataRef.current?.composition ?? composition;
+    const next = preserveSilentAudioLanes(
+      typeof value === "function" ? value(previous ?? null) : value,
+      previous,
+      currentProjectDataRef.current?.composition,
+    );
+    if (next === previous) return;
+    editorHistory.setComposition(next);
+    rawSetComposition(next);
+    if (currentProjectDataRef.current) {
+      currentProjectDataRef.current = applyCompositionToProject(
+        currentProjectDataRef.current,
+        next,
+      );
+      setCurrentProjectData(currentProjectDataRef.current);
+    }
+  }, [composition, currentProjectDataRef, editorHistory, rawSetComposition, setCurrentProjectData]);
 
   const setCompositionSilently = useCallback<CompositionSetter>((value) => {
-    rawSetComposition((prev) => {
-      const next = typeof value === "function"
-        ? (value as (current: ProjectComposition | null) => ProjectComposition | null)(prev)
-        : value;
-      return preserveSilentAudioLanes(
+    const previous = currentProjectDataRef.current?.composition ?? composition;
+    const next = preserveSilentAudioLanes(
+      typeof value === "function" ? value(previous ?? null) : value,
+      previous,
+      currentProjectDataRef.current?.composition,
+    );
+    if (next === previous) return;
+    rawSetComposition(next);
+    if (currentProjectDataRef.current) {
+      currentProjectDataRef.current = applyCompositionToProject(
+        currentProjectDataRef.current,
         next,
-        prev,
-        currentProjectDataRef.current?.composition ?? null,
       );
-    });
-  }, [currentProjectDataRef, rawSetComposition]);
+      setCurrentProjectData(currentProjectDataRef.current);
+    }
+  }, [composition, currentProjectDataRef, rawSetComposition, setCurrentProjectData]);
 
   const setEditorPreviewDuration = useCallback((value: number) => {
+    const previous = currentProjectDataRef.current?.duration ?? duration;
+    if (value === previous) return;
     editorHistory.setDuration(value);
     setPreviewDuration(value);
-  }, [editorHistory, setPreviewDuration]);
+    if (currentProjectDataRef.current) {
+      currentProjectDataRef.current = {
+        ...currentProjectDataRef.current,
+        duration: value,
+      };
+      setCurrentProjectData(currentProjectDataRef.current);
+    }
+  }, [currentProjectDataRef, duration, editorHistory, setCurrentProjectData, setPreviewDuration]);
 
   const handleEditorRawVideoPathChange = useCallback((value: string) => {
+    const previous = currentProjectDataRef.current?.rawVideoPath ?? currentRawVideoPath;
+    if (value === previous) return;
     editorHistory.setCurrentRawVideoPath(value);
     handleProjectRawVideoPathChange(value);
-  }, [editorHistory, handleProjectRawVideoPathChange]);
+    if (currentProjectDataRef.current) {
+      currentProjectDataRef.current = {
+        ...currentProjectDataRef.current,
+        rawVideoPath: value || undefined,
+      };
+      setCurrentProjectData(currentProjectDataRef.current);
+    }
+  }, [currentProjectDataRef, currentRawVideoPath, editorHistory, handleProjectRawVideoPathChange, setCurrentProjectData]);
 
   const setBackgroundConfig = useCallback((
     value: BackgroundConfig | ((prev: BackgroundConfig) => BackgroundConfig),
   ) => {
-    editorHistory.setBackgroundConfig(value);
-    rawSetBackgroundConfig(value);
-  }, [editorHistory, rawSetBackgroundConfig]);
+    const previous = currentProjectDataRef.current?.backgroundConfig ?? backgroundConfig;
+    const next = typeof value === "function" ? value(previous) : value;
+    if (next === previous || equalBackgroundConfig(next, previous)) return;
+    editorHistory.setBackgroundConfig(next);
+    rawSetBackgroundConfig(next);
+    if (currentProjectDataRef.current) {
+      currentProjectDataRef.current = {
+        ...currentProjectDataRef.current,
+        backgroundConfig: next,
+      };
+      setCurrentProjectData(currentProjectDataRef.current);
+    }
+  }, [backgroundConfig, currentProjectDataRef, editorHistory, rawSetBackgroundConfig, setCurrentProjectData]);
 
   const setWebcamConfig = useCallback((
     value: WebcamConfig | ((prev: WebcamConfig) => WebcamConfig),
   ) => {
-    editorHistory.setWebcamConfig(value);
-    rawSetWebcamConfig(value);
-  }, [editorHistory, rawSetWebcamConfig]);
+    const previous = currentProjectDataRef.current?.webcamConfig ?? webcamConfig;
+    const next = typeof value === "function" ? value(previous) : value;
+    if (next === previous || shallowObjectEqual(next, previous)) return;
+    editorHistory.setWebcamConfig(next);
+    rawSetWebcamConfig(next);
+    if (currentProjectDataRef.current) {
+      currentProjectDataRef.current = {
+        ...currentProjectDataRef.current,
+        webcamConfig: next,
+      };
+      setCurrentProjectData(currentProjectDataRef.current);
+    }
+  }, [currentProjectDataRef, editorHistory, rawSetWebcamConfig, setCurrentProjectData, webcamConfig]);
 
   useEffect(() => {
     editorHistory.replaceSnapshot({

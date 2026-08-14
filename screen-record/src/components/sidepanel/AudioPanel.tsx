@@ -440,6 +440,7 @@ export function AudioPanel({
       </span>
       <input
         type="range"
+        aria-label={label}
         min={RATE_MIN}
         max={RATE_MAX}
         step={0.05}
@@ -478,6 +479,7 @@ export function AudioPanel({
           />
           <input
             type="range"
+            aria-label={t.audioPanelTrimIn}
             min={0}
             max={segment.duration}
             step={0.01}
@@ -495,6 +497,7 @@ export function AudioPanel({
           />
           <input
             type="range"
+            aria-label={t.audioPanelTrimOut}
             min={0}
             max={segment.duration}
             step={0.01}

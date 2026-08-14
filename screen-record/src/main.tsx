@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
+import { MotionConfig } from "motion/react";
 import App from "./App";
 import CursorSvgLab from "@/components/CursorSvgLab";
+import { RecorderErrorBoundary } from "@/components/RecorderErrorBoundary";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { installBrowserTestIpcMock } from "@/testHarness/browserIpcMock";
 import "./App.css";
+import "./accessibility.css";
 
 installBrowserTestIpcMock();
 
@@ -23,8 +26,12 @@ function RootRouter() {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <TooltipProvider>
-      <RootRouter />
-    </TooltipProvider>
+    <MotionConfig reducedMotion="user">
+      <RecorderErrorBoundary>
+        <TooltipProvider>
+          <RootRouter />
+        </TooltipProvider>
+      </RecorderErrorBoundary>
+    </MotionConfig>
   </React.StrictMode>,
 );

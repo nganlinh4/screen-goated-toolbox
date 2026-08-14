@@ -3,7 +3,6 @@ import type {
   BakedCameraFrame,
   BakedCursorFrame,
   BakedOverlayPayload,
-  BakedWebcamFrame,
   MousePosition,
   VideoSegment,
   WebcamConfig,
@@ -39,7 +38,6 @@ export interface PreparedBakePayload {
   activeDuration: number;
   bakedPath: BakedCameraFrame[];
   bakedCursorPath: BakedCursorFrame[];
-  bakedWebcamFrames: BakedWebcamFrame[];
   overlayPayload?: BakedOverlayPayload;
 }
 
@@ -49,10 +47,39 @@ export interface PreparedBakeCacheEntry {
 }
 
 export function sanitizeNativeExportValue<T>(value: T): T {
-  return JSON.parse(
-    JSON.stringify(value, (_key, nestedValue) =>
-      nestedValue === null ? undefined : nestedValue),
-  ) as T;
+  return sanitizeValue(value, false).value as T;
+}
+
+function sanitizeValue(
+  value: unknown,
+  insideArray: boolean,
+): { value: unknown; changed: boolean } {
+  if (value === null || value === undefined) {
+    return { value: insideArray ? null : undefined, changed: true };
+  }
+  if (Array.isArray(value)) {
+    let changed = false;
+    const sanitized = value.map((entry) => {
+      const result = sanitizeValue(entry, true);
+      changed ||= result.changed;
+      return result.value;
+    });
+    return { value: changed ? sanitized : value, changed };
+  }
+  if (typeof value !== 'object') return { value, changed: false };
+
+  let changed = false;
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const result = sanitizeValue(entry, false);
+    if (result.value === undefined) {
+      changed = true;
+      continue;
+    }
+    changed ||= result.changed;
+    sanitized[key] = result.value;
+  }
+  return { value: changed ? sanitized : value, changed };
 }
 
 export function collectNullPaths(

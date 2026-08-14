@@ -14,9 +14,9 @@ pub(super) fn handle_stage_export_data(
                 serde_json::from_value(args["data"].clone())
                     .map_err(|e| format!("bad camera chunk: {e}"))?;
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::append_camera_frames_for(session_id, job_id, frames);
+                native_export::staging::append_camera_frames_for(session_id, job_id, frames)?;
             } else {
-                native_export::staging::append_camera_frames(frames);
+                native_export::staging::append_camera_frames(frames)?;
             }
         }
         "cursor" => {
@@ -24,9 +24,9 @@ pub(super) fn handle_stage_export_data(
                 serde_json::from_value(args["data"].clone())
                     .map_err(|e| format!("bad cursor chunk: {e}"))?;
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::append_cursor_frames_for(session_id, job_id, frames);
+                native_export::staging::append_cursor_frames_for(session_id, job_id, frames)?;
             } else {
-                native_export::staging::append_cursor_frames(frames);
+                native_export::staging::append_cursor_frames(frames)?;
             }
         }
         "webcam" => {
@@ -34,25 +34,36 @@ pub(super) fn handle_stage_export_data(
                 serde_json::from_value(args["data"].clone())
                     .map_err(|e| format!("bad webcam chunk: {e}"))?;
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::append_webcam_frames_for(session_id, job_id, frames);
+                native_export::staging::append_webcam_frames_for(session_id, job_id, frames)?;
             } else {
-                native_export::staging::append_webcam_frames(frames);
+                native_export::staging::append_webcam_frames(frames)?;
             }
         }
         "atlas" => {
             let b64 = args["base64"].as_str().ok_or("missing base64")?;
-            let w = args["width"].as_u64().unwrap_or(1) as u32;
-            let h = args["height"].as_u64().unwrap_or(1) as u32;
+            if b64.len() > 96 * 1024 * 1024 {
+                return Err("atlas base64 exceeds the IPC limit".to_string());
+            }
+            let w = u32::try_from(args["width"].as_u64().ok_or("missing width")?)
+                .map_err(|_| "atlas width is too large")?;
+            let h = u32::try_from(args["height"].as_u64().ok_or("missing height")?)
+                .map_err(|_| "atlas height is too large")?;
             let raw = base64::engine::general_purpose::STANDARD
                 .decode(b64.trim_start_matches("data:image/png;base64,"))
                 .map_err(|e| e.to_string())?;
-            let img = image::load_from_memory(&raw)
-                .map_err(|e| e.to_string())?
-                .to_rgba8();
+            let img = image::load_from_memory(&raw).map_err(|e| e.to_string())?;
+            if img.width() != w || img.height() != h {
+                return Err(format!(
+                    "atlas dimensions do not match: declared {w}x{h}, decoded {}x{}",
+                    img.width(),
+                    img.height()
+                ));
+            }
+            let img = img.to_rgba8();
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::set_atlas_for(session_id, job_id, img.into_raw(), w, h);
+                native_export::staging::set_atlas_for(session_id, job_id, img.into_raw(), w, h)?;
             } else {
-                native_export::staging::set_atlas(img.into_raw(), w, h);
+                native_export::staging::set_atlas(img.into_raw(), w, h)?;
             }
         }
         "overlay_frames_chunk" => {
@@ -60,9 +71,9 @@ pub(super) fn handle_stage_export_data(
                 serde_json::from_value(args["data"].clone())
                     .map_err(|e| format!("bad overlay chunk: {e}"))?;
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::append_overlay_frames_for(session_id, job_id, frames);
+                native_export::staging::append_overlay_frames_for(session_id, job_id, frames)?;
             } else {
-                native_export::staging::append_overlay_frames(frames);
+                native_export::staging::append_overlay_frames(frames)?;
             }
         }
         "overlay_atlas_metadata" => {
@@ -70,9 +81,9 @@ pub(super) fn handle_stage_export_data(
                 serde_json::from_value(args["data"].clone())
                     .map_err(|e| format!("bad overlay metadata: {e}"))?;
             if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-                native_export::staging::set_overlay_metadata_for(session_id, job_id, meta);
+                native_export::staging::set_overlay_metadata_for(session_id, job_id, meta)?;
             } else {
-                native_export::staging::set_overlay_metadata(meta);
+                native_export::staging::set_overlay_metadata(meta)?;
             }
         }
         "cursor_slots_png" => handle_cursor_slots_png(args, session_id, job_id)?,
@@ -125,9 +136,9 @@ fn handle_cursor_slots_png(
         });
     }
     if let (Some(session_id), Some(job_id)) = (session_id, job_id) {
-        native_export::staging::set_cursor_slot_overrides_for(session_id, job_id, overrides);
+        native_export::staging::set_cursor_slot_overrides_for(session_id, job_id, overrides)?;
     } else {
-        native_export::staging::set_cursor_slot_overrides(overrides);
+        native_export::staging::set_cursor_slot_overrides(overrides)?;
     }
     Ok(())
 }

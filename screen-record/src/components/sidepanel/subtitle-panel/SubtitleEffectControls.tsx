@@ -118,6 +118,7 @@ export function SubtitleEffectControls({
               {t.pillColor}
             </span>
             <ColorPicker
+              label={t.pillColor}
               value={resolvedStyle.background.color.startsWith('rgba') ? '#000000' : resolvedStyle.background.color}
               onChange={(color) => onUpdateSelectedSubtitles((subtitle) => ({
                 ...subtitle,
@@ -238,6 +239,7 @@ export function SubtitleEffectControls({
             <div className="subtitle-stroke-color-row flex items-center gap-3">
               <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">{t.strokeColor}</span>
               <ColorPicker
+                label={t.strokeColor}
                 value={resolvedStyle.stroke.color}
                 onChange={(color) => onUpdateSelectedSubtitles((subtitle) => ({
                   ...subtitle,
@@ -307,6 +309,7 @@ export function SubtitleEffectControls({
             <div className="subtitle-shadow-color-row flex items-center gap-3">
               <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">{t.shadowColor}</span>
               <ColorPicker
+                label={t.shadowColor}
                 value={resolvedStyle.shadow.color}
                 onChange={(color) => onUpdateSelectedSubtitles((subtitle) => ({
                   ...subtitle,

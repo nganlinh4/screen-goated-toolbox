@@ -4,7 +4,11 @@ import {
   resolveWebcamLayoutRect,
 } from '@/lib/webcam';
 import { getWebcamVisibility } from '@/lib/webcamVisibility';
-import type { RendererState } from './drawFrame';
+import {
+  getBoundedCanvasSize,
+  MAX_REALTIME_TEMP_PIXELS,
+} from '@/lib/canvasRenderBudget';
+import type { RendererState } from './rendererState';
 import type { WebcamConfig } from '@/types/video';
 
 /**
@@ -24,22 +28,47 @@ export function drawWebcamOverlay(
   webcamAspectRatio: number | null,
 ): void {
   if (video.currentTime + 0.0001 < (segment.webcamOffsetSec ?? 0)) return;
+  if (!webcamVideo) {
+    state.webcamFrameReady = false;
+    state.webcamFrameSource = null;
+    return;
+  }
+  const webcamSourceKey = webcamVideo.currentSrc || webcamVideo.src;
+  if (state.webcamFrameSource !== webcamSourceKey) {
+    state.webcamFrameReady = false;
+    state.webcamFrameSource = webcamSourceKey;
+  }
   let webcamSource: CanvasImageSource | null = null;
-  if (webcamVideo && webcamVideo.readyState >= 2) {
+  if (webcamVideo.readyState >= 2) {
     const frameW = webcamVideo.videoWidth || 1;
     const frameH = webcamVideo.videoHeight || 1;
+    const frameSize = getBoundedCanvasSize(
+      frameW,
+      frameH,
+      MAX_REALTIME_TEMP_PIXELS,
+      4096,
+    );
     if (
       !state.webcamFrameCanvas ||
-      state.webcamFrameCanvas.width !== frameW ||
-      state.webcamFrameCanvas.height !== frameH
+      state.webcamFrameCanvas.width !== frameSize.width ||
+      state.webcamFrameCanvas.height !== frameSize.height
     ) {
-      state.webcamFrameCanvas = new OffscreenCanvas(frameW, frameH);
+      state.webcamFrameCanvas = new OffscreenCanvas(
+        frameSize.width,
+        frameSize.height,
+      );
       state.webcamFrameCtx = state.webcamFrameCanvas.getContext('2d');
       state.webcamFrameReady = false;
     }
     if (state.webcamFrameCanvas && state.webcamFrameCtx) {
-      state.webcamFrameCtx.clearRect(0, 0, frameW, frameH);
-      state.webcamFrameCtx.drawImage(webcamVideo, 0, 0, frameW, frameH);
+      state.webcamFrameCtx.clearRect(0, 0, frameSize.width, frameSize.height);
+      state.webcamFrameCtx.drawImage(
+        webcamVideo,
+        0,
+        0,
+        frameSize.width,
+        frameSize.height,
+      );
       state.webcamFrameReady = true;
       webcamSource = state.webcamFrameCanvas;
     } else {
@@ -54,7 +83,11 @@ export function drawWebcamOverlay(
     webcamConfig,
     canvasW,
     canvasH,
-    webcamAspectRatio,
+    webcamAspectRatio ?? (
+      state.webcamFrameCanvas
+        ? state.webcamFrameCanvas.width / state.webcamFrameCanvas.height
+        : null
+    ),
     activeZoomState?.zoomFactor ?? 1,
     segment.webcamAvailable !== false,
   );

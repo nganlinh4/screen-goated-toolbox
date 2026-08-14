@@ -367,12 +367,15 @@ pub fn notify_external_audio_capture_released(reason: &str) {
 /// Best-effort cleanup used before process exit or when the recorder UI is
 /// closed while capture is still active.
 pub fn cleanup_on_app_exit() {
+    native_export::cancel_export();
+    native_export::staging::clear_all();
+    ipc::cancel_all_jobs();
     capture_border::hide_capture_border();
     compatibility_capture::abort();
 
     engine::SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
     engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
-    engine::IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
+    ipc::recording_state::release_recording_state();
     engine::ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
 
     input_capture::stop_capture_and_drain();

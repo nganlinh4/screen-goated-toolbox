@@ -68,6 +68,9 @@ export interface EditorOverlaysProps {
   onBeginProjectOpen: () => void;
   onLoadProject: (id: string) => Promise<void>;
   onProjectsChange: () => Promise<void>;
+  onClearProjects: () => Promise<void>;
+  onDeleteProject: (id: string) => Promise<void>;
+  onRenameProject: (id: string, name: string) => Promise<void>;
   currentProjectId: string | null;
   restoreImageRef: MutableRefObject<string | null>;
   previewTargetSnapshotRef: MutableRefObject<ProjectsPreviewTargetSnapshot | null>;
@@ -117,6 +120,9 @@ export function EditorOverlays({
   onBeginProjectOpen,
   onLoadProject,
   onProjectsChange,
+  onClearProjects,
+  onDeleteProject,
+  onRenameProject,
   currentProjectId,
   restoreImageRef,
   previewTargetSnapshotRef,
@@ -164,6 +170,9 @@ export function EditorOverlays({
             onBeginProjectOpen={onBeginProjectOpen}
             onLoadProject={onLoadProject}
             onProjectsChange={onProjectsChange}
+            onClearProjects={onClearProjects}
+            onDeleteProject={onDeleteProject}
+            onRenameProject={onRenameProject}
             onClose={() => {
               setProjectPickerMode(null);
               setShowProjectsDialog(false);

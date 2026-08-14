@@ -137,6 +137,8 @@ fn start_inner(args: &Value) -> Result<Value> {
     if is_active() {
         bail!("A compatibility capture job is already active");
     }
+    let start_claim = super::ipc::recording_state::RecordingStartClaim::claim(false)
+        .map_err(anyhow::Error::msg)?;
 
     let request = CaptureRequest::from_args(args)?;
     let monitors = engine::get_monitors();
@@ -199,9 +201,9 @@ fn start_inner(args: &Value) -> Result<Value> {
         };
         if let Err(error) = audio_result {
             engine::AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
-            reset_failed_start();
             supervisor.abort();
             let _ = std::fs::remove_file(&paths.video);
+            reset_failed_start();
             return Err(error.context("start display capture audio"));
         }
         *AUDIO_PATH.lock().unwrap() = Some(paths.device_audio.to_string_lossy().to_string());
@@ -221,7 +223,6 @@ fn start_inner(args: &Value) -> Result<Value> {
         eprintln!("[CompatibilityCapture] input capture start failed: {error}");
     }
 
-    engine::IS_RECORDING.store(true, Ordering::SeqCst);
     *ACTIVE_SESSION.lock() = Some(CompatibilitySession {
         supervisor,
         paths,
@@ -235,6 +236,7 @@ fn start_inner(args: &Value) -> Result<Value> {
     println!(
         "[CaptureBackend] selected=desktop-duplication-process reason=fullscreen_presentation_window"
     );
+    start_claim.commit();
     Ok(Value::Null)
 }
 
@@ -263,7 +265,18 @@ fn stop_inner() -> Result<Value> {
 
     let capture_result = session.supervisor.stop(recording_duration);
     engine::ENCODING_FINISHED.store(true, Ordering::SeqCst);
-    wait_for_sidecars();
+    if let Err(error) = wait_for_sidecars() {
+        for path in [
+            &session.paths.video,
+            &session.paths.device_audio,
+            &session.paths.mic_audio,
+            &session.paths.webcam_video,
+        ] {
+            let _ = std::fs::remove_file(path);
+        }
+        reset_after_stop();
+        return Err(error);
+    }
 
     let segment_count = capture_result.inspect_err(|_| reset_after_stop())?;
     if !is_nonempty_file(&session.paths.video) {
@@ -383,7 +396,7 @@ fn start_optional_sidecars(request: &CaptureRequest, paths: &SessionPaths, start
     }
 }
 
-fn wait_for_sidecars() {
+fn wait_for_sidecars() -> Result<()> {
     let deadline = Instant::now() + SIDECAR_STOP_TIMEOUT;
     while Instant::now() < deadline
         && (!engine::AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
@@ -398,6 +411,13 @@ fn wait_for_sidecars() {
         engine::MIC_AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst),
         engine::WEBCAM_ENCODING_FINISHED.load(Ordering::SeqCst)
     );
+    if !engine::AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+        || !engine::MIC_AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+        || !engine::WEBCAM_ENCODING_FINISHED.load(Ordering::SeqCst)
+    {
+        bail!("Compatibility capture sidecars did not finish before the stop timeout");
+    }
+    Ok(())
 }
 
 fn build_result(

@@ -93,6 +93,13 @@ export function useProjectInteractionShield({
     window.dispatchEvent(new CustomEvent("sr-abort-editor-interactions"));
   }, []);
 
+  const endProjectInteractionShield = useCallback(() => {
+    projectInteractionShieldReleaseRef.current?.();
+    projectInteractionBlockCleanupRef.current?.();
+    isProjectTransitionRef.current = false;
+    setIsProjectInteractionShieldVisible(false);
+  }, [isProjectTransitionRef]);
+
   const armProjectInteractionShieldRelease = useCallback(() => {
     projectInteractionShieldReleaseRef.current?.();
 
@@ -162,6 +169,7 @@ export function useProjectInteractionShield({
     projectInteractionBlockCleanupRef,
     beginProjectInteractionShield,
     abortEditorInteractions,
+    endProjectInteractionShield,
     armProjectInteractionShieldRelease,
   };
 }

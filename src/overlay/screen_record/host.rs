@@ -131,6 +131,11 @@ pub(crate) fn stop_for_component_removal() -> anyhow::Result<impl Drop> {
     host_launcher::stop_for_removal()
 }
 
+#[cfg(test)]
+pub(crate) fn worker_process_is_active() -> bool {
+    host_launcher::worker_process_is_active()
+}
+
 pub(crate) fn run_gt_narration_test_cli(
     input_wav: &str,
     target_language: &str,

@@ -1,5 +1,7 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use windows::Win32::Foundation::{HANDLE, POINT};
@@ -16,6 +18,9 @@ const CLIPBOARD_RETRY_COUNT: usize = 5;
 const CLIPBOARD_RETRY_DELAY_MS: u64 = 10;
 const DROPEFFECT_COPY: u32 = 1;
 const CLIPBOARD_FORMAT_CF_HDROP: u32 = 15;
+
+static SAVED_RAW_VIDEO_CAPABILITIES: LazyLock<Mutex<HashSet<PathBuf>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 fn sanitize_dir_path(path: &str) -> Result<PathBuf, String> {
     let trimmed = path.trim();
@@ -102,6 +107,13 @@ pub fn save_raw_video_copy(source_path: &str, target_dir: &str) -> Result<String
         )
     })?;
 
+    if let Ok(canonical) = fs::canonicalize(&destination) {
+        SAVED_RAW_VIDEO_CAPABILITIES
+            .lock()
+            .unwrap()
+            .insert(canonical);
+    }
+
     Ok(destination.to_string_lossy().to_string())
 }
 
@@ -130,6 +142,15 @@ pub fn save_composition_snapshot_copy(source_path: &str) -> Result<String, Strin
 
 pub fn move_saved_raw_video(current_path: &str, target_dir: &str) -> Result<String, String> {
     let current = ensure_source_video(current_path)?;
+    let canonical_current = fs::canonicalize(&current)
+        .map_err(|error| format!("Resolve saved raw video failed: {error}"))?;
+    if !SAVED_RAW_VIDEO_CAPABILITIES
+        .lock()
+        .unwrap()
+        .contains(&canonical_current)
+    {
+        return Err("Raw video was not saved by this recorder session".to_string());
+    }
     let dir = sanitize_dir_path(target_dir)?;
     let current_name = current
         .file_name()
@@ -141,28 +162,31 @@ pub fn move_saved_raw_video(current_path: &str, target_dir: &str) -> Result<Stri
         return Ok(destination.to_string_lossy().to_string());
     }
 
-    match fs::rename(&current, &destination) {
-        Ok(_) => Ok(destination.to_string_lossy().to_string()),
-        Err(_) => {
-            // Fallback for cross-volume moves.
-            fs::copy(&current, &destination).map_err(|e| {
-                format!(
-                    "Failed to move raw video {} -> {}: {}",
-                    current.display(),
-                    destination.display(),
-                    e
-                )
-            })?;
-            fs::remove_file(&current).map_err(|e| {
-                format!(
-                    "Copied file but failed to remove original {}: {}",
-                    current.display(),
-                    e
-                )
-            })?;
-            Ok(destination.to_string_lossy().to_string())
+    if fs::rename(&current, &destination).is_err() {
+        // Fallback for cross-volume moves.
+        fs::copy(&current, &destination).map_err(|e| {
+            format!(
+                "Failed to move raw video {} -> {}: {}",
+                current.display(),
+                destination.display(),
+                e
+            )
+        })?;
+        if let Err(error) = fs::remove_file(&current) {
+            let _ = fs::remove_file(&destination);
+            return Err(format!(
+                "Copied file but failed to remove original {}: {}",
+                current.display(),
+                error
+            ));
         }
     }
+    let canonical_destination = fs::canonicalize(&destination)
+        .map_err(|error| format!("Resolve moved raw video failed: {error}"))?;
+    let mut capabilities = SAVED_RAW_VIDEO_CAPABILITIES.lock().unwrap();
+    capabilities.remove(&canonical_current);
+    capabilities.insert(canonical_destination);
+    Ok(destination.to_string_lossy().to_string())
 }
 
 fn to_wide_z(value: &str) -> Vec<u16> {

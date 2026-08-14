@@ -467,4 +467,68 @@ mod tests {
         std::fs::remove_file(&unknown).unwrap();
         assert_eq!(request_remove(id).unwrap(), RemovalOutcome::Removed);
     }
+
+    #[test]
+    #[ignore = "mutates the isolated process component test root"]
+    fn isolated_pending_replay_and_clean_all_preserve_user_content() {
+        let pending_id = "test-pending-replay";
+        let owned_id = "test-clean-all-owned";
+        let preserved_id = "test-clean-all-preserved";
+        let original = b"managed";
+
+        let (pending_root, owned_root, preserved_root, modified, unknown) = {
+            let _mutation = super::super::acquire_mutation_guard().unwrap();
+            let _guard = lock_removal_filesystem();
+            let mut roots = Vec::new();
+            for id in [pending_id, owned_id, preserved_id] {
+                let root = super::super::ensure_version_root(id, "1.0.0").unwrap();
+                std::fs::create_dir(root.join("bin")).unwrap();
+                std::fs::write(root.join("bin/tool.exe"), original).unwrap();
+                super::super::write_receipt(&root, &receipt_for(id, original)).unwrap();
+                roots.push(root);
+            }
+            let modified = roots[2].join("bin/tool.exe");
+            std::fs::write(&modified, b"user-modified").unwrap();
+            let unknown = roots[2].join("notes.txt");
+            std::fs::write(&unknown, b"user-owned").unwrap();
+            (
+                roots.remove(0),
+                roots.remove(0),
+                roots.remove(0),
+                modified,
+                unknown,
+            )
+        };
+
+        super::super::pending::record(pending_id).unwrap();
+        let replayed = resume_pending().unwrap();
+        assert_eq!(
+            replayed,
+            vec![(pending_id.to_string(), RemovalOutcome::Removed)]
+        );
+        assert!(!pending_root.exists());
+        assert!(
+            !super::super::pending::list()
+                .unwrap()
+                .contains(&pending_id.to_string())
+        );
+
+        let outcomes = clean_all().unwrap();
+        assert!(outcomes.contains(&(owned_id.to_string(), RemovalOutcome::Removed)));
+        assert!(outcomes.iter().any(|(id, outcome)| {
+            id == preserved_id && matches!(outcome, RemovalOutcome::PreservedModified(_))
+        }));
+        assert!(!owned_root.exists());
+        assert!(preserved_root.exists());
+        assert_eq!(std::fs::read(&modified).unwrap(), b"user-modified");
+        assert_eq!(std::fs::read(&unknown).unwrap(), b"user-owned");
+
+        std::fs::remove_file(modified).unwrap();
+        std::fs::remove_file(unknown).unwrap();
+        assert_eq!(
+            request_remove(preserved_id).unwrap(),
+            RemovalOutcome::Removed
+        );
+        assert!(!preserved_root.exists());
+    }
 }

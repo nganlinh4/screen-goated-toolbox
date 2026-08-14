@@ -7,27 +7,15 @@ use super::MEDIA_SERVER_TOKEN;
 
 /// Mints a 256-bit cryptographically-strong token as a lowercase hex string.
 /// Used as the per-process secret gate for the local media HTTP server.
-pub(super) fn mint_media_server_token() -> String {
+pub(super) fn mint_media_server_token() -> Result<String, String> {
     let mut bytes = [0u8; 32];
-    if getrandom::fill(&mut bytes).is_err() {
-        // Extremely unlikely on Windows; fall back to a time+pid seed so the
-        // server still starts (degraded, but never panics). Still far better
-        // than an unguarded server.
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-            ^ (std::process::id() as u128);
-        let seed_bytes = seed.to_le_bytes();
-        for (i, b) in bytes.iter_mut().enumerate() {
-            *b = seed_bytes[i % seed_bytes.len()].wrapping_add(i as u8);
-        }
-    }
+    getrandom::fill(&mut bytes)
+        .map_err(|error| format!("Secure media-server token generation failed: {error}"))?;
     let mut hex = String::with_capacity(bytes.len() * 2);
     for b in bytes {
         hex.push_str(&format!("{b:02x}"));
     }
-    hex
+    Ok(hex)
 }
 
 pub(super) struct GateRejection {
@@ -154,7 +142,7 @@ mod tests {
 
     #[test]
     fn minted_token_is_64_lowercase_hex_chars() {
-        let t = mint_media_server_token();
+        let t = mint_media_server_token().unwrap();
         assert_eq!(t.len(), 64);
         assert!(
             t.chars()

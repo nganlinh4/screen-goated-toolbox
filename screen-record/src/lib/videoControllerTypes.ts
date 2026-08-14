@@ -38,6 +38,7 @@ export interface RenderOptions {
   backgroundConfig: BackgroundConfig;
   webcamConfig?: WebcamConfig;
   mousePositions: MousePosition[];
+  outputFrameRate?: number;
   interactiveBackgroundPreview?: boolean;
 }
 

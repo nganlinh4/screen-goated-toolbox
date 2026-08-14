@@ -298,6 +298,12 @@ export function ensureProjectComposition(
         ? cloneBackgroundConfig(existing.globalBackgroundConfig)
         : cloneBackgroundConfig(project.backgroundConfig),
       audioSegments: getLegacyCompatibleAudioSegments(existing).map((segment) => ({ ...segment })),
+      audioTrackVolumePoints: existing?.audioTrackVolumePoints?.map((point) => ({ ...point })),
+      narrationSegments: existing?.narrationSegments?.map((narration) => ({ ...narration })),
+      narrationTrackVolumePoints: existing?.narrationTrackVolumePoints?.map((point) => ({ ...point })),
+      retainedRemovedClips: existing?.retainedRemovedClips?.filter(
+        (retained) => !normalizedClips.some((clip) => clip.id === retained.id),
+      ),
       placeholderVideoForAudio: existing?.placeholderVideoForAudio,
       placeholderVideoForSubtitles: existing?.placeholderVideoForSubtitles,
       timelineOnly: existing?.timelineOnly,
@@ -437,6 +443,7 @@ export function removeCompositionClip(
   composition: ProjectComposition,
   clipId: string,
 ): ProjectComposition {
+  const removedClip = composition.clips.find((clip) => clip.id === clipId);
   const clips = composition.clips.filter((clip) => clip.id !== clipId);
   const fallbackClipId = clips[0]?.id ?? null;
   return {
@@ -451,6 +458,14 @@ export function removeCompositionClip(
       composition.focusedClipId === clipId
         ? fallbackClipId
         : composition.focusedClipId,
+    retainedRemovedClips: removedClip
+      ? [
+          ...(composition.retainedRemovedClips ?? []).filter(
+            (clip) => clip.id !== removedClip.id,
+          ),
+          removedClip,
+        ]
+      : composition.retainedRemovedClips,
   };
 }
 

@@ -307,11 +307,14 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     isInteracting: isTimelineInteracting,
     disableVideoSync: segment?.mediaMode === "timelineOnly",
   });
-  const rulerTicks = buildTimelineRulerTicks({
-    duration,
-    widthPx: canvasWidthPx,
-    speedPoints: segment?.speedPoints,
-  });
+  const rulerTicks = useMemo(
+    () => buildTimelineRulerTicks({
+      duration,
+      widthPx: canvasWidthPx,
+      speedPoints: segment?.speedPoints,
+    }),
+    [canvasWidthPx, duration, segment?.speedPoints],
+  );
 
   useEffect(() => {
     onViewportZoomChange?.(zoom);

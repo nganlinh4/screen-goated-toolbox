@@ -20,6 +20,7 @@ export interface TimelineRenderWindowOptions<T extends TimelineRangeSegment> {
 
 export class TimelineSegmentIndex<T extends TimelineRangeSegment> {
   readonly segments: readonly T[];
+  private readonly prefixMaxEnd: readonly number[];
 
   constructor(segments: readonly T[]) {
     let sorted = true;
@@ -32,6 +33,11 @@ export class TimelineSegmentIndex<T extends TimelineRangeSegment> {
     this.segments = sorted
       ? segments
       : [...segments].sort((left, right) => left.startTime - right.startTime);
+    let maxEnd = Number.NEGATIVE_INFINITY;
+    this.prefixMaxEnd = this.segments.map((segment) => {
+      maxEnd = Math.max(maxEnd, segment.endTime);
+      return maxEnd;
+    });
   }
 
   hitTest(time: number): T | null {
@@ -52,6 +58,7 @@ export class TimelineSegmentIndex<T extends TimelineRangeSegment> {
     }
 
     for (let index = candidate; index >= 0; index -= 1) {
+      if (this.prefixMaxEnd[index] < time) break;
       const segment = segments[index];
       if (time >= segment.startTime && time <= segment.endTime) return segment;
     }
@@ -64,9 +71,24 @@ export class TimelineSegmentIndex<T extends TimelineRangeSegment> {
     const end = Math.max(range.startTime, range.endTime);
     const segments = this.segments;
 
+    let endExclusive = 0;
+    let high = segments.length;
+    while (endExclusive < high) {
+      const middle = (endExclusive + high) >> 1;
+      if (segments[middle].startTime <= end) endExclusive = middle + 1;
+      else high = middle;
+    }
+    let firstCandidate = 0;
+    high = endExclusive;
+    while (firstCandidate < high) {
+      const middle = (firstCandidate + high) >> 1;
+      if (this.prefixMaxEnd[middle] < start) firstCandidate = middle + 1;
+      else high = middle;
+    }
+
     const result: T[] = [];
-    for (const segment of segments) {
-      if (segment.startTime > end) break;
+    for (let index = firstCandidate; index < endExclusive; index += 1) {
+      const segment = segments[index];
       if (segment.endTime >= start) result.push(segment);
     }
     return result;

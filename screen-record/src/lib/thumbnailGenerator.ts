@@ -1,12 +1,14 @@
 import { invoke } from "@/lib/ipc";
 import type { VideoSegment } from "@/types/video";
 import { getTotalTrimDuration, toSourceTime } from "@/lib/trimSegments";
+import { getLruCacheValue, setLruCacheValue } from "@/lib/boundedCache";
 
 const THUMBNAIL_LOAD_TIMEOUT_MS = 8000;
 const THUMBNAIL_SEEK_TIMEOUT_MS = 4000;
 const TRANSPARENT_PIXEL =
   "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
 const NATIVE_THUMBNAIL_TIME_PRECISION_SEC = 0.01;
+const MAX_NATIVE_TIMELINE_THUMBNAILS = 480;
 
 const nativeTimelineThumbnailCache = new Map<string, string>();
 
@@ -337,7 +339,7 @@ export class ThumbnailGenerator {
         getTimelineThumbnailCacheKey(filePath, sourceTime, width, height, quality),
       );
       const cachedFrames = cacheKeys.map((key) =>
-        nativeTimelineThumbnailCache.get(key),
+        getLruCacheValue(nativeTimelineThumbnailCache, key),
       );
       if (cachedFrames.every(Boolean)) {
         return cachedFrames.map((frame) => frame || TRANSPARENT_PIXEL);
@@ -365,7 +367,12 @@ export class ThumbnailGenerator {
           normalizedNativeFrames.forEach((frame, index) => {
             const originalIndex = missingIndexes[index];
             if (originalIndex === undefined) return;
-            nativeTimelineThumbnailCache.set(cacheKeys[originalIndex], frame);
+            setLruCacheValue(
+              nativeTimelineThumbnailCache,
+              cacheKeys[originalIndex],
+              frame,
+              MAX_NATIVE_TIMELINE_THUMBNAILS,
+            );
             cachedFrames[originalIndex] = frame;
           });
           if (cachedFrames.some(Boolean)) {

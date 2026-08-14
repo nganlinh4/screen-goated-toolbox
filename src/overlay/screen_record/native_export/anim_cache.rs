@@ -10,6 +10,7 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use super::config::AnimatedCursorSlotData;
 use super::staging;
@@ -17,12 +18,27 @@ use super::staging;
 const MAGIC: &[u8; 8] = b"SGT_ANIM";
 const FORMAT_VERSION: u32 = 2;
 const TILE: u32 = 512;
+const MAX_FRAMES: usize = 240;
+const MAX_CACHE_FILE_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CACHE_FILES: usize = 64;
+const MAX_CACHE_TREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+static CACHE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 fn cache_dir() -> Option<PathBuf> {
     dirs::data_local_dir().map(|base| base.join("screen-goated-toolbox").join("cursor-anim-cache"))
 }
 
 fn cache_path(slot_id: u32, svg_hash: &str) -> Option<PathBuf> {
+    if slot_id >= super::super::embedded_assets::CURSOR_ATLAS_SLOT_COUNT
+        || svg_hash.is_empty()
+        || svg_hash.len() > 16
+        || !svg_hash
+            .bytes()
+            .all(|value| value.is_ascii_lowercase() || value.is_ascii_digit())
+    {
+        return None;
+    }
     cache_dir().map(|dir| dir.join(format!("slot_{slot_id}_{svg_hash}.bin")))
 }
 
@@ -31,7 +47,8 @@ fn cache_path(slot_id: u32, svg_hash: &str) -> Option<PathBuf> {
 /// frames and returns the preview PNG bytes for JS to reconstruct canvases.
 pub fn load_cache(slot_id: u32, svg_hash: &str) -> Option<CacheLoadResult> {
     let path = cache_path(slot_id, svg_hash)?;
-    if !path.exists() {
+    let metadata = fs::metadata(&path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_CACHE_FILE_BYTES {
         return None;
     }
     let data = fs::read(&path).ok()?;
@@ -42,7 +59,8 @@ pub fn load_cache(slot_id: u32, svg_hash: &str) -> Option<CacheLoadResult> {
         slot_id,
         loop_duration: result.loop_duration,
         frames: result.export_rgba_frames,
-    });
+    })
+    .ok()?;
 
     Some(CacheLoadResult {
         loop_duration: result.loop_duration,
@@ -107,6 +125,19 @@ fn parse_cache_file(data: &[u8], expected_slot: u32) -> Option<ParsedCache> {
     let natural_height = read_u32(&mut pos)?;
     let export_count = read_u32(&mut pos)? as usize;
     let preview_count = read_u32(&mut pos)? as usize;
+    if export_count == 0
+        || export_count > MAX_FRAMES
+        || preview_count > MAX_FRAMES
+        || export_count != preview_count
+        || !loop_duration.is_finite()
+        || loop_duration <= 0.0
+        || natural_width == 0
+        || natural_height == 0
+        || natural_width > 16_384
+        || natural_height > 16_384
+    {
+        return None;
+    }
 
     let expected_rgba = (TILE * TILE * 4) as usize;
 
@@ -114,7 +145,7 @@ fn parse_cache_file(data: &[u8], expected_slot: u32) -> Option<ParsedCache> {
     let mut export_rgba_frames = Vec::with_capacity(export_count);
     for _ in 0..export_count {
         let png_len = read_u32(&mut pos)? as usize;
-        if pos + png_len > data.len() {
+        if png_len == 0 || png_len > MAX_FRAME_BYTES || pos.checked_add(png_len)? > data.len() {
             return None;
         }
         let png_data = &data[pos..pos + png_len];
@@ -142,7 +173,7 @@ fn parse_cache_file(data: &[u8], expected_slot: u32) -> Option<ParsedCache> {
     let mut preview_pngs = Vec::with_capacity(preview_count);
     for _ in 0..preview_count {
         let png_len = read_u32(&mut pos)? as usize;
-        if pos + png_len > data.len() {
+        if png_len == 0 || png_len > MAX_FRAME_BYTES || pos.checked_add(png_len)? > data.len() {
             return None;
         }
         preview_pngs.push(data[pos..pos + png_len].to_vec());
@@ -168,6 +199,34 @@ pub fn save_cache(
     export_png_bytes: &[Vec<u8>],
     preview_png_bytes: &[Vec<u8>],
 ) -> Result<(), String> {
+    let path = cache_path(slot_id, svg_hash).ok_or("invalid cursor animation cache key")?;
+    if !loop_duration.is_finite()
+        || loop_duration <= 0.0
+        || natural_width == 0
+        || natural_height == 0
+        || natural_width > 16_384
+        || natural_height > 16_384
+        || export_png_bytes.is_empty()
+        || export_png_bytes.len() > MAX_FRAMES
+        || export_png_bytes.len() != preview_png_bytes.len()
+        || export_png_bytes
+            .iter()
+            .chain(preview_png_bytes)
+            .any(|frame| frame.is_empty() || frame.len() > MAX_FRAME_BYTES)
+    {
+        return Err("cursor animation cache data exceeds supported limits".to_string());
+    }
+    let encoded_bytes = export_png_bytes
+        .iter()
+        .chain(preview_png_bytes)
+        .try_fold(40usize, |total, frame| {
+            total.checked_add(4)?.checked_add(frame.len())
+        })
+        .ok_or("cursor animation cache byte length overflowed")?;
+    if encoded_bytes as u64 > MAX_CACHE_FILE_BYTES {
+        return Err("cursor animation cache exceeds the 256 MiB limit".to_string());
+    }
+    let _write_guard = CACHE_WRITE_LOCK.lock().unwrap();
     let dir = cache_dir().ok_or("no local data dir")?;
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {e}"))?;
 
@@ -183,9 +242,7 @@ pub fn save_cache(
         }
     }
 
-    let path = cache_path(slot_id, svg_hash).ok_or("no cache path")?;
-
-    let mut buf: Vec<u8> = Vec::new();
+    let mut buf: Vec<u8> = Vec::with_capacity(encoded_bytes);
     buf.extend_from_slice(MAGIC);
     buf.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
     buf.extend_from_slice(&slot_id.to_le_bytes());
@@ -204,7 +261,30 @@ pub fn save_cache(
         buf.extend_from_slice(png);
     }
 
-    fs::write(&path, &buf).map_err(|e| format!("write: {e}"))?;
+    let temp_path = dir.join(format!(
+        ".cursor-cache-{}-{}-{}.part",
+        std::process::id(),
+        slot_id,
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    let mut temp = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp_path)
+        .map_err(|e| format!("create cursor cache temp: {e}"))?;
+    use std::io::Write as _;
+    if let Err(error) = temp.write_all(&buf).and_then(|_| temp.sync_all()) {
+        drop(temp);
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("write cursor cache temp: {error}"));
+    }
+    drop(temp);
+    let _ = fs::remove_file(&path);
+    if let Err(error) = fs::rename(&temp_path, &path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("publish cursor cache: {error}"));
+    }
+    prune_cache_dir(&dir, &path);
 
     // Also decode export PNGs to RGBA and populate the persistent store.
     let expected_rgba = (TILE * TILE * 4) as usize;
@@ -233,7 +313,54 @@ pub fn save_cache(
         slot_id,
         loop_duration,
         frames: rgba_frames,
-    });
+    })?;
 
     Ok(())
+}
+
+fn prune_cache_dir(dir: &std::path::Path, keep: &std::path::Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut files = entries
+        .flatten()
+        .filter_map(|entry| {
+            let metadata = entry.metadata().ok()?;
+            (metadata.is_file()
+                && entry.path() != keep
+                && entry.file_name().to_string_lossy().starts_with("slot_")
+                && entry.file_name().to_string_lossy().ends_with(".bin"))
+            .then(|| (metadata.modified().ok(), metadata.len(), entry.path()))
+        })
+        .collect::<Vec<_>>();
+    files.sort_by_key(|(modified, _, _)| *modified);
+    let mut total = files
+        .iter()
+        .map(|(_, bytes, _)| *bytes)
+        .sum::<u64>()
+        .saturating_add(fs::metadata(keep).map(|meta| meta.len()).unwrap_or(0));
+    let mut count = files.len().saturating_add(1);
+    for (_, bytes, path) in files {
+        if count <= MAX_CACHE_FILES && total <= MAX_CACHE_TREE_BYTES {
+            break;
+        }
+        if fs::remove_file(path).is_ok() {
+            count = count.saturating_sub(1);
+            total = total.saturating_sub(bytes);
+        }
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::cache_path;
+
+    #[test]
+    fn cache_keys_cannot_escape_the_owned_directory() {
+        assert!(cache_path(0, "abc123").is_some());
+        for hash in ["../outside", r"..\outside", "hash.bin", "UPPER"] {
+            assert!(cache_path(0, hash).is_none());
+        }
+        assert!(cache_path(u32::MAX, "abc123").is_none());
+    }
 }

@@ -252,6 +252,7 @@ pub fn handle_start_subtitle_narration(
             "Subtitle narration already running (job={active_job_id})"
         ));
     }
+    job_registry::prepare_for_insert(&mut jobs)?;
 
     let job_id = job_registry::uuid("subtitle-narration");
     let snapshot = Arc::new(Mutex::new(SubtitleNarrationJobSnapshot {
@@ -436,6 +437,12 @@ pub fn handle_cancel_subtitle_narration(
         snapshot.active_subtitle_id = None;
     }
     Ok(serde_json::Value::Null)
+}
+
+pub(super) fn cancel_all_jobs() {
+    if let Ok(jobs) = subtitle_narration_jobs().lock() {
+        job_registry::cancel_all(&jobs);
+    }
 }
 
 mod alignment;

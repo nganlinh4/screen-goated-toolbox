@@ -133,21 +133,19 @@ function normalizeCustomChain(
   return filtered.length > 0 ? filtered : buildDefaultSubtitleCustomChain();
 }
 
-function getTrackTextForSegment(
-  track: SubtitleTrack | undefined,
-  segmentId: string,
-  fallbackText: string,
-): string {
-  const value = track?.segments.find((segment) => segment.id === segmentId)?.text?.trim();
-  return value && value.length > 0 ? value : fallbackText;
-}
-
 function buildCustomSubtitleSegments(
   tracks: readonly SubtitleTrack[],
   chain: readonly SubtitleChainItem[],
 ): SubtitleSegment[] {
-  const originalTrack = tracks.find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID) ?? tracks[0];
+  const tracksById = new Map(tracks.map((track) => [track.id, track]));
+  const originalTrack = tracksById.get(ORIGINAL_SUBTITLE_TRACK_ID) ?? tracks[0];
   if (!originalTrack) return [];
+  const textByTrackAndSegment = new Map(
+    tracks.map((track) => [
+      track.id,
+      new Map(track.segments.map((segment) => [segment.id, segment.text.trim()])),
+    ]),
+  );
   return originalTrack.segments.map((segment) => {
     const originalText = segment.text;
     let text = '';
@@ -156,8 +154,10 @@ function buildCustomSubtitleSegments(
         text += item.value ?? '';
         continue;
       }
-      const track = tracks.find((entry) => entry.id === item.trackId);
-      text += getTrackTextForSegment(track, segment.id, originalText);
+      const translated = textByTrackAndSegment
+        .get(item.trackId)
+        ?.get(segment.id);
+      text += translated || originalText;
     }
     return {
       ...cloneSubtitleSegment(segment),
@@ -165,6 +165,8 @@ function buildCustomSubtitleSegments(
     };
   });
 }
+
+const visibleSubtitleCache = new WeakMap<VideoSegment, SubtitleSegment[]>();
 
 export function normalizeSubtitleTrackState(segment: VideoSegment): VideoSegment {
   const subtitleTracks = normalizeTracks(segment);
@@ -245,6 +247,8 @@ export function getVisibleSubtitleSegments(segment: VideoSegment | null | undefi
   if (!hasCanonicalTracks && Array.isArray(segment.subtitleSegments)) {
     return segment.subtitleSegments;
   }
+  const cached = visibleSubtitleCache.get(segment);
+  if (cached) return cached;
   const tracks = getSubtitleTracks(segment);
   const activeSubtitleView = normalizeActiveView(tracks, segment.activeSubtitleView);
   const visible = activeSubtitleView.kind === 'custom'
@@ -257,6 +261,7 @@ export function getVisibleSubtitleSegments(segment: VideoSegment | null | undefi
           ?? tracks.find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID)
           ?? tracks[0]
       )?.segments ?? [];
+  visibleSubtitleCache.set(segment, visible);
   return visible;
 }
 

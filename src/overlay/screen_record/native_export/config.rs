@@ -442,6 +442,8 @@ pub struct CropRect {
 pub struct BackgroundConfig {
     pub scale: f64,
     pub border_radius: f64,
+    #[serde(default)]
+    pub crop_bottom: f64,
     pub background_type: String,
     #[serde(default)]
     pub custom_background: Option<String>,

@@ -1,0 +1,526 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+/* Subtle pulse for raw video button — gentle glow instead of aggressive opacity blink */
+.raw-video-button-pulse {
+    animation: raw-btn-glow 3s ease-in-out infinite;
+}
+@keyframes raw-btn-glow {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.15); }
+}
+
+/* Professional video editor color palette - neutral dark, single blue accent */
+@layer base {
+    body {
+        user-select: none;
+    }
+
+    input,
+    textarea {
+        user-select: text;
+    }
+
+    :root {
+        /* Crisp Light Theme */
+        --background: 0 0% 98%;
+        --foreground: 0 0% 9%;
+        --card: 0 0% 100%;
+        --card-foreground: 0 0% 9%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 0 0% 9%;
+        --primary: 217 91% 60%;         /* #3b82f6 - Blue */
+        --primary-foreground: 0 0% 100%;
+        --secondary: 217 91% 60%;       /* same as primary */
+        --secondary-foreground: 0 0% 100%;
+        --muted: 0 0% 96%;
+        --muted-foreground: 0 0% 45%;
+        --accent: 0 84% 60%;            /* #ef4444 - Red, recording/danger only */
+        --accent-foreground: 0 0% 100%;
+        --destructive: 0 84% 60%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 0 0% 90%;
+        --input: 0 0% 85%;
+        --ring: 217 91% 60%;
+        --chart-1: 217 91% 60%;
+        --chart-2: 217 91% 60%;
+        --chart-3: 0 84% 60%;
+        --chart-4: 145 63% 42%;
+        --chart-5: 25 95% 53%;
+        --radius: 0.75rem;
+
+        /* Custom semantic colors — light theme */
+        --surface: #ffffff;
+        --surface-dim: #f8fafc;
+        --surface-container: #f1f5f9;
+        --surface-container-high: #e2e8f0;
+        --surface-container-highest: #cbd5e1;
+        --on-surface: #0f172a;
+        --on-surface-variant: #475569;
+        --outline: #94a3b8;
+        --outline-variant: #e2e8f0;
+        --primary-color: #2563eb;
+        --primary-light: #1d4ed8;
+        --secondary-color: #3b82f6;
+        --secondary-light: #2563eb;
+        --tertiary-color: #ef4444;
+        --tertiary-light: #dc2626;
+        --success-color: #0f9f8d;
+        --success-light: #14b8a6;
+
+        /* Shared elevated surfaces - opaque material, not frosted glass */
+        --glass-bg: #eef2f7;
+        --glass-border: rgba(148, 163, 184, 0.26);
+        --glass-bg-hover: #e4eaf2;
+        --glass-bg-elevated: #ffffff;
+        --glass-inner-border: none;
+
+        /* Elevation shadow system */
+        --shadow-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+        --shadow-elevation-2: 0 2px 4px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.08);
+        --shadow-elevation-3: 0 4px 8px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.12);
+        --shadow-elevation-4: 0 8px 16px rgba(0, 0, 0, 0.10), 0 16px 48px rgba(0, 0, 0, 0.18);
+
+        /* Glow tokens */
+        --glow-primary: 0 0 12px rgba(59, 130, 246, 0.12);
+        --glow-primary-strong: 0 0 20px rgba(59, 130, 246, 0.20), 0 0 40px rgba(59, 130, 246, 0.08);
+
+        /* Timeline / overlay control tokens (light) */
+        --overlay-panel-bg: #f7f9fc;
+        --overlay-panel-border: rgba(148, 163, 184, 0.24);
+        --overlay-panel-fg: #0f172a;
+        --overlay-divider: rgba(15, 23, 42, 0.18);
+        --timeline-track-bg: #f1f5f9;
+        --timeline-gap-overlay: rgba(255, 255, 255, 0.04);
+        --timeline-active-border: rgba(15, 23, 42, 0.22);
+        --timeline-handle: rgba(15, 23, 42, 0.75);
+        --timeline-label-bg: rgba(255, 255, 255, 0.9);
+        --timeline-label-fg: #0f172a;
+        --timeline-float-fg: #ffffff;
+        --timeline-float-ring: rgba(15, 23, 42, 0.25);
+        --timeline-lane-bg: #eef3f8;
+        --timeline-lane-bg-strong: #e4eaf2;
+        --timeline-lane-border: rgba(148, 163, 184, 0.26);
+        --timeline-zoom-color: #2563eb;
+        --timeline-speed-color: #8b5cf6;
+        --timeline-device-audio-color: #e11d48;
+        --timeline-mic-audio-color: #0ea5e9;
+        --timeline-webcam-color: #65a30d;
+        --timeline-success-color: #0f9f8d;
+        --timeline-warning-color: #d97706;
+        --timeline-neutral-color: #64748b;
+        --timeline-playhead-color: #ef4444;
+        --ui-surface-1: #eef2f7;
+        --ui-surface-2: #f7f9fc;
+        --ui-surface-3: #ffffff;
+        --ui-border: rgba(148, 163, 184, 0.24);
+        --ui-border-strong: rgba(100, 116, 139, 0.36);
+        --ui-hover: #e4eaf2;
+        --ui-hover-strong: #dbe3ec;
+        --ui-accent-soft: rgba(59, 130, 246, 0.12);
+        --ui-danger-soft: rgba(239, 68, 68, 0.12);
+        --ui-scrim: rgba(6, 8, 14, 0.56);
+    }
+
+    .dark {
+        /* Cool Blue-Gray Dark Theme */
+        --background: 228 15% 7%;
+        --foreground: 220 10% 88%;
+        --card: 228 12% 10%;
+        --card-foreground: 220 10% 88%;
+        --popover: 228 12% 13%;
+        --popover-foreground: 220 10% 88%;
+        --primary: 217 91% 75%;          /* Light Blue */
+        --primary-foreground: 217 91% 25%;
+        --secondary: 217 91% 75%;        /* same as primary */
+        --secondary-foreground: 217 91% 25%;
+        --muted: 228 10% 18%;
+        --muted-foreground: 220 8% 60%;
+        --accent: 0 84% 65%;             /* Light Red */
+        --accent-foreground: 0 84% 20%;
+        --destructive: 0 62% 30%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 228 8% 20%;
+        --input: 228 8% 20%;
+        --ring: 217 91% 75%;
+        --chart-1: 217 91% 75%;
+        --chart-2: 217 91% 75%;
+        --chart-3: 0 84% 65%;
+        --chart-4: 145 70% 55%;
+        --chart-5: 25 100% 65%;
+
+        /* Custom semantic colors — dark theme (blue-gray tinted) */
+        --surface: #10111a;
+        --surface-dim: #0a0b12;
+        --surface-container: #181924;
+        --surface-container-high: #262834;
+        --surface-container-highest: #3e4050;
+        --on-surface: #f0f1f5;
+        --on-surface-variant: #9fa1b2;
+        --outline: #52536b;
+        --outline-variant: #262834;
+        --primary-color: #4a82c8;
+        --primary-light: #6da0de;
+        --secondary-color: #3b82f6;
+        --secondary-light: #60a5fa;
+        --tertiary-color: #ef4444;
+        --tertiary-light: #f87171;
+        --success-color: #179e90;
+        --success-light: #35baad;
+
+        /* Shared elevated surfaces - opaque material, not frosted glass */
+        --glass-bg: #1b1d28;
+        --glass-border: rgba(108, 112, 137, 0.34);
+        --glass-bg-hover: #252837;
+        --glass-bg-elevated: #212430;
+        --glass-inner-border: none;
+
+        /* Elevation shadow system */
+        --shadow-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.24), 0 1px 3px rgba(0, 0, 0, 0.18);
+        --shadow-elevation-2: 0 2px 4px rgba(0, 0, 0, 0.20), 0 4px 12px rgba(0, 0, 0, 0.28);
+        --shadow-elevation-3: 0 4px 8px rgba(0, 0, 0, 0.22), 0 8px 24px rgba(0, 0, 0, 0.32);
+        --shadow-elevation-4: 0 8px 16px rgba(0, 0, 0, 0.24), 0 16px 48px rgba(0, 0, 0, 0.40);
+
+        /* Glow tokens */
+        --glow-primary: 0 0 12px rgba(59, 130, 246, 0.20);
+        --glow-primary-strong: 0 0 20px rgba(59, 130, 246, 0.30), 0 0 40px rgba(59, 130, 246, 0.12);
+
+        /* Timeline / overlay control tokens (dark) */
+        --overlay-panel-bg: #171923;
+        --overlay-panel-border: rgba(108, 112, 137, 0.34);
+        --overlay-panel-fg: #f0f1f5;
+        --overlay-divider: rgba(255, 255, 255, 0.12);
+        --timeline-track-bg: rgba(255, 255, 255, 0.04);
+        --timeline-gap-overlay: rgba(0, 0, 0, 0.05);
+        --timeline-active-border: rgba(255, 255, 255, 0.2);
+        --timeline-handle: rgba(255, 255, 255, 0.85);
+        --timeline-label-bg: rgba(0, 0, 0, 0.6);
+        --timeline-label-fg: #ffffff;
+        --timeline-float-fg: #ffffff;
+        --timeline-float-ring: rgba(0, 0, 0, 0.35);
+        --timeline-lane-bg: #1c1f2a;
+        --timeline-lane-bg-strong: #232736;
+        --timeline-lane-border: rgba(108, 112, 137, 0.34);
+        --timeline-zoom-color: #7ab0ff;
+        --timeline-speed-color: #a78bfa;
+        --timeline-device-audio-color: #fb7185;
+        --timeline-mic-audio-color: #38bdf8;
+        --timeline-webcam-color: #a3e635;
+        --timeline-success-color: #2dd4bf;
+        --timeline-warning-color: #fbbf24;
+        --timeline-neutral-color: #94a3b8;
+        --timeline-playhead-color: #f87171;
+        --ui-surface-1: #1b1d28;
+        --ui-surface-2: #212430;
+        --ui-surface-3: #2a2d3b;
+        --ui-border: rgba(108, 112, 137, 0.34);
+        --ui-border-strong: rgba(143, 146, 170, 0.5);
+        --ui-hover: #252837;
+        --ui-hover-strong: #2f3345;
+        --ui-accent-soft: rgba(59, 130, 246, 0.2);
+        --ui-danger-soft: rgba(239, 68, 68, 0.18);
+        --ui-scrim: rgba(4, 5, 10, 0.7);
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+        font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
+        font-variation-settings: 'ROND' 100;
+    }
+}
+
+/* Polished range slider */
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    background: linear-gradient(to right,
+        var(--primary-color) var(--value-pct, 0%),
+        var(--glass-bg-hover) var(--value-pct, 0%));
+    border-radius: 99px;
+    outline: none;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--primary-color);
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15), 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+    transform: scale(1.1);
+    background: var(--primary-color);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.25);
+}
+
+.audio-panel-trim-slider {
+    --audio-trim-hit-height: 28px;
+    --audio-trim-track-height: 4px;
+    --audio-trim-thumb-size: 14px;
+    --audio-trim-track-top: calc((var(--audio-trim-hit-height) - var(--audio-trim-track-height)) / 2);
+}
+
+.audio-panel-trim-rail,
+.audio-panel-trim-active {
+    top: var(--audio-trim-track-top);
+    height: var(--audio-trim-track-height);
+}
+
+.audio-panel-trim-start-slider,
+.audio-panel-trim-end-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: none;
+    top: var(--audio-trim-track-top);
+    height: var(--audio-trim-track-height);
+    margin: 0;
+    background: transparent !important;
+    border-radius: 0;
+    cursor: default;
+    transition: none;
+}
+
+.audio-panel-trim-start-slider::-webkit-slider-runnable-track,
+.audio-panel-trim-end-slider::-webkit-slider-runnable-track {
+    -webkit-appearance: none;
+    appearance: none;
+    height: var(--audio-trim-track-height);
+    background: transparent !important;
+    border: 0;
+    box-shadow: none;
+}
+
+.audio-panel-trim-start-slider::-webkit-slider-thumb,
+.audio-panel-trim-end-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: auto;
+    width: var(--audio-trim-thumb-size);
+    height: var(--audio-trim-thumb-size);
+    margin-top: calc((var(--audio-trim-track-height) - var(--audio-trim-thumb-size)) / 2);
+    border-radius: 999px;
+    background: var(--surface);
+    border: 2px solid var(--primary-color);
+    cursor: ew-resize;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.audio-panel-trim-start-slider::-webkit-slider-thumb:hover,
+.audio-panel-trim-end-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15), 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.audio-panel-trim-start-slider::-webkit-slider-thumb:active,
+.audio-panel-trim-end-slider::-webkit-slider-thumb:active {
+    transform: scale(1.1);
+    background: var(--primary-color);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.25);
+}
+
+.audio-panel-trim-start-slider::-moz-range-track,
+.audio-panel-trim-end-slider::-moz-range-track {
+    height: var(--audio-trim-track-height);
+    background: transparent !important;
+    color: transparent;
+    border: 0;
+    box-shadow: none;
+}
+
+.audio-panel-trim-start-slider::-moz-range-progress,
+.audio-panel-trim-end-slider::-moz-range-progress {
+    background: transparent !important;
+}
+
+.audio-panel-trim-start-slider::-moz-range-thumb,
+.audio-panel-trim-end-slider::-moz-range-thumb {
+    pointer-events: auto;
+    width: var(--audio-trim-thumb-size);
+    height: var(--audio-trim-thumb-size);
+    border-radius: 999px;
+    background: var(--surface);
+    border: 2px solid var(--primary-color);
+    cursor: ew-resize;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Thin custom scrollbar for scroll containers */
+.thin-scrollbar::-webkit-scrollbar {
+    width: 5px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--outline-variant);
+    border-radius: 3px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--outline);
+}
+
+.thin-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--outline-variant) transparent;
+}
+
+.cursor-variant-virtualized-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.cursor-variant-virtualized-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.cursor-variant-virtualized-scroll::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--outline) 75%, transparent);
+    border-radius: 9999px;
+}
+
+.cursor-variant-virtualized-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--outline);
+}
+
+/* Textarea with subtle resize handle */
+textarea.subtle-resize {
+    resize: vertical;
+    min-height: 2.5rem;
+    max-height: 12rem;
+}
+
+textarea.subtle-resize::-webkit-resizer {
+    background-color: transparent;
+}
+
+.playback-keystroke-delay-popover,
+.auto-zoom-popover {
+    border-color: color-mix(in srgb, var(--overlay-divider) 78%, white 10%);
+    background: var(--ui-surface-3);
+    box-shadow: var(--shadow-elevation-4);
+}
+
+.playback-keystroke-delay-popover::before,
+.auto-zoom-popover::before {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: none;
+}
+
+.sequence-pill-chain::-webkit-scrollbar {
+    display: none;
+}
+
+.sequence-pill-chain,
+.sequence-pill-chain * {
+    cursor: grab !important;
+}
+
+.sequence-pill-chain.select-none,
+.sequence-pill-chain.select-none * {
+    cursor: grabbing !important;
+}
+
+.sequence-pill-chain .ui-chip-button:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+body.dragging-adjustable-line .timeline-content > div > * {
+    pointer-events: none !important;
+}
+
+body.dragging-adjustable-line-free * {
+    cursor: move !important;
+}
+
+body.dragging-adjustable-line-armed * {
+    cursor: all-scroll !important;
+}
+
+body.dragging-adjustable-line-axis-x * {
+    cursor: ew-resize !important;
+}
+
+body.dragging-adjustable-line-axis-y * {
+    cursor: ns-resize !important;
+}
+
+body.dragging-ew * {
+    cursor: ew-resize !important;
+}
+
+body.dragging-ew .timeline-content > div {
+    pointer-events: none !important;
+}
+
+body.dragging-move * {
+    cursor: move !important;
+}
+
+body.dragging-move .timeline-content > div {
+    pointer-events: none !important;
+}
+
+body.dragging-seek * {
+    cursor: grabbing !important;
+}
+
+@keyframes seek-pop {
+    0% {
+        opacity: 0.5;
+        transform: scale(0.85);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.05);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes recording-pill-breathe {
+    0%, 100% {
+        background-color: rgba(239, 68, 68, 0.08);
+        border-color: rgba(239, 68, 68, 0.25);
+        box-shadow: 0 0 8px rgba(239, 68, 68, 0.15);
+    }
+    50% {
+        background-color: rgba(239, 68, 68, 0.22);
+        border-color: rgba(239, 68, 68, 0.55);
+        box-shadow: 0 0 18px rgba(239, 68, 68, 0.40);
+    }
+}
+
+.recording-indicator {
+    animation: recording-pill-breathe 1.8s ease-in-out infinite;
+}

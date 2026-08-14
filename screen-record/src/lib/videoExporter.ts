@@ -25,7 +25,10 @@ import {
 } from './exportEstimator';
 
 import { stageBrowserCursorSlotTiles } from './exporterCursorTiles';
-import { stageFramesInChunks } from './exportStaging';
+import {
+  stageFrameIterableInChunks,
+  stageOverlayPayload,
+} from './exportStaging';
 import {
   buildTimeSegmentStamp,
   buildJsonHash,
@@ -41,6 +44,7 @@ import {
   type PreparedBakeCacheEntry,
   type PreparedBakePayload,
 } from './videoExporterPreparation';
+import { throwIfExportCancelled } from './exportCancellation';
 
 // Re-export everything from exportEstimator for backwards compatibility
 export {
@@ -81,8 +85,8 @@ export class VideoExporter {
   private nextObjectId = 1;
   private prepCacheBytes = 0;
 
-  private static readonly MAX_PREP_CACHE_BYTES = 512 * 1024 * 1024;
-  private static readonly MAX_PREP_CACHE_ENTRIES = 10;
+  private static readonly MAX_PREP_CACHE_BYTES = 256 * 1024 * 1024;
+  private static readonly MAX_PREP_CACHE_ENTRIES = 6;
 
   private async yieldToUiFrame() {
     await new Promise<void>((resolve) => {
@@ -106,14 +110,13 @@ export class VideoExporter {
   private estimatePreparedPayloadBytes(payload: PreparedBakePayload): number {
     const cameraBytes = payload.bakedPath.length * 32;
     const cursorBytes = payload.bakedCursorPath.length * 48;
-    const webcamBytes = payload.bakedWebcamFrames.length * 48;
     const atlasBytes = payload.overlayPayload
-      ? Math.floor((payload.overlayPayload.atlasBase64.length * 3) / 4)
+      ? payload.overlayPayload.atlasBase64.length * 2
       : 0;
     const framesBytes = payload.overlayPayload
       ? payload.overlayPayload.frames.reduce((sum, f) => sum + f.quads.length * 40, 0)
       : 0;
-    return cameraBytes + cursorBytes + webcamBytes + atlasBytes + framesBytes;
+    return cameraBytes + cursorBytes + atlasBytes + framesBytes;
   }
 
   private prunePreparationCache(requiredBytes = 0) {
@@ -273,20 +276,6 @@ export class VideoExporter {
     // Camera and cursor paths are now generated in Rust from raw keyframes/mouse positions.
     const bakedPath: BakedCameraFrame[] = [];
     const bakedCursorPath: BakedCursorFrame[] = [];
-    const bakedWebcamFrames =
-      normalizedSegment && context.webcamConfig
-        ? videoRenderer.generateBakedWebcamFrames(
-            normalizedSegment,
-            context.webcamConfig,
-            context.width,
-            context.height,
-            context.webcamVideo?.videoWidth && context.webcamVideo?.videoHeight
-              ? context.webcamVideo.videoWidth / context.webcamVideo.videoHeight
-              : undefined,
-            context.fps,
-          )
-        : [];
-
     await this.yieldToUiFrame();
     const overlayPayload = normalizedSegment
       ? await videoRenderer.bakeOverlayAtlasAndPaths(normalizedSegment, context.width, context.height, context.fps)
@@ -303,7 +292,6 @@ export class VideoExporter {
       activeDuration: context.activeDuration,
       bakedPath,
       bakedCursorPath,
-      bakedWebcamFrames,
       overlayPayload,
     };
   }
@@ -357,6 +345,7 @@ export class VideoExporter {
     narrationSegments?: import("@/types/video").NarrationSegment[];
     audioTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
     narrationTrackVolumePoints?: import("@/types/video").AudioGainPoint[];
+    isCancelled?: () => boolean;
   }) {
     if (this.isExporting) {
       throw new Error('Export already in progress');
@@ -373,8 +362,10 @@ export class VideoExporter {
         micAudioFilePath,
         webcamVideoFilePath,
       } = options;
+      throwIfExportCancelled(options.isCancelled);
       const context = this.buildPreparationContext(options);
       const prepared = await this.getPreparedPayload(context);
+      throwIfExportCancelled(options.isCancelled);
 
       // Video/audio data always flows by file path -- Rust falls back to VIDEO_PATH
       // if sourceVideoPath is empty. Never send raw bytes through JSON IPC.
@@ -400,6 +391,7 @@ export class VideoExporter {
 
       // Stage baked data via chunked IPC to avoid V8 JSON.stringify limits.
       await invoke('clear_export_staging', {});
+      throwIfExportCancelled(options.isCancelled);
       try {
         await stageBrowserCursorSlotTiles(context.backgroundConfig);
       } catch (e) {
@@ -407,26 +399,33 @@ export class VideoExporter {
       }
 
       // Camera and cursor baking now done in Rust -- only stage text/keystroke overlays.
-      if (prepared.overlayPayload) {
-        await invoke('stage_export_data', {
-          dataType: 'atlas',
-          base64: prepared.overlayPayload.atlasBase64,
-          width: prepared.overlayPayload.atlasWidth,
-          height: prepared.overlayPayload.atlasHeight,
-        });
-        if (prepared.overlayPayload.atlasMetadata) {
-          // Send compact metadata (~few KB) -- Rust generates 40K+ frames in ~1ms
-          await invoke('stage_export_data', {
-            dataType: 'overlay_atlas_metadata',
-            data: prepared.overlayPayload.atlasMetadata,
-          });
-        } else {
-          // Fallback: send pre-computed frame chunks (old path)
-          await stageFramesInChunks(prepared.overlayPayload.frames, 'overlay_frames_chunk');
-        }
-      }
-      if (prepared.bakedWebcamFrames.length > 0) {
-        await stageFramesInChunks(prepared.bakedWebcamFrames, 'webcam');
+      throwIfExportCancelled(options.isCancelled);
+      await stageOverlayPayload(
+        prepared.overlayPayload,
+        undefined,
+        options.isCancelled,
+      );
+      if (
+        prepared.normalizedSegment &&
+        context.webcamConfig?.visible &&
+        prepared.normalizedSegment.webcamAvailable !== false &&
+        webcamVideoFilePath.trim()
+      ) {
+        await stageFrameIterableInChunks(
+          videoRenderer.iterateBakedWebcamFrames(
+            prepared.normalizedSegment,
+            context.webcamConfig,
+            prepared.width,
+            prepared.height,
+            context.webcamVideo?.videoWidth && context.webcamVideo?.videoHeight
+              ? context.webcamVideo.videoWidth / context.webcamVideo.videoHeight
+              : undefined,
+            prepared.fps,
+          ),
+          'webcam',
+          undefined,
+          options.isCancelled,
+        );
       }
 
       // Animated cursor frames are pre-staged to Rust's persistent store
@@ -481,6 +480,7 @@ export class VideoExporter {
       }
 
       try {
+        throwIfExportCancelled(options.isCancelled);
         const res = await invoke('start_export_server', exportConfig) as {
           status?: string;
           path?: string;

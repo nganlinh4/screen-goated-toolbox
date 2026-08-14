@@ -22,6 +22,7 @@ use windows::core::PCWSTR;
 
 mod environment;
 mod capabilities;
+mod session_lifecycle;
 
 use capabilities::{MissingExternalCapability, prepare_external_capabilities};
 use environment::{
@@ -65,6 +66,7 @@ struct WorkerSession {
     responses: mpsc::Receiver<ResponseEvent>,
     token: String,
     job: OwnedHandle,
+    _active_job: session_lifecycle::ActiveJobRegistration,
     _components: crate::component_registry::recorder::RecorderComponents,
     _external_capabilities: Vec<crate::component_registry::external_tools::ExternalToolUse>,
 }
@@ -144,11 +146,17 @@ pub(super) fn shutdown() {
     }
 }
 
+#[cfg(test)]
+pub(super) fn worker_process_is_active() -> bool {
+    session_lifecycle::active_job_registered()
+}
+
 pub(super) fn stop_for_removal() -> Result<RemovalGuard> {
     REMOVAL_IN_PROGRESS
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .map_err(|_| anyhow!("recorder removal is already in progress"))?;
     let guard = RemovalGuard;
+    session_lifecycle::cancel_active_work();
     let (sender, receiver) = mpsc::sync_channel(1);
     if DISPATCHER.send(DispatchMessage::Stop(sender)).is_err() {
         drop(guard);
@@ -221,8 +229,8 @@ fn request_with_capability_retry(
     timeout: Duration,
 ) -> Result<serde_json::Value> {
     if session.is_none() {
-        let cancelled = AtomicBool::new(false);
-        *session = Some(launch(&cancelled, None)?);
+        let cancelled = session_lifecycle::LaunchCancellation::begin()?;
+        *session = Some(launch(cancelled.token(), None)?);
     }
     let first = session
         .as_mut()
@@ -240,8 +248,8 @@ fn request_with_capability_retry(
     };
 
     session.take();
-    let cancelled = AtomicBool::new(false);
-    *session = Some(launch(&cancelled, Some(capability))?);
+    let cancelled = session_lifecycle::LaunchCancellation::begin()?;
+    *session = Some(launch(cancelled.token(), Some(capability))?);
     session
         .as_mut()
         .ok_or_else(|| anyhow!("recorder worker did not restart"))?
@@ -340,6 +348,13 @@ fn launch(
             return Err(error);
         }
     };
+    let active_job = match session_lifecycle::ActiveJobRegistration::register(&job) {
+        Ok(registration) => registration,
+        Err(error) => {
+            terminate_and_reap(&mut child, &job);
+            return Err(error);
+        }
+    };
     let responses = start_response_reader(stdout);
     let mut session = WorkerSession {
         child,
@@ -347,6 +362,7 @@ fn launch(
         responses,
         token,
         job,
+        _active_job: active_job,
         _components: components,
         _external_capabilities: external_capabilities,
     };

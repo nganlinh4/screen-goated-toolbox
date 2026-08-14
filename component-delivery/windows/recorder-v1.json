@@ -2,18 +2,108 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "recorder-web-5.4.3-55d91ef5060a8365.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.4.3-55d91ef5060a8365.zip",
+      "asset": "recorder-web-5.4.3-762f28ffdeefef83.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.4.3-762f28ffdeefef83.zip",
       "files": [
         {
+          "path": "assets/AudioPanel.js",
+          "sha256": "00f5b891f0d2ecb9003b344a4cc8467430a82f7e069e4dd57276127c32dbc5c1",
+          "sizeBytes": 11722
+        },
+        {
+          "path": "assets/BackgroundPanel.js",
+          "sha256": "9c65eaf786cf1c62ee9fba02c527f8b730530b298578f3cbd5c636ca1299bd0f",
+          "sizeBytes": 16202
+        },
+        {
+          "path": "assets/BlurPanel.js",
+          "sha256": "6dff1a1809739bf7a71ddc3f009c51cbee2417b6a0e68356e1f10584ce15b776",
+          "sizeBytes": 856
+        },
+        {
+          "path": "assets/CameraPanel.js",
+          "sha256": "04a70bf2111bb285683235d685add4131a216f263f604ac6c87fba6925444fba",
+          "sizeBytes": 3362
+        },
+        {
+          "path": "assets/CursorPanel.js",
+          "sha256": "cb4c03fcccc0affe8ac0fb6a578ffe6b9af201955a4d3d7a2df87c43be28da7c",
+          "sizeBytes": 7067
+        },
+        {
+          "path": "assets/EditorOverlays.css",
+          "sha256": "65345533d9e248e570a84c8c8c61501cfb2e5460fdd96beb2bad1a7fc908ea8d",
+          "sizeBytes": 7038
+        },
+        {
+          "path": "assets/EditorOverlays.js",
+          "sha256": "766937bb653f539114b6c76b7db2104bfae90e34e63c449501d1e643b5a3a860",
+          "sizeBytes": 73478
+        },
+        {
+          "path": "assets/NarrationPanel.js",
+          "sha256": "1d9ea33539fc2de9ee91cf56184971bd1d617ae7a9ba8eb686ff05371b9e28b7",
+          "sizeBytes": 62345
+        },
+        {
+          "path": "assets/PanelCard.js",
+          "sha256": "6efb7d1cd35ca4b094d5df17fd230fcb12f010f382488f131c3b89db3872e3bc",
+          "sizeBytes": 232
+        },
+        {
+          "path": "assets/PanelSelect.js",
+          "sha256": "e80d26619f00e45cb8ea9492ba09dfaf1c9db9230ab29d14273bd338bb2904fd",
+          "sizeBytes": 6431
+        },
+        {
+          "path": "assets/SettingRow.js",
+          "sha256": "8bf630df19152aeb6f386601eacfd7c2b04e0272c90b63dd6604c8b04bb58f9d",
+          "sizeBytes": 821
+        },
+        {
+          "path": "assets/SmartSplitControl.js",
+          "sha256": "48b22ab93a0df7040788189c42c88dc1b89ea653ac28fd29cf501d9d0e98380a",
+          "sizeBytes": 6717
+        },
+        {
+          "path": "assets/SubtitlePanel.js",
+          "sha256": "8793a914bed94fab493bc80f723f2ed86cdfc4edaf3e2f76d0d7a9321822af30",
+          "sizeBytes": 38140
+        },
+        {
+          "path": "assets/TextPanel.js",
+          "sha256": "2ab2ae2267194e281fff0ab0c80e54b1238e4c88a242194eabcc7df3304096b0",
+          "sizeBytes": 11715
+        },
+        {
+          "path": "assets/ZoomPanel.js",
+          "sha256": "04c6f892433cd9665f65f4226f3fe3784ddaa69a36a9cbc61de80adbc256931e",
+          "sizeBytes": 1866
+        },
+        {
+          "path": "assets/compositionExport.js",
+          "sha256": "0039d9c7cfe42d94d9846fa86fd42730824de2788c90401112e88cc81efa75a7",
+          "sizeBytes": 3550
+        },
+        {
+          "path": "assets/editor-renderer.js",
+          "sha256": "8c6b03d796870c0ea480220ced1d86ae5844bea9bf4133270cd805c8cd762eb5",
+          "sizeBytes": 128011
+        },
+        {
+          "path": "assets/exportStaging.js",
+          "sha256": "6beabd39105bcab1b898894f6a824e7a98bf4029e6d53b19dc890e4c591b76c2",
+          "sizeBytes": 785
+        },
+        {
           "path": "assets/index.css",
-          "sha256": "4d08b29d3d1b9ceb0473fd6e2078d54d6c101ef99de2aea140580792134a0268",
-          "sizeBytes": 149215
+          "sha256": "0ec7c77bd5922d20681e7de645a1e3b7c1d177e3559bb99592ec452127953957",
+          "sizeBytes": 143461
         },
         {
           "path": "assets/index.js",
-          "sha256": "dc3bd74c5d67d4f219231ff6766f82f587412771da7109ae5509d32434f51013",
-          "sizeBytes": 1083071
+          "sha256": "86df92a5a877ce924abf6298af8309c31133451daccb3a6f044daa201177965e",
+          "sizeBytes": 645565
         },
         {
           "path": "assets/rolldown-runtime.js",
@@ -21,9 +111,34 @@
           "sizeBytes": 826
         },
         {
+          "path": "assets/utils.js",
+          "sha256": "da20ed9dee9e5abc3b44147cdb053096d31413099776b905092949198d5f3205",
+          "sizeBytes": 98935
+        },
+        {
+          "path": "assets/vendor-motion.js",
+          "sha256": "134fd8ff6a9a027c1f7f81dc90f2abcd65002525b1e01b609d19c23201498f0f",
+          "sizeBytes": 125783
+        },
+        {
+          "path": "assets/vendor-radix.js",
+          "sha256": "b8bb13d0669fa2518ce08ed311bc169a3034e07ab912be9979dd17a7d41b0fe1",
+          "sizeBytes": 65951
+        },
+        {
+          "path": "assets/vendor-react.js",
+          "sha256": "ff9dab73852b14955e351706e7ba0c4c7e7a78d99fbd903a581c6edd9b07c51a",
+          "sizeBytes": 174835
+        },
+        {
           "path": "assets/vendor.js",
-          "sha256": "9023ae6da9954e2c21beed75ab33b82d1fe6a42215aea4da4ae6ef14fa45b7cd",
-          "sizeBytes": 437005
+          "sha256": "99ab33def68f88fb76fcc7a88cf1addd321dff326d57ee9e91e03cdd55afbd03",
+          "sizeBytes": 62806
+        },
+        {
+          "path": "assets/videoExporter.js",
+          "sha256": "1433ef74f3be3a1cec83f0daac533196366d4a78a5d0aea62e78fb365fb552e5",
+          "sizeBytes": 11400
         },
         {
           "path": "bg-antelope-canyon.jpg",
@@ -892,12 +1007,12 @@
         },
         {
           "path": "index.html",
-          "sha256": "f3ab86bc02c4028e796547caafd6d078359035cdf66eee5649f0cf55d5f6cefc",
-          "sizeBytes": 807
+          "sha256": "6edf738d8607c531c5949b5d43f3f94cbc7b556f21900c4c78f36406d1a856f4",
+          "sizeBytes": 1174
         },
         {
           "path": "licenses/THIRD-PARTY-LICENSES.json",
-          "sha256": "b8a19a0a1aeeb5081c4261bc4c7cb1110014e8b1d029cf7d8c7ca3c28a3db114",
+          "sha256": "ffe0b9146795147bf6027ca2ba0811f71f31ecd73b11ad84a790a208bb82632d",
           "sizeBytes": 115149
         },
         {
@@ -907,24 +1022,24 @@
         }
       ],
       "id": "recorder-web",
-      "sha256": "55d91ef5060a836509669765839c0b3abf2c83cc664c15e60c4f65cf2190d903",
-      "sizeBytes": 876608,
-      "unpackedSizeBytes": 2630978,
+      "sha256": "762f28ffdeefef834c92a46c4df5c8af0f464fb1a4ab526e4ada7f3575fdea02",
+      "sizeBytes": 902404,
+      "unpackedSizeBytes": 2671128,
       "version": "5.4.3"
     },
     {
-      "asset": "recorder-worker-5.4.3-3f0994425b447c54.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.4.3-3f0994425b447c54.zip",
+      "asset": "recorder-worker-5.4.3-22b34def26fc6c54.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.4.3-22b34def26fc6c54.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "1a71e02c24426ef2f8b392ac9687dd61705023e869f3e3eda560d59149437ea7",
-          "sizeBytes": 9597952
+          "sha256": "f060b91966ef5e7466fd24013e07ed9fa02281062f8aae6dd13baf2e480580c8",
+          "sizeBytes": 9852416
         },
         {
           "path": "licenses/THIRD-PARTY-LICENSES.json",
-          "sha256": "d40771ec6861ae2c7e7f4543a90b62de28e7bc0b019c5e5a2f460cfd3dda9b07",
-          "sizeBytes": 3955346
+          "sha256": "f1dd6110cff30c7aef806f531a1fd6aebe8bb128893eec3746d8c095cf2a809d",
+          "sizeBytes": 3955014
         },
         {
           "path": "licenses/THIRD-PARTY-NOTICES.txt",
@@ -933,9 +1048,9 @@
         }
       ],
       "id": "recorder-worker",
-      "sha256": "3f0994425b447c5498d887859b3be896aab45dc15e3f2889c9e398ab7c7a4c52",
-      "sizeBytes": 4862345,
-      "unpackedSizeBytes": 13554370,
+      "sha256": "22b34def26fc6c5458037e190ed9153966e7ca5a029039027d2d7682fc8aad40",
+      "sizeBytes": 4975316,
+      "unpackedSizeBytes": 13808502,
       "version": "5.4.3"
     }
   ],

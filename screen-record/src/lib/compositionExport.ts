@@ -7,18 +7,28 @@ import {
   resolveExportDimensions,
 } from "@/lib/exportEstimator";
 import { clamp } from "@/lib/mathUtils";
+import { normalizeBackgroundConfig } from "@/lib/backgroundConfig";
 import {
   getCompositionAutoSourceClipId,
   getCompositionClip,
   getCompositionResolvedBackgroundConfig,
 } from "@/lib/projectComposition";
 import { stageBrowserCursorSlotTiles } from "@/lib/exporterCursorTiles";
-import { stageFramesInChunks } from "@/lib/exportStaging";
+import {
+  stageFrameIterableInChunks,
+  stageOverlayPayload,
+} from "@/lib/exportStaging";
 import { buildSequenceTimeline, mergeCompositionSegmentsToSequence } from "@/lib/sequenceTimeline";
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from "@/lib/trimSegments";
 import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 import { videoRenderer } from "@/lib/videoRenderer";
 import { normalizeAutoCanvasSegment } from "@/lib/videoGeometry";
+import {
+  collectNonFiniteNumberPaths,
+  collectNullPaths,
+  sanitizeNativeExportValue,
+} from "@/lib/videoExporterPreparation";
+import { throwIfExportCancelled } from "@/lib/exportCancellation";
 import type {
   BackgroundConfig,
   ExportArtifact,
@@ -94,6 +104,7 @@ export interface CompositionExportContext {
   resolveClipSourcePath: (clip: ProjectCompositionClip) => Promise<string>;
   resolveClipMicAudioPath: (clip: ProjectCompositionClip) => Promise<string>;
   resolveClipWebcamPath: (clip: ProjectCompositionClip) => Promise<string>;
+  isCancelled?: () => boolean;
 }
 
 function isLockedCanvasSize(backgroundConfig: BackgroundConfig | null | undefined): boolean {
@@ -203,14 +214,17 @@ export async function exportCompositionAndDownload(
     resolveClipWebcamPath,
   } = context;
   const sessionId = crypto.randomUUID();
+  const isCancelled = context.isCancelled;
 
   try {
+    throwIfExportCancelled(isCancelled);
     await invoke("clear_export_staging", { sessionId });
 
     const authority = await resolveAuthorityBaseDimensions(
       composition,
       resolveClipSourcePath,
     );
+    throwIfExportCancelled(isCancelled);
     const { width, height } = resolveExportDimensions(
       exportOptions.width,
       exportOptions.height,
@@ -234,14 +248,17 @@ export async function exportCompositionAndDownload(
     const autoSourceClipId = getCompositionAutoSourceClipId(composition);
 
     for (const clip of composition.clips) {
+      throwIfExportCancelled(isCancelled);
       const jobId = clip.id;
       const sourceVideoPath = await resolveClipSourcePath(clip);
       const micAudioPath = await resolveClipMicAudioPath(clip);
       const webcamVideoPath = await resolveClipWebcamPath(clip);
       const metadata = await probeVideoMetadata(sourceVideoPath);
-      const backgroundConfig =
+      throwIfExportCancelled(isCancelled);
+      const backgroundConfig = normalizeBackgroundConfig(
         getCompositionResolvedBackgroundConfig(composition, clip.id) ??
-        clip.backgroundConfig;
+          clip.backgroundConfig,
+      );
       const canvasSegment = normalizeAutoCanvasSegment(
         clip.segment,
         backgroundConfig,
@@ -262,7 +279,15 @@ export async function exportCompositionAndDownload(
         metadata.duration || normalizedSegment.trimEnd,
       );
 
-      await stageBrowserCursorSlotTiles(backgroundConfig, { sessionId, jobId });
+      try {
+        throwIfExportCancelled(isCancelled);
+        await stageBrowserCursorSlotTiles(backgroundConfig, { sessionId, jobId });
+      } catch (error) {
+        console.warn(
+          "[CompositionExport] Browser cursor staging failed; native rendering will be used",
+          error,
+        );
+      }
 
       const overlayPayload = await videoRenderer.bakeOverlayAtlasAndPaths(
         normalizedSegment,
@@ -270,39 +295,36 @@ export async function exportCompositionAndDownload(
         height,
         fps,
       );
-      if (overlayPayload) {
-        await invoke("stage_export_data", {
-          sessionId,
-          jobId,
-          dataType: "atlas",
-          base64: overlayPayload.atlasBase64,
-          width: overlayPayload.atlasWidth,
-          height: overlayPayload.atlasHeight,
-        });
-        await stageFramesInChunks(overlayPayload.frames, "overlay_frames_chunk", {
-          sessionId,
-          jobId,
-        });
-      }
-      if (webcamVideoPath) {
+      throwIfExportCancelled(isCancelled);
+      await stageOverlayPayload(
+        overlayPayload,
+        { sessionId, jobId },
+        isCancelled,
+      );
+      if (
+        webcamVideoPath &&
+        clip.webcamConfig?.visible &&
+        normalizedSegment.webcamAvailable !== false
+      ) {
         const webcamMetadata = await probeVideoMetadata(webcamVideoPath).catch(() => null);
-        const bakedWebcamFrames = videoRenderer.generateBakedWebcamFrames(
-          normalizedSegment,
-          clip.webcamConfig,
-          width,
-          height,
-          webcamMetadata && webcamMetadata.height > 0
-            ? webcamMetadata.width / webcamMetadata.height
-            : undefined,
-          fps,
+        await stageFrameIterableInChunks(
+          videoRenderer.iterateBakedWebcamFrames(
+            normalizedSegment,
+            clip.webcamConfig,
+            width,
+            height,
+            webcamMetadata && webcamMetadata.height > 0
+              ? webcamMetadata.width / webcamMetadata.height
+              : undefined,
+            fps,
+          ),
+          "webcam",
+          { sessionId, jobId },
+          isCancelled,
         );
-        await stageFramesInChunks(bakedWebcamFrames, "webcam", {
-          sessionId,
-          jobId,
-        });
       }
 
-      clipJobs.push({
+      clipJobs.push(sanitizeNativeExportValue({
         jobId,
         clipId: clip.id,
         clipName: clip.name,
@@ -319,12 +341,10 @@ export async function exportCompositionAndDownload(
         backgroundConfig,
         webcamConfig: clip.webcamConfig,
         mousePositions: clip.mousePositions,
-      });
+      }));
     }
 
-    return invoke<NativeCompositionExportResponse>(
-      "start_composition_export_server",
-      {
+    const request = sanitizeNativeExportValue({
         sessionId,
         width,
         height,
@@ -339,7 +359,21 @@ export async function exportCompositionAndDownload(
         audioTrackVolumePoints: context.composition.audioTrackVolumePoints,
         narrationSegments: materializeNarrationGroupTakes(context.composition.narrationSegments),
         narrationTrackVolumePoints: context.composition.narrationTrackVolumePoints,
-      } satisfies NativeCompositionExportRequest,
+      } satisfies NativeCompositionExportRequest);
+    const nullPaths = collectNullPaths(request);
+    if (nullPaths.length > 0) {
+      throw new Error(`Null fields in composition export: ${nullPaths.join(", ")}`);
+    }
+    const nonFinitePaths = collectNonFiniteNumberPaths(request);
+    if (nonFinitePaths.length > 0) {
+      throw new Error(
+        `Non-finite fields in composition export: ${nonFinitePaths.join(", ")}`,
+      );
+    }
+    throwIfExportCancelled(isCancelled);
+    return invoke<NativeCompositionExportResponse>(
+      "start_composition_export_server",
+      request,
     );
   } finally {
     await invoke("clear_export_staging", { sessionId }).catch(() => {

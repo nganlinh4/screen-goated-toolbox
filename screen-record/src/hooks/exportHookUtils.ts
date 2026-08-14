@@ -26,7 +26,22 @@ export function createInitialExportOptions(): ExportOptions {
   };
 }
 
-export function getExportFailureMessage(error: unknown): string {
+export interface ExportFailureMessages {
+  diskFull: string;
+  alreadyRunning: string;
+  unknown: string;
+}
+
+const defaultExportFailureMessages: ExportFailureMessages = {
+  diskFull: "Export failed because the output drive is full. Free up disk space or choose another export folder, then export again.",
+  alreadyRunning: "An export is still finishing or cleaning up. Wait a moment, or restart the app if it stays stuck.",
+  unknown: "Export failed for an unknown reason.",
+};
+
+export function getExportFailureMessage(
+  error: unknown,
+  messages: ExportFailureMessages = defaultExportFailureMessages,
+): string {
   const raw =
     error instanceof Error
       ? error.message
@@ -34,12 +49,12 @@ export function getExportFailureMessage(error: unknown): string {
         ? error
         : String(error ?? "");
   if (raw.includes("0x80070070") || /not enough space on the disk/i.test(raw)) {
-    return "Export failed because the output drive is full. Free up disk space or choose another export folder, then export again.";
+    return messages.diskFull;
   }
   if (/Export already in progress/i.test(raw)) {
-    return "An export is still finishing or cleaning up. Wait a moment, or restart the app if it stays stuck.";
+    return messages.alreadyRunning;
   }
-  return raw || "Export failed for an unknown reason.";
+  return raw || messages.unknown;
 }
 
 export function normalizeExportArtifacts(

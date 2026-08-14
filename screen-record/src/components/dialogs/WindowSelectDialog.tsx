@@ -36,14 +36,16 @@ export function WindowSelectDialog({
           {windows.map((win) => {
             const initial = win.processName.charAt(0).toUpperCase() || 'W';
             return (
-              <div
+              <button
+                type="button"
                 key={win.id}
+                disabled={win.isAdmin}
+                aria-label={`${t.windowCapture}: ${win.title} (${win.processName})${win.isAdmin ? `. ${t.adminRequired}. ${t.adminRequiredDesc}` : ''}`}
                 onClick={() => {
-                  if (win.isAdmin) return;
                   onClose();
                   onSelectWindow(win.id, 'window');
                 }}
-                className={`window-select-card ui-choice-tile relative group rounded-xl overflow-hidden flex flex-col h-36 ${
+                className={`window-select-card ui-choice-tile relative group rounded-xl overflow-hidden flex flex-col h-36 text-left ${
                   win.isAdmin
                     ? 'bg-[var(--ui-surface-1)] opacity-90 cursor-not-allowed'
                     : 'cursor-pointer'
@@ -108,7 +110,7 @@ export function WindowSelectDialog({
                   </div>
                 </div>
 
-              </div>
+              </button>
             );
           })}
           </div>

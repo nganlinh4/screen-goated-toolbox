@@ -151,13 +151,16 @@ async function wheelZoom(page: import("@playwright/test").Page) {
   }
 }
 
-async function openProjectsAndMeasure(page: import("@playwright/test").Page) {
-  return page.evaluate(async () => {
+async function openProjectsAndMeasure(
+  page: import("@playwright/test").Page,
+  timeoutMs: number,
+) {
+  return page.evaluate(async (timeout) => {
     const button = document.querySelector<HTMLElement>(".projects-button");
     if (!button) return Number.POSITIVE_INFINITY;
     const start = performance.now();
     button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    for (let i = 0; i < 12; i += 1) {
+    while (performance.now() - start <= timeout) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const view = document.querySelector<HTMLElement>(".projects-view");
       if (view && view.offsetParent !== null) {
@@ -165,7 +168,7 @@ async function openProjectsAndMeasure(page: import("@playwright/test").Page) {
       }
     }
     return Number.POSITIVE_INFINITY;
-  });
+  }, timeoutMs);
 }
 
 async function scrubRangeAndMeasure(
@@ -325,7 +328,7 @@ test("synthetic huge editor opens Projects without blocking the UI", async ({ pa
   await page.evaluate(() => window.__SGT_TEST__?.resetPerf());
   await page.evaluate(() => window.__SGT_TEST__?.startPerfProbe());
 
-  const openMs = await openProjectsAndMeasure(page);
+  const openMs = await openProjectsAndMeasure(page, budgets.syntheticHuge.projectsOpenMs);
   await expect(page.locator(".projects-view")).toBeVisible({
     timeout: budgets.syntheticHuge.projectsOpenMs,
   });

@@ -38,6 +38,25 @@ const WEB_ASSETS: &[(&str, &str)] = &[
     ("bg-monterey-dark.jpg", "image/jpeg"),
 ];
 
+fn dynamic_web_asset_mime(relative: &str) -> Option<&'static str> {
+    let file_name = relative.strip_prefix("assets/")?;
+    if file_name.is_empty()
+        || file_name.contains(['/', '\\'])
+        || file_name == "."
+        || file_name == ".."
+    {
+        return None;
+    }
+    match std::path::Path::new(file_name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
+        Some("js") => Some("application/javascript"),
+        Some("css") => Some("text/css"),
+        _ => None,
+    }
+}
+
 pub(in crate::overlay::screen_record) fn index_html() -> Option<Vec<u8>> {
     read_asset("index.html")
 }
@@ -49,5 +68,40 @@ pub(in crate::overlay::screen_record) fn lookup_packaged_web_asset(
     WEB_ASSETS
         .iter()
         .find(|(candidate, _)| *candidate == relative)
-        .and_then(|(_, mime)| read_asset(relative).map(|bytes| (bytes, *mime)))
+        .map(|(_, mime)| *mime)
+        .or_else(|| dynamic_web_asset_mime(relative))
+        .and_then(|mime| read_asset(relative).map(|bytes| (bytes, mime)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dynamic_web_asset_mime;
+
+    #[test]
+    fn lazy_script_and_style_chunks_are_authorized() {
+        assert_eq!(
+            dynamic_web_asset_mime("assets/editor-C0FFEE.js"),
+            Some("application/javascript")
+        );
+        assert_eq!(
+            dynamic_web_asset_mime("assets/crop-panel-A11CE.css"),
+            Some("text/css")
+        );
+    }
+
+    #[test]
+    fn dynamic_assets_reject_traversal_nested_and_non_web_files() {
+        for path in [
+            "../assets/editor.js",
+            "assets/../editor.js",
+            r"assets\editor.js",
+            "assets/nested/editor.js",
+            "assets/editor.js.map",
+            "assets/worker.wasm",
+            "assets/secrets.json",
+            "assets/",
+        ] {
+            assert_eq!(dynamic_web_asset_mime(path), None, "{path}");
+        }
+    }
 }

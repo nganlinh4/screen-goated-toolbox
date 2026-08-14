@@ -35,6 +35,7 @@ export type PersistOptions = {
   compositionOverride?: ProjectComposition;
   skipLiveCompositionSync?: boolean;
   allowDuringProjectTransition?: boolean;
+  throwOnError?: boolean;
 };
 
 export interface UseSequenceCompositionParams {
