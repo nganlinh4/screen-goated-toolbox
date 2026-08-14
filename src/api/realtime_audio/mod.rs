@@ -71,7 +71,7 @@ pub fn cancel_download_and_revert_to_gemini() {
     use std::sync::atomic::Ordering;
 
     // 1. Set stop signal to cancel download
-    crate::overlay::realtime_webview::state::REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
+    crate::overlay::realtime_webview::state::set_current_stop_signal(true);
 
     // 2. Clear the download state
     if let Ok(mut state) = REALTIME_STATE.lock() {

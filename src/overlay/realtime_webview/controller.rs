@@ -50,11 +50,11 @@ pub fn normalize_transcription_language(language: &str) -> String {
 
 pub fn reset_runtime_for_new_session() {
     REALTIME_SESSION_ID.fetch_add(1, Ordering::SeqCst);
+    begin_stop_signal_session();
     unsafe {
         IS_ACTIVE = true;
     }
     REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
-    REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
     MIC_VISIBLE.store(true, Ordering::SeqCst);
     TRANS_VISIBLE.store(true, Ordering::SeqCst);
     AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
@@ -292,9 +292,10 @@ pub fn cancel_download() {
 }
 
 pub fn stop_runtime_flags() {
-    REALTIME_SESSION_ID.fetch_add(1, Ordering::SeqCst);
-    REALTIME_SESSION_STOPPING.store(true, Ordering::SeqCst);
-    REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
+    if !REALTIME_SESSION_STOPPING.swap(true, Ordering::SeqCst) {
+        REALTIME_SESSION_ID.fetch_add(1, Ordering::SeqCst);
+    }
+    set_current_stop_signal(true);
     crate::api::tts::TTS_MANAGER.stop();
     window_selector::close_selector_for_owner(SelectorOwner::RealtimeAppSelection);
 }

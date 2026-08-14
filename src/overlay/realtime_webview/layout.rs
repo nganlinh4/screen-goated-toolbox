@@ -1,6 +1,6 @@
 //! Physical-pixel geometry for cards inside the virtual-desktop compositor.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::cell::{Cell, RefCell};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{
@@ -10,7 +10,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CardRole {
     Transcription,
     Translation,
@@ -33,7 +34,7 @@ impl CardRole {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct CardRect {
     pub x: i32,
     pub y: i32,
@@ -42,7 +43,7 @@ pub struct CardRect {
     pub visible: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct CompositorLayout {
     pub transcription: CardRect,
     pub translation: CardRect,
@@ -53,31 +54,12 @@ thread_local! {
     static INTERACTION_ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
 
-pub fn configure(
-    main_position: (i32, i32),
-    main_size: (i32, i32),
-    translation_size: (i32, i32),
-    has_translation: bool,
-) {
-    let trans_x = main_position.0 + main_size.0 + super::state::GAP;
-    LAYOUT.with(|slot| {
-        *slot.borrow_mut() = CompositorLayout {
-            transcription: CardRect {
-                x: main_position.0,
-                y: main_position.1,
-                width: main_size.0,
-                height: main_size.1,
-                visible: true,
-            },
-            translation: CardRect {
-                x: trans_x,
-                y: main_position.1,
-                width: translation_size.0,
-                height: translation_size.1,
-                visible: has_translation,
-            },
-        };
-    });
+pub fn replace(layout: CompositorLayout) {
+    LAYOUT.with(|slot| *slot.borrow_mut() = layout);
+}
+
+pub fn snapshot() -> CompositorLayout {
+    LAYOUT.with(|slot| *slot.borrow())
 }
 
 pub fn snapshot_for_renderer() -> CompositorLayout {
@@ -123,14 +105,6 @@ pub fn resize_card(role: CardRole, dx: i32, dy: i32) {
 
 pub fn set_visible(role: CardRole, visible: bool) {
     LAYOUT.with(|slot| card_mut(&mut slot.borrow_mut(), role).visible = visible);
-}
-
-pub fn card_size(role: CardRole) -> (i32, i32) {
-    LAYOUT.with(|slot| {
-        let layout = slot.borrow();
-        let card = card(&layout, role);
-        (card.width, card.height)
-    })
 }
 
 pub fn set_interaction_active(hwnd: HWND, active: bool) {
@@ -185,13 +159,6 @@ fn rebuild_native_region(hwnd: HWND) {
     }
 }
 
-fn card(layout: &CompositorLayout, role: CardRole) -> &CardRect {
-    match role {
-        CardRole::Transcription => &layout.transcription,
-        CardRole::Translation => &layout.translation,
-    }
-}
-
 fn card_mut(layout: &mut CompositorLayout, role: CardRole) -> &mut CardRect {
     match role {
         CardRole::Transcription => &mut layout.transcription,
@@ -202,17 +169,39 @@ fn card_mut(layout: &mut CompositorLayout, role: CardRole) -> &mut CardRect {
 #[cfg(test)]
 mod tests {
     use super::{
-        CardRole, card_size, configure, interaction_active, move_card, resize_card,
-        should_refresh_sparse_region,
+        CardRect, CardRole, CompositorLayout, interaction_active, move_card, replace, resize_card,
+        should_refresh_sparse_region, snapshot,
     };
 
     #[test]
     fn cards_move_and_resize_independently() {
-        configure((100, 200), (400, 300), (500, 250), true);
+        replace(CompositorLayout {
+            transcription: CardRect {
+                x: 100,
+                y: 200,
+                width: 400,
+                height: 300,
+                visible: true,
+            },
+            translation: CardRect {
+                x: 520,
+                y: 200,
+                width: 500,
+                height: 250,
+                visible: true,
+            },
+        });
         move_card(CardRole::Translation, 10, 20);
         resize_card(CardRole::Transcription, -1000, -1000);
-        assert_eq!(card_size(CardRole::Transcription), (200, 100));
-        assert_eq!(card_size(CardRole::Translation), (500, 250));
+        let layout = snapshot();
+        assert_eq!(
+            (layout.transcription.width, layout.transcription.height),
+            (200, 100)
+        );
+        assert_eq!(
+            (layout.translation.width, layout.translation.height),
+            (500, 250)
+        );
     }
 
     #[test]

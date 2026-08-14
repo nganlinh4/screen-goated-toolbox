@@ -8,6 +8,7 @@ const CREATION_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--creation-webview2-debug-port"
 const SCREEN_TRANSLATE_UI_TEST_FLAG: &str = "--screen-translate-ui-test";
 const RESULT_COMPOSITOR_SMOKE_FLAG: &str = "--result-compositor-smoke";
 const STATUS_COMPOSITOR_SMOKE_FLAG: &str = "--status-compositor-smoke";
+const REALTIME_COMPOSITOR_SMOKE_FLAG: &str = "--realtime-compositor-smoke";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CreationUiTestApp {
@@ -111,10 +112,6 @@ impl StartupArgs {
         Some(app)
     }
 
-    pub(crate) fn result_compositor_smoke(&self) -> bool {
-        self.has(RESULT_COMPOSITOR_SMOKE_FLAG)
-    }
-
     pub(crate) fn screen_translate_ui_test(&self) -> bool {
         self.has(SCREEN_TRANSLATE_UI_TEST_FLAG)
     }
@@ -126,8 +123,16 @@ impl StartupArgs {
             .filter(|path| path.is_file())
     }
 
+    pub(crate) fn result_compositor_smoke(&self) -> bool {
+        self.has(RESULT_COMPOSITOR_SMOKE_FLAG)
+    }
+
     pub(crate) fn status_compositor_smoke(&self) -> bool {
         self.has(STATUS_COMPOSITOR_SMOKE_FLAG)
+    }
+
+    pub(crate) fn realtime_compositor_smoke(&self) -> bool {
+        self.has(REALTIME_COMPOSITOR_SMOKE_FLAG)
     }
 }
 
@@ -243,8 +248,10 @@ mod tests {
     fn compositor_smoke_flags_are_isolated_ui_tests() {
         let result = args(&["sgt.exe", RESULT_COMPOSITOR_SMOKE_FLAG]);
         let status = args(&["sgt.exe", STATUS_COMPOSITOR_SMOKE_FLAG]);
+        let realtime = args(&["sgt.exe", REALTIME_COMPOSITOR_SMOKE_FLAG]);
         assert!(result.result_compositor_smoke());
         assert!(status.status_compositor_smoke());
+        assert!(realtime.realtime_compositor_smoke());
     }
 
     #[test]
