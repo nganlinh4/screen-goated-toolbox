@@ -11,13 +11,13 @@ mod debug {
     use serde::Serialize;
 
     use super::super::contract::{DetectedTextRegion, TranslationDocument};
+    use super::super::evidence_capture::capture_stable_selection;
     use super::super::geometry::{PixelRegion, normalized_region};
     use crate::overlay::selection::CapturedRegion;
 
     const MAX_RUNS: usize = 24;
     const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
     const RESULT_PAINT_TIMEOUT: Duration = Duration::from_secs(3);
-    const COMPOSITOR_SETTLE_DELAY: Duration = Duration::from_millis(20);
     static FINALIZE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     pub(crate) struct RunEvidence {
@@ -314,40 +314,25 @@ mod debug {
         if painted_count >= rendered_count {
             crate::overlay::result::latency::mark(&state.trace_id, "evidence_all_regions_painted");
         }
-        unsafe {
-            let _ = windows::Win32::Graphics::Dwm::DwmFlush();
-        }
-        std::thread::sleep(COMPOSITOR_SETTLE_DELAY);
-        unsafe {
-            let _ = windows::Win32::Graphics::Dwm::DwmFlush();
-        }
-        crate::overlay::result::latency::mark(&state.trace_id, "evidence_compositor_flushed");
-        let screen = crate::screen_capture::capture_screen_fast()?;
-        let right = state
-            .selection
-            .left
-            .saturating_add(i32::try_from(state.selection.width).unwrap_or(i32::MAX));
-        let bottom = state
-            .selection
-            .top
-            .saturating_add(i32::try_from(state.selection.height).unwrap_or(i32::MAX));
-        let image = crate::overlay::selection::extract_crop_from_hbitmap_public(
-            &screen,
-            windows::Win32::Foundation::RECT {
-                left: state.selection.left,
-                top: state.selection.top,
-                right,
-                bottom,
-            },
-        );
+        let (image, visually_stable) = capture_stable_selection((
+            state.selection.left,
+            state.selection.top,
+            state.selection.width,
+            state.selection.height,
+        ))?;
+        crate::overlay::result::latency::mark(&state.trace_id, "evidence_visual_capture_ready");
         save_jpeg(&state.directory.join("result.jpg"), &image)?;
-        if painted_count >= rendered_count {
-            Ok("saved_after_all_regions_painted".to_string())
+        let paint_status = if painted_count >= rendered_count {
+            "all_regions_painted".to_string()
         } else {
-            Ok(format!(
-                "saved_after_paint_timeout_{painted_count}_of_{rendered_count}"
-            ))
-        }
+            format!("paint_timeout_{painted_count}_of_{rendered_count}")
+        };
+        let visual_status = if visually_stable {
+            "visually_stable"
+        } else {
+            "visual_stability_timeout"
+        };
+        Ok(format!("saved_after_{paint_status}_{visual_status}"))
     }
 
     fn save_detector_preview(

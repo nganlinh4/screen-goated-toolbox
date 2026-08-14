@@ -5,6 +5,8 @@ mod capture;
 pub(crate) mod contract;
 mod detector;
 mod diagnostics;
+#[cfg(debug_assertions)]
+mod evidence_capture;
 pub(crate) mod geometry;
 mod inference;
 mod render;
