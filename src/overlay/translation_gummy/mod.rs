@@ -9,16 +9,13 @@ use std::sync::atomic::AtomicBool;
 
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::w;
 use wry::WebContext;
 
-use crate::config::{Hotkey, TranslationGummySettings, save_config};
+use crate::config::{TranslationGummySettings, save_config};
 use crate::gui::locale::LocaleText;
 use crate::win_types::SendHwnd;
 
 pub use runtime::{TranslationGummyConnectionState, TranslationGummyTranscriptItem};
-
-use crate::hotkey::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 321;
 pub(super) const WM_APP_SYNC: u32 = WM_USER + 322;
@@ -243,151 +240,6 @@ pub(super) fn status_label(
     }
 }
 
-fn reload_hotkeys() {
-    unsafe {
-        let listener = FindWindowW(w!("HotkeyListenerClass"), w!("Listener")).unwrap_or_default();
-        if !listener.is_invalid() {
-            let _ = PostMessageW(
-                Some(listener),
-                crate::hotkey::WM_RELOAD_HOTKEYS,
-                WPARAM(0),
-                LPARAM(0),
-            );
-        }
-    }
-}
-
-fn map_hotkey(
-    key: &str,
-    code: &str,
-    ctrl: bool,
-    alt: bool,
-    shift: bool,
-    meta: bool,
-) -> Option<Hotkey> {
-    let key_name = normalize_key_name(key, code)?;
-    let vk = map_virtual_key(code, key)?;
-    let modifiers = (if ctrl { MOD_CONTROL } else { 0 })
-        | (if alt { MOD_ALT } else { 0 })
-        | (if shift { MOD_SHIFT } else { 0 })
-        | (if meta { MOD_WIN } else { 0 });
-
-    Some(Hotkey {
-        code: vk,
-        name: key_name,
-        modifiers,
-    })
-}
-
-fn hotkey_label(modifiers: u32, key_name: &str) -> String {
-    let mut parts = Vec::new();
-    if modifiers & MOD_CONTROL != 0 {
-        parts.push("Ctrl");
-    }
-    if modifiers & MOD_ALT != 0 {
-        parts.push("Alt");
-    }
-    if modifiers & MOD_SHIFT != 0 {
-        parts.push("Shift");
-    }
-    if modifiers & MOD_WIN != 0 {
-        parts.push("Win");
-    }
-    parts.push(key_name);
-    parts.join("+")
-}
-
-fn normalize_key_name(key: &str, code: &str) -> Option<String> {
-    let code = code.trim();
-    if let Some(letter) = code.strip_prefix("Key") {
-        return Some(letter.to_string());
-    }
-    if let Some(digit) = code.strip_prefix("Digit") {
-        return Some(digit.to_string());
-    }
-    if let Some(function) = code.strip_prefix('F')
-        && function.parse::<u8>().is_ok()
-    {
-        return Some(code.to_string());
-    }
-
-    match code {
-        "Space" => Some("Space".to_string()),
-        "Minus" => Some("-".to_string()),
-        "Equal" => Some("=".to_string()),
-        "BracketLeft" => Some("[".to_string()),
-        "BracketRight" => Some("]".to_string()),
-        "Backslash" => Some("\\".to_string()),
-        "Semicolon" => Some(";".to_string()),
-        "Quote" => Some("'".to_string()),
-        "Comma" => Some(",".to_string()),
-        "Period" => Some(".".to_string()),
-        "Slash" => Some("/".to_string()),
-        "Backquote" => Some("`".to_string()),
-        "Escape" => Some("Esc".to_string()),
-        "Tab" => Some("Tab".to_string()),
-        "Enter" => Some("Enter".to_string()),
-        "ArrowUp" => Some("Up".to_string()),
-        "ArrowDown" => Some("Down".to_string()),
-        "ArrowLeft" => Some("Left".to_string()),
-        "ArrowRight" => Some("Right".to_string()),
-        "Insert" => Some("Insert".to_string()),
-        "Delete" => Some("Delete".to_string()),
-        "Home" => Some("Home".to_string()),
-        "End" => Some("End".to_string()),
-        "PageUp" => Some("PageUp".to_string()),
-        "PageDown" => Some("PageDown".to_string()),
-        _ => match key {
-            "Control" | "Shift" | "Alt" | "Meta" => None,
-            _ if key.len() == 1 => Some(key.to_uppercase()),
-            _ => None,
-        },
-    }
-}
-
-fn map_virtual_key(code: &str, key: &str) -> Option<u32> {
-    if let Some(letter) = code.strip_prefix("Key") {
-        return letter.as_bytes().first().copied().map(u32::from);
-    }
-    if let Some(digit) = code.strip_prefix("Digit") {
-        return digit.as_bytes().first().copied().map(u32::from);
-    }
-    if let Some(number) = code.strip_prefix('F')
-        && let Ok(index) = number.parse::<u32>()
-    {
-        return Some(111 + index);
-    }
-
-    Some(match code {
-        "Space" => 0x20,
-        "Tab" => 0x09,
-        "Enter" => 0x0D,
-        "Escape" => 0x1B,
-        "ArrowLeft" => 0x25,
-        "ArrowUp" => 0x26,
-        "ArrowRight" => 0x27,
-        "ArrowDown" => 0x28,
-        "Insert" => 0x2D,
-        "Delete" => 0x2E,
-        "Home" => 0x24,
-        "End" => 0x23,
-        "PageUp" => 0x21,
-        "PageDown" => 0x22,
-        "Minus" => 0xBD,
-        "Equal" => 0xBB,
-        "BracketLeft" => 0xDB,
-        "BracketRight" => 0xDD,
-        "Backslash" => 0xDC,
-        "Semicolon" => 0xBA,
-        "Quote" => 0xDE,
-        "Comma" => 0xBC,
-        "Period" => 0xBE,
-        "Slash" => 0xBF,
-        "Backquote" => 0xC0,
-        _ => {
-            return normalize_key_name(key, code)
-                .and_then(|name| name.as_bytes().first().copied())
-                .map(u32::from);
-        }
-    })
+pub(super) fn reload_hotkeys() {
+    crate::hotkey::reload_registrations();
 }
