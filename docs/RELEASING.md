@@ -208,10 +208,15 @@ Complete this checkpoint before `build.ps1`:
    the packs and stops if the frontend bytes differ from that manifest.
 
 ```powershell
-.\scripts\build-web-asset-packs.ps1
+.\scripts\build-web-asset-packs.ps1 `
+  -OutputDir (Join-Path $componentPackageRoot "sgt_web_assets")
 # Upload only the new ZIP files listed in the generated packages manifest.
-py -3 .\scripts\verify_web_asset_release.py
-py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_web_assets\sgt_web_assets.delivery.json .\component-delivery\windows\web-assets-v1.json
+py -3 .\scripts\verify_web_asset_release.py `
+  --packages (Join-Path $componentPackageRoot "sgt_web_assets\sgt_web_assets.packages.json") `
+  --output (Join-Path $componentPackageRoot "sgt_web_assets\sgt_web_assets.delivery.json")
+py -3 .\scripts\verify_tracked_delivery.py `
+  (Join-Path $componentPackageRoot "sgt_web_assets\sgt_web_assets.delivery.json") `
+  .\component-delivery\windows\web-assets-v1.json
 ```
 
 The verifier is read-only: it downloads the published assets and hashes their
@@ -227,11 +232,16 @@ Reproduce the reviewed packages, upload only the new content-addressed FFmpeg an
 WebView2 assets, then read every remote byte back before building the host:
 
 ```powershell
-.\scripts\build-external-tool-packs.ps1
+.\scripts\build-external-tool-packs.ps1 `
+  -OutputDir (Join-Path $componentPackageRoot "sgt_external_tools")
 # Upload only the new SGT assets listed by sgt_external_tools.packages.json.
 # yt-dlp and Deno remain on their immutable upstream version tags.
-py -3 .\scripts\verify_external_tool_release.py
-py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_external_tools\sgt_external_tools.delivery.json .\component-delivery\windows\external-tools-v1.json
+py -3 .\scripts\verify_external_tool_release.py `
+  --packages (Join-Path $componentPackageRoot "sgt_external_tools\sgt_external_tools.packages.json") `
+  --output (Join-Path $componentPackageRoot "sgt_external_tools\sgt_external_tools.delivery.json")
+py -3 .\scripts\verify_tracked_delivery.py `
+  (Join-Path $componentPackageRoot "sgt_external_tools\sgt_external_tools.delivery.json") `
+  .\component-delivery\windows\external-tools-v1.json
 ```
 
 The verifier checks exact archive and installed-file inventories. It additionally
@@ -255,8 +265,12 @@ delivery file deterministically, then verify both the local inventories and
 their immutable remote objects:
 
 ```powershell
-py -3 .\scripts\generate_windows_model_delivery.py --package-manifest .\local-runtime-bundles\sgt_windows_models\sgt_windows_model_packages.json --output .\model-delivery\windows-v1.json
-py -3 .\scripts\verify_windows_model_release.py --package-manifest .\local-runtime-bundles\sgt_windows_models\sgt_windows_model_packages.json --delivery-manifest .\model-delivery\windows-v1.json --remote
+py -3 .\scripts\generate_windows_model_delivery.py `
+  --package-manifest (Join-Path $componentPackageRoot "sgt_windows_models\sgt_windows_model_packages.json") `
+  --output .\model-delivery\windows-v1.json
+py -3 .\scripts\verify_windows_model_release.py `
+  --package-manifest (Join-Path $componentPackageRoot "sgt_windows_models\sgt_windows_model_packages.json") `
+  --delivery-manifest .\model-delivery\windows-v1.json --remote
 ```
 
 The canonical build repeats deterministic generation comparison and hashes
@@ -271,10 +285,15 @@ Prepare and verify it with the same append-only release rule before a Windows
 release build:
 
 ```powershell
-.\scripts\build-vc-runtime-pack.ps1
+.\scripts\build-vc-runtime-pack.ps1 `
+  -OutputDir (Join-Path $componentPackageRoot "sgt_vc_runtime")
 # Upload only the new ZIP named by sgt_vc_runtime.packages.json.
-py -3 .\scripts\verify_vc_runtime_release.py
-py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_vc_runtime\sgt_vc_runtime.delivery.json .\component-delivery\windows\vc-runtime-v1.json
+py -3 .\scripts\verify_vc_runtime_release.py `
+  --packages (Join-Path $componentPackageRoot "sgt_vc_runtime\sgt_vc_runtime.packages.json") `
+  --output (Join-Path $componentPackageRoot "sgt_vc_runtime\sgt_vc_runtime.delivery.json")
+py -3 .\scripts\verify_tracked_delivery.py `
+  (Join-Path $componentPackageRoot "sgt_vc_runtime\sgt_vc_runtime.delivery.json") `
+  .\component-delivery\windows\vc-runtime-v1.json
 ```
 
 The pack contains an exact per-file size/SHA-256 contract as well as the
@@ -291,10 +310,15 @@ packs, each below GitHub's per-asset limit. The selected runtime inventory and
 all required notices are exact files in the delivery manifest.
 
 ```powershell
-.\scripts\build-qwen3-runtime-pack.ps1
+.\scripts\build-qwen3-runtime-pack.ps1 `
+  -OutputDir (Join-Path $componentPackageRoot "sgt_qwen3_runtime")
 # Upload only the three new ZIPs listed in sgt_qwen3_runtime.packages.json.
-py -3 .\scripts\verify_qwen3_runtime_release.py
-py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json .\component-delivery\windows\qwen-runtime-v1.json
+py -3 .\scripts\verify_qwen3_runtime_release.py `
+  --packages (Join-Path $componentPackageRoot "sgt_qwen3_runtime\sgt_qwen3_runtime.packages.json") `
+  --output (Join-Path $componentPackageRoot "sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json")
+py -3 .\scripts\verify_tracked_delivery.py `
+  (Join-Path $componentPackageRoot "sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json") `
+  .\component-delivery\windows\qwen-runtime-v1.json
 ```
 
 The verifier hashes the uploaded bytes before emitting host delivery data.
@@ -308,10 +332,16 @@ upload only their new content-addressed ZIPs and read them back before building
 the host:
 
 ```powershell
-.\scripts\build-local-asr-packs.ps1
+.\scripts\build-local-asr-packs.ps1 `
+  -OutputDir (Join-Path $componentPackageRoot "sgt_local_asr") `
+  -CargoTargetDir $packageCargoTarget
 # Upload only the two new ZIPs listed in sgt_local_asr.packages.json.
-py -3 .\scripts\verify_local_asr_release.py
-py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_local_asr\sgt_local_asr.delivery.json .\component-delivery\windows\local-asr-v1.json
+py -3 .\scripts\verify_local_asr_release.py `
+  --packages (Join-Path $componentPackageRoot "sgt_local_asr\sgt_local_asr.packages.json") `
+  --output (Join-Path $componentPackageRoot "sgt_local_asr\sgt_local_asr.delivery.json")
+py -3 .\scripts\verify_tracked_delivery.py `
+  (Join-Path $componentPackageRoot "sgt_local_asr\sgt_local_asr.delivery.json") `
+  .\component-delivery\windows\local-asr-v1.json
 ```
 
 `build.ps1` never builds or embeds these native packages. It requires the
@@ -325,10 +355,16 @@ standalone native worker and its frontend. Reproduce the content-addressed
 packages, upload only those new immutable ZIPs, then verify the remote bytes:
 
 ```powershell
-.\scripts\build-recorder-component-packs.ps1
+.\scripts\build-recorder-component-packs.ps1 `
+  -OutputDir (Join-Path $componentPackageRoot "sgt_recorder") `
+  -CargoTargetDir $packageCargoTarget
 # Upload only the two new ZIPs listed in sgt_recorder.packages.json.
-py -3 .\scripts\verify_recorder_release.py
-py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_recorder\sgt_recorder.delivery.json .\component-delivery\windows\recorder-v1.json
+py -3 .\scripts\verify_recorder_release.py `
+  --packages (Join-Path $componentPackageRoot "sgt_recorder\sgt_recorder.packages.json") `
+  --output (Join-Path $componentPackageRoot "sgt_recorder\sgt_recorder.delivery.json")
+py -3 .\scripts\verify_tracked_delivery.py `
+  (Join-Path $componentPackageRoot "sgt_recorder\sgt_recorder.delivery.json") `
+  .\component-delivery\windows\recorder-v1.json
 ```
 
 The worker package includes its exact third-party license inventory. The host
@@ -345,10 +381,16 @@ component. Reproduce it, upload only its new content-addressed ZIP, then verify
 the published bytes:
 
 ```powershell
-.\scripts\build-computer-control-engine-pack.ps1
+.\scripts\build-computer-control-engine-pack.ps1 `
+  -OutputDir (Join-Path $componentPackageRoot "sgt_computer_control") `
+  -CargoTargetDir $packageCargoTarget
 # Upload only the new ZIP named by sgt_computer_control.packages.json.
-py -3 .\scripts\verify_computer_control_release.py
-py -3 .\scripts\verify_tracked_delivery.py .\local-runtime-bundles\sgt_computer_control\sgt_computer_control.delivery.json .\component-delivery\windows\computer-control-v1.json
+py -3 .\scripts\verify_computer_control_release.py `
+  --packages (Join-Path $componentPackageRoot "sgt_computer_control\sgt_computer_control.packages.json") `
+  --output (Join-Path $componentPackageRoot "sgt_computer_control\sgt_computer_control.delivery.json")
+py -3 .\scripts\verify_tracked_delivery.py `
+  (Join-Path $componentPackageRoot "sgt_computer_control\sgt_computer_control.delivery.json") `
+  .\component-delivery\windows\computer-control-v1.json
 ```
 
 The component contains the x64 engine plus its complete resolved third-party

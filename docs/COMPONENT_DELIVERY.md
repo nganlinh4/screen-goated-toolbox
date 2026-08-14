@@ -18,6 +18,34 @@ Mutable branches, nightly aliases, floating model revisions, and guessed URLs
 are not executable delivery contracts. HTTPS provides transport; the signed
 host's exact size and SHA-256 record provides artifact identity.
 
+## Development, staging, and production channels
+
+Component work has three storage layers with different trust and retention
+rules:
+
+1. The managed local cache under `%LOCALAPPDATA%/SGT-Development/cache` holds
+   two Cargo lanes, package jobs, staging contracts, and test evidence. It is
+   bounded and disposable; it is never an application delivery source.
+2. The mutable `sgt-runtime-staging` prerelease holds only current development
+   candidates. A candidate keeps a content-addressed filename, is read back and
+   hashed after upload, and may replace the previous candidate for the same
+   contract. Only an explicitly opted-in debug build may use this tag.
+3. The immutable `sgt-runtime-bundles` release holds promoted production bytes.
+   Promotion copies the exact verified staging bytes, reads them back, writes a
+   production URL into the reviewed contract, and never overwrites or deletes a
+   published asset.
+
+Do not create a release asset for every edit. Rebuild locally as often as
+needed, replace the staging candidate when device or first-use testing needs a
+remote object, and promote once when the component is ready for an app release.
+A published host references production only, so users on an existing app
+version do not redownload while development candidates change.
+
+The staging index and contracts contain no local paths. A debug staging build
+uses an isolated component registry and disables production catalog discovery;
+unchanged contracts fall back to their tracked production records. A release
+build fails immediately if staging selection is present.
+
 ## Source-change rule
 
 Any code or frontend change that changes an optional component's packaged bytes
@@ -32,6 +60,12 @@ an existing asset under the same name and never delete an asset while any signed
 host may reference it. Development may prepare packages locally, but debug and
 release application code must exercise the same external verified contract; it
 must not discover or fall back to a developer build directory.
+
+Use `scripts/build-component-candidate.ps1` for standard Windows components and
+`scripts/component_release.py` for staging, verification, and promotion. Local
+package output belongs in the managed cache, not `local-runtime-bundles/` or a
+new repository target directory. Package scripts accept an explicit output
+directory; worker builds share the package Cargo lane.
 
 ## Package boundaries
 
