@@ -3,6 +3,11 @@ param(
     [switch]$SkipFrontendBuild,
     [switch]$SkipNpmInstall,
     [switch]$SkipCreationRuntimeBuild,
+    [switch]$UseStagingDelivery,
+    [string]$DevCacheRoot,
+    [ValidateRange(5, 200)]
+    [int]$DevCacheLimitGiB = 28,
+    [switch]$SkipCacheMaintenance,
     [string]$CargoCommand = "run",
     [string[]]$CargoArgs = @(),
     [int]$Tail = 120
@@ -11,7 +16,41 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = $PSScriptRoot
-$logDir = Join-Path $repoRoot "target\dev-run-logs"
+$cacheScript = Join-Path $repoRoot "scripts\dev-cache.ps1"
+$cacheArguments = @{ Action = "Path"; Lane = "dev" }
+if (-not [string]::IsNullOrWhiteSpace($DevCacheRoot)) {
+    $cacheArguments.CacheRoot = $DevCacheRoot
+}
+$devCargoTarget = (& $cacheScript @cacheArguments | Select-Object -Last 1)
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($devCargoTarget)) {
+    throw "Could not resolve the managed SGT development cache"
+}
+$cacheRootResolved = Split-Path -Parent (Split-Path -Parent $devCargoTarget)
+if (-not $SkipCacheMaintenance) {
+    & $cacheScript -Action Prune -CacheRoot $cacheRootResolved `
+        -MaxGiB $DevCacheLimitGiB -ProtectLane dev -Apply
+    if ($LASTEXITCODE -ne 0) {
+        throw "SGT development cache maintenance failed"
+    }
+}
+$env:SGT_DEV_CACHE_ROOT = $cacheRootResolved
+$env:CARGO_TARGET_DIR = $devCargoTarget
+$logDir = Join-Path $cacheRootResolved "evidence\dev-run-logs"
+
+if ($UseStagingDelivery) {
+    $stagingRoot = Join-Path $cacheRootResolved "staging\contracts"
+    if (-not (Test-Path -LiteralPath $stagingRoot -PathType Container)) {
+        throw "No staged delivery contracts exist at $stagingRoot. Stage a component first."
+    }
+    $env:SGT_COMPONENT_DELIVERY_CHANNEL = "staging"
+    $env:SGT_STAGING_DELIVERY_ROOT = $stagingRoot
+    $env:SGT_RUNTIME_STATE_ROOT = Join-Path $cacheRootResolved "runtime\staging"
+}
+else {
+    Remove-Item Env:SGT_COMPONENT_DELIVERY_CHANNEL -ErrorAction SilentlyContinue
+    Remove-Item Env:SGT_STAGING_DELIVERY_ROOT -ErrorAction SilentlyContinue
+}
+
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $cargoLog = Join-Path $logDir "cargo-$CargoCommand-$stamp.log"
 
@@ -151,6 +190,10 @@ try {
     $cargoInvocation = @($CargoCommand) + $CargoArgs
 
     Write-Section "Running cargo $($cargoInvocation -join ' ')"
+    Write-Host "Managed Cargo target: $devCargoTarget" -ForegroundColor DarkGray
+    if ($UseStagingDelivery) {
+        Write-Host "Component delivery: isolated staging channel" -ForegroundColor Magenta
+    }
     Write-Host "Cargo output log: $cargoLog" -ForegroundColor Yellow
     Write-Host ""
 
