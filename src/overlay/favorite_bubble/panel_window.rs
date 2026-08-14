@@ -116,7 +116,7 @@ pub(super) fn create_panel_webview(panel_hwnd: HWND) {
 
     let result = {
         // LOCK SCOPE: Serialized build to prevent resource contention
-        let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+        let init = crate::overlay::webview_init::acquire("favorite-bubble-panel");
         crate::log_info!(
             "[BubblePanel] Acquired init lock. Building for HWND: {:?}...",
             panel_hwnd
@@ -156,10 +156,16 @@ pub(super) fn create_panel_webview(panel_hwnd: HWND) {
             "[BubblePanel] Build finished. Status: {}",
             if build_res.is_ok() { "OK" } else { "ERR" }
         );
+        init.finish(build_res.is_ok());
         build_res
     };
 
     if let Ok(webview) = result {
+        crate::overlay::webview_diagnostics::attach_webview2_close_on_failure(
+            "favorite-bubble-panel",
+            panel_hwnd,
+            &webview,
+        );
         crate::log_info!("[BubblePanel] WebView success for HWND: {:?}", panel_hwnd);
         PANEL_WEBVIEW.with(|wv| {
             *wv.borrow_mut() = Some(webview);

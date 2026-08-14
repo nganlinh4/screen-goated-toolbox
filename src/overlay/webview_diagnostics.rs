@@ -1,20 +1,42 @@
 use webview2_com::{
     CoTaskMemPWSTR,
     Microsoft::Web::WebView2::Win32::{
-        COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_REASON,
-        ICoreWebView2ProcessFailedEventArgs, ICoreWebView2ProcessFailedEventArgs2,
-        ICoreWebView2ProcessFailedEventArgs3,
+        COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE,
+        COREWEBVIEW2_PROCESS_FAILED_REASON, ICoreWebView2ProcessFailedEventArgs,
+        ICoreWebView2ProcessFailedEventArgs2, ICoreWebView2ProcessFailedEventArgs3,
     },
     ProcessFailedEventHandler,
 };
 use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{LPARAM, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
 use windows061::core::{Interface, PWSTR};
 use wry::{WebView, WebViewExtWindows};
 
 pub fn attach_webview2_diagnostics(label: &'static str, hwnd: HWND, webview: &WebView) {
+    attach(label, hwnd, webview, false);
+}
+
+pub fn attach_webview2_close_on_failure(label: &'static str, hwnd: HWND, webview: &WebView) {
+    attach(label, hwnd, webview, true);
+}
+
+fn attach(label: &'static str, hwnd: HWND, webview: &WebView, close_on_failure: bool) {
     let core = webview.webview();
     let handler = ProcessFailedEventHandler::create(Box::new(move |_sender, args| {
+        let actionable = args
+            .as_ref()
+            .map(process_failed_kind)
+            .is_some_and(is_actionable_host_failure);
         log_process_failed(label, hwnd, args);
+        if close_on_failure && actionable {
+            unsafe {
+                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
         Ok(())
     }));
 
@@ -32,6 +54,16 @@ pub fn attach_webview2_diagnostics(label: &'static str, hwnd: HWND, webview: &We
             }
         }
     }
+}
+
+fn is_actionable_host_failure(kind: COREWEBVIEW2_PROCESS_FAILED_KIND) -> bool {
+    matches!(
+        kind,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED
+            | COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
+            | COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE
+            | COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED
+    )
 }
 
 unsafe fn read_pwstr<F>(read: F) -> Option<String>

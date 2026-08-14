@@ -124,7 +124,7 @@ pub(crate) fn internal_create_window_loop() {
         });
 
         let webview_res = {
-            let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+            let init = crate::overlay::webview_init::acquire("preset-wheel");
             let build_res = WHEEL_WEB_CONTEXT.with(|ctx| {
                 let mut ctx_ref = ctx.borrow_mut();
                 let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
@@ -187,10 +187,16 @@ pub(crate) fn internal_create_window_loop() {
             if let Err(error) = &build_res {
                 crate::log_info!("[PresetWheel] WebView initialization failed: {error:?}");
             }
+            init.finish(build_res.is_ok());
             build_res
         };
 
         if let Ok(wv) = webview_res {
+            crate::overlay::webview_diagnostics::attach_webview2_close_on_failure(
+                "preset-wheel",
+                hwnd,
+                &wv,
+            );
             WHEEL_WEBVIEW.with(|cell| {
                 *cell.borrow_mut() = Some(wv);
             });

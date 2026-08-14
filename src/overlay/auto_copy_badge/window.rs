@@ -91,7 +91,7 @@ fn internal_create_window_loop() {
 
         let webview = {
             // LOCK SCOPE: Only one WebView builds at a time to prevent "Not enough quota"
-            let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+            let init = crate::overlay::webview_init::acquire("recorder-copy-badge");
             let build_res = BADGE_WEB_CONTEXT.with(|ctx| {
                 let mut ctx_ref = ctx.borrow_mut();
                 let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
@@ -137,11 +137,12 @@ fn internal_create_window_loop() {
             if let Err(error) = &build_res {
                 crate::log_info!("[Badge] WebView initialization failed: {error:?}");
             }
+            init.finish(build_res.is_ok());
             build_res
         };
 
         if let Ok(wv) = webview {
-            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+            crate::overlay::webview_diagnostics::attach_webview2_close_on_failure(
                 "auto-copy-badge",
                 hwnd,
                 &wv,

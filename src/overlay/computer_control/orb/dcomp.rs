@@ -20,13 +20,17 @@ use webview2_com::{
     CreateCoreWebView2EnvironmentCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS, COREWEBVIEW2_COLOR,
+        COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE,
         CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2,
         ICoreWebView2CompositionController, ICoreWebView2Controller, ICoreWebView2Controller2,
         ICoreWebView2Controller3, ICoreWebView2Environment3,
     },
-    WebMessageReceivedEventHandler,
+    ProcessFailedEventHandler, WebMessageReceivedEventHandler,
 };
-use windows061::Win32::Foundation::{HWND, RECT};
+use windows061::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows061::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows061::Win32::Graphics::Direct3D11::{
     D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
@@ -35,6 +39,7 @@ use windows061::Win32::Graphics::DirectComposition::{
     DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
 };
 use windows061::Win32::Graphics::Dxgi::IDXGIDevice;
+use windows061::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
 use windows061::core::{Interface, PCWSTR};
 
 /// Bootstrap injected before the page loads: provide the `window.ipc` shim wry would
@@ -84,6 +89,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
         // WebView2 requires every environment sharing a user-data folder to be created with identical
         // options; this raw environment passes different options than wry's, so sharing "common" fails
         // with ERROR_INVALID_STATE (0x8007139F). A private folder sidesteps the constraint entirely.
+        let init = crate::overlay::webview_init::acquire("computer-control-orb");
         let user_data = crate::overlay::get_shared_webview_data_dir(Some("cc-orb"));
         let user_data = windows061::core::HSTRING::from(user_data.to_string_lossy().as_ref());
         let environment = {
@@ -126,6 +132,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
             .map_err(to_win_err)?;
             rx.recv().ok().flatten().ok_or_else(err_pointer)?
         };
+        init.finish(true);
 
         // Attach the browser's visual tree to our DComp visual.
         comp.SetRootVisualTarget(&root)?;
@@ -159,6 +166,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
         let webview: ICoreWebView2 = controller.CoreWebView2()?;
         inject_bootstrap(&webview)?;
         attach_ipc(&webview, hwnd)?;
+        attach_process_failure(&webview, hwnd)?;
 
         // Serve the orb page from the local font server (same origin as the font CSS).
         let html = super::html::generate_orb_html();
@@ -176,6 +184,34 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
             comp,
             webview,
         })
+    }
+}
+
+unsafe fn attach_process_failure(
+    webview: &ICoreWebView2,
+    hwnd: HWND,
+) -> windows061::core::Result<()> {
+    unsafe {
+        let handler = ProcessFailedEventHandler::create(Box::new(move |_webview, args| {
+            let Some(args) = args else {
+                return Ok(());
+            };
+            let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+            args.ProcessFailedKind(&mut kind)?;
+            eprintln!("orb WebView2 process failed kind={kind:?}");
+            if matches!(
+                kind,
+                COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED
+                    | COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
+                    | COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE
+                    | COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED
+            ) {
+                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+            Ok(())
+        }));
+        let mut token = Default::default();
+        webview.add_ProcessFailed(&handler, &mut token)
     }
 }
 

@@ -127,13 +127,13 @@ pub(super) fn create_popup_window() {
         for attempt in 1..=3 {
             let res = {
                 // LOCK SCOPE: Only one WebView builds at a time to prevent "Not enough quota"
-                let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+                let init = crate::overlay::webview_init::acquire("tray-popup");
                 crate::log_info!(
                     "[TrayPopup] (Attempt {}) Acquired init lock. Building...",
                     attempt
                 );
 
-                POPUP_WEB_CONTEXT.with(|ctx| {
+                let result = POPUP_WEB_CONTEXT.with(|ctx| {
                     let mut ctx_ref = ctx.borrow_mut();
                     let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
                         WebViewBuilder::new_with_web_context(web_ctx)
@@ -166,7 +166,9 @@ pub(super) fn create_popup_window() {
                             handle_ipc_message(msg.body());
                         })
                         .build(&wrapper)
-                })
+                });
+                init.finish(result.is_ok());
+                result
             };
 
             crate::log_info!(
@@ -177,6 +179,11 @@ pub(super) fn create_popup_window() {
 
             match res {
                 Ok(wv) => {
+                    crate::overlay::webview_diagnostics::attach_webview2_close_on_failure(
+                        "tray-popup",
+                        hwnd,
+                        &wv,
+                    );
                     final_webview = Some(wv);
                     break;
                 }

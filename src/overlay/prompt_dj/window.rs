@@ -225,7 +225,7 @@ pub(super) unsafe fn internal_create_pdj_loop() {
 
         let webview_result = {
             // LOCK SCOPE: Serialized build to prevent resource contention
-            let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+            let init = crate::overlay::webview_init::acquire("prompt-dj");
             crate::log_info!("[PromptDJ] Acquired init lock. Building...");
 
             let build_res = PDJ_WEB_CONTEXT.with(|ctx| {
@@ -256,6 +256,7 @@ pub(super) unsafe fn internal_create_pdj_loop() {
                 "[PromptDJ] Build finished. Status: {}",
                 if build_res.is_ok() { "OK" } else { "ERR" }
             );
+            init.finish(build_res.is_ok());
             build_res
         };
 
@@ -269,6 +270,11 @@ pub(super) unsafe fn internal_create_pdj_loop() {
                 return;
             }
         };
+        crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+            "prompt-dj",
+            hwnd,
+            &webview,
+        );
         // Initial Resize
         let mut r = RECT::default();
         let _ = GetClientRect(hwnd, &mut r);
