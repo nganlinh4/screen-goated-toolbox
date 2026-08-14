@@ -45,12 +45,17 @@ pub(crate) fn run() -> i32 {
         std::thread::sleep(Duration::from_millis(16));
     }
 
+    let restarted = super::parent::restart_and_wait(Duration::from_secs(10));
+
     super::recording_hide();
     super::selection_hide();
     super::progress_remove();
-    crate::debug_log::log_debug("[StatusSmoke] status=passed");
+    crate::debug_log::log_debug(&format!(
+        "[StatusSmoke] status={} restart_restored={restarted}",
+        if restarted { "passed" } else { "failed" }
+    ));
     std::thread::sleep(Duration::from_millis(200));
-    0
+    if restarted { 0 } else { 1 }
 }
 
 fn centered_rect(

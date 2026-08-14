@@ -119,7 +119,30 @@ pub enum ChildEvent {
     NotificationFinished { through_id: u64 },
     SelectionCaptureApplied { request_id: u64 },
     ResyncRequested,
+    RendererFailure { kind: RendererFailureKind },
     RendererError { source: String, error: String },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RendererFailureKind {
+    BrowserProcessExited,
+    RenderProcessExited,
+    RenderProcessUnresponsive,
+    FrameRenderProcessExited,
+    GpuProcessExited,
+}
+
+impl RendererFailureKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::BrowserProcessExited => "browser process exited",
+            Self::RenderProcessExited => "render process exited",
+            Self::RenderProcessUnresponsive => "render process unresponsive",
+            Self::FrameRenderProcessExited => "frame render process exited",
+            Self::GpuProcessExited => "GPU process exited",
+        }
+    }
 }
 
 #[cfg(test)]

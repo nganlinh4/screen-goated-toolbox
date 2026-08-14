@@ -465,7 +465,7 @@ fn request_script_resync() {
     }
 }
 
-fn emit_event(event: ChildEvent) {
+pub(super) fn emit_event(event: ChildEvent) {
     let mut stdout = STDOUT.lock().unwrap();
     if serde_json::to_writer(&mut *stdout, &event).is_ok() {
         let _ = stdout.write_all(b"\n");

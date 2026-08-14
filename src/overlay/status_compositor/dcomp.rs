@@ -4,11 +4,16 @@ use webview2_com::{
     CreateCoreWebView2EnvironmentCompletedHandler, ExecuteScriptCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS, COREWEBVIEW2_COLOR,
+        COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_GPU_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE,
         CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2,
         ICoreWebView2CompositionController, ICoreWebView2Controller, ICoreWebView2Controller2,
         ICoreWebView2Controller3, ICoreWebView2Environment3,
     },
-    NavigationCompletedEventHandler, WebMessageReceivedEventHandler,
+    NavigationCompletedEventHandler, ProcessFailedEventHandler, WebMessageReceivedEventHandler,
 };
 use windows061::Win32::Foundation::{HWND, RECT};
 use windows061::Win32::Graphics::Direct3D::{
@@ -133,6 +138,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
         let webview = controller.CoreWebView2()?;
         inject_bootstrap(&webview)?;
         attach_ipc(&webview)?;
+        attach_process_failure(&webview)?;
         attach_navigation_probe(&webview)?;
         let html = super::html::document();
         let page_url = crate::overlay::html_components::font_manager::store_html_page(html)
@@ -148,6 +154,42 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
             comp: composition,
             webview,
         })
+    }
+}
+
+unsafe fn attach_process_failure(webview: &ICoreWebView2) -> windows061::core::Result<()> {
+    unsafe {
+        let handler = ProcessFailedEventHandler::create(Box::new(move |_webview, args| {
+            let Some(args) = args else {
+                return Ok(());
+            };
+            let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+            args.ProcessFailedKind(&mut kind)?;
+            let kind = match kind {
+                COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED => {
+                    Some(super::protocol::RendererFailureKind::BrowserProcessExited)
+                }
+                COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED => {
+                    Some(super::protocol::RendererFailureKind::RenderProcessExited)
+                }
+                COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE => {
+                    Some(super::protocol::RendererFailureKind::RenderProcessUnresponsive)
+                }
+                COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED => {
+                    Some(super::protocol::RendererFailureKind::FrameRenderProcessExited)
+                }
+                COREWEBVIEW2_PROCESS_FAILED_KIND_GPU_PROCESS_EXITED => {
+                    Some(super::protocol::RendererFailureKind::GpuProcessExited)
+                }
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                super::child::emit_event(super::protocol::ChildEvent::RendererFailure { kind });
+            }
+            Ok(())
+        }));
+        let mut token = Default::default();
+        webview.add_ProcessFailed(&handler, &mut token)
     }
 }
 
