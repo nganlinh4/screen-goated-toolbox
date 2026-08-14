@@ -224,7 +224,7 @@ pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<()
 
     let result = {
         // LOCK SCOPE: Only one WebView builds at a time to prevent "Not enough quota"
-        let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+        let init = crate::overlay::webview_init::acquire("text-input");
         crate::log_info!("[TextInput] Acquired init lock. Building...");
 
         let build_res = TEXT_INPUT_WEB_CONTEXT.with(|ctx| {
@@ -267,10 +267,16 @@ pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<()
             "[TextInput] Build phase finished. Releasing lock. Status: {}",
             if build_res.is_ok() { "OK" } else { "ERR" }
         );
+        init.finish(build_res.is_ok());
         build_res
     };
 
     if let Ok(webview) = result {
+        crate::overlay::webview_diagnostics::attach_webview2_close_on_failure(
+            "text-input",
+            hwnd,
+            &webview,
+        );
         println!("[TextInput] WebView initialization SUCCESSFUL");
         TEXT_INPUT_WEBVIEW.with(|wv| {
             *wv.borrow_mut() = Some(webview);

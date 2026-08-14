@@ -74,9 +74,7 @@ pub fn internal_create_tag_thread() {
         IS_WARMED_UP.store(true, Ordering::SeqCst);
         IS_WARMING_UP.store(false, Ordering::SeqCst);
 
-        if PENDING_SHOW_ON_WARMUP.swap(false, Ordering::SeqCst) {
-            let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
-        }
+        super::dispatch_pending_text_selection_show(hwnd);
 
         if IMAGE_CONTINUOUS_PENDING_SHOW.swap(false, Ordering::SeqCst) {
             let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_IMAGE_BADGE, WPARAM(0), LPARAM(0));
@@ -198,8 +196,15 @@ pub fn internal_create_tag_thread() {
                     }
 
                     if HOLD_DETECTED_THIS_SESSION.load(Ordering::SeqCst) {
-                        let p_idx = SELECTION_STATE.lock().unwrap().preset_idx;
-                        if p_idx != usize::MAX {
+                        let selection = {
+                            let state = SELECTION_STATE.lock().unwrap();
+                            state
+                                .preset_idx
+                                .map(|preset_idx| (preset_idx, state.generation))
+                        };
+                        if let Some((p_idx, generation)) = selection
+                            && SELECTION_LIFECYCLE.is_current(generation)
+                        {
                             let mut hotkey_name =
                                 crate::overlay::continuous_mode::get_hotkey_name();
                             if hotkey_name.is_empty() {
@@ -237,7 +242,7 @@ pub fn internal_create_tag_thread() {
                                 );
                                 CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
                                 super::update_badge_for_continuous_mode();
-                                let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+                                super::post_text_selection_show(hwnd, generation);
                             }
                         }
                     }
@@ -245,8 +250,7 @@ pub fn internal_create_tag_thread() {
 
                 let lbutton_down = (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0;
 
-                let mut should_spawn_thread = false;
-                let mut preset_idx_for_thread = 0;
+                let mut selection_for_thread = None;
 
                 let text_badge_active = TEXT_BADGE_VISIBLE.load(Ordering::SeqCst);
                 let lang = {
@@ -297,9 +301,14 @@ pub fn internal_create_tag_thread() {
                         let released_on_our_ui = release_pid == our_pid;
 
                         if distance >= 10 && !released_on_our_ui && !is_canvas_dragging {
-                            state.is_processing = true;
-                            should_spawn_thread = true;
-                            preset_idx_for_thread = state.preset_idx;
+                            if let Some(preset_idx) = state.preset_idx
+                                && SELECTION_LIFECYCLE.is_current(state.generation)
+                            {
+                                state.is_processing = true;
+                                selection_for_thread = Some((preset_idx, state.generation));
+                            } else {
+                                state.is_selecting = false;
+                            }
                         } else {
                             state.is_selecting = false;
                         }
@@ -331,9 +340,9 @@ pub fn internal_create_tag_thread() {
                     crate::overlay::status_compositor::selection_update(selecting, text);
                 }
 
-                if should_spawn_thread {
+                if let Some((preset_idx, generation)) = selection_for_thread {
                     let hwnd_val = hwnd.0 as usize;
-                    worker::spawn_worker_thread(hwnd_val, preset_idx_for_thread);
+                    worker::spawn_worker_thread(hwnd_val, preset_idx, generation);
                 }
 
                 std::thread::sleep(std::time::Duration::from_millis(16));

@@ -14,6 +14,12 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
     unsafe {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match message {
             WM_APP_SHOW => {
+                let generation = wparam.0 as u64;
+                if !SELECTION_LIFECYCLE.is_current(generation)
+                    || !TEXT_BADGE_VISIBLE.load(Ordering::SeqCst)
+                {
+                    return LRESULT(0);
+                }
                 TEXT_BADGE_VISIBLE.store(true, Ordering::SeqCst);
                 let _ = KillTimer(Some(hwnd), 1);
                 let lang = current_language();
@@ -24,6 +30,10 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_HIDE => {
+                let generation = wparam.0 as u64;
+                if !SELECTION_LIFECYCLE.is_current(generation) {
+                    return LRESULT(0);
+                }
                 TEXT_BADGE_VISIBLE.store(false, Ordering::SeqCst);
                 crate::overlay::status_compositor::selection_hide();
                 let _ = SetTimer(Some(hwnd), 1, 150, None);
