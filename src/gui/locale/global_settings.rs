@@ -8,6 +8,7 @@ pub struct GlobalSettingsLocaleText {
     pub donate_note: &'static str,
     pub donate_vietnamese: bool,
     pub startup_display_header: &'static str,
+    pub show_startup_animation: &'static str,
     pub favorite_overlay_opacity_label: &'static str,
     pub model_thinking: &'static str,
     pub ollama_url_guide: &'static str,

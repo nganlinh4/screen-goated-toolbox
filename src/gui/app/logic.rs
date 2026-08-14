@@ -228,10 +228,9 @@ impl SettingsApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
                 self.startup_stage = 38;
             } else {
-                // CREATE SPLASH while window is still invisible.
-                // This lets the splash render one frame to the backbuffer before
-                // the window appears, preventing the native border flash.
-                if self.splash.is_none() {
+                // Create the splash while the window is still invisible. When
+                // disabled, render the main UI into that first hidden frame.
+                if self.config.show_startup_animation && self.splash.is_none() {
                     self.splash = Some(crate::gui::splash::SplashScreen::new(ctx));
                 }
 

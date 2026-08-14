@@ -11,6 +11,7 @@ pub(super) fn get() -> GlobalSettingsLocaleText {
         donate_note: "",
         donate_vietnamese: true,
         startup_display_header: "Khởi Động & Hiển Thị",
+        show_startup_animation: "Hiện hoạt ảnh khởi động",
         favorite_overlay_opacity_label: "Độ mờ mặc định cửa sổ kết quả",
         model_thinking: "Đang suy nghĩ...",
         ollama_url_guide: "Xem hướng dẫn tại ollama.com",

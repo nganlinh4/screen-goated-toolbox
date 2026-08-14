@@ -35,6 +35,21 @@ fn openrouter_is_enabled_for_new_and_missing_field_configs() {
 }
 
 #[test]
+fn startup_animation_is_enabled_for_new_and_missing_field_configs() {
+    let defaults = Config::default();
+    assert!(defaults.show_startup_animation);
+
+    let mut serialized = serde_json::to_value(defaults).unwrap();
+    serialized
+        .as_object_mut()
+        .unwrap()
+        .remove("show_startup_animation");
+    let restored: Config = serde_json::from_value(serialized).unwrap();
+
+    assert!(restored.show_startup_animation);
+}
+
+#[test]
 fn migrate_config_falls_back_for_missing_block_models() {
     let builtin = Preset {
         id: "preset_translate".to_string(),

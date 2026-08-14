@@ -65,6 +65,10 @@ fn default_favorite_overlay_opacity() -> u8 {
     85
 }
 
+fn default_show_startup_animation() -> bool {
+    true
+}
+
 fn default_tts_voice() -> String {
     "Aoede".to_string()
 }
@@ -247,6 +251,10 @@ pub struct Config {
     /// Start minimized to system tray
     #[serde(default)]
     pub start_in_tray: bool,
+
+    /// Show the animated splash screen when the app starts
+    #[serde(default = "default_show_startup_animation")]
+    pub show_startup_animation: bool,
 
     /// Request admin privileges on startup
     #[serde(default)]
@@ -501,6 +509,7 @@ impl Default for Config {
 
             // Startup
             start_in_tray: false,
+            show_startup_animation: true,
             run_as_admin_on_startup: false,
             run_at_startup: false,
             authorized_startup_path: String::new(),

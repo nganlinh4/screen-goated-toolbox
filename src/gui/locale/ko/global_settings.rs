@@ -11,6 +11,7 @@ pub(super) fn get() -> GlobalSettingsLocaleText {
         donate_note: "은행 송금은 베트남 후원자만 이용할 수 있습니다.",
         donate_vietnamese: false,
         startup_display_header: "시작 및 표시",
+        show_startup_animation: "시작 애니메이션 표시",
         favorite_overlay_opacity_label: "결과 오버레이 기본 불투명도",
         model_thinking: "생각 중...",
         ollama_url_guide: "올라마 설명서 보기",
