@@ -36,10 +36,20 @@ pub unsafe fn get_clipboard_text() -> String {
 /// Process selected text with the given preset
 pub fn process_selected_text(preset_idx: usize, clipboard_text: String) {
     unsafe {
-        let (is_master, _original_mode) = {
-            let app = APP.lock().unwrap();
-            let p = &app.config.presets[preset_idx];
-            (p.is_master, p.text_input_mode.clone())
+        let is_master = {
+            let Ok(app) = APP.lock() else {
+                crate::log_info!("[TextSelection] App state unavailable while resolving preset");
+                return;
+            };
+            let Some(preset) = app.config.presets.get(preset_idx) else {
+                crate::log_info!(
+                    "[TextSelection] Ignoring unavailable preset index {} (preset_count={})",
+                    preset_idx,
+                    app.config.presets.len()
+                );
+                return;
+            };
+            preset.is_master
         };
 
         let final_preset_idx = if is_master {
@@ -57,11 +67,22 @@ pub fn process_selected_text(preset_idx: usize, clipboard_text: String) {
         };
 
         let (config, mut preset, screen_w, screen_h) = {
-            let mut app = APP.lock().unwrap();
+            let Ok(mut app) = APP.lock() else {
+                crate::log_info!("[TextSelection] App state unavailable while starting preset");
+                return;
+            };
+            let Some(preset) = app.config.presets.get(final_preset_idx).cloned() else {
+                crate::log_info!(
+                    "[TextSelection] Ignoring unavailable resolved preset index {} (preset_count={})",
+                    final_preset_idx,
+                    app.config.presets.len()
+                );
+                return;
+            };
             app.config.active_preset_idx = final_preset_idx;
             (
                 app.config.clone(),
-                app.config.presets[final_preset_idx].clone(),
+                preset,
                 GetSystemMetrics(SM_CXSCREEN),
                 GetSystemMetrics(SM_CYSCREEN),
             )

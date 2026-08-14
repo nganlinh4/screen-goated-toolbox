@@ -6,6 +6,7 @@ pub(crate) mod html;
 mod state;
 mod window;
 
+use crate::APP;
 use state::*;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
@@ -79,11 +80,23 @@ pub fn restore_badges_after_capture() {
 }
 
 pub fn cancel_selection() {
-    reset_selection_internal_state();
+    let generation = {
+        let _transition = SELECTION_TRANSITION_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let generation = SELECTION_LIFECYCLE.cancel();
+        reset_selection_internal_state();
+        generation
+    };
     let hwnd = valid_tag_hwnd();
     if let Some(hwnd) = hwnd {
         unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+            let _ = PostMessageW(
+                Some(hwnd),
+                WM_APP_HIDE,
+                WPARAM(generation as usize),
+                LPARAM(0),
+            );
         }
     }
 }
@@ -138,8 +151,23 @@ pub fn is_warming_up() -> bool {
 }
 
 pub fn show_text_selection_tag(preset_idx: usize) {
-    TEXT_BADGE_VISIBLE.store(true, Ordering::SeqCst);
-    TAG_ABORT_SIGNAL.store(false, Ordering::SeqCst);
+    let preset_exists = APP
+        .lock()
+        .map(|app| app.config.presets.get(preset_idx).is_some())
+        .unwrap_or(false);
+    if !preset_exists {
+        crate::log_info!(
+            "[TextSelection] Ignoring unavailable preset index {}",
+            preset_idx
+        );
+        cancel_selection();
+        return;
+    }
+
+    let transition = SELECTION_TRANSITION_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let generation = SELECTION_LIFECYCLE.begin();
 
     // Record when and for which preset the badge is being shown
     let now = std::time::SystemTime::now()
@@ -149,18 +177,17 @@ pub fn show_text_selection_tag(preset_idx: usize) {
     LAST_BADGE_SHOW_TIME.store(now, Ordering::SeqCst);
     LAST_BADGE_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
 
-    // Ensure Warmed Up / Trigger Warmup
-    if valid_tag_hwnd().is_none() && !IS_WARMED_UP.load(Ordering::SeqCst) {
-        PENDING_SHOW_ON_WARMUP.store(true, Ordering::SeqCst);
-        warmup();
-    }
-
     // Prepare State
     {
         let mut state = SELECTION_STATE.lock().unwrap();
-        state.preset_idx = preset_idx;
+        if !SELECTION_LIFECYCLE.is_current(generation) {
+            return;
+        }
+        state.preset_idx = Some(preset_idx);
+        state.generation = generation;
         state.is_selecting = false;
         state.is_processing = false;
+        TEXT_BADGE_VISIBLE.store(true, Ordering::SeqCst);
         TAG_ABORT_SIGNAL.store(false, Ordering::SeqCst);
 
         if !crate::overlay::continuous_mode::is_active() {
@@ -182,11 +209,32 @@ pub fn show_text_selection_tag(preset_idx: usize) {
             IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
         }
     }
+    drop(transition);
 
-    // Signal Show
+    // Signal show immediately, or preserve this exact selection generation through warmup.
     if let Some(hwnd) = valid_tag_hwnd() {
-        unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+        post_text_selection_show(hwnd, generation);
+    } else if !IS_WARMED_UP.load(Ordering::SeqCst) && SELECTION_LIFECYCLE.queue_show(generation) {
+        warmup();
+        if let Some(hwnd) = valid_tag_hwnd() {
+            dispatch_pending_text_selection_show(hwnd);
         }
+    }
+}
+
+pub(super) fn post_text_selection_show(hwnd: HWND, generation: u64) {
+    unsafe {
+        let _ = PostMessageW(
+            Some(hwnd),
+            WM_APP_SHOW,
+            WPARAM(generation as usize),
+            LPARAM(0),
+        );
+    }
+}
+
+pub(super) fn dispatch_pending_text_selection_show(hwnd: HWND) {
+    if let Some(generation) = SELECTION_LIFECYCLE.take_pending_show() {
+        post_text_selection_show(hwnd, generation);
     }
 }

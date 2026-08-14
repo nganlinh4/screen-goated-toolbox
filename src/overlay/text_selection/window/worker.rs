@@ -7,18 +7,21 @@ use windows::Win32::System::DataExchange::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-pub(super) fn spawn_worker_thread(hwnd_val: usize, preset_idx_for_thread: usize) {
+pub(super) fn spawn_worker_thread(hwnd_val: usize, preset_idx_for_thread: usize, generation: u64) {
     std::thread::spawn(move || unsafe {
-        worker_thread(hwnd_val, preset_idx_for_thread);
+        worker_thread(hwnd_val, preset_idx_for_thread, generation);
     });
 }
 
 /// Worker thread for processing text selection.
-unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize) {
+unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize, generation: u64) {
     unsafe {
         let hwnd_copy = HWND(hwnd_val as *mut std::ffi::c_void);
 
-        if TAG_ABORT_SIGNAL.load(Ordering::Relaxed) || !TEXT_BADGE_VISIBLE.load(Ordering::Relaxed) {
+        if !SELECTION_LIFECYCLE.is_current(generation)
+            || TAG_ABORT_SIGNAL.load(Ordering::Relaxed)
+            || !TEXT_BADGE_VISIBLE.load(Ordering::Relaxed)
+        {
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -54,7 +57,8 @@ unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize) {
 
         let mut clipboard_text = String::new();
         for _ in 0..10 {
-            if TAG_ABORT_SIGNAL.load(Ordering::Relaxed)
+            if !SELECTION_LIFECYCLE.is_current(generation)
+                || TAG_ABORT_SIGNAL.load(Ordering::Relaxed)
                 || !TEXT_BADGE_VISIBLE.load(Ordering::Relaxed)
             {
                 return;
@@ -67,10 +71,16 @@ unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize) {
         }
 
         if !clipboard_text.trim().is_empty()
+            && SELECTION_LIFECYCLE.is_current(generation)
             && !TAG_ABORT_SIGNAL.load(Ordering::Relaxed)
             && TEXT_BADGE_VISIBLE.load(Ordering::Relaxed)
         {
-            let _ = PostMessageW(Some(hwnd_copy), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+            let _ = PostMessageW(
+                Some(hwnd_copy),
+                WM_APP_HIDE,
+                WPARAM(generation as usize),
+                LPARAM(0),
+            );
 
             let mut preset_idx = preset_idx_for_thread;
 
@@ -93,12 +103,16 @@ unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize) {
                 });
             }
 
-            process_selected_text(preset_idx, clipboard_text);
+            if SELECTION_LIFECYCLE.is_current(generation) {
+                process_selected_text(preset_idx, clipboard_text);
+            }
         }
 
         let mut state = SELECTION_STATE.lock().unwrap();
-        state.is_selecting = false;
-        state.is_processing = false;
+        if state.generation == generation {
+            state.is_selecting = false;
+            state.is_processing = false;
+        }
     }
 }
 

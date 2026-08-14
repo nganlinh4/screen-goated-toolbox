@@ -9,7 +9,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 // --- SHARED STATE ---
 pub struct TextSelectionState {
-    pub preset_idx: usize,
+    pub preset_idx: Option<usize>,
+    pub generation: u64,
     pub is_selecting: bool,
     pub is_processing: bool,
     pub hook_handle: HHOOK,
@@ -17,11 +18,82 @@ pub struct TextSelectionState {
 unsafe impl Send for TextSelectionState {}
 
 pub static SELECTION_STATE: Mutex<TextSelectionState> = Mutex::new(TextSelectionState {
-    preset_idx: usize::MAX,
+    preset_idx: None,
+    generation: 0,
     is_selecting: false,
     is_processing: false,
     hook_handle: HHOOK(std::ptr::null_mut()),
 });
+
+#[derive(Default)]
+struct SelectionLifecycleState {
+    active_generation: u64,
+    pending_show_generation: Option<u64>,
+}
+
+pub struct SelectionLifecycle {
+    state: Mutex<SelectionLifecycleState>,
+}
+
+impl SelectionLifecycle {
+    pub const fn new() -> Self {
+        Self {
+            state: Mutex::new(SelectionLifecycleState {
+                active_generation: 0,
+                pending_show_generation: None,
+            }),
+        }
+    }
+
+    pub fn begin(&self) -> u64 {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.active_generation = next_generation(state.active_generation);
+        state.pending_show_generation = None;
+        state.active_generation
+    }
+
+    pub fn cancel(&self) -> u64 {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.active_generation = next_generation(state.active_generation);
+        state.pending_show_generation = None;
+        state.active_generation
+    }
+
+    pub fn queue_show(&self, generation: u64) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        if state.active_generation != generation {
+            return false;
+        }
+        state.pending_show_generation = Some(generation);
+        true
+    }
+
+    pub fn take_pending_show(&self) -> Option<u64> {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state
+            .pending_show_generation
+            .take()
+            .filter(|generation| *generation == state.active_generation)
+    }
+
+    pub fn is_current(&self, generation: u64) -> bool {
+        generation != 0
+            && self
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .active_generation
+                == generation
+    }
+}
+
+fn next_generation(current: u64) -> u64 {
+    let next = current.wrapping_add(1);
+    if next == 0 { 1 } else { next }
+}
+
+pub static SELECTION_LIFECYCLE: SelectionLifecycle = SelectionLifecycle::new();
+pub static SELECTION_TRANSITION_LOCK: Mutex<()> = Mutex::new(());
 
 pub static REGISTER_TAG_CLASS: Once = Once::new();
 
@@ -54,8 +126,6 @@ pub static LAST_BADGE_PRESET_IDX: std::sync::atomic::AtomicUsize =
 // DRAG DETECTION: Mouse start position when selection begins
 pub static MOUSE_START_X: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 pub static MOUSE_START_Y: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
-pub static PENDING_SHOW_ON_WARMUP: AtomicBool = AtomicBool::new(false);
-
 // IMAGE CONTINUOUS MODE: Secondary badge visibility
 pub static IMAGE_CONTINUOUS_BADGE_VISIBLE: AtomicBool = AtomicBool::new(false);
 pub static IMAGE_CONTINUOUS_PENDING_SHOW: AtomicBool = AtomicBool::new(false);
@@ -78,7 +148,8 @@ pub const BADGE_HEIGHT: i32 = 140;
 /// Reset internal selection state
 pub fn reset_selection_internal_state() {
     let mut state = SELECTION_STATE.lock().unwrap();
-    state.preset_idx = usize::MAX;
+    state.preset_idx = None;
+    state.generation = 0;
     state.is_selecting = false;
     state.is_processing = false;
     TEXT_BADGE_VISIBLE.store(false, Ordering::SeqCst);
@@ -103,5 +174,35 @@ impl Drop for ProcessingGuard {
     fn drop(&mut self) {
         let mut state = SELECTION_STATE.lock().unwrap();
         state.is_processing = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SelectionLifecycle;
+
+    #[test]
+    fn cancelled_warmup_show_is_discarded() {
+        let lifecycle = SelectionLifecycle::new();
+        let generation = lifecycle.begin();
+        assert!(lifecycle.queue_show(generation));
+
+        let cancelled_generation = lifecycle.cancel();
+
+        assert_eq!(lifecycle.take_pending_show(), None);
+        assert!(!lifecycle.is_current(generation));
+        assert!(lifecycle.is_current(cancelled_generation));
+    }
+
+    #[test]
+    fn stale_show_cannot_replace_a_newer_selection() {
+        let lifecycle = SelectionLifecycle::new();
+        let stale_generation = lifecycle.begin();
+        lifecycle.cancel();
+        let current_generation = lifecycle.begin();
+
+        assert!(!lifecycle.queue_show(stale_generation));
+        assert!(lifecycle.queue_show(current_generation));
+        assert_eq!(lifecycle.take_pending_show(), Some(current_generation));
     }
 }
