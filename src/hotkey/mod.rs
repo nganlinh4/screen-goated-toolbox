@@ -2,6 +2,7 @@
 // Hotkey registration, listener, and mouse hook.
 
 mod processor;
+pub(crate) mod web_binding;
 
 pub use processor::hotkey_proc;
 
@@ -213,6 +214,15 @@ pub fn unregister_all_hotkeys(hwnd: HWND) {
     for id in registered_ids {
         unsafe {
             let _ = UnregisterHotKey(Some(hwnd), id);
+        }
+    }
+}
+
+pub(crate) fn reload_registrations() {
+    unsafe {
+        let listener = FindWindowW(w!("HotkeyListenerClass"), w!("Listener")).unwrap_or_default();
+        if !listener.is_invalid() {
+            let _ = PostMessageW(Some(listener), WM_RELOAD_HOTKEYS, WPARAM(0), LPARAM(0));
         }
     }
 }

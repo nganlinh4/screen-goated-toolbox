@@ -179,7 +179,7 @@ fn handle_set_draft(args: Value) -> Result<(), String> {
 /// Add hotkey immediately — saves to config and triggers system-wide registration.
 fn handle_add_hotkey(args: Value) -> Result<Value, String> {
     let args = serde_json::from_value::<HotkeyArgs>(args).map_err(|err| err.to_string())?;
-    let Some(mut hotkey) = super::map_hotkey(
+    let Some(hotkey) = crate::hotkey::web_binding::from_web_event(
         &args.key, &args.code, args.ctrl, args.alt, args.shift, args.meta,
     ) else {
         return Err("unsupported key".to_string());
@@ -196,8 +196,6 @@ fn handle_add_hotkey(args: Value) -> Result<Value, String> {
             return Err(text.hotkey_conflict_message(&conflict));
         }
     }
-
-    hotkey.name = super::hotkey_label(hotkey.modifiers, &hotkey.name);
 
     // Save immediately to config
     {
