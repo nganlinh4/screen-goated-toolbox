@@ -17,7 +17,7 @@ mod debug {
     const MAX_RUNS: usize = 24;
     const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
     const RESULT_PAINT_TIMEOUT: Duration = Duration::from_secs(3);
-    const RESULT_SETTLE_DELAY: Duration = Duration::from_millis(180);
+    const COMPOSITOR_SETTLE_DELAY: Duration = Duration::from_millis(20);
     static FINALIZE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     pub(crate) struct RunEvidence {
@@ -220,7 +220,8 @@ mod debug {
             .spawn(move || {
                 let _guard = FINALIZE_LOCK.lock().unwrap();
                 let result_capture = if capture_result {
-                    capture_result_image(&state).unwrap_or_else(|error| format!("error: {error:#}"))
+                    capture_result_image(&state, rendered_count)
+                        .unwrap_or_else(|error| format!("error: {error:#}"))
                 } else {
                     "not_applicable".to_string()
                 };
@@ -303,13 +304,24 @@ mod debug {
         }
     }
 
-    fn capture_result_image(state: &State) -> Result<String> {
-        let _ = crate::overlay::result::latency::wait_for_phase(
+    fn capture_result_image(state: &State, rendered_count: usize) -> Result<String> {
+        let painted_count = crate::overlay::result::latency::wait_for_window_phase_count(
             &state.trace_id,
-            "final_fit_completed",
+            "final_painted",
+            rendered_count,
             RESULT_PAINT_TIMEOUT,
         );
-        std::thread::sleep(RESULT_SETTLE_DELAY);
+        if painted_count >= rendered_count {
+            crate::overlay::result::latency::mark(&state.trace_id, "evidence_all_regions_painted");
+        }
+        unsafe {
+            let _ = windows::Win32::Graphics::Dwm::DwmFlush();
+        }
+        std::thread::sleep(COMPOSITOR_SETTLE_DELAY);
+        unsafe {
+            let _ = windows::Win32::Graphics::Dwm::DwmFlush();
+        }
+        crate::overlay::result::latency::mark(&state.trace_id, "evidence_compositor_flushed");
         let screen = crate::screen_capture::capture_screen_fast()?;
         let right = state
             .selection
@@ -329,7 +341,13 @@ mod debug {
             },
         );
         save_jpeg(&state.directory.join("result.jpg"), &image)?;
-        Ok("saved".to_string())
+        if painted_count >= rendered_count {
+            Ok("saved_after_all_regions_painted".to_string())
+        } else {
+            Ok(format!(
+                "saved_after_paint_timeout_{painted_count}_of_{rendered_count}"
+            ))
+        }
     }
 
     fn save_detector_preview(

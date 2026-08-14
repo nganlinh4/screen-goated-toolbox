@@ -1,5 +1,5 @@
 use super::state::WINDOW_STATES;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 use windows::Win32::Foundation::HWND;
@@ -9,6 +9,7 @@ const MAX_ACTIVE_TRACES: usize = 512;
 struct Trace {
     started: Instant,
     phases: HashMap<&'static str, f64>,
+    window_phases: HashMap<&'static str, HashSet<isize>>,
 }
 
 static TRACES: LazyLock<Mutex<HashMap<String, Trace>>> =
@@ -31,6 +32,7 @@ pub(crate) fn begin(trace_id: &str) {
         Trace {
             started: Instant::now(),
             phases: HashMap::new(),
+            window_phases: HashMap::new(),
         },
     );
     drop(traces);
@@ -79,14 +81,25 @@ fn mark_id_after(id: isize, phase: &'static str, prerequisite: &'static str) {
     let Some(trace_id) = trace_id else {
         return;
     };
-    let ready = TRACES
-        .lock()
-        .unwrap()
-        .get(&trace_id)
-        .is_some_and(|trace| trace.phases.contains_key(prerequisite));
-    if ready {
+    if record_window_phase_after(&trace_id, id, phase, prerequisite) {
         mark(&trace_id, phase);
     }
+}
+
+fn record_window_phase_after(
+    trace_id: &str,
+    id: isize,
+    phase: &'static str,
+    prerequisite: &'static str,
+) -> bool {
+    let mut traces = TRACES.lock().unwrap();
+    let Some(trace) = traces.get_mut(trace_id) else {
+        return false;
+    };
+    if !trace.phases.contains_key(prerequisite) {
+        return false;
+    }
+    trace.window_phases.entry(phase).or_default().insert(id)
 }
 
 pub(crate) fn mark_card_phase(id: isize, phase: &str, payload_len: usize, text_len: usize) {
@@ -152,6 +165,28 @@ pub(crate) fn wait_for_phase(
 }
 
 #[cfg(debug_assertions)]
+pub(crate) fn wait_for_window_phase_count(
+    trace_id: &str,
+    phase: &'static str,
+    expected: usize,
+    timeout: std::time::Duration,
+) -> usize {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let count = TRACES
+            .lock()
+            .unwrap()
+            .get(trace_id)
+            .and_then(|trace| trace.window_phases.get(phase))
+            .map_or(0, HashSet::len);
+        if count >= expected || Instant::now() >= deadline {
+            return count;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[cfg(debug_assertions)]
 pub(crate) fn snapshot(trace_id: &str) -> Vec<(&'static str, f64)> {
     let mut phases = TRACES
         .lock()
@@ -182,5 +217,34 @@ mod tests {
         let traces = TRACES.lock().unwrap();
         let trace = traces.get(trace_id).unwrap();
         assert_eq!(trace.phases.len(), 2);
+    }
+
+    #[test]
+    fn window_phase_counts_are_unique_per_result_window() {
+        let trace_id = "latency-window-count-test:0";
+        begin(trace_id);
+        mark(trace_id, "provider_first_output");
+        assert!(record_window_phase_after(
+            trace_id,
+            10,
+            "final_painted",
+            "provider_first_output"
+        ));
+        assert!(!record_window_phase_after(
+            trace_id,
+            10,
+            "final_painted",
+            "provider_first_output"
+        ));
+        assert!(record_window_phase_after(
+            trace_id,
+            11,
+            "final_painted",
+            "provider_first_output"
+        ));
+        assert_eq!(
+            wait_for_window_phase_count(trace_id, "final_painted", 2, std::time::Duration::ZERO),
+            2
+        );
     }
 }
