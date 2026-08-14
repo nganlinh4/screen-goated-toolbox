@@ -11,6 +11,13 @@ use arguments::StartupArgs;
 use single_instance::InstanceOutcome;
 
 pub(crate) fn run() -> eframe::Result<()> {
+    if crate::overlay::realtime_webview::is_child_process() {
+        if let Err(error) = crate::overlay::realtime_webview::run_child() {
+            eprintln!("realtime compositor failed: {error:#}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     if crate::overlay::status_compositor::is_child_process() {
         if let Err(error) = crate::overlay::status_compositor::run_child() {
             eprintln!("status compositor failed: {error:#}");
@@ -64,11 +71,13 @@ pub(crate) fn run() -> eframe::Result<()> {
     let screen_translate_ui_test_image = startup_args.screen_translate_ui_test_image();
     let result_compositor_smoke = startup_args.result_compositor_smoke();
     let status_compositor_smoke = startup_args.status_compositor_smoke();
+    let realtime_compositor_smoke = startup_args.realtime_compositor_smoke();
     let isolated_ui_test = screen_record_wry_smoke
         || creation_ui_test.is_some()
         || screen_translate_ui_test
         || result_compositor_smoke
-        || status_compositor_smoke;
+        || status_compositor_smoke
+        || realtime_compositor_smoke;
 
     let _ = crate::RESTORE_EVENT.as_ref();
     // Establish process ownership before cleanup, installation, registry edits,
@@ -157,6 +166,9 @@ pub(crate) fn run() -> eframe::Result<()> {
     }
     if status_compositor_smoke {
         std::process::exit(crate::overlay::status_compositor::smoke::run());
+    }
+    if realtime_compositor_smoke {
+        std::process::exit(crate::overlay::realtime_webview::smoke::run());
     }
 
     settings_window::run(

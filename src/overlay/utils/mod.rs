@@ -49,18 +49,6 @@ pub fn escape_html(s: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-/// Escape a string for safe insertion inside a single-quoted JavaScript string
-/// literal (e.g. `'...'`).
-///
-/// Escapes the backslash, single quote, newline (as `\n`) and strips carriage
-/// returns. Does not escape double quotes (they are safe inside `'...'`).
-pub fn escape_js_single_quoted(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('\'', "\\'")
-        .replace('\n', "\\n")
-        .replace('\r', "")
-}
-
 /// Escape a string for safe insertion inside a double-quoted JavaScript string
 /// literal (e.g. `"..."`).
 ///

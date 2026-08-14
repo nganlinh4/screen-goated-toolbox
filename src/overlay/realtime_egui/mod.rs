@@ -99,7 +99,7 @@ pub fn show_realtime_egui_overlay(preset_idx: usize) {
 
     start_realtime_transcription(
         final_preset,
-        REALTIME_STOP_SIGNAL.clone(),
+        current_stop_signal(),
         windows::Win32::Foundation::HWND::default(),
         Some(windows::Win32::Foundation::HWND::default()),
         REALTIME_STATE.clone(),

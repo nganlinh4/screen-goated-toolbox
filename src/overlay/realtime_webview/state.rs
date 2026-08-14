@@ -3,7 +3,10 @@
 use crate::api::realtime_audio::{RealtimeState, SharedRealtimeState};
 #[cfg(not(feature = "recorder-worker"))]
 pub use crate::win_types::HwndWrapper;
-use std::sync::{Arc, LazyLock, Mutex, Once, atomic::AtomicBool};
+use std::sync::{
+    Arc, LazyLock, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 use windows::Win32::Foundation::*;
 pub const WM_APP_REALTIME_START: u32 = 0x0400 + 500; // WM_USER + 500
 pub const WM_APP_REALTIME_HIDE: u32 = 0x0400 + 501; // WM_USER + 501
@@ -11,8 +14,52 @@ pub const WM_APP_REALTIME_HIDE: u32 = 0x0400 + 501; // WM_USER + 501
 // Gap between realtime and translation overlays
 pub const GAP: i32 = 20;
 
-pub static REALTIME_STOP_SIGNAL: LazyLock<Arc<AtomicBool>> =
-    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+struct SessionCancellation {
+    current: Mutex<Arc<AtomicBool>>,
+}
+
+impl SessionCancellation {
+    fn new() -> Self {
+        Self {
+            current: Mutex::new(Arc::new(AtomicBool::new(false))),
+        }
+    }
+
+    fn current(&self) -> Arc<AtomicBool> {
+        self.current
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    fn begin_session(&self) -> Arc<AtomicBool> {
+        let signal = Arc::new(AtomicBool::new(false));
+        *self
+            .current
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = signal.clone();
+        signal
+    }
+
+    fn set_current(&self, stopped: bool) {
+        self.current().store(stopped, Ordering::SeqCst);
+    }
+}
+
+static REALTIME_CANCELLATION: LazyLock<SessionCancellation> =
+    LazyLock::new(SessionCancellation::new);
+
+pub fn current_stop_signal() -> Arc<AtomicBool> {
+    REALTIME_CANCELLATION.current()
+}
+
+pub fn begin_stop_signal_session() -> Arc<AtomicBool> {
+    REALTIME_CANCELLATION.begin_session()
+}
+
+pub fn set_current_stop_signal(stopped: bool) {
+    REALTIME_CANCELLATION.set_current(stopped);
+}
 /// True while a realtime session is winding down and must not be restarted yet.
 pub static REALTIME_SESSION_STOPPING: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
@@ -98,14 +145,28 @@ pub static CURRENT_TTS_VOLUME: LazyLock<Arc<std::sync::atomic::AtomicU32>> =
 
 pub static mut REALTIME_HWND: HWND = HWND(std::ptr::null_mut());
 pub static mut IS_ACTIVE: bool = false;
-pub static mut IS_WARMED_UP: bool = false;
-pub static mut IS_INITIALIZING: bool = false;
-
-pub static REGISTER_REALTIME_CLASS: Once = Once::new();
 
 // The renderer thread owns exactly one WebView and one WebContext.
 thread_local! {
     pub static REALTIME_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
     // Shared WebContext for this thread using common data directory
     pub static REALTIME_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionCancellation;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn a_new_session_cannot_revive_cancelled_workers() {
+        let cancellation = SessionCancellation::new();
+        let old_session = cancellation.current();
+        cancellation.set_current(true);
+
+        let new_session = cancellation.begin_session();
+
+        assert!(old_session.load(Ordering::SeqCst));
+        assert!(!new_session.load(Ordering::SeqCst));
+    }
 }

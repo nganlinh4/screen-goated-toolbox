@@ -350,9 +350,6 @@ fn transcription_thread_entry(
             break;
         }
     }
-
-    crate::overlay::realtime_webview::state::REALTIME_SESSION_STOPPING
-        .store(false, Ordering::SeqCst);
 }
 
 fn is_stale_session(session_id: u64) -> bool {
