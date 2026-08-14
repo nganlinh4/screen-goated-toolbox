@@ -150,6 +150,7 @@ pub fn handle_start_gemini_translate_narration(
             "Gemini Translate narration already running (job={active})"
         ));
     }
+    job_registry::prepare_for_insert(&mut jobs)?;
     let job_id = job_registry::uuid("gemini-translate-narration");
     let snapshot = Arc::new(Mutex::new(JobSnapshot {
         total_clips: request.clips.len(),
@@ -228,6 +229,12 @@ pub fn handle_cancel_gemini_translate_narration(
         snapshot.active_clip_id = None;
     }
     Ok(serde_json::Value::Null)
+}
+
+pub(super) fn cancel_all_jobs() {
+    if let Ok(jobs) = jobs().lock() {
+        job_registry::cancel_all(&jobs);
+    }
 }
 
 fn run_job(

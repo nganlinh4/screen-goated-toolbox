@@ -124,7 +124,7 @@ export class AutoZoomGenerator {
       if (clickTimes.length > 0) {
         const cStart = t - 0.25;
         const cEnd = t + 0.25;
-        let ci = lowerBoundNum(clickTimes, cStart);
+        const ci = lowerBoundNum(clickTimes, cStart);
         if (ci < clickTimes.length && clickTimes[ci] <= cEnd) isClicked = true;
       }
 

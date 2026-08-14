@@ -1,6 +1,7 @@
 // WebView creation and window initialization for the screen record window.
 
 use std::borrow::Cow;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
@@ -29,6 +30,44 @@ use windows::Win32::Graphics::Gdi::{
 };
 
 use super::handle_ipc_command;
+
+const MAX_IPC_JSON_BYTES: usize = 128 * 1024 * 1024;
+const MAX_CONCURRENT_IPC_JOBS: usize = 16;
+static IPC_JOBS_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+struct IpcJobGuard;
+
+impl Drop for IpcJobGuard {
+    fn drop(&mut self) {
+        IPC_JOBS_IN_FLIGHT.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn post_ipc_reply(target_hwnd_val: isize, id: String, result: Result<serde_json::Value, String>) {
+    let json_res = match result {
+        Ok(res) => serde_json::json!({ "id": id, "result": res }),
+        Err(err) => serde_json::json!({ "id": id, "error": err }),
+    };
+    let script = format!(
+        "window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {} }}))",
+        json_res
+    );
+    let script_ptr = Box::into_raw(Box::new(script));
+    if unsafe {
+        PostMessageW(
+            Some(HWND(target_hwnd_val as *mut std::ffi::c_void)),
+            super::WM_APP_RUN_SCRIPT,
+            WPARAM(0),
+            LPARAM(script_ptr as isize),
+        )
+    }
+    .is_err()
+    {
+        unsafe {
+            drop(Box::from_raw(script_ptr));
+        }
+    }
+}
 
 struct ComApartmentGuard {
     initialized: bool,
@@ -275,9 +314,8 @@ unsafe fn build_webview(
     webview_background_rgba: (u8, u8, u8, u8),
     init_script: &str,
 ) -> Result<wry::WebView, wry::Error> {
-    let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-
-    SR_WEB_CONTEXT.with(|ctx| {
+    let init = crate::overlay::webview_init::acquire("screen-record");
+    let result = SR_WEB_CONTEXT.with(|ctx| {
         let mut ctx_ref = ctx.borrow_mut();
         let font_style_tag = font_style_tag.to_string();
         let themed_html_root = themed_html_root.to_string();
@@ -344,11 +382,27 @@ unsafe fn build_webview(
 
         builder = crate::overlay::html_components::font_manager::configure_webview(builder);
         builder.build_as_child(wrapper)
-    })
+    });
+    init.finish(result.is_ok());
+    if let Ok(webview) = &result {
+        crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+            "screen-record",
+            hwnd,
+            webview,
+        );
+    }
+    result
 }
 
 fn handle_ipc_message(msg: wry::http::Request<String>, send_hwnd: SendHwnd) {
     let body = msg.body().as_str();
+    if body.len() > MAX_IPC_JSON_BYTES {
+        eprintln!(
+            "[IPC] Rejected body over {} MiB",
+            MAX_IPC_JSON_BYTES / (1024 * 1024)
+        );
+        return;
+    }
     let hwnd = send_hwnd.0;
     unsafe {
         if body == "drag_window" {
@@ -400,26 +454,44 @@ fn handle_ipc_message(msg: wry::http::Request<String>, send_hwnd: SendHwnd) {
             let cmd = req.cmd;
             let args = req.args;
             let target_hwnd_val = send_hwnd.as_isize();
-
-            thread::spawn(move || {
-                let result = handle_ipc_command(cmd, args);
-                let json_res = match result {
-                    Ok(res) => serde_json::json!({ "id": id, "result": res }),
-                    Err(err) => serde_json::json!({ "id": id, "error": err }),
-                };
-                let script = format!(
-                    "window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {} }}))",
-                    json_res
+            if id.len() > 128
+                || cmd.len() > 128
+                || !cmd.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-')
+                })
+            {
+                post_ipc_reply(
+                    target_hwnd_val,
+                    id,
+                    Err("Invalid IPC request id or command".to_string()),
                 );
-
-                let script_ptr = Box::into_raw(Box::new(script));
-                let _ = PostMessageW(
-                    Some(HWND(target_hwnd_val as *mut std::ffi::c_void)),
-                    super::WM_APP_RUN_SCRIPT,
-                    WPARAM(0),
-                    LPARAM(script_ptr as isize),
+                return;
+            }
+            let previous = IPC_JOBS_IN_FLIGHT.fetch_add(1, Ordering::AcqRel);
+            if previous >= MAX_CONCURRENT_IPC_JOBS {
+                IPC_JOBS_IN_FLIGHT.fetch_sub(1, Ordering::AcqRel);
+                post_ipc_reply(
+                    target_hwnd_val,
+                    id,
+                    Err("Recorder is busy; wait for an active request to finish".to_string()),
                 );
-            });
+                return;
+            }
+            let failure_id = id.clone();
+            let spawn_result = thread::Builder::new()
+                .name(format!("recorder-ipc-{cmd}"))
+                .spawn(move || {
+                    let _guard = IpcJobGuard;
+                    post_ipc_reply(target_hwnd_val, id, handle_ipc_command(cmd, args));
+                });
+            if let Err(error) = spawn_result {
+                IPC_JOBS_IN_FLIGHT.fetch_sub(1, Ordering::AcqRel);
+                post_ipc_reply(
+                    target_hwnd_val,
+                    failure_id,
+                    Err(format!("Failed to start recorder request: {error}")),
+                );
+            }
         }
     }
 }

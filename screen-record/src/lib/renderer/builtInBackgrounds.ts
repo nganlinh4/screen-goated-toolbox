@@ -323,7 +323,11 @@ function getRenderedCanvas(
   const renderSize = getBuiltInBackgroundRenderSize(width, height, interactive);
   const key = `${interactive ? 'interactive:' : ''}${id}:${renderSize.width}x${renderSize.height}`;
   const cached = cache.renderedCanvasByKey.get(key);
-  if (cached) return cached;
+  if (cached) {
+    cache.renderedCanvasByKey.delete(key);
+    cache.renderedCanvasByKey.set(key, cached);
+    return cached;
+  }
   const canvas = document.createElement('canvas');
   paintBuiltInBackgroundCanvas(canvas, id, renderSize.width, renderSize.height);
   setCachedBuiltInBackground(cache.renderedCanvasByKey, key, canvas);

@@ -82,8 +82,10 @@ mod tests {
             fs::read_dir(&root)
                 .unwrap()
                 .flatten()
-                .filter(|entry| entry.path().extension().and_then(|value| value.to_str())
-                    == Some("bin"))
+                .filter(
+                    |entry| entry.path().extension().and_then(|value| value.to_str())
+                        == Some("bin")
+                )
                 .count(),
             MAX_FILES
         );

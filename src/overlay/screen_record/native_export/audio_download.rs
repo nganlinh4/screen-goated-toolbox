@@ -311,9 +311,7 @@ pub fn start_audio_download(args: serde_json::Value) -> Result<serde_json::Value
 
     let started = Instant::now();
     let config: AudioDownloadConfig = parse_json_with_path(args)?;
-    if config.clips.is_empty() {
-        return Err("Audio download has no clips".to_string());
-    }
+    config.validate()?;
 
     let output_dir = output_base_dir(&config);
     fs::create_dir_all(&output_dir).map_err(|e| format!("Create output directory: {e}"))?;

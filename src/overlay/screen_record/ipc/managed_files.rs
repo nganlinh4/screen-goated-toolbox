@@ -5,7 +5,10 @@ pub fn delete_recording_file(path: &str) -> Result<(), String> {
     let local = crate::paths::app_local_data_dir();
     delete_confined_file(
         Path::new(path),
-        &[local.join("recordings"), local.join("composition-snapshots")],
+        &[
+            local.join("recordings"),
+            local.join("composition-snapshots"),
+        ],
     )
 }
 
@@ -25,7 +28,8 @@ fn delete_confined_file(path: &Path, approved_roots: &[PathBuf]) -> Result<(), S
     if !approved {
         return Err("Refusing to delete a file outside app-managed recordings".to_string());
     }
-    fs::remove_file(&resolved).map_err(|error| format!("Could not delete managed recording: {error}"))
+    fs::remove_file(&resolved)
+        .map_err(|error| format!("Could not delete managed recording: {error}"))
 }
 
 #[cfg(windows)]

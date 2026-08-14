@@ -9,6 +9,7 @@ import {
   type FrontendPerfSnapshot,
 } from "@/lib/frontendPerfDiagnostics";
 import type { Project, ProjectComposition, VideoSegment } from "@/types/video";
+import { idbCreateProjectBundle } from "@/lib/projectStorage";
 import { isScreenRecordTestHarnessEnabled } from "./browserIpcMock";
 import {
   createSyntheticProjectFixture,
@@ -34,8 +35,8 @@ export interface ScreenRecordDomStats {
 }
 
 export interface ScreenRecordTestHarness {
-  loadSyntheticProject: (profile?: SyntheticProjectProfile) => ScreenRecordEditorStateSnapshot;
-  loadSyntheticProjectWithOptions: (options?: SyntheticProjectOptions) => ScreenRecordEditorStateSnapshot;
+  loadSyntheticProject: (profile?: SyntheticProjectProfile) => Promise<ScreenRecordEditorStateSnapshot>;
+  loadSyntheticProjectWithOptions: (options?: SyntheticProjectOptions) => Promise<ScreenRecordEditorStateSnapshot>;
   getEditorState: () => ScreenRecordEditorStateSnapshot;
   getNarrationAudioPaths: () => string[];
   setCurrentVideoSource: (url: string | null) => void;
@@ -47,6 +48,7 @@ export interface ScreenRecordTestHarness {
   resetPerf: () => void;
   getPerfSnapshot: () => FrontendPerfSnapshot;
   getDomStats: () => ScreenRecordDomStats;
+  startExport: () => Promise<unknown>;
 }
 
 type TestWindow = Window & {
@@ -61,6 +63,7 @@ export interface InstallAppTestHarnessOptions {
   getComposition: () => ProjectComposition | null;
   setCurrentVideoSource: (url: string | null) => void;
   setCurrentTime: (time: number) => void;
+  startExport: () => Promise<unknown>;
 }
 
 function summarizeState(options: InstallAppTestHarnessOptions): ScreenRecordEditorStateSnapshot {
@@ -96,16 +99,19 @@ function summarizeProject(project: Project): ScreenRecordEditorStateSnapshot {
 export function installScreenRecordAppTestHarness(options: InstallAppTestHarnessOptions) {
   if (!isScreenRecordTestHarnessEnabled()) return () => {};
   const testWindow = window as TestWindow;
+  const persistAndLoadFixture = async (project: Project) => {
+    await idbCreateProjectBundle(project);
+    options.loadProject(project);
+    return summarizeProject(project);
+  };
   testWindow.__SGT_TEST__ = {
-    loadSyntheticProject: (profile = "small") => {
+    loadSyntheticProject: async (profile = "small") => {
       const project = createSyntheticProjectFixture({ profile });
-      options.loadProject(project);
-      return summarizeProject(project);
+      return persistAndLoadFixture(project);
     },
-    loadSyntheticProjectWithOptions: (fixtureOptions = {}) => {
+    loadSyntheticProjectWithOptions: async (fixtureOptions = {}) => {
       const project = createSyntheticProjectFixture(fixtureOptions);
-      options.loadProject(project);
-      return summarizeProject(project);
+      return persistAndLoadFixture(project);
     },
     getEditorState: () => summarizeState(options),
     getNarrationAudioPaths: () =>
@@ -137,6 +143,7 @@ export function installScreenRecordAppTestHarness(options: InstallAppTestHarness
       waveformLayers: document.querySelectorAll(".audio-waveform-layer").length,
       totalTimelineBlocks: document.querySelectorAll(".timeline-block").length,
     }),
+    startExport: options.startExport,
   };
   return () => {};
 }

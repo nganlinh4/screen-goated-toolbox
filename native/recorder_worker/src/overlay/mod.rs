@@ -10,6 +10,8 @@ pub mod tts_playground;
 pub mod utils;
 #[path = "../../../../src/overlay/webview_diagnostics.rs"]
 pub mod webview_diagnostics;
+#[path = "../../../../src/overlay/webview_init.rs"]
+pub mod webview_init;
 #[path = "../../../../src/overlay/window_selector/mod.rs"]
 pub mod window_selector;
 

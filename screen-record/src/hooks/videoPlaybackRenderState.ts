@@ -1,63 +1,10 @@
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
-import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
-import type { BackgroundConfig, VideoSegment } from "@/types/video";
-
-export function buildPlaybackStructureSignature(nextSegment: VideoSegment) {
-  return JSON.stringify({
-    trimStart: nextSegment.trimStart,
-    trimEnd: nextSegment.trimEnd,
-    trimSegments: (nextSegment.trimSegments ?? []).map((trimSegment) => [
-      trimSegment.startTime,
-      trimSegment.endTime,
-    ]),
-    crop: nextSegment.crop ?? null,
-    zoomBlocks: (nextSegment.zoomBlocks ?? []).map((block) => [
-      block.startTime,
-      block.endTime,
-      block.easeIn,
-      block.easeOut,
-      block.zoomFactor,
-      block.positionX,
-      block.positionY,
-      block.followCursor ? 1 : 0,
-      block.directTransitionToNext ? 1 : 0,
-      block.enabled === false ? 0 : 1,
-    ]),
-    speedPoints: (nextSegment.speedPoints ?? []).map((point) => [
-      point.time,
-      point.speed,
-    ]),
-    deviceAudioPoints: (nextSegment.deviceAudioPoints ?? []).map((point) => [
-      point.time,
-      point.volume,
-    ]),
-    micAudioPoints: (nextSegment.micAudioPoints ?? []).map((point) => [
-      point.time,
-      point.volume,
-    ]),
-    textSegments: (nextSegment.textSegments ?? []).map((textSegment) => [
-      textSegment.id,
-      textSegment.startTime,
-      textSegment.endTime,
-      textSegment.text,
-    ]),
-    activeSubtitleView: nextSegment.activeSubtitleView ?? null,
-    subtitleCustomChain: nextSegment.subtitleCustomChain ?? [],
-    subtitleSegments: getVisibleSubtitleSegments(nextSegment).map((subtitleSegment) => [
-      subtitleSegment.id,
-      subtitleSegment.startTime,
-      subtitleSegment.endTime,
-      subtitleSegment.text,
-      subtitleSegment.style,
-    ]),
-    keystrokeOverlay: nextSegment.keystrokeOverlay ?? null,
-    cursorVisibilitySegments: nextSegment.cursorVisibilitySegments ?? [],
-    useCustomCursor: nextSegment.useCustomCursor,
-    deviceAudioOffsetSec: nextSegment.deviceAudioOffsetSec,
-    micAudioOffsetSec: nextSegment.micAudioOffsetSec,
-    webcamOffsetSec: nextSegment.webcamOffsetSec,
-  });
-}
+import type {
+  BackgroundConfig,
+  MousePosition,
+  VideoSegment,
+  WebcamConfig,
+} from "@/types/video";
 
 export function getPlaybackRenderSegment(
   segment: VideoSegment,
@@ -88,4 +35,31 @@ export function getPlaybackRenderBackground(
         canvasMode: "auto" as const,
       }
     : cloneBackgroundConfig(backgroundConfig);
+}
+
+export function buildPlaybackRenderOptions({
+  segment,
+  backgroundConfig,
+  webcamConfig,
+  mousePositions,
+  isCropping,
+  outputFrameRate,
+  interactiveBackgroundPreview,
+}: {
+  segment: VideoSegment;
+  backgroundConfig: BackgroundConfig;
+  webcamConfig?: WebcamConfig;
+  mousePositions: MousePosition[];
+  isCropping: boolean;
+  outputFrameRate: number;
+  interactiveBackgroundPreview?: boolean;
+}) {
+  return {
+    segment: getPlaybackRenderSegment(segment, isCropping),
+    backgroundConfig: getPlaybackRenderBackground(backgroundConfig, isCropping),
+    webcamConfig: webcamConfig ? { ...webcamConfig } : undefined,
+    mousePositions,
+    outputFrameRate,
+    interactiveBackgroundPreview,
+  };
 }

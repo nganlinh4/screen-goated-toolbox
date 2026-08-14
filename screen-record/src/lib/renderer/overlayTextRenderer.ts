@@ -149,7 +149,6 @@ function wrapParagraph(
     }
     if (currentLine) {
       lines.push(currentLine);
-      currentLine = '';
     }
     if (measureTextLine(ctx, token, letterSpacing) <= maxWidth) {
       currentLine = token;

@@ -101,16 +101,6 @@ export function useTimelineWorkspaceComposition({
   const applyCurrentComposition = useCallback(
     (nextComposition: ProjectComposition, reason: string) => {
       setComposition(nextComposition);
-      const currentProject = currentProjectDataRef.current;
-      if (currentProject) {
-        currentProjectDataRef.current = {
-          ...currentProject,
-          composition: nextComposition,
-        };
-      }
-      setCurrentProjectData((prev) =>
-        prev ? { ...prev, composition: nextComposition } : prev,
-      );
 
       const projectId =
         currentProjectIdRef.current ??
@@ -122,9 +112,16 @@ export function useTimelineWorkspaceComposition({
         return;
       }
 
+      const writeIntent = projectManager.createEditorWriteIntent(projectId);
       const persistTask = compositionPersistChainRef.current
         .catch(() => undefined)
-        .then(() => projectManager.updateProject(projectId, { composition: nextComposition }));
+        .then(async () => {
+          await projectManager.updateProject(
+            projectId,
+            { composition: nextComposition },
+            writeIntent,
+          );
+        });
       compositionPersistChainRef.current = persistTask;
       void persistTask
         .then(() => loadProjects())
@@ -439,12 +436,17 @@ export function useTimelineWorkspaceComposition({
       }
 
       try {
-        await projectManager.updateProject(projectId, {
-          composition: nextComposition ?? undefined,
-          duration: nextDuration,
-          segment: nextSegment,
-          ...(rawVideoPath !== undefined ? { rawVideoPath } : {}),
-        });
+        const writeIntent = projectManager.createEditorWriteIntent(projectId);
+        await projectManager.updateProject(
+          projectId,
+          {
+            composition: nextComposition ?? undefined,
+            duration: nextDuration,
+            segment: nextSegment,
+            ...(rawVideoPath !== undefined ? { rawVideoPath } : {}),
+          },
+          writeIntent,
+        );
         await loadProjects();
       } catch (error) {
         console.warn(`[TimelineDuration] persist failed reason="${reason}"`, error);

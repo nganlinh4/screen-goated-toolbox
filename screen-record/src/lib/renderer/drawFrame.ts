@@ -1,23 +1,18 @@
-import { MousePosition, VideoSegment, ZoomKeyframe } from '@/types/video';
+import { ZoomKeyframe } from '@/types/video';
 import { getCursorVisibility } from '@/lib/cursorHiding';
 import {
   getCursorMovementDelaySec,
 } from './cursorDynamics';
 import {
-  CursorImageSet,
-  CursorRenderState,
   resolveCursorRenderType,
   drawMouseCursor,
 } from './cursorGraphics';
 import {
-  GradientCache,
-  CustomBgCache,
   getBackgroundStyle,
   fillBuiltInBackground,
   parseBuiltInBackgroundToken,
 } from './gradientGenerator';
 import {
-  KeystrokeState,
   drawActiveKeystrokeOverlays,
 } from './keystrokeRenderer';
 import {
@@ -34,74 +29,22 @@ import {
   resolveCodecAlignedCropGeometry,
 } from '@/lib/videoGeometry';
 import { drawWebcamOverlay } from './drawFrameWebcam';
+import { getActiveTimedSegments } from '@/lib/timedSegmentIndex';
+import {
+  getBoundedCanvasSize,
+  getBoundedCanvasScale,
+  MAX_QUALITY_TEMP_PIXELS,
+  MAX_REALTIME_TEMP_PIXELS,
+  resolveOutputCanvasDimensions,
+} from '@/lib/canvasRenderBudget';
+import { resolveMotionBlurTiming } from './motionBlurTiming';
+import type { RendererState } from './rendererState';
 import {
   interpolateCursorPosition,
   logPreviewCursorDebug,
   updateSquishAnimation,
 } from './drawFrameCursor';
 import { isUnmaskedCanvasCoveringVideo, traceVideoFramePath } from './videoFrameSurface';
-
-// ---------------------------------------------------------------------------
-// RendererState - all mutable state needed by drawFrame
-// ---------------------------------------------------------------------------
-
-export interface RendererState {
-  // Cursor images
-  cursorImages: CursorImageSet;
-  cursorState: CursorRenderState;
-
-  // Gradient caches
-  gradientCache: GradientCache;
-  customBgCache: CustomBgCache;
-
-  // Keystroke state
-  keystrokeState: KeystrokeState;
-
-  // Squish animation
-  currentSquishScale: number;
-  squishTarget: number;
-  squishAnimFrom: number;
-  squishAnimProgress: number;
-  squishAnimDuration: number;
-  squishHasRoom: boolean;    // locked-in at animation start -- keeps easing consistent mid-animation
-  lastHoldTime: number;
-  lastActiveEventId: string | null;
-
-  // Motion blur canvases (reused across frames)
-  blurAccumCanvas: OffscreenCanvas | null;
-  blurAccumCtx: OffscreenCanvasRenderingContext2D | null;
-  blurSubCanvas: OffscreenCanvas | null;
-  blurSubCtx: OffscreenCanvasRenderingContext2D | null;
-  webcamFrameCanvas: OffscreenCanvas | null;
-  webcamFrameCtx: OffscreenCanvasRenderingContext2D | null;
-  webcamFrameReady: boolean;
-
-  // Timing
-  isDrawing: boolean;
-  lastDrawTime: number;
-  latestElapsed: number;
-
-  // Cursor processing cache
-  processedCursorPositions: MousePosition[] | null;
-  lastMousePositionsRef: MousePosition[] | null;
-  lastCursorProcessSignature: string;
-  lastCursorNormalizationSignature: string;
-  lastCursorPreviewDebugSignature: string;
-  lastCursorPreviewDebugBucket: number;
-  lastCursorPreviewDebugPoint: { x: number; y: number } | null;
-
-  // Methods from VideoRenderer that drawFrame delegates to
-  calculateCurrentZoomState: (
-    currentTime: number,
-    segment: VideoSegment,
-    viewW: number,
-    viewH: number,
-    srcCropW?: number,
-    srcCropH?: number,
-    videoScale?: number,
-  ) => ZoomKeyframe;
-  requestRedraw: () => void;
-}
 
 // ---------------------------------------------------------------------------
 // drawFrame - main rendering entry point
@@ -149,11 +92,15 @@ export async function drawFrame(
   state.latestElapsed = state.lastDrawTime === 0 ? 1000 / 60 : now - state.lastDrawTime;
   state.lastDrawTime = now;
 
+  const timelineOnlyDimensions = resolveOutputCanvasDimensions(
+    backgroundConfig.canvasWidth ?? 1920,
+    backgroundConfig.canvasHeight ?? 1080,
+  );
   const vidW = isTimelineOnly
-    ? Math.max(backgroundConfig.canvasWidth ?? 1920, 1)
+    ? timelineOnlyDimensions.width
     : video.videoWidth;
   const vidH = isTimelineOnly
-    ? Math.max(backgroundConfig.canvasHeight ?? 1080, 1)
+    ? timelineOnlyDimensions.height
     : video.videoHeight;
   const webcamAspectRatio =
     webcamVideo && webcamVideo.videoWidth > 0 && webcamVideo.videoHeight > 0
@@ -180,12 +127,16 @@ export async function drawFrame(
     backgroundConfig.canvasMode === 'custom' &&
     backgroundConfig.canvasWidth &&
     backgroundConfig.canvasHeight;
-  const canvasW = useExplicitCanvas
+  const requestedCanvasW = useExplicitCanvas
     ? backgroundConfig.canvasWidth!
     : (autoGeometry?.width ?? Math.round(srcW));
-  const canvasH = useExplicitCanvas
+  const requestedCanvasH = useExplicitCanvas
     ? backgroundConfig.canvasHeight!
     : (autoGeometry?.height ?? Math.round(srcH));
+  const { width: canvasW, height: canvasH } = resolveOutputCanvasDimensions(
+    requestedCanvasW,
+    requestedCanvasH,
+  );
 
   if (canvas.width !== canvasW || canvas.height !== canvasH) {
     canvas.width = canvasW;
@@ -230,25 +181,23 @@ export async function drawFrame(
     // Supersample to keep zoom crisp
     const zf = zoomState?.zoomFactor ?? 1;
     const bgScale = Math.max(0.01, backgroundConfig.scale / 100);
-    let ss = 1;
     const fullQualitySs = zf > 1 ? Math.min(Math.ceil(zf / bgScale), 4) : 1;
     const isRealtimePreview = !isExportMode && !isTimelineOnly && !video.paused;
-
-    if (!isRealtimePreview) {
-      ss = fullQualitySs;
-    } else {
+    let requestedSs = fullQualitySs;
+    if (isRealtimePreview) {
       const requiredSs = zf / bgScale;
-      if (requiredSs > 1.05) {
-        ss = Math.min(requiredSs, 2.5);
-        const maxTempWidth = 3840;
-        if (canvasW * ss > maxTempWidth) {
-          ss = Math.max(1, maxTempWidth / canvasW);
-        }
-      }
+      requestedSs = requiredSs > 1.05 ? Math.min(requiredSs, 2.5) : 1;
     }
+    const ss = getBoundedCanvasScale(
+      canvasW,
+      canvasH,
+      requestedSs,
+      isRealtimePreview ? MAX_REALTIME_TEMP_PIXELS : MAX_QUALITY_TEMP_PIXELS,
+      isRealtimePreview ? 4096 : 8192,
+    );
     // --- Prepare tempCanvas (video + shadow + border radius) ---
-    const tempW = Math.round(canvasW * ss);
-    const tempH = Math.round(canvasH * ss);
+    const tempW = Math.max(1, Math.round(canvasW * ss));
+    const tempH = Math.max(1, Math.round(canvasH * ss));
     if (tempCanvas.width !== tempW || tempCanvas.height !== tempH) {
       tempCanvas.width = tempW;
       tempCanvas.height = tempH;
@@ -260,7 +209,7 @@ export async function drawFrame(
     tempCtx.save();
     tempCtx.imageSmoothingEnabled = true;
     tempCtx.imageSmoothingQuality = 'high';
-    if (ss > 1) tempCtx.scale(ss, ss);
+    if (Math.abs(ss - 1) > 0.0001) tempCtx.scale(ss, ss);
 
     const radius = backgroundConfig.borderRadius;
     const frameRect = { left: x, top: y, width: scaledWidth, height: scaledHeight };
@@ -294,7 +243,8 @@ export async function drawFrame(
           srcX, srcY, srcW, srcH * (1 - legacyCrop),
           x, y, scaledWidth, scaledHeight
         );
-      } catch (_e) {
+      } catch {
+        // A media frame can be unavailable briefly while its source is changing.
       }
     }
 
@@ -388,8 +338,10 @@ export async function drawFrame(
       tCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
       subZoom: ZoomKeyframe | null,
       subCur: { x: number; y: number; isClicked: boolean; cursor_type: string; cursor_rotation?: number } | null,
+      renderScale = 1,
     ) => {
       tCtx.save();
+      tCtx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
       if (!backgroundFollowsZoom) {
         drawBackground(tCtx);
       }
@@ -409,7 +361,7 @@ export async function drawFrame(
 
       if (subCur && showCursor) {
         tCtx.save();
-        tCtx.setTransform(1, 0, 0, 1, 0, 0);
+        tCtx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
         tCtx.globalAlpha = cursorVis.opacity;
         const sp = cursorScreenPos(subCur, subZoom);
         const cScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (subZoom?.zoomFactor || 1) * cursorVis.scale;
@@ -431,17 +383,25 @@ export async function drawFrame(
     const blurZoomVal = backgroundConfig.motionBlurZoom ?? 10;
     const blurPanVal = backgroundConfig.motionBlurPan ?? 10;
     const blurCursorVal = backgroundConfig.motionBlurCursor ?? 25;
-    const maxBlurVal = Math.max(blurZoomVal, blurPanVal, blurCursorVal) / 100.0;
-    const anyBlurEnabled = maxBlurVal > 0.0001;
-
-    const exportStep = 1 / 60;
-    const zoomShutterSec = (blurZoomVal / 100.0) * exportStep;
-    const panShutterSec = (blurPanVal / 100.0) * exportStep;
-    const cursorShutterSec = (blurCursorVal / 100.0) * exportStep;
-    const maxShutterSec = Math.max(zoomShutterSec, panShutterSec, cursorShutterSec);
-
-    const targetSamples = anyBlurEnabled ? Math.max(2, Math.min(8, Math.ceil(maxBlurVal * 8.0))) : 1;
-    const N = targetSamples;
+    const blurTiming = resolveMotionBlurTiming(
+      segment,
+      frameTime,
+      context.outputFrameRate ?? 60,
+      blurZoomVal,
+      blurPanVal,
+      blurCursorVal,
+    );
+    const {
+      zoomEnabled,
+      panEnabled,
+      cursorEnabled,
+      zoomShutterSec,
+      panShutterSec,
+      cursorShutterSec,
+      maxShutterSec,
+      sampleCount: N,
+    } = blurTiming;
+    const anyBlurEnabled = N > 1;
 
     let cameraMoving = false;
     let cursorMoving = false;
@@ -449,15 +409,15 @@ export async function drawFrame(
       const halfShutter = maxShutterSec / 2;
       const t0 = frameTime - halfShutter;
       const t1 = frameTime + halfShutter;
-      if (blurZoomVal > 0 || blurPanVal > 0) {
+      if (zoomEnabled || panEnabled) {
         const z0 = state.calculateCurrentZoomState(t0, renderSegment, canvasW, canvasH, srcW, srcH, scale);
         const z1 = state.calculateCurrentZoomState(t1, renderSegment, canvasW, canvasH, srcW, srcH, scale);
         if (z0 && z1) {
-          if (blurZoomVal > 0 && Math.abs(z0.zoomFactor - z1.zoomFactor) > 0.002) cameraMoving = true;
-          if (blurPanVal > 0 && (Math.abs(z0.positionX - z1.positionX) > 0.001 || Math.abs(z0.positionY - z1.positionY) > 0.001)) cameraMoving = true;
+          if (zoomEnabled && Math.abs(z0.zoomFactor - z1.zoomFactor) > 0.002) cameraMoving = true;
+          if (panEnabled && (Math.abs(z0.positionX - z1.positionX) > 0.001 || Math.abs(z0.positionY - z1.positionY) > 0.001)) cameraMoving = true;
         }
       }
-      if (blurCursorVal > 0 && shouldRenderCustomCursor && interpolatedPosition) {
+      if (cursorEnabled && shouldRenderCustomCursor && interpolatedPosition) {
         const delay = getCursorMovementDelaySec(backgroundConfig);
         const c0 = interpolateCursorPosition(t0 + delay, mousePositions, state, vidW, vidH, backgroundConfig);
         const c1 = interpolateCursorPosition(t1 + delay, mousePositions, state, vidW, vidH, backgroundConfig);
@@ -466,19 +426,26 @@ export async function drawFrame(
     }
 
     ctx.save();
+    const blurSurface = getBoundedCanvasSize(
+      canvasW,
+      canvasH,
+      MAX_REALTIME_TEMP_PIXELS,
+      4096,
+    );
 
     if (cameraMoving && N > 1) {
-      if (!state.blurAccumCanvas || state.blurAccumCanvas.width !== canvasW || state.blurAccumCanvas.height !== canvasH) {
-        state.blurAccumCanvas = new OffscreenCanvas(canvasW, canvasH);
+      if (!state.blurAccumCanvas || state.blurAccumCanvas.width !== blurSurface.width || state.blurAccumCanvas.height !== blurSurface.height) {
+        state.blurAccumCanvas = new OffscreenCanvas(blurSurface.width, blurSurface.height);
         state.blurAccumCtx = state.blurAccumCanvas.getContext('2d')!;
       }
-      if (!state.blurSubCanvas || state.blurSubCanvas.width !== canvasW || state.blurSubCanvas.height !== canvasH) {
-        state.blurSubCanvas = new OffscreenCanvas(canvasW, canvasH);
+      if (!state.blurSubCanvas || state.blurSubCanvas.width !== blurSurface.width || state.blurSubCanvas.height !== blurSurface.height) {
+        state.blurSubCanvas = new OffscreenCanvas(blurSurface.width, blurSurface.height);
         state.blurSubCtx = state.blurSubCanvas.getContext('2d')!;
       }
       const aCtx = state.blurAccumCtx!;
       const sCtx = state.blurSubCtx!;
-      aCtx.clearRect(0, 0, canvasW, canvasH);
+      aCtx.setTransform(1, 0, 0, 1, 0, 0);
+      aCtx.clearRect(0, 0, blurSurface.width, blurSurface.height);
 
       for (let i = 0; i < N; i++) {
         const f = N > 1 ? i / (N - 1) : 0.5;
@@ -490,17 +457,18 @@ export async function drawFrame(
         const pState = state.calculateCurrentZoomState(cameraPanSubT, renderSegment, canvasW, canvasH, srcW, srcH, scale);
         const subZoom: ZoomKeyframe | null = zState ? {
           ...zState,
-          zoomFactor: blurZoomVal > 0 ? zState.zoomFactor : (zoomState?.zoomFactor ?? 1),
-          positionX: blurPanVal > 0 && pState ? pState.positionX : (zoomState?.positionX ?? 0.5),
-          positionY: blurPanVal > 0 && pState ? pState.positionY : (zoomState?.positionY ?? 0.5),
+          zoomFactor: zoomEnabled ? zState.zoomFactor : (zoomState?.zoomFactor ?? 1),
+          positionX: panEnabled && pState ? pState.positionX : (zoomState?.positionX ?? 0.5),
+          positionY: panEnabled && pState ? pState.positionY : (zoomState?.positionY ?? 0.5),
         } : zoomState;
 
         const subCur = cursorMoving
           ? interpolateCursorPosition(cursorSubT, mousePositions, state, vidW, vidH, backgroundConfig)
           : interpolatedPosition;
 
-        sCtx.clearRect(0, 0, canvasW, canvasH);
-        drawSubFrame(sCtx, subZoom, subCur);
+        sCtx.setTransform(1, 0, 0, 1, 0, 0);
+        sCtx.clearRect(0, 0, blurSurface.width, blurSurface.height);
+        drawSubFrame(sCtx, subZoom, subCur, blurSurface.scale);
 
         aCtx.save();
         aCtx.globalAlpha = 1 / (i + 1);
@@ -509,18 +477,19 @@ export async function drawFrame(
       }
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(state.blurAccumCanvas, 0, 0);
+      ctx.drawImage(state.blurAccumCanvas, 0, 0, canvasW, canvasH);
 
     } else if (cursorMoving && showCursor && N > 1) {
       // --- CURSOR-ONLY BLUR PATH: single video draw + multi-cursor ---
       drawSubFrame(ctx, zoomState, null);
 
-      if (!state.blurAccumCanvas || state.blurAccumCanvas.width !== canvasW || state.blurAccumCanvas.height !== canvasH) {
-        state.blurAccumCanvas = new OffscreenCanvas(canvasW, canvasH);
+      if (!state.blurAccumCanvas || state.blurAccumCanvas.width !== blurSurface.width || state.blurAccumCanvas.height !== blurSurface.height) {
+        state.blurAccumCanvas = new OffscreenCanvas(blurSurface.width, blurSurface.height);
         state.blurAccumCtx = state.blurAccumCanvas.getContext('2d')!;
       }
       const aCtx = state.blurAccumCtx!;
-      aCtx.clearRect(0, 0, canvasW, canvasH);
+      aCtx.setTransform(1, 0, 0, 1, 0, 0);
+      aCtx.clearRect(0, 0, blurSurface.width, blurSurface.height);
 
       for (let i = 0; i < N; i++) {
         const f = N > 1 ? i / (N - 1) : 0.5;
@@ -529,7 +498,7 @@ export async function drawFrame(
         if (!subCur) continue;
 
         aCtx.save();
-        aCtx.setTransform(1, 0, 0, 1, 0, 0);
+        aCtx.setTransform(blurSurface.scale, 0, 0, blurSurface.scale, 0, 0);
         aCtx.globalCompositeOperation = 'lighter';
         aCtx.globalAlpha = cursorVis.opacity / N;
         const sp = cursorScreenPos(subCur, zoomState);
@@ -547,7 +516,7 @@ export async function drawFrame(
       }
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(state.blurAccumCanvas, 0, 0);
+      ctx.drawImage(state.blurAccumCanvas, 0, 0, canvasW, canvasH);
 
     } else {
       // --- NO BLUR PATH: single draw ---
@@ -555,21 +524,13 @@ export async function drawFrame(
     }
     drawWebcamOverlay(ctx, zoomState, state, video, webcamVideo, segment, webcamConfig, canvasW, canvasH, webcamAspectRatio);
 
-    const visibleSubtitles = getVisibleSubtitleSegments(segment);
     const overlayTextSegments = [
-      ...visibleSubtitles,
-      ...(segment.textSegments ?? []),
+      ...getActiveTimedSegments(getVisibleSubtitleSegments(segment), frameTime),
+      ...getActiveTimedSegments(segment.textSegments, frameTime),
     ];
     if (overlayTextSegments.length > 0) {
       for (const textSegment of overlayTextSegments) {
-        if (frameTime >= textSegment.startTime && frameTime <= textSegment.endTime) {
-          // Fade is owned entirely by getTextAnimationState (inside drawTextOverlay),
-          // matching export which applies animation.alpha exactly once. Previously a
-          // second manual 0.3s linear fade was multiplied on top, double-darkening
-          // transitions (alpha-squared) and overriding the per-segment animation
-          // preset and its custom in/out durations.
-          drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, 1.0, frameTime);
-        }
+        drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, 1, frameTime);
       }
       canvas.style.fontVariationSettings = 'normal';
     }

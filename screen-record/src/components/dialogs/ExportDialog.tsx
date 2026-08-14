@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { FolderOpen } from '@/components/ui/MaterialIcon';
 import { invoke } from '@/lib/ipc';
+import { notifyUserError } from '@/lib/userNotifications';
 import {
   Dialog,
   DialogContent,
@@ -133,7 +134,7 @@ export function ExportDialog({
         setExportOptions(prev => ({ ...prev, outputDir: selected }));
       }
     } catch (e) {
-      console.error('[Export] Failed to pick export dir:', e);
+      notifyUserError('folderPickerFailed', e);
     } finally {
       setIsPickingDir(false);
     }
@@ -459,6 +460,7 @@ export function ExportDialog({
                   <div className="bitrate-slider-row flex items-center gap-3">
                     <input
                       type="range"
+                      aria-label={t.videoBitrate}
                       min={bitrateBounds.minKbps}
                       max={bitrateBounds.maxKbps}
                       step={bitrateBounds.stepKbps}

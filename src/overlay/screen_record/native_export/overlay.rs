@@ -1,15 +1,28 @@
 use base64::Engine;
+use sha2::{Digest as _, Sha256};
 use std::collections::HashMap;
 use std::fs;
+use std::io::Read;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
+
+const MAX_BACKGROUND_BYTES: usize = 64 * 1024 * 1024;
+const MAX_BACKGROUND_BASE64_BYTES: usize = MAX_BACKGROUND_BYTES.div_ceil(3) * 4;
+const MAX_BACKGROUND_PIXELS: u64 = 67_108_864;
 
 #[derive(Clone)]
 struct CachedCustomBackground {
     rgba: Arc<Vec<u8>>,
     width: u32,
     height: u32,
-    file_len: Option<u64>,
+    file_stamp: Option<FileStamp>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FileStamp {
+    len: u64,
+    modified: Option<SystemTime>,
 }
 
 fn custom_bg_cache() -> &'static Mutex<HashMap<String, CachedCustomBackground>> {
@@ -17,26 +30,50 @@ fn custom_bg_cache() -> &'static Mutex<HashMap<String, CachedCustomBackground>> 
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Normalize cache key: strip `?v=` query params and `#` fragments from
-/// file-backed `/bg-downloaded/` URLs. Data URLs are used as-is.
-fn normalize_cache_key(url: &str) -> &str {
+fn cache_key(url: &str) -> Result<String, String> {
     if url.starts_with("data:") {
-        return url;
+        if url.len() > MAX_BACKGROUND_BASE64_BYTES + 64 {
+            return Err("Custom background data URL exceeds the 64 MiB limit".to_string());
+        }
+        let digest = Sha256::digest(url.as_bytes());
+        return Ok(format!(
+            "data:{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
+        ));
     }
-    url.split(['?', '#']).next().unwrap_or(url)
+    Ok(url.split(['?', '#']).next().unwrap_or(url).to_string())
 }
 
-/// Cheaply get the on-disk file size for a `/bg-downloaded/` URL.
-/// Returns `None` for data URLs or if the path can't be resolved.
-fn file_backed_len(url: &str) -> Option<u64> {
-    let pos = url.find("/bg-downloaded/")?;
+fn downloaded_background_path(url: &str) -> Result<PathBuf, String> {
+    let pos = url
+        .find("/bg-downloaded/")
+        .ok_or_else(|| "Unsupported custom background source".to_string())?;
     let rel = &url[pos + "/bg-downloaded/".len()..];
     let rel = rel.split(['?', '#']).next().unwrap_or(rel);
-    let file_path = dirs::data_local_dir()?
+    let (stem, ext) = rel
+        .rsplit_once('.')
+        .ok_or_else(|| "Downloadable background has no supported extension".to_string())?;
+    super::validation::validate_identifier(stem, "background file id")?;
+    if !matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "png" | "jpg" | "jpeg" | "webp"
+    ) {
+        return Err("Downloadable background extension is unsupported".to_string());
+    }
+    let root = dirs::data_local_dir()
+        .ok_or_else(|| "Failed to resolve local app data directory".to_string())?
         .join("screen-goated-toolbox")
-        .join("backgrounds")
-        .join(rel);
-    fs::metadata(&file_path).ok().map(|m| m.len())
+        .join("backgrounds");
+    Ok(root.join(rel))
+}
+
+fn file_backed_stamp(url: &str) -> Option<FileStamp> {
+    let path = downloaded_background_path(url).ok()?;
+    let metadata = fs::metadata(path).ok()?;
+    Some(FileStamp {
+        len: metadata.len(),
+        modified: metadata.modified().ok(),
+    })
 }
 
 pub fn decode_custom_background_bytes(custom_background: &str) -> Result<Vec<u8>, String> {
@@ -44,32 +81,50 @@ pub fn decode_custom_background_bytes(custom_background: &str) -> Result<Vec<u8>
         let (meta, data) = rest
             .split_once(',')
             .ok_or_else(|| "Invalid custom background data URL".to_string())?;
-        if !meta.contains(";base64") {
-            return Err("Custom background data URL must be base64".to_string());
+        if !matches!(
+            meta.to_ascii_lowercase().as_str(),
+            "image/png;base64" | "image/jpeg;base64" | "image/jpg;base64" | "image/webp;base64"
+        ) {
+            return Err("Custom background data URL must be a supported base64 image".to_string());
         }
-        return base64::engine::general_purpose::STANDARD
+        if data.len() > MAX_BACKGROUND_BASE64_BYTES {
+            return Err("Custom background data URL exceeds the 64 MiB limit".to_string());
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .map_err(|e| format!("Failed to decode custom background base64: {}", e));
+        let bytes = bytes?;
+        if bytes.len() > MAX_BACKGROUND_BYTES {
+            return Err("Custom background exceeds the 64 MiB limit".to_string());
+        }
+        return Ok(bytes);
     }
 
-    if let Some(pos) = custom_background.find("/bg-downloaded/") {
-        let rel = &custom_background[pos + "/bg-downloaded/".len()..];
-        let rel = rel.split(['?', '#']).next().unwrap_or(rel);
-        if rel.is_empty() || rel.contains("..") || rel.contains('/') || rel.contains('\\') {
-            return Err("Invalid downloadable background path".to_string());
-        }
-        let file_path = dirs::data_local_dir()
-            .ok_or_else(|| "Failed to resolve local app data directory".to_string())?
-            .join("screen-goated-toolbox")
-            .join("backgrounds")
-            .join(rel);
-        return fs::read(&file_path).map_err(|e| {
+    if custom_background.contains("/bg-downloaded/") {
+        let file_path = downloaded_background_path(custom_background)?;
+        let metadata = fs::symlink_metadata(&file_path).map_err(|error| {
             format!(
-                "Failed to read downloadable background {}: {}",
-                file_path.display(),
-                e
+                "Failed to inspect background {}: {error}",
+                file_path.display()
             )
-        });
+        })?;
+        if !metadata.file_type().is_file() || metadata.len() > MAX_BACKGROUND_BYTES as u64 {
+            return Err("Downloadable background is not a bounded regular file".to_string());
+        }
+        let mut file = fs::File::open(&file_path).map_err(|error| {
+            format!("Failed to open background {}: {error}", file_path.display())
+        })?;
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        file.by_ref()
+            .take(MAX_BACKGROUND_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| {
+                format!("Failed to read background {}: {error}", file_path.display())
+            })?;
+        if bytes.len() > MAX_BACKGROUND_BYTES {
+            return Err("Downloadable background exceeds the 64 MiB limit".to_string());
+        }
+        return Ok(bytes);
     }
 
     Err("Unsupported custom background source".to_string())
@@ -79,19 +134,19 @@ pub fn load_custom_background_rgba(
     custom_background: &str,
 ) -> Result<(Arc<Vec<u8>>, u32, u32), String> {
     let total_start = Instant::now();
-    let cache_key = normalize_cache_key(custom_background);
+    let cache_key = cache_key(custom_background)?;
 
     if let Some(hit) = custom_bg_cache()
         .lock()
         .map_err(|_| "Custom background cache lock poisoned".to_string())?
-        .get(cache_key)
+        .get(&cache_key)
         .cloned()
     {
         // For file-backed backgrounds, verify the file size hasn't changed
         // (cheap stat check guards against content replacement on disk).
-        let stale = match (hit.file_len, file_backed_len(custom_background)) {
-            (Some(cached_len), Some(disk_len)) => cached_len != disk_len,
-            _ => false,
+        let stale = match hit.file_stamp {
+            Some(cached) => Some(cached) != file_backed_stamp(custom_background),
+            None => false,
         };
         if !stale {
             eprintln!(
@@ -109,6 +164,18 @@ pub fn load_custom_background_rgba(
     let read_start = Instant::now();
     let raw = decode_custom_background_bytes(custom_background)?;
     let read_ms = read_start.elapsed().as_secs_f64() * 1000.0;
+    let reader = image::ImageReader::new(std::io::Cursor::new(&raw))
+        .with_guessed_format()
+        .map_err(|error| format!("Failed to detect custom background format: {error}"))?;
+    let (source_width, source_height) = reader
+        .into_dimensions()
+        .map_err(|error| format!("Failed to read custom background dimensions: {error}"))?;
+    if source_width == 0
+        || source_height == 0
+        || u64::from(source_width) * u64::from(source_height) > MAX_BACKGROUND_PIXELS
+    {
+        return Err("Custom background dimensions exceed the supported limit".to_string());
+    }
     let decode_start = Instant::now();
     let decoded = image::load_from_memory(&raw)
         .map_err(|e| format!("Failed to decode custom background image: {}", e))?;
@@ -135,45 +202,6 @@ pub fn load_custom_background_rgba(
             "[CustomBg] Downscaled legacy oversized image to {}x{} in {:.2}ms",
             width, height, resize_ms
         );
-
-        // Self-heal on disk for file-backed downloadable/uploaded backgrounds so the
-        // expensive resize/decode is only paid once.
-        if let Some(pos) = custom_background.find("/bg-downloaded/") {
-            let rel = &custom_background[pos + "/bg-downloaded/".len()..];
-            let rel = rel.split(['?', '#']).next().unwrap_or(rel);
-            if !rel.is_empty()
-                && !rel.contains("..")
-                && !rel.contains('/')
-                && !rel.contains('\\')
-                && let Some(dir) = dirs::data_local_dir()
-            {
-                let file_path = dir
-                    .join("screen-goated-toolbox")
-                    .join("backgrounds")
-                    .join(rel);
-                if file_path.exists() {
-                    let ext = file_path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("")
-                        .to_ascii_lowercase();
-                    if ext == "jpg" || ext == "jpeg" {
-                        let mut out = Vec::new();
-                        let mut enc =
-                            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 92);
-                        let rgb_image =
-                            image::DynamicImage::ImageRgba8(rgba_image.clone()).to_rgb8();
-                        if enc
-                            .encode_image(&image::DynamicImage::ImageRgb8(rgb_image))
-                            .is_ok()
-                            && std::fs::write(&file_path, &out).is_ok()
-                        {
-                            eprintln!("[CustomBg] Self-healed legacy oversized image in-place");
-                        }
-                    }
-                }
-            }
-        }
     }
 
     let rgba = Arc::new(rgba_image.into_raw());
@@ -183,12 +211,12 @@ pub fn load_custom_background_rgba(
             cache.clear();
         }
         cache.insert(
-            cache_key.to_string(),
+            cache_key,
             CachedCustomBackground {
                 rgba: Arc::clone(&rgba),
                 width,
                 height,
-                file_len: file_backed_len(custom_background),
+                file_stamp: file_backed_stamp(custom_background),
             },
         );
     }

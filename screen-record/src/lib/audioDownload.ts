@@ -1,6 +1,7 @@
 import { invoke } from "@/lib/ipc";
 import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from "@/lib/trimSegments";
+import { sanitizeNativeExportValue } from "@/lib/videoExporterPreparation";
 import type {
   AudioDownloadFormat,
   AudioDownloadResult,
@@ -51,13 +52,6 @@ export interface StartAudioDownloadOptions {
   composition: ProjectComposition | null;
   resolveClipSourcePath: (clip: ProjectCompositionClip) => Promise<string>;
   resolveClipMicAudioPath: (clip: ProjectCompositionClip) => Promise<string>;
-}
-
-function sanitizeNativeExportValue<T>(value: T): T {
-  return JSON.parse(
-    JSON.stringify(value, (_key, nestedValue) =>
-      nestedValue === null ? undefined : nestedValue),
-  ) as T;
 }
 
 async function probeDuration(path: string): Promise<number> {

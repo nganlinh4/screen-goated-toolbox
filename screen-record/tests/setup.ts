@@ -39,6 +39,7 @@ HTMLCanvasElement.prototype.getContext = function getContext(contextId: string) 
     fill: () => {},
     closePath: () => {},
     createLinearGradient: () => ({ addColorStop: () => {} }),
+    createRadialGradient: () => ({ addColorStop: () => {} }),
     measureText: () => ({ width: 0 }),
     globalAlpha: 1,
     fillStyle: "",

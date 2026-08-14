@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CanvasModeToggle } from '@/components/CanvasModeToggle';
 import type { BackgroundConfig } from '@/types/video';
+import { normalizeBackgroundConfig } from '@/lib/backgroundConfig';
+import { resolveExportDimensions } from '@/lib/exportEstimator';
 
 const backgroundConfig: BackgroundConfig = {
   scale: 100,
@@ -37,5 +39,42 @@ describe('CanvasModeToggle', () => {
 
     fireEvent.click(autoButton);
     expect(setBackgroundConfig).toHaveBeenCalledOnce();
+  });
+
+  it('displays the same canonical custom dimensions that preview and export use', () => {
+    const stored = normalizeBackgroundConfig({
+      ...backgroundConfig,
+      canvasMode: 'custom',
+      canvasWidth: 100_001,
+      canvasHeight: 50_001,
+    });
+    const exported = resolveExportDimensions(
+      0,
+      0,
+      stored.canvasWidth!,
+      stored.canvasHeight!,
+    );
+    render(
+      <CanvasModeToggle
+        backgroundConfig={stored}
+        setBackgroundConfig={vi.fn()}
+        customCanvasBaseDimensions={exported}
+        getAutoCanvasSelectionConfig={() => ({
+          canvasMode: 'auto',
+          canvasWidth: exported.width,
+          canvasHeight: exported.height,
+          autoSourceClipId: 'root',
+        })}
+        handleActivateCustomCanvas={() => {}}
+        handleApplyCanvasRatioPreset={() => {}}
+        isAutoCanvasDisabled
+      />,
+    );
+
+    expect(stored.canvasWidth).toBe(exported.width);
+    expect(stored.canvasHeight).toBe(exported.height);
+    expect(screen.getByRole('button')).toHaveTextContent(
+      `Custom ${exported.width}×${exported.height}`,
+    );
   });
 });

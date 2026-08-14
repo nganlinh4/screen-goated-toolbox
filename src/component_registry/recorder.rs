@@ -14,6 +14,7 @@ use super::receipt::{
 use super::{ComponentLease, RemovalOutcome};
 
 mod install;
+mod recovery;
 mod staging;
 mod update;
 
@@ -132,6 +133,11 @@ pub(crate) fn remove_all() -> Result<()> {
     let _worker_shutdown = crate::overlay::screen_record::stop_for_component_removal()?;
     remove_one(WORKER_ID)?;
     remove_one(WEB_ID)
+}
+
+pub(crate) fn clean_all_recoveries() -> Result<Vec<recovery::CleanupOutcome>> {
+    let _mutation = super::acquire_mutation_guard()?;
+    recovery::clean_all()
 }
 
 pub(crate) fn remove_from_manager() -> Result<()> {
@@ -425,6 +431,15 @@ mod acceptance_tests {
     #[ignore = "opens the local recorder window"]
     fn active_recorder_is_stopped_before_removal_returns() {
         crate::overlay::screen_record::show_screen_record();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while !crate::overlay::screen_record::worker_process_is_active() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "recorder worker did not become active"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
 
         super::remove_all().unwrap();
 

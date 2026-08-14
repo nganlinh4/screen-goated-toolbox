@@ -277,8 +277,6 @@ export interface AppViewProps {
   isImportingAudio: boolean;
   isImportingSubtitle: boolean;
   recentUploads: string[];
-  recentUploadLimit: number;
-  setRecentUploadLimit: (limit: number) => void;
   handleRemoveRecentUpload: (url: string) => void;
   handleBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;
@@ -289,7 +287,10 @@ export interface AppViewProps {
   isProjectInteractionShieldVisible: boolean;
   handleLoadProjectFromGrid: (id: string) => Promise<void>;
   handleToggleProjects: () => void;
-  handleCloseProject: () => void;
+  handleCloseProject: () => Promise<boolean>;
+  handleClearProjects: () => Promise<void>;
+  handleDeleteProject: (id: string) => Promise<void>;
+  handleRenameProject: (id: string, name: string) => Promise<void>;
   handleOpenInsertProjectPicker: (
     clipId: string | null,
     placement: "before" | "after",

@@ -433,6 +433,7 @@ export default function CursorSvgLab() {
                   <span className="text-[10px] w-9 text-[var(--on-surface-variant)]">{t.cursorLabScale}</span>
                   <input
                     type="range"
+                    aria-label={t.cursorLabScale}
                     min="0.2"
                     max="4"
                     step="0.01"

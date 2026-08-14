@@ -16,7 +16,6 @@ import {
   setCompositionMode,
   syncCompositionCanvasConfig,
 } from "@/lib/projectComposition";
-import { isManagedCompositionSnapshotPath } from "@/lib/mediaServer";
 import type { PersistOptions } from "./index";
 import type { MutableRefObject } from "react";
 
@@ -141,14 +140,17 @@ export async function pickProjectForSequence(
     );
     return;
   }
-  if (
-    !snapshotRawVideoPath ||
-    (!snapshotRawMicAudioPath && pickedProject.micAudioBlob) ||
-    (!snapshotRawWebcamVideoPath && pickedProject.webcamBlob)
-  ) {
-    await projectManager.saveCompositionClipAssets(
+  const nextComposition = insertCompositionClip(
+    composition,
+    sequenceTargetClipId,
+    projectPickerMode === "insertBefore" ? "before" : "after",
+    snapshotClip,
+  );
+  try {
+    const applied = await projectManager.updateProjectWithCompositionClipAssets(
       currentProjectId,
       snapshotClip.id,
+      nextComposition,
       {
         videoBlob: !snapshotRawVideoPath ? pickedProject.videoBlob : undefined,
         audioBlob: !snapshotRawVideoPath ? pickedProject.audioBlob : undefined,
@@ -161,13 +163,19 @@ export async function pickProjectForSequence(
         customBackground: pickedProject.backgroundConfig.customBackground,
       },
     );
+    if (!applied) throw new Error("The project changed while the clip was being inserted");
+  } catch (error) {
+    await Promise.allSettled(
+      [
+        snapshotRawVideoPath,
+        snapshotRawMicAudioPath,
+        snapshotRawWebcamVideoPath,
+      ]
+        .filter((path): path is string => Boolean(path))
+        .map((path) => invoke("delete_file", { path })),
+    );
+    throw error;
   }
-  const nextComposition = insertCompositionClip(
-    composition,
-    sequenceTargetClipId,
-    projectPickerMode === "insertBefore" ? "before" : "after",
-    snapshotClip,
-  );
   setComposition(nextComposition);
   setProjectPickerMode(null);
   setShowProjectsDialog(false);
@@ -177,11 +185,12 @@ export async function pickProjectForSequence(
     currentProjectData,
     nextComposition,
   );
-  void persistRef.current?.({
+  await persistRef.current?.({
     refreshList: true,
     includeMedia: false,
     compositionOverride: nextComposition,
     skipLiveCompositionSync: true,
+    throwOnError: true,
   });
 }
 
@@ -261,38 +270,16 @@ export async function removeSequenceClip(
   const clip = getCompositionClip(composition, clipId);
   if (!clip || clip.role === "root" || composition.clips.length <= 1) return;
   const nextComposition = removeCompositionClip(composition, clipId);
+  await persistRef.current?.({
+    refreshList: true,
+    includeMedia: false,
+    compositionOverride: nextComposition,
+    skipLiveCompositionSync: true,
+    throwOnError: true,
+  });
   setComposition(nextComposition);
-  await projectManager.deleteCompositionClipAssets(currentProjectId, clipId);
-  if (
-    clip.rawVideoPath &&
-    isManagedCompositionSnapshotPath(clip.rawVideoPath)
-  ) {
-    try {
-      await invoke("delete_file", { path: clip.rawVideoPath });
-    } catch {
-      // ignore cleanup failures for snapshot media copies
-    }
-  }
-  if (
-    clip.rawMicAudioPath &&
-    isManagedCompositionSnapshotPath(clip.rawMicAudioPath)
-  ) {
-    try {
-      await invoke("delete_file", { path: clip.rawMicAudioPath });
-    } catch {
-      // ignore cleanup failures for snapshot media copies
-    }
-  }
-  if (
-    clip.rawWebcamVideoPath &&
-    isManagedCompositionSnapshotPath(clip.rawWebcamVideoPath)
-  ) {
-    try {
-      await invoke("delete_file", { path: clip.rawWebcamVideoPath });
-    } catch {
-      // ignore cleanup failures for snapshot media copies
-    }
-  }
+  // Keep durable media while the removed clip remains reachable from undo.
+  // Project deletion collects both active and retained clips.
   clipAssetCacheRef.current.delete(clipId);
   const cacheKey = `${currentProjectId}:${clipId}`;
   clipExportSourcePathCacheRef.current.delete(cacheKey);
@@ -327,12 +314,6 @@ export async function removeSequenceClip(
       nextComposition,
     );
   }
-  void persistRef.current?.({
-    refreshList: true,
-    includeMedia: false,
-    compositionOverride: nextComposition,
-    skipLiveCompositionSync: true,
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -412,6 +393,13 @@ export async function changeSequenceMode(
     }
     setSpreadFromClipId(null);
   }
+  await persistRef.current?.({
+    refreshList: false,
+    includeMedia: false,
+    compositionOverride: nextComposition,
+    skipLiveCompositionSync: true,
+    throwOnError: true,
+  });
   setComposition(nextComposition);
   const targetClipId =
     nextComposition.focusedClipId ?? nextComposition.selectedClipId;
@@ -423,10 +411,4 @@ export async function changeSequenceMode(
       nextComposition,
     );
   }
-  void persistRef.current?.({
-    refreshList: false,
-    includeMedia: false,
-    compositionOverride: nextComposition,
-    skipLiveCompositionSync: true,
-  });
 }

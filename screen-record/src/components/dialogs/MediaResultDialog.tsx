@@ -4,6 +4,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { FolderOpen, Copy, CheckCircle2 } from '@/components/ui/MaterialIcon';
 import { invoke } from '@/lib/ipc';
 import { getMediaServerUrl } from '@/lib/mediaServer';
+import { notifyUserError } from '@/lib/userNotifications';
 import { useSettings } from '@/hooks/useSettings';
 import type { ExportArtifact } from '@/types/video';
 import {
@@ -101,7 +102,7 @@ export function MediaResultDialog({
     setPreviewReady(false);
     getMediaServerUrl(filePath).then((url) => {
       setStreamUrl(url);
-    }).catch(console.error);
+    }).catch((error) => notifyUserError('mediaPreviewFailed', error));
   }, [show, filePath]);
 
   // Auto-select the name (minus extension) only when rename mode opens — not on
@@ -124,12 +125,20 @@ export function MediaResultDialog({
 
   const handleShowInFolder = async () => {
     if (!filePath) return;
-    try { await invoke('show_in_folder', { path: filePath }); } catch (e) { console.error(e); }
+    try {
+      await invoke('show_in_folder', { path: filePath });
+    } catch (error) {
+      notifyUserError('showInFolderFailed', error);
+    }
   };
 
   const handleCopyVideo = async () => {
     if (!filePath) return;
-    try { await invoke('copy_video_file_to_clipboard', { filePath }); } catch (e) { console.error(e); }
+    try {
+      await invoke('copy_video_file_to_clipboard', { filePath });
+    } catch (error) {
+      notifyUserError('copyMediaFailed', error);
+    }
   };
 
   const submitRename = async () => {
@@ -138,7 +147,7 @@ export function MediaResultDialog({
       const newPath = await invoke<string>('rename_file', { path: filePath, newName: renameValue.trim() });
       if (newPath) onFilePathChange(newPath);
     } catch (e) {
-      console.error('Rename failed', e);
+      notifyUserError('renameMediaFailed', e);
     } finally {
       setIsRenaming(false);
     }

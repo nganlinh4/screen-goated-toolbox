@@ -18,16 +18,27 @@ export interface SyntheticProjectOptions {
   narrationCount?: number;
   audioCount?: number;
   durationSec?: number;
+  clipCount?: number;
 }
 
-function makeSegment(durationSec: number, subtitles: SubtitleSegment[]): VideoSegment {
+function makeSegment(
+  durationSec: number,
+  subtitles: SubtitleSegment[],
+  clipIndex = 0,
+): VideoSegment {
   return {
     mediaMode: "timelineOnly",
     trimStart: 0,
     trimEnd: durationSec,
     zoomKeyframes: [],
     zoomBlocks: [],
-    textSegments: [],
+    textSegments: [{
+      id: `synthetic-text-${clipIndex}`,
+      startTime: 0.5,
+      endTime: Math.min(durationSec, 3),
+      text: `Clip ${clipIndex + 1} overlay`,
+      style: { ...defaultSubtitleStyle(), x: 50, y: 20 },
+    }],
     subtitleTracks: [
       {
         id: "original",
@@ -51,6 +62,12 @@ function makeSegment(durationSec: number, subtitles: SubtitleSegment[]): VideoSe
     micAudioPoints: [],
     deviceAudioAvailable: true,
     micAudioAvailable: false,
+    webcamAvailable: true,
+    webcamVisibilitySegments: [{
+      id: `synthetic-webcam-${clipIndex}`,
+      startTime: 0,
+      endTime: durationSec,
+    }],
   };
 }
 
@@ -110,6 +127,7 @@ export function createSyntheticProjectFixture(options: SyntheticProjectOptions =
   const subtitleCount = options.subtitleCount ?? (profile === "mega" ? 50_000 : profile === "huge" ? 10_000 : 12);
   const narrationCount = options.narrationCount ?? (profile === "mega" ? 5_000 : profile === "huge" ? 1_000 : 4);
   const audioCount = options.audioCount ?? (profile === "mega" ? 500 : profile === "huge" ? 80 : 2);
+  const clipCount = Math.max(1, Math.min(8, options.clipCount ?? 1));
   const subtitles = makeSubtitles(subtitleCount, durationSec);
   const segment = makeSegment(durationSec, subtitles);
   const backgroundConfig = {
@@ -120,23 +138,28 @@ export function createSyntheticProjectFixture(options: SyntheticProjectOptions =
   };
   const audioSegments = makeAudioSegments(audioCount, durationSec);
   const narrationSegments = makeNarrationSegments(narrationCount, durationSec);
+  const clips = Array.from({ length: clipCount }, (_, index) => {
+    const clipSegment = index === 0
+      ? segment
+      : makeSegment(durationSec, makeSubtitles(subtitleCount, durationSec), index);
+    return {
+      id: index === 0 ? "root" : `clip-${index}`,
+      role: index === 0 ? "root" as const : "snapshot" as const,
+      name: `Synthetic Clip ${index + 1}`,
+      duration: durationSec,
+      segment: clipSegment,
+      backgroundConfig,
+      webcamConfig: DEFAULT_WEBCAM_CONFIG,
+      mousePositions: [],
+      rawVideoPath: `C:\\SGT-Test\\synthetic-${index}.mp4`,
+      rawWebcamVideoPath: `C:\\SGT-Test\\synthetic-webcam-${index}.mp4`,
+    };
+  });
   const composition: ProjectComposition = {
     mode: "separate",
     selectedClipId: "root",
     focusedClipId: "root",
-    clips: [
-      {
-        id: "root",
-        role: "root",
-        name: "Synthetic Root",
-        duration: durationSec,
-        segment,
-        backgroundConfig,
-        webcamConfig: DEFAULT_WEBCAM_CONFIG,
-        mousePositions: [],
-        rawVideoPath: "C:\\SGT-Test\\synthetic-root.mp4",
-      },
-    ],
+    clips,
     audioSegments,
     audioTrackVolumePoints: [
       { time: 0, volume: 1 },

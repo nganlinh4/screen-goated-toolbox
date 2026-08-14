@@ -1,30 +1,61 @@
-import type { Project } from "@/types/video";
+import type { Project, ProjectComposition } from "@/types/video";
 import { invoke } from "@/lib/ipc";
 import { isManagedCompositionSnapshotPath } from "@/lib/mediaServer";
 import {
   APP_META_STORE,
   buildCompositionAssetKey,
   idbDelete,
+  idbCreateProjectBundle,
+  idbDeleteCompositionAssetBundle,
+  idbDeleteProjectBundle,
   idbGet,
   idbGetAll,
   idbPut,
+  idbUpdateProjectBundle,
+  idbUpdateProjectWithCompositionAssetBundle,
+  idbWriteCompositionAssetBundle,
   isTimelineOnlyProject,
   LEGACY_PROJECTS_KEY,
   PROJECT_MIGRATION_KEY,
   PROJECT_SWITCH_DEBUG,
   PROJECTS_STORE,
   sortProjectsByDisplayOrder,
-  stripHeavyProjectFields,
   summarizeProjectUpdate,
   summarizeStoredProject,
   type StoredProjectRecord,
 } from "@/lib/projectStorage";
+import {
+  ProjectWriteCoordinator,
+  type ProjectWriteIntent,
+} from "@/lib/projectWriteCoordinator";
+import {
+  collectProjectCustomBackgroundUrls,
+  normalizeProjectName,
+} from "@/lib/projectMetadata";
 
 class ProjectManager {
   private limit = normalizeProjectLimit(
     (window as any).__SR_INITIAL_PROJECT_LIMIT__,
   );
   private migrationPromise: Promise<void> | null = null;
+  private readonly writes = new ProjectWriteCoordinator();
+  private activeProjectId: string | null = null;
+
+  setActiveProjectId(projectId: string | null): void {
+    this.activeProjectId = projectId;
+  }
+
+  createEditorWriteIntent(projectId: string): ProjectWriteIntent {
+    return this.writes.createEditorIntent(projectId);
+  }
+
+  invalidateEditorWrites(projectId: string): void {
+    this.writes.invalidateEditorIntents(projectId);
+  }
+
+  isEditorWriteIntentLatest(intent: ProjectWriteIntent): boolean {
+    return this.writes.isLatest(intent);
+  }
 
   setLimit(newLimit: number) {
     this.applyHostLimit(newLimit);
@@ -43,9 +74,7 @@ class ProjectManager {
   async getManagedCustomBackgroundUrls(): Promise<string[]> {
     await this.ensureProjectStoreReady();
     const projects = await this.getProjectRecords();
-    const urls = projects
-      .map((project) => project.backgroundConfig?.customBackground)
-      .filter((value): value is string => typeof value === "string");
+    const urls = collectProjectCustomBackgroundUrls(projects);
     const compositionUrls = await idbGetAll<string>("composition_custom_backgrounds");
     return [...new Set([...urls, ...compositionUrls].filter(Boolean))];
   }
@@ -62,20 +91,7 @@ class ProjectManager {
       lastModified: Date.now(),
     };
 
-    if (newProject.videoBlob) {
-      await this.saveVideoBlob(newProject.id, newProject.videoBlob);
-    }
-    if (newProject.audioBlob) {
-      await this.saveAudioBlob(newProject.id, newProject.audioBlob);
-    }
-    if (newProject.micAudioBlob) {
-      await this.saveMicAudioBlob(newProject.id, newProject.micAudioBlob);
-    }
-    if (newProject.webcamBlob) {
-      await this.saveWebcamBlob(newProject.id, newProject.webcamBlob);
-    }
-
-    await this.saveProjectRecord(stripHeavyProjectFields(newProject));
+    await idbCreateProjectBundle(newProject);
     await this.pruneProjects();
     return newProject;
   }
@@ -111,71 +127,54 @@ class ProjectManager {
 
   async deleteProject(id: string): Promise<void> {
     await this.ensureProjectStoreReady();
-    const project = await this.loadProjectRecord(id);
-    await this.deleteProjectRecord(id);
-    await this.deleteProjectData(id, project);
+    await this.deleteProjectQueued(id);
+  }
+
+  private async deleteProjectQueued(id: string): Promise<void> {
+    this.invalidateEditorWrites(id);
+    const result = await this.writes.enqueue(id, async () => {
+      const project = await this.loadProjectRecord(id);
+      await idbDeleteProjectBundle(id, project);
+      await this.deleteProjectFiles(project);
+    });
+    if (!result.applied) {
+      throw new Error(`Failed to delete project ${id}`);
+    }
   }
 
   async updateProject(
     id: string,
     updates: Partial<Omit<Project, "id" | "createdAt" | "lastModified">>,
-  ): Promise<void> {
+    intent?: ProjectWriteIntent,
+  ): Promise<boolean> {
     await this.ensureProjectStoreReady();
-    const previousProject = await this.loadProjectRecord(id);
-    if (!previousProject) return;
-
-    if (PROJECT_SWITCH_DEBUG) {
-      console.warn(
-        `[ProjectSwitch] ${JSON.stringify({
-          event: "project-manager:update",
-          targetProjectId: id,
-          prev: summarizeStoredProject(previousProject),
-          updates: summarizeProjectUpdate(updates),
-          stack: new Error()
-            .stack?.split("\n")
-            .slice(2, 5)
-            .map((line) => line.trim()),
-        })}`,
-      );
-    }
-
-    if ("videoBlob" in updates) {
-      if (updates.videoBlob) await this.saveVideoBlob(id, updates.videoBlob);
-      else await this.deleteVideoBlob(id);
-    }
-    if ("audioBlob" in updates) {
-      if (updates.audioBlob) await this.saveAudioBlob(id, updates.audioBlob);
-      else await this.deleteAudioBlob(id);
-    }
-    if ("micAudioBlob" in updates) {
-      if (updates.micAudioBlob) {
-        await this.saveMicAudioBlob(id, updates.micAudioBlob);
-      } else {
-        await this.deleteMicAudioBlob(id);
-      }
-    }
-    if ("webcamBlob" in updates) {
-      if (updates.webcamBlob) {
-        await this.saveWebcamBlob(id, updates.webcamBlob);
-      } else {
-        await this.deleteWebcamBlob(id);
-      }
-    }
-
-    const nextProject: Project = {
-      ...previousProject,
-      ...updates,
+    const result = await this.writes.enqueue(
       id,
-      createdAt: previousProject.createdAt,
-      lastModified: Date.now(),
-      videoBlob: undefined,
-      audioBlob: undefined,
-      micAudioBlob: undefined,
-      webcamBlob: undefined,
-    };
+      async () => {
+        const previousProject = await this.loadProjectRecord(id);
+        if (PROJECT_SWITCH_DEBUG) {
+          console.warn(
+            `[ProjectSwitch] ${JSON.stringify({
+              event: "project-manager:update",
+              targetProjectId: id,
+              prev: summarizeStoredProject(previousProject),
+              updates: summarizeProjectUpdate(updates),
+            })}`,
+          );
+        }
+        const updated = await idbUpdateProjectBundle(id, updates);
+        if (!updated) {
+          throw new Error(`Cannot update missing project ${id}`);
+        }
+      },
+      intent,
+    );
+    if (result.applied) await this.pruneProjects();
+    return result.applied;
+  }
 
-    await this.saveProjectRecord(stripHeavyProjectFields(nextProject));
-    await this.pruneProjects();
+  async renameProject(id: string, name: string): Promise<void> {
+    await this.updateProject(id, { name: normalizeProjectName(name) });
   }
 
   async saveCompositionClipAssets(
@@ -188,37 +187,48 @@ class ProjectManager {
       webcamBlob?: Blob;
       customBackground?: string;
     },
-  ): Promise<void> {
+    intent?: ProjectWriteIntent,
+  ): Promise<boolean> {
+    await this.ensureProjectStoreReady();
     const key = buildCompositionAssetKey(projectId, clipId);
-    if (data.videoBlob) {
-      await idbPut("composition_videos", data.videoBlob, key);
-    } else {
-      await idbDelete("composition_videos", key);
-    }
-    if (data.audioBlob) {
-      await idbPut("composition_audio", data.audioBlob, key);
-    } else {
-      await idbDelete("composition_audio", key);
-    }
-    if (data.micAudioBlob) {
-      await idbPut("composition_mic_audio", data.micAudioBlob, key);
-    } else {
-      await idbDelete("composition_mic_audio", key);
-    }
-    if (data.webcamBlob) {
-      await idbPut("composition_webcam_videos", data.webcamBlob, key);
-    } else {
-      await idbDelete("composition_webcam_videos", key);
-    }
-    if (data.customBackground) {
-      await idbPut(
-        "composition_custom_backgrounds",
-        data.customBackground,
-        key,
-      );
-    } else {
-      await idbDelete("composition_custom_backgrounds", key);
-    }
+    const result = await this.writes.enqueue(
+      projectId,
+      () => idbWriteCompositionAssetBundle(key, data),
+      intent,
+    );
+    return result.applied;
+  }
+
+  async updateProjectWithCompositionClipAssets(
+    projectId: string,
+    clipId: string,
+    composition: ProjectComposition,
+    data: {
+      videoBlob?: Blob;
+      audioBlob?: Blob;
+      micAudioBlob?: Blob;
+      webcamBlob?: Blob;
+      customBackground?: string;
+    },
+    intent?: ProjectWriteIntent,
+  ): Promise<boolean> {
+    await this.ensureProjectStoreReady();
+    const result = await this.writes.enqueue(
+      projectId,
+      async () => {
+        const updated = await idbUpdateProjectWithCompositionAssetBundle(
+          projectId,
+          clipId,
+          composition,
+          data,
+        );
+        if (!updated) {
+          throw new Error(`Cannot update missing project ${projectId}`);
+        }
+      },
+      intent,
+    );
+    return result.applied;
   }
 
   async loadCompositionClipAssets(
@@ -249,11 +259,7 @@ class ProjectManager {
     clipId: string,
   ): Promise<void> {
     const key = buildCompositionAssetKey(projectId, clipId);
-    await idbDelete("composition_videos", key);
-    await idbDelete("composition_audio", key);
-    await idbDelete("composition_mic_audio", key);
-    await idbDelete("composition_webcam_videos", key);
-    await idbDelete("composition_custom_backgrounds", key);
+    await idbDeleteCompositionAssetBundle(key);
   }
 
   private async ensureProjectStoreReady(): Promise<void> {
@@ -343,25 +349,29 @@ class ProjectManager {
     const projects = sortProjectsByDisplayOrder(await this.getProjectRecords());
     if (projects.length <= this.limit) return;
 
-    const projectsToDelete = projects.slice(this.limit);
+    const activeExists = projects.some(
+      (project) => project.id === this.activeProjectId,
+    );
+    const retainedNonActiveCount = Math.max(
+      0,
+      this.limit - (activeExists ? 1 : 0),
+    );
+    const projectsToDelete = projects
+      .filter((project) => project.id !== this.activeProjectId)
+      .slice(retainedNonActiveCount);
     for (const project of projectsToDelete) {
-      await this.deleteProjectRecord(project.id);
-      await this.deleteProjectData(project.id, project);
+      await this.deleteProjectQueued(project.id);
     }
   }
 
-  private async deleteProjectData(
-    id: string,
+  private async deleteProjectFiles(
     project: Project | StoredProjectRecord | null | undefined,
   ): Promise<void> {
-    await this.deleteVideoBlob(id);
-    await this.deleteAudioBlob(id);
-    await this.deleteMicAudioBlob(id);
-    await this.deleteWebcamBlob(id);
-    await this.deleteLegacyInlineProjectData(id);
-    await this.deleteCompositionData(id, project?.composition?.clips);
     await this.deleteCompositionSnapshotFiles(
-      project?.composition?.clips,
+      [
+        ...(project?.composition?.clips ?? []),
+        ...(project?.composition?.retainedRemovedClips ?? []),
+      ],
       project?.rawVideoPath,
       project?.rawWebcamVideoPath,
     );
@@ -372,8 +382,14 @@ class ProjectManager {
       project?.rawVideoPath,
       project?.rawWebcamVideoPath,
       (project as Project | null | undefined)?.rawMicAudioPath,
+      ...(project?.composition?.audioSegments ?? []).map(
+        (segment) => segment.rawAudioPath,
+      ),
+      ...(project?.composition?.narrationSegments ?? []).map(
+        (segment) => segment.rawAudioPath,
+      ),
     ];
-    for (const path of rootRawPaths) {
+    for (const path of new Set(rootRawPaths)) {
       if (!path) continue;
       try {
         await invoke("delete_file", { path });
@@ -406,10 +422,6 @@ class ProjectManager {
 
   private async saveProjectRecord(project: StoredProjectRecord): Promise<void> {
     await idbPut(PROJECTS_STORE, project);
-  }
-
-  private async deleteProjectRecord(id: string): Promise<void> {
-    await idbDelete(PROJECTS_STORE, id);
   }
 
   private async getMetaValue<T>(key: string): Promise<T | null> {
@@ -449,63 +461,20 @@ class ProjectManager {
     return idbGet(storeName, key);
   }
 
-  private saveVideoBlob(id: string, blob: Blob): Promise<void> {
-    return idbPut("videos", blob, id);
-  }
-
   private async loadVideoBlob(id: string): Promise<Blob | null> {
     return idbGet("videos", id);
-  }
-
-  private deleteVideoBlob(id: string): Promise<void> {
-    return idbDelete("videos", id);
-  }
-
-  private saveAudioBlob(id: string, blob: Blob): Promise<void> {
-    return idbPut("audio", blob, id);
   }
 
   private async loadAudioBlob(id: string): Promise<Blob | null> {
     return idbGet("audio", id);
   }
 
-  private deleteAudioBlob(id: string): Promise<void> {
-    return idbDelete("audio", id);
-  }
-
-  private saveMicAudioBlob(id: string, blob: Blob): Promise<void> {
-    return idbPut("mic_audio", blob, id);
-  }
-
   private async loadMicAudioBlob(id: string): Promise<Blob | null> {
     return idbGet("mic_audio", id);
   }
 
-  private deleteMicAudioBlob(id: string): Promise<void> {
-    return idbDelete("mic_audio", id);
-  }
-
-  private saveWebcamBlob(id: string, blob: Blob): Promise<void> {
-    return idbPut("webcam_videos", blob, id);
-  }
-
   private async loadWebcamBlob(id: string): Promise<Blob | null> {
     return idbGet("webcam_videos", id);
-  }
-
-  private deleteWebcamBlob(id: string): Promise<void> {
-    return idbDelete("webcam_videos", id);
-  }
-
-  private async deleteCompositionData(
-    projectId: string,
-    clips: Array<{ id: string; role?: string }> | undefined,
-  ): Promise<void> {
-    if (!Array.isArray(clips)) return;
-    for (const clip of clips) {
-      if (!clip || clip.role === "root") continue;
-      await this.deleteCompositionClipAssets(projectId, clip.id);
-    }
   }
 
   private async deleteCompositionSnapshotFiles(

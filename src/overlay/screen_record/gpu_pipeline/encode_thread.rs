@@ -11,6 +11,21 @@ use super::super::mf_encode::{EncoderConfig, MfEncoder, VideoInputSurfaceFormat}
 use super::audio::apply_audio_volume_envelope;
 use super::types::{EncodeThreadContext, RenderOutput, ZeroCopyExportResult};
 
+fn recycle_cancelled_output(
+    output: RenderOutput,
+    gpu_recycle_tx: &std::sync::mpsc::Sender<usize>,
+    cpu_recycle_tx: &std::sync::mpsc::Sender<Vec<u8>>,
+) {
+    match output {
+        RenderOutput::Gpu { ring_idx } => {
+            let _ = gpu_recycle_tx.send(ring_idx);
+        }
+        RenderOutput::Cpu { rendered_bgra } => {
+            let _ = cpu_recycle_tx.send(rendered_bgra);
+        }
+    }
+}
+
 pub(super) fn run_encode_thread(
     context: EncodeThreadContext<'_>,
 ) -> Result<ZeroCopyExportResult, String> {
@@ -154,6 +169,10 @@ pub(super) fn run_encode_thread(
         t_wait += enc_wait_dur;
 
         if cancel_flag.load(Ordering::Relaxed) {
+            // The render thread may already be blocked waiting for this exact
+            // output slot. Return it before leaving so cancellation cannot
+            // deadlock the scoped decode/render/encode pipeline during join.
+            recycle_cancelled_output(msg, &gpu_recycle_tx, &cpu_recycle_tx);
             break;
         }
 
@@ -410,4 +429,31 @@ pub(super) fn run_encode_thread(
         elapsed_secs: elapsed,
         fps,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_recycles_gpu_and_cpu_outputs() {
+        let (gpu_tx, gpu_rx) = std::sync::mpsc::channel();
+        let (cpu_tx, cpu_rx) = std::sync::mpsc::channel();
+
+        recycle_cancelled_output(
+            RenderOutput::Gpu { ring_idx: 7 },
+            &gpu_tx,
+            &cpu_tx,
+        );
+        recycle_cancelled_output(
+            RenderOutput::Cpu {
+                rendered_bgra: vec![1, 2, 3, 4],
+            },
+            &gpu_tx,
+            &cpu_tx,
+        );
+
+        assert_eq!(gpu_rx.recv().unwrap(), 7);
+        assert_eq!(cpu_rx.recv().unwrap(), vec![1, 2, 3, 4]);
+    }
 }

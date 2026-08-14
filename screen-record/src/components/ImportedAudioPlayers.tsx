@@ -1,8 +1,9 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { AudioGainPoint, ImportedAudioSegment, NarrationSegment, SpeedPoint } from "@/types/video";
-import { getSpeedAtTime } from "@/lib/exportEstimator";
+import { createSpeedSampler } from "@/lib/speedCurve";
 import { getVolumeEnvelopeAtTime } from "@/components/timeline/adjustableLineUtils";
 import { getMediaServerUrl } from "@/lib/mediaServer";
+import { getLruCacheValue, setLruCacheValue } from "@/lib/boundedCache";
 import {
   mergeLiveNarrationSegments,
   useLiveNarrationState,
@@ -33,6 +34,7 @@ const PLAYBACK_WINDOW_TAIL_SEC = 0.35;
 const TIMELINE_JUMP_THRESHOLD_SEC = 0.35;
 
 const mediaUrlCache = new Map<string, string>();
+const MAX_MEDIA_URL_CACHE_ENTRIES = 128;
 
 function getSegmentTimelineDuration(segment: ImportedAudioSegment) {
   const rate = segment.playbackRate && segment.playbackRate > 0
@@ -148,9 +150,13 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
   const startGraceUntilRef = useRef(0);
   const lastSegmentKeyRef = useRef("");
   const segmentKey = `${segment.id}:${segment.rawAudioPath}:${segment.startTime}:${segment.inPoint}:${segment.outPoint}:${segment.playbackRate ?? 1}`;
+  const sampleTimelineSpeed = useMemo(
+    () => createSpeedSampler(speedPoints),
+    [speedPoints],
+  );
 
   useEffect(() => {
-    const cached = mediaUrlCache.get(segment.rawAudioPath);
+    const cached = getLruCacheValue(mediaUrlCache, segment.rawAudioPath);
     if (cached) {
       setUrl(cached);
       return undefined;
@@ -159,7 +165,12 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
     void (async () => {
       try {
         const next = await getMediaServerUrl(segment.rawAudioPath);
-        mediaUrlCache.set(segment.rawAudioPath, next);
+        setLruCacheValue(
+          mediaUrlCache,
+          segment.rawAudioPath,
+          next,
+          MAX_MEDIA_URL_CACHE_ENTRIES,
+        );
         if (!cancelled) setUrl(next);
       } catch (err) {
         console.warn("[ImportedAudio] failed to resolve URL", err);
@@ -199,7 +210,10 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
     const rate = segment.playbackRate && segment.playbackRate > 0
       ? segment.playbackRate
       : 1;
-    const timelineSpeed = Math.max(0.1, Math.min(16, getSpeedAtTime(currentTime, speedPoints ?? [])));
+    const timelineSpeed = Math.max(
+      0.1,
+      Math.min(16, sampleTimelineSpeed(currentTime)),
+    );
     const effectiveRate = Math.max(0.05, Math.min(64, rate * timelineSpeed));
     el.preservesPitch = true;
     if (Math.abs(el.playbackRate - effectiveRate) > 0.001) {
@@ -332,7 +346,7 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
     segment.inPoint,
     segment.outPoint,
     segment.playbackRate,
-    speedPoints,
+    sampleTimelineSpeed,
     trackVolumePoints,
   ]);
 

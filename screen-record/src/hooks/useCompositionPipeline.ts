@@ -180,6 +180,7 @@ export function useCompositionPipeline({
     projectInteractionBlockCleanupRef,
     beginProjectInteractionShield,
     abortEditorInteractions,
+    endProjectInteractionShield,
     armProjectInteractionShieldRelease,
   } = useProjectInteractionShield({
     showProjectsDialog,
@@ -248,6 +249,7 @@ export function useCompositionPipeline({
     projectInteractionBlockCleanupRef,
     beginProjectInteractionShield,
     abortEditorInteractions,
+    endProjectInteractionShield,
     armProjectInteractionShieldRelease,
     // Sequence composition outputs
     ...sequenceComposition,

@@ -125,6 +125,7 @@ export function doHandlePlay(c: ControllerInternals): void {
       webcamConfig: c.renderOptions.webcamConfig,
       mousePositions: c.renderOptions.mousePositions,
       currentTime: c.video.currentTime,
+      outputFrameRate: c.renderOptions.outputFrameRate,
       interactiveBackgroundPreview:
         c.renderOptions.interactiveBackgroundPreview,
     });

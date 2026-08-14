@@ -106,6 +106,7 @@ function SliderRow({
       <div className="auto-zoom-slider-shell flex-1 rounded-full px-1 py-[3px]">
         <input
           type="range"
+          aria-label={label}
           min={min}
           max={max}
           step={step}

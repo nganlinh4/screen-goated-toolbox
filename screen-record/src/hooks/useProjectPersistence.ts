@@ -34,22 +34,28 @@ function preserveProjectLevelAudioLanes(
 ): ProjectComposition {
   if (!fallbackComposition) return nextComposition;
   const shouldPreserveAudio =
-    (nextComposition.audioSegments?.length ?? 0) === 0 &&
-    (fallbackComposition.audioSegments?.length ?? 0) > 0;
+    nextComposition.audioSegments === undefined &&
+    fallbackComposition.audioSegments !== undefined;
   const shouldPreserveNarration =
-    (nextComposition.narrationSegments?.length ?? 0) === 0 &&
-    (fallbackComposition.narrationSegments?.length ?? 0) > 0;
+    nextComposition.narrationSegments === undefined &&
+    fallbackComposition.narrationSegments !== undefined;
   const shouldPreserveAudioVolume =
-    (nextComposition.audioTrackVolumePoints?.length ?? 0) === 0 &&
-    (fallbackComposition.audioTrackVolumePoints?.length ?? 0) > 0;
+    nextComposition.audioTrackVolumePoints === undefined &&
+    fallbackComposition.audioTrackVolumePoints !== undefined;
   const shouldPreserveNarrationVolume =
-    (nextComposition.narrationTrackVolumePoints?.length ?? 0) === 0 &&
-    (fallbackComposition.narrationTrackVolumePoints?.length ?? 0) > 0;
+    nextComposition.narrationTrackVolumePoints === undefined &&
+    fallbackComposition.narrationTrackVolumePoints !== undefined;
+  const activeClipIds = new Set(nextComposition.clips.map((clip) => clip.id));
+  const retainedRemovedClips = (
+    nextComposition.retainedRemovedClips ??
+    fallbackComposition.retainedRemovedClips
+  )?.filter((clip) => !activeClipIds.has(clip.id));
   if (
     !shouldPreserveAudio &&
     !shouldPreserveNarration &&
     !shouldPreserveAudioVolume &&
-    !shouldPreserveNarrationVolume
+    !shouldPreserveNarrationVolume &&
+    retainedRemovedClips === nextComposition.retainedRemovedClips
   ) {
     return nextComposition;
   }
@@ -67,6 +73,7 @@ function preserveProjectLevelAudioLanes(
     narrationTrackVolumePoints: shouldPreserveNarrationVolume
       ? fallbackComposition.narrationTrackVolumePoints
       : nextComposition.narrationTrackVolumePoints,
+    retainedRemovedClips,
   };
 }
 
@@ -79,6 +86,10 @@ function normalizeCompositionSubtitleState(
       ...clip,
       segment: normalizeSubtitleTrackState(clip.segment),
     })),
+    retainedRemovedClips: composition.retainedRemovedClips?.map((clip) => ({
+      ...clip,
+      segment: normalizeSubtitleTrackState(clip.segment),
+    })),
     globalSegment: composition.globalSegment
       ? normalizeSubtitleTrackState(composition.globalSegment)
       : composition.globalSegment,
@@ -87,6 +98,7 @@ function normalizeCompositionSubtitleState(
 
 export interface UseProjectPersistenceParams {
   currentProjectId: string | null;
+  currentProjectIdRef: MutableRefObject<string | null>;
   projects: { projects: Project[]; loadProjects: () => Promise<void> };
   currentVideo: string | null;
   currentAudio: string | null;
@@ -94,6 +106,7 @@ export interface UseProjectPersistenceParams {
   currentWebcamVideo: string | null;
   loadedClipId: string | null;
   currentProjectData: Project | null;
+  currentProjectDataRef: MutableRefObject<Project | null>;
   segment: VideoSegment | null;
   composition: ProjectComposition | null;
   backgroundConfig: BackgroundConfig;
@@ -119,6 +132,7 @@ export interface UseProjectPersistenceParams {
 
 export function useProjectPersistence({
   currentProjectId,
+  currentProjectIdRef,
   projects,
   currentVideo,
   currentAudio,
@@ -126,6 +140,7 @@ export function useProjectPersistence({
   currentWebcamVideo,
   loadedClipId,
   currentProjectData,
+  currentProjectDataRef,
   segment,
   composition,
   backgroundConfig,
@@ -144,6 +159,32 @@ export function useProjectPersistence({
   setComposition,
 }: UseProjectPersistenceParams) {
   const projectSaveSeqRef = useRef(0);
+  const persistenceInputsRef = useRef<readonly unknown[]>([]);
+  const persistenceTokenRef = useRef<object>({});
+  const persistenceInputs = [
+    currentProjectId,
+    currentProjectData,
+    loadedClipId,
+    segment,
+    composition,
+    backgroundConfig,
+    mousePositions,
+    duration,
+    currentRecordingMode,
+    currentRawVideoPath,
+    currentRawMicAudioPath,
+    currentRawWebcamVideoPath,
+    webcamConfig,
+  ] as const;
+  if (
+    persistenceInputs.length !== persistenceInputsRef.current.length ||
+    persistenceInputs.some(
+      (value, index) => value !== persistenceInputsRef.current[index],
+    )
+  ) {
+    persistenceInputsRef.current = persistenceInputs;
+    persistenceTokenRef.current = {};
+  }
 
   const debugProject = useCallback(
     (event: string, data?: Record<string, unknown>) => {
@@ -169,12 +210,14 @@ export function useProjectPersistence({
 
   const persistCurrentProjectNow = useCallback(
     async (options?: PersistOptions) => {
-      const compositionState = options?.compositionOverride ?? composition;
+      const liveProject = currentProjectDataRef.current;
+      const compositionState =
+        options?.compositionOverride ?? liveProject?.composition ?? composition;
       const shouldSyncLiveComposition = !options?.skipLiveCompositionSync;
-      const projectId = currentProjectData?.id ?? null;
+      const projectId = liveProject?.id ?? currentProjectData?.id ?? null;
       if (
         !projectId ||
-        currentProjectId !== projectId ||
+        (currentProjectIdRef.current ?? currentProjectId) !== projectId ||
         !compositionState ||
         (!options?.allowDuringProjectTransition &&
           isProjectTransitionRef.current) ||
@@ -184,6 +227,14 @@ export function useProjectPersistence({
         return;
       }
       const saveSeq = ++projectSaveSeqRef.current;
+      const writeIntent = projectManager.createEditorWriteIntent(projectId);
+      const persistenceToken = persistenceTokenRef.current;
+      const isCurrentSave = () =>
+        saveSeq === projectSaveSeqRef.current &&
+        projectManager.isEditorWriteIntentLatest(writeIntent) &&
+        currentProjectIdRef.current === projectId &&
+        currentProjectDataRef.current?.id === projectId &&
+        persistenceTokenRef.current === persistenceToken;
       const includeMedia = options?.includeMedia !== false;
       const activeClipId = shouldSyncLiveComposition
         ? loadedClipId ??
@@ -210,6 +261,7 @@ export function useProjectPersistence({
           currentProjectData,
           compositionState,
         );
+        if (!isCurrentSave()) return;
         let videoBlob: Blob | undefined;
         let micAudioBlob: Blob | undefined;
         let webcamBlob: Blob | undefined;
@@ -232,12 +284,14 @@ export function useProjectPersistence({
           if (!videoBlob && currentVideo && !currentRawVideoPath) {
             const response = await fetch(currentVideo);
             videoBlob = await response.blob();
+            if (!isCurrentSave()) return;
           }
           micAudioBlob =
             (loadedAssets?.micAudioBlob ?? currentProjectData?.micAudioBlob) ?? undefined;
           if (!micAudioBlob && currentMicAudio && !activeClip.rawMicAudioPath) {
             const response = await fetch(currentMicAudio);
             micAudioBlob = await response.blob();
+            if (!isCurrentSave()) return;
           }
           webcamBlob =
             (loadedAssets?.webcamBlob ?? currentProjectData?.webcamBlob) ?? undefined;
@@ -248,6 +302,7 @@ export function useProjectPersistence({
           ) {
             const response = await fetch(currentWebcamVideo);
             webcamBlob = await response.blob();
+            if (!isCurrentSave()) return;
           }
         }
         const canvasConfig = extractCanvasConfig(backgroundConfig);
@@ -310,17 +365,20 @@ export function useProjectPersistence({
           if (!snapshotVideoBlob && currentVideo) {
             const response = await fetch(currentVideo);
             snapshotVideoBlob = await response.blob();
+            if (!isCurrentSave()) return;
           }
           if (!snapshotVideoBlob) return;
           let snapshotAudioBlob = loadedAssets?.audioBlob ?? undefined;
           if (!snapshotAudioBlob && currentAudio) {
             const audioResponse = await fetch(currentAudio);
             snapshotAudioBlob = await audioResponse.blob();
+            if (!isCurrentSave()) return;
           }
           let snapshotMicAudioBlob = loadedAssets?.micAudioBlob ?? undefined;
           if (!snapshotMicAudioBlob && currentMicAudio && !activeClip.rawMicAudioPath) {
             const micAudioResponse = await fetch(currentMicAudio);
             snapshotMicAudioBlob = await micAudioResponse.blob();
+            if (!isCurrentSave()) return;
           }
           let snapshotWebcamBlob = loadedAssets?.webcamBlob ?? undefined;
           if (
@@ -330,8 +388,9 @@ export function useProjectPersistence({
           ) {
             const webcamResponse = await fetch(currentWebcamVideo);
             snapshotWebcamBlob = await webcamResponse.blob();
+            if (!isCurrentSave()) return;
           }
-          await projectManager.saveCompositionClipAssets(
+          const assetWriteApplied = await projectManager.saveCompositionClipAssets(
             projectId,
             activeClip.id,
             {
@@ -341,10 +400,12 @@ export function useProjectPersistence({
               webcamBlob: snapshotWebcamBlob,
               customBackground: backgroundConfig.customBackground,
             },
+            writeIntent,
           );
+          if (!assetWriteApplied || !isCurrentSave()) return;
         }
         // Drop stale in-flight saves so older state never overwrites newer edits.
-        if (saveSeq !== projectSaveSeqRef.current) {
+        if (!isCurrentSave()) {
           debugProject("persist:stale-before-write", {
             saveSeq,
             latestSeq: projectSaveSeqRef.current,
@@ -355,6 +416,7 @@ export function useProjectPersistence({
         const rootClip = getCompositionClip(nextComposition, "root");
         if (!rootClip) return;
         const storedProject = await projectManager.loadProject(projectId);
+        if (!isCurrentSave()) return;
         nextComposition = preserveProjectLevelAudioLanes(
           nextComposition,
           storedProject?.composition ?? currentProjectData?.composition,
@@ -372,13 +434,9 @@ export function useProjectPersistence({
           editorBackground: summarizeBackgroundConfig(backgroundConfig),
           editorSegment: summarizeSegment(segment),
         });
-        await projectManager.updateProject(projectId, {
-          name:
-            projects.projects.find((p) => p.id === projectId)?.name ||
-            "Auto Saved",
-          videoBlob,
-          micAudioBlob,
-          webcamBlob,
+        const projectUpdates: Partial<
+          Omit<Project, "id" | "createdAt" | "lastModified">
+        > = {
           segment: nextRootClip.segment,
           backgroundConfig: nextRootClip.backgroundConfig,
           webcamConfig:
@@ -395,9 +453,18 @@ export function useProjectPersistence({
           rawMicAudioPath: nextRootClip.rawMicAudioPath,
           rawWebcamVideoPath: nextRootClip.rawWebcamVideoPath,
           composition: nextComposition,
-        });
-        setComposition(nextComposition);
-        if (saveSeq !== projectSaveSeqRef.current) {
+        };
+        if (includeMedia) {
+          projectUpdates.videoBlob = videoBlob;
+          projectUpdates.micAudioBlob = micAudioBlob;
+          projectUpdates.webcamBlob = webcamBlob;
+        }
+        const applied = await projectManager.updateProject(
+          projectId,
+          projectUpdates,
+          writeIntent,
+        );
+        if (!applied || !isCurrentSave()) {
           debugProject("persist:stale-after-write", {
             saveSeq,
             latestSeq: projectSaveSeqRef.current,
@@ -405,6 +472,7 @@ export function useProjectPersistence({
           });
           return;
         }
+        setComposition(nextComposition);
         debugProject("persist:committed", {
           saveSeq,
           projectId,
@@ -414,6 +482,7 @@ export function useProjectPersistence({
         });
         if (options?.refreshList !== false) {
           await projects.loadProjects();
+          if (!isCurrentSave()) return;
           debugProject("persist:projects-refreshed", { saveSeq, projectId });
         }
       } catch (error) {
@@ -422,10 +491,13 @@ export function useProjectPersistence({
           projectId,
           error: String(error),
         });
+        if (options?.throwOnError) throw error;
+        console.error("[ProjectSave] Failed to persist project", error);
       }
     },
     [
       currentProjectId,
+      currentProjectIdRef,
       projects,
       currentVideo,
       currentAudio,
@@ -433,6 +505,7 @@ export function useProjectPersistence({
       currentWebcamVideo,
       loadedClipId,
       currentProjectData,
+      currentProjectDataRef,
       segment,
       composition,
       backgroundConfig,

@@ -1,5 +1,5 @@
 import type { SpeedPoint } from "@/types/video";
-import { getSpeedAtTime } from "@/lib/exportEstimator";
+import { createSpeedSampler } from "@/lib/speedCurve";
 
 const MAJOR_TICK_TARGET_PX = 80;
 const RULER_STEP_OPTIONS_SEC = [
@@ -60,6 +60,7 @@ export function buildTimelineRulerTicks({
   const majorStep = getMajorStep(duration, widthPx);
   const ticks: TimelineRulerTick[] = [];
   const hasSpeed = Boolean(speedPoints?.length);
+  const sampleSpeed = createSpeedSampler(speedPoints);
 
   // Incremental integration for speed-adjusted labels.
   // The old approach called videoTimeToWallClock(t) per tick, which integrates
@@ -73,7 +74,7 @@ export function buildTimelineRulerTicks({
     if (!hasSpeed) return targetTime;
     while (integrationT < targetTime) {
       const dt = Math.min(DT, targetTime - integrationT);
-      const s = getSpeedAtTime(integrationT + dt * 0.5, speedPoints!);
+      const s = sampleSpeed(integrationT + dt * 0.5);
       wallTime += dt / Math.max(0.1, s);
       integrationT += dt;
     }

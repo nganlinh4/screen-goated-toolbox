@@ -14,6 +14,7 @@ import {
 import { motion } from 'motion/react';
 
 import { cn } from '@/lib/utils';
+import { useFieldLabelId } from '@/components/ui/FieldLabelContext';
 
 export interface PanelSelectOption {
   value: string;
@@ -45,6 +46,8 @@ interface PanelSelectProps {
   emptyStateLabel?: string;
   triggerClassName?: string;
   contentClassName?: string;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
 }
 
 export function formatModelLatencyMs(milliseconds: number | null | undefined): string {
@@ -143,7 +146,10 @@ export function PanelSelect({
   emptyStateLabel = 'No results',
   triggerClassName,
   contentClassName,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
 }: PanelSelectProps) {
+  const labelId = useFieldLabelId(ariaLabelledBy);
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -207,6 +213,8 @@ export function PanelSelect({
         <button
           type="button"
           disabled={disabled}
+          aria-label={ariaLabel}
+          aria-labelledby={ariaLabel ? undefined : labelId}
           className={cn(
             'panel-select-trigger ui-toolbar-button flex h-9 w-full items-center justify-between gap-2 rounded-xl px-3 text-left text-sm',
             triggerClassName,

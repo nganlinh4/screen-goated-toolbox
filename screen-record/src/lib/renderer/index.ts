@@ -23,8 +23,12 @@ import {
 } from './overlayBaker';
 import { calculateCurrentZoomStateInternal } from './cameraZoom';
 import { createCursorImageSet, ensureCursorAnimations } from './cursorAssets';
-import { drawFrame as drawFrameImpl, type RendererState } from './drawFrame';
-import { buildBakedWebcamFrames, cloneWebcamConfig } from '@/lib/webcam';
+import { drawFrame as drawFrameImpl } from './drawFrame';
+import type { RendererState } from './rendererState';
+import {
+  cloneWebcamConfig,
+  iterateBakedWebcamFrames,
+} from '@/lib/webcam';
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -40,6 +44,7 @@ export interface RenderContext {
   webcamConfig?: WebcamConfig;
   mousePositions: MousePosition[];
   currentTime: number;
+  outputFrameRate?: number;
   interactiveBackgroundPreview?: boolean;
 }
 
@@ -133,6 +138,7 @@ class VideoRenderer {
       webcamFrameCanvas: null,
       webcamFrameCtx: null,
       webcamFrameReady: false,
+      webcamFrameSource: null,
       isDrawing: false,
       lastDrawTime: 0,
       latestElapsed: 0,
@@ -172,15 +178,15 @@ class VideoRenderer {
     ensureCursorAnimations(pack, context.mousePositions, this.state.cursorImages);
   }
 
-  public generateBakedWebcamFrames(
+  public iterateBakedWebcamFrames(
     segment: VideoSegment,
     webcamConfig: WebcamConfig | null | undefined,
     outputWidth: number,
     outputHeight: number,
     webcamAspectRatio: number | null | undefined,
     fps: number = 60,
-  ): BakedWebcamFrame[] {
-    return buildBakedWebcamFrames(
+  ): Iterable<BakedWebcamFrame> {
+    return iterateBakedWebcamFrames(
       segment,
       cloneWebcamConfig(webcamConfig),
       outputWidth,
@@ -225,9 +231,7 @@ class VideoRenderer {
 
   public startAnimation(renderContext: RenderContext) {
     this.stopAnimation();
-    // Reset squish state unconditionally — stopAnimation() only resets when animationFrame
-    // was running. A fresh startAnimation must always begin with cursor at full scale,
-    // regardless of whether the previous session was playing or paused.
+    // A fresh animation always begins with the cursor at full scale.
     this.state.lastHoldTime = -1;
     this.state.currentSquishScale = 1.0;
     this.state.cursorState.currentSquishScale = 1.0;
@@ -265,19 +269,19 @@ class VideoRenderer {
   public stopAnimation() {
     if (this.animationFrame !== null) {
       cancelAnimationFrame(this.animationFrame);
-      this.animationFrame = null;
-      this.state.lastDrawTime = 0;
-      this.activeRenderContext = null;
-      this.state.lastHoldTime = -1;
-      this.state.currentSquishScale = 1.0;
-      this.state.cursorState.currentSquishScale = 1.0;
-      this.state.squishTarget = 1.0;
-      this.state.squishAnimFrom = 1.0;
-      this.state.squishAnimProgress = 1;
-      this.state.squishAnimDuration = 0.15;
-      this.state.squishHasRoom = true;
-      this.state.lastActiveEventId = null;
     }
+    this.animationFrame = null;
+    this.state.lastDrawTime = 0;
+    this.activeRenderContext = null;
+    this.state.lastHoldTime = -1;
+    this.state.currentSquishScale = 1.0;
+    this.state.cursorState.currentSquishScale = 1.0;
+    this.state.squishTarget = 1.0;
+    this.state.squishAnimFrom = 1.0;
+    this.state.squishAnimProgress = 1;
+    this.state.squishAnimDuration = 0.15;
+    this.state.squishHasRoom = true;
+    this.state.lastActiveEventId = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -367,7 +371,7 @@ class VideoRenderer {
     outputWidth: number,
     outputHeight: number,
     fps: number = 60
-  ): Promise<BakedOverlayPayload> {
+  ): Promise<BakedOverlayPayload | undefined> {
     return bakeOverlayAtlasAndPaths(segment, outputWidth, outputHeight, fps, this.state.keystrokeState);
   }
 }

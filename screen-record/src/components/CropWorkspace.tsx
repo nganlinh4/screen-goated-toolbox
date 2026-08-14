@@ -279,7 +279,7 @@ export function CropWorkspace({
         newY = desiredY;
         newH = startCrop.height - deltaY;
       } else if (type.includes("s")) {
-        let desiredH = startCrop.height + dYPct;
+        const desiredH = startCrop.height + dYPct;
         newH = Math.max(0.05, Math.min(1 - startCrop.y, desiredH));
       }
 
@@ -291,7 +291,7 @@ export function CropWorkspace({
         newX = desiredX;
         newW = startCrop.width - deltaX;
       } else if (type.includes("e")) {
-        let desiredW = startCrop.width + dXPct;
+        const desiredW = startCrop.width + dXPct;
         newW = Math.max(0.05, Math.min(1 - startCrop.x, desiredW));
       }
 
@@ -542,6 +542,7 @@ export function CropWorkspace({
             {formatTime(previewTime)}
           </div>
           <Slider
+            aria-label={t.seekMedia}
             min={0}
             max={Math.max(clampedDuration, 0.01)}
             step={0.01}

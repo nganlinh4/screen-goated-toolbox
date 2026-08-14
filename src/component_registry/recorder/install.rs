@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use anyhow::{Context, Result, anyhow, bail};
 
 use super::{
-    MAX_COMPONENT_FILES, RecorderDelivery, WEB_ID, WORKER_ID, owned_file, receipt, staging,
+    MAX_COMPONENT_FILES, RecorderDelivery, WORKER_ID, owned_file, receipt, recovery, staging,
     validate_install, version_root,
 };
 use crate::component_registry::RemovalOutcome;
@@ -30,14 +30,22 @@ pub(super) fn ensure_pair(
         return Ok(());
     }
 
-    if validate_install(worker).is_err() {
-        clear_component(WORKER_ID)?;
+    let worker_failure = validate_install(worker)
+        .err()
+        .map(|error| format!("{error:#}"));
+    let web_failure = validate_install(web)
+        .err()
+        .map(|error| format!("{error:#}"));
+    if let Some(reason) = worker_failure.as_deref() {
+        recovery::quarantine_invalid(worker, reason)?;
     }
-    if validate_install(web).is_err() {
+    if let Some(reason) = web_failure.as_deref() {
         // A valid worker receipt depends on recorder-web and intentionally
         // blocks its removal, so repair the dependent first.
-        clear_component(WORKER_ID)?;
-        clear_component(WEB_ID)?;
+        if worker_failure.is_none() {
+            clear_component(WORKER_ID)?;
+        }
+        recovery::quarantine_invalid(web, reason)?;
     }
 
     let total = web.size_bytes.saturating_add(worker.size_bytes);

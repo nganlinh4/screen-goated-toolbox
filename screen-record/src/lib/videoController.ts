@@ -12,7 +12,7 @@ import {
   clampMicAudioVolume,
   getMicAudioVolumeAtTime,
 } from "./micAudio";
-import { getSpeedAtTime } from "./videoExporter";
+import { getSpeedAtTime } from "./speedCurve";
 import { DEFAULT_BUILT_IN_BACKGROUND_ID } from "@/lib/backgroundPresets";
 import {
   createSubtitleTrackStateFromSegments,
@@ -480,7 +480,7 @@ export class VideoController {
       ?? options.segment.subtitleTracks?.reduce((count, track) => count + track.segments.length, 0)
       ?? 0;
     markFrontendPerfEvent(`render-options subtitles=${subtitleCount} text=${options.segment.textSegments?.length ?? 0}`);
-    if (this.renderTimeout === null) {
+    if (this.video.paused && this.renderTimeout === null) {
       this.renderTimeout = requestAnimationFrame(() => { this.doRenderFrame(); this.renderTimeout = null; });
     }
   }

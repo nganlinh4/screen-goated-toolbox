@@ -4,13 +4,14 @@ import type {
   WebcamConfig,
   WebcamPosition,
 } from "@/types/video";
-import { getTrimSegments } from "@/lib/trimSegments";
+import { iterateExportSourceTimes } from "@/lib/exportFrameTimes";
 import { getWebcamVisibility } from "@/lib/webcamVisibility";
 
 const DEFAULT_WEBCAM_POSITION: WebcamPosition = "bottomRight";
 const DEFAULT_WEBCAM_ASPECT = 16 / 9;
 const DEFAULT_AUTO_ZOOM_RANGE = 0.8;
 const DEFAULT_FPS = 60;
+const MAX_COLLECTED_WEBCAM_FRAMES = 100_000;
 
 export const DEFAULT_WEBCAM_CONFIG: WebcamConfig = {
   visible: false,
@@ -172,21 +173,36 @@ export function buildBakedWebcamFrames(
   zoomSampler: (time: number) => number,
   fps: number = DEFAULT_FPS,
 ): BakedWebcamFrame[] {
-  const duration = Math.max(
-    segment.trimEnd,
-    ...(segment.trimSegments ?? []).map((trimSegment) => trimSegment.endTime),
-  );
-  const trimSegments = getTrimSegments(segment, duration);
-  if (trimSegments.length === 0) {
-    return [];
-  }
-
-  const startTime = trimSegments[0].startTime;
-  const endTime = trimSegments[trimSegments.length - 1].endTime;
-  const step = 1 / Math.max(1, fps);
   const frames: BakedWebcamFrame[] = [];
+  for (const frame of iterateBakedWebcamFrames(
+      segment,
+      webcamConfig,
+      canvasWidth,
+      canvasHeight,
+      webcamAspectRatio,
+      zoomSampler,
+      fps,
+    )) {
+    if (frames.length >= MAX_COLLECTED_WEBCAM_FRAMES) {
+      throw new Error(
+        "Too many webcam frames were requested as one array; use the streaming frame iterator instead.",
+      );
+    }
+    frames.push(frame);
+  }
+  return frames;
+}
 
-  for (let time = startTime; time <= endTime + 0.00001; time += step) {
+export function* iterateBakedWebcamFrames(
+  segment: VideoSegment,
+  webcamConfig: WebcamConfig | null | undefined,
+  canvasWidth: number,
+  canvasHeight: number,
+  webcamAspectRatio: number | null | undefined,
+  zoomSampler: (time: number) => number,
+  fps: number = DEFAULT_FPS,
+): Generator<BakedWebcamFrame> {
+  for (const { sourceTime: time } of iterateExportSourceTimes(segment, fps)) {
     const layout = resolveWebcamLayoutRect(
       webcamConfig,
       canvasWidth,
@@ -201,7 +217,7 @@ export function buildBakedWebcamFrames(
     );
     const animatedLayout = applyWebcamVisibilityToLayout(layout, visibility);
 
-    frames.push({
+    yield {
       time,
       visible: animatedLayout.visible,
       opacity: Number(animatedLayout.opacity.toFixed(4)),
@@ -212,8 +228,6 @@ export function buildBakedWebcamFrames(
       roundnessPx: Number(animatedLayout.roundnessPx.toFixed(3)),
       shadowPx: Number(animatedLayout.shadowPx.toFixed(3)),
       mirror: animatedLayout.mirror,
-    });
+    };
   }
-
-  return frames;
 }

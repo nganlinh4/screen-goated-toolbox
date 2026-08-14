@@ -204,11 +204,15 @@ export function useAppShortcuts({
       }
       if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") {
         e.preventDefault();
-        e.shiftKey ? canRedo && redo() : canUndo && undo();
+        if (e.shiftKey) {
+          if (canRedo) redo();
+        } else if (canUndo) {
+          undo();
+        }
       }
       if ((e.ctrlKey || e.metaKey) && e.code === "KeyY") {
         e.preventDefault();
-        canRedo && redo();
+        if (canRedo) redo();
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => {

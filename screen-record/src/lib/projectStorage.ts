@@ -1,4 +1,4 @@
-import type { Project } from "@/types/video";
+import type { Project, ProjectComposition } from "@/types/video";
 
 export const PROJECT_SWITCH_DEBUG = false;
 export const PROJECTS_STORE = "projects";
@@ -26,7 +26,37 @@ const PROJECT_OBJECT_STORES = [
   "composition_custom_backgrounds",
 ] as const;
 
+const PROJECT_BUNDLE_STORES = [
+  PROJECTS_STORE,
+  "videos",
+  "audio",
+  "mic_audio",
+  "webcam_videos",
+] as const;
+
+const COMPOSITION_ASSET_STORES = [
+  "composition_videos",
+  "composition_audio",
+  "composition_mic_audio",
+  "composition_webcam_videos",
+  "composition_custom_backgrounds",
+] as const;
+
+const PROJECT_DELETE_STORES = [
+  ...PROJECT_BUNDLE_STORES,
+  "mouse",
+  "thumbnails",
+  "custom_backgrounds",
+  "segments",
+  ...COMPOSITION_ASSET_STORES,
+] as const;
+
 export type StoredProjectRecord = Omit<
+  Project,
+  "videoBlob" | "audioBlob" | "micAudioBlob" | "webcamBlob"
+>;
+
+type ProjectMediaFields = Pick<
   Project,
   "videoBlob" | "audioBlob" | "micAudioBlob" | "webcamBlob"
 >;
@@ -206,4 +236,288 @@ export async function idbDelete(
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+}
+
+function transactionDone(transaction: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("IndexedDB transaction aborted"));
+  });
+}
+
+function requestResult<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function abortFailedTransaction(
+  transaction: IDBTransaction,
+  done: Promise<void>,
+  error: unknown,
+): Promise<never> {
+  try {
+    transaction.abort();
+  } catch {
+    // The browser may already have aborted after a failed request.
+  }
+  await done.catch(() => undefined);
+  throw error;
+}
+
+function writeOptionalBlob(
+  store: IDBObjectStore,
+  key: string,
+  value: Blob | null | undefined,
+): void {
+  if (value) {
+    store.put(value, key);
+  } else {
+    store.delete(key);
+  }
+}
+
+/** Writes a new project record and all root media in one durable transaction. */
+export async function idbCreateProjectBundle(project: Project): Promise<void> {
+  const db = await openProjectDB();
+  const transaction = db.transaction([...PROJECT_BUNDLE_STORES], "readwrite");
+  const done = transactionDone(transaction);
+  try {
+    transaction.objectStore(PROJECTS_STORE).put(stripHeavyProjectFields(project));
+    writeOptionalBlob(transaction.objectStore("videos"), project.id, project.videoBlob);
+    writeOptionalBlob(transaction.objectStore("audio"), project.id, project.audioBlob);
+    writeOptionalBlob(
+      transaction.objectStore("mic_audio"),
+      project.id,
+      project.micAudioBlob,
+    );
+    writeOptionalBlob(
+      transaction.objectStore("webcam_videos"),
+      project.id,
+      project.webcamBlob,
+    );
+    await done;
+  } catch (error) {
+    await abortFailedTransaction(transaction, done, error);
+  }
+}
+
+/**
+ * Merges an update with the latest record and applies matching root-media
+ * changes in the same transaction. Returns null when the project was deleted.
+ */
+export async function idbUpdateProjectBundle(
+  id: string,
+  updates: Partial<Omit<Project, "id" | "createdAt" | "lastModified">>,
+): Promise<StoredProjectRecord | null> {
+  const db = await openProjectDB();
+  const transaction = db.transaction([...PROJECT_BUNDLE_STORES], "readwrite");
+  const done = transactionDone(transaction);
+  const projectStore = transaction.objectStore(PROJECTS_STORE);
+  const previousProject =
+    (await requestResult(projectStore.get(id))) as StoredProjectRecord | undefined;
+  if (!previousProject) {
+    transaction.abort();
+    try {
+      await done;
+    } catch {
+      // The abort is intentional: no writes should be committed for a missing project.
+    }
+    return null;
+  }
+
+  try {
+    const mediaUpdates = updates as Partial<ProjectMediaFields>;
+    if ("videoBlob" in updates) {
+      writeOptionalBlob(transaction.objectStore("videos"), id, mediaUpdates.videoBlob);
+    }
+    if ("audioBlob" in updates) {
+      writeOptionalBlob(transaction.objectStore("audio"), id, mediaUpdates.audioBlob);
+    }
+    if ("micAudioBlob" in updates) {
+      writeOptionalBlob(
+        transaction.objectStore("mic_audio"),
+        id,
+        mediaUpdates.micAudioBlob,
+      );
+    }
+    if ("webcamBlob" in updates) {
+      writeOptionalBlob(
+        transaction.objectStore("webcam_videos"),
+        id,
+        mediaUpdates.webcamBlob,
+      );
+    }
+
+    const nextProject = stripHeavyProjectFields({
+      ...previousProject,
+      ...updates,
+      id,
+      createdAt: previousProject.createdAt,
+      lastModified: Date.now(),
+    } as Project);
+    projectStore.put(nextProject);
+    await done;
+    return nextProject;
+  } catch (error) {
+    return abortFailedTransaction(transaction, done, error);
+  }
+}
+
+export interface CompositionAssetBundle {
+  videoBlob?: Blob;
+  audioBlob?: Blob;
+  micAudioBlob?: Blob;
+  webcamBlob?: Blob;
+  customBackground?: string;
+}
+
+function writeCompositionAssetBundle(
+  transaction: IDBTransaction,
+  key: string,
+  data: CompositionAssetBundle,
+): void {
+  writeOptionalBlob(
+    transaction.objectStore("composition_videos"),
+    key,
+    data.videoBlob,
+  );
+  writeOptionalBlob(
+    transaction.objectStore("composition_audio"),
+    key,
+    data.audioBlob,
+  );
+  writeOptionalBlob(
+    transaction.objectStore("composition_mic_audio"),
+    key,
+    data.micAudioBlob,
+  );
+  writeOptionalBlob(
+    transaction.objectStore("composition_webcam_videos"),
+    key,
+    data.webcamBlob,
+  );
+  const backgroundStore = transaction.objectStore(
+    "composition_custom_backgrounds",
+  );
+  if (data.customBackground) {
+    backgroundStore.put(data.customBackground, key);
+  } else {
+    backgroundStore.delete(key);
+  }
+}
+
+export async function idbWriteCompositionAssetBundle(
+  key: string,
+  data: CompositionAssetBundle,
+): Promise<void> {
+  const db = await openProjectDB();
+  const transaction = db.transaction(
+    [...COMPOSITION_ASSET_STORES],
+    "readwrite",
+  );
+  const done = transactionDone(transaction);
+  try {
+    writeCompositionAssetBundle(transaction, key, data);
+    await done;
+  } catch (error) {
+    await abortFailedTransaction(transaction, done, error);
+  }
+}
+
+/** Commits a composition edit and its new clip assets as one durable unit. */
+export async function idbUpdateProjectWithCompositionAssetBundle(
+  id: string,
+  clipId: string,
+  composition: ProjectComposition,
+  data: CompositionAssetBundle,
+): Promise<StoredProjectRecord | null> {
+  const db = await openProjectDB();
+  const transaction = db.transaction(
+    [...PROJECT_BUNDLE_STORES, ...COMPOSITION_ASSET_STORES],
+    "readwrite",
+  );
+  const done = transactionDone(transaction);
+  const projectStore = transaction.objectStore(PROJECTS_STORE);
+  const previousProject =
+    (await requestResult(projectStore.get(id))) as StoredProjectRecord | undefined;
+  if (!previousProject) {
+    transaction.abort();
+    await done.catch(() => undefined);
+    return null;
+  }
+  try {
+    writeCompositionAssetBundle(
+      transaction,
+      buildCompositionAssetKey(id, clipId),
+      data,
+    );
+    const nextProject: StoredProjectRecord = {
+      ...previousProject,
+      composition,
+      lastModified: Date.now(),
+    };
+    projectStore.put(nextProject);
+    await done;
+    return nextProject;
+  } catch (error) {
+    return abortFailedTransaction(transaction, done, error);
+  }
+}
+
+/** Removes all database-owned project records and blobs in one transaction. */
+export async function idbDeleteProjectBundle(
+  id: string,
+  project: Pick<StoredProjectRecord, "composition"> | null | undefined,
+): Promise<void> {
+  const db = await openProjectDB();
+  const transaction = db.transaction([...PROJECT_DELETE_STORES], "readwrite");
+  const done = transactionDone(transaction);
+  try {
+    for (const storeName of PROJECT_BUNDLE_STORES) {
+      transaction.objectStore(storeName).delete(id);
+    }
+    for (const storeName of ["mouse", "thumbnails", "custom_backgrounds", "segments"] as const) {
+      transaction.objectStore(storeName).delete(id);
+    }
+    const clipIds = new Set(
+      [
+        ...(project?.composition?.clips ?? []),
+        ...(project?.composition?.retainedRemovedClips ?? []),
+      ]
+        .filter((clip) => clip.role !== "root")
+        .map((clip) => clip.id),
+    );
+    for (const clipId of clipIds) {
+      const key = buildCompositionAssetKey(id, clipId);
+      for (const storeName of COMPOSITION_ASSET_STORES) {
+        transaction.objectStore(storeName).delete(key);
+      }
+    }
+    await done;
+  } catch (error) {
+    await abortFailedTransaction(transaction, done, error);
+  }
+}
+
+export async function idbDeleteCompositionAssetBundle(
+  key: string,
+): Promise<void> {
+  const db = await openProjectDB();
+  const transaction = db.transaction(
+    [...COMPOSITION_ASSET_STORES],
+    "readwrite",
+  );
+  const done = transactionDone(transaction);
+  try {
+    for (const storeName of COMPOSITION_ASSET_STORES) {
+      transaction.objectStore(storeName).delete(key);
+    }
+    await done;
+  } catch (error) {
+    await abortFailedTransaction(transaction, done, error);
+  }
 }

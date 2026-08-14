@@ -24,10 +24,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let _active_export_guard = ExportActiveGuard::activate()?;
     EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
-    super::progress::persist_replay_args(&args);
-
+    let replay_args = args.clone();
     let parse_start = Instant::now();
     let config: ExportConfig = parse_json_with_path(args)?;
+    config.validate()?;
+    super::progress::persist_replay_args(&replay_args);
     let parse_secs = parse_start.elapsed().as_secs_f64();
     eprintln!("[Export][Timing] JSON parse: {:.3}s", parse_secs);
     let staged_start = Instant::now();
@@ -70,6 +71,7 @@ pub(crate) fn run_native_export_with_staged(
         atlas_h,
         overlay_frames,
         overlay_metadata,
+        ..
     } = staged;
 
     let mut baked_path = match config.baked_path.take() {
@@ -141,28 +143,19 @@ pub(crate) fn run_native_export_with_staged(
     // Generate cursor path in Rust if not provided by frontend.
     let baked_cursor = generate_cursor_path_if_needed(baked_cursor, &config, src_w, src_h);
 
-    // Calculate dimensions
-    let crop = &config.segment.crop;
-    let crop_w = if let Some(c) = crop {
-        (src_w as f64 * c.width) as u32
-    } else {
-        src_w
-    };
-    let crop_h = if let Some(c) = crop {
-        (src_h as f64 * c.height) as u32
-    } else {
-        src_h
-    };
-    let crop_x_offset = if let Some(c) = crop {
-        src_w as f64 * c.x
-    } else {
-        0.0
-    };
-    let crop_y_offset = if let Some(c) = crop {
-        src_h as f64 * c.y
-    } else {
-        0.0
-    };
+    // Resolve the legacy bottom crop separately from the canonical crop rectangle.
+    // Camera positions remain in the canonical crop coordinate space, while the
+    // decoder, placement, and cursor use the visibly retained source height.
+    let crop_geometry = super::crop_geometry::resolve_export_crop_geometry(
+        src_w,
+        src_h,
+        config.segment.crop.as_ref(),
+        config.background_config.crop_bottom,
+    );
+    let crop_w = crop_geometry.video_width;
+    let crop_h = crop_geometry.video_height;
+    let crop_x_offset = crop_geometry.x_offset;
+    let crop_y_offset = crop_geometry.y_offset;
 
     let out_w = if config.width == 0 {
         crop_w
@@ -190,6 +183,8 @@ pub(crate) fn run_native_export_with_staged(
         src_h,
         crop_w,
         crop_h,
+        crop_geometry.camera_width,
+        crop_geometry.camera_height,
         crop_x_offset,
         crop_y_offset,
         out_w,

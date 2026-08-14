@@ -1,10 +1,14 @@
+import { lazy, Suspense } from "react";
 import { Header } from "@/components/Header";
 import { SequencePillChain } from "@/components/SequencePillChain";
 import { DragDropOverlay } from "@/components/DragDropOverlay";
 import { EditorMain } from "@/components/EditorMain";
-import { EditorOverlays } from "@/components/EditorOverlays";
 import { ResizeBorders } from "@/components/layout/ResizeBorders";
 import type { AppViewProps } from "@/components/appViewProps";
+
+const EditorOverlays = lazy(() => import("@/components/EditorOverlays").then(
+  (module) => ({ default: module.EditorOverlays }),
+));
 
 export type { AppViewProps };
 
@@ -58,11 +62,13 @@ export function AppView(props: AppViewProps) {
     handleCancelCrop,
     handleCancelSubtitleGeneration,
     handleCloseProject,
+    handleClearProjects,
     handleCommitAudioSegments,
     handleCommitNarrationSegments,
     handleDeleteAudioSegments,
     handleDeleteKeyframe,
     handleDeleteNarrationSegments,
+    handleDeleteProject,
     handleGenerateSubtitles,
     handleKeystrokeDelayChange,
     handleLoadProjectFromGrid,
@@ -72,8 +78,7 @@ export function AppView(props: AppViewProps) {
     handlePreviewMouseDown,
     handleRemoveHotkey,
     handleRemoveRecentUpload,
-    recentUploadLimit,
-    setRecentUploadLimit,
+    handleRenameProject,
     handleRemoveSequenceClip,
     handleSelectMonitorCapture,
     handleSelectSequenceClip,
@@ -199,6 +204,19 @@ export function AppView(props: AppViewProps) {
     windows,
     zoomFactor,
   } = props;
+  const hasEditorOverlay = projects.showProjectsDialog
+    || isProjectInteractionShieldVisible
+    || isCropping
+    || exportHook.isProcessing
+    || exportHook.showExportDialog
+    || exportHook.showExportSuccessDialog
+    || Boolean(exportHook.exportErrorMessage)
+    || audioDownloadHook.isProcessing
+    || audioDownloadHook.showDialog
+    || audioDownloadHook.showResultDialog
+    || showWindowSelect
+    || showRawVideoDialog
+    || showHotkeyDialog;
 
   return (
     <div className="app-container min-h-screen bg-[var(--surface)]">
@@ -342,8 +360,6 @@ export function AppView(props: AppViewProps) {
         webcamConfig={webcamConfig}
         setWebcamConfig={setWebcamConfig}
         recentUploads={recentUploads}
-        recentUploadLimit={recentUploadLimit}
-        setRecentUploadLimit={setRecentUploadLimit}
         handleRemoveRecentUpload={handleRemoveRecentUpload}
         handleBackgroundUpload={handleBackgroundUpload}
         isBackgroundUploadProcessing={isBackgroundUploadProcessing}
@@ -409,12 +425,15 @@ export function AppView(props: AppViewProps) {
         onAudioTrackDownload={audioDownloadHook.openAudioDownloadDialog}
       />
 
-      <EditorOverlays
+      {hasEditorOverlay && <Suspense fallback={null}><EditorOverlays
         showProjectsDialog={projects.showProjectsDialog}
         projects={projects.projects}
         onBeginProjectOpen={beginProjectInteractionShield}
         onLoadProject={handleLoadProjectFromGrid}
         onProjectsChange={projects.loadProjects}
+        onClearProjects={handleClearProjects}
+        onDeleteProject={handleDeleteProject}
+        onRenameProject={handleRenameProject}
         currentProjectId={projects.currentProjectId}
         restoreImageRef={restoreImageRef}
         previewTargetSnapshotRef={projectsPreviewTargetSnapshotRef}
@@ -450,7 +469,7 @@ export function AppView(props: AppViewProps) {
         onExportSuccessPathChange={async (newPath) => exportHook.setLastExportedPath(newPath)}
         showHotkeyDialog={showHotkeyDialog}
         onCloseHotkeyDialog={closeHotkeyDialog}
-      />
+      /></Suspense>}
     </div>
   );
 }

@@ -133,6 +133,7 @@ pub fn handle_start_s2s_narration(args: &serde_json::Value) -> Result<serde_json
             "Gemini S2S narration already running (job={active})"
         ));
     }
+    job_registry::prepare_for_insert(&mut jobs)?;
     let job_id = job_registry::uuid("s2s-narration");
     let snapshot = Arc::new(Mutex::new(S2sNarrationJobSnapshot {
         total_clips: request.clips.len(),
@@ -210,6 +211,12 @@ pub fn handle_cancel_s2s_narration(args: &serde_json::Value) -> Result<serde_jso
         snapshot.active_clip_id = None;
     }
     Ok(serde_json::Value::Null)
+}
+
+pub(super) fn cancel_all_jobs() {
+    if let Ok(jobs) = jobs().lock() {
+        job_registry::cancel_all(&jobs);
+    }
 }
 
 fn run_job(

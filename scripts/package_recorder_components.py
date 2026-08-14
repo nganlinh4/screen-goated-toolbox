@@ -12,6 +12,12 @@ import struct
 import subprocess
 import sys
 import zipfile
+
+from dev_cache_paths import (
+    managed_cache_root,
+    manifest_path,
+    require_repo_or_managed_cache,
+)
 from pathlib import Path
 
 
@@ -307,7 +313,7 @@ def package(
         "id": component_id,
         "version": version,
         "asset": asset,
-        "assetPath": target.relative_to(repo).as_posix(),
+        "assetPath": manifest_path(repo, target),
         "sizeBytes": target.stat().st_size,
         "sha256": archive_hash,
         "unpackedSizeBytes": sum(record["sizeBytes"] for record in records),
@@ -345,11 +351,19 @@ def require_matching_delivery(output: Path, descriptor: dict[str, object]) -> No
 
 
 def main() -> int:
+    cache_root = managed_cache_root()
     parser = argparse.ArgumentParser()
     parser.add_argument("--version")
     parser.add_argument(
         "--worker-exe",
-        default="native/recorder_worker/target/x86_64-pc-windows-msvc/release/sgt-recorder-worker.exe",
+        default=str(
+            cache_root
+            / "cargo"
+            / "package"
+            / "x86_64-pc-windows-msvc"
+            / "release"
+            / "sgt-recorder-worker.exe"
+        ),
     )
     parser.add_argument(
         "--web-root", default="screen-record/dist"
@@ -366,7 +380,8 @@ def main() -> int:
         "--worker-manifest", default="native/recorder_worker/Cargo.toml"
     )
     parser.add_argument(
-        "--output-dir", default="local-runtime-bundles/sgt_recorder"
+        "--output-dir",
+        default=str(cache_root / "packages" / "jobs" / "recorder"),
     )
     parser.add_argument("--require-delivery", action="store_true")
     args = parser.parse_args()
@@ -375,12 +390,15 @@ def main() -> int:
     version = args.version or cargo_version(repo)
     if not re.fullmatch(r"[a-z0-9._-]{1,80}", version):
         raise RuntimeError("invalid recorder component version")
-    output = (repo / args.output_dir).resolve()
-    output.relative_to(repo)
+    output = require_repo_or_managed_cache(
+        repo, repo / args.output_dir, "recorder output"
+    )
     output.mkdir(parents=True, exist_ok=True)
     web_root = (repo / args.web_root).resolve()
     web_root.relative_to(repo)
-    worker = (repo / args.worker_exe).resolve()
+    worker = require_repo_or_managed_cache(
+        repo, repo / args.worker_exe, "recorder worker"
+    )
     notice = (repo / args.notice).resolve()
     web_notice = (repo / args.web_notice).resolve()
     worker_manifest = (repo / args.worker_manifest).resolve()

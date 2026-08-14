@@ -52,6 +52,7 @@ export function KeystrokeToggleControl({
           <div className="playback-keystroke-delay-slider-shell flex-1 rounded-full px-1 py-[3px]">
             <input
               type="range"
+              aria-label={t.keystrokeDelay}
               min="-1"
               max="1"
               step="0.01"

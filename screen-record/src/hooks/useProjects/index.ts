@@ -71,7 +71,11 @@ export function useProjects(props: UseProjectsProps) {
     Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob" | "webcamBlob">[]
   >([]);
   const [showProjectsDialog, setShowProjectsDialog] = useState(false);
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [currentProjectId, setCurrentProjectIdState] = useState<string | null>(null);
+  const setCurrentProjectId = useCallback((projectId: string | null) => {
+    projectManager.setActiveProjectId(projectId);
+    setCurrentProjectIdState(projectId);
+  }, []);
   const loadRequestSeqRef = useRef(0);
   const logProjectLoad = (event: string, data?: Record<string, unknown>) => {
     if (!PROJECT_LOAD_DEBUG) return;
@@ -379,6 +383,8 @@ export function useProjects(props: UseProjectsProps) {
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
+
+  useEffect(() => () => projectManager.setActiveProjectId(null), []);
 
   return {
     projects,

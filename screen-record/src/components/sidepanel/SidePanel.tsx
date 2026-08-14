@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   VideoSegment,
   BackgroundConfig,
@@ -12,119 +12,26 @@ import type { SubtitleNarrationGroupPreview } from '@/hooks/useSubtitleNarration
 import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
 import { useSubtitleTranslation } from '@/hooks/useSubtitleTranslation';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
-import { ZoomPanel } from './ZoomPanel';
-import { CameraPanel } from './CameraPanel';
-import { BackgroundPanel } from './BackgroundPanel';
-import { CursorPanel } from './CursorPanel';
-import { SubtitlePanel } from './SubtitlePanel';
-import { TextPanel } from './TextPanel';
-import { BlurPanel } from './BlurPanel';
-import { AudioPanel } from './AudioPanel';
-import { NarrationPanel } from './NarrationPanel';
 import { AnimatePresence, motion } from 'motion/react';
 import type { WebcamConfig } from '@/types/video';
+import {
+  PANEL_TAB_ORDER,
+  SidePanelTabs,
+  type ActivePanel,
+} from './SidePanelTabs';
 
-// ============================================================================
-// Types
-// ============================================================================
-export type ActivePanel =
-  | 'zoom'
-  | 'camera'
-  | 'background'
-  | 'cursor'
-  | 'blur'
-  | 'audio'
-  | 'narration'
-  | 'subtitles'
-  | 'text';
+const ZoomPanel = lazy(() => import('./ZoomPanel').then((module) => ({ default: module.ZoomPanel })));
+const CameraPanel = lazy(() => import('./CameraPanel').then((module) => ({ default: module.CameraPanel })));
+const BackgroundPanel = lazy(() => import('./BackgroundPanel').then((module) => ({ default: module.BackgroundPanel })));
+const CursorPanel = lazy(() => import('./CursorPanel').then((module) => ({ default: module.CursorPanel })));
+const SubtitlePanel = lazy(() => import('./SubtitlePanel').then((module) => ({ default: module.SubtitlePanel })));
+const TextPanel = lazy(() => import('./TextPanel').then((module) => ({ default: module.TextPanel })));
+const BlurPanel = lazy(() => import('./BlurPanel').then((module) => ({ default: module.BlurPanel })));
+const AudioPanel = lazy(() => import('./AudioPanel').then((module) => ({ default: module.AudioPanel })));
+const NarrationPanel = lazy(() => import('./NarrationPanel').then((module) => ({ default: module.NarrationPanel })));
 
-const PANEL_TAB_ORDER: ActivePanel[] = [
-  'zoom',
-  'camera',
-  'background',
-  'cursor',
-  'blur',
-  'audio',
-  'narration',
-  'subtitles',
-  'text',
-];
 const PANEL_EXIT_MS = 320;
 const KEEP_ALIVE_PANEL_IDS = new Set<ActivePanel>(['background']);
-
-// ============================================================================
-// PanelTabs
-// ============================================================================
-interface PanelTabsProps {
-  activePanel: ActivePanel;
-  onPanelChange: (panel: ActivePanel) => void;
-  hiddenTabs?: Set<ActivePanel>;
-}
-
-function PanelTabs({ activePanel, onPanelChange, hiddenTabs }: PanelTabsProps) {
-  const { t } = useSettings();
-  const visibleTabIds = PANEL_TAB_ORDER.filter((id) => !hiddenTabs?.has(id));
-  const useCompactLabels = visibleTabIds.length === 7;
-  const compactTabLabel = (id: ActivePanel) => {
-    switch (id) {
-      case 'background': return t.tabBackground === 'Nền' ? 'Nền' : 'Bg';
-      case 'cursor': return t.tabCursor === 'Con Trỏ' ? 'C.Trỏ' : t.tabCursor;
-      case 'blur': return t.tabBlur;
-      case 'audio': return t.tabAudio === 'Âm Thanh' ? 'Â.Thanh' : t.tabAudio;
-      case 'narration': return t.tabNarration === 'Thuyết Minh' ? 'T.Minh' : 'Narr.';
-      case 'subtitles': return t.tabSubtitles === 'Phụ Đề' ? 'P.Đề' : 'Subs';
-      case 'text': return t.tabText;
-      default: return tabLabel(id);
-    }
-  };
-  const tabLabel = (id: ActivePanel) => {
-    switch (id) {
-      case 'zoom': return t.tabZoom;
-      case 'camera': return t.tabCamera;
-      case 'background': return t.tabBackground;
-      case 'cursor': return t.tabCursor;
-      case 'blur': return t.tabBlur;
-      case 'audio': return t.tabAudio;
-      case 'narration': return t.tabNarration;
-      case 'subtitles': return t.tabSubtitles;
-      case 'text': return t.tabText;
-    }
-  };
-  const tabs: { id: ActivePanel; label: string }[] = visibleTabIds
-    .map((id) => ({ id, label: useCompactLabels ? compactTabLabel(id) : tabLabel(id) }));
-
-  return (
-    <div className="panel-tabs ui-segmented relative flex flex-nowrap overflow-hidden">
-      {tabs.map(tab => (
-        <button
-          key={tab.id}
-          onClick={() => onPanelChange(tab.id)}
-          className={`panel-tab-button ui-segmented-button relative flex-1 px-2 py-2 text-[11px] font-medium whitespace-nowrap ${
-            activePanel === tab.id
-              ? 'text-[var(--primary-color)]'
-              : ''
-          }`}
-        >
-          {activePanel === tab.id && (
-            <motion.span
-              layoutId="side-panel-tab-pill"
-              className="panel-tab-pill absolute inset-0 rounded-[10px] border"
-              style={{
-                background:
-                  "color-mix(in srgb, var(--primary-color) 12%, var(--ui-surface-3))",
-                borderColor:
-                  "color-mix(in srgb, var(--primary-color) 36%, var(--ui-border))",
-                boxShadow: "var(--shadow-elevation-1)",
-              }}
-              transition={{ type: "spring", stiffness: 420, damping: 36, mass: 0.9 }}
-            />
-          )}
-          <span className="panel-tab-label relative z-10">{tab.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // ============================================================================
 // SidePanel (Main Export)
@@ -144,8 +51,6 @@ interface SidePanelProps {
   setWebcamConfig: React.Dispatch<React.SetStateAction<WebcamConfig>>;
   webcamAvailable: boolean;
   recentUploads: string[];
-  recentUploadLimit: number;
-  setRecentUploadLimit: (limit: number) => void;
   onRemoveRecentUpload: (imageUrl: string) => void;
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;
@@ -230,8 +135,6 @@ export function SidePanel({
   setWebcamConfig,
   webcamAvailable,
   recentUploads,
-  recentUploadLimit,
-  setRecentUploadLimit,
   onRemoveRecentUpload,
   onBackgroundUpload,
   isBackgroundUploadProcessing,
@@ -295,6 +198,7 @@ export function SidePanel({
   beginBatch,
   commitBatch
 }: SidePanelProps) {
+  const { t } = useSettings();
   const hasZoomFocus = editingKeyframeId !== null;
   const hasTextFocus = !!editingTextId || (selectedTextIds?.length ?? 0) > 0;
   const hasSubtitlePanel = !!segment;
@@ -390,8 +294,6 @@ export function SidePanel({
           backgroundConfig={backgroundConfig}
           setBackgroundConfig={setBackgroundConfig}
           recentUploads={recentUploads}
-          recentUploadLimit={recentUploadLimit}
-          onRecentUploadLimitChange={setRecentUploadLimit}
           onRemoveRecentUpload={onRemoveRecentUpload}
           onBackgroundUpload={onBackgroundUpload}
           isBackgroundUploadProcessing={isBackgroundUploadProcessing}
@@ -540,7 +442,7 @@ export function SidePanel({
 
   return (
     <div className="side-panel h-full min-h-0 flex flex-col">
-      <PanelTabs activePanel={effectivePanel} onPanelChange={setActivePanel} hiddenTabs={renderedHiddenTabs} />
+      <SidePanelTabs activePanel={effectivePanel} onPanelChange={setActivePanel} hiddenTabs={renderedHiddenTabs} />
       <div className="side-panel-content mt-3 flex-1 min-h-0 overflow-hidden px-2 pb-2">
         <div className="side-panel-panels relative h-full">
           {PANEL_TAB_ORDER.filter((panelId) => KEEP_ALIVE_PANEL_IDS.has(panelId)).map((panelId) => {
@@ -550,12 +452,17 @@ export function SidePanel({
             return (
               <div
                 key={`keep-alive-${panelId}`}
+                id={`panel-pane-${panelId}`}
+                role="tabpanel"
+                aria-labelledby={`panel-tab-${panelId}`}
                 className={`side-panel-pane side-panel-pane-keepalive side-panel-pane-${panelId} absolute inset-0 overflow-y-auto thin-scrollbar pr-1 pb-2 ${
                   isActive ? 'z-10 opacity-100' : 'invisible pointer-events-none z-0 opacity-0'
                 }`}
                 aria-hidden={!isActive}
               >
-                {renderPanel(panelId)}
+                <Suspense fallback={<div className="side-panel-loading p-3 text-xs" role="status">{t.loading}</div>}>
+                  {renderPanel(panelId)}
+                </Suspense>
               </div>
             );
           })}
@@ -563,6 +470,9 @@ export function SidePanel({
             <AnimatePresence initial={false} custom={slideDirection}>
               <motion.div
                 key={effectivePanel}
+                id={`panel-pane-${effectivePanel}`}
+                role="tabpanel"
+                aria-labelledby={`panel-tab-${effectivePanel}`}
                 custom={slideDirection}
                 variants={panelMotionVariants}
                 className="side-panel-pane absolute inset-0 overflow-y-auto thin-scrollbar pr-1 pb-2"
@@ -575,7 +485,9 @@ export function SidePanel({
                   scale: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
                 }}
               >
-                {renderPanel(effectivePanel)}
+                <Suspense fallback={<div className="side-panel-loading p-3 text-xs" role="status">{t.loading}</div>}>
+                  {renderPanel(effectivePanel)}
+                </Suspense>
               </motion.div>
             </AnimatePresence>
           )}

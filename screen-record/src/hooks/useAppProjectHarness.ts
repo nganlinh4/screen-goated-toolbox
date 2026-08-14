@@ -47,126 +47,77 @@ export interface AppProjectHarnessArgs {
   setMousePositions: (positions: MousePosition[]) => void;
   setPreviewDuration: (duration: number) => void;
   setThumbnails: (thumbnails: string[]) => void;
+  startExport: () => Promise<unknown>;
 }
 
 export function useAppProjectHarness(args: AppProjectHarnessArgs) {
-  const {
-    composition,
-    currentProjectData,
-    currentProjectDataRef,
-    currentProjectIdRef,
-    currentRawMicAudioPath,
-    currentRawVideoPath,
-    currentRawWebcamVideoPath,
-    currentRecordingMode,
-    duration,
-    editorHistory,
-    handleProjectRawVideoPathChange,
-    projects,
-    rawSetComposition,
-    rawSetCurrentRawMicAudioPath,
-    rawSetCurrentRawWebcamVideoPath,
-    rawSetSegment,
-    rawSetWebcamConfig,
-    segment,
-    segmentRef,
-    setBackgroundConfigState,
-    setCurrentAudio,
-    setCurrentMicAudio,
-    setCurrentProjectData,
-    setCurrentTime,
-    setCurrentVideo,
-    setCurrentWebcamVideo,
-    setMousePositions,
-    setPreviewDuration,
-    setThumbnails,
-  } = args;
   const historyProjectResetRef = useRef<string | null>(null);
+  const latestArgsRef = useRef(args);
+  latestArgsRef.current = args;
 
   useEffect(() => {
-    currentProjectIdRef.current = projects.currentProjectId;
-  }, [currentProjectIdRef, projects.currentProjectId]);
+    args.currentProjectIdRef.current = args.projects.currentProjectId;
+  }, [args.currentProjectIdRef, args.projects.currentProjectId]);
 
   useEffect(() => {
     return installScreenRecordAppTestHarness({
       loadProject: (project) => {
-        editorHistory.withoutHistory(() => {
-          currentProjectIdRef.current = project.id;
-          currentProjectDataRef.current = project;
-          setCurrentProjectData(project);
-          rawSetSegment(project.segment);
-          rawSetComposition(project.composition ?? null);
-          setBackgroundConfigState(cloneBackgroundConfig(project.backgroundConfig));
-          rawSetWebcamConfig(cloneWebcamConfig(project.webcamConfig ?? DEFAULT_WEBCAM_CONFIG));
-          setPreviewDuration(project.duration ?? project.segment.trimEnd);
-          setCurrentTime(0);
-          handleProjectRawVideoPathChange(project.rawVideoPath ?? "");
-          rawSetCurrentRawMicAudioPath(project.rawMicAudioPath ?? "");
-          rawSetCurrentRawWebcamVideoPath(project.rawWebcamVideoPath ?? "");
-          setCurrentVideo(null);
-          setCurrentAudio(null);
-          setCurrentMicAudio(null);
-          setCurrentWebcamVideo(null);
-          setThumbnails([]);
-          setMousePositions(project.mousePositions ?? []);
+        const current = latestArgsRef.current;
+        current.editorHistory.withoutHistory(() => {
+          current.currentProjectIdRef.current = project.id;
+          current.currentProjectDataRef.current = project;
+          current.setCurrentProjectData(project);
+          current.rawSetSegment(project.segment);
+          current.rawSetComposition(project.composition ?? null);
+          current.setBackgroundConfigState(cloneBackgroundConfig(project.backgroundConfig));
+          current.rawSetWebcamConfig(cloneWebcamConfig(project.webcamConfig ?? DEFAULT_WEBCAM_CONFIG));
+          current.setPreviewDuration(project.duration ?? project.segment.trimEnd);
+          current.setCurrentTime(0);
+          current.handleProjectRawVideoPathChange(project.rawVideoPath ?? "");
+          current.rawSetCurrentRawMicAudioPath(project.rawMicAudioPath ?? "");
+          current.rawSetCurrentRawWebcamVideoPath(project.rawWebcamVideoPath ?? "");
+          current.setCurrentVideo(null);
+          current.setCurrentAudio(null);
+          current.setCurrentMicAudio(null);
+          current.setCurrentWebcamVideo(null);
+          current.setThumbnails([]);
+          current.setMousePositions(project.mousePositions ?? []);
         });
-        projects.setCurrentProjectId(project.id);
-        editorHistory.resetHistory({
+        current.projects.setCurrentProjectId(project.id);
+        current.editorHistory.resetHistory({
           segment: project.segment,
           composition: project.composition ?? null,
           backgroundConfig: project.backgroundConfig,
           webcamConfig: project.webcamConfig ?? DEFAULT_WEBCAM_CONFIG,
           duration: project.duration ?? project.segment.trimEnd,
-          currentRecordingMode,
+          currentRecordingMode: current.currentRecordingMode,
           currentRawVideoPath: project.rawVideoPath ?? "",
           currentRawMicAudioPath: project.rawMicAudioPath ?? "",
           currentRawWebcamVideoPath: project.rawWebcamVideoPath ?? "",
         });
       },
-      getProjectId: () => currentProjectIdRef.current,
-      getDuration: () => duration,
-      getSegment: () => currentProjectDataRef.current?.segment ?? segmentRef.current ?? segment,
-      getComposition: () => currentProjectDataRef.current?.composition ?? composition,
-      setCurrentVideoSource: setCurrentVideo,
-      setCurrentTime,
+      getProjectId: () => latestArgsRef.current.currentProjectIdRef.current,
+      getDuration: () => latestArgsRef.current.duration,
+      getSegment: () => {
+        const current = latestArgsRef.current;
+        return current.currentProjectDataRef.current?.segment ?? current.segmentRef.current ?? current.segment;
+      },
+      getComposition: () => {
+        const current = latestArgsRef.current;
+        return current.currentProjectDataRef.current?.composition ?? current.composition;
+      },
+      setCurrentVideoSource: (source) => latestArgsRef.current.setCurrentVideo(source),
+      setCurrentTime: (time) => latestArgsRef.current.setCurrentTime(time),
+      startExport: () => latestArgsRef.current.startExport(),
     });
-  }, [
-    composition,
-    currentProjectDataRef,
-    currentProjectIdRef,
-    currentRecordingMode,
-    currentRawMicAudioPath,
-    currentRawVideoPath,
-    currentRawWebcamVideoPath,
-    duration,
-    editorHistory,
-    handleProjectRawVideoPathChange,
-    projects,
-    rawSetComposition,
-    rawSetCurrentRawMicAudioPath,
-    rawSetCurrentRawWebcamVideoPath,
-    rawSetSegment,
-    rawSetWebcamConfig,
-    segment,
-    segmentRef,
-    setBackgroundConfigState,
-    setCurrentAudio,
-    setCurrentMicAudio,
-    setCurrentProjectData,
-    setCurrentTime,
-    setCurrentVideo,
-    setCurrentWebcamVideo,
-    setMousePositions,
-    setPreviewDuration,
-    setThumbnails,
-  ]);
+  }, []);
 
   useEffect(() => {
-    const projectId = currentProjectData?.id ?? null;
+    const projectId = args.currentProjectData?.id ?? null;
     if (!projectId || historyProjectResetRef.current === projectId) return;
     historyProjectResetRef.current = projectId;
-    editorHistory.resetHistory(editorHistory.getSnapshot());
-  }, [currentProjectData?.id, editorHistory]);
+    args.editorHistory.resetHistory(args.editorHistory.getSnapshot());
+  }, [args.currentProjectData?.id, args.editorHistory]);
 
   return historyProjectResetRef;
 }

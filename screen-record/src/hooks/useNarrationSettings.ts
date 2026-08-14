@@ -83,7 +83,7 @@ export interface NarrationSettingsState {
   vieneuReferenceVoiceId: string;
 }
 
-export interface NarrationProfilePayload extends NarrationSettingsState {}
+export type NarrationProfilePayload = NarrationSettingsState;
 
 export interface NarrationGeminiVoice {
   name: string;

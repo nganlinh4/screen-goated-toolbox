@@ -41,10 +41,11 @@ pub(crate) fn run() -> Result<()> {
             Err(error) => bail!("malformed recorder request: {error}"),
         };
         let request_id = request.request_id;
-        let shutdown = matches!(&request.command, Command::Shutdown);
+        let mut shutdown = false;
         let response = match request.validate(&token, previous_request_id) {
             Ok(()) => {
                 previous_request_id = request_id;
+                shutdown = matches!(&request.command, Command::Shutdown);
                 match handle(request.command) {
                     Ok(result) => Response {
                         protocol_version: PROTOCOL_VERSION,

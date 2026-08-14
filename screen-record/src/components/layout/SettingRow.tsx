@@ -1,3 +1,5 @@
+import { useId } from 'react';
+import { FieldLabelContext } from '@/components/ui/FieldLabelContext';
 import { cn } from '@/lib/utils';
 
 export interface SettingRowProps {
@@ -13,14 +15,25 @@ export interface SettingRowProps {
  * Eliminates the duplicated flex layout and typography classes for every slider row.
  */
 export function SettingRow({ label, valueDisplay, children, className }: SettingRowProps) {
+  const labelId = useId();
+
   return (
     <div className={cn('setting-row flex items-center gap-3', className)}>
-      <span className="setting-row-label text-[11px] font-medium text-on-surface-variant w-20 shrink-0">
+      <span
+        id={labelId}
+        className="setting-row-label text-[11px] font-medium text-on-surface-variant w-20 shrink-0"
+      >
         {label}
       </span>
-      <div className="setting-row-control flex-1 min-w-0">
-        {children}
-      </div>
+      <FieldLabelContext.Provider value={labelId}>
+        <div
+          className="setting-row-control flex-1 min-w-0"
+          role="group"
+          aria-labelledby={labelId}
+        >
+          {children}
+        </div>
+      </FieldLabelContext.Provider>
       {valueDisplay !== undefined && (
         <span className="setting-row-value text-[11px] font-medium text-on-surface tabular-nums w-12 text-right shrink-0">
           {valueDisplay}

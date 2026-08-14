@@ -1,50 +1,54 @@
 import { describe, expect, it } from "vitest";
-import { buildPlaybackStructureSignature } from "@/hooks/videoPlaybackRenderState";
-import type { VideoSegment } from "@/types/video";
+import { buildPlaybackRenderOptions } from "@/hooks/videoPlaybackRenderState";
+import type { BackgroundConfig, VideoSegment } from "@/types/video";
 
-function segment(deviceAudioOffsetSec: number): VideoSegment {
+function segment(): VideoSegment {
   return {
     trimStart: 0,
     trimEnd: 10,
     zoomKeyframes: [],
     textSegments: [],
     subtitleSegments: [],
-    deviceAudioOffsetSec,
   };
 }
 
-describe("buildPlaybackStructureSignature", () => {
-  it("invalidates active playback when the Device Audio delay changes", () => {
-    expect(buildPlaybackStructureSignature(segment(0))).not.toBe(
-      buildPlaybackStructureSignature(segment(0.5)),
-    );
+describe("buildPlaybackRenderOptions", () => {
+  it("copies the latest background and webcam settings into render state", () => {
+    const background = {
+      scale: 87,
+      borderRadius: 14,
+      backgroundType: "solid",
+      shadow: 2,
+      cursorScale: 4,
+    } as BackgroundConfig;
+    const webcam = { visible: true, maxSizePercent: 31 };
+    const options = buildPlaybackRenderOptions({
+      segment: segment(),
+      backgroundConfig: background,
+      webcamConfig: webcam,
+      mousePositions: [],
+      isCropping: false,
+      outputFrameRate: 30,
+    });
+
+    expect(options.backgroundConfig.scale).toBe(87);
+    expect(options.webcamConfig?.maxSizePercent).toBe(31);
+    expect(options.outputFrameRate).toBe(30);
+    expect(options.backgroundConfig).not.toBe(background);
+    expect(options.webcamConfig).not.toBe(webcam);
   });
 
-  it("invalidates active playback when a manual zoom transition is linked", () => {
-    const unlinked = {
-      ...segment(0),
-      zoomBlocks: [{
-        id: "zoom-1",
-        startTime: 1,
-        endTime: 2,
-        easeIn: 0.2,
-        easeOut: 0.2,
-        zoomFactor: 2,
-        positionX: 0.5,
-        positionY: 0.5,
-        enabled: true,
-      }],
-    } satisfies VideoSegment;
-    const linked = {
-      ...unlinked,
-      zoomBlocks: unlinked.zoomBlocks.map((block) => ({
-        ...block,
-        directTransitionToNext: true,
-      })),
-    } satisfies VideoSegment;
+  it("uses the canonical crop editing render overrides", () => {
+    const options = buildPlaybackRenderOptions({
+      segment: { ...segment(), crop: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 } },
+      backgroundConfig: { scale: 70 } as BackgroundConfig,
+      mousePositions: [],
+      isCropping: true,
+      outputFrameRate: 60,
+    });
 
-    expect(buildPlaybackStructureSignature(unlinked)).not.toBe(
-      buildPlaybackStructureSignature(linked),
-    );
+    expect(options.segment.crop).toBeUndefined();
+    expect(options.backgroundConfig.scale).toBe(100);
+    expect(options.backgroundConfig.borderRadius).toBe(0);
   });
 });

@@ -1,6 +1,13 @@
 import { useAppEffects } from "@/hooks/useAppEffects";
 import { useCloseProject } from "@/hooks/useCloseProject";
 import { useEditorInteractions } from "@/hooks/useEditorInteractions";
+import { useCallback } from "react";
+import { projectManager } from "@/lib/projectManager";
+import { useSettings } from "@/hooks/useSettings";
+import {
+  clearProjectsAfterClosingActive,
+  deleteProjectAfterClosingActive,
+} from "@/lib/projectLifecycleActions";
 import type { ActivePanel } from "@/components/sidepanel/index";
 import type {
   BackgroundConfig,
@@ -32,6 +39,8 @@ export interface AppLateEffectsArgs {
   currentAudio: string | null;
   currentMicAudio: string | null;
   currentProjectId: string | null;
+  currentProjectDataRef: MutableRefObject<Project | null>;
+  currentProjectIdRef: MutableRefObject<string | null>;
   currentRawMicAudioPath: string;
   currentRawVideoPath: string;
   currentRawWebcamVideoPath: string;
@@ -61,6 +70,8 @@ export interface AppLateEffectsArgs {
   isCropping: boolean;
   isDraggingKeystrokeOverlayRef: MutableRefObject<boolean>;
   isRecording: boolean;
+  beginProjectInteractionShield: () => void;
+  endProjectInteractionShield: () => void;
   isResizingKeystrokeOverlayRef: MutableRefObject<boolean>;
   mousePositions: MousePosition[];
   onStopRecording: () => void;
@@ -95,6 +106,7 @@ export interface AppLateEffectsArgs {
   setSeekIndicatorKey: (key: number) => void;
   setSegment: SegmentSetter;
   setThumbnails: Dispatch<SetStateAction<string[]>>;
+  setError: (message: string) => void;
   showHotkeyDialog: boolean;
   showRawVideoDialog: boolean;
   tempCanvasRef: RefObject<HTMLCanvasElement | null>;
@@ -104,6 +116,7 @@ export interface AppLateEffectsArgs {
 }
 
 export function useAppLateEffects(args: AppLateEffectsArgs) {
+  const { t } = useSettings();
   const {
     backgroundConfig,
     beginBatch,
@@ -115,6 +128,8 @@ export function useAppLateEffects(args: AppLateEffectsArgs) {
     currentAudio,
     currentMicAudio,
     currentProjectId,
+    currentProjectDataRef,
+    currentProjectIdRef,
     currentRawMicAudioPath,
     currentRawVideoPath,
     currentRawWebcamVideoPath,
@@ -141,6 +156,8 @@ export function useAppLateEffects(args: AppLateEffectsArgs) {
     isCropping,
     isDraggingKeystrokeOverlayRef,
     isRecording,
+    beginProjectInteractionShield,
+    endProjectInteractionShield,
     isResizingKeystrokeOverlayRef,
     mousePositions,
     onStopRecording,
@@ -175,6 +192,7 @@ export function useAppLateEffects(args: AppLateEffectsArgs) {
     setSeekIndicatorKey,
     setSegment,
     setThumbnails,
+    setError,
     showHotkeyDialog,
     showRawVideoDialog,
     tempCanvasRef,
@@ -211,12 +229,18 @@ export function useAppLateEffects(args: AppLateEffectsArgs) {
     currentRawVideoPath,
     currentRawWebcamVideoPath,
     currentRecordingMode,
+    currentProjectDataRef,
+    currentProjectId,
+    currentProjectIdRef,
     currentVideo,
     currentWebcamVideo,
     editorHistory,
     historyProjectResetRef,
     isProcessing: exportHook.isProcessing,
     isRecording,
+    beginProjectInteractionShield,
+    endProjectInteractionShield,
+    persistRef,
     projects,
     rawSetComposition,
     rawSetSegment,
@@ -230,8 +254,49 @@ export function useAppLateEffects(args: AppLateEffectsArgs) {
     setMousePositions,
     setPreviewDuration,
     setThumbnails,
+    setError,
     webcamConfig,
   });
+
+  const handleRenameProject = useCallback(async (id: string, name: string) => {
+    try {
+      await projectManager.renameProject(id, name);
+      await projects.loadProjects();
+    } catch (error) {
+      console.error("Could not rename project", error);
+      setError(t.projectRenameFailed);
+    }
+  }, [projects, setError, t.projectRenameFailed]);
+
+  const handleDeleteProject = useCallback(async (id: string) => {
+    try {
+      await deleteProjectAfterClosingActive(id, currentProjectId, {
+        closeProject: handleCloseProject,
+        deleteProject: (projectId) => projectManager.deleteProject(projectId),
+        reloadProjects: projects.loadProjects,
+      });
+    } catch (error) {
+      console.error("Could not delete project", error);
+      setError(t.projectDeleteFailed);
+    }
+  }, [currentProjectId, handleCloseProject, projects, setError, t.projectDeleteFailed]);
+
+  const handleClearProjects = useCallback(async () => {
+    try {
+      await clearProjectsAfterClosingActive(
+        projects.projects.map((project) => project.id),
+        currentProjectId,
+        {
+          closeProject: handleCloseProject,
+          deleteProject: (projectId) => projectManager.deleteProject(projectId),
+          reloadProjects: projects.loadProjects,
+        },
+      );
+    } catch (error) {
+      console.error("Could not clear projects", error);
+      setError(t.projectClearFailed);
+    }
+  }, [currentProjectId, handleCloseProject, projects, setError, t.projectClearFailed]);
 
   useEditorInteractions({
     segment,
@@ -283,5 +348,10 @@ export function useAppLateEffects(args: AppLateEffectsArgs) {
     commitBatch,
   });
 
-  return { handleCloseProject };
+  return {
+    handleClearProjects,
+    handleCloseProject,
+    handleDeleteProject,
+    handleRenameProject,
+  };
 }

@@ -9,10 +9,15 @@ interface SettingsState {
 }
 
 // Read initial values set synchronously by Rust init script
+type RecorderSettingsWindow = Window & {
+  __SR_INITIAL_THEME__?: string;
+  __SR_INITIAL_LANG__?: string;
+};
+
+const settingsWindow = window as RecorderSettingsWindow;
 const initialTheme: 'dark' | 'light' =
-  (window as any).__SR_INITIAL_THEME__ === 'light' ? 'light' : 'dark';
-const initialLang: string =
-  (window as any).__SR_INITIAL_LANG__ || 'en';
+  settingsWindow.__SR_INITIAL_THEME__ === 'light' ? 'light' : 'dark';
+const initialLang = settingsWindow.__SR_INITIAL_LANG__ || 'en';
 
 if (typeof document !== 'undefined') {
   if (initialTheme === 'dark') {
@@ -20,6 +25,7 @@ if (typeof document !== 'undefined') {
   } else {
     document.documentElement.classList.remove('dark');
   }
+  document.documentElement.lang = initialLang;
 }
 
 const defaultState: SettingsState = {
@@ -46,6 +52,10 @@ export function useSettingsProvider(): SettingsState {
       document.documentElement.classList.remove('dark');
     }
   }, [theme]);
+
+  useLayoutEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
 
   useEffect(() => {
     const handler = (e: MessageEvent) => {

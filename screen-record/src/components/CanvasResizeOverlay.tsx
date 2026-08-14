@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundConfig } from '@/types/video';
+import { resolveOutputCanvasDimensions } from '@/lib/canvasRenderBudget';
 
 interface CanvasResizeOverlayProps {
   previewContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -142,11 +143,12 @@ export function CanvasResizeOverlay({
         if (type.includes('s')) newH = startH + dy * pxPerCanvas * 2;
         if (type.includes('n')) newH = startH - dy * pxPerCanvas * 2;
 
-        // Clamp to reasonable bounds and keep dimensions encoder-friendly.
-        newW = Math.max(100, Math.min(7680, Math.round(newW)));
-        newH = Math.max(100, Math.min(4320, Math.round(newH)));
-        if (newW % 2 !== 0) newW++;
-        if (newH % 2 !== 0) newH++;
+        const dimensions = resolveOutputCanvasDimensions(
+          Math.max(100, Math.round(newW)),
+          Math.max(100, Math.round(newH)),
+        );
+        newW = dimensions.width;
+        newH = dimensions.height;
 
         setBackgroundConfig(prev => ({ ...prev, canvasWidth: newW, canvasHeight: newH }));
       });

@@ -3,8 +3,13 @@ use std::path::{Path, PathBuf};
 
 use crate::overlay::auto_copy_badge::{NotificationType, show_timed_detailed_notification};
 
+const MAX_SRT_BYTES: usize = 64 * 1024 * 1024;
+
 pub fn handle_save_subtitle_srt(args: &serde_json::Value) -> Result<serde_json::Value, String> {
     let srt_content = args["srtContent"].as_str().ok_or("Missing srtContent")?;
+    if srt_content.len() > MAX_SRT_BYTES {
+        return Err("Subtitle export exceeds the 64 MiB limit".to_string());
+    }
     let default_file_name = args["defaultFileName"]
         .as_str()
         .filter(|value| !value.trim().is_empty())
@@ -25,7 +30,9 @@ fn save_subtitle_srt_file(
     notification_title: &str,
 ) -> Result<String, String> {
     let target_dir = sanitize_dir_path(&super::native_export::get_default_export_dir())?;
-    let destination = unique_destination(&target_dir, &ensure_srt_extension(default_file_name));
+    let file_name =
+        super::path_validation::safe_suggested_file_name(default_file_name, "subtitles", "srt");
+    let destination = unique_destination(&target_dir, &file_name);
 
     fs::write(&destination, srt_content.as_bytes())
         .map_err(|error| format!("Failed to write subtitle file: {}", error))?;
@@ -98,14 +105,15 @@ fn unique_destination(dir: &Path, file_name: &str) -> PathBuf {
     }
 }
 
-fn ensure_srt_extension(file_name: &str) -> String {
-    let trimmed = file_name.trim();
-    if trimmed.is_empty() {
-        return "subtitles.srt".to_string();
-    }
-    if trimmed.to_ascii_lowercase().ends_with(".srt") {
-        trimmed.to_string()
-    } else {
-        format!("{trimmed}.srt")
+#[cfg(test)]
+mod tests {
+    use super::super::path_validation::safe_suggested_file_name;
+
+    #[test]
+    fn subtitle_suggestions_cannot_escape_the_download_directory() {
+        assert_eq!(
+            safe_suggested_file_name(r"..\..\captions.srt", "subtitles", "srt"),
+            "captions.srt"
+        );
     }
 }

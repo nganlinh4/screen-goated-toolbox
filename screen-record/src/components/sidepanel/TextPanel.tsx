@@ -138,6 +138,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
           <div className="color-field flex items-center gap-3">
             <span className="text-[11px] font-medium text-on-surface-variant w-20 shrink-0">{t.color}</span>
             <ColorPicker
+              label={t.color}
               value={resolvedStyle.color}
               onChange={(color) => updateStyle({ color })}
               onOpen={beginBatch}
@@ -307,6 +308,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <div className="pill-color-field flex items-center gap-3">
                   <span className="text-[11px] font-medium text-on-surface-variant w-20 shrink-0">{t.pillColor}</span>
                   <ColorPicker
+                    label={t.pillColor}
                     value={resolvedStyle.background.color.startsWith('rgba') ? '#000000' : resolvedStyle.background.color}
                     onChange={(color) => updateStyle({
                       background: { ...resolvedStyle.background!, color }
@@ -370,6 +372,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <div className="stroke-color-field flex items-center gap-3">
                   <span className="text-[11px] font-medium text-on-surface-variant w-20 shrink-0">{t.strokeColor}</span>
                   <ColorPicker
+                    label={t.strokeColor}
                     value={resolvedStyle.stroke.color}
                     onChange={(color) => updateStyle({ stroke: { ...resolvedStyle.stroke!, color } })}
                     onOpen={beginBatch}
@@ -409,6 +412,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <div className="shadow-color-field flex items-center gap-3">
                   <span className="text-[11px] font-medium text-on-surface-variant w-20 shrink-0">{t.shadowColor}</span>
                   <ColorPicker
+                    label={t.shadowColor}
                     value={resolvedStyle.shadow.color}
                     onChange={(color) => updateStyle({ shadow: { ...resolvedStyle.shadow!, color } })}
                     onOpen={beginBatch}

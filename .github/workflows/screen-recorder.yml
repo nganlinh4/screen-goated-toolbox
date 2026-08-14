@@ -1,0 +1,76 @@
+name: Screen Recorder
+
+on:
+  pull_request:
+    paths:
+      - "screen-record/**"
+      - "native/recorder_worker/**"
+      - "src/overlay/screen_record/**"
+      - "scripts/setup-egui-snarl.ps1"
+      - "scripts/package_recorder_components.py"
+      - "scripts/build-recorder-component-packs.ps1"
+      - "scripts/dev_cache_paths.py"
+      - "scripts/tests/test_package_recorder_components.py"
+      - ".github/workflows/screen-recorder.yml"
+  push:
+    paths:
+      - "screen-record/**"
+      - "native/recorder_worker/**"
+      - "src/overlay/screen_record/**"
+      - "scripts/setup-egui-snarl.ps1"
+      - "scripts/package_recorder_components.py"
+      - "scripts/build-recorder-component-packs.ps1"
+      - "scripts/dev_cache_paths.py"
+      - "scripts/tests/test_package_recorder_components.py"
+      - ".github/workflows/screen-recorder.yml"
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: screen-record
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: screen-record/package-lock.json
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run lint
+      - run: npm run check:source-limits
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:bundle-size
+      - run: npm run test:e2e
+
+  recorder-worker:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Restore pinned egui dependencies
+        shell: pwsh
+        run: ./scripts/setup-egui-snarl.ps1
+      - name: Test deterministic package and release fault contracts
+        shell: pwsh
+        run: >-
+          py -3 -m unittest
+          scripts.tests.test_package_recorder_components
+          scripts.tests.test_component_release
+          scripts.tests.test_component_release_github
+      - name: Test supported worker crate
+        shell: pwsh
+        run: cargo test --manifest-path native/recorder_worker/Cargo.toml --locked
+      - name: Clippy supported worker crate
+        shell: pwsh
+        run: cargo clippy --manifest-path native/recorder_worker/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Build supported release target
+        shell: pwsh
+        run: cargo build --manifest-path native/recorder_worker/Cargo.toml --release --target x86_64-pc-windows-msvc --locked

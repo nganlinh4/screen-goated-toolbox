@@ -128,14 +128,16 @@ fn recorder_job_contains_worker_but_allows_webview_processes() {
 }
 
 #[test]
-fn recorder_job_shutdown_force_terminates_and_reaps_its_worker() {
+fn recorder_removal_terminates_and_reaps_its_active_worker_job() {
     let mut child = ProcessCommand::new("cmd")
         .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
         .spawn()
         .unwrap();
     let job = create_job(&child).unwrap();
+    let _active_job = session_lifecycle::ActiveJobRegistration::register(&job).unwrap();
 
-    terminate_and_reap(&mut child, &job);
+    session_lifecycle::cancel_active_work();
+    child.wait().unwrap();
 
     assert!(child.try_wait().unwrap().is_some());
 }

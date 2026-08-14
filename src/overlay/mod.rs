@@ -59,6 +59,7 @@ pub mod realtime_html; // HTML generation for realtime overlay
 pub mod realtime_webview; // New WebView2-based with smooth scrolling
 pub mod tray_popup; // Custom non-blocking tray popup menu
 pub(crate) mod webview_diagnostics;
+pub(crate) mod webview_init;
 pub mod window_selector;
 
 pub use recording::{

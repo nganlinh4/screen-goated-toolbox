@@ -1,8 +1,5 @@
-// --- GLOBAL MEDIA SERVER ---
-// HTTP media server for streaming recorded video/audio files with
-// range-request support, plus POST endpoints for staging atlas data.
-
 mod audio_import;
+mod body_io;
 mod gate;
 mod import_normalize;
 mod streaming;
@@ -16,6 +13,10 @@ pub use self::audio_import::{
     create_audio_placeholder_video, import_audio_path_to_managed_media_file,
 };
 use self::audio_import::{managed_import_audio_path, normalized_audio_extension};
+use self::body_io::{
+    MAX_ATLAS_BODY_BYTES, MAX_IMPORTED_AUDIO_BYTES, MAX_IMPORTED_VIDEO_BYTES,
+    MAX_RESTORED_VIDEO_BYTES, read_body_bounded, write_body_bounded,
+};
 
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -25,7 +26,6 @@ use tiny_http::{Response, Server};
 const NORMALIZED_IMPORT_AUDIO_SAMPLE_RATE: u32 = 48_000;
 const NORMALIZED_IMPORT_AUDIO_CHANNELS: u32 = 2;
 const NORMALIZED_IMPORT_AUDIO_BITRATE_KBPS: u32 = 192;
-
 pub(crate) fn recordings_dir() -> PathBuf {
     crate::paths::app_local_data_dir().join("recordings")
 }
@@ -133,9 +133,11 @@ pub fn start_global_media_server() -> Result<u16, String> {
 
     let actual_port = port;
     SERVER_PORT.store(actual_port, std::sync::atomic::Ordering::SeqCst);
-    // Mint the per-process gate token exactly once. Subsequent restarts (the
-    // server is only started once per process) keep the original value.
-    let _ = MEDIA_SERVER_TOKEN.set(mint_media_server_token());
+    if MEDIA_SERVER_TOKEN.get().is_none() {
+        MEDIA_SERVER_TOKEN
+            .set(mint_media_server_token()?)
+            .map_err(|_| "Media-server token was initialized concurrently".to_string())?;
+    }
 
     thread::spawn(move || {
         for mut request in server.incoming_requests() {
@@ -163,11 +165,6 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 continue;
             }
 
-            // SECURITY GATE (OWASP A01): the server binds a scannable loopback
-            // port with CORS:* and serves/writes arbitrary disk paths. Before any
-            // filesystem work on a real request, require the per-process secret
-            // token AND a loopback Host header (defense-in-depth vs DNS
-            // rebinding). A failure responds 403 and skips all route handling.
             if let Err(rejection) = check_request_gate(&request) {
                 let mut res = Response::from_string(rejection.body).with_status_code(403);
                 res.add_header(
@@ -178,8 +175,6 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 continue;
             }
 
-            // POST /stage-atlas?w=N&h=N — binary RGBA body staged directly for export.
-            // Eliminates PNG encode (JS) + base64 + PNG decode (Rust) round-trip.
             if request.method() == &tiny_http::Method::Post
                 && request.url().starts_with("/stage-atlas")
             {
@@ -193,10 +188,45 @@ pub fn start_global_media_server() -> Result<u16, String> {
                         .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))
                         .and_then(|v| v.parse().ok())
                 };
-                let w: u32 = find_param("w").unwrap_or(1);
-                let h: u32 = find_param("h").unwrap_or(1);
-                let mut body = Vec::new();
-                if request.as_reader().read_to_end(&mut body).is_ok() && !body.is_empty() {
+                let Some(w) = find_param("w") else {
+                    let mut res =
+                        Response::from_string("Missing atlas width").with_status_code(400);
+                    res.add_header(cors);
+                    let _ = request.respond(res);
+                    continue;
+                };
+                let Some(h) = find_param("h") else {
+                    let mut res =
+                        Response::from_string("Missing atlas height").with_status_code(400);
+                    res.add_header(cors);
+                    let _ = request.respond(res);
+                    continue;
+                };
+                let expected_rgba = usize::try_from(w)
+                    .ok()
+                    .and_then(|width| {
+                        usize::try_from(h)
+                            .ok()
+                            .and_then(|height| width.checked_mul(height))
+                    })
+                    .and_then(|pixels| pixels.checked_mul(4));
+                let Some(expected_rgba) = expected_rgba else {
+                    let mut res =
+                        Response::from_string("Atlas dimensions overflowed").with_status_code(400);
+                    res.add_header(cors);
+                    let _ = request.respond(res);
+                    continue;
+                };
+                let body = match read_body_bounded(request.as_reader(), MAX_ATLAS_BODY_BYTES) {
+                    Ok(body) => body,
+                    Err(error) => {
+                        let mut res = Response::from_string(error).with_status_code(400);
+                        res.add_header(cors);
+                        let _ = request.respond(res);
+                        continue;
+                    }
+                };
+                {
                     let find_str_param = |name: &str| -> Option<String> {
                         let raw = qs
                             .split('&')
@@ -205,23 +235,40 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     };
                     let session_job = find_str_param("session").zip(find_str_param("job"));
 
-                    // Body is PNG binary — decode to RGBA (skips base64 layer).
-                    let expected_rgba = (w as usize) * (h as usize) * 4;
                     let rgba = if body.len() == expected_rgba {
-                        // Raw RGBA — use directly
                         body
                     } else {
-                        // PNG binary — decode
+                        let dimensions = image::ImageReader::new(std::io::Cursor::new(&body))
+                            .with_guessed_format()
+                            .map_err(|error| error.to_string())
+                            .and_then(|reader| {
+                                reader.into_dimensions().map_err(|error| error.to_string())
+                            });
+                        if let Err(msg) = match dimensions {
+                            Ok((actual_w, actual_h)) if (actual_w, actual_h) == (w, h) => Ok(()),
+                            Ok((actual_w, actual_h)) => Err(format!(
+                                "Atlas dimensions do not match: decoded {actual_w}x{actual_h}, expected {w}x{h}"
+                            )),
+                            Err(error) => Err(format!("Atlas header decode failed: {error}")),
+                        } {
+                            let mut res = Response::from_string(msg).with_status_code(400);
+                            res.add_header(cors);
+                            let _ = request.respond(res);
+                            continue;
+                        }
                         match image::load_from_memory(&body) {
                             Ok(img) => {
                                 let rgba8 = img.to_rgba8();
                                 let actual_w = rgba8.width();
                                 let actual_h = rgba8.height();
                                 if actual_w != w || actual_h != h {
-                                    eprintln!(
-                                        "[stage-atlas] Decoded {}x{} but expected {}x{}",
-                                        actual_w, actual_h, w, h
+                                    let msg = format!(
+                                        "Atlas dimensions do not match: decoded {actual_w}x{actual_h}, expected {w}x{h}"
                                     );
+                                    let mut res = Response::from_string(msg).with_status_code(400);
+                                    res.add_header(cors);
+                                    let _ = request.respond(res);
+                                    continue;
                                 }
                                 rgba8.into_raw()
                             }
@@ -236,24 +283,22 @@ pub fn start_global_media_server() -> Result<u16, String> {
                         }
                     };
 
-                    if let Some((sid, jid)) = session_job {
-                        native_export::staging::set_atlas_for(&sid, &jid, rgba, w, h);
+                    let staged = if let Some((sid, jid)) = session_job {
+                        native_export::staging::set_atlas_for(&sid, &jid, rgba, w, h)
                     } else {
-                        native_export::staging::set_atlas(rgba, w, h);
-                    }
-                    let mut res = Response::from_string(r#"{"ok":true}"#).with_status_code(200);
-                    res.add_header(cors);
-                    let _ = request.respond(res);
-                } else {
-                    let mut res = Response::from_string("Empty body").with_status_code(400);
+                        native_export::staging::set_atlas(rgba, w, h)
+                    };
+                    let (message, status) = match staged {
+                        Ok(()) => (r#"{"ok":true}"#.to_string(), 200),
+                        Err(error) => (error, 400),
+                    };
+                    let mut res = Response::from_string(message).with_status_code(status);
                     res.add_header(cors);
                     let _ = request.respond(res);
                 }
                 continue;
             }
 
-            // POST /write-temp — write binary body to recordings dir, return file path.
-            // Used to restore rawVideoPath for old projects that only have a blob.
             if request.method() == &tiny_http::Method::Post
                 && request.url().starts_with("/write-temp")
             {
@@ -261,18 +306,24 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
                         .unwrap();
                 let recordings_dir = recordings_dir();
-                let _ = std::fs::create_dir_all(&recordings_dir);
+                if let Err(error) = std::fs::create_dir_all(&recordings_dir) {
+                    let mut res = Response::from_string(format!(
+                        "Create recordings directory failed: {error}"
+                    ))
+                    .with_status_code(500);
+                    res.add_header(cors);
+                    let _ = request.respond(res);
+                    continue;
+                }
                 let dest = recordings_dir.join(format!(
-                    "restored_{}.mp4",
+                    "restored_{}_{}.mp4",
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
-                        .as_millis()
+                        .as_millis(),
+                    std::process::id()
                 ));
-                let mut body = Vec::new();
-                if request.as_reader().read_to_end(&mut body).is_ok()
-                    && !body.is_empty()
-                    && std::fs::write(&dest, &body).is_ok()
+                if write_body_bounded(request.as_reader(), &dest, MAX_RESTORED_VIDEO_BYTES).is_ok()
                 {
                     let json =
                         format!("{{\"path\":{}}}", serde_json::json!(dest.to_string_lossy()));
@@ -287,6 +338,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     );
                     let _ = request.respond(res);
                 } else {
+                    let _ = std::fs::remove_file(&dest);
                     let mut res = Response::from_string("Write failed").with_status_code(500);
                     res.add_header(cors);
                     let _ = request.respond(res);
@@ -328,8 +380,11 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 let extension = Path::new(&file_name)
                     .extension()
                     .and_then(|ext| ext.to_str())
-                    .filter(|ext| !ext.is_empty())
-                    .unwrap_or("mp4");
+                    .map(str::to_ascii_lowercase)
+                    .filter(|ext| {
+                        matches!(ext.as_str(), "mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi")
+                    })
+                    .unwrap_or_else(|| "mp4".to_string());
                 let normalize_requested = url
                     .split_once('?')
                     .map(|(_, query)| query)
@@ -337,20 +392,16 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     .split('&')
                     .any(|kv| kv == "normalize=1" || kv == "normalize=true");
                 let input_path = recordings_dir.join(format!("import-source-{ts}.{extension}"));
-                let output_path = managed_import_path(&recordings_dir, ts, extension);
-                let mut body = Vec::new();
+                let output_path = managed_import_path(&recordings_dir, ts, &extension);
+                let mut uploaded_bytes = 0u64;
                 let request_started_at = Instant::now();
 
                 let result = (|| -> Result<(String, bool), String> {
-                    request
-                        .as_reader()
-                        .read_to_end(&mut body)
-                        .map_err(|e| format!("Read import body: {e}"))?;
-                    if body.is_empty() {
-                        return Err("Uploaded video is empty".to_string());
-                    }
-                    std::fs::write(&input_path, &body)
-                        .map_err(|e| format!("Write imported video temp file: {e}"))?;
+                    uploaded_bytes = write_body_bounded(
+                        request.as_reader(),
+                        &input_path,
+                        MAX_IMPORTED_VIDEO_BYTES,
+                    )?;
                     if normalize_requested {
                         let normalize_output_path =
                             recordings_dir.join(format!("imported-{ts}.mp4"));
@@ -386,7 +437,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
                             "[VideoImport:{}][HTTP] complete total {:.3}s size_mb={:.2} file=\"{}\" output=\"{}\" has_audio={}",
                             trace_id,
                             request_started_at.elapsed().as_secs_f64(),
-                            body.len() as f64 / (1024.0 * 1024.0),
+                            uploaded_bytes as f64 / (1024.0 * 1024.0),
                             file_name,
                             path,
                             has_audio
@@ -461,19 +512,15 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     .unwrap_or("mp3");
                 let extension = normalized_audio_extension(raw_ext);
                 let output_path = managed_import_audio_path(&recordings_dir, ts, extension);
-                let mut body = Vec::new();
+                let mut uploaded_bytes = 0u64;
                 let request_started_at = Instant::now();
 
                 let result = (|| -> Result<(String, f64), String> {
-                    request
-                        .as_reader()
-                        .read_to_end(&mut body)
-                        .map_err(|e| format!("Read import audio body: {e}"))?;
-                    if body.is_empty() {
-                        return Err("Uploaded audio is empty".to_string());
-                    }
-                    std::fs::write(&output_path, &body)
-                        .map_err(|e| format!("Write imported audio file: {e}"))?;
+                    uploaded_bytes = write_body_bounded(
+                        request.as_reader(),
+                        &output_path,
+                        MAX_IMPORTED_AUDIO_BYTES,
+                    )?;
                     let duration_sec =
                         import_normalize::probe_audio_duration_seconds(&output_path).unwrap_or(0.0);
                     Ok((output_path.to_string_lossy().to_string(), duration_sec))
@@ -485,7 +532,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
                             "[AudioImport:{}][HTTP] complete total {:.3}s size_mb={:.2} file=\"{}\" output=\"{}\" duration={:.3}s",
                             trace_id,
                             request_started_at.elapsed().as_secs_f64(),
-                            body.len() as f64 / (1024.0 * 1024.0),
+                            uploaded_bytes as f64 / (1024.0 * 1024.0),
                             file_name,
                             path,
                             duration_sec
@@ -534,7 +581,6 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 continue;
             }
 
-            // Extract the Range header value now (before moving `request` into the thread).
             let range_header_str: Option<String> = request
                 .headers()
                 .iter()

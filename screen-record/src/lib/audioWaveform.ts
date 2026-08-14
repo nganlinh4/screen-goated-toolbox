@@ -1,4 +1,5 @@
 import { invoke } from "@/lib/ipc";
+import { getLruCacheValue, setLruCacheValue } from "@/lib/boundedCache";
 
 export interface AudioWaveformBin {
   min: number;
@@ -13,6 +14,30 @@ export interface AudioWaveformResponse {
 const waveformCache = new Map<string, AudioWaveformResponse>();
 const waveformInflight = new Map<string, Promise<AudioWaveformResponse>>();
 const TARGET_BIN_BUCKET_SIZE = 64;
+export const MAX_WAVEFORM_CACHE_ENTRIES = 32;
+export const MAX_WAVEFORM_CONCURRENT_REQUESTS = 4;
+export const MAX_WAVEFORM_INFLIGHT_ENTRIES = 64;
+let activeWaveformRequests = 0;
+const waveformAdmissionQueue: Array<() => void> = [];
+
+export function clearAudioWaveformCache(): void {
+  waveformCache.clear();
+}
+
+async function runWithWaveformAdmission<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (activeWaveformRequests >= MAX_WAVEFORM_CONCURRENT_REQUESTS) {
+    await new Promise<void>((resolve) => waveformAdmissionQueue.push(resolve));
+  }
+  activeWaveformRequests += 1;
+  try {
+    return await operation();
+  } finally {
+    activeWaveformRequests = Math.max(0, activeWaveformRequests - 1);
+    waveformAdmissionQueue.shift()?.();
+  }
+}
 
 function getWaveformCacheKey(path: string, targetBins: number) {
   return JSON.stringify({
@@ -39,7 +64,7 @@ export async function getAudioWaveform(
     ),
   );
   const cacheKey = getWaveformCacheKey(trimmedPath, normalizedTargetBins);
-  const cached = waveformCache.get(cacheKey);
+  const cached = getLruCacheValue(waveformCache, cacheKey);
   if (cached) {
     return cached;
   }
@@ -49,10 +74,16 @@ export async function getAudioWaveform(
     return inflight;
   }
 
-  const request = invoke<AudioWaveformResponse>("get_audio_waveform", {
-    path: trimmedPath,
-    targetBins: normalizedTargetBins,
-  })
+  if (waveformInflight.size >= MAX_WAVEFORM_INFLIGHT_ENTRIES) {
+    throw new Error("Too many audio waveforms are waiting to load");
+  }
+
+  const request = runWithWaveformAdmission(() =>
+    invoke<AudioWaveformResponse>("get_audio_waveform", {
+      path: trimmedPath,
+      targetBins: normalizedTargetBins,
+    }),
+  )
     .then((response) => {
       const normalized: AudioWaveformResponse = {
         bins: Array.isArray(response?.bins)
@@ -67,13 +98,18 @@ export async function getAudioWaveform(
             ? response.sourceDurationSec
             : 0,
       };
-      waveformCache.set(cacheKey, normalized);
-      waveformInflight.delete(cacheKey);
+      setLruCacheValue(
+        waveformCache,
+        cacheKey,
+        normalized,
+        MAX_WAVEFORM_CACHE_ENTRIES,
+      );
       return normalized;
     })
-    .catch((error) => {
-      waveformInflight.delete(cacheKey);
-      throw error;
+    .finally(() => {
+      if (waveformInflight.get(cacheKey) === request) {
+        waveformInflight.delete(cacheKey);
+      }
     });
 
   waveformInflight.set(cacheKey, request);

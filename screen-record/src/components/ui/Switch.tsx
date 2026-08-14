@@ -1,20 +1,26 @@
 import { cn } from '@/lib/utils';
 import { motion } from 'motion/react';
+import { useFieldLabelId } from '@/components/ui/FieldLabelContext';
 
 export interface SwitchProps {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
   className?: string;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
 }
 
 /** Toggle switch with spring-animated thumb. */
-export function Switch({ checked, onCheckedChange, disabled, className }: SwitchProps) {
+export function Switch({ checked, onCheckedChange, disabled, className, 'aria-label': ariaLabel, 'aria-labelledby': ariaLabelledBy }: SwitchProps) {
+  const labelId = useFieldLabelId(ariaLabelledBy);
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabel ? undefined : labelId}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(

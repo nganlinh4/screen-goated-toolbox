@@ -9,7 +9,9 @@ const cdpUrl = process.env.SGT_WEBVIEW2_CDP_URL ?? `http://127.0.0.1:${cdpPort}`
 let launchedApp: ChildProcess | null = null;
 let launchError: string | null = null;
 
-test.setTimeout(120_000);
+const coldFirstUseTimeoutMs = 240_000;
+
+test.setTimeout(coldFirstUseTimeoutMs + 60_000);
 
 async function waitForCdpEndpoint(url: string, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
@@ -43,7 +45,7 @@ async function findScreenRecordPage(context: BrowserContext, timeoutMs: number):
 
 async function ensureDebugAppLaunched() {
   if (process.env.SGT_WEBVIEW2_CDP_URL) {
-    await waitForCdpEndpoint(cdpUrl, 10_000);
+    await waitForCdpEndpoint(cdpUrl, coldFirstUseTimeoutMs);
     return;
   }
 
@@ -81,7 +83,7 @@ async function ensureDebugAppLaunched() {
     },
   );
   launchedApp.unref();
-  await waitForCdpEndpoint(cdpUrl, 45_000);
+  await waitForCdpEndpoint(cdpUrl, coldFirstUseTimeoutMs);
 }
 
 test.beforeAll(async () => {

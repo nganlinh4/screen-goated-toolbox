@@ -26,6 +26,7 @@ Fast default validation runs the complete Vitest suite once and produces the
 frontend assets:
 
 ```powershell
+npm run lint
 npm test
 npm run build
 ```
@@ -54,6 +55,7 @@ Wry or performance suites.
 ## Architecture map
 
 - `src/App.tsx` — editor composition and top-level state wiring.
+- `src/hooks/useProjectEditorState.ts` — canonical active-project identity and editor state refs.
 - `src/App.css` — global tokens and shared visual primitives.
 - `src/components/VideoPreview.tsx` — preview surface and playback controls.
 - `src/components/timeline/` — trim, camera, speed, audio, text, subtitle, pointer, and narration tracks.
@@ -74,6 +76,7 @@ Preview and exported media must consume the same state and parameter model. Do n
 ### Packaged assets
 
 A Vite dev page working does not prove the desktop app works. New static assets must also reach `src/overlay/screen_record/dist/` and the Rust packaged asset route where applicable.
+Vite-generated direct-child JavaScript and CSS chunks under `assets/` are supported by the packaged route; other extensions and nested paths remain denied.
 
 ### UI code
 

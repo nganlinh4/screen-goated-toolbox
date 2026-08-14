@@ -341,7 +341,7 @@ function TimelineTrackStackImpl({
               if (!segment || !isWebcamAvailable || typeof atTime !== "number") return;
               const segDur = Math.min(2, Math.max(0.3, duration * 0.08));
               let startTime = Math.max(0, atTime - segDur / 2);
-              let endTime = Math.min(duration, startTime + segDur);
+              const endTime = Math.min(duration, startTime + segDur);
               if (endTime - startTime < 0.1) {
                 startTime = Math.max(0, endTime - 0.1);
               }

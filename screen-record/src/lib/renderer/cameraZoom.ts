@@ -145,11 +145,7 @@ export function calculateCurrentZoomStateInternal(
     let lo = 0, hi = path.length;
     while (lo < hi) { const mid = (lo + hi) >> 1; if ((path[mid] as any).time < currentTime) lo = mid + 1; else hi = mid; }
     const idx = lo < path.length ? lo : -1;
-    // Default in video-pixel space (center of cropped source)
-    const crop0 = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
-    const vidFullW = sCropW / crop0.width;
-    const vidFullH = sCropH / crop0.height;
-    let cam = { x: vidFullW * crop0.x + sCropW / 2, y: vidFullH * crop0.y + sCropH / 2, zoom: 1.0 };
+    let cam: { x: number; y: number; zoom: number };
 
     if (idx === -1) {
       const last = path[path.length - 1];
@@ -171,7 +167,7 @@ export function calculateCurrentZoomStateInternal(
     // Apply Influence
     if (segment.zoomInfluencePoints && segment.zoomInfluencePoints.length > 0) {
       const points = segment.zoomInfluencePoints;
-      let influence = 1.0;
+      let influence: number;
       // Binary search for influence points (O(log n))
       let ilo = 0, ihi = points.length;
       while (ilo < ihi) { const mid = (ilo + ihi) >> 1; if (points[mid].time < currentTime) ilo = mid + 1; else ihi = mid; }

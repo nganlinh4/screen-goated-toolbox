@@ -103,7 +103,6 @@ export function useStopRecording({
       });
       setWebcamConfig(nextWebcamConfig);
 
-      let autoSavedPath = "";
       if (rawAutoCopyEnabled && rawVideoPath && rawSaveDir) {
         try {
           setIsRawActionBusy(true);
@@ -114,7 +113,7 @@ export function useStopRecording({
               targetDir: rawSaveDir,
             },
           );
-          autoSavedPath = saved?.savedPath || "";
+          const autoSavedPath = saved?.savedPath || "";
           if (autoSavedPath) {
             setLastRawSavedPath(autoSavedPath);
             await invoke("copy_video_file_to_clipboard", {

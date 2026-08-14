@@ -201,12 +201,15 @@ impl LocaleText {
             HotkeyConflict::Global { owner, hotkey_name } => {
                 let owner = match (self.language, owner) {
                     ("vi", GlobalHotkeyOwner::ScreenRecord) => "Quay MH",
+                    ("vi", GlobalHotkeyOwner::ScreenTranslate) => "Dịch màn hình",
                     ("vi", GlobalHotkeyOwner::TranslationGummy) => "Bánh mỳ chuyển ngữ",
                     ("vi", GlobalHotkeyOwner::ComputerControl) => "Điều khiển máy tính",
                     ("ko", GlobalHotkeyOwner::ScreenRecord) => "화면 녹화",
+                    ("ko", GlobalHotkeyOwner::ScreenTranslate) => "화면 번역",
                     ("ko", GlobalHotkeyOwner::TranslationGummy) => "통역 곤약",
                     ("ko", GlobalHotkeyOwner::ComputerControl) => "컴퓨터 제어",
                     (_, GlobalHotkeyOwner::ScreenRecord) => "Record Screen",
+                    (_, GlobalHotkeyOwner::ScreenTranslate) => "Screen Translate",
                     (_, GlobalHotkeyOwner::TranslationGummy) => "Translation Gummy",
                     (_, GlobalHotkeyOwner::ComputerControl) => "Computer Control",
                 };

@@ -1,6 +1,11 @@
+import { getBoundedCanvasSize } from "@/lib/canvasRenderBudget";
+
 const INTERACTIVE_MAX_DIMENSION = 960;
+const QUALITY_MAX_DIMENSION = 4096;
+const QUALITY_MAX_PIXELS = 3840 * 2160;
 const INTERACTIVE_SIZE_QUANTUM = 32;
-const MAX_CACHED_BACKGROUNDS = 48;
+export const MAX_CACHED_BACKGROUND_PIXELS = 24_000_000;
+export const MAX_CACHED_BACKGROUNDS = 12;
 
 function quantizeSize(value: number): number {
   return Math.max(INTERACTIVE_SIZE_QUANTUM, Math.round(value / INTERACTIVE_SIZE_QUANTUM) * INTERACTIVE_SIZE_QUANTUM);
@@ -11,12 +16,15 @@ export function getBuiltInBackgroundRenderSize(
   height: number,
   interactive: boolean
 ): { width: number; height: number } {
-  if (!interactive) return { width, height };
-
-  const maxSide = Math.max(width, height);
-  const scale = maxSide > INTERACTIVE_MAX_DIMENSION ? INTERACTIVE_MAX_DIMENSION / maxSide : 1;
-  const scaledWidth = Math.max(1, Math.round(width * scale));
-  const scaledHeight = Math.max(1, Math.round(height * scale));
+  const bounded = getBoundedCanvasSize(
+    width,
+    height,
+    interactive ? INTERACTIVE_MAX_DIMENSION ** 2 : QUALITY_MAX_PIXELS,
+    interactive ? INTERACTIVE_MAX_DIMENSION : QUALITY_MAX_DIMENSION,
+  );
+  if (!interactive) return { width: bounded.width, height: bounded.height };
+  const scaledWidth = bounded.width;
+  const scaledHeight = bounded.height;
 
   if (scaledWidth >= scaledHeight) {
     const quantizedWidth = quantizeSize(scaledWidth);
@@ -38,10 +46,20 @@ export function setCachedBuiltInBackground(
   key: string,
   canvas: HTMLCanvasElement
 ): void {
+  if (cache.has(key)) cache.delete(key);
   cache.set(key, canvas);
-  while (cache.size > MAX_CACHED_BACKGROUNDS) {
+  let cachedPixels = [...cache.values()].reduce(
+    (total, entry) => total + entry.width * entry.height,
+    0,
+  );
+  while (
+    cache.size > MAX_CACHED_BACKGROUNDS ||
+    cachedPixels > MAX_CACHED_BACKGROUND_PIXELS
+  ) {
     const oldestKey = cache.keys().next().value;
     if (!oldestKey) break;
+    const oldest = cache.get(oldestKey);
+    if (oldest) cachedPixels -= oldest.width * oldest.height;
     cache.delete(oldestKey);
   }
 }

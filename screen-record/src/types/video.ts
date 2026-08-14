@@ -458,6 +458,11 @@ export interface ProjectComposition {
   selectedClipId: string | null;
   focusedClipId: string | null;
   clips: ProjectCompositionClip[];
+  /**
+   * Clips removed from the active sequence but still reachable from undo/redo.
+   * Their durable media is collected when the owning project is deleted.
+   */
+  retainedRemovedClips?: ProjectCompositionClip[];
   unifiedSourceClipId?: string | null;
   globalCanvasConfig?: ProjectCanvasConfig;
   globalPresentationConfig?: BackgroundConfig;

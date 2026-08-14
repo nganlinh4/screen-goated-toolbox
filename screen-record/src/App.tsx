@@ -1,9 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
-import {
-  BackgroundConfig, Project, ProjectComposition,
-  VideoSegment, RecordingMode, WebcamConfig,
-} from "@/types/video";
+import { BackgroundConfig, type VideoSegment } from "@/types/video";
 
 import { useHotkeys, useMonitors, useWindows } from "@/hooks/useAppHooks";
 import { useProjects } from "@/hooks/useVideoState";
@@ -16,7 +13,6 @@ import { type ActivePanel } from "@/components/sidepanel/index";
 import { type ProjectsPreviewTargetSnapshot } from "@/components/ProjectsView";
 import { SettingsContext, useSettingsProvider } from "@/hooks/useSettings";
 import { useRawVideoHandler } from "@/hooks/useRawVideoHandler";
-import { type PersistOptions } from "@/hooks/useSequenceComposition";
 import { useAppSubtitleController } from "@/hooks/useAppSubtitleController";
 import { useAppHistoryState } from "@/hooks/useAppHistoryState";
 import { useAppOverlaySelection } from "@/hooks/useAppOverlaySelection";
@@ -25,9 +21,10 @@ import { useAppTimelineControllers } from "@/hooks/useAppTimelineControllers";
 import { useAppLateEffects } from "@/hooks/useAppLateEffects";
 import { useAppCompositionExportController } from "@/hooks/useAppCompositionExportController";
 import { useAppProjectLifecycleController } from "@/hooks/useAppProjectLifecycleController";
+import { useProjectEditorState } from "@/hooks/useProjectEditorState";
 import { AppView } from "@/components/AppView";
+import { UserNotificationRegion } from "@/components/UserNotificationRegion";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
-import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
 import { installFrontendPerfDiagnostics } from "@/lib/frontendPerfDiagnostics";
 
 function App() {
@@ -36,15 +33,20 @@ function App() {
   }, []);
 
   const settings = useSettingsProvider();
-  const [segment, rawSetSegment] = useState<VideoSegment | null>(null);
+  const {
+    composition, currentProjectData, currentProjectDataRef, currentProjectIdRef,
+    currentRawMicAudioPath, currentRawWebcamVideoPath, currentRecordingMode,
+    isPlaceholderBackedProject, isPlayingRef, isProjectTransitionRef,
+    isTimelineOnlyProject, onProjectLoadedRef, pendingSilentSegmentRef,
+    pendingSilentSegmentTimerRef, persistRef, rawSetComposition,
+    rawSetCurrentRawMicAudioPath, rawSetCurrentRawWebcamVideoPath,
+    rawSetCurrentRecordingMode, rawSetSegment, rawSetWebcamConfig, segment,
+    segmentRef, setCurrentProjectData, webcamConfig,
+  } = useProjectEditorState();
   const [activePanel, setActivePanel] = useState<ActivePanel>("background");
   const [isCropping, setIsCropping] = useState(false);
   const [backgroundConfig, setBackgroundConfigState] =
     useState<BackgroundConfig>(() => cloneBackgroundConfig(getInitialBackgroundConfig()));
-  const [webcamConfig, rawSetWebcamConfig] = useState<WebcamConfig>(() => cloneWebcamConfig(DEFAULT_WEBCAM_CONFIG));
-  const [currentRecordingMode, rawSetCurrentRecordingMode] = useState<RecordingMode>("withoutCursor");
-  const [currentProjectData, setCurrentProjectData] = useState<Project | null>(null);
-  const [composition, rawSetComposition] = useState<ProjectComposition | null>(null);
   const {
     currentRawVideoPath,
     setCurrentRawVideoPath: rawSetCurrentRawVideoPath,
@@ -63,56 +65,28 @@ function App() {
     handleOpenRawVideoDialog,
     handleToggleRawAutoCopy,
   } = useRawVideoHandler();
-  const [currentRawMicAudioPath, rawSetCurrentRawMicAudioPath] = useState("");
-  const [currentRawWebcamVideoPath, rawSetCurrentRawWebcamVideoPath] = useState("");
   const [timelineCanvasWidthPx, setTimelineCanvasWidthPx] = useState(0);
   const [previewAudioResetKey, setPreviewAudioResetKey] = useState(0);
-  const isTimelineOnlyProject = Boolean(
-    segment?.mediaMode === "timelineOnly" ||
-    composition?.timelineOnly,
-  );
-  const isPlaceholderBackedProject = Boolean(
-    composition?.placeholderVideoForAudio ||
-    composition?.placeholderVideoForSubtitles ||
-    composition?.timelineOnly ||
-    segment?.mediaMode === "timelineOnly",
-  );
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const restoreImageRef = useRef<string | null>(null);
   const projectsPreviewTargetSnapshotRef = useRef<ProjectsPreviewTargetSnapshot | null>(null);
-  const segmentRef = useRef<VideoSegment | null>(null);
   const isDraggingKeystrokeOverlayRef = useRef(false);
   const isResizingKeystrokeOverlayRef = useRef(false);
   const [isCanvasResizeDragging, setIsCanvasResizeDragging] = useState(false);
-  // Stable ref for onProjectLoaded — breaks circular dep between useClipMediaCache and useProjects
-  const onProjectLoadedRef = useRef<(project: Project) => void>(null!);
-  const currentProjectIdRef = useRef<string | null>(null);
-  const currentProjectDataRef = useRef<Project | null>(null);
-  const isPlayingRef = useRef(false);
-  const pendingSilentSegmentRef = useRef<VideoSegment | null>(null);
-  const pendingSilentSegmentTimerRef = useRef<number | null>(null);
-  // Stable ref for persist callback — avoids cascading useEffect re-triggers
-  const persistRef = useRef<((opts?: PersistOptions) => Promise<void>) | null>(null);
-  // Early ref so setBackgroundConfig can guard against mid-transition mutations
-  const isProjectTransitionRef = useRef(false);
-  useEffect(() => {
-    currentProjectDataRef.current = currentProjectData;
-  }, [currentProjectData]);
 
   const {
     backgroundMutationMetaRef,
     setBackgroundConfig: rawSetBackgroundConfig,
     applyLoadedBackgroundConfig,
     recentUploads,
-    recentUploadLimit,
-    setRecentUploadLimit,
     isBackgroundUploadProcessing,
     handleBackgroundUpload,
     handleRemoveRecentUpload,
   } = useBackgroundManager({
     backgroundConfig,
+    composition,
     setBackgroundConfigState,
     isProjectTransitionRef,
   });
@@ -252,16 +226,6 @@ function App() {
     currentMicAudio,
     currentWebcamVideo,
   });
-  const historyProjectResetRef = useAppProjectHarness({
-    composition, currentProjectData, currentProjectDataRef, currentProjectIdRef,
-    currentRawMicAudioPath, currentRawVideoPath, currentRawWebcamVideoPath, currentRecordingMode,
-    duration, editorHistory, handleProjectRawVideoPathChange, projects, rawSetComposition,
-    rawSetCurrentRawMicAudioPath, rawSetCurrentRawWebcamVideoPath, rawSetSegment, rawSetWebcamConfig,
-    segment, segmentRef, setBackgroundConfigState, setCurrentAudio, setCurrentMicAudio,
-    setCurrentProjectData, setCurrentTime, setCurrentVideo, setCurrentWebcamVideo,
-    setMousePositions, setPreviewDuration, setThumbnails,
-  });
-
   const {
     loadedClipId,
     setLoadedClipId,
@@ -282,6 +246,7 @@ function App() {
     projectInteractionBlockCleanupRef,
     beginProjectInteractionShield,
     abortEditorInteractions,
+    endProjectInteractionShield,
     armProjectInteractionShieldRelease,
     projectPickerMode,
     setProjectPickerMode,
@@ -314,6 +279,19 @@ function App() {
     showProjectsDialog: projects.showProjectsDialog, tempCanvasRef, thumbnails, timelineCanvasWidthPx,
     togglePlayback, videoControllerRef, videoFilePath, videoFilePathOwnerUrl, videoRef, webcamConfig,
     webcamVideoFilePath, webcamVideoRef,
+  });
+  const startExportForHarness = useCallback(
+    () => exportHook.startExport(),
+    [exportHook.startExport],
+  );
+  const historyProjectResetRef = useAppProjectHarness({
+    composition, currentProjectData, currentProjectDataRef, currentProjectIdRef,
+    currentRawMicAudioPath, currentRawVideoPath, currentRawWebcamVideoPath, currentRecordingMode,
+    duration, editorHistory, handleProjectRawVideoPathChange, projects, rawSetComposition,
+    rawSetCurrentRawMicAudioPath, rawSetCurrentRawWebcamVideoPath, rawSetSegment, rawSetWebcamConfig,
+    segment, segmentRef, setBackgroundConfigState, setCurrentAudio, setCurrentMicAudio,
+    setCurrentProjectData, setCurrentTime, setCurrentVideo, setCurrentWebcamVideo,
+    setMousePositions, setPreviewDuration, setThumbnails, startExport: startExportForHarness,
   });
   const [pendingAutoSubtitleProjectId, setPendingAutoSubtitleProjectId] = useState<string | null>(null);
   const [pendingAutoSubtitleArmed, setPendingAutoSubtitleArmed] = useState(false);
@@ -474,7 +452,7 @@ function App() {
     abortEditorInteractions, applyLoadedBackgroundConfig, armProjectInteractionShieldRelease,
     backgroundConfig, beginProjectInteractionShield, canvasRef, clearClipMediaCaches,
     clipExportSourcePathCacheRef, clipExportWebcamPathCacheRef, clipLoadRequestSeqRef,
-    composition, currentAudio, currentMicAudio, currentProjectData, currentProjectDataRef,
+    composition, currentAudio, currentMicAudio, currentProjectData, currentProjectDataRef, currentProjectIdRef,
     currentProjectId: projects.currentProjectId, currentRawMicAudioPath, currentRawVideoPath,
     currentRawWebcamVideoPath, currentRecordingMode, currentTime, currentVideo, currentWebcamVideo,
     duration, exportHook, flashRawSavedButton, generateThumbnail, getMonitors, getWindows,
@@ -518,18 +496,18 @@ function App() {
     handleGenerateSubtitles, isGeneratingSubtitles, isPlaceholderBackedProject, isPlaying,
     loadProjects: projects.loadProjects, pendingAutoSubtitleArmed, pendingAutoSubtitleProjectId,
     projects, rawSetComposition, rawSetSegment, segment, segmentRef, selectedSubtitleIdsRef,
-    selectedTextIdsRef, setActivePanel, setComposition, setCompositionSilently, setCurrentProjectData,
+    selectedTextIdsRef, setActivePanel, setComposition, setCompositionSilently, setCurrentProjectData, setError,
     setCurrentVideo, setEditorPreviewDuration, setEditingSubtitleId, setPendingAutoSubtitleArmed,
     setPendingAutoSubtitleProjectId, setSegment, setSubtitleSource, subtitleSource, videoControllerRef,
     videoRef,
   });
 
-  const { handleCloseProject } = useAppLateEffects({
-    backgroundConfig, beginBatch, canRedo, canUndo, canvasRef, commitBatch, composition,
-    currentAudio, currentMicAudio, currentProjectId: projects.currentProjectId,
+  const { handleClearProjects, handleCloseProject, handleDeleteProject, handleRenameProject } = useAppLateEffects({
+    backgroundConfig, beginBatch, beginProjectInteractionShield, canRedo, canUndo, canvasRef, commitBatch, composition,
+    currentAudio, currentMicAudio, currentProjectDataRef, currentProjectId: projects.currentProjectId, currentProjectIdRef,
     currentRawMicAudioPath, currentRawVideoPath, currentRawWebcamVideoPath, currentRecordingMode,
     currentTime, currentVideo, currentWebcamVideo, duration, editingKeystrokeSegmentId,
-    editingKeyframeId, editingPointerId, editingSubtitleId, editingTextId, editorHistory,
+    editingKeyframeId, editingPointerId, editingSubtitleId, editingTextId, editorHistory, endProjectInteractionShield,
     exportHook, getKeystrokeTimelineDuration, handleDeleteKeystrokeSegment,
     handleDeletePointerSegment, handleDeleteSubtitle, handleDeleteText, handleOverlayDragMove,
     handleStartRecording, handleTogglePlayPause, historyProjectResetRef, isCropping,
@@ -539,13 +517,14 @@ function App() {
     setCurrentMicAudio, setCurrentProjectData, setCurrentTime, setCurrentVideo,
     setCurrentWebcamVideo, setEditingKeyframeId, setEditingSubtitleId, setEditingTextId,
     setIsKeystrokeOverlaySelected, setIsKeystrokeResizeDragging, setIsKeystrokeResizeHandleHover,
-    setIsPreviewDragging, setLoadedClipId, setMousePositions, setPreviewDuration,
+    setIsPreviewDragging, setLoadedClipId, setMousePositions, setPreviewDuration, setError,
     setSeekIndicatorDir, setSeekIndicatorKey, setSegment, setThumbnails, showHotkeyDialog,
     showRawVideoDialog, tempCanvasRef, undo, videoRef, webcamConfig,
   });
 
   return (
     <SettingsContext.Provider value={settings}>
+      <UserNotificationRegion />
       <AppView {...{
         activeClipId, activePanel, applyNarrationAudioSegments, armProjectInteractionShieldRelease, audioDownloadHook, audioRef, autoSplitMaxUnits,
         autoSplitSubtitles, autoZoomConfig, backgroundConfig, beginBatch, beginProjectInteractionShield, canUseSelectedSubtitleMethod, canvasRef,
@@ -554,10 +533,10 @@ function App() {
         editingSubtitleId, editingTextId, error, exportHook, finalizeNarrationAudioSegments, flushSeek, getAutoCanvasSelectionConfig,
         handleActivateCustomCanvas, handleAddKeystrokeSegment, handleAddPointerSegment, handleAddText, handleApplyCanvasRatioPreset,
         handleApplyCrop, handleAutoZoom, handleAutoZoomConfigChange, handleBackgroundUpload, handleCancelCrop, handleCancelSubtitleGeneration,
-        handleCloseProject, handleCommitAudioSegments, handleCommitNarrationSegments, handleDeleteAudioSegments, handleDeleteKeyframe,
-        handleDeleteNarrationSegments, handleGenerateSubtitles, handleKeystrokeDelayChange, handleLoadProjectFromGrid, handleOpenInsertProjectPicker,
+        handleClearProjects, handleCloseProject, handleCommitAudioSegments, handleCommitNarrationSegments, handleDeleteAudioSegments, handleDeleteKeyframe,
+        handleDeleteNarrationSegments, handleDeleteProject, handleGenerateSubtitles, handleKeystrokeDelayChange, handleLoadProjectFromGrid, handleOpenInsertProjectPicker,
         handleOpenRawVideoDialog, handlePickProjectForSequence, handlePreviewMouseDown, handleRemoveHotkey, handleRemoveRecentUpload,
-        handleRemoveSequenceClip, handleRequestRecordingAudioAppSelection, handleSelectAllRecordingDeviceAudio, handleSelectMonitorCapture,
+        handleRemoveSequenceClip, handleRenameProject, handleRequestRecordingAudioAppSelection, handleSelectAllRecordingDeviceAudio, handleSelectMonitorCapture,
         handleSelectSequenceClip, handleSelectWindowCapture, handleSelectWindowForRecording, handleSelectedSubtitleIdsChange,
         handleSelectedTextIdsChange, handleSequenceModeChange, handleSmartPointerHiding, handleToggleCrop, handleToggleKeystrokeMode,
         handleTogglePlayPause, handleToggleProjects, handleToggleRawAutoCopy, handleToggleRecordingDeviceAudio, handleToggleRecordingMicAudio,
@@ -569,11 +548,11 @@ function App() {
         keystrokeOverlayEditFrame, lastRawSavedPath, loadingProgress, micAudioRef, monitors, mousePositions, nextPreloadAudioRef,
         nextPreloadVideoRef, openHotkeyDialog, previewAudioResetKey, previewContainerRef, previewCursorClass, previousPreloadAudioRef,
         previousPreloadVideoRef, projectPickerMode, projects, projectsPreviewTargetSnapshotRef, rawAutoCopyEnabled, rawButtonSavedFlash,
-        recentUploadLimit, recentUploads, recordingAudioSelection, recordingDuration, restoreImageRef, seek, seekIndicatorDir, seekIndicatorKey, segment,
+        recentUploads, recordingAudioSelection, recordingDuration, restoreImageRef, seek, seekIndicatorDir, seekIndicatorKey, segment,
         selectedRecordingMode, selectedSubtitleMethodReason, setActivePanel, setAutoSplitMaxUnits, setAutoSplitSubtitles, setBackgroundConfig,
         setComposition, setCurrentTime, setEditingKeystrokeSegmentId, setEditingKeyframeId, setEditingPointerId, setEditingSubtitleId,
         setEditingTextId, setIsCanvasResizeDragging, setLastRawSavedPath, setProjectPickerMode, setSegment, setSegmentSilently,
-        setRecentUploadLimit, setSelectedRecordingMode, setShowRawVideoDialog, setShowWindowSelect, setSubtitleGeminiPrompt, setSubtitleGroqVocabulary,
+        setSelectedRecordingMode, setShowRawVideoDialog, setShowWindowSelect, setSubtitleGeminiPrompt, setSubtitleGroqVocabulary,
         setSubtitleLanguageHint, setSubtitleMethod, setSubtitleSource, setTimelineCanvasWidthPx, setWebcamConfig, setZoomFactor, settings,
         showHotkeyDialog, showRawVideoDialog, showWindowSelect, spreadFromClipId, subtitleGeminiPrompt, subtitleGenerationIndicator,
         subtitleGroqVocabulary, subtitleLanguageHint, subtitleMethod, subtitleMethodCapabilities, subtitleSource, subtitleStatusMessage,

@@ -54,37 +54,29 @@ export function getBackgroundStyle(
 
     const img = customBgCache.customBackgroundImage;
     if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
-      const cacheKey = `${customBackground}|${ctx.canvas.width}x${ctx.canvas.height}`;
+      const cacheKey = customBackground;
       if (!customBgCache.customBackgroundPattern || customBgCache.customBackgroundCacheKey !== cacheKey) {
-        const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d');
-
-        if (tempCtx) {
-          const cw = ctx.canvas.width;
-          const ch = ctx.canvas.height;
-          const iw = img.naturalWidth;
-          const ih = img.naturalHeight;
-          const coverScale = Math.max(cw / iw, ch / ih);
-          const dw = iw * coverScale;
-          const dh = ih * coverScale;
-          const dx = (cw - dw) / 2;
-          const dy = (ch - dh) / 2;
-
-          tempCanvas.width = cw;
-          tempCanvas.height = ch;
-          tempCtx.imageSmoothingEnabled = true;
-          tempCtx.imageSmoothingQuality = 'high';
-          tempCtx.clearRect(0, 0, cw, ch);
-          tempCtx.drawImage(img, dx, dy, dw, dh);
-          customBgCache.customBackgroundPattern = ctx.createPattern(tempCanvas, 'no-repeat');
-          customBgCache.customBackgroundCacheKey = cacheKey;
-          tempCanvas.remove();
-        }
+        customBgCache.customBackgroundPattern = ctx.createPattern(img, 'no-repeat');
+        customBgCache.customBackgroundCacheKey = cacheKey;
       }
     }
 
     if (customBgCache.customBackgroundPattern) {
-      customBgCache.customBackgroundPattern.setTransform(new DOMMatrix());
+      const canvasWidth = ctx.canvas.width;
+      const canvasHeight = ctx.canvas.height;
+      const imageWidth = customBgCache.customBackgroundImage?.naturalWidth ?? 1;
+      const imageHeight = customBgCache.customBackgroundImage?.naturalHeight ?? 1;
+      const coverScale = Math.max(
+        canvasWidth / imageWidth,
+        canvasHeight / imageHeight,
+      );
+      const offsetX = (canvasWidth - imageWidth * coverScale) / 2;
+      const offsetY = (canvasHeight - imageHeight * coverScale) / 2;
+      customBgCache.customBackgroundPattern.setTransform(
+        new DOMMatrix()
+          .translate(offsetX, offsetY)
+          .scale(coverScale),
+      );
       return customBgCache.customBackgroundPattern;
     }
   }

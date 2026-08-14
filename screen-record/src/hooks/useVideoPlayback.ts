@@ -1,13 +1,25 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 import { videoRenderer } from "@/lib/videoRenderer";
 import { createVideoController } from "@/lib/videoController";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
 import { thumbnailGenerator } from "@/lib/thumbnailGenerator";
 import { getBaseTimelineThumbnailCount } from "@/lib/timelineThumbnailCount";
-import { getSpeedAtTime } from "@/lib/videoExporter";
+import { getSpeedAtTime } from "@/lib/speedCurve";
+import { getLruCacheValue, setLruCacheValue } from "@/lib/boundedCache";
 import {
-  buildPlaybackStructureSignature,
+  getPreviewExportFrameRate,
+  subscribePreviewExportFrameRate,
+} from "@/lib/exportFrameRateStore";
+import {
+  buildPlaybackRenderOptions,
   getPlaybackRenderBackground,
   getPlaybackRenderSegment,
 } from "./videoPlaybackRenderState";
@@ -31,6 +43,8 @@ interface UseVideoPlaybackProps {
   interactiveBackgroundPreview?: boolean;
 }
 
+const MAX_THUMBNAIL_STRIP_CACHE_ENTRIES = 4;
+
 export function useVideoPlayback({
   segment,
   backgroundConfig,
@@ -52,6 +66,11 @@ export function useVideoPlayback({
   const [currentWebcamVideo, setCurrentWebcamVideo] = useState<string | null>(
     null,
   );
+  const outputFrameRate = useSyncExternalStore(
+    subscribePreviewExportFrameRate,
+    getPreviewExportFrameRate,
+    getPreviewExportFrameRate,
+  );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -69,9 +88,6 @@ export function useVideoPlayback({
   const thumbnailRequestIdRef = useRef(0);
   const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thumbnailCacheRef = useRef<Map<string, string[]>>(new Map());
-  const lastPlaybackStructureSignatureRef = useRef("");
-  const lastLoopStructureSignatureRef = useRef("");
-  const lastSubtitleRenderSyncAtRef = useRef(0);
   const currentTimeRef = useRef(0);
   const timelineOnlyPlaybackRef = useRef<{ raf: number | null; lastTick: number }>({
     raf: null,
@@ -132,6 +148,7 @@ export function useVideoPlayback({
       webcamConfig,
       mousePositions: mousePositionsRef.current,
       currentTime: time,
+      outputFrameRate,
       interactiveBackgroundPreview,
     });
   }, [
@@ -139,6 +156,7 @@ export function useVideoPlayback({
     interactiveBackgroundPreview,
     mousePositionsRef,
     normalizedSegment,
+    outputFrameRate,
     webcamConfig,
   ]);
 
@@ -160,10 +178,12 @@ export function useVideoPlayback({
       webcamConfig,
       mousePositions: mousePositionsRef.current,
       currentTime: videoRef.current.currentTime,
+      outputFrameRate,
       interactiveBackgroundPreview,
     });
   }, [
     normalizedSegment,
+    outputFrameRate,
     backgroundConfig,
     webcamConfig,
     interactiveBackgroundPreview,
@@ -254,7 +274,7 @@ export function useVideoPlayback({
       const requestId = ++thumbnailRequestIdRef.current;
       const cacheKey = getThumbnailCacheKey(options);
       const cachedThumbnails = cacheKey
-        ? thumbnailCacheRef.current.get(cacheKey)
+        ? getLruCacheValue(thumbnailCacheRef.current, cacheKey)
         : undefined;
       if (thumbnailTimerRef.current) {
         clearTimeout(thumbnailTimerRef.current);
@@ -284,7 +304,12 @@ export function useVideoPlayback({
             throw new Error("No thumbnails were generated");
           }
           if (cacheKey) {
-            thumbnailCacheRef.current.set(cacheKey, newThumbnails);
+            setLruCacheValue(
+              thumbnailCacheRef.current,
+              cacheKey,
+              newThumbnails,
+              MAX_THUMBNAIL_STRIP_CACHE_ENTRIES,
+            );
           }
           setThumbnails(newThumbnails);
         } catch (error) {
@@ -306,7 +331,12 @@ export function useVideoPlayback({
               () => fallbackThumbnail,
             );
             if (cacheKey) {
-              thumbnailCacheRef.current.set(cacheKey, fallbackStrip);
+              setLruCacheValue(
+                thumbnailCacheRef.current,
+                cacheKey,
+                fallbackStrip,
+                MAX_THUMBNAIL_STRIP_CACHE_ENTRIES,
+              );
             }
             setThumbnails(fallbackStrip);
             return;
@@ -429,26 +459,18 @@ export function useVideoPlayback({
       return;
     }
     if (!normalizedSegment || !videoControllerRef.current) return;
-    const video = videoRef.current;
-    const nextStructureSignature = buildPlaybackStructureSignature(normalizedSegment);
-    const isSubtitleOnlyChange =
-      lastPlaybackStructureSignatureRef.current !== "" &&
-      lastPlaybackStructureSignatureRef.current === nextStructureSignature;
-    lastPlaybackStructureSignatureRef.current = nextStructureSignature;
-
-    if (isSubtitleOnlyChange && video && !video.paused) {
-      return;
-    }
-
-    videoControllerRef.current.updateRenderOptions({
-      segment: getPlaybackRenderSegment(normalizedSegment, isCropping),
-      backgroundConfig: getPlaybackRenderBackground(backgroundConfig, isCropping),
+    videoControllerRef.current.updateRenderOptions(buildPlaybackRenderOptions({
+      segment: normalizedSegment,
+      backgroundConfig,
       webcamConfig,
       mousePositions: mousePositionsRef.current,
+      isCropping,
+      outputFrameRate,
       interactiveBackgroundPreview,
-    });
+    }));
   }, [
     normalizedSegment,
+    outputFrameRate,
     backgroundConfig,
     webcamConfig,
     interactiveBackgroundPreview,
@@ -468,32 +490,23 @@ export function useVideoPlayback({
     }
     const video = videoRef.current;
     if (!video || !normalizedSegment) return;
-    const nextStructureSignature = buildPlaybackStructureSignature(normalizedSegment);
-    const isSubtitleOnlyChange =
-      lastLoopStructureSignatureRef.current !== "" &&
-      lastLoopStructureSignatureRef.current === nextStructureSignature;
-    lastLoopStructureSignatureRef.current = nextStructureSignature;
-
-    if (isSubtitleOnlyChange && !video.paused) {
-      const now = performance.now();
-      if (now - lastSubtitleRenderSyncAtRef.current < 1500) {
-        return;
-      }
-      lastSubtitleRenderSyncAtRef.current = now;
-    }
-
     // Update context for the animation loop (picked up on next RAF tick)
+    const renderOptions = buildPlaybackRenderOptions({
+      segment: normalizedSegment,
+      backgroundConfig,
+      webcamConfig,
+      mousePositions: mousePositionsRef.current,
+      isCropping,
+      outputFrameRate,
+      interactiveBackgroundPreview,
+    });
     videoRenderer.updateRenderContext({
       video,
       webcamVideo: webcamVideoRef.current,
       canvas: canvasRef.current!,
       tempCanvas: tempCanvasRef.current,
-      segment: getPlaybackRenderSegment(normalizedSegment, isCropping),
-      backgroundConfig: getPlaybackRenderBackground(backgroundConfig, isCropping),
-      webcamConfig,
-      mousePositions: mousePositionsRef.current,
+      ...renderOptions,
       currentTime: video.currentTime,
-      interactiveBackgroundPreview,
     });
 
     if (video.paused) {
@@ -501,6 +514,7 @@ export function useVideoPlayback({
     }
   }, [
     normalizedSegment,
+    outputFrameRate,
     backgroundConfig,
     webcamConfig,
     interactiveBackgroundPreview,

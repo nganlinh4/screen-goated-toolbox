@@ -51,6 +51,7 @@ export interface AppTimelineControllerArgs {
   setCurrentVideo: Dispatch<SetStateAction<string | null>>;
   setEditorPreviewDuration: (value: number) => void;
   setEditingSubtitleId: (id: string | null) => void;
+  setError: (message: string) => void;
   setPendingAutoSubtitleArmed: (armed: boolean) => void;
   setPendingAutoSubtitleProjectId: (id: string | null) => void;
   setSegment: SegmentSetter;
@@ -92,6 +93,7 @@ export function useAppTimelineControllers(args: AppTimelineControllerArgs) {
     setCurrentVideo,
     setEditorPreviewDuration,
     setEditingSubtitleId,
+    setError,
     setPendingAutoSubtitleArmed,
     setPendingAutoSubtitleProjectId,
     setSegment,
@@ -161,12 +163,14 @@ export function useAppTimelineControllers(args: AppTimelineControllerArgs) {
     setCurrentVideo,
     setSegment,
     setEditingSubtitleId,
+    setError,
     setSubtitleSource,
     updateCurrentMusicSegments: timelineWorkspace.updateCurrentMusicSegments,
     videoControllerRef,
   });
 
   useAppDropActions({
+    getCurrentProjectId: () => currentProjectIdRef.current,
     importAudioPaths: mediaImports.importAudioPaths,
     importSubtitlePayload: mediaImports.importSubtitlePayload,
     importVideoPath: mediaImports.importVideoPath,

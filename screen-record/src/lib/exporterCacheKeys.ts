@@ -21,12 +21,13 @@ export function buildTimeSegmentStamp(
 }
 
 export function buildJsonHash(value: unknown): string {
-  let json = '';
-  try {
-    json = JSON.stringify(value) ?? '';
-  } catch {
-    json = '';
-  }
+  const json = (() => {
+    try {
+      return JSON.stringify(value) ?? '';
+    } catch {
+      return '';
+    }
+  })();
   let hash = 2166136261 >>> 0;
   for (let i = 0; i < json.length; i++) {
     hash ^= json.charCodeAt(i);

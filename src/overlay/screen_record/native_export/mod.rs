@@ -6,6 +6,7 @@ mod camera_path;
 mod capabilities;
 mod composition;
 pub mod config;
+mod crop_geometry;
 mod cursor;
 mod cursor_path;
 mod gif;
@@ -18,6 +19,7 @@ mod progress;
 pub mod sampling;
 pub mod staging;
 mod util;
+pub(crate) mod validation;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};

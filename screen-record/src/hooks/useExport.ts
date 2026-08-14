@@ -1,17 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@/lib/ipc";
+import { notifyUserError } from "@/lib/userNotifications";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
-import {
-  buildCompositionExportDialogState,
-  exportCompositionAndDownload,
-} from "@/lib/compositionExport";
-import { videoExporter } from "@/lib/videoExporter";
 import {
   BackgroundConfig,
   ExportArtifact,
   VideoSegment,
   MousePosition,
-  ExportOptions,
   ProjectComposition,
   ProjectCompositionClip,
   WebcamConfig,
@@ -19,12 +14,22 @@ import {
 import { getTotalTrimDuration } from "@/lib/trimSegments";
 import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 import { cloneWebcamConfig } from "@/lib/webcam";
+import { useSettings } from "@/hooks/useSettings";
+import { useExportPreferences } from "@/hooks/useExportPreferences";
 import {
-  createInitialExportOptions,
   getExportFailureMessage,
-  NativeVideoMetadataProbe,
   normalizeExportArtifacts,
 } from "./exportHookUtils";
+import { useExportSourceMetadata } from "@/hooks/useExportSourceMetadata";
+import {
+  ExportCancellationGeneration,
+  startAfterCancellablePreparation,
+} from "@/lib/exportCancellation";
+
+const loadVideoExporter = async () =>
+  (await import("@/lib/videoExporter")).videoExporter;
+
+const loadCompositionExport = () => import("@/lib/compositionExport");
 
 // ============================================================================
 // useExport
@@ -67,8 +72,10 @@ interface UseExportProps {
 }
 
 export function useExport(props: UseExportProps) {
+  const { t } = useSettings();
   const [isProcessing, setIsProcessing] = useState(false);
   const exportInFlightRef = useRef(false);
+  const exportCancellationRef = useRef(new ExportCancellationGeneration());
   const [exportProgress, setExportProgress] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showExportSuccessDialog, setShowExportSuccessDialog] = useState(false);
@@ -77,35 +84,14 @@ export function useExport(props: UseExportProps) {
   const [lastExportArtifacts, setLastExportArtifacts] = useState<
     ExportArtifact[]
   >([]);
-  const [sourceVideoFps, setSourceVideoFps] = useState<number | null>(null);
-  const [compositionDialogState, setCompositionDialogState] = useState<{
-    segment: VideoSegment | null;
-    backgroundConfig: BackgroundConfig | null;
-    trimmedDurationSec: number;
-    clipCount: number;
-    hasAudio: boolean;
-  } | null>(null);
-  const [exportAutoCopyEnabled, setExportAutoCopyEnabled] = useState(() => {
-    try {
-      return localStorage.getItem("screen-record-export-auto-copy-v1") === "1";
-    } catch {
-      return false;
-    }
-  });
-  const [exportOptions, setExportOptions] = useState<ExportOptions>(
-    createInitialExportOptions,
-  );
+  const {
+    exportAutoCopyEnabled,
+    setExportAutoCopyEnabled,
+    exportOptions,
+    setExportOptions,
+  } = useExportPreferences();
   const [hasCheckedExportCapabilities, setHasCheckedExportCapabilities] =
     useState(false);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "screen-record-export-auto-copy-v1",
-        exportAutoCopyEnabled ? "1" : "0",
-      );
-    } catch {}
-  }, [exportAutoCopyEnabled]);
 
   const handleExport = useCallback(() => setShowExportDialog(true), []);
   const isCompositionExport = (props.composition?.clips.length ?? 0) > 1;
@@ -129,82 +115,19 @@ export function useExport(props: UseExportProps) {
     props.savedRawVideoPath,
   ]);
 
-  useEffect(() => {
-    if (!showExportDialog) return;
-
-    if (isCompositionExport && props.composition) {
-      let cancelled = false;
-      void buildCompositionExportDialogState(
-        props.composition,
-        props.resolveClipExportSourcePath,
-      )
-        .then((state) => {
-          if (cancelled) return;
-          setCompositionDialogState({
-            segment: state.segment,
-            backgroundConfig: state.backgroundConfig,
-            trimmedDurationSec: state.trimmedDurationSec,
-            clipCount: state.clipCount,
-            hasAudio: state.hasAudio,
-          });
-          setSourceVideoFps(props.lastCaptureFps ?? state.sourceFps);
-        })
-        .catch((error) => {
-          if (cancelled) return;
-          console.warn("[Export] Composition export summary failed:", error);
-          setCompositionDialogState(null);
-          setSourceVideoFps(props.lastCaptureFps ?? null);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const sourceVideoPath = resolveSourceVideoPath();
-    setCompositionDialogState(null);
-    if (!sourceVideoPath) {
-      setSourceVideoFps(null);
-      return;
-    }
-
-    let cancelled = false;
-    void invoke<Partial<NativeVideoMetadataProbe>>("probe_video_metadata", {
-      path: sourceVideoPath,
-    })
-      .then((metadata) => {
-        if (cancelled) return;
-        const probedFps =
-          typeof metadata?.fps === "number" &&
-          Number.isFinite(metadata.fps) &&
-          metadata.fps > 0
-            ? metadata.fps
-            : null;
-        // Prefer the authoritative capture FPS from the backend over the container
-        // metadata probe — WinRT encoder may write 60fps headers even for 100fps captures.
-        setSourceVideoFps(props.lastCaptureFps ?? probedFps);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.warn("[Export] Source video metadata probe failed:", error);
-        setSourceVideoFps(props.lastCaptureFps ?? null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    isCompositionExport,
-    props.composition,
-    props.lastCaptureFps,
-    props.resolveClipExportSourcePath,
-    resolveSourceVideoPath,
+  const { compositionDialogState, sourceVideoFps } = useExportSourceMetadata({
     showExportDialog,
-  ]);
+    isCompositionExport,
+    composition: props.composition,
+    lastCaptureFps: props.lastCaptureFps,
+    resolveClipExportSourcePath: props.resolveClipExportSourcePath,
+    resolveSourceVideoPath,
+  });
 
   useEffect(() => {
     let cancelled = false;
-    void videoExporter
-      .getExportCapabilities()
+    void loadVideoExporter()
+      .then((exporter) => exporter.getExportCapabilities())
       .then((caps) => {
         if (cancelled) return;
         setExportOptions((prev) => {
@@ -349,8 +272,12 @@ export function useExport(props: UseExportProps) {
     let cancelled = false;
     const runPrime = () => {
       if (cancelled) return;
-      void videoExporter
-        .primeExportPreparation(buildPrimeArgs(videoEl, canvasEl, segment, sourceVideoPath))
+      void loadVideoExporter()
+        .then((exporter) =>
+          exporter.primeExportPreparation(
+            buildPrimeArgs(videoEl, canvasEl, segment, sourceVideoPath),
+          ),
+        )
         .catch(() => {
           // keep background prewarm silent
         });
@@ -422,8 +349,12 @@ export function useExport(props: UseExportProps) {
     const sourceVideoPath = resolveSourceVideoPath();
     const primeDelayMs = preRenderPolicy === "aggressive" ? 32 : 220;
     const timer = window.setTimeout(() => {
-      void videoExporter
-        .primeExportPreparation(buildPrimeArgs(videoEl, canvasEl, segment, sourceVideoPath))
+      void loadVideoExporter()
+        .then((exporter) =>
+          exporter.primeExportPreparation(
+            buildPrimeArgs(videoEl, canvasEl, segment, sourceVideoPath),
+          ),
+        )
         .catch((error) => {
           console.error("[ExportPrep] Warm preparation failed:", error);
         });
@@ -464,6 +395,7 @@ export function useExport(props: UseExportProps) {
     )
       return;
     const sourceVideoPath = resolveSourceVideoPath();
+    const exportGeneration = exportCancellationRef.current.begin();
 
     try {
       exportInFlightRef.current = true;
@@ -474,26 +406,44 @@ export function useExport(props: UseExportProps) {
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => resolve()),
       );
+      if (!exportCancellationRef.current.isCurrent(exportGeneration)) return;
 
-      const res = useBatchExport && latestComposition
-        ? await exportCompositionAndDownload({
-            composition: latestComposition,
-            exportOptions,
-            resolveClipSourcePath: props.resolveClipExportSourcePath,
-            resolveClipMicAudioPath: props.resolveClipExportMicAudioPath,
-            resolveClipWebcamPath: props.resolveClipExportWebcamPath,
-          })
-        : await videoExporter.exportAndDownload({
-            ...buildPrimeArgs(
-              props.videoRef.current!,
-              props.canvasRef.current!,
-              props.segment!,
-              sourceVideoPath,
-              latestComposition,
-            ),
-            format: exportOptions.format || "mp4",
-            onProgress: setExportProgress,
-          });
+      const exportResult = useBatchExport && latestComposition
+        ? await startAfterCancellablePreparation(
+            exportCancellationRef.current,
+            exportGeneration,
+            loadCompositionExport,
+            (compositionExport) =>
+              compositionExport.exportCompositionAndDownload({
+                composition: latestComposition,
+                exportOptions,
+                resolveClipSourcePath: props.resolveClipExportSourcePath,
+                resolveClipMicAudioPath: props.resolveClipExportMicAudioPath,
+                resolveClipWebcamPath: props.resolveClipExportWebcamPath,
+                isCancelled: () =>
+                  !exportCancellationRef.current.isCurrent(exportGeneration),
+              }),
+          )
+        : await startAfterCancellablePreparation(
+            exportCancellationRef.current,
+            exportGeneration,
+            loadVideoExporter,
+            (exporter) => exporter.exportAndDownload({
+              ...buildPrimeArgs(
+                props.videoRef.current!,
+                props.canvasRef.current!,
+                props.segment!,
+                sourceVideoPath,
+                latestComposition,
+              ),
+              format: exportOptions.format || "mp4",
+              onProgress: setExportProgress,
+              isCancelled: () =>
+                !exportCancellationRef.current.isCurrent(exportGeneration),
+            }),
+          );
+      if (exportResult.cancelled) return;
+      const res = exportResult.value;
       const artifacts = normalizeExportArtifacts(res);
       const primaryArtifact =
         artifacts.find((artifact) => artifact.primary) ?? artifacts[0];
@@ -507,16 +457,23 @@ export function useExport(props: UseExportProps) {
         if (exportAutoCopyEnabled) {
           invoke("copy_video_file_to_clipboard", {
             filePath: primaryArtifact.path,
-          }).catch(console.error);
+          }).catch((error) => notifyUserError("copyMediaFailed", error));
         }
       }
     } catch (error) {
+      if (!exportCancellationRef.current.isCurrent(exportGeneration)) return;
       console.error("[Export] Error:", error);
-      setExportErrorMessage(getExportFailureMessage(error));
+      setExportErrorMessage(getExportFailureMessage(error, {
+        diskFull: t.exportDiskFull,
+        alreadyRunning: t.exportAlreadyRunning,
+        unknown: t.exportUnknownFailure,
+      }));
     } finally {
-      exportInFlightRef.current = false;
-      setIsProcessing(false);
-      setExportProgress(0);
+      if (exportCancellationRef.current.isCurrent(exportGeneration)) {
+        exportInFlightRef.current = false;
+        setIsProcessing(false);
+        setExportProgress(0);
+      }
     }
   }, [
     exportAutoCopyEnabled,
@@ -525,11 +482,17 @@ export function useExport(props: UseExportProps) {
     isProcessing,
     props,
     resolveSourceVideoPath,
+    t.exportAlreadyRunning,
+    t.exportDiskFull,
+    t.exportUnknownFailure,
   ]);
 
   const cancelExport = useCallback(() => {
+    exportCancellationRef.current.cancel();
     exportInFlightRef.current = false;
-    videoExporter.cancel();
+    void loadVideoExporter()
+      .then((exporter) => exporter.cancel())
+      .catch((error) => console.error("[Export] Cancel failed:", error));
     setIsProcessing(false);
     setExportProgress(0);
   }, []);

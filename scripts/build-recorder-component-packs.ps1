@@ -1,13 +1,29 @@
 param(
-    [switch]$RequireDelivery
+    [switch]$RequireDelivery,
+    [string]$OutputDir,
+    [string]$CargoTargetDir
 )
 
 $ErrorActionPreference = "Stop"
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $frontend = Join-Path $repo "screen-record"
 $workerManifest = Join-Path $repo "native\recorder_worker\Cargo.toml"
-$workerExe = Join-Path $repo "native\recorder_worker\target\x86_64-pc-windows-msvc\release\sgt-recorder-worker.exe"
-$output = Join-Path $repo "local-runtime-bundles\sgt_recorder"
+$managedCacheRoot = if ([string]::IsNullOrWhiteSpace($env:SGT_DEV_CACHE_ROOT)) {
+    Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) "SGT-Development\cache"
+} else {
+    [IO.Path]::GetFullPath($env:SGT_DEV_CACHE_ROOT)
+}
+$workerTarget = if ([string]::IsNullOrWhiteSpace($CargoTargetDir)) {
+    Join-Path $managedCacheRoot "cargo\package"
+} else {
+    [IO.Path]::GetFullPath($CargoTargetDir)
+}
+$workerExe = Join-Path $workerTarget "x86_64-pc-windows-msvc\release\sgt-recorder-worker.exe"
+$output = if ([string]::IsNullOrWhiteSpace($OutputDir)) {
+    Join-Path $managedCacheRoot "packages\jobs\recorder"
+} else {
+    [IO.Path]::GetFullPath($OutputDir)
+}
 $separator = [char]0x1f
 $cargoCacheRoot = if ($env:CARGO_HOME) {
     [IO.Path]::GetFullPath($env:CARGO_HOME).TrimEnd('\')
@@ -61,6 +77,7 @@ try {
         --manifest-path $workerManifest `
         --release `
         --target x86_64-pc-windows-msvc `
+        --target-dir $workerTarget `
         --locked
     if ($LASTEXITCODE -ne 0) {
         throw "Screen Recorder worker build failed"

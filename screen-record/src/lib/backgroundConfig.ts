@@ -1,5 +1,6 @@
 import type { BackgroundConfig } from "@/types/video";
 import { DEFAULT_BACKGROUND_CONFIG } from "@/lib/appUtils";
+import { resolveOutputCanvasDimensions } from "@/lib/canvasRenderBudget";
 
 function finiteOr<T extends number | undefined>(
   value: number | null | undefined,
@@ -18,6 +19,15 @@ export function normalizeBackgroundConfig(
   backgroundConfig: Partial<BackgroundConfig> | null | undefined,
 ): BackgroundConfig {
   const parsed = backgroundConfig ?? {};
+  const parsedCanvasWidth = optionalFinite(parsed.canvasWidth);
+  const parsedCanvasHeight = optionalFinite(parsed.canvasHeight);
+  const canvasDimensions =
+    parsedCanvasWidth !== undefined &&
+    parsedCanvasHeight !== undefined &&
+    parsedCanvasWidth > 0 &&
+    parsedCanvasHeight > 0
+      ? resolveOutputCanvasDimensions(parsedCanvasWidth, parsedCanvasHeight)
+      : null;
   return {
     ...DEFAULT_BACKGROUND_CONFIG,
     ...parsed,
@@ -64,8 +74,8 @@ export function normalizeBackgroundConfig(
         ? parsed.backgroundZoomWithVideo
         : DEFAULT_BACKGROUND_CONFIG.backgroundZoomWithVideo,
     volume: finiteOr(parsed.volume, DEFAULT_BACKGROUND_CONFIG.volume ?? 1),
-    canvasWidth: optionalFinite(parsed.canvasWidth),
-    canvasHeight: optionalFinite(parsed.canvasHeight),
+    canvasWidth: canvasDimensions?.width,
+    canvasHeight: canvasDimensions?.height,
     autoCanvasSourceId:
       typeof parsed.autoCanvasSourceId === "string"
         ? parsed.autoCanvasSourceId

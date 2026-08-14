@@ -9,6 +9,9 @@ import {
 } from './exportEstimatorCalibration';
 import { clamp } from './mathUtils';
 import { resolveCodecAlignedCropGeometry } from './videoGeometry';
+import { createSpeedSampler } from './speedCurve';
+import { resolveOutputCanvasDimensions } from './canvasRenderBudget';
+export { getSpeedAtTime } from './speedCurve';
 export {
   ESTIMATE_CALIBRATION_STORAGE_KEY,
   MAX_CALIBRATION_BUCKETS,
@@ -78,15 +81,10 @@ export function resolveExportDimensions(
   baseW: number,
   baseH: number
 ): { width: number; height: number } {
-  let width = requestW > 0 ? requestW : baseW;
-  let height = requestH > 0 ? requestH : baseH;
-
-  if (width % 2 !== 0) width--;
-  if (height % 2 !== 0) height--;
-  width = Math.max(2, width);
-  height = Math.max(2, height);
-
-  return { width, height };
+  return resolveOutputCanvasDimensions(
+    requestW > 0 ? requestW : baseW,
+    requestH > 0 ? requestH : baseH,
+  );
 }
 
 /** Baseline bitrate suggestion used for defaults and slider range. */
@@ -215,19 +213,6 @@ export function getExportEstimateProfileKey(params: {
   ].join('|');
 }
 
-export function getSpeedAtTime(time: number, points: SpeedPoint[]): number {
-  if (!points || points.length === 0) return 1.0;
-  const sorted = [...points].sort((a, b) => a.time - b.time);
-  const idx = sorted.findIndex((p) => p.time >= time);
-  if (idx === -1) return sorted[sorted.length - 1].speed;
-  if (idx === 0) return sorted[0].speed;
-  const p1 = sorted[idx - 1];
-  const p2 = sorted[idx];
-  const ratio = (time - p1.time) / Math.max(0.0001, p2.time - p1.time);
-  const cosT = (1 - Math.cos(ratio * Math.PI)) / 2;
-  return p1.speed + (p2.speed - p1.speed) * cosT;
-}
-
 export function calculateOutputDuration(segment: VideoSegment | null, fallbackDuration: number): number {
   if (!segment) return Math.max(0, fallbackDuration);
   const trimSegments = (
@@ -240,12 +225,13 @@ export function calculateOutputDuration(segment: VideoSegment | null, fallbackDu
     .sort((a, b) => a.startTime - b.startTime);
   if (trimSegments.length === 0) return Math.max(0, fallbackDuration);
   const points = segment.speedPoints || [];
+  const sampleSpeed = createSpeedSampler(points);
   let duration = 0;
   for (const seg of trimSegments) {
     let t = seg.startTime;
     while (t < seg.endTime) {
       const dt = Math.min(0.01666, seg.endTime - t); // ~60fps integration step
-      const s = getSpeedAtTime(t + dt / 2, points);
+      const s = sampleSpeed(t + dt / 2);
       duration += dt / Math.max(0.1, s);
       t += dt;
     }
@@ -259,12 +245,13 @@ export function calculateOutputDuration(segment: VideoSegment | null, fallbackDu
  */
 export function videoTimeToWallClock(videoTime: number, speedPoints: SpeedPoint[]): number {
   if (!speedPoints?.length || videoTime <= 0) return videoTime;
+  const sampleSpeed = createSpeedSampler(speedPoints);
   const DT = 0.01666; // ~60fps integration step
   let wallTime = 0;
   let t = 0;
   while (t < videoTime) {
     const dt = Math.min(DT, videoTime - t);
-    const s = getSpeedAtTime(t + dt * 0.5, speedPoints);
+    const s = sampleSpeed(t + dt * 0.5);
     wallTime += dt / Math.max(0.1, s);
     t += dt;
   }
@@ -457,8 +444,9 @@ export function getCanvasBaseDimensions(
     backgroundConfig.canvasWidth &&
     backgroundConfig.canvasHeight;
   const geometry = resolveCodecAlignedCropGeometry(videoWidth, videoHeight, crop);
-  return {
-    baseW: useExplicitCanvas ? backgroundConfig!.canvasWidth! : geometry.width,
-    baseH: useExplicitCanvas ? backgroundConfig!.canvasHeight! : geometry.height,
-  };
+  const dimensions = resolveOutputCanvasDimensions(
+    useExplicitCanvas ? backgroundConfig!.canvasWidth! : geometry.width,
+    useExplicitCanvas ? backgroundConfig!.canvasHeight! : geometry.height,
+  );
+  return { baseW: dimensions.width, baseH: dimensions.height };
 }

@@ -20,17 +20,22 @@ type ReadSubtitleFilePathResult = {
 };
 
 interface AppDropActionsOptions {
-  importAudioPaths: (filePaths: string[]) => Promise<unknown>;
+  getCurrentProjectId: () => string | null;
+  importAudioPaths: (
+    filePaths: string[],
+    expectedProjectId?: string | null,
+  ) => Promise<unknown>;
   importSubtitlePayload: (payload: {
     fileName: string;
     content: string;
     format?: SubtitleFileFormat;
-  }) => Promise<unknown>;
+  }, expectedProjectId?: string | null) => Promise<unknown>;
   importVideoPath: (filePath: string) => Promise<{ id: string } | null | undefined>;
   setPendingAutoSubtitleProjectId: (projectId: string | null) => void;
 }
 
 export function useAppDropActions({
+  getCurrentProjectId,
   importAudioPaths,
   importSubtitlePayload,
   importVideoPath,
@@ -41,6 +46,7 @@ export function useAppDropActions({
     const drainPendingAudioDropActions = () => {
       if (isDraining) return;
       isDraining = true;
+      const expectedProjectId = getCurrentProjectId();
       void (async () => {
         try {
           const actions = await invoke<{ path: string }[]>(
@@ -51,7 +57,7 @@ export function useAppDropActions({
             .map((action) => action.path?.trim() ?? "")
             .filter(Boolean);
           if (filePaths.length > 0) {
-            await importAudioPaths(filePaths);
+            await importAudioPaths(filePaths, expectedProjectId);
           }
         } catch (error) {
           console.warn("[AudioDrop] Failed to drain pending audio actions", error);
@@ -66,13 +72,14 @@ export function useAppDropActions({
     return () => {
       window.removeEventListener("sgt-audio-drop-pending", drainPendingAudioDropActions);
     };
-  }, [importAudioPaths]);
+  }, [getCurrentProjectId, importAudioPaths]);
 
   useEffect(() => {
     let isDraining = false;
     const drainPendingSubtitleDropActions = () => {
       if (isDraining) return;
       isDraining = true;
+      const expectedProjectId = getCurrentProjectId();
       void (async () => {
         try {
           const actions = await invoke<PendingSubtitleDropAction[]>(
@@ -87,11 +94,14 @@ export function useAppDropActions({
               { path: filePath },
             );
             if (!result.content) continue;
-            await importSubtitlePayload({
-              content: result.content,
-              fileName: result.fileName || filePath,
-              format: result.format,
-            });
+            await importSubtitlePayload(
+              {
+                content: result.content,
+                fileName: result.fileName || filePath,
+                format: result.format,
+              },
+              expectedProjectId,
+            );
             break;
           }
         } catch (error) {
@@ -110,7 +120,7 @@ export function useAppDropActions({
         drainPendingSubtitleDropActions,
       );
     };
-  }, [importSubtitlePayload]);
+  }, [getCurrentProjectId, importSubtitlePayload]);
 
   useEffect(() => {
     let isDraining = false;

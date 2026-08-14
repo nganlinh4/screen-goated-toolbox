@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { motion, AnimatePresence } from 'motion/react';
+import { useFieldLabelId } from '@/components/ui/FieldLabelContext';
+import { useSettings } from '@/hooks/useSettings';
 
 const PRESETS = [
   '#ffffff', '#e0e0e0', '#9e9e9e', '#616161', '#212121', '#000000',
@@ -40,27 +42,35 @@ function hexToHsv(hex: string): [number, number, number] {
   return [h, s, v];
 }
 
+function safeHexToHsv(hex: string): [number, number, number] | null {
+  return /^#[0-9a-fA-F]{6}$/.test(hex) ? hexToHsv(hex) : null;
+}
+
 interface ColorPickerProps {
   value: string;
   onChange: (color: string) => void;
   onOpen?: () => void;
   onClose?: () => void;
+  label?: string;
 }
 
-export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerProps) {
+export function ColorPicker({ value, onChange, onOpen, onClose, label }: ColorPickerProps) {
+  const { t } = useSettings();
+  const inheritedLabelId = useFieldLabelId();
   const [isOpen, setIsOpen] = useState(false);
   const [hexInput, setHexInput] = useState(value);
-  const [hsv, setHsv] = useState<[number, number, number]>(() => {
-    try { return hexToHsv(value); } catch { return [0, 0, 1]; }
-  });
+  const [hsv, setHsv] = useState<[number, number, number]>(() => (
+    safeHexToHsv(value) ?? [0, 0, 1]
+  ));
   const svRef = useRef<HTMLDivElement>(null);
-  const hueRef = useRef<HTMLDivElement>(null);
+  const svPointerIdRef = useRef<number | null>(null);
   const hsvRef = useRef(hsv);
   hsvRef.current = hsv;
 
   useEffect(() => {
     setHexInput(value);
-    try { setHsv(hexToHsv(value)); } catch {}
+    const nextHsv = safeHexToHsv(value);
+    if (nextHsv) setHsv(nextHsv);
   }, [value]);
 
   const emitColor = useCallback((h: number, s: number, v: number) => {
@@ -72,33 +82,15 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
     onChange(hex);
   }, [onChange]);
 
-  const handleSVDrag = useCallback((startE: React.MouseEvent) => {
-    startE.preventDefault();
-    const rect = svRef.current!.getBoundingClientRect();
+  const updateSaturationAndBrightness = useCallback((clientX: number, clientY: number) => {
+    const rect = svRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
     const update = (cx: number, cy: number) => {
       const s = Math.max(0, Math.min(1, (cx - rect.left) / rect.width));
       const v = Math.max(0, Math.min(1, 1 - (cy - rect.top) / rect.height));
       emitColor(hsvRef.current[0], s, v);
     };
-    update(startE.clientX, startE.clientY);
-    const onMove = (e: MouseEvent) => update(e.clientX, e.clientY);
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }, [emitColor]);
-
-  const handleHueDrag = useCallback((startE: React.MouseEvent) => {
-    startE.preventDefault();
-    const rect = hueRef.current!.getBoundingClientRect();
-    const update = (cx: number) => {
-      const h = Math.max(0, Math.min(360, ((cx - rect.left) / rect.width) * 360));
-      emitColor(h, hsvRef.current[1], hsvRef.current[2]);
-    };
-    update(startE.clientX);
-    const onMove = (e: MouseEvent) => update(e.clientX);
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    update(clientX, clientY);
   }, [emitColor]);
 
   return (
@@ -112,8 +104,11 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
     >
       <Popover.Trigger asChild>
         <button
+          type="button"
           className="color-picker-trigger ui-chip-button w-7 h-6 rounded-sm cursor-pointer active:scale-95"
           style={{ backgroundColor: value }}
+          aria-label={label ?? (inheritedLabelId ? undefined : t.colorPicker)}
+          aria-labelledby={label ? undefined : inheritedLabelId}
         />
       </Popover.Trigger>
       <AnimatePresence>
@@ -135,25 +130,70 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
                 {/* SV square */}
                 <div
                   ref={svRef}
-                  className="color-sv-square ui-surface w-full h-[120px] rounded-lg cursor-crosshair relative mb-2"
+                  className="color-sv-square ui-surface w-full h-[120px] rounded-lg cursor-crosshair relative mb-2 touch-none focus-within:ring-2 focus-within:ring-[var(--primary-color)]"
                   style={{
                     background: `linear-gradient(to bottom, transparent, #000), linear-gradient(to right, #fff, ${hsvToHex(hsv[0], 1, 1)})`,
                   }}
-                  onMouseDown={handleSVDrag}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    svPointerIdRef.current = event.pointerId;
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    updateSaturationAndBrightness(event.clientX, event.clientY);
+                  }}
+                  onPointerMove={(event) => {
+                    if (svPointerIdRef.current === event.pointerId) {
+                      updateSaturationAndBrightness(event.clientX, event.clientY);
+                    }
+                  }}
+                  onPointerUp={(event) => {
+                    if (svPointerIdRef.current !== event.pointerId) return;
+                    updateSaturationAndBrightness(event.clientX, event.clientY);
+                    svPointerIdRef.current = null;
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                      event.currentTarget.releasePointerCapture(event.pointerId);
+                    }
+                  }}
+                  onPointerCancel={() => { svPointerIdRef.current = null; }}
                 >
                   <div
                     className="sv-cursor absolute w-3 h-3 rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
                     style={{ left: `${hsv[1] * 100}%`, top: `${(1 - hsv[2]) * 100}%` }}
                   />
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={Math.round(hsv[1] * 100)}
+                    aria-label={t.colorSaturation}
+                    className="sr-only"
+                    onChange={(event) => emitColor(hsv[0], Number(event.target.value) / 100, hsv[2])}
+                  />
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={Math.round(hsv[2] * 100)}
+                    aria-label={t.colorBrightness}
+                    className="sr-only"
+                    onChange={(event) => emitColor(hsv[0], hsv[1], Number(event.target.value) / 100)}
+                  />
                 </div>
 
                 {/* Hue bar */}
                 <div
-                  ref={hueRef}
-                  className="color-hue-bar ui-surface w-full h-3 rounded-full cursor-pointer relative mb-2.5"
+                  className="color-hue-bar ui-surface group w-full h-3 rounded-full cursor-pointer relative mb-2.5 focus-within:ring-2 focus-within:ring-[var(--primary-color)]"
                   style={{ background: 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)' }}
-                  onMouseDown={handleHueDrag}
                 >
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    step="1"
+                    value={Math.round(hsv[0])}
+                    aria-label={t.colorHue}
+                    className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                    onChange={(event) => emitColor(Number(event.target.value), hsv[1], hsv[2])}
+                  />
                   <div
                     className="hue-cursor absolute w-3.5 h-3.5 rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
                     style={{ left: `${(hsv[0] / 360) * 100}%`, top: '50%' }}
@@ -164,11 +204,13 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
                 <div className="color-presets-grid grid grid-cols-6 gap-1.5 mb-2">
                   {PRESETS.map(color => (
                     <button
+                      type="button"
                       key={color}
                       onClick={() => {
                         onChange(color);
                         setHexInput(color);
-                        try { setHsv(hexToHsv(color)); } catch {}
+                        const nextHsv = safeHexToHsv(color);
+                        if (nextHsv) setHsv(nextHsv);
                       }}
                       className={`w-6 h-6 rounded-md transition-all hover:scale-110 ${
                         value.toLowerCase() === color.toLowerCase()
@@ -176,6 +218,8 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
                           : 'ring-1 ring-white/10 hover:ring-white/30'
                       }`}
                       style={{ backgroundColor: color }}
+                      aria-label={`${t.colorPreset} ${color}`}
+                      aria-pressed={value.toLowerCase() === color.toLowerCase()}
                     />
                   ))}
                 </div>
@@ -183,13 +227,15 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
                 {/* Hex input */}
                 <input
                   type="text"
+                  aria-label={t.hexColor}
                   value={hexInput}
                   onChange={(e) => {
                     const v = e.target.value;
                     setHexInput(v);
                     if (/^#[0-9a-fA-F]{6}$/.test(v)) {
                       onChange(v);
-                      try { setHsv(hexToHsv(v)); } catch {}
+                      const nextHsv = safeHexToHsv(v);
+                      if (nextHsv) setHsv(nextHsv);
                     }
                   }}
                   onKeyDown={(e) => { if (e.key === 'Enter') setIsOpen(false); }}

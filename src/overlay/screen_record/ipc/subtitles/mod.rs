@@ -20,3 +20,8 @@ pub use translation::{
     handle_cancel_subtitle_translation, handle_get_subtitle_translation_capabilities,
     handle_get_subtitle_translation_status, handle_start_subtitle_translation,
 };
+
+pub(super) fn cancel_all_jobs() {
+    job::cancel_all_jobs();
+    translation::cancel_all_jobs();
+}

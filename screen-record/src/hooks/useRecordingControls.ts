@@ -153,7 +153,9 @@ export function useRecordingControls({
   useEffect(() => {
     try {
       localStorage.setItem("screen-record-capture-target-v1", captureTargetId);
-    } catch {}
+    } catch (error) {
+      console.warn("Unable to persist capture target", error);
+    }
   }, [captureTargetId]);
 
   // Persist captureFps
@@ -166,7 +168,9 @@ export function useRecordingControls({
           "screen-record-capture-fps-v1",
           captureFps.toString(),
         );
-    } catch {}
+    } catch (error) {
+      console.warn("Unable to persist capture frame rate", error);
+    }
     captureFpsRef.current = captureFps;
   }, [captureFps]);
 
@@ -175,7 +179,9 @@ export function useRecordingControls({
     try {
       const saved = localStorage.getItem("screen-record-capture-target-v1");
       if (saved) setCaptureTargetId(saved);
-    } catch {}
+    } catch (error) {
+      console.warn("Unable to restore capture target", error);
+    }
   }, []);
 
   // Refresh window list while window-select dialog is open

@@ -40,6 +40,7 @@ pub fn handle_start_subtitle_generation(
             "Subtitle generation already running (job={active_job_id})"
         ));
     }
+    job_registry::prepare_for_insert(&mut jobs)?;
     let job_id = job_registry::uuid("subtitle");
     let snapshot = Arc::new(Mutex::new(SubtitleJobSnapshot {
         state: "queued".to_string(),
@@ -139,6 +140,12 @@ pub fn handle_cancel_subtitle_generation(
         snapshot.active_clip_id = None;
     }
     Ok(serde_json::Value::Null)
+}
+
+pub(super) fn cancel_all_jobs() {
+    if let Ok(jobs) = subtitle_jobs().lock() {
+        job_registry::cancel_all(&jobs);
+    }
 }
 
 fn run_subtitle_generation(

@@ -7,7 +7,7 @@
 //! delta rules, cancel side effects, and `run_job` logic because those diverge.
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Per-job handle shared across every registry: the live snapshot plus a
@@ -40,12 +40,52 @@ pub(super) fn find_active<S: JobState>(jobs: &HashMap<String, JobHandle<S>>) -> 
     })
 }
 
+const MAX_RETAINED_JOBS: usize = 64;
+
+/// Evicts the oldest terminal snapshots before a new job is inserted. Active
+/// jobs are never evicted, and a fully-active registry fails closed.
+pub(super) fn prepare_for_insert<S: JobState>(
+    jobs: &mut HashMap<String, JobHandle<S>>,
+) -> Result<(), String> {
+    if jobs.len() < MAX_RETAINED_JOBS {
+        return Ok(());
+    }
+    let mut terminal_ids = jobs
+        .iter()
+        .filter_map(|(job_id, handle)| {
+            let snapshot = handle.snapshot.lock().ok()?;
+            (!matches!(snapshot.state(), "queued" | "running")).then(|| job_id.clone())
+        })
+        .collect::<Vec<_>>();
+    terminal_ids.sort_unstable();
+    let remove_count = jobs
+        .len()
+        .saturating_sub(MAX_RETAINED_JOBS.saturating_sub(1));
+    for job_id in terminal_ids.into_iter().take(remove_count) {
+        jobs.remove(&job_id);
+    }
+    if jobs.len() >= MAX_RETAINED_JOBS {
+        return Err(format!(
+            "Job registry is full with {MAX_RETAINED_JOBS} active or locked jobs"
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn cancel_all<S>(jobs: &HashMap<String, JobHandle<S>>) {
+    for handle in jobs.values() {
+        handle.cancelled.store(true, Ordering::SeqCst);
+    }
+}
+
 /// Builds a `{prefix}-{millis}-{pid}` job id. `millis` is the current Unix time
 /// in milliseconds (same value the previous per-handler generators produced).
 pub(super) fn uuid(prefix: &str) -> String {
+    static NONCE: AtomicU64 = AtomicU64::new(0);
     format!(
-        "{prefix}-{}-{}",
+        "{prefix}-{}-{}-{}",
         chrono::Utc::now().timestamp_millis(),
-        std::process::id()
+        std::process::id(),
+        NONCE.fetch_add(1, Ordering::Relaxed)
     )
 }
