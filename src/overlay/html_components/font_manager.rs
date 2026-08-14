@@ -3,19 +3,21 @@
 //! Serves HTML pages and the original Google Sans Flex variable face from the same
 //! local HTTP origin, avoiding CORS and private-network restrictions.
 
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, Once, mpsc};
-use std::time::Duration;
+use std::sync::{Arc, LazyLock, Mutex, mpsc};
+use std::time::{Duration, Instant};
 use wry::WebViewBuilder;
 
 const LOCAL_PAGE_WORKERS: usize = 8;
+const LOCAL_PAGE_QUEUE: usize = 64;
 const CONNECTION_IO_TIMEOUT: Duration = Duration::from_secs(2);
+const PAGE_MAX_COUNT: usize = 128;
+const PAGE_MAX_BYTES: usize = 32 * 1024 * 1024;
+const PAGE_MAX_IDLE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
-static START_SERVER_ONCE: Once = Once::new();
-static PAGE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 #[cfg(not(feature = "recorder-worker"))]
 static PRODUCT_FONT_TTF: &[u8] = crate::assets::GOOGLE_SANS_FLEX;
 #[cfg(not(feature = "recorder-worker"))]
@@ -44,38 +46,106 @@ static SESSION_CACHE_BUSTER: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Server URL once started
 static SERVER_URL: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+static PAGES: LazyLock<Mutex<PageStore>> = LazyLock::new(|| Mutex::new(PageStore::default()));
 
-/// Pending HTML pages waiting to be served (page_id -> html)
-static PENDING_PAGES: LazyLock<Mutex<HashMap<u64, String>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+struct PageEntry {
+    html: Arc<str>,
+    last_access: Instant,
+}
 
-fn start_server() {
-    START_SERVER_ONCE.call_once(|| {
-        std::thread::spawn(|| {
-            let listener = match TcpListener::bind("127.0.0.1:0") {
-                Ok(l) => l,
-                Err(e) => {
-                    eprintln!("Failed to bind font server: {}", e);
-                    return;
-                }
-            };
+#[derive(Default)]
+struct PageStore {
+    pages: HashMap<String, PageEntry>,
+    total_bytes: usize,
+}
 
-            let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-            let url = format!("http://127.0.0.1:{}", port);
-
-            if let Ok(mut guard) = SERVER_URL.lock() {
-                *guard = Some(url);
+impl PageStore {
+    fn insert(&mut self, id: String, html: String, now: Instant) -> bool {
+        self.prune_expired(now);
+        let bytes = html.len();
+        if bytes > PAGE_MAX_BYTES {
+            return false;
+        }
+        if let Some(existing) = self.pages.get_mut(&id) {
+            existing.last_access = now;
+            return true;
+        }
+        while self.pages.len() >= PAGE_MAX_COUNT
+            || self.total_bytes.saturating_add(bytes) > PAGE_MAX_BYTES
+        {
+            if !self.remove_oldest() {
+                return false;
             }
+        }
+        self.total_bytes += bytes;
+        self.pages.insert(
+            id,
+            PageEntry {
+                html: Arc::from(html),
+                last_access: now,
+            },
+        );
+        true
+    }
 
-            serve_connections(listener);
-        });
-    });
+    fn get(&mut self, id: &str, now: Instant) -> Option<Arc<str>> {
+        self.prune_expired(now);
+        let entry = self.pages.get_mut(id)?;
+        entry.last_access = now;
+        Some(Arc::clone(&entry.html))
+    }
+
+    fn prune_expired(&mut self, now: Instant) {
+        let expired = self
+            .pages
+            .iter()
+            .filter_map(|(id, entry)| {
+                (now.saturating_duration_since(entry.last_access) > PAGE_MAX_IDLE)
+                    .then_some(id.clone())
+            })
+            .collect::<Vec<_>>();
+        for id in expired {
+            self.remove(&id);
+        }
+    }
+
+    fn remove_oldest(&mut self) -> bool {
+        let Some(id) = self
+            .pages
+            .iter()
+            .min_by_key(|(_, entry)| entry.last_access)
+            .map(|(id, _)| id.clone())
+        else {
+            return false;
+        };
+        self.remove(&id);
+        true
+    }
+
+    fn remove(&mut self, id: &str) {
+        if let Some(entry) = self.pages.remove(id) {
+            self.total_bytes = self.total_bytes.saturating_sub(entry.html.len());
+        }
+    }
+}
+
+fn start_server() -> Result<String, String> {
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| error.to_string())?
+        .port();
+    let url = format!("http://127.0.0.1:{port}");
+    std::thread::Builder::new()
+        .name("sgt-local-page-server".to_string())
+        .spawn(move || serve_connections(listener))
+        .map_err(|error| error.to_string())?;
+    Ok(url)
 }
 
 fn serve_connections(listener: TcpListener) {
-    let (sender, receiver) = mpsc::channel::<TcpStream>();
+    let (sender, receiver) = mpsc::sync_channel::<TcpStream>(LOCAL_PAGE_QUEUE);
     let receiver = Arc::new(Mutex::new(receiver));
     for worker_id in 0..LOCAL_PAGE_WORKERS {
         let receiver = Arc::clone(&receiver);
@@ -137,13 +207,22 @@ fn handle_request(stream: &mut std::net::TcpStream) -> std::io::Result<()> {
     if path_without_query.starts_with("/page/") {
         // Serve stored HTML page
         let id_str = path_without_query.strip_prefix("/page/").unwrap_or("0");
-        let page_id: u64 = id_str.parse().unwrap_or(0);
-
-        let html = PENDING_PAGES
+        let html = PAGES
             .lock()
             .ok()
-            .and_then(|mut map| map.remove(&page_id))
-            .unwrap_or_else(|| "<html><body>Page not found</body></html>".to_string());
+            .and_then(|mut pages| pages.get(id_str, Instant::now()));
+        let Some(html) = html else {
+            let body = b"Page not found";
+            let headers = format!(
+                "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n{cors_headers}Connection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(headers.as_bytes())?;
+            if method != "HEAD" {
+                stream.write_all(body)?;
+            }
+            return Ok(());
+        };
 
         let html_bytes = html.as_bytes();
         let headers = format!(
@@ -217,31 +296,30 @@ fn serve_product_font(
 
 /// Get the server base URL, waiting if necessary
 fn get_server_url() -> Option<String> {
-    // Ensure server is started
-    start_server();
-
-    // Wait for URL to be available (up to 2 seconds)
-    for _ in 0..40 {
-        if let Ok(guard) = SERVER_URL.lock()
-            && let Some(url) = guard.as_ref()
-        {
-            return Some(url.clone());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+    let mut server = SERVER_URL.lock().ok()?;
+    if let Some(url) = server.as_ref() {
+        return Some(url.clone());
     }
-    None
+    match start_server() {
+        Ok(url) => {
+            *server = Some(url.clone());
+            Some(url)
+        }
+        Err(error) => {
+            eprintln!("Local WebView page server unavailable: {error}");
+            None
+        }
+    }
 }
 
 /// Store HTML content and get a page URL to load it
 pub fn store_html_page(html: String) -> Option<String> {
     let base_url = get_server_url()?;
-    let page_id = PAGE_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-
-    if let Ok(mut map) = PENDING_PAGES.lock() {
-        map.insert(page_id, html);
-    }
-
-    Some(format!("{}/page/{}", base_url, page_id))
+    let page_id = format!("{:x}", Sha256::digest(html.as_bytes()));
+    let inserted = PAGES
+        .lock()
+        .is_ok_and(|mut pages| pages.insert(page_id.clone(), html, Instant::now()));
+    inserted.then(|| format!("{base_url}/page/{page_id}"))
 }
 
 /// Configure WebViewBuilder (no-op, URL loading handles everything)
@@ -406,6 +484,35 @@ mod tests {
         stream.read_to_string(&mut response).unwrap();
         drop(idle);
         assert!(response.ends_with("ready"));
+    }
+
+    #[cfg(not(feature = "recorder-worker"))]
+    #[test]
+    fn hosted_pages_are_idempotent_for_navigation_retries() {
+        let page_url = url::Url::parse(&store_html_page("retry-safe".into()).unwrap()).unwrap();
+        for _ in 0..2 {
+            let mut stream = TcpStream::connect(("127.0.0.1", page_url.port().unwrap())).unwrap();
+            let request = format!(
+                "GET {} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+                page_url.path()
+            );
+            stream.write_all(request.as_bytes()).unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            assert!(response.starts_with("HTTP/1.1 200 OK"));
+            assert!(response.ends_with("retry-safe"));
+        }
+    }
+
+    #[test]
+    fn page_store_has_a_hard_entry_bound() {
+        let mut store = PageStore::default();
+        let now = Instant::now();
+        for index in 0..PAGE_MAX_COUNT * 2 {
+            assert!(store.insert(index.to_string(), "page".to_string(), now));
+        }
+        assert_eq!(store.pages.len(), PAGE_MAX_COUNT);
+        assert!(store.total_bytes <= PAGE_MAX_BYTES);
     }
 
     #[cfg(feature = "recorder-worker")]
