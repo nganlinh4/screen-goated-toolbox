@@ -1,8 +1,8 @@
 use super::CHILD_FLAG;
 use super::mailbox::{CommandBuffer, PushResult};
-use super::protocol::{ChildEvent, HostCommand, StatusSnapshot};
+use super::protocol::{ChildEvent, HostCommand, RendererFailureKind, StatusSnapshot};
 use anyhow::Context;
-use std::ffi::c_void;
+use std::ffi::{OsString, c_void};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -23,6 +23,9 @@ const HEARTBEAT_TIMEOUT_MS: u64 = 5_000;
 const STABLE_GENERATION_MS: u64 = 30_000;
 const INITIAL_RESTART_DELAY_MS: u64 = 250;
 const MAX_RESTART_DELAY_MS: u64 = 30_000;
+const GPU_FAILURE_WINDOW_MS: u64 = 60_000;
+const GPU_FAILURE_THRESHOLD: u32 = 3;
+const SOFTWARE_RENDERING_ARGUMENT: &str = "--disable-gpu";
 
 struct RendererProcess {
     child: Child,
@@ -82,6 +85,9 @@ static LAST_HEARTBEAT_MS: AtomicU64 = AtomicU64::new(0);
 static READY_SINCE_MS: AtomicU64 = AtomicU64::new(0);
 static RESTART_FAILURES: AtomicU32 = AtomicU32::new(0);
 static RESTART_NOT_BEFORE_MS: AtomicU64 = AtomicU64::new(0);
+static GPU_FAILURES: AtomicU32 = AtomicU32::new(0);
+static LAST_GPU_FAILURE_MS: AtomicU64 = AtomicU64::new(0);
+static SOFTWARE_RENDERING_REQUIRED: AtomicBool = AtomicBool::new(false);
 static CAPTURE_APPLIED: AtomicU64 = AtomicU64::new(0);
 static WATCHDOG: Once = Once::new();
 static MONOTONIC_EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
@@ -119,6 +125,20 @@ pub(super) fn wait_until_ready(timeout: Duration) -> bool {
     while std::time::Instant::now() < deadline {
         let live = LIVE_GENERATION.load(Ordering::SeqCst);
         if live != 0 && READY_GENERATION.load(Ordering::SeqCst) == live {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+pub(super) fn restart_and_wait(timeout: Duration) -> bool {
+    let previous_generation = GENERATION.load(Ordering::SeqCst);
+    request_restart();
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        let live = LIVE_GENERATION.load(Ordering::SeqCst);
+        if live > previous_generation && READY_GENERATION.load(Ordering::SeqCst) == live {
             return true;
         }
         std::thread::sleep(Duration::from_millis(10));
@@ -211,12 +231,21 @@ fn ensure_process() -> ProcessState {
 }
 
 fn spawn_process() -> anyhow::Result<()> {
-    let mut child = Command::new(std::env::current_exe()?)
+    let inherited_arguments = std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
+    let fallback_required = SOFTWARE_RENDERING_REQUIRED.load(Ordering::SeqCst);
+    let mut command = Command::new(std::env::current_exe()?);
+    command
         .arg(CHILD_FLAG)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    if fallback_required {
+        command.env(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            browser_arguments_with_software_fallback(inherited_arguments),
+        );
+    }
+    let mut child = command.spawn()?;
     let initialized = initialize_child(&mut child);
     let (job, stdin, stdout, stderr) = match initialized {
         Ok(initialized) => initialized,
@@ -344,6 +373,11 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
                 {
                     RESTART_FAILURES.store(0, Ordering::SeqCst);
                     RESTART_NOT_BEFORE_MS.store(0, Ordering::SeqCst);
+                    if heartbeat_at.saturating_sub(LAST_GPU_FAILURE_MS.load(Ordering::SeqCst))
+                        >= STABLE_GENERATION_MS
+                    {
+                        GPU_FAILURES.store(0, Ordering::SeqCst);
+                    }
                 }
             }
             ChildEvent::RecordingReady => crate::overlay::recording::compositor_ready(),
@@ -372,12 +406,33 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
                 );
                 queue_snapshot();
             }
+            ChildEvent::RendererFailure { kind } => handle_renderer_failure(generation, kind),
             ChildEvent::RendererError { source, error } => {
                 crate::log_info!("[StatusCompositor] renderer error source={source} error={error}")
             }
         }
     }
     fail_generation(generation, "renderer disconnected", false);
+}
+
+fn handle_renderer_failure(generation: u64, kind: RendererFailureKind) {
+    if kind == RendererFailureKind::GpuProcessExited {
+        let now = now_ms();
+        let previous_at = LAST_GPU_FAILURE_MS.swap(now, Ordering::SeqCst);
+        let previous_count = GPU_FAILURES.load(Ordering::SeqCst);
+        let count = if now.saturating_sub(previous_at) <= GPU_FAILURE_WINDOW_MS {
+            previous_count.saturating_add(1)
+        } else {
+            1
+        };
+        GPU_FAILURES.store(count, Ordering::SeqCst);
+        if count >= GPU_FAILURE_THRESHOLD {
+            SOFTWARE_RENDERING_REQUIRED.store(true, Ordering::SeqCst);
+            fail_generation(generation, "repeated GPU process failures", true);
+        }
+        return;
+    }
+    fail_generation(generation, kind.as_str(), true);
 }
 
 fn start_watchdog() {
@@ -480,6 +535,21 @@ fn restart_now() -> ProcessState {
     ensure_process()
 }
 
+fn browser_arguments_with_software_fallback(existing: Option<OsString>) -> OsString {
+    let mut arguments = existing.unwrap_or_default();
+    if !arguments
+        .to_string_lossy()
+        .split_whitespace()
+        .any(|argument| argument == SOFTWARE_RENDERING_ARGUMENT)
+    {
+        if !arguments.is_empty() {
+            arguments.push(" ");
+        }
+        arguments.push(SOFTWARE_RENDERING_ARGUMENT);
+    }
+    arguments
+}
+
 fn now_ms() -> u64 {
     MONOTONIC_EPOCH.elapsed().as_millis() as u64
 }
@@ -495,5 +565,16 @@ mod tests {
         assert_eq!(restart_delay_ms(3), 1_000);
         assert_eq!(restart_delay_ms(8), 30_000);
         assert_eq!(restart_delay_ms(u32::MAX), 30_000);
+    }
+
+    #[test]
+    fn software_fallback_preserves_existing_browser_arguments() {
+        let arguments = browser_arguments_with_software_fallback(Some(OsString::from("--foo")));
+        assert!(arguments.to_string_lossy().contains("--foo"));
+        assert!(
+            arguments
+                .to_string_lossy()
+                .contains(SOFTWARE_RENDERING_ARGUMENT)
+        );
     }
 }
