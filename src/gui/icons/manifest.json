@@ -13,6 +13,7 @@
     { "file": "deployed_code.svg", "variants": ["DeployedCode"] },
     { "file": "device.svg", "variants": ["Device"] },
     { "file": "download.svg", "variants": ["Download"] },
+    { "file": "drag_indicator.svg", "variants": ["DragIndicator"] },
     { "file": "draw_collage.svg", "variants": ["DrawCollage"] },
     { "file": "edit.svg", "variants": ["Edit"] },
     { "file": "electric_bolt.svg", "variants": ["ElectricBolt"] },

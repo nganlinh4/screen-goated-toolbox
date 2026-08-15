@@ -38,12 +38,13 @@ pub enum Icon {
     Delete,      // Trash can (presets)
     DeleteLarge, // Larger trash can (history items)
 
-    Folder,    // Open media folder
-    Copy,      // Copy text
-    CopySmall, // Smaller copy icon for preset buttons
-    Close,     // "X" for clearing search / closing
-    Plus,      // Add/create action
-    Edit,      // Rename/edit action
+    Folder,        // Open media folder
+    Copy,          // Copy text
+    CopySmall,     // Smaller copy icon for preset buttons
+    Close,         // "X" for clearing search / closing
+    Plus,          // Add/create action
+    Edit,          // Rename/edit action
+    DragIndicator, // Six-dot preset reorder handle
 
     TextSelect,      // Text-selection preset (italic glyph)
     Keyboard,        // Typing preset (keyboard glyph)
@@ -205,12 +206,19 @@ fn resolved_color(icon: Icon, dark_mode: bool, requested: egui::Color32) -> egui
 }
 
 /// Paint `icon`, recolored to `color`, centered in `rect`.
-fn render_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egui::Color32) {
+fn render_icon_with_opacity(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    icon: Icon,
+    color: egui::Color32,
+    opacity: f32,
+) {
     let ctx = painter.ctx();
     // A filled favorite star is conventionally gold, regardless of widget state.
     // The outline (non-favorite) star is a thin frame that washes out on a light
     // background, so give it a darker, more visible shade in light mode.
-    let color = resolved_color(icon, ctx.global_style().visuals.dark_mode, color);
+    let color = resolved_color(icon, ctx.global_style().visuals.dark_mode, color)
+        .gamma_multiply(opacity.clamp(0.0, 1.0));
     let ppp = ctx.pixels_per_point().max(0.01);
     // Material Symbols' "filled" glyphs fill their box more heavily than the old
     // thin line-art, so draw them inside ~84% of the allocated rect to keep the
@@ -242,6 +250,10 @@ fn render_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egu
     }
 }
 
+fn render_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egui::Color32) {
+    render_icon_with_opacity(painter, rect, icon, color, 1.0);
+}
+
 /// Main entry point: Draw a clickable icon button (default `ICON_XL` — the
 /// standard for standalone toolbar/control buttons).
 pub fn icon_button(ui: &mut egui::Ui, icon: Icon) -> egui::Response {
@@ -250,13 +262,28 @@ pub fn icon_button(ui: &mut egui::Ui, icon: Icon) -> egui::Response {
 
 /// Draw a clickable icon button with custom size
 pub fn icon_button_sized(ui: &mut egui::Ui, icon: Icon, size_val: f32) -> egui::Response {
+    icon_button_sized_with_opacity(ui, icon, size_val, 1.0)
+}
+
+/// Draw a clickable icon button while fading only its paint. The allocated hit
+/// target remains stable so proximity-revealed controls can still be reached.
+pub fn icon_button_sized_with_opacity(
+    ui: &mut egui::Ui,
+    icon: Icon,
+    size_val: f32,
+    opacity: f32,
+) -> egui::Response {
     let size = egui::vec2(size_val, size_val);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let opacity = opacity.clamp(0.0, 1.0);
 
     // 1. Background Hover Effect
     if response.hovered() {
-        ui.painter()
-            .rect_filled(rect.shrink(2.0), 4.0, ui.visuals().widgets.hovered.bg_fill);
+        ui.painter().rect_filled(
+            rect.shrink(2.0),
+            4.0,
+            ui.visuals().widgets.hovered.bg_fill.gamma_multiply(opacity),
+        );
     }
 
     // 2. Determine Style
@@ -267,7 +294,7 @@ pub fn icon_button_sized(ui: &mut egui::Ui, icon: Icon, size_val: f32) -> egui::
     };
 
     // 3. Paint
-    render_icon(ui.painter(), rect, icon, color);
+    render_icon_with_opacity(ui.painter(), rect, icon, color, opacity);
 
     response
 }
@@ -341,7 +368,7 @@ mod tests {
 
     #[test]
     fn generated_mapping_is_exhaustive_and_preserves_aliases() {
-        assert_eq!(ALL_ICONS.len(), 70);
+        assert_eq!(ALL_ICONS.len(), 71);
         let indices = ALL_ICONS
             .iter()
             .map(|icon| icon.sprite_index())
@@ -374,7 +401,7 @@ mod tests {
             .iter()
             .map(|page| page.png.len())
             .sum::<usize>();
-        assert!(total_png_bytes < 400_000);
+        assert!(total_png_bytes < 410_000);
         for page in ICON_ATLAS_PAGES {
             let image = decode_atlas(page);
             let cell = page.pixels + ICON_ATLAS_GUTTER * 2;

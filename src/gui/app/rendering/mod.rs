@@ -12,7 +12,7 @@ use super::types::{DetailPane, SettingsApp};
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::node_graph::{blocks_to_snarl, snarl_to_graph};
 use crate::gui::settings_ui::{
-    ViewMode, cached_grid_width, render_global_settings, render_history_panel,
+    PresetIndexMove, ViewMode, cached_grid_width, render_global_settings, render_history_panel,
     render_preset_editor, render_sidebar,
 };
 use eframe::egui;
@@ -97,6 +97,9 @@ impl SettingsApp {
             .show_inside(root_ui, |ui| {
                 let sidebar_response =
                     render_sidebar(ui, &mut self.config, &mut self.view_mode, &text);
+                if let Some(index_move) = sidebar_response.preset_index_move {
+                    self.remap_preset_ui_indices(index_move);
+                }
                 if sidebar_response.changed {
                     self.save_and_sync();
                     if sidebar_response.refresh_favorites {
@@ -148,6 +151,18 @@ impl SettingsApp {
                     self.render_detail_pane(ui, ctx, *main, &text, cb, cr);
                 }
             });
+    }
+
+    fn remap_preset_ui_indices(&mut self, index_move: PresetIndexMove) {
+        if let Some(index) = &mut self.current_preset_idx {
+            *index = index_move.remap(*index);
+        }
+        if let Some(index) = &mut self.recording_hotkey_for_preset {
+            *index = index_move.remap(*index);
+        }
+        if let Some((index, _, _)) = &mut self.last_edited_preset_key {
+            *index = index_move.remap(*index);
+        }
     }
 
     /// Decide which detail columns are visible this frame from the window width,
