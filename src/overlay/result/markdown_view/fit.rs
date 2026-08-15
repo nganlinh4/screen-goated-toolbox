@@ -78,4 +78,28 @@ mod tests {
         assert!(script.contains("paintedShrinkPxPerSec: paintedShrinkPxPerSec"));
         assert!(!script.contains("hasPathologicalWrap"));
     }
+
+    #[test]
+    fn source_replacement_preserves_composition_and_guarantees_containment() {
+        let script = runtime_fit_script();
+
+        assert!(script.contains("isSourceReplacement ? 1"));
+        assert!(script.contains("Math.min(winH, preferredFontSize)"));
+        assert!(script.contains("for (var testWdth = 85; testWdth >= 55"));
+        assert!(script.contains("!isStreamingFit && !isSourceReplacement"));
+        assert!(!script.contains("fillsSourceReplacement"));
+        assert!(script.contains("for (var rescueWdth = 90; rescueWdth >= 45"));
+        assert!(script.contains("if (isSourceReplacement && !fits())"));
+        assert!(script.contains("verifiedSourceFit.fontSize"));
+        assert!(script.contains("for (var emergencyWdth = 90; emergencyWdth >= 45"));
+    }
+
+    #[test]
+    fn remaining_vertical_space_is_centered_symmetrically() {
+        let script = runtime_fit_script();
+
+        assert!(script.contains("var centeredTop = Math.floor(finalGap / 2)"));
+        assert!(script.contains("finalGap - centeredTop"));
+        assert!(!script.contains("finalGap * 0.3"));
+    }
 }

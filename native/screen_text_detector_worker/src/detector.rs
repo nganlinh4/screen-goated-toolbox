@@ -1,12 +1,11 @@
 use std::io::Cursor;
 use std::path::Path;
-use std::sync::mpsc::{Receiver, TryRecvError};
-use std::thread::JoinHandle;
 
 use anyhow::{Context, Result, bail};
 use image::imageops::FilterType;
 use image::{ImageReader, Limits, RgbImage};
 use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 use sgt_screen_text_detector_protocol::{DetectedRegion, RecognitionAlternative};
 
@@ -17,7 +16,6 @@ use crate::recognizer_cascade::RecognizerCascade;
 const MAX_IMAGE_SIDE: u32 = 8_192;
 const MAX_IMAGE_PIXELS: u64 = 40_000_000;
 const INFERENCE_LONG_SIDE: u32 = 1_600;
-const DIRECT_ML_LOCATOR_MIN_PIXELS: u64 = 600_000;
 const WARMUP_SIDE: usize = 320;
 
 pub(crate) struct DetectionResult {
@@ -29,11 +27,7 @@ pub(crate) struct DetectionResult {
 pub(crate) struct TextDetector {
     cpu: DetectorBackend,
     direct_ml_recognizer: Option<RecognizerCascade>,
-    direct_ml_recognizer_receiver: Option<Receiver<Result<RecognizerCascade>>>,
     direct_ml_locator: Option<TextLocator>,
-    direct_ml_locator_receiver: Option<Receiver<Result<TextLocator>>>,
-    _direct_ml_recognizer_loader: JoinHandle<()>,
-    _direct_ml_locator_loader: JoinHandle<()>,
 }
 
 struct DetectorBackend {
@@ -50,6 +44,7 @@ struct LocatedImage {
     image_height: u32,
     regions: Vec<DetectedRegion>,
     crops: Vec<RgbImage>,
+    crop_region_indices: Vec<usize>,
 }
 
 impl TextDetector {
@@ -60,155 +55,76 @@ impl TextDetector {
         recognizer_catalog: &Path,
     ) -> Result<Self> {
         let cpu = DetectorBackend::load(cpu_detector, model_root, recognizer_catalog)?;
-        let model_root = model_root.to_path_buf();
-        let recognizer_catalog = recognizer_catalog.to_path_buf();
-        let (recognizer_sender, recognizer_receiver) = std::sync::mpsc::sync_channel(1);
-        let recognizer_loader = std::thread::spawn(move || {
-            let loaded = RecognizerCascade::load(
-                &model_root,
-                &recognizer_catalog,
-                Acceleration::DirectMl,
-                true,
-            )
-            .and_then(|mut cascade| {
-                cascade.warm_all()?;
-                Ok(cascade)
-            });
-            let _ = recognizer_sender.send(loaded);
-        });
-        let detector = direct_ml_detector.to_path_buf();
-        let (locator_sender, locator_receiver) = std::sync::mpsc::sync_channel(1);
-        let locator_loader = std::thread::spawn(move || {
-            let loaded =
-                TextLocator::load(&detector, Acceleration::DirectMl).and_then(|mut locator| {
-                    locator.warm_up()?;
-                    Ok(locator)
-                });
-            let _ = locator_sender.send(loaded);
-        });
-        let mut loaded = Self {
-            cpu,
-            direct_ml_recognizer: None,
-            direct_ml_recognizer_receiver: Some(recognizer_receiver),
-            direct_ml_locator: None,
-            direct_ml_locator_receiver: Some(locator_receiver),
-            _direct_ml_recognizer_loader: recognizer_loader,
-            _direct_ml_locator_loader: locator_loader,
-        };
-        loaded.finish_acceleration_setup();
-        Ok(loaded)
-    }
-
-    fn finish_acceleration_setup(&mut self) {
-        receive_optional(
-            &mut self.direct_ml_recognizer,
-            &mut self.direct_ml_recognizer_receiver,
-            true,
-            "recognizer",
-        );
-        receive_optional(
-            &mut self.direct_ml_locator,
-            &mut self.direct_ml_locator_receiver,
-            true,
+        let direct_ml_locator = optional_acceleration(
+            TextLocator::load(direct_ml_detector, Acceleration::DirectMl).and_then(|mut locator| {
+                locator.warm_up()?;
+                Ok(locator)
+            }),
             "locator",
         );
+        let direct_ml_recognizer = direct_ml_locator.as_ref().and_then(|_| {
+            optional_acceleration(
+                RecognizerCascade::load(
+                    model_root,
+                    recognizer_catalog,
+                    Acceleration::DirectMl,
+                    false,
+                )
+                .and_then(|mut recognizer| {
+                    recognizer.warm_all()?;
+                    Ok(recognizer)
+                }),
+                "recognizer",
+            )
+        });
+        Ok(Self {
+            cpu,
+            direct_ml_recognizer,
+            direct_ml_locator,
+        })
     }
 
     pub(crate) fn detect_jpeg(&mut self, jpeg: &[u8]) -> Result<DetectionResult> {
-        receive_optional(
-            &mut self.direct_ml_recognizer,
-            &mut self.direct_ml_recognizer_receiver,
-            false,
-            "recognizer",
-        );
-        receive_optional(
-            &mut self.direct_ml_locator,
-            &mut self.direct_ml_locator_receiver,
-            false,
-            "locator",
-        );
         let image = decode_bounded_jpeg(jpeg)?;
-        let pixels = u64::from(image.width()) * u64::from(image.height());
-        let prefer_direct_ml = pixels >= DIRECT_ML_LOCATOR_MIN_PIXELS;
-        if prefer_direct_ml && self.direct_ml_locator.is_none() {
-            receive_optional(
-                &mut self.direct_ml_locator,
-                &mut self.direct_ml_locator_receiver,
-                true,
-                "locator",
-            );
-        }
         let located = if let Some(locator) = self.direct_ml_locator.as_mut() {
             locator.locate(&image)?
         } else {
             self.cpu.locator.locate(&image)?
         };
-        if prefer_direct_ml && self.direct_ml_recognizer.is_none() {
-            receive_optional(
-                &mut self.direct_ml_recognizer,
-                &mut self.direct_ml_recognizer_receiver,
-                true,
-                "recognizer",
-            );
-        }
-        if let Some(direct_ml) = self
-            .direct_ml_recognizer
-            .as_mut()
-            .filter(|_| prefer_direct_ml)
-        {
-            let recognized = direct_ml.recognize_batch(&located.crops)?;
-            return Ok(located.complete(recognized));
-        }
-        let recognized = if let Some(direct_ml) = self.direct_ml_recognizer.as_mut() {
-            direct_ml.recognize_batch(&located.crops)?
+        let recognized = if let Some(recognizer) = self.direct_ml_recognizer.as_mut() {
+            match recognizer.recognize_batch(&located.crops) {
+                Ok(recognized) => recognized,
+                Err(error) => {
+                    eprintln!(
+                        "DirectML text recognizer failed; using CPU for later requests: {error:#}"
+                    );
+                    self.direct_ml_recognizer = None;
+                    recognize_cpu(&mut self.cpu.recognizer, &located.crops)?
+                }
+            }
         } else {
-            let primary = self.cpu.recognizer.recognize_primary(&located.crops)?;
-            if RecognizerCascade::batch_needs_alternatives(&primary) {
-                receive_optional(
-                    &mut self.direct_ml_recognizer,
-                    &mut self.direct_ml_recognizer_receiver,
-                    true,
-                    "recognizer",
-                );
-            }
-            if let Some(direct_ml) = self.direct_ml_recognizer.as_mut() {
-                direct_ml.recognize_batch(&located.crops)?
-            } else {
-                self.cpu
-                    .recognizer
-                    .recognize_alternatives(&located.crops, primary)?
-            }
+            recognize_cpu(&mut self.cpu.recognizer, &located.crops)?
         };
         Ok(located.complete(recognized))
     }
 }
 
-fn receive_optional<T>(
-    target: &mut Option<T>,
-    receiver_slot: &mut Option<Receiver<Result<T>>>,
-    wait: bool,
-    label: &str,
-) {
-    let Some(receiver) = receiver_slot.take() else {
-        return;
-    };
-    let received = if wait {
-        receiver.recv().ok()
-    } else {
-        match receiver.try_recv() {
-            Ok(value) => Some(value),
-            Err(TryRecvError::Empty) => {
-                *receiver_slot = Some(receiver);
-                return;
-            }
-            Err(TryRecvError::Disconnected) => None,
+fn optional_acceleration<T>(loaded: Result<T>, label: &str) -> Option<T> {
+    match loaded {
+        Ok(value) => Some(value),
+        Err(error) => {
+            eprintln!("DirectML text {label} unavailable; using CPU: {error:#}");
+            None
         }
-    };
-    match received {
-        Some(Ok(value)) => *target = Some(value),
-        Some(Err(error)) => eprintln!("DirectML text {label} unavailable; using CPU: {error:#}"),
-        None => {}
     }
+}
+
+fn recognize_cpu(
+    recognizer: &mut RecognizerCascade,
+    crops: &[RgbImage],
+) -> Result<Vec<crate::recognizer_cascade::RecognitionSet>> {
+    let primary = recognizer.recognize_primary(crops)?;
+    recognizer.recognize_alternatives(crops, primary)
 }
 
 impl DetectorBackend {
@@ -219,14 +135,16 @@ impl DetectorBackend {
             RecognizerCascade::load(&model_root, &recognizer_catalog, Acceleration::Cpu, false)
         });
         let locator = TextLocator::load(detector, Acceleration::Cpu)?;
-        let recognizer = recognizer_loader
+        let mut recognizer = recognizer_loader
             .join()
             .map_err(|_| anyhow::anyhow!("recognizer cascade loader thread panicked"))??;
+        recognizer.warm_all()?;
         Ok(Self {
             locator,
             recognizer,
         })
     }
+
 }
 
 impl TextLocator {
@@ -237,6 +155,8 @@ impl TextLocator {
         let mut builder = match acceleration {
             Acceleration::Cpu => builder,
             Acceleration::DirectMl => builder
+                .with_optimization_level(GraphOptimizationLevel::Disable)
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?
                 .with_execution_providers([ort::ep::DirectML::default().build()])
                 .map_err(|error| anyhow::anyhow!(error.to_string()))?,
         };
@@ -285,24 +205,31 @@ impl TextLocator {
             image_width,
             image_height,
         );
-        let crops = regions
-            .iter()
-            .map(|region| {
-                image::imageops::crop_imm(
-                    image,
-                    region.left,
-                    region.top,
-                    region.right - region.left,
-                    region.bottom - region.top,
-                )
-                .to_image()
-            })
-            .collect::<Vec<_>>();
+        let mut crops = Vec::with_capacity(regions.len());
+        let mut crop_region_indices = Vec::with_capacity(regions.len());
+        for (region_index, region) in regions.iter().enumerate() {
+            let crop = image::imageops::crop_imm(
+                image,
+                region.left,
+                region.top,
+                region.right - region.left,
+                region.bottom - region.top,
+            )
+            .to_image();
+            crop_region_indices.push(region_index);
+            crops.push(crop.clone());
+            if needs_orientation_candidates(crop.width(), crop.height()) {
+                crop_region_indices.extend([region_index, region_index]);
+                crops.push(image::imageops::rotate90(&crop));
+                crops.push(image::imageops::rotate270(&crop));
+            }
+        }
         Ok(LocatedImage {
             image_width,
             image_height,
             regions,
             crops,
+            crop_region_indices,
         })
     }
 }
@@ -312,7 +239,18 @@ impl LocatedImage {
         mut self,
         recognized: Vec<crate::recognizer_cascade::RecognitionSet>,
     ) -> DetectionResult {
-        for (region, recognized) in self.regions.iter_mut().zip(recognized) {
+        let mut by_region = (0..self.regions.len()).map(|_| None).collect::<Vec<_>>();
+        for (region_index, recognized) in self.crop_region_indices.into_iter().zip(recognized) {
+            let slot = &mut by_region[region_index];
+            *slot = Some(match slot.take() {
+                Some(existing) => merge_recognition_sets(existing, recognized),
+                None => recognized,
+            });
+        }
+        for (region_index, region) in self.regions.iter_mut().enumerate() {
+            let Some(recognized) = by_region[region_index].take() else {
+                continue;
+            };
             region.text = recognized.primary.text;
             region.text_confidence = recognized.primary.confidence;
             region.alternatives = recognized
@@ -330,6 +268,50 @@ impl LocatedImage {
             regions: self.regions,
         }
     }
+}
+
+fn needs_orientation_candidates(width: u32, height: u32) -> bool {
+    height > width.saturating_mul(3) / 2
+}
+
+fn merge_recognition_sets(
+    left: crate::recognizer_cascade::RecognitionSet,
+    right: crate::recognizer_cascade::RecognitionSet,
+) -> crate::recognizer_cascade::RecognitionSet {
+    let mut candidates = std::iter::once(left.primary)
+        .chain(left.alternatives)
+        .chain(std::iter::once(right.primary))
+        .chain(right.alternatives)
+        .filter(|candidate| !candidate.text.trim().is_empty())
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| {
+        recognition_quality(right)
+            .total_cmp(&recognition_quality(left))
+            .then_with(|| right.text.chars().count().cmp(&left.text.chars().count()))
+    });
+    let mut seen = std::collections::HashSet::new();
+    candidates.retain(|candidate| seen.insert(candidate.text.clone()));
+    let primary = candidates
+        .first()
+        .cloned()
+        .unwrap_or(crate::recognizer::Recognition {
+            text: String::new(),
+            confidence: 0.0,
+        });
+    crate::recognizer_cascade::RecognitionSet {
+        primary,
+        alternatives: candidates,
+    }
+}
+
+fn recognition_quality(recognition: &crate::recognizer::Recognition) -> f32 {
+    let useful_characters = recognition
+        .text
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .count()
+        .clamp(1, 16) as f32;
+    recognition.confidence.max(0.0) * useful_characters.sqrt()
 }
 
 struct PreparedImage {
@@ -396,6 +378,8 @@ fn inference_size(width: u32, height: u32) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::recognizer::Recognition;
+    use crate::recognizer_cascade::RecognitionSet;
 
     #[test]
     fn inference_dimensions_are_stride_aligned_and_bounded() {
@@ -407,5 +391,33 @@ mod tests {
         assert_eq!(four_k.0 % 32, 0);
         assert_eq!(four_k.1 % 32, 0);
         assert_eq!(four_k.0.max(four_k.1), INFERENCE_LONG_SIDE);
+    }
+
+    #[test]
+    fn orientation_candidates_follow_crop_geometry_not_language() {
+        assert!(needs_orientation_candidates(40, 100));
+        assert!(!needs_orientation_candidates(100, 40));
+        assert!(!needs_orientation_candidates(100, 150));
+    }
+
+    #[test]
+    fn recognition_selection_balances_sequence_evidence_and_confidence() {
+        let fragment = RecognitionSet {
+            primary: Recognition {
+                text: "ab".to_string(),
+                confidence: 0.96,
+            },
+            alternatives: Vec::new(),
+        };
+        let complete = RecognitionSet {
+            primary: Recognition {
+                text: "complete text".to_string(),
+                confidence: 0.82,
+            },
+            alternatives: Vec::new(),
+        };
+        let selected = merge_recognition_sets(fragment, complete);
+        assert_eq!(selected.primary.text, "complete text");
+        assert_eq!(selected.alternatives.len(), 2);
     }
 }

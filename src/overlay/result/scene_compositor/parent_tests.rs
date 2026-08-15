@@ -28,6 +28,8 @@ fn test_card(streaming: bool) -> SceneCard {
         presentation: crate::overlay::result::ResultPresentation::Standard,
         backdrop_data_url: None,
         foreground_color: None,
+        preferred_font_size: None,
+        source_replacement: false,
     }
 }
 

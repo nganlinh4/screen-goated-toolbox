@@ -35,6 +35,10 @@ pub struct SceneCard {
     pub backdrop_data_url: Option<String>,
     #[serde(default)]
     pub foreground_color: Option<String>,
+    #[serde(default)]
+    pub preferred_font_size: Option<f32>,
+    #[serde(default)]
+    pub source_replacement: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -331,6 +335,8 @@ mod tests {
                 presentation: ResultPresentation::Standard,
                 backdrop_data_url: None,
                 foreground_color: None,
+                preferred_font_size: None,
+                source_replacement: false,
             },
         };
 

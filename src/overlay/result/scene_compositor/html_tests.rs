@@ -86,6 +86,7 @@ fn result_card_outline_does_not_bleed_into_the_control_gap() {
 
 #[test]
 fn text_only_cards_keep_the_fitter_without_card_chrome() {
+    let direct_runtime = include_str!("direct_runtime.js");
     assert!(DOCUMENT.contains("data-presentation=\"text_only\""));
     assert!(DOCUMENT.contains("background:transparent!important;box-shadow:none"));
     assert!(DOCUMENT.contains("const backdrop = document.createElement('img')"));
@@ -94,6 +95,16 @@ fn text_only_cards_keep_the_fitter_without_card_chrome() {
     assert!(DOCUMENT.contains("window.__SGT_RUN_FIT__"));
     assert!(DOCUMENT.contains("border-radius:3px;pointer-events:auto;user-select:text"));
     assert!(DOCUMENT.contains("user-select:text;cursor:text"));
+    assert!(DOCUMENT.contains("entry.sourceReplacement = model.source_replacement === true"));
+    assert!(DOCUMENT.contains("preferredFontSize: entry.preferredFontSize"));
+    assert!(DOCUMENT.contains("sourceReplacement: entry.sourceReplacement === true"));
+    assert!(DOCUMENT.contains("preferredFontSize / scale"));
+    assert!(direct_runtime.contains("isSourceReplacement ? '1.15' : '1.5'"));
+    assert!(direct_runtime.contains("body.style.justifyContent = 'center'"));
+    assert!(direct_runtime.contains("[90, 85, 80, 75, 70, 65, 60, 55]"));
+    assert!(direct_runtime.contains("fits(text, size, fitTolerance, !isSourceReplacement)"));
+    assert!(direct_runtime.contains("!rejectPathologicalWrap || !hasPathologicalWrap"));
+    assert!(!direct_runtime.contains("verticalInset"));
 }
 
 #[test]

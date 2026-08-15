@@ -97,6 +97,17 @@ RECOGNIZERS = (
     ),
 )
 
+RECOGNIZER_COVERAGE = {
+    "hangul": ((0x1100, 0x11FF), (0x3130, 0x318F), (0x3400, 0x4DBF), (0x4E00, 0x9FFF), (0xA960, 0xA97F), (0xAC00, 0xD7FF)),
+    "cyrillic": ((0x0400, 0x052F), (0x2DE0, 0x2DFF), (0xA640, 0xA69F)),
+    "arabic": ((0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF), (0xFB50, 0xFDFF), (0xFE70, 0xFEFF)),
+    "devanagari": ((0x0900, 0x097F), (0xA8E0, 0xA8FF)),
+    "thai": ((0x0E00, 0x0E7F),),
+    "greek": ((0x0370, 0x03FF), (0x1F00, 0x1FFF)),
+    "tamil": ((0x0B80, 0x0BFF),),
+    "telugu": ((0x0C00, 0x0C7F),),
+}
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -199,6 +210,9 @@ def recognizer_files(
             )
         if reverse_output:
             entry["reverseOutput"] = True
+        coverage = RECOGNIZER_COVERAGE.get(identifier)
+        if coverage:
+            entry["coverage"] = coverage
         catalog_entries.append(entry)
         sources.append(
             {

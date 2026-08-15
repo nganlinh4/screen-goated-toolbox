@@ -393,6 +393,7 @@ fn reference_candidates(
                     right: scaled(x.saturating_add(width), image_width),
                     bottom: scaled(y.saturating_add(height), image_height),
                 },
+                appearance: None,
             }
         })
         .collect()
@@ -408,6 +409,17 @@ mod tests {
             regions: vec![
                 crate::overlay::screen_translate::contract::TranslationRegion {
                     id: 1,
+                    member_ids: vec![1],
+                    selections: vec![
+                        crate::overlay::screen_translate::contract::TranslationSelection {
+                            region_id: 1,
+                            candidate_id: "r1c0".to_string(),
+                            source_text: "Settings".to_string(),
+                            bounds: [0, 0, 1, 1].into(),
+                        },
+                    ],
+                    semantic_role:
+                        crate::overlay::screen_translate::contract::SemanticRole::Standalone,
                     source_text: "Settings".to_string(),
                     translated_text: "Cài đặt".to_string(),
                     bounds: [0, 0, 1, 1].into(),
@@ -416,6 +428,17 @@ mod tests {
                 },
                 crate::overlay::screen_translate::contract::TranslationRegion {
                     id: 2,
+                    member_ids: vec![2],
+                    selections: vec![
+                        crate::overlay::screen_translate::contract::TranslationSelection {
+                            region_id: 2,
+                            candidate_id: "r2c0".to_string(),
+                            source_text: "SGT".to_string(),
+                            bounds: [1, 1, 2, 2].into(),
+                        },
+                    ],
+                    semantic_role:
+                        crate::overlay::screen_translate::contract::SemanticRole::Standalone,
                     source_text: "SGT".to_string(),
                     translated_text: "SGT".to_string(),
                     bounds: [1, 1, 2, 2].into(),

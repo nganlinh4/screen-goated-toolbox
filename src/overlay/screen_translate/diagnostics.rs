@@ -10,7 +10,7 @@ mod debug {
     use image::{ExtendedColorType, ImageEncoder as _};
     use serde::Serialize;
 
-    use super::super::contract::{DetectedTextRegion, TranslationDocument};
+    use super::super::contract::{DetectedTextRegion, SemanticRole, TranslationDocument};
     use super::super::evidence_capture::capture_stable_selection;
     use super::super::geometry::{PixelRegion, normalized_region};
     use crate::overlay::selection::CapturedRegion;
@@ -74,6 +74,9 @@ mod debug {
         ocr_candidates: Vec<String>,
         selected_source_text: Option<String>,
         translated_text: Option<String>,
+        group_member_ids: Option<Vec<u16>>,
+        semantic_role: Option<SemanticRole>,
+        visual_style: Option<super::super::appearance::VisualSignature>,
     }
 
     #[derive(Serialize)]
@@ -258,7 +261,12 @@ mod debug {
                 document
                     .regions
                     .iter()
-                    .map(|region| (region.id, region))
+                    .flat_map(|region| {
+                        region
+                            .selections
+                            .iter()
+                            .map(move |selection| (selection.region_id, (region, selection)))
+                    })
                     .collect::<HashMap<_, _>>()
             })
             .unwrap_or_default();
@@ -271,14 +279,18 @@ mod debug {
                     state.selection.width,
                     state.selection.height,
                 );
-                let translated = translations.get(&candidate.id);
+                let translated = translations.get(&candidate.id).copied();
                 RegionRecord {
                     id: candidate.id,
                     normalized_box_2d: candidate.bounds.into(),
                     pixel_box: [pixels.x, pixels.y, pixels.width, pixels.height],
                     ocr_candidates: candidate.source_alternatives.clone(),
-                    selected_source_text: translated.map(|region| region.source_text.clone()),
-                    translated_text: translated.map(|region| region.translated_text.clone()),
+                    selected_source_text: translated
+                        .map(|(_, selection)| selection.source_text.clone()),
+                    translated_text: translated.map(|(region, _)| region.translated_text.clone()),
+                    group_member_ids: translated.map(|(region, _)| region.member_ids.clone()),
+                    semantic_role: translated.map(|(region, _)| region.semantic_role),
+                    visual_style: candidate.appearance,
                 }
             })
             .collect();
@@ -515,6 +527,7 @@ mod debug {
                 },
                 source_text: "text".to_string(),
                 source_alternatives: vec!["text".to_string()],
+                appearance: None,
             }];
 
             save_detector_preview(&path, &jpeg, &candidates, (80, 60)).unwrap();

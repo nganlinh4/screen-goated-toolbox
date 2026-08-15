@@ -1,6 +1,6 @@
 //! Structured contract for translating detector-owned text regions.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,9 @@ pub(crate) struct TranslationDocument {
 pub(crate) struct TranslationRegion {
     #[serde(skip)]
     pub id: u16,
+    pub member_ids: Vec<u16>,
+    pub selections: Vec<TranslationSelection>,
+    pub semantic_role: SemanticRole,
     pub source_text: String,
     pub translated_text: String,
     #[serde(rename = "box_2d")]
@@ -31,12 +34,41 @@ pub(crate) struct TranslationRegion {
     pub text_color: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct TranslationSelection {
+    pub region_id: u16,
+    pub candidate_id: String,
+    pub source_text: String,
+    pub bounds: NormalizedBounds,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SemanticRole {
+    Standalone,
+    Heading,
+    Paragraph,
+    ListItem,
+    Label,
+    Value,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum TranslationRequirement {
+    TranslationRequired,
+    AlreadyTarget,
+    NonLinguistic,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DetectedTextRegion {
     pub id: u16,
     pub bounds: NormalizedBounds,
     pub source_text: String,
     pub source_alternatives: Vec<String>,
+    pub appearance: Option<super::appearance::VisualSignature>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -81,39 +113,14 @@ enum TranslationResponseEnvelope {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TranslatedRegionResponse {
-    id: u16,
-    source_candidate_index: usize,
+    region_id: u16,
+    candidate_id: String,
+    translation_requirement: TranslationRequirement,
     translated_text: String,
 }
 
 pub(crate) fn response_schema(region_count: usize) -> serde_json::Value {
-    let max_candidate_index = MAX_SOURCE_CANDIDATES - 1;
-    serde_json::json!({
-        "type": "object",
-        "properties": {
-            "regions": {
-                "type": "array",
-                "minItems": region_count,
-                "maxItems": region_count,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": { "type": "integer" },
-                        "sourceCandidateIndex": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": max_candidate_index
-                        },
-                        "translatedText": { "type": "string", "minLength": 1, "maxLength": MAX_TEXT_CHARS }
-                    },
-                    "required": ["id", "sourceCandidateIndex", "translatedText"],
-                    "additionalProperties": false
-                }
-            }
-        },
-        "required": ["regions"],
-        "additionalProperties": false
-    })
+    super::schema::response_schema(region_count, MAX_TEXT_CHARS)
 }
 
 pub(crate) fn prompt_with_instruction(
@@ -127,9 +134,23 @@ pub(crate) fn prompt_with_instruction(
     let source_regions = candidates
         .iter()
         .map(|candidate| {
+            let source_candidates = candidate
+                .source_alternatives
+                .iter()
+                .enumerate()
+                .map(|(index, text)| {
+                    serde_json::json!({
+                        "candidateId": candidate_id(candidate.id, index),
+                        "characters": text.chars().count(),
+                        "text": text
+                    })
+                })
+                .collect::<Vec<_>>();
             serde_json::json!({
                 "id": candidate.id,
-                "sourceCandidates": candidate.source_alternatives
+                "box2d": <NormalizedBounds as Into<[u16; 4]>>::into(candidate.bounds),
+                "visualStyle": candidate.appearance,
+                "sourceCandidates": source_candidates
             })
         })
         .collect::<Vec<_>>();
@@ -141,10 +162,12 @@ pub(crate) fn prompt_with_instruction(
     Ok(format!(
         "Translation preference:\n{translation_instruction}\n\n\
          Required screen-translation contract:\n\
-         Translate the supplied OCR text regions into {target_language}. Treat every region independently because one image can contain multiple source languages. Each region contains an ordered array of bounded recognition candidates for the same image box. Select the most linguistically coherent candidate and return its zero-based array position as sourceCandidateIndex. A region is readable when any one candidate is coherent, even if its other candidates are gibberish.\n\
-         Preserve every supplied integer id exactly once. Never omit a region. If a region is noise, an icon, a counter, a proper noun, an identifier, or already in the target language, return the selected candidate unchanged as translatedText.\n\
-         Translate all readable language, including ordinary interface labels, menu items, buttons, headings, navigation terms, and mixed-language text; preserve product or brand names, identifiers, numbers, punctuation, and tone.\n\
-         translatedText contains only the translation of the selected source candidate.\n\
+         Translate the supplied OCR text regions into {target_language}. Interpret the complete ordered region list as shared context, including wrapped lines and mixed source languages, but return exactly one result for each supplied region so every result remains bound to its source geometry. Never merge, split, renumber, reorder, omit, or move region content.\n\
+         For each result, copy regionId exactly, choose exactly one supplied candidateId from that same region, and translate only that selected region's text. Neighboring regions provide context only; never move a translation into an earlier or later result.\n\
+         Translate the complete selected text faithfully. Do not abbreviate, summarize, or drop meaning to fit the source box, and never add explanations or details absent from that region.\n\
+         translationRequirement is translation_required when the selected natural-language text differs from the requested target language, already_target only when it is already in the requested target language, and non_linguistic only when it contains no translatable language. translatedText must express the complete selected source in {target_language}; selecting or copying OCR text is not translation. Copy only symbols, codes, numbers, and names that conventionally remain unchanged.\n\
+         Preserve every supplied integer regionId exactly once. Never omit a region.\n\
+         Translate all readable language, including ordinary interface labels, menu items, buttons, headings, navigation terms, proper nouns that have a conventional target-language form, and every source language in mixed-language text. If an entire block is already in {target_language} or contains no natural language, it may remain unchanged. Preserve meaning, punctuation, and tone.\n\
          Return one JSON object matching the supplied schema, without Markdown or commentary.\n\
          OCR regions:\n{source_regions}"
     ))
@@ -164,26 +187,25 @@ pub(crate) fn parse_response(
     if values.len() > MAX_TRANSLATED_REGIONS {
         bail!("response contains too many translated regions");
     }
-    let candidate_data = candidates
+    if candidates
         .iter()
-        .map(|candidate| (candidate.id, candidate))
-        .collect::<HashMap<_, _>>();
-    if candidate_data.len() != candidates.len() {
+        .map(|candidate| candidate.id)
+        .collect::<HashSet<_>>()
+        .len()
+        != candidates.len()
+    {
         bail!("detector returned duplicate candidate ids");
     }
     let mut seen = HashSet::new();
     let mut regions = Vec::with_capacity(values.len());
     for value in values {
-        let Ok(region) = serde_json::from_value::<TranslatedRegionResponse>(value) else {
+        let Ok(response) = serde_json::from_value::<TranslatedRegionResponse>(value) else {
             continue;
         };
-        if seen.contains(&region.id) {
+        if seen.contains(&response.region_id) {
             continue;
         }
-        let Some(candidate) = candidate_data.get(&region.id).copied() else {
-            continue;
-        };
-        let Ok(region) = validated_region(region, candidate) else {
+        let Ok(region) = validated_region(response, candidates) else {
             continue;
         };
         seen.insert(region.id);
@@ -199,33 +221,66 @@ pub(crate) fn parse_streamed_region(
 ) -> Result<(u16, TranslationRegion)> {
     let response: TranslatedRegionResponse = serde_json::from_str(value)
         .context("streamed region did not match the translation schema")?;
-    let candidate = candidates
-        .iter()
-        .find(|candidate| candidate.id == response.id)
-        .ok_or_else(|| anyhow::anyhow!("streamed region references an unknown id"))?;
-    let id = response.id;
-    Ok((id, validated_region(response, candidate)?))
+    let region = validated_region(response, candidates)?;
+    Ok((region.id, region))
 }
 
 fn validated_region(
     response: TranslatedRegionResponse,
-    candidate: &DetectedTextRegion,
+    candidates: &[DetectedTextRegion],
 ) -> Result<TranslationRegion> {
+    let candidate = candidates
+        .iter()
+        .find(|candidate| candidate.id == response.region_id)
+        .ok_or_else(|| anyhow::anyhow!("translation references an unknown region id"))?;
     let source_text = candidate
         .source_alternatives
-        .get(response.source_candidate_index)
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("source candidate index is outside its detector region"))?;
+        .iter()
+        .enumerate()
+        .find_map(|(index, text)| {
+            (candidate_id(candidate.id, index) == response.candidate_id).then(|| text.clone())
+        })
+        .ok_or_else(|| anyhow::anyhow!("translation candidate id is unknown"))?;
     let translated_text = clean_text(&response.translated_text, MAX_TEXT_CHARS)
         .ok_or_else(|| anyhow::anyhow!("translated text is empty or too long"))?;
+    let source_equivalent = text_is_source_equivalent(&source_text, &translated_text);
+    match response.translation_requirement {
+        TranslationRequirement::TranslationRequired if source_equivalent => {
+            bail!("translation-required block remained source-equivalent");
+        }
+        TranslationRequirement::AlreadyTarget | TranslationRequirement::NonLinguistic
+            if !source_equivalent =>
+        {
+            bail!("non-translated block changed its selected source text");
+        }
+        _ => {}
+    }
+    if !source_text.chars().any(char::is_alphabetic)
+        && translated_text.chars().any(char::is_alphabetic)
+    {
+        bail!("translation text is inconsistent with a non-language source selection");
+    }
+    let selection = TranslationSelection {
+        region_id: candidate.id,
+        candidate_id: response.candidate_id,
+        source_text: source_text.clone(),
+        bounds: candidate.bounds,
+    };
     Ok(TranslationRegion {
-        id: response.id,
+        id: candidate.id,
+        member_ids: vec![candidate.id],
+        selections: vec![selection],
+        semantic_role: SemanticRole::Standalone,
         source_text,
         translated_text,
         bounds: candidate.bounds,
         background_color: None,
         text_color: None,
     })
+}
+
+fn candidate_id(region_id: u16, index: usize) -> String {
+    format!("r{region_id}c{index}")
 }
 
 fn unwrap_json(response: &str) -> &str {
@@ -246,6 +301,17 @@ fn clean_text(value: &str, max_chars: usize) -> Option<String> {
     (!trimmed.is_empty() && trimmed.chars().count() <= max_chars).then(|| trimmed.to_string())
 }
 
+pub(crate) fn text_is_source_equivalent(left: &str, right: &str) -> bool {
+    comparable_text(left) == comparable_text(right)
+}
+
+fn comparable_text(text: &str) -> String {
+    text.chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,32 +323,38 @@ mod tests {
                 bounds: [100, 20, 170, 180].into(),
                 source_text: "first".to_string(),
                 source_alternatives: vec!["first".to_string(), "f1rst".to_string()],
+                appearance: None,
             },
             DetectedTextRegion {
                 id: 2,
-                bounds: [500, 40, 580, 200].into(),
+                bounds: [168, 22, 238, 200].into(),
                 source_text: "second".to_string(),
                 source_alternatives: vec!["second".to_string()],
+                appearance: None,
             },
         ]
     }
 
+    fn translated(id: u16, candidate: usize, text: &str) -> String {
+        format!(
+            r#"{{"regionId":{id},"candidateId":"r{id}c{candidate}","translationRequirement":"translation_required","translatedText":"{text}"}}"#
+        )
+    }
+
     #[test]
-    fn prompt_supplies_detector_owned_text_without_geometry() {
+    fn prompt_supplies_fixed_geometry_and_candidate_contract() {
         let instructions = prompt_with_instruction(
             "Target Language",
             &crate::config::types::ScreenTranslateSettings::default_prompt(),
             &candidates(),
         )
         .unwrap();
-        assert!(instructions.contains(r#"{"id":1,"sourceCandidates":["first","f1rst"]}"#));
-        assert!(instructions.contains("sourceCandidateIndex"));
-        assert!(
-            !response_schema(candidates().len())
-                .to_string()
-                .contains("sourceText")
-        );
-        assert!(!instructions.contains("box_2d"));
+        assert!(instructions.contains(r#""candidateId":"r1c0","characters":5,"text":"first""#));
+        assert!(instructions.contains(r#""box2d":[100,20,170,180]"#));
+        assert!(instructions.contains("return exactly one result for each supplied region"));
+        assert!(instructions.contains("Never merge, split, renumber, reorder, omit, or move"));
+        assert!(instructions.contains("Do not abbreviate, summarize, or drop meaning"));
+        assert!(!instructions.contains("allowedLinks"));
     }
 
     #[test]
@@ -299,63 +371,49 @@ mod tests {
 
     #[test]
     fn parser_maps_ids_to_detector_bounds_and_orders_them() {
+        let second = translated(2, 0, "two");
+        let first = translated(1, 0, "one");
         let result = parse_response(
-            r##"{"regions":[{"id":2,"sourceCandidateIndex":0,"translatedText":"two"},{"id":1,"sourceCandidateIndex":0,"translatedText":"one"}]}"##,
+            &format!(r#"{{"regions":[{second},{first}]}}"#),
             &candidates(),
         )
         .unwrap();
         assert_eq!(result.regions[0].translated_text, "one");
         assert_eq!(result.regions[0].bounds, candidates()[0].bounds);
         assert_eq!(result.regions[0].source_text, "first");
+        assert_eq!(result.regions[0].member_ids, vec![1]);
     }
 
     #[test]
-    fn parser_keeps_valid_regions_when_neighbors_are_invalid() {
-        let result = parse_response(
-            r#"{"regions":[
-                {"id":9,"sourceCandidateIndex":0,"translatedText":"unknown"},
-                {"id":1,"sourceCandidateIndex":1,"translatedText":"valid"},
-                {"id":1,"sourceCandidateIndex":0,"translatedText":"duplicate"},
-                {"id":2,"sourceCandidateIndex":9,"translatedText":"bad index"},
-                {"id":2,"sourceCandidateIndex":0,"translatedText":"extra","box_2d":[1,2,3,4]}
-            ]}"#,
+    fn parser_rejects_model_owned_grouping_fields() {
+        let parsed = parse_response(
+            r#"{"regions":[{"memberIds":[1,2],"translatedText":"bad"}]}"#,
             &candidates(),
         )
         .unwrap();
-
-        assert_eq!(result.regions.len(), 1);
-        assert_eq!(result.regions[0].id, 1);
-        assert_eq!(result.regions[0].source_text, "f1rst");
-        assert_eq!(result.regions[0].translated_text, "valid");
+        assert!(parsed.regions.is_empty());
     }
 
     #[test]
-    fn parser_returns_valid_partial_output_for_missing_or_empty_neighbors() {
-        let missing = parse_response(
-            r#"{"regions":[{"id":2,"sourceCandidateIndex":0,"translatedText":"two"}]}"#,
-            &candidates(),
+    fn parser_rejects_semantically_impossible_candidate_binding_per_block() {
+        let mut candidates = candidates();
+        candidates[0].source_alternatives[0] = "1.+".to_string();
+        let invalid = translated(1, 0, "A long translated sentence");
+        let valid = translated(2, 0, "two");
+        let parsed = parse_response(
+            &format!(r#"{{"regions":[{invalid},{valid}]}}"#),
+            &candidates,
         )
         .unwrap();
-        assert_eq!(missing.regions.len(), 1);
-        assert_eq!(missing.regions[0].id, 2);
-
-        let empty_neighbor = parse_response(
-            r#"{"regions":[{"id":1,"sourceCandidateIndex":0,"translatedText":""},{"id":2,"sourceCandidateIndex":0,"translatedText":"two"}]}"#,
-            &candidates(),
-        )
-        .unwrap();
-        assert_eq!(empty_neighbor.regions.len(), 1);
-        assert_eq!(empty_neighbor.regions[0].id, 2);
+        assert_eq!(parsed.regions.len(), 1);
+        assert_eq!(parsed.regions[0].id, 2);
     }
 
     #[test]
     fn parser_accepts_the_equivalent_top_level_region_array() {
         let candidates = candidates();
-        let parsed = parse_response(
-            r#"[{"id":1,"sourceCandidateIndex":0,"translatedText":"uno"}]"#,
-            &candidates,
-        )
-        .unwrap();
+        let parsed =
+            parse_response(&format!("[{}]", translated(1, 0, "uno")), &candidates).unwrap();
         assert_eq!(parsed.regions.len(), 1);
         assert_eq!(parsed.regions[0].translated_text, "uno");
     }
@@ -363,5 +421,30 @@ mod tests {
     #[test]
     fn parser_rejects_a_malformed_top_level_contract() {
         assert!(parse_response(r#"{"regions":"not-an-array"}"#, &candidates()).is_err());
+    }
+
+    #[test]
+    fn parser_does_not_let_one_changed_block_hide_an_untranslated_block() {
+        let unchanged_required = translated(1, 0, "first");
+        let translated = translated(2, 0, "dos");
+        let parsed = parse_response(
+            &format!(r#"{{"regions":[{unchanged_required},{translated}]}}"#),
+            &candidates(),
+        )
+        .unwrap();
+        assert_eq!(parsed.regions.len(), 1);
+        assert_eq!(parsed.regions[0].id, 2);
+    }
+
+    #[test]
+    fn parser_accepts_unchanged_text_only_when_the_model_marks_it_nonrequired() {
+        let unchanged = r#"{"regionId":1,"candidateId":"r1c0","translationRequirement":"already_target","translatedText":"first"}"#;
+        let parsed =
+            parse_response(&format!(r#"{{"regions":[{unchanged}]}}"#), &candidates()).unwrap();
+        assert_eq!(parsed.regions.len(), 1);
+        assert!(text_is_source_equivalent(
+            &parsed.regions[0].source_text,
+            &parsed.regions[0].translated_text
+        ));
     }
 }

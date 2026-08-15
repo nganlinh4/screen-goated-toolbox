@@ -150,6 +150,7 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
                     control_options: None,
                     backdrop_data_url: None,
                     foreground_color: None,
+                    preferred_font_size: None,
                     copy_success: false,
                     is_editing: start_editing,
                     context_data: context,
@@ -212,6 +213,7 @@ pub fn create_text_only_result_window(
     foreground_color: String,
     chain_id: String,
     control_options: Option<ResultControlOptions>,
+    preferred_font_size: Option<f32>,
 ) -> HWND {
     let hwnd = create_result_window_shell(params);
     {
@@ -221,6 +223,7 @@ pub fn create_text_only_result_window(
             state.control_options = control_options;
             state.backdrop_data_url = Some(backdrop_data_url);
             state.foreground_color = Some(foreground_color);
+            state.preferred_font_size = preferred_font_size;
             state.chain_id = Some(chain_id);
         }
     }

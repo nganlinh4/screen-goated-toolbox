@@ -15,6 +15,19 @@ struct ComponentBox {
     bottom: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ProbabilityComponent {
+    bounds: ComponentBox,
+    probability_sum: f32,
+    pixel_count: u32,
+}
+
+impl ProbabilityComponent {
+    fn confidence(self) -> f32 {
+        self.probability_sum / self.pixel_count.max(1) as f32
+    }
+}
+
 impl ComponentBox {
     fn width(self) -> u32 {
         self.right - self.left + 1
@@ -43,11 +56,12 @@ pub(crate) fn extract_regions(
         {
             continue;
         }
-        let bounds = visit_component(probabilities, &mut visited, index, map_width, map_height);
+        let component = visit_component(probabilities, &mut visited, index, map_width, map_height);
+        let bounds = component.bounds;
         if bounds.width().min(bounds.height()) < MIN_SIDE {
             continue;
         }
-        let confidence = rectangle_mean(probabilities, map_width, bounds);
+        let confidence = component.confidence();
         if confidence < BOX_THRESHOLD {
             continue;
         }
@@ -75,7 +89,7 @@ fn visit_component(
     start: usize,
     width: u32,
     height: u32,
-) -> ComponentBox {
+) -> ProbabilityComponent {
     let mut stack = vec![start];
     visited[start] = true;
     let mut bounds = ComponentBox {
@@ -84,7 +98,11 @@ fn visit_component(
         right: start as u32 % width,
         bottom: start as u32 / width,
     };
+    let mut probability_sum = 0.0_f32;
+    let mut pixel_count = 0_u32;
     while let Some(index) = stack.pop() {
+        probability_sum += probabilities[index];
+        pixel_count += 1;
         let x = index as u32 % width;
         let y = index as u32 / width;
         bounds.left = bounds.left.min(x);
@@ -105,20 +123,11 @@ fn visit_component(
             }
         }
     }
-    bounds
-}
-
-fn rectangle_mean(probabilities: &[f32], width: u32, bounds: ComponentBox) -> f32 {
-    let mut total = 0.0_f32;
-    let mut count = 0_u32;
-    for y in bounds.top..=bounds.bottom {
-        let row = y as usize * width as usize;
-        for x in bounds.left..=bounds.right {
-            total += probabilities[row + x as usize];
-            count += 1;
-        }
+    ProbabilityComponent {
+        bounds,
+        probability_sum,
+        pixel_count,
     }
-    total / count.max(1) as f32
 }
 
 fn expand_box(bounds: ComponentBox, width: u32, height: u32) -> ComponentBox {
@@ -194,5 +203,21 @@ mod tests {
         assert!(regions[0].top < regions[1].top);
         assert!(regions[0].left < 100 && regions[0].right > 200);
         assert!(regions.iter().all(|region| region.confidence >= 0.79));
+    }
+
+    #[test]
+    fn confidence_scores_the_connected_text_mask_not_empty_bounding_space() {
+        let mut map = vec![0.0_f32; 32 * 32];
+        for y in 4..20 {
+            map[y * 32 + 4] = 0.9;
+            map[y * 32 + 20] = 0.9;
+        }
+        for x in 4..=20 {
+            map[4 * 32 + x] = 0.9;
+        }
+
+        let regions = extract_regions(&map, 32, 32, 320, 320);
+        assert_eq!(regions.len(), 1);
+        assert!(regions[0].confidence >= 0.89);
     }
 }

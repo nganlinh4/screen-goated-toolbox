@@ -212,6 +212,7 @@ function runDirectFit(entry, streaming, settleBeforeReveal) {
     viewport: entry.card,
     fontReady: true,
     settleBeforeReveal: Boolean(settleBeforeReveal),
+    sourceReplacement: entry.sourceReplacement === true, preferredFontSize: entry.preferredFontSize,
     reportDiagnostic: function(payload) {
       window.ipc.postMessage(JSON.stringify({
         type: 'fit_diagnostic', id: Number(entry.card.dataset.id), payload: payload
@@ -285,7 +286,8 @@ function applyDirectContent(entry, message) {
       runInlineSizing: true,
       finalizing: message.type === 'finalize',
       animateNewWords: message.type === 'stream_update',
-      settleBeforeReveal: Boolean(message.settle_before_reveal)
+      settleBeforeReveal: Boolean(message.settle_before_reveal),
+      sourceReplacement: entry.sourceReplacement === true, preferredFontSize: entry.preferredFontSize
     });
     entry.bodyElement.dataset.sgtMode = message.refining ? 'refining' : 'result';
     reportCardDiagnostic(entry.card.dataset.id, entry,
@@ -409,6 +411,12 @@ function raiseCard(entry, stackOrder) {
 function applyAppearance(entry, model) {
   const becameVisible = !entry.visible && model.visible;
   entry.card.dataset.presentation = model.presentation || 'standard';
+  entry.sourceReplacement = model.source_replacement === true;
+  const preferredFontSize = Number(model.preferred_font_size);
+  const scale = window.devicePixelRatio || 1;
+  entry.preferredFontSize = Number.isFinite(preferredFontSize) && preferredFontSize > 0
+    ? preferredFontSize / scale
+    : null;
   const backdropUrl = model.backdrop_data_url || '';
   if (entry.backdrop.dataset.url !== backdropUrl) {
     entry.backdrop.dataset.url = backdropUrl;
@@ -493,7 +501,6 @@ function removeCard(id) {
   entry.card.remove();
   cards.delete(key);
 }
-
 function applyTheme(theme) {
   currentThemeCss = String(theme.css || '');
   document.getElementById('sgt-theme-css').textContent = currentThemeCss;
@@ -504,7 +511,6 @@ function applyTheme(theme) {
     postCardMessage(entry, { type: 'theme_update', css: currentThemeCss });
   }
 }
-
 function reportNavigation(id, entry) {
   window.ipc.postMessage(JSON.stringify({
     type: 'navigation', id: Number(id), depth: entry.navigationDepth,
