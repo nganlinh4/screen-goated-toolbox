@@ -15,6 +15,8 @@ thread_local! {
 }
 
 const PRESET_ACTION_REVEAL_RADIUS: f32 = 96.0;
+const PRESET_GRID_COLUMN_GAP: f32 = 3.0;
+const PRESET_CONTENT_GAP: f32 = 1.0;
 
 fn proximity_opacity(pointer: Option<egui::Pos2>, rect: egui::Rect) -> f32 {
     let Some(pointer) = pointer else {
@@ -129,8 +131,8 @@ pub fn render_sidebar(
     // remain stable so egui retains its measured six-column layout between moves.
     let grid_response = egui::Grid::new("presets_grid")
         .num_columns(6)
-        .spacing([8.0, 4.0])
-        .min_col_width(67.0)
+        .spacing([PRESET_GRID_COLUMN_GAP, 4.0])
+        .min_col_width(0.0)
         .show(ui, |ui| {
             let theme = crate::gui::theme::AppTheme::from_ui(ui);
             let img_bg = theme.modality_image();
@@ -425,7 +427,7 @@ fn render_preset_item_parts(
     let content_response = ui.with_visual_transform(transform, |ui| {
         ui.horizontal(|ui| {
             ui.set_min_height(22.0);
-            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.spacing_mut().item_spacing.x = PRESET_CONTENT_GAP;
             if has_hotkey && !preset.is_upcoming {
                 let rect = ui.available_rect_before_wrap();
                 let bg_color = crate::gui::theme::AppTheme::from_ui(ui).hotkey_chip_bg();
