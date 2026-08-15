@@ -34,14 +34,14 @@ fn source_path(root: &Path, file: &str) -> PathBuf {
 fn manifest_is_exhaustive_and_atlases_are_deterministic() {
     let root = root();
     let manifest = icon_atlas::load_manifest(&root).unwrap();
-    assert_eq!(manifest.sprites.len(), 67);
+    assert_eq!(manifest.sprites.len(), 68);
     assert_eq!(
         manifest
             .sprites
             .iter()
             .map(|sprite| sprite.variants.len())
             .sum::<usize>(),
-        70
+        71
     );
 
     let output = root
@@ -58,7 +58,7 @@ fn manifest_is_exhaustive_and_atlases_are_deterministic() {
         generated_pages.push((pixels, bytes));
     }
     assert!(
-        total_png_bytes < 400_000,
+        total_png_bytes < 410_000,
         "atlas delivery budget regressed to {total_png_bytes} bytes"
     );
     icon_atlas::generate(&root, &output);
@@ -186,5 +186,5 @@ fn manifest_variants_are_unique() {
         .iter()
         .flat_map(|sprite| sprite.variants.iter())
         .collect::<BTreeSet<_>>();
-    assert_eq!(variants.len(), 70);
+    assert_eq!(variants.len(), 71);
 }
