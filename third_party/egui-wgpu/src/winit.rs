@@ -130,6 +130,9 @@ struct SurfaceState {
     alpha_mode: wgpu::CompositeAlphaMode,
     width: u32,
     height: u32,
+    pending_resize: Option<(NonZeroU32, NonZeroU32)>,
+    #[cfg(target_os = "windows")]
+    presented_background: Option<[u32; 4]>,
     resizing: bool,
     needs_reconfigure: bool,
 
@@ -143,6 +146,27 @@ struct SurfaceState {
     // a breaking change to a public method, so for the patch we stash an owned handle instead.
     // `None` when the surface was created via `set_window_unsafe` (no owned window available).
     window_for_surface_recreation: Option<Arc<winit::window::Window>>,
+}
+
+#[cfg(target_os = "windows")]
+fn set_dx12_surface_background(surface: &wgpu::Surface<'static>, clear_color: [f32; 4]) -> bool {
+    let Some(surface) = (unsafe { surface.as_hal::<wgpu::hal::api::Dx12>() }) else {
+        return true;
+    };
+    let Some(swap_chain) = surface.swap_chain() else {
+        return false;
+    };
+    let background = windows::Win32::Graphics::Dxgi::DXGI_RGBA {
+        r: clear_color[0],
+        g: clear_color[1],
+        b: clear_color[2],
+        a: clear_color[3],
+    };
+
+    if let Err(err) = unsafe { swap_chain.SetBackgroundColor(&raw const background) } {
+        log::warn!("Failed to set the DXGI surface background color: {err}");
+    }
+    true
 }
 
 /// Everything you need to paint egui with [`wgpu`] on [`winit`].
@@ -390,7 +414,7 @@ impl Painter {
     }
 
     fn configure_surface(
-        surface_state: &SurfaceState,
+        surface_state: &mut SurfaceState,
         render_state: &RenderState,
         config: &WgpuConfiguration,
     ) {
@@ -418,6 +442,10 @@ impl Painter {
         surface_state
             .surface
             .configure(&render_state.device, &surf_config);
+        #[cfg(target_os = "windows")]
+        {
+            surface_state.presented_background = None;
+        }
     }
 
     /// Updates (or clears) the [`winit::window::Window`] associated with the [`Painter`]
@@ -572,6 +600,9 @@ impl Painter {
                 width,
                 height,
                 alpha_mode,
+                pending_resize: None,
+                #[cfg(target_os = "windows")]
+                presented_background: None,
                 resizing,
                 needs_reconfigure: false,
                 needs_recreate: false,
@@ -607,12 +638,16 @@ impl Painter {
         };
         let width = old_state.width;
         let height = old_state.height;
+        let pending_resize = old_state.pending_resize;
         let resizing = old_state.resizing;
 
         // Drop the old surface before creating the new one.
         self.surfaces.remove(&viewport_id);
 
         let surface = self.instance.create_surface(Arc::clone(&window))?;
+        let (width, height) = pending_resize
+            .map(|(width, height)| (width.get(), height.get()))
+            .unwrap_or((width, height));
         self.install_surface(surface, viewport_id, width, height, resizing, Some(window));
         Ok(())
     }
@@ -759,12 +794,11 @@ impl Painter {
     ) {
         profiling::function_scope!();
 
-        if self.surfaces.contains_key(&viewport_id) {
-            self.resize_and_generate_depth_texture_view_and_msaa_view(
-                viewport_id,
-                width_in_pixels,
-                height_in_pixels,
-            );
+        if let Some(surface_state) = self.surfaces.get_mut(&viewport_id) {
+            // WM_SIZE can arrive much faster than frames can be presented. Configuring the
+            // surface here would synchronously resize DXGI buffers for sizes that are never
+            // drawn. Retain only the newest size and apply it immediately before painting.
+            surface_state.pending_resize = Some((width_in_pixels, height_in_pixels));
         } else {
             log::warn!(
                 "Ignoring window resize notification with no surface created via Painter::set_window()"
@@ -838,6 +872,14 @@ impl Painter {
             return vsync_sec;
         }
 
+        if let Some((width, height)) = self
+            .surfaces
+            .get_mut(&viewport_id)
+            .and_then(|surface_state| surface_state.pending_resize.take())
+        {
+            self.resize_and_generate_depth_texture_view_and_msaa_view(viewport_id, width, height);
+        }
+
         let Some(render_state) = self.render_state.as_mut() else {
             return vsync_sec;
         };
@@ -850,6 +892,16 @@ impl Painter {
         let Some(surface_state) = self.surfaces.get_mut(&viewport_id) else {
             return vsync_sec;
         };
+
+        #[cfg(target_os = "windows")]
+        {
+            let background_bits = clear_color.map(f32::to_bits);
+            if surface_state.presented_background != Some(background_bits)
+                && set_dx12_surface_background(&surface_state.surface, clear_color)
+            {
+                surface_state.presented_background = Some(background_bits);
+            }
+        }
 
         let mut encoder =
             render_state

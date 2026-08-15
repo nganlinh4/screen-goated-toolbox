@@ -151,6 +151,7 @@ debug = "line-tables-only"
 [patch.crates-io]
 egui-wgpu = { path = "third_party/egui-wgpu" }
 egui-scale = { path = "libs/egui-scale" }
+wgpu-hal = { path = "third_party/wgpu-hal" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.38.2"
