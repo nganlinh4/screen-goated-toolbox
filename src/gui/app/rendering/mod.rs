@@ -62,13 +62,6 @@ impl SettingsApp {
         let panel_fill = root_ui.visuals().panel_fill;
         let panes = self.detail_panes.clone();
 
-        // Panels can briefly report narrower content while their child layout is
-        // changing. Paint the complete layout surface first so no swap-chain clear
-        // color can show through a transient gap between docked panels.
-        root_ui
-            .painter()
-            .rect_filled(root_ui.available_rect_before_wrap(), 0.0, panel_fill);
-
         // NATIVE egui panels: egui sizes + clips each panel itself, so columns can
         // never overflow the window or cut each other off (the manual width math
         // kept mismatching the display scaling). Sidebar docks left (sized to its

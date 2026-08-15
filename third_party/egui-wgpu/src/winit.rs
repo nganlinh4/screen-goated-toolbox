@@ -130,6 +130,10 @@ struct SurfaceState {
     alpha_mode: wgpu::CompositeAlphaMode,
     width: u32,
     height: u32,
+    surface_width: u32,
+    surface_height: u32,
+    fixed_surface_capacity: bool,
+    surface_configured: bool,
     pending_resize: Option<(NonZeroU32, NonZeroU32)>,
     #[cfg(target_os = "windows")]
     presented_background: Option<[u32; 4]>,
@@ -167,6 +171,39 @@ fn set_dx12_surface_background(surface: &wgpu::Surface<'static>, clear_color: [f
         log::warn!("Failed to set the DXGI surface background color: {err}");
     }
     true
+}
+
+#[cfg(target_os = "windows")]
+fn uses_dx12_window_composition(surface: &wgpu::Surface<'static>) -> bool {
+    unsafe { surface.as_hal::<wgpu::hal::api::Dx12>() }
+        .is_some_and(|surface| surface.uses_window_composition_visual())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn uses_dx12_window_composition(_surface: &wgpu::Surface<'static>) -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
+fn set_dx12_window_composition_clip(surface: &wgpu::Surface<'static>, width: u32, height: u32) {
+    let Some(surface) = (unsafe { surface.as_hal::<wgpu::hal::api::Dx12>() }) else {
+        return;
+    };
+    if let Err(err) = surface.set_window_composition_clip(width, height) {
+        log::warn!("Failed to update DirectComposition resize clip: {err:?}");
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_dx12_window_composition_clip(_surface: &wgpu::Surface<'static>, _width: u32, _height: u32) {}
+
+fn reserved_surface_extent(current: u32, requested: u32, monitor: u32, limit: u32) -> u32 {
+    let required = requested.max(monitor);
+    if required <= current {
+        current
+    } else {
+        required.max(current.saturating_add(current / 2)).min(limit)
+    }
 }
 
 /// Everything you need to paint egui with [`wgpu`] on [`winit`].
@@ -420,8 +457,8 @@ impl Painter {
     ) {
         profiling::function_scope!();
 
-        let width = surface_state.width;
-        let height = surface_state.height;
+        let width = surface_state.surface_width;
+        let height = surface_state.surface_height;
 
         let mut surf_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -442,6 +479,7 @@ impl Painter {
         surface_state
             .surface
             .configure(&render_state.device, &surf_config);
+        surface_state.surface_configured = true;
         #[cfg(target_os = "windows")]
         {
             surface_state.presented_background = None;
@@ -593,12 +631,49 @@ impl Painter {
                 wgpu::CompositeAlphaMode::Auto
             }
         };
+        let fixed_surface_capacity = uses_dx12_window_composition(&surface);
+        let max_surface_dimension = self
+            .render_state
+            .as_ref()
+            .unwrap()
+            .device
+            .limits()
+            .max_texture_dimension_2d;
+        let monitor_size = window_for_surface_recreation
+            .as_ref()
+            .and_then(|window| window.current_monitor())
+            .map(|monitor| monitor.size());
+        let surface_width = if fixed_surface_capacity {
+            reserved_surface_extent(
+                0,
+                width,
+                monitor_size.map_or(3_840, |size| size.width),
+                max_surface_dimension,
+            )
+        } else {
+            width
+        };
+        let surface_height = if fixed_surface_capacity {
+            reserved_surface_extent(
+                0,
+                height,
+                monitor_size.map_or(2_160, |size| size.height),
+                max_surface_dimension,
+            )
+        } else {
+            height
+        };
+
         self.surfaces.insert(
             viewport_id,
             SurfaceState {
                 surface,
                 width,
                 height,
+                surface_width,
+                surface_height,
+                fixed_surface_capacity,
+                surface_configured: false,
                 alpha_mode,
                 pending_resize: None,
                 #[cfg(target_os = "windows")]
@@ -680,7 +755,44 @@ impl Painter {
         surface_state.width = width;
         surface_state.height = height;
 
+        let old_surface_width = surface_state.surface_width;
+        let old_surface_height = surface_state.surface_height;
+        if surface_state.fixed_surface_capacity {
+            let limit = render_state.device.limits().max_texture_dimension_2d;
+            let monitor_size = surface_state
+                .window_for_surface_recreation
+                .as_ref()
+                .and_then(|window| window.current_monitor())
+                .map(|monitor| monitor.size());
+            surface_state.surface_width = reserved_surface_extent(
+                old_surface_width,
+                width,
+                monitor_size.map_or(old_surface_width, |size| size.width),
+                limit,
+            );
+            surface_state.surface_height = reserved_surface_extent(
+                old_surface_height,
+                height,
+                monitor_size.map_or(old_surface_height, |size| size.height),
+                limit,
+            );
+        } else {
+            surface_state.surface_width = width;
+            surface_state.surface_height = height;
+        }
+
+        let capacity_changed = surface_state.surface_width != old_surface_width
+            || surface_state.surface_height != old_surface_height;
+        if !capacity_changed && surface_state.surface_configured {
+            set_dx12_window_composition_clip(&surface_state.surface, width, height);
+            return;
+        }
+
         Self::configure_surface(surface_state, render_state, &self.configuration);
+
+        let surface_width = surface_state.surface_width;
+        let surface_height = surface_state.surface_height;
+        set_dx12_window_composition_clip(&surface_state.surface, width, height);
 
         if let Some(depth_format) = self.options.depth_stencil_format {
             self.depth_texture_view.insert(
@@ -690,8 +802,8 @@ impl Painter {
                     .create_texture(&wgpu::TextureDescriptor {
                         label: Some("egui_depth_texture"),
                         size: wgpu::Extent3d {
-                            width,
-                            height,
+                            width: surface_width,
+                            height: surface_height,
                             depth_or_array_layers: 1,
                         },
                         mip_level_count: 1,
@@ -718,8 +830,8 @@ impl Painter {
                     .create_texture(&wgpu::TextureDescriptor {
                         label: Some("egui_msaa_texture"),
                         size: wgpu::Extent3d {
-                            width,
-                            height,
+                            width: surface_width,
+                            height: surface_height,
                             depth_or_array_layers: 1,
                         },
                         mip_level_count: 1,
@@ -1243,6 +1355,26 @@ mod device_recovery_tests {
         assert!(!is_device_loss_followup(
             "RenderPipeline with 'application_pipeline' label is invalid"
         ));
+    }
+
+    #[test]
+    fn composition_surface_capacity_covers_monitor_and_only_grows() {
+        assert_eq!(
+            super::reserved_surface_extent(0, 1_200, 2_560, 8_192),
+            2_560
+        );
+        assert_eq!(
+            super::reserved_surface_extent(2_560, 2_000, 2_560, 8_192),
+            2_560
+        );
+        assert_eq!(
+            super::reserved_surface_extent(2_560, 3_000, 2_560, 8_192),
+            3_840
+        );
+        assert_eq!(
+            super::reserved_surface_extent(7_000, 9_000, 2_560, 8_192),
+            8_192
+        );
     }
 
     #[cfg(target_os = "windows")]

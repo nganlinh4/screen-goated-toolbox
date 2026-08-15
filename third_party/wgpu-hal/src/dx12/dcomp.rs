@@ -3,7 +3,10 @@ use core::{ffi, ptr};
 
 use once_cell::sync::Lazy;
 use windows::{
-    Win32::{Foundation::HWND, Graphics::DirectComposition},
+    Win32::{
+        Foundation::HWND,
+        Graphics::{Direct2D::Common::D2D_RECT_F, DirectComposition},
+    },
     core::Interface as _,
 };
 
@@ -80,6 +83,27 @@ impl DCompState {
             self.inner = Some(unsafe { InnerState::init(lib, hwnd) }?);
         }
         Ok(self.inner.as_mut().unwrap())
+    }
+
+    pub fn set_clip(&mut self, width: u32, height: u32) -> Result<bool, crate::SurfaceError> {
+        let Some(inner) = self.inner.as_mut() else {
+            return Ok(false);
+        };
+        let clip = D2D_RECT_F {
+            left: 0.0,
+            top: 0.0,
+            right: width as f32,
+            bottom: height as f32,
+        };
+        unsafe { inner.visual.SetClip2(&raw const clip) }.map_err(|err| {
+            log::error!("IDCompositionVisual::SetClip failed: {err}");
+            crate::SurfaceError::Other("IDCompositionVisual::SetClip")
+        })?;
+        unsafe { inner.device.Commit() }.map_err(|err| {
+            log::error!("IDCompositionDevice::Commit failed: {err}");
+            crate::SurfaceError::Other("IDCompositionDevice::Commit")
+        })?;
+        Ok(true)
     }
 }
 

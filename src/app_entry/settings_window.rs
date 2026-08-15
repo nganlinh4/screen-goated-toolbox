@@ -17,7 +17,13 @@ fn native_options_for_wgpu(viewport: eframe::egui::ViewportBuilder) -> eframe::N
         &mut options.wgpu_options.wgpu_setup
     {
         create_new.instance_descriptor.backends = eframe::wgpu::Backends::PRIMARY;
+        create_new
+            .instance_descriptor
+            .backend_options
+            .dx12
+            .presentation_system = eframe::wgpu::Dx12SwapchainKind::DxgiFromVisual;
     }
+    options.wgpu_options.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
     options.wgpu_options.desired_maximum_frame_latency = Some(1);
 
     options.wgpu_options.on_device_recovery = std::sync::Arc::new(|message| {

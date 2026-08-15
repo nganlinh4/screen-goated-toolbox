@@ -31,48 +31,33 @@ impl eframe::App for SettingsApp {
             crate::log_info!("[Main] App Update Start - Main Thread Alive");
         }
 
-        // Handle Dropped Files and Paste FIRST (before any UI consumes events)
-        if let Some(path) = self.pending_file_path.take() {
-            crate::log_info!("App Update: Found pending file path, triggering process...");
-            input_handler::process_file_path(&path);
+        // During the native modal sizing loop, keep the synchronous Windows frame path limited
+        // to responsive layout and paint. Polling, IPC, clipboard, tray and updater work can wait
+        // until the first ordinary frame after the resize finishes.
+        if !crate::gui::resize_subclass::is_live_resize() {
+            // Handle Dropped Files and Paste FIRST (before any UI consumes events)
+            if let Some(path) = self.pending_file_path.take() {
+                crate::log_info!("App Update: Found pending file path, triggering process...");
+                input_handler::process_file_path(&path);
+            }
+            input_handler::handle_dropped_files(ctx);
+            if !self.download_manager.show_window && !self.show_tts_playground {
+                input_handler::handle_paste(ctx);
+            }
+
+            self.check_updater();
+            self.update_theme_and_tray(ctx);
+            self.pulse_custom_chrome_resize_if_pending(ctx);
+            self.update_startup(ctx);
+            self.update_bubble_sync();
+            self.update_splash(ctx);
+            self.check_restore_signal(ctx);
+            self.update_hotkey_recording(ctx);
+            self.update_computer_control_hotkey_recording(ctx);
+            self.update_screen_translate_hotkey_recording(ctx);
+            self.handle_events(ctx);
+            self.handle_close_request(ctx);
         }
-        input_handler::handle_dropped_files(ctx);
-        if !self.download_manager.show_window && !self.show_tts_playground {
-            input_handler::handle_paste(ctx);
-        }
-
-        // Updater
-        self.check_updater();
-
-        // Theme & Tray
-        self.update_theme_and_tray(ctx);
-        crate::gui::resize_subclass::set_background_color(ctx.global_style().visuals.panel_fill);
-
-        // Native resize pulse from the previous frame's custom chrome transition.
-        self.pulse_custom_chrome_resize_if_pending(ctx);
-
-        // Startup Logic
-        self.update_startup(ctx);
-
-        // Bubble Sync
-        self.update_bubble_sync();
-
-        // Splash
-        self.update_splash(ctx);
-
-        // Restore Signal
-        self.check_restore_signal(ctx);
-
-        // Hotkey Recording
-        self.update_hotkey_recording(ctx);
-        self.update_computer_control_hotkey_recording(ctx);
-        self.update_screen_translate_hotkey_recording(ctx);
-
-        // Event Handling
-        self.handle_events(ctx);
-
-        // Close Request
-        self.handle_close_request(ctx);
 
         let main_ui_ready = self.is_main_ui_ready();
 
