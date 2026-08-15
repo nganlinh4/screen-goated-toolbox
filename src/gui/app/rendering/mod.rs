@@ -112,6 +112,12 @@ impl SettingsApp {
                 self.update_sr_hotkey_recording(ctx);
             });
 
+        // Own the complete content region between the docked columns. Panel frames paint their
+        // contents, but egui can leave a narrow separator allocation on the parent UI itself.
+        root_ui
+            .painter()
+            .rect_filled(root_ui.available_rect_before_wrap(), 0.0, panel_fill);
+
         // Right-edge padding: an empty gutter docked first (outermost right) so the
         // outermost detail column doesn't sit flush against the window edge.
         egui::Panel::right("sgt_right_pad")
