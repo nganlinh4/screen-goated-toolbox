@@ -149,7 +149,6 @@ panic = "unwind"
 debug = "line-tables-only"
 
 [patch.crates-io]
-eframe = { path = "third_party/eframe" }
 egui-wgpu = { path = "third_party/egui-wgpu" }
 egui-scale = { path = "libs/egui-scale" }
 wgpu-hal = { path = "third_party/wgpu-hal" }
