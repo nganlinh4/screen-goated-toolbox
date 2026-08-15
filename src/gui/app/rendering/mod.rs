@@ -29,13 +29,14 @@ const W_HISTORY: f32 = 480.0;
 /// Empty gutter docked at the window's right edge so the outermost detail column
 /// isn't flush against it (the right side previously had no padding).
 const RIGHT_PAD: f32 = 18.0;
+const SIDEBAR_GRID_TRAILING_PAD: f32 = 4.0;
 
 /// Width for the preset-controls sidebar column — sized to FIT its actual grid
 /// (which varies with modality columns + name lengths), clamped to a sane range.
 /// Sizing it to a fixed fraction was the bug: the grid (~690px for 3 modalities)
 /// spilled past it and pushed the detail columns right, cutting off History.
 fn sidebar_width() -> f32 {
-    (cached_grid_width() + 16.0).clamp(440.0, 760.0)
+    (cached_grid_width() + SIDEBAR_GRID_TRAILING_PAD).clamp(440.0, 760.0)
 }
 
 /// Fixed width for an aux (non-first) detail column.
