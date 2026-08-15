@@ -184,22 +184,28 @@
                     var isTinyContent = textLen < 300;
                     var isConstrainedWindow = (winH < 260 || winW < 420);
                     var isConstrainedShortContent = isConstrainedWindow && textLen < 450;
-
+                    var isSourceReplacement = Boolean(fitContext && fitContext.sourceReplacement);
+                    var preferredFontSize = Number(fitContext && fitContext.preferredFontSize);
+                    if (!Number.isFinite(preferredFontSize) || preferredFontSize <= 0) {
+                        preferredFontSize = Math.max(1, Math.min(14, winH));
+                    }
                     // Allowed ranges — match streaming's 14px readability floor.
-                    var minSize = (textLen < 200) ? 6 : 14;
+                    var minSize = isSourceReplacement ? 1 : ((textLen < 200) ? 6 : 14);
                     // Streaming cap is deliberately conservative (48px). An
                     // early tiny chunk could otherwise be sized up to 96
                     // and then forced to climb down a long shrink ladder
                     // (110 -> 60 -> 44 -> 32) as the response grows. The
                     // final (non-streaming) fit keeps the full range so
                     // short final responses can still display large.
-                    var maxSize = isStreamingFit
+                    var maxSize = isSourceReplacement
+                        ? Math.max(minSize, Math.min(winH, preferredFontSize))
+                        : (isStreamingFit
                         ? Math.min(48, winH)
                         : (isTinyContent
                             ? 200
                             : (isShortContent
                                 ? 100
-                                : Math.max(24, Math.min(48, Math.floor(winH / 10)))));
+                                : Math.max(24, Math.min(48, Math.floor(winH / 10))))));
 
                     // A newer fit may be queued immediately after this invocation.
                     // Let the active interpolation paint during our two readiness
@@ -230,6 +236,7 @@
                     // does not snap away from the condensed streaming look.
                     applyBodyWdth(90);
                     body.style.letterSpacing = '0px';
+                    body.style.wordSpacing = '0px';
                     body.style.lineHeight = '1.15';
                     body.style.paddingTop = '0';
                     body.style.paddingBottom = '0';
@@ -423,6 +430,16 @@
                         clearLastMargin();
                     }
 
+                    // Keep a proven source-replacement composition as the
+                    // recovery point for any later metric drift.
+                    var verifiedSourceFit = null;
+                    if (isSourceReplacement && fits()) {
+                        verifiedSourceFit = {
+                            fontSize: parseFloat(body.style.fontSize) || bestSize,
+                            fontStretch: parseFloat(body.style.fontStretch) || 90
+                        };
+                    }
+
                     // Streaming keeps Phase 1's true best size. Growth headroom
                     // quantization is intentionally absent because it makes the
                     // streaming target disagree with the identical final DOM.
@@ -430,7 +447,7 @@
                     // ===== PHASES 2-7: gap filling =====
                     // During active streaming, skip the expansion passes entirely.
                     // They can stretch small partial chunks into narrow vertical columns.
-                    if (isShortContent && !isStreamingFit) {
+                    if (isShortContent && !isStreamingFit && !isSourceReplacement) {
                         // ===== PHASE 2: LINE HEIGHT =====
                         if (fits() && getGap() > 2) {
                             var lowLH = 1.15, highLH = 2.5, bestLH = 1.15;

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -35,7 +35,8 @@ where
         .map_err(|_| anyhow::anyhow!("app configuration is unavailable"))?;
     let mut failed = Vec::new();
     let mut blocked_providers = HashSet::new();
-    let mut accepted = HashMap::new();
+    let mut accepted = Vec::new();
+    let mut covered = HashSet::new();
     let mut current =
         crate::model_config::get_model_by_id_with_custom(translation_model, &config.custom_models)
             .or_else(|| {
@@ -53,8 +54,8 @@ where
         if cancel.load(Ordering::SeqCst) {
             bail!("screen translation was cancelled");
         }
-        let pending = pending_candidates(candidates, &accepted);
-        if let Some(document) = completed_document(candidates, &accepted) {
+        let pending = pending_candidates(candidates, &covered);
+        if let Some(document) = completed_document(candidates, &accepted, &covered) {
             return Ok(document);
         }
         let schema = response_schema(pending.len());
@@ -98,7 +99,7 @@ where
                 },
                 |chunk| {
                     for (_, region) in parser.push(chunk) {
-                        if accepted.insert(region.id, region.clone()).is_none() {
+                        if accept_region(&mut accepted, &mut covered, region.clone()) {
                             on_event(region);
                         }
                     }
@@ -108,11 +109,11 @@ where
             let error = match response {
                 Ok(document) => {
                     for region in document.regions {
-                        if accepted.insert(region.id, region.clone()).is_none() {
+                        if accept_region(&mut accepted, &mut covered, region.clone()) {
                             on_event(region);
                         }
                     }
-                    if let Some(document) = completed_document(candidates, &accepted) {
+                    if let Some(document) = completed_document(candidates, &accepted, &covered) {
                         record_model_success(&current.id);
                         crate::log_info!(
                             "[Screen Translate] trace={trace_id} model complete model={} regions={}",
@@ -120,15 +121,16 @@ where
                             document.regions.len()
                         );
                         return Ok(document);
+                    } else {
+                        anyhow::anyhow!(
+                            "translation response left {} region(s) unresolved; rejected {} malformed streamed region(s)",
+                            pending_candidates(candidates, &covered).len(),
+                            parser.rejected_count()
+                        )
                     }
-                    anyhow::anyhow!(
-                        "translation response left {} region(s) unresolved; rejected {} malformed streamed region(s)",
-                        pending_candidates(candidates, &accepted).len(),
-                        parser.rejected_count()
-                    )
                 }
                 Err(error) => {
-                    if let Some(document) = completed_document(candidates, &accepted) {
+                    if let Some(document) = completed_document(candidates, &accepted, &covered) {
                         record_model_success(&current.id);
                         crate::log_info!(
                             "[Screen Translate] trace={trace_id} model complete model={} regions={}",
@@ -136,8 +138,9 @@ where
                             document.regions.len()
                         );
                         return Ok(document);
+                    } else {
+                        error
                     }
-                    error
                 }
             };
             if cancel.load(Ordering::SeqCst) {
@@ -167,25 +170,42 @@ where
 
 fn pending_candidates(
     candidates: &[DetectedTextRegion],
-    accepted: &HashMap<u16, TranslationRegion>,
+    covered: &HashSet<u16>,
 ) -> Vec<DetectedTextRegion> {
     candidates
         .iter()
-        .filter(|candidate| !accepted.contains_key(&candidate.id))
+        .filter(|candidate| !covered.contains(&candidate.id))
         .cloned()
         .collect()
 }
 
 fn completed_document(
     candidates: &[DetectedTextRegion],
-    accepted: &HashMap<u16, TranslationRegion>,
+    accepted: &[TranslationRegion],
+    covered: &HashSet<u16>,
 ) -> Option<TranslationDocument> {
-    let mut regions = candidates
+    if candidates
         .iter()
-        .map(|candidate| accepted.get(&candidate.id).cloned())
-        .collect::<Option<Vec<_>>>()?;
+        .any(|candidate| !covered.contains(&candidate.id))
+    {
+        return None;
+    }
+    let mut regions = accepted.to_vec();
     regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
     Some(TranslationDocument { regions })
+}
+
+fn accept_region(
+    accepted: &mut Vec<TranslationRegion>,
+    covered: &mut HashSet<u16>,
+    region: TranslationRegion,
+) -> bool {
+    if region.member_ids.iter().any(|id| covered.contains(id)) {
+        return false;
+    }
+    covered.extend(region.member_ids.iter().copied());
+    accepted.push(region);
+    true
 }
 
 #[cfg(test)]
@@ -205,12 +225,21 @@ mod tests {
             },
             source_text: format!("source-{id}"),
             source_alternatives: vec![format!("source-{id}")],
+            appearance: None,
         }
     }
 
     fn translated(candidate: &DetectedTextRegion) -> TranslationRegion {
         TranslationRegion {
             id: candidate.id,
+            member_ids: vec![candidate.id],
+            selections: vec![super::super::contract::TranslationSelection {
+                region_id: candidate.id,
+                candidate_id: format!("r{}c0", candidate.id),
+                source_text: candidate.source_text.clone(),
+                bounds: candidate.bounds,
+            }],
+            semantic_role: super::super::contract::SemanticRole::Standalone,
             source_text: candidate.source_text.clone(),
             translated_text: format!("translated-{}", candidate.id),
             bounds: candidate.bounds,
@@ -222,19 +251,24 @@ mod tests {
     #[test]
     fn retry_requests_only_missing_regions_and_keeps_committed_output() {
         let candidates = vec![candidate(1, 80), candidate(2, 20)];
-        let mut accepted = HashMap::from([(1, translated(&candidates[0]))]);
+        let mut accepted = vec![translated(&candidates[0])];
+        let mut covered = HashSet::from([1]);
 
         assert_eq!(
-            pending_candidates(&candidates, &accepted)
+            pending_candidates(&candidates, &covered)
                 .iter()
                 .map(|candidate| candidate.id)
                 .collect::<Vec<_>>(),
             vec![2]
         );
-        assert!(completed_document(&candidates, &accepted).is_none());
+        assert!(completed_document(&candidates, &accepted, &covered).is_none());
 
-        accepted.insert(2, translated(&candidates[1]));
-        let completed = completed_document(&candidates, &accepted).unwrap();
+        assert!(accept_region(
+            &mut accepted,
+            &mut covered,
+            translated(&candidates[1]),
+        ));
+        let completed = completed_document(&candidates, &accepted, &covered).unwrap();
         assert_eq!(
             completed
                 .regions
@@ -248,15 +282,16 @@ mod tests {
     #[test]
     fn malformed_stream_member_cannot_erase_valid_regions_before_fallback() {
         let candidates = vec![candidate(1, 20), candidate(2, 40), candidate(3, 60)];
-        let mut accepted = HashMap::new();
+        let mut accepted = Vec::new();
+        let mut covered = HashSet::new();
         let mut first_attempt = TranslationStreamParser::new(&candidates);
         for (_, region) in first_attempt.push(
-            r#"{"regions":[{"id":1,"sourceCandidateIndex":0,"translatedText":"first"},{"id":2,"sourceCandidateIndex":9,"translatedText":"bad"}]}"#,
+            r#"{"regions":[{"regionId":1,"candidateId":"r1c0","translationRequirement":"translation_required","translatedText":"first"},{"regionId":2,"candidateId":"bad","translationRequirement":"translation_required","translatedText":"bad"}]}"#,
         ) {
-            accepted.insert(region.id, region);
+            accept_region(&mut accepted, &mut covered, region);
         }
 
-        let pending = pending_candidates(&candidates, &accepted);
+        let pending = pending_candidates(&candidates, &covered);
         assert_eq!(
             pending
                 .iter()
@@ -264,17 +299,47 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![2, 3]
         );
-        assert_eq!(accepted.get(&1).unwrap().translated_text, "first");
+        assert_eq!(accepted[0].translated_text, "first");
 
         let mut fallback = TranslationStreamParser::new(&pending);
         for (_, region) in fallback.push(
-            r#"{"regions":[{"id":2,"sourceCandidateIndex":0,"translatedText":"second"},{"id":3,"sourceCandidateIndex":0,"translatedText":"third"}]}"#,
+            r#"{"regions":[{"regionId":2,"candidateId":"r2c0","translationRequirement":"translation_required","translatedText":"second"},{"regionId":3,"candidateId":"r3c0","translationRequirement":"translation_required","translatedText":"third"}]}"#,
         ) {
-            accepted.insert(region.id, region);
+            accept_region(&mut accepted, &mut covered, region);
         }
 
-        let completed = completed_document(&candidates, &accepted).unwrap();
+        let completed = completed_document(&candidates, &accepted, &covered).unwrap();
         assert_eq!(completed.regions.len(), 3);
         assert_eq!(completed.regions[0].translated_text, "first");
+    }
+
+    #[test]
+    fn source_equivalence_ignores_layout_whitespace_and_punctuation() {
+        let candidate = candidate(1, 20);
+        let mut region = translated(&candidate);
+        region.source_text = "첫째 줄\n둘째 줄.".to_string();
+        region.translated_text = "첫째 줄 둘째 줄".to_string();
+        assert!(super::super::contract::text_is_source_equivalent(
+            &region.source_text,
+            &region.translated_text
+        ));
+
+        region.translated_text = "Dòng thứ nhất, dòng thứ hai.".to_string();
+        assert!(!super::super::contract::text_is_source_equivalent(
+            &region.source_text,
+            &region.translated_text
+        ));
+    }
+
+    #[test]
+    fn model_declared_already_target_text_is_accepted_without_a_retry() {
+        let candidate = candidate(1, 20);
+        let mut region = translated(&candidate);
+        region.translated_text = region.source_text.clone();
+        let mut accepted = Vec::new();
+        let mut covered = HashSet::new();
+        assert!(accept_region(&mut accepted, &mut covered, region));
+        assert_eq!(covered, HashSet::from([candidate.id]));
+        assert_eq!(accepted.len(), 1);
     }
 }

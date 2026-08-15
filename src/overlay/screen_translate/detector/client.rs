@@ -1,8 +1,9 @@
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Read as _};
 use std::os::windows::ffi::OsStrExt as _;
 use std::process::{Child, ChildStdin};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -16,6 +17,7 @@ use super::process::{LaunchResources, create_kill_on_close_job, spawn_worker, te
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 const DETECT_TIMEOUT: Duration = Duration::from_secs(15);
 const WAIT_INTERVAL: Duration = Duration::from_millis(40);
+const STDERR_TAIL_LIMIT: usize = 8 * 1024;
 
 enum ReaderEvent {
     Message(u64, ServerMessage),
@@ -27,6 +29,8 @@ pub(super) struct DetectorClient {
     stdin: Option<BufWriter<ChildStdin>>,
     responses: Receiver<ReaderEvent>,
     reader: Option<JoinHandle<()>>,
+    stderr_reader: Option<JoinHandle<()>>,
+    stderr_tail: Arc<Mutex<String>>,
     job: std::os::windows::io::OwnedHandle,
     next_request_id: u64,
     resources: LaunchResources,
@@ -46,6 +50,7 @@ impl DetectorClient {
         };
         let stdin = child.stdin.take().context("open text detector stdin")?;
         let stdout = child.stdout.take().context("open text detector stdout")?;
+        let stderr = child.stderr.take().context("open text detector stderr")?;
         let (sender, responses) = std::sync::mpsc::sync_channel(4);
         let reader = std::thread::spawn(move || {
             let mut stdout = BufReader::new(stdout);
@@ -66,11 +71,39 @@ impl DetectorClient {
                 }
             }
         });
+        let stderr_tail = Arc::new(Mutex::new(String::new()));
+        let stderr_target = Arc::clone(&stderr_tail);
+        let stderr_reader = std::thread::spawn(move || {
+            let mut stderr = BufReader::new(stderr);
+            let mut bytes = [0_u8; 1024];
+            loop {
+                let Ok(read) = stderr.read(&mut bytes) else {
+                    return;
+                };
+                if read == 0 {
+                    return;
+                }
+                let mut tail = stderr_target
+                    .lock()
+                    .unwrap_or_else(|value| value.into_inner());
+                tail.push_str(&String::from_utf8_lossy(&bytes[..read]));
+                if tail.len() > STDERR_TAIL_LIMIT {
+                    let keep_from = tail.len() - STDERR_TAIL_LIMIT;
+                    let boundary = tail
+                        .char_indices()
+                        .find_map(|(index, _)| (index >= keep_from).then_some(index))
+                        .unwrap_or(0);
+                    tail.drain(..boundary);
+                }
+            }
+        });
         let mut client = Self {
             child,
             stdin: Some(BufWriter::new(stdin)),
             responses,
             reader: Some(reader),
+            stderr_reader: Some(stderr_reader),
+            stderr_tail,
             job,
             next_request_id: 1,
             resources,
@@ -172,6 +205,7 @@ impl DetectorClient {
                     );
                 }
                 Ok(ReaderEvent::Failed(error)) => {
+                    self.terminate();
                     let status = self
                         .child
                         .try_wait()
@@ -179,7 +213,16 @@ impl DetectorClient {
                         .flatten()
                         .map(|status| format!(" ({status})"))
                         .unwrap_or_default();
-                    bail!("text detector protocol failed{status}: {error}");
+                    let details = self
+                        .stderr_tail
+                        .lock()
+                        .unwrap_or_else(|value| value.into_inner())
+                        .trim()
+                        .to_string();
+                    if details.is_empty() {
+                        bail!("text detector protocol failed{status}: {error}");
+                    }
+                    bail!("text detector protocol failed{status}: {error}; worker: {details}");
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
@@ -196,6 +239,9 @@ impl DetectorClient {
             let _ = self.child.wait();
         }
         if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+        if let Some(reader) = self.stderr_reader.take() {
             let _ = reader.join();
         }
     }

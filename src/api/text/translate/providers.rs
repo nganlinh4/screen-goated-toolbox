@@ -25,7 +25,7 @@ where
 
     let parts = serde_json::json!([{ "text": prompt }]);
 
-    stream_gemini_generate(
+    let result = stream_gemini_generate(
         GeminiGenerateRequest {
             parts,
             model,
@@ -41,7 +41,48 @@ where
             retry_observer: None,
         },
         on_chunk,
-    )
+    );
+    let result = match result {
+        Err(error)
+            if response_schema.is_some()
+                && error.to_string().contains("HTTP 400")
+                && error.to_string().contains("INVALID_ARGUMENT") =>
+        {
+            let Some(schema) = response_schema else {
+                return Err(error);
+            };
+            let compact_schema = crate::api::gemini_schema::compact_response_json_schema(schema);
+            stream_gemini_generate(
+                GeminiGenerateRequest {
+                    parts: serde_json::json!([{ "text": prompt }]),
+                    model,
+                    api_key: gemini_api_key,
+                    streaming: transport.streaming_enabled,
+                    ui_language: transport.ui_language,
+                    cancel_token: transport.cancel_token,
+                    error_label: Some("Gemini Text API Error"),
+                    map_auth_errors: true,
+                    request_timeout: transport.request_timeout,
+                    response_schema: Some(&compact_schema),
+                    media_resolution: None,
+                    retry_observer: None,
+                },
+                on_chunk,
+            )
+        }
+        other => other,
+    };
+    result.map_err(|error| {
+        let message = error.to_string();
+        if response_schema.is_some()
+            && message.contains("HTTP 400")
+            && message.contains("INVALID_ARGUMENT")
+        {
+            anyhow::anyhow!("STRUCTURED_OUTPUT_REJECTED:google:{message}")
+        } else {
+            error
+        }
+    })
 }
 
 // --- CEREBRAS API ---

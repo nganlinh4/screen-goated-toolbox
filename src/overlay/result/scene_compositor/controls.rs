@@ -223,6 +223,7 @@ mod tests {
             control_options: None,
             backdrop_data_url: None,
             foreground_color: None,
+            preferred_font_size: None,
             copy_success: false,
             is_editing: false,
             context_data: RefineContext::None,

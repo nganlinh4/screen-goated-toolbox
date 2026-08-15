@@ -42,6 +42,7 @@ struct RestorableWindowSnapshot {
     control_options: Option<ResultControlOptions>,
     backdrop_data_url: Option<String>,
     foreground_color: Option<String>,
+    preferred_font_size: Option<f32>,
 }
 
 #[derive(Clone)]
@@ -233,6 +234,7 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
                 window.foreground_color.clone().unwrap_or_default(),
                 format!("restored-overlay-{}", window.restore_id),
                 window.control_options.clone(),
+                window.preferred_font_size,
             ),
         };
 
@@ -360,6 +362,7 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
             control_options: state.control_options.clone(),
             backdrop_data_url: state.backdrop_data_url.clone(),
             foreground_color: state.foreground_color.clone(),
+            preferred_font_size: state.preferred_font_size,
         });
     }
 

@@ -56,10 +56,19 @@ pub(super) fn evaluate(
     image_width: u32,
     image_height: u32,
 ) -> Evaluation {
-    let raw = document
+    let predictions = document
         .regions
         .iter()
-        .map(|region| normalized_region(region.bounds, image_width, image_height))
+        .flat_map(|region| {
+            region
+                .selections
+                .iter()
+                .map(|selection| (selection.bounds, selection.source_text.as_str()))
+        })
+        .collect::<Vec<_>>();
+    let raw = predictions
+        .iter()
+        .map(|(bounds, _)| normalized_region(*bounds, image_width, image_height))
         .collect::<Vec<_>>();
     // The erase mask is now independent of the translated-text layout box.
     // Painting therefore stays on the detected source region.
@@ -68,9 +77,9 @@ pub(super) fn evaluate(
     let mut candidates = Vec::new();
     for (gold_index, gold) in case.regions.iter().enumerate() {
         let gold_rect = pixel_region(gold.box_px);
-        for (prediction_index, prediction) in document.regions.iter().enumerate() {
+        for (prediction_index, (_, source_text)) in predictions.iter().enumerate() {
             let text_similarity =
-                super::super::scoring::text_similarity(&prediction.source_text, &gold.source_text);
+                super::super::scoring::text_similarity(source_text, &gold.source_text);
             if text_similarity < 0.55 {
                 continue;
             }
@@ -86,7 +95,7 @@ pub(super) fn evaluate(
     candidates.sort_by(|left, right| right.quality.total_cmp(&left.quality));
 
     let mut used_gold = vec![false; case.regions.len()];
-    let mut used_predictions = vec![false; document.regions.len()];
+    let mut used_predictions = vec![false; predictions.len()];
     let mut matches = Vec::new();
     for candidate in candidates {
         if used_gold[candidate.gold_index] || used_predictions[candidate.prediction_index] {
@@ -112,7 +121,7 @@ pub(super) fn evaluate(
     matches.sort_by_key(|score| score.gold_index);
 
     let recall = ratio(matches.len(), case.regions.len());
-    let precision = ratio(matches.len(), document.regions.len());
+    let precision = ratio(matches.len(), predictions.len());
     let f1 = if recall + precision > 0.0 {
         2.0 * recall * precision / (recall + precision)
     } else {
@@ -122,7 +131,7 @@ pub(super) fn evaluate(
     let painted_overpaint = mean(&matches, |score| score.painted_overpaint_ratio);
     let metrics = Metrics {
         expected_regions: case.regions.len(),
-        predicted_regions: document.regions.len(),
+        predicted_regions: predictions.len(),
         matched_regions: matches.len(),
         region_recall: recall,
         region_precision: precision,

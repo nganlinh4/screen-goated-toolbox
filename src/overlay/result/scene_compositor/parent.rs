@@ -74,6 +74,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
             state.presentation,
             state.backdrop_data_url.clone(),
             state.foreground_color.clone(),
+            state.preferred_font_size,
         )
     };
 
@@ -108,6 +109,8 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         presentation: snapshot.8,
         backdrop_data_url: snapshot.9,
         foreground_color: snapshot.10,
+        preferred_font_size: snapshot.11,
+        source_replacement: snapshot.11.is_some(),
     };
 
     let previous = scenes.insert(hwnd_key, card.clone());

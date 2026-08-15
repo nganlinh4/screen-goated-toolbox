@@ -131,11 +131,54 @@
                         clearLastMargin();
                     }
 
+                    // Source replacement has a hard containment invariant. Restore
+                    // the last verified composition first; only unexpected metric
+                    // drift may enter a complete geometric rescue search.
+                    if (isSourceReplacement && !fits()) {
+                        if (verifiedSourceFit) {
+                            applyBodyWdth(verifiedSourceFit.fontStretch);
+                            body.style.fontSize = verifiedSourceFit.fontSize + 'px';
+                        }
+                        body.style.lineHeight = '1.15';
+                        body.style.letterSpacing = '0px';
+                        body.style.wordSpacing = '0px';
+                        clearLastMargin();
+                        if (!fits()) {
+                            var emergencyBestSize = 0;
+                            var emergencyBestWdth = 90;
+                            for (var emergencyWdth = 90; emergencyWdth >= 45; emergencyWdth -= 5) {
+                                applyBodyWdth(emergencyWdth);
+                                var emergencyLow = 1;
+                                var emergencyHigh = Math.max(1, Math.floor(maxSize));
+                                var emergencyCandidate = 0;
+                                while (emergencyLow <= emergencyHigh) {
+                                    var emergencyMid = Math.floor((emergencyLow + emergencyHigh) / 2);
+                                    body.style.fontSize = emergencyMid + 'px';
+                                    clearLastMargin();
+                                    if (fits()) {
+                                        emergencyCandidate = emergencyMid;
+                                        emergencyLow = emergencyMid + 1;
+                                    } else {
+                                        emergencyHigh = emergencyMid - 1;
+                                    }
+                                }
+                                if (emergencyCandidate > emergencyBestSize) {
+                                    emergencyBestSize = emergencyCandidate;
+                                    emergencyBestWdth = emergencyWdth;
+                                }
+                            }
+                            applyBodyWdth(emergencyBestWdth);
+                            body.style.fontSize = Math.max(1, emergencyBestSize) + 'px';
+                        }
+                        clearLastMargin();
+                    }
+
                     // ===== FINAL: Fill any remaining gap by distributing space =====
                     var finalGap = winH - doc.scrollHeight;
-                    if (!isStreamingFit && finalGap > 2) {
-                        body.style.paddingTop = Math.floor(finalGap * 0.3) + 'px';
-                        body.style.paddingBottom = Math.floor(finalGap * 0.7) + 'px';
+                    if (!isStreamingFit && !isSourceReplacement && finalGap > 2) {
+                        var centeredTop = Math.floor(finalGap / 2);
+                        body.style.paddingTop = centeredTop + 'px';
+                        body.style.paddingBottom = (finalGap - centeredTop) + 'px';
                     } else {
                         body.style.paddingTop = '0';
                         body.style.paddingBottom = '0';

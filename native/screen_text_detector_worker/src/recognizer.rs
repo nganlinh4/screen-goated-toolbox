@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 use image::RgbImage;
 use image::imageops::FilterType;
 use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 
 pub(crate) const INPUT_HEIGHT: u32 = 48;
@@ -44,6 +45,8 @@ impl TextRecognizer {
         let mut builder = match acceleration {
             Acceleration::Cpu => builder,
             Acceleration::DirectMl => builder
+                .with_optimization_level(GraphOptimizationLevel::Disable)
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?
                 .with_execution_providers([ort::ep::DirectML::default().build()])
                 .map_err(|error| anyhow::anyhow!(error.to_string()))?,
         };

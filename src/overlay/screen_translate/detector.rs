@@ -89,6 +89,7 @@ pub(super) fn detect(
                 bounds: normalized_bounds(&region, width, height),
                 source_text: source_alternatives[0].clone(),
                 source_alternatives,
+                appearance: None,
             }
         })
         .collect())
@@ -120,7 +121,9 @@ fn recognition_candidates(region: &DetectedRegion) -> Vec<String> {
             (!text.is_empty() && confidence >= MIN_TEXT_CONFIDENCE).then_some((text, confidence))
         })
         .collect::<Vec<_>>();
-    ranked.sort_by(|left, right| right.1.total_cmp(&left.1));
+    ranked.sort_by(|left, right| {
+        recognition_quality(right.0, right.1).total_cmp(&recognition_quality(left.0, left.1))
+    });
     let mut candidates = Vec::with_capacity(MAX_SOURCE_CANDIDATES);
     for (text, _) in ranked {
         if !candidates.iter().any(|known| known == text) {
@@ -131,6 +134,15 @@ fn recognition_candidates(region: &DetectedRegion) -> Vec<String> {
         }
     }
     candidates
+}
+
+fn recognition_quality(text: &str, confidence: f32) -> f32 {
+    let useful_characters = text
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .count()
+        .clamp(1, 16) as f32;
+    confidence.max(0.0) * useful_characters.sqrt()
 }
 
 pub(super) fn stop() {
@@ -234,5 +246,23 @@ mod tests {
             recognition_candidates(&region),
             vec!["correct", "second", "fourth"]
         );
+    }
+
+    #[test]
+    fn recognition_ranking_does_not_prefer_a_confident_fragment_over_a_complete_sequence() {
+        let region = DetectedRegion {
+            left: 0,
+            top: 0,
+            right: 20,
+            bottom: 100,
+            confidence: 0.9,
+            text: "ab".to_string(),
+            text_confidence: 0.96,
+            alternatives: vec![sgt_screen_text_detector_protocol::RecognitionAlternative {
+                text: "complete text".to_string(),
+                confidence: 0.82,
+            }],
+        };
+        assert_eq!(recognition_candidates(&region)[0], "complete text");
     }
 }

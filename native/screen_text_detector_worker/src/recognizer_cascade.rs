@@ -12,14 +12,15 @@ use crate::recognizer::{Acceleration, Recognition, TextRecognizer};
 const CATALOG_LIMIT_BYTES: u64 = 32 * 1024;
 const MODEL_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_FALLBACKS: usize = 15;
+const MAX_COVERAGE_RANGES: usize = 16;
 const WARMUP_WIDTH: u32 = 320;
-const FAST_PATH_CONFIDENCE: f32 = 0.98;
+const FAST_PATH_CONFIDENCE: f32 = 0.80;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
 pub(crate) struct RecognizerCascade {
     primary: TextRecognizer,
-    fallbacks: Vec<TextRecognizer>,
-    pending_fallbacks: Option<Vec<ResolvedModel>>,
+    fallbacks: Vec<FallbackRecognizer>,
+    pending_fallbacks: Vec<ResolvedModel>,
     acceleration: Acceleration,
 }
 
@@ -45,6 +46,8 @@ struct ModelSpec {
     config: String,
     #[serde(default)]
     reverse_output: bool,
+    #[serde(default)]
+    coverage: Vec<[u32; 2]>,
 }
 
 struct ResolvedModel {
@@ -52,6 +55,12 @@ struct ResolvedModel {
     cpu_model: Option<PathBuf>,
     config: PathBuf,
     reverse_output: bool,
+    coverage: Vec<[u32; 2]>,
+}
+
+struct FallbackRecognizer {
+    recognizer: TextRecognizer,
+    coverage: Vec<[u32; 2]>,
 }
 
 impl RecognizerCascade {
@@ -95,9 +104,9 @@ impl RecognizerCascade {
             acceleration,
         )?;
         let (fallbacks, pending_fallbacks) = if eager_fallbacks {
-            (load_models(models, acceleration)?, None)
+            (load_models(models, acceleration)?, Vec::new())
         } else {
-            (Vec::new(), Some(models))
+            (Vec::new(), models)
         };
         Ok(Self {
             primary,
@@ -124,22 +133,11 @@ impl RecognizerCascade {
         );
         self.primary
             .recognize_batch(std::slice::from_ref(&source))?;
-        std::thread::scope(|scope| {
-            let workers = self
-                .fallbacks
-                .iter_mut()
-                .map(|recognizer| {
-                    let source = &source;
-                    scope.spawn(move || recognizer.recognize_batch(std::slice::from_ref(source)))
-                })
-                .collect::<Vec<_>>();
-            for worker in workers {
-                worker
-                    .join()
-                    .map_err(|_| anyhow::anyhow!("recognizer warm-up thread panicked"))??;
-            }
-            Ok::<(), anyhow::Error>(())
-        })?;
+        for fallback in &mut self.fallbacks {
+            fallback
+                .recognizer
+                .recognize_batch(std::slice::from_ref(&source))?;
+        }
         Ok(())
     }
 
@@ -148,10 +146,15 @@ impl RecognizerCascade {
         sources: &[RgbImage],
         primary: Vec<Recognition>,
     ) -> Result<Vec<RecognitionSet>> {
-        if !Self::batch_needs_alternatives(&primary) {
+        self.ensure_matching_fallbacks(&primary)?;
+        if !Self::batch_needs_alternatives(&primary)
+            && !self
+                .fallbacks
+                .iter()
+                .any(|fallback| fallback.matches_capture(&primary))
+        {
             return Ok(primary_sets(primary));
         }
-        self.ensure_fallbacks(usize::MAX)?;
         collect_alternatives(&mut self.fallbacks, sources, primary)
     }
 
@@ -159,55 +162,26 @@ impl RecognizerCascade {
         primary.iter().any(needs_alternatives)
     }
 
-    fn ensure_fallbacks(&mut self, count: usize) -> Result<()> {
-        let Some(mut models) = self.pending_fallbacks.take() else {
+    fn ensure_matching_fallbacks(&mut self, primary: &[Recognition]) -> Result<()> {
+        if self.pending_fallbacks.is_empty() {
             return Ok(());
-        };
-        let remaining = if models.len() > count {
-            models.split_off(count)
-        } else {
-            Vec::new()
-        };
-        self.fallbacks
-            .extend(load_models(models, self.acceleration)?);
-        if !remaining.is_empty() {
-            self.pending_fallbacks = Some(remaining);
         }
+        let (selected, remaining): (Vec<_>, Vec<_>) = self
+            .pending_fallbacks
+            .drain(..)
+            .partition(|model| model.matches_capture(primary));
+        self.pending_fallbacks = remaining;
+        self.fallbacks
+            .extend(load_models(selected, self.acceleration)?);
         Ok(())
     }
 }
 
 fn collect_alternatives(
-    fallbacks: &mut [TextRecognizer],
+    fallbacks: &mut [FallbackRecognizer],
     sources: &[RgbImage],
     primary: Vec<Recognition>,
 ) -> Result<Vec<RecognitionSet>> {
-    let active = primary
-        .iter()
-        .enumerate()
-        .filter_map(|(index, result)| needs_alternatives(result).then_some(index))
-        .collect::<Vec<_>>();
-    if active.is_empty() {
-        return Ok(primary_sets(primary));
-    }
-    let active_sources = active
-        .iter()
-        .map(|index| sources[*index].clone())
-        .collect::<Vec<_>>();
-    let attempts = std::thread::scope(|scope| {
-        let workers = fallbacks
-            .iter_mut()
-            .map(|recognizer| scope.spawn(|| recognizer.recognize_batch(&active_sources)))
-            .collect::<Vec<_>>();
-        workers
-            .into_iter()
-            .map(|worker| {
-                worker
-                    .join()
-                    .map_err(|_| anyhow::anyhow!("recognizer inference thread panicked"))?
-            })
-            .collect::<Result<Vec<_>>>()
-    })?;
     let mut results = primary
         .into_iter()
         .map(|primary| RecognitionSet {
@@ -218,7 +192,30 @@ fn collect_alternatives(
             primary,
         })
         .collect::<Vec<_>>();
-    for candidates in attempts {
+    for fallback in fallbacks {
+        if !results
+            .iter()
+            .any(|result| coverage_matches(&fallback.coverage, &result.primary.text))
+        {
+            continue;
+        }
+        let active = results
+            .iter()
+            .enumerate()
+            .filter_map(|(index, result)| {
+                (needs_alternatives(&result.primary)
+                    || coverage_matches(&fallback.coverage, &result.primary.text))
+                .then_some(index)
+            })
+            .collect::<Vec<_>>();
+        let active_sources = active
+            .iter()
+            .map(|index| sources[*index].clone())
+            .collect::<Vec<_>>();
+        if active_sources.is_empty() {
+            continue;
+        }
+        let candidates = fallback.recognizer.recognize_batch(&active_sources)?;
         for (&index, candidate) in active.iter().zip(candidates) {
             if !candidate.text.is_empty()
                 && !results[index]
@@ -249,26 +246,20 @@ fn primary_sets(primary: Vec<Recognition>) -> Vec<RecognitionSet> {
 fn load_models(
     models: Vec<ResolvedModel>,
     acceleration: Acceleration,
-) -> Result<Vec<TextRecognizer>> {
-    let workers = models
+) -> Result<Vec<FallbackRecognizer>> {
+    models
         .into_iter()
         .map(|model| {
-            std::thread::spawn(move || {
-                TextRecognizer::load(
-                    model.path_for(acceleration),
-                    &model.config,
-                    model.reverse_output,
-                    acceleration,
-                )
+            let recognizer = TextRecognizer::load(
+                model.path_for(acceleration),
+                &model.config,
+                model.reverse_output,
+                acceleration,
+            )?;
+            Ok(FallbackRecognizer {
+                recognizer,
+                coverage: model.coverage,
             })
-        })
-        .collect::<Vec<_>>();
-    workers
-        .into_iter()
-        .map(|worker| {
-            worker
-                .join()
-                .map_err(|_| anyhow::anyhow!("recognizer loader thread panicked"))?
         })
         .collect()
 }
@@ -282,6 +273,14 @@ fn resolve_model(
     spec: ModelSpec,
     seen: &mut HashSet<PathBuf>,
 ) -> Result<ResolvedModel> {
+    if spec.coverage.len() > MAX_COVERAGE_RANGES
+        || spec
+            .coverage
+            .iter()
+            .any(|[start, end]| start > end || *end > char::MAX as u32)
+    {
+        bail!("recognizer catalog contains invalid Unicode coverage");
+    }
     let model = resolve_regular_file(root, &spec.model)?;
     let cpu_model = spec
         .cpu_model
@@ -302,6 +301,7 @@ fn resolve_model(
         cpu_model,
         config,
         reverse_output: spec.reverse_output,
+        coverage: spec.coverage,
     })
 }
 
@@ -312,6 +312,36 @@ impl ResolvedModel {
             Acceleration::DirectMl => &self.model,
         }
     }
+
+    fn matches_capture(&self, primary: &[Recognition]) -> bool {
+        capture_needs_specialist(primary)
+            && primary
+                .iter()
+                .any(|result| coverage_matches(&self.coverage, &result.text))
+    }
+}
+
+impl FallbackRecognizer {
+    fn matches_capture(&self, primary: &[Recognition]) -> bool {
+        capture_needs_specialist(primary)
+            && primary
+                .iter()
+                .any(|result| coverage_matches(&self.coverage, &result.text))
+    }
+}
+
+fn capture_needs_specialist(primary: &[Recognition]) -> bool {
+    primary.iter().any(needs_alternatives)
+}
+
+fn coverage_matches(coverage: &[[u32; 2]], text: &str) -> bool {
+    !coverage.is_empty()
+        && text.chars().any(|character| {
+            let codepoint = character as u32;
+            coverage
+                .iter()
+                .any(|[start, end]| codepoint >= *start && codepoint <= *end)
+        })
 }
 
 fn resolve_regular_file(root: &Path, relative: &str) -> Result<PathBuf> {
@@ -364,5 +394,35 @@ mod tests {
             text: String::new(),
             confidence: 1.0,
         }));
+    }
+
+    #[test]
+    fn specialist_coverage_routes_only_matching_unicode() {
+        let coverage = [[0x0400, 0x052f]];
+        assert!(coverage_matches(&coverage, "Текст"));
+        assert!(!coverage_matches(&coverage, "Text"));
+        assert!(!coverage_matches(&[], "Текст"));
+    }
+
+    #[test]
+    fn confident_ambiguous_script_routes_when_the_capture_is_otherwise_weak() {
+        let coverage = [[0x4e00, 0x9fff]];
+        let model = ResolvedModel {
+            model: PathBuf::new(),
+            cpu_model: None,
+            config: PathBuf::new(),
+            reverse_output: false,
+            coverage: coverage.to_vec(),
+        };
+        let ambiguous = Recognition {
+            text: "号合号合".to_string(),
+            confidence: 0.99,
+        };
+        let weak = Recognition {
+            text: String::new(),
+            confidence: 0.0,
+        };
+        assert!(model.matches_capture(&[ambiguous.clone(), weak]));
+        assert!(!model.matches_capture(&[ambiguous]));
     }
 }

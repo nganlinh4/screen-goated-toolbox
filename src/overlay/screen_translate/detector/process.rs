@@ -84,7 +84,7 @@ pub(super) fn spawn_worker(resources: &LaunchResources) -> Result<Child> {
         .env("TMP", &temp)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .creation_flags(CREATE_NO_WINDOW);
     command
         .spawn()

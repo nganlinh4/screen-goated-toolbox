@@ -154,22 +154,23 @@ pub const MARKDOWN_CSS: &str = r#"
         text-shadow: 0 0 12px var(--shadow-color);
     }
 
-    /* 2. Immediate Neighbors (Distance: 1) - Light cyan */
+    /* Neighbor emphasis must retain the card's own foreground color. A fixed
+       light tint becomes unreadable on pale source-replacement surfaces. */
     .word:hover + .word {
-        color: var(--h4-color);
+        color: inherit;
         text-shadow: 0 0 6px var(--shadow-weak);
     }
     .word:has(+ .word:hover) {
-        color: var(--h4-color);
+        color: inherit;
         text-shadow: 0 0 6px var(--shadow-weak);
     }
 
-    /* 3. Secondary Neighbors (Distance: 2) - Lighter cyan */
+    /* Secondary neighbors also inherit the local text/header color. */
     .word:hover + .word + .word {
-        color: var(--h3-color);
+        color: inherit;
     }
     .word:has(+ .word + .word:hover) {
-        color: var(--h3-color);
+        color: inherit;
     }
 
     /* Headers need specific overriding to ensure the fisheye works on top of their base styles */
@@ -373,5 +374,12 @@ mod tests {
         assert!(MARKDOWN_CSS.contains("ul { padding-inline-start: 20px"));
         assert!(MARKDOWN_CSS.contains("ol { padding-inline-start: max(22px, 1.3em)"));
         assert!(!MARKDOWN_CSS.contains("ul, ol { padding-left: 20px"));
+    }
+
+    #[test]
+    fn hover_neighbors_inherit_each_cards_foreground_color() {
+        assert!(MARKDOWN_CSS.contains(".word:hover + .word {\n        color: inherit;"));
+        assert!(MARKDOWN_CSS.contains(".word:has(+ .word:hover) {\n        color: inherit;"));
+        assert!(!MARKDOWN_CSS.contains(".word:hover + .word {\n        color: var(--h4-color)"));
     }
 }

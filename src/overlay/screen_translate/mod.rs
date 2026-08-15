@@ -1,5 +1,6 @@
 //! Fast in-place translation mini app built on the shared screen-selection flow.
 
+mod appearance;
 mod backdrop;
 mod capture;
 pub(crate) mod contract;
@@ -9,8 +10,10 @@ mod diagnostics;
 mod evidence_capture;
 pub(crate) mod geometry;
 mod inference;
+mod layout;
 mod render;
 mod runtime;
+mod schema;
 pub(crate) mod stream_parser;
 
 static CAPTURE_HANDLER: crate::overlay::image_capture_target::ImageCaptureHandler =

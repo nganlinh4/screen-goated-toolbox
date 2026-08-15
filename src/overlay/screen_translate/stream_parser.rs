@@ -101,10 +101,16 @@ impl<'a> TranslationStreamParser<'a> {
                             let start = self.object_start.take().expect("object start is tracked");
                             let object = &self.buffer[start..=self.scan];
                             match parse_streamed_region(object, self.candidates) {
-                                Ok((id, region)) if self.emitted.insert(id) => {
+                                Ok((id, region))
+                                    if region
+                                        .member_ids
+                                        .iter()
+                                        .all(|member| !self.emitted.contains(member)) =>
+                                {
+                                    self.emitted.extend(region.member_ids.iter().copied());
                                     completed.push((id, region));
                                 }
-                                Ok(_) => {}
+                                Ok(_) => self.rejected += 1,
                                 Err(_) => self.rejected += 1,
                             }
                         }
@@ -150,6 +156,7 @@ mod tests {
             },
             source_text: "clear text".to_string(),
             source_alternatives: vec!["clear text".to_string(), "alternate".to_string()],
+            appearance: None,
         }]
     }
 
@@ -158,8 +165,9 @@ mod tests {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
         assert!(parser.push("{\"reg").is_empty());
-        let regions = parser
-            .push("ions\":[{\"id\":7,\"sourceCandidateIndex\":1,\"translatedText\":\"done\"},");
+        let regions = parser.push(
+            "ions\":[{\"regionId\":7,\"candidateId\":\"r7c1\",\"translationRequirement\":\"translation_required\",\"translatedText\":\"done\"},",
+        );
         assert_eq!(regions.len(), 1);
         assert_eq!(regions[0].1.source_text, "alternate");
         assert!(parser.push("]}").is_empty());
@@ -170,7 +178,7 @@ mod tests {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
         let regions = parser.push(
-            "{\"regions\":[{\"id\":7,\"sourceCandidateIndex\":99,\"translatedText\":\"bad\"},{\"id\":7,\"sourceCandidateIndex\":0,\"translatedText\":\"good\"}]}",
+            "{\"regions\":[{\"regionId\":7,\"candidateId\":\"bad\",\"translationRequirement\":\"translation_required\",\"translatedText\":\"bad\"},{\"regionId\":7,\"candidateId\":\"r7c0\",\"translationRequirement\":\"translation_required\",\"translatedText\":\"good\"}]}",
         );
 
         assert_eq!(parser.rejected_count(), 1);
@@ -186,7 +194,7 @@ mod tests {
         candidates.push(second);
         let mut parser = TranslationStreamParser::new(&candidates);
         let emitted = parser.push(
-            r#"[{"id":7,"sourceCandidateIndex":0,"translatedText":"first"},{"id":8,"sourceCandidateIndex":0,"translatedText":"second"}]"#,
+            r#"[{"regionId":7,"candidateId":"r7c0","translationRequirement":"translation_required","translatedText":"first"},{"regionId":8,"candidateId":"r8c0","translationRequirement":"translation_required","translatedText":"second"}]"#,
         );
         assert_eq!(
             emitted

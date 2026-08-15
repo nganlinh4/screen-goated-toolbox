@@ -5,18 +5,20 @@ use image::codecs::png::PngEncoder;
 
 use super::geometry::{PixelRegion, background_sample_region};
 
-pub(super) fn reconstruct_blob(
+pub(super) fn reconstruct_blob_image_with_background(
     image: &image::RgbaImage,
     target: PixelRegion,
-    masks: &[PixelRegion],
-) -> Result<(String, String)> {
+    text_regions: &[PixelRegion],
+    background: Option<([u8; 3], u8)>,
+) -> (image::RgbaImage, String) {
     let sample = background_sample_region(target, image.width(), image.height());
     let context = image::imageops::crop_imm(image, sample.x, sample.y, sample.width, sample.height)
         .to_image();
-    let reconstructed = inpaint_regions(&context, sample, masks);
-    let sigma = (target.height as f32 * 0.08).clamp(0.8, 3.5);
-    let reconstructed = image::imageops::blur(&reconstructed, sigma);
-    let painted = image::imageops::crop_imm(
+    let trusted_background = background
+        .filter(|(_, confidence)| *confidence >= 60)
+        .map(|(rgb, _)| image::Rgba([rgb[0], rgb[1], rgb[2], 255]));
+    let reconstructed = inpaint_regions(&context, sample, text_regions, trusted_background);
+    let repaired = image::imageops::crop_imm(
         &reconstructed,
         target.x - sample.x,
         target.y - sample.y,
@@ -26,22 +28,23 @@ pub(super) fn reconstruct_blob(
     .to_image();
     let source = image::imageops::crop_imm(image, target.x, target.y, target.width, target.height)
         .to_image();
-    let foreground = foreground_color(&source, &painted);
+    let foreground = foreground_color(&source, &repaired);
+    (repaired, foreground)
+}
+
+pub(super) fn encode_data_url(image: &image::RgbaImage) -> Result<String> {
     let mut png = Vec::new();
     PngEncoder::new(&mut png)
         .write_image(
-            painted.as_raw(),
-            painted.width(),
-            painted.height(),
+            image.as_raw(),
+            image.width(),
+            image.height(),
             image::ExtendedColorType::Rgba8,
         )
         .context("reconstructed region encoding failed")?;
-    Ok((
-        format!(
-            "data:image/png;base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(png)
-        ),
-        foreground,
+    Ok(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png)
     ))
 }
 
@@ -49,6 +52,7 @@ fn inpaint_regions(
     context: &image::RgbaImage,
     sample: PixelRegion,
     regions: &[PixelRegion],
+    trusted_background: Option<image::Rgba<u8>>,
 ) -> image::RgbaImage {
     let width = context.width();
     let height = context.height();
@@ -69,106 +73,161 @@ fn inpaint_regions(
             .saturating_add(region.height)
             .saturating_add(1)
             .min(sample.y.saturating_add(sample.height));
-        if right <= left || bottom <= top {
-            continue;
-        }
-        for y in (top - sample.y)..(bottom - sample.y) {
-            for x in (left - sample.x)..(right - sample.x) {
-                let index = (y * width + x) as usize;
-                mask[index] = true;
+        for y in top.saturating_sub(sample.y)..bottom.saturating_sub(sample.y) {
+            for x in left.saturating_sub(sample.x)..right.saturating_sub(sample.x) {
+                mask[(y * width + x) as usize] = true;
             }
         }
     }
-    let mut totals = [0u64; 4];
     let mut known = 0u64;
-    for (index, pixel) in context.pixels().enumerate() {
+    for (index, _) in context.pixels().enumerate() {
         if mask[index] {
             continue;
-        }
-        for (total, channel) in totals.iter_mut().zip(pixel.0) {
-            *total += u64::from(channel);
         }
         known += 1;
     }
     if known == 0 || !mask.iter().any(|masked| *masked) {
         return context.clone();
     }
-    let mut current = context
-        .pixels()
-        .map(|pixel| pixel.0.map(f64::from))
-        .collect::<Vec<_>>();
-    let mut filled = mask.iter().map(|masked| !masked).collect::<Vec<_>>();
-    let mut queued = vec![false; mask.len()];
-    let mut frontier = Vec::new();
-    for index in 0..mask.len() {
-        if mask[index]
-            && surrounding_neighbors(index, width, height).any(|neighbor| filled[neighbor])
-        {
-            queued[index] = true;
-            frontier.push(index);
-        }
-    }
-    while !frontier.is_empty() {
-        let updates = frontier
-            .iter()
-            .map(|&index| {
-                let mut totals = [0.0f64; 4];
-                let mut count = 0.0f64;
-                for neighbor in surrounding_neighbors(index, width, height) {
-                    if filled[neighbor] {
-                        for (total, channel) in totals.iter_mut().zip(current[neighbor]) {
-                            *total += channel;
-                        }
-                        count += 1.0;
-                    }
-                }
-                (index, totals.map(|total| total / count))
-            })
-            .collect::<Vec<_>>();
-        for &(index, pixel) in &updates {
-            current[index] = pixel;
-            filled[index] = true;
-        }
-        let mut next = Vec::new();
-        for (index, _) in updates {
-            for neighbor in surrounding_neighbors(index, width, height) {
-                if mask[neighbor] && !filled[neighbor] && !queued[neighbor] {
-                    queued[neighbor] = true;
-                    next.push(neighbor);
-                }
+    if let Some(background) = trusted_background {
+        let mut result = context.clone();
+        for (index, pixel) in result.pixels_mut().enumerate() {
+            if mask[index] {
+                *pixel = background;
             }
         }
-        frontier = next;
+        return result;
     }
+    let directions = nearest_known_pixels(&mask, width, height);
     let mut result = context.clone();
     for (index, pixel) in result.pixels_mut().enumerate() {
         if mask[index] {
-            *pixel =
-                image::Rgba(current[index].map(|channel| channel.round().clamp(0.0, 255.0) as u8));
+            *pixel = interpolate_background(
+                context,
+                index,
+                [
+                    directions[0][index],
+                    directions[1][index],
+                    directions[2][index],
+                    directions[3][index],
+                ],
+            );
         }
     }
     result
 }
 
-fn surrounding_neighbors(index: usize, width: u32, height: u32) -> impl Iterator<Item = usize> {
-    let x = index as u32 % width;
-    let y = index as u32 / width;
-    [
-        (x.checked_sub(1), y.checked_sub(1)),
-        (Some(x), y.checked_sub(1)),
-        (x.checked_add(1), y.checked_sub(1)),
-        (x.checked_sub(1), Some(y)),
-        (x.checked_add(1), Some(y)),
-        (x.checked_sub(1), y.checked_add(1)),
-        (Some(x), y.checked_add(1)),
-        (x.checked_add(1), y.checked_add(1)),
-    ]
-    .into_iter()
-    .filter_map(move |(neighbor_x, neighbor_y)| {
-        let neighbor_x = neighbor_x.filter(|neighbor| *neighbor < width)?;
-        let neighbor_y = neighbor_y.filter(|neighbor| *neighbor < height)?;
-        Some((neighbor_y * width + neighbor_x) as usize)
-    })
+fn nearest_known_pixels(mask: &[bool], width: u32, height: u32) -> [Vec<usize>; 4] {
+    let mut maps = std::array::from_fn(|_| vec![usize::MAX; mask.len()]);
+    for y in 0..height as usize {
+        let row = y * width as usize;
+        let mut known = usize::MAX;
+        for x in 0..width as usize {
+            let index = row + x;
+            if !mask[index] {
+                known = index;
+            }
+            maps[0][index] = known;
+        }
+        known = usize::MAX;
+        for x in (0..width as usize).rev() {
+            let index = row + x;
+            if !mask[index] {
+                known = index;
+            }
+            maps[1][index] = known;
+        }
+    }
+    for x in 0..width as usize {
+        let mut known = usize::MAX;
+        for y in 0..height as usize {
+            let index = y * width as usize + x;
+            if !mask[index] {
+                known = index;
+            }
+            maps[2][index] = known;
+        }
+        known = usize::MAX;
+        for y in (0..height as usize).rev() {
+            let index = y * width as usize + x;
+            if !mask[index] {
+                known = index;
+            }
+            maps[3][index] = known;
+        }
+    }
+    maps
+}
+
+fn interpolate_background(
+    image: &image::RgbaImage,
+    target: usize,
+    directions: [usize; 4],
+) -> image::Rgba<u8> {
+    let width = image.width() as usize;
+    let estimates = [
+        directional_estimate(image, target, directions[0], directions[1]),
+        directional_estimate(image, target, directions[2], directions[3]),
+    ];
+    let mut total = [0.0; 4];
+    let mut total_weight = 0.0;
+    for (color, weight) in estimates.into_iter().flatten() {
+        for (sum, channel) in total.iter_mut().zip(color) {
+            *sum += channel * weight;
+        }
+        total_weight += weight;
+    }
+    if total_weight == 0.0 {
+        let x = target % width;
+        let y = target / width;
+        return *image.get_pixel(x as u32, y as u32);
+    }
+    image::Rgba(total.map(|channel| (channel / total_weight).round().clamp(0.0, 255.0) as u8))
+}
+
+fn directional_estimate(
+    image: &image::RgbaImage,
+    target: usize,
+    before: usize,
+    after: usize,
+) -> Option<([f64; 4], f64)> {
+    if before == usize::MAX && after == usize::MAX {
+        return None;
+    }
+    let width = image.width() as usize;
+    let target_xy = (target % width, target / width);
+    let distance = |index: usize| {
+        let xy = (index % width, index / width);
+        (target_xy.0.abs_diff(xy.0) + target_xy.1.abs_diff(xy.1)).max(1) as f64
+    };
+    let pixel =
+        |index: usize| -> [u8; 4] { image.as_raw()[index * 4..index * 4 + 4].try_into().unwrap() };
+    let (color, span, disagreement) = match (before, after) {
+        (usize::MAX, index) | (index, usize::MAX) => {
+            (pixel(index).map(f64::from), distance(index) * 4.0, 64.0)
+        }
+        (before, after) => {
+            let before_color: [u8; 4] = pixel(before);
+            let after_color: [u8; 4] = pixel(after);
+            let before_distance = distance(before);
+            let after_distance = distance(after);
+            let span = before_distance + after_distance;
+            let color = std::array::from_fn(|channel| {
+                (f64::from(before_color[channel]) * after_distance
+                    + f64::from(after_color[channel]) * before_distance)
+                    / span
+            });
+            let disagreement = before_color[..3]
+                .iter()
+                .zip(&after_color[..3])
+                .map(|(left, right)| left.abs_diff(*right))
+                .max()
+                .unwrap_or(0) as f64;
+            (color, span, disagreement)
+        }
+    };
+    let edge_penalty = 1.0 + disagreement / 16.0;
+    Some((color, 1.0 / (span.sqrt() * edge_penalty * edge_penalty)))
 }
 
 fn contrast_color(image: &image::RgbaImage) -> String {
@@ -280,26 +339,25 @@ mod tests {
 
     #[test]
     fn reconstructed_blob_uses_surrounding_pixels_and_matches_the_detector_region() {
-        let source = image::RgbaImage::from_fn(80, 40, |x, y| {
-            if (20..60).contains(&x) && (10..30).contains(&y) {
-                if (x / 2) % 2 == 0 {
-                    image::Rgba([0, 0, 0, 255])
-                } else {
-                    image::Rgba([255, 255, 255, 255])
-                }
-            } else {
-                image::Rgba([72, 96, 120, 255])
+        let background = image::Rgba([72, 96, 120, 255]);
+        let glyph = image::Rgba([244, 232, 210, 255]);
+        let mut source = image::RgbaImage::from_pixel(80, 40, background);
+        for y in 12..28 {
+            for x in [28, 29, 30, 43, 44, 45] {
+                source.put_pixel(x, y, glyph);
             }
-        });
+        }
         let target = PixelRegion {
             x: 20,
             y: 10,
             width: 40,
             height: 20,
         };
-        let (url, color) = reconstruct_blob(&source, target, &[target]).unwrap();
+        let (painted, color) =
+            reconstruct_blob_image_with_background(&source, target, &[target], None);
+        let url = encode_data_url(&painted).unwrap();
         assert!(url.starts_with("data:image/png;base64,"));
-        assert!(matches!(color.as_str(), "#111111" | "#FFFFFF"));
+        assert_eq!(color, "#F4E8D2");
         let png = base64::engine::general_purpose::STANDARD
             .decode(url.trim_start_matches("data:image/png;base64,"))
             .unwrap();
@@ -309,6 +367,33 @@ mod tests {
         assert!(decoded.pixels().all(|pixel| {
             pixel[0].abs_diff(72) <= 2 && pixel[1].abs_diff(96) <= 2 && pixel[2].abs_diff(120) <= 2
         }));
+    }
+
+    #[test]
+    fn trusted_uniform_surface_does_not_create_directional_bands() {
+        let mut source = image::RgbaImage::from_pixel(100, 40, image::Rgba([250, 250, 250, 255]));
+        for y in 8..32 {
+            for x in 10..90 {
+                source.put_pixel(x, y, image::Rgba([5, 5, 5, 255]));
+            }
+        }
+        let target = PixelRegion {
+            x: 10,
+            y: 8,
+            width: 80,
+            height: 24,
+        };
+        let (painted, _) = reconstruct_blob_image_with_background(
+            &source,
+            target,
+            &[target],
+            Some(([250, 250, 250], 90)),
+        );
+        assert!(
+            painted
+                .pixels()
+                .all(|pixel| pixel.0 == [250, 250, 250, 255])
+        );
     }
 
     #[test]
@@ -375,7 +460,7 @@ mod tests {
             width: image.width(),
             height: image.height(),
         };
-        let filled = inpaint_regions(&image, sample, &[region]);
+        let filled = inpaint_regions(&image, sample, &[region], None);
         let transposed =
             image::RgbaImage::from_fn(image.height(), image.width(), |x, y| *image.get_pixel(y, x));
         let transposed_region = PixelRegion {
@@ -391,10 +476,49 @@ mod tests {
             height: transposed.height(),
         };
         let transposed_filled =
-            inpaint_regions(&transposed, transposed_sample, &[transposed_region]);
+            inpaint_regions(&transposed, transposed_sample, &[transposed_region], None);
         for y in 0..image.height() {
             for x in 0..image.width() {
                 assert_eq!(filled.get_pixel(x, y), transposed_filled.get_pixel(y, x));
+            }
+        }
+    }
+
+    #[test]
+    fn background_inpainting_reconstructs_a_smooth_plane_without_diagonal_seams() {
+        let image = image::RgbaImage::from_fn(64, 40, |x, y| {
+            image::Rgba([
+                (20 + x * 2 + y) as u8,
+                (30 + x + y * 2) as u8,
+                (40 + x + y) as u8,
+                255,
+            ])
+        });
+        let region = PixelRegion {
+            x: 12,
+            y: 9,
+            width: 38,
+            height: 22,
+        };
+        let sample = PixelRegion {
+            x: 0,
+            y: 0,
+            width: image.width(),
+            height: image.height(),
+        };
+        let filled = inpaint_regions(&image, sample, &[region], None);
+        for y in region.y..region.y + region.height {
+            for x in region.x..region.x + region.width {
+                let expected = image.get_pixel(x, y);
+                let actual = filled.get_pixel(x, y);
+                assert!(
+                    expected
+                        .0
+                        .iter()
+                        .zip(actual.0)
+                        .all(|(expected, actual)| expected.abs_diff(actual) <= 1),
+                    "pixel ({x},{y}) expected={expected:?} actual={actual:?}"
+                );
             }
         }
     }
@@ -414,9 +538,12 @@ mod tests {
             width: 36,
             height: 14,
         };
-        for y in region.y..region.y + region.height {
-            for x in region.x..region.x + region.width {
-                image.put_pixel(x, y, image::Rgba([0, 0, 0, 255]));
+        for y in region.y + 2..region.y + region.height - 2 {
+            for x in [18, 19, 20] {
+                image.put_pixel(x, y, image::Rgba([238, 238, 238, 255]));
+            }
+            for x in [39, 40, 41] {
+                image.put_pixel(x, y, image::Rgba([12, 12, 12, 255]));
             }
         }
         let sample = PixelRegion {
@@ -425,9 +552,9 @@ mod tests {
             width: image.width(),
             height: image.height(),
         };
-        let filled = inpaint_regions(&image, sample, &[region]);
-        let left = filled.get_pixel(18, 15);
-        let right = filled.get_pixel(42, 15);
+        let filled = inpaint_regions(&image, sample, &[region], None);
+        let left = filled.get_pixel(19, 15);
+        let right = filled.get_pixel(40, 15);
         assert!(left[0] < 100, "left={left:?}");
         assert!(right[0] > 156, "right={right:?}");
     }

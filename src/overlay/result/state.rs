@@ -109,6 +109,7 @@ pub struct WindowState {
     pub control_options: Option<ResultControlOptions>,
     pub backdrop_data_url: Option<String>,
     pub foreground_color: Option<String>,
+    pub preferred_font_size: Option<f32>,
     pub copy_success: bool,
 
     // Edit Mode

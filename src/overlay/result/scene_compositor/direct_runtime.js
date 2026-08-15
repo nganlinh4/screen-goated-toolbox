@@ -38,62 +38,96 @@
                 && size.width > 0;
         }
 
-        function fits(text, size) {
+        function fits(text, size, tolerance, rejectPathologicalWrap) {
             void body.offsetHeight;
-            return body.scrollHeight <= size.height + 2
-                && body.scrollWidth <= size.width + 2
-                && !hasPathologicalWrap(text, size);
+            tolerance = Number.isFinite(tolerance) ? tolerance : 2;
+            return body.scrollHeight <= size.height + tolerance
+                && body.scrollWidth <= size.width + tolerance
+                && (!rejectPathologicalWrap || !hasPathologicalWrap(text, size));
         }
 
         function inlineSize(options, text, isNewSession) {
             if (!options.runInlineSizing || !isNewSession) return;
             var size = dimensions();
             var textLen = text.length;
+            var isSourceReplacement = options.sourceReplacement === true;
+            var preferredFontSize = Number(options.preferredFontSize);
+            if (!Number.isFinite(preferredFontSize) || preferredFontSize <= 0) {
+                preferredFontSize = Math.max(1, Math.min(14, size.height));
+            }
             var constrained = size.height < 260 || size.width < 420;
-            var minSize = textLen < 200 ? 6 : 14;
-            var finalMaximum = textLen < 300
+            var minSize = isSourceReplacement ? 1 : (textLen < 200 ? 6 : 14);
+            var finalMaximum = isSourceReplacement ? preferredFontSize : (textLen < 300
                 ? 200
-                : (textLen < 1500 ? 100 : Math.max(24, Math.min(48, Math.floor(size.height / 10))));
+                : (textLen < 1500 ? 100 : Math.max(24, Math.min(48, Math.floor(size.height / 10)))));
             var maxPossible = Math.min(
                 options.finalizing ? finalMaximum : (constrained ? 40 : 48),
                 size.height
             );
             var estimated = Math.sqrt((size.width * size.height) / (textLen + 1));
-            var low = Math.max(minSize, Math.floor(estimated * 0.5));
-            var high = Math.min(maxPossible, Math.ceil(estimated * 1.15));
-            if (low > high) low = high;
-
-            body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+            body.style.fontWeight = '400';
+            body.style.fontVariationSettings = "'slnt' 0, 'ROND' 100";
+            body.style.fontStretch = '90%';
             body.style.letterSpacing = '0px';
             body.style.wordSpacing = '0px';
-            body.style.lineHeight = '1.5';
+            body.style.lineHeight = isSourceReplacement ? '1.15' : '1.5';
+            body.style.display = 'flex';
+            body.style.flexDirection = 'column';
+            // Measure from the top so oversized glyphs cannot hide in negative
+            // flex overflow; center only after a contained size is committed.
+            body.style.justifyContent = 'flex-start';
+            var fitTolerance = isSourceReplacement ? 0 : 2;
             body.style.paddingTop = '0';
             body.style.paddingBottom = '0';
             var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
             for (var index = 0; index < blocks.length; index++) {
-                blocks[index].style.marginBottom = '0.5em';
+                blocks[index].style.marginBottom = isSourceReplacement ? '0' : '0.5em';
                 blocks[index].style.paddingBottom = '0';
             }
-            var best = low;
-            while (low <= high) {
-                var mid = Math.floor((low + high) / 2);
-                body.style.fontSize = mid + 'px';
-                if (fits(text, size)) {
-                    best = mid;
-                    low = mid + 1;
-                } else {
-                    high = mid - 1;
+            var widths = isSourceReplacement ? [90, 85, 80, 75, 70, 65, 60, 55] : [90];
+            var best = minSize;
+            var bestWidth = 90;
+            var found = false;
+            for (var widthIndex = 0; widthIndex < widths.length; widthIndex++) {
+                var candidateWidth = widths[widthIndex];
+                body.style.fontStretch = candidateWidth + '%';
+                var low = isSourceReplacement
+                    ? minSize
+                    : Math.max(minSize, Math.floor(estimated * 0.5));
+                var high = isSourceReplacement
+                    ? Math.floor(maxPossible)
+                    : Math.min(Math.floor(maxPossible), Math.ceil(estimated * 1.15));
+                if (low > high) low = high;
+                var candidateBest = minSize;
+                var candidateFound = false;
+                while (low <= high) {
+                    var mid = Math.floor((low + high) / 2);
+                    body.style.fontSize = mid + 'px';
+                    if (fits(text, size, fitTolerance, !isSourceReplacement)) {
+                        candidateBest = mid;
+                        candidateFound = true;
+                        low = mid + 1;
+                    } else {
+                        high = mid - 1;
+                    }
+                }
+                if (candidateFound && (!found || candidateBest > best
+                    || (candidateBest === best && candidateWidth > bestWidth))) {
+                    found = true;
+                    best = candidateBest;
+                    bestWidth = candidateWidth;
                 }
             }
+            body.style.fontStretch = bestWidth + '%';
             body.style.fontSize = Math.max(best, minSize) + 'px';
-            if (constrained && textLen < 450) {
+            if (!isSourceReplacement && constrained && textLen < 450) {
                 var settleLow = minSize;
                 var settleHigh = best;
                 var settleBest = minSize;
                 while (settleLow <= settleHigh) {
                     var settleMid = Math.floor((settleLow + settleHigh) / 2);
                     body.style.fontSize = settleMid + 'px';
-                    if (fits(text, size)) {
+                    if (fits(text, size, fitTolerance, true)) {
                         settleBest = settleMid;
                         settleLow = settleMid + 1;
                     } else {
@@ -102,6 +136,7 @@
                 }
                 body.style.fontSize = settleBest + 'px';
             }
+            body.style.justifyContent = 'center';
         }
 
         function revealWords(animate, isNewSession) {
