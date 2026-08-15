@@ -6,10 +6,29 @@ import CursorSvgLab from "@/components/CursorSvgLab";
 import { RecorderErrorBoundary } from "@/components/RecorderErrorBoundary";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { installBrowserTestIpcMock } from "@/testHarness/browserIpcMock";
+import { reportStartupMilestone } from "@/lib/startupTelemetry";
 import "./App.css";
 import "./accessibility.css";
 
 installBrowserTestIpcMock();
+reportStartupMilestone("frontend-module-evaluated");
+
+function StartupTelemetry() {
+  useEffect(() => {
+    reportStartupMilestone("react-committed");
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        reportStartupMilestone("first-visible-frame");
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, []);
+  return null;
+}
 
 function RootRouter() {
   const [hash, setHash] = useState(() => window.location.hash);
@@ -29,6 +48,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <MotionConfig reducedMotion="user">
       <RecorderErrorBoundary>
         <TooltipProvider>
+          <StartupTelemetry />
           <RootRouter />
         </TooltipProvider>
       </RecorderErrorBoundary>

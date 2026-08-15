@@ -54,12 +54,28 @@ pub(crate) fn ensure_ready(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<RecorderComponents> {
-    super::update_catalog::refresh_for_use(WEB_ID, "before-open");
     let _mutation = super::acquire_mutation_guard()?;
     let web = delivery(WEB_ID)?;
     let worker = delivery(WORKER_ID)?;
     install::ensure_pair(web, worker, cancelled, on_progress)?;
 
+    match acquire_verified_components(web, worker) {
+        Ok(components) => Ok(components),
+        Err(first_error) => {
+            install::repair_pair(web, worker, cancelled, |_, _| {})?;
+            acquire_verified_components(web, worker).map_err(|retry_error| {
+                anyhow::anyhow!(
+                    "recorder verification failed before and after repair: {first_error:#}; {retry_error:#}"
+                )
+            })
+        }
+    }
+}
+
+fn acquire_verified_components(
+    web: &'static RecorderDelivery,
+    worker: &'static RecorderDelivery,
+) -> Result<RecorderComponents> {
     // Reserve both components before hashing. Removal cannot begin after these
     // leases are acquired, and the file handles below prevent write/delete
     // races for every byte in both exact inventories.
@@ -82,8 +98,8 @@ pub(crate) fn ensure_ready(
             return Err(error);
         }
     }
-    validate_install(web)?;
-    validate_install(worker)?;
+    validate_exact_tree(&web_root, web.files)?;
+    validate_exact_tree(&worker_root, worker.files)?;
     let worker_path = resolve_owned_path(&worker_root, Path::new(WORKER_PATH))?;
     validate_x64_pe(&worker_path)?;
     Ok(RecorderComponents {
@@ -92,6 +108,35 @@ pub(crate) fn ensure_ready(
         _leases: vec![web_lease, worker_lease],
         _files: files,
     })
+}
+
+pub(crate) fn refresh_catalog_after_open() {
+    std::thread::spawn(|| {
+        super::update_catalog::refresh_for_use(WEB_ID, "before-open");
+    });
+}
+
+#[cfg(test)]
+mod startup_path_tests {
+    #[test]
+    fn normal_open_hashes_each_component_inventory_once() {
+        let source = include_str!("recorder.rs");
+        let start = source.find("fn acquire_verified_components(").unwrap();
+        let end = source
+            .find("pub(crate) fn refresh_catalog_after_open()")
+            .unwrap();
+        let acquisition = &source[start..end];
+        assert_eq!(acquisition.matches("lock_component_files(").count(), 2);
+        assert!(!acquisition.contains("validate_install("));
+    }
+
+    #[test]
+    fn catalog_refresh_is_not_on_the_component_ready_path() {
+        let source = include_str!("recorder.rs");
+        let start = source.find("pub(crate) fn ensure_ready(").unwrap();
+        let end = source.find("fn acquire_verified_components(").unwrap();
+        assert!(!source[start..end].contains("refresh_for_use"));
+    }
 }
 
 pub(crate) fn ensure_ready_with_badge(cancelled: &AtomicBool) -> Result<RecorderComponents> {

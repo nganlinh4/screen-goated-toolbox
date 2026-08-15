@@ -23,6 +23,7 @@ pub(super) unsafe extern "system" fn sr_wnd_proc(
                 let _ = ShowWindow(hwnd, SW_SHOW);
                 let _ = SetForegroundWindow(hwnd);
                 let _ = SetFocus(Some(hwnd));
+                super::startup_trace::log("window-shown");
                 // Push current theme/lang on show
                 push_settings_to_webview();
                 LRESULT(0)

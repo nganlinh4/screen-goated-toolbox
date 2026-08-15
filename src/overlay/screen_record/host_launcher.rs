@@ -20,17 +20,19 @@ use windows::Win32::System::JobObjects::{
 };
 use windows::core::PCWSTR;
 
-mod environment;
 mod capabilities;
+mod deferred_capability;
+mod environment;
 mod session_lifecycle;
+mod startup_trace;
 
 use capabilities::{MissingExternalCapability, prepare_external_capabilities};
+#[cfg(test)]
+use environment::PROVIDER_CREDENTIAL_ENV;
 use environment::{
     forward_provider_credentials, forward_webview_runtime_roots, recorder_debug_port,
     recorder_webview_data_dir,
 };
-#[cfg(test)]
-use environment::PROVIDER_CREDENTIAL_ENV;
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static REMOVAL_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -69,6 +71,7 @@ struct WorkerSession {
     _active_job: session_lifecycle::ActiveJobRegistration,
     _components: crate::component_registry::recorder::RecorderComponents,
     _external_capabilities: Vec<crate::component_registry::external_tools::ExternalToolUse>,
+    _deferred_ffmpeg: Option<deferred_capability::DeferredFfmpeg>,
 }
 
 pub(super) struct RemovalGuard;
@@ -102,6 +105,9 @@ pub(super) fn launch_in_background(command: Command) {
     if REMOVAL_IN_PROGRESS.load(Ordering::Acquire) {
         crate::log_info!("[ScreenRecord] launch skipped while recorder removal is in progress");
         return;
+    }
+    if matches!(&command, Command::Show | Command::Toggle) {
+        startup_trace::begin();
     }
     ACTIVE.store(true, Ordering::Release);
     if DISPATCHER
@@ -270,8 +276,14 @@ fn launch(
     cancelled: &AtomicBool,
     requested: Option<crate::component_registry::external_tools::ExternalTool>,
 ) -> Result<WorkerSession> {
+    startup_trace::log("component-verification-start");
     let components = crate::component_registry::recorder::ensure_ready_with_badge(cancelled)?;
+    startup_trace::log("component-verification-complete");
     let external_capabilities = prepare_external_capabilities(cancelled, requested)?;
+    let deferred_ffmpeg = requested
+        .is_none()
+        .then(deferred_capability::DeferredFfmpeg::prepare)
+        .transpose()?;
     let executable = canonical_file(&components.worker_path, "worker")?;
     let web_root = canonical_dir(&components.web_root, "web package")?;
     let system_root = std::env::var_os("SystemRoot")
@@ -284,11 +296,11 @@ fn launch(
         .context("start the shared product-font service")?;
     let temp = std::env::temp_dir();
     let workspace = recorder_worker_workspace()?;
-    let webview_data_dir = recorder_webview_data_dir(std::env::var_os(
-        "SGT_SCREEN_RECORD_WEBVIEW2_DATA_DIR",
-    ))?;
+    let webview_data_dir =
+        recorder_webview_data_dir(std::env::var_os("SGT_SCREEN_RECORD_WEBVIEW2_DATA_DIR"))?;
 
     let mut command = ProcessCommand::new(&executable);
+    startup_trace::configure(&mut command);
     command
         .current_dir(workspace)
         .env_clear()
@@ -317,6 +329,9 @@ fn launch(
         command.env("SGT_RECORDER_WEBVIEW2_DEBUG_PORT", port);
     }
     forward_webview_runtime_roots(&mut command, |name| std::env::var_os(name));
+    if let Some(capability) = &deferred_ffmpeg {
+        capability.configure(&mut command);
+    }
     for component in &external_capabilities {
         match component.tool() {
             crate::component_registry::external_tools::ExternalTool::Ffmpeg => {
@@ -332,6 +347,7 @@ fn launch(
     let mut child = command
         .spawn()
         .with_context(|| format!("start recorder worker '{}'", executable.display()))?;
+    startup_trace::log("worker-spawned");
     let stdin = child
         .stdin
         .take()
@@ -365,8 +381,11 @@ fn launch(
         _active_job: active_job,
         _components: components,
         _external_capabilities: external_capabilities,
+        _deferred_ffmpeg: deferred_ffmpeg,
     };
     session.request(Command::Ping, NORMAL_TIMEOUT)?;
+    startup_trace::log("worker-ping-ready");
+    crate::component_registry::recorder::refresh_catalog_after_open();
     Ok(session)
 }
 
@@ -529,22 +548,17 @@ fn required_directory_env(name: &str) -> Result<PathBuf> {
 }
 
 fn required_system_drive() -> Result<OsString> {
-    let value = std::env::var_os("SystemDrive")
-        .ok_or_else(|| anyhow!("SystemDrive is unavailable"))?;
+    let value =
+        std::env::var_os("SystemDrive").ok_or_else(|| anyhow!("SystemDrive is unavailable"))?;
     let text = value.to_string_lossy();
-    if text.len() != 2
-        || !text.as_bytes()[0].is_ascii_alphabetic()
-        || text.as_bytes()[1] != b':'
-    {
+    if text.len() != 2 || !text.as_bytes()[0].is_ascii_alphabetic() || text.as_bytes()[1] != b':' {
         bail!("SystemDrive is invalid");
     }
     Ok(value)
 }
 
 fn recorder_worker_workspace() -> Result<PathBuf> {
-    crate::component_registry::worker_workspace(
-        crate::component_registry::recorder::WORKER_ID,
-    )
+    crate::component_registry::worker_workspace(crate::component_registry::recorder::WORKER_ID)
 }
 
 fn canonical_file(path: &Path, label: &str) -> Result<PathBuf> {

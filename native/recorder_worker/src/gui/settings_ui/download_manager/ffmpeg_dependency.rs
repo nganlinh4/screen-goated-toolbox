@@ -1,8 +1,12 @@
 use std::fmt;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 const FFMPEG_ENV: &str = "SGT_FFMPEG_PATH";
+const FFMPEG_REQUEST_EVENT_ENV: &str = "SGT_FFMPEG_REQUEST_EVENT";
+const FFMPEG_READY_EVENT_ENV: &str = "SGT_FFMPEG_READY_EVENT";
+const FFMPEG_FAILURE_EVENT_ENV: &str = "SGT_FFMPEG_FAILURE_EVENT";
 const FFMPEG_COMPONENT_ID: &str = "ffmpeg-x64";
 
 static PROVIDED_FFMPEG: OnceLock<Result<ProvidedFfmpeg, FfmpegCapabilityError>> = OnceLock::new();
@@ -54,11 +58,80 @@ pub fn ensure_ffmpeg_with_badge_message(_message: &str) -> Result<PathBuf, Ffmpe
 
 fn load_provided_ffmpeg() -> Result<ProvidedFfmpeg, FfmpegCapabilityError> {
     let configured = std::env::var_os(FFMPEG_ENV).map(PathBuf::from);
+    let request_event = std::env::var(FFMPEG_REQUEST_EVENT_ENV).ok();
+    let ready_event = std::env::var(FFMPEG_READY_EVENT_ENV).ok();
+    let failure_event = std::env::var(FFMPEG_FAILURE_EVENT_ENV).ok();
     unsafe {
         std::env::remove_var(FFMPEG_ENV);
+        std::env::remove_var(FFMPEG_REQUEST_EVENT_ENV);
+        std::env::remove_var(FFMPEG_READY_EVENT_ENV);
+        std::env::remove_var(FFMPEG_FAILURE_EVENT_ENV);
     }
     let configured = configured.ok_or(FfmpegCapabilityError::Missing)?;
+    match (request_event, ready_event, failure_event) {
+        (Some(request), Some(ready), Some(failure)) => {
+            request_deferred_capability(&request, &ready, &failure)?;
+        }
+        (None, None, None) => {}
+        _ => {
+            return Err(FfmpegCapabilityError::Invalid(
+                "incomplete deferred FFmpeg capability contract".to_string(),
+            ));
+        }
+    }
     validate_and_lock(&configured)
+}
+
+fn request_deferred_capability(
+    request: &str,
+    ready: &str,
+    failure: &str,
+) -> Result<(), FfmpegCapabilityError> {
+    use windows::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
+    use windows::Win32::System::Threading::{
+        EVENT_ALL_ACCESS, OpenEventW, SetEvent, WaitForMultipleObjects,
+    };
+    use windows::core::PCWSTR;
+
+    let open = |name: &str| {
+        let wide = name
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let handle = unsafe { OpenEventW(EVENT_ALL_ACCESS, false, PCWSTR(wide.as_ptr())) }
+            .map_err(|error| {
+                FfmpegCapabilityError::Invalid(format!("open capability event: {error}"))
+            })?;
+        Ok::<OwnedHandle, FfmpegCapabilityError>(unsafe { OwnedHandle::from_raw_handle(handle.0) })
+    };
+    let request = open(request)?;
+    let ready = open(ready)?;
+    let failure = open(failure)?;
+    let request_handle = windows::Win32::Foundation::HANDLE(request.as_raw_handle());
+    let ready_handle = windows::Win32::Foundation::HANDLE(ready.as_raw_handle());
+    let failure_handle = windows::Win32::Foundation::HANDLE(failure.as_raw_handle());
+    unsafe {
+        SetEvent(request_handle).map_err(|error| {
+            FfmpegCapabilityError::Invalid(format!("request FFmpeg capability: {error}"))
+        })?;
+    }
+    let wait =
+        unsafe { WaitForMultipleObjects(&[ready_handle, failure_handle], false, 20 * 60 * 1_000) };
+    if wait == WAIT_OBJECT_0 {
+        Ok(())
+    } else if wait.0 == WAIT_OBJECT_0.0 + 1 {
+        Err(FfmpegCapabilityError::Invalid(
+            "host could not provide a verified FFmpeg capability".to_string(),
+        ))
+    } else if wait == WAIT_TIMEOUT {
+        Err(FfmpegCapabilityError::Invalid(
+            "timed out waiting for verified FFmpeg capability".to_string(),
+        ))
+    } else {
+        Err(FfmpegCapabilityError::Invalid(
+            "FFmpeg capability wait failed".to_string(),
+        ))
+    }
 }
 
 fn validate_and_lock(path: &Path) -> Result<ProvidedFfmpeg, FfmpegCapabilityError> {
@@ -139,5 +212,24 @@ mod tests {
         assert!(source.contains("FILE_FLAG_OPEN_REPARSE_POINT"));
         assert!(source.contains("file.metadata()"));
         assert!(source.contains("FILE_SHARE_READ"));
+    }
+
+    #[test]
+    fn deferred_contract_requests_host_verification_before_opening_ffmpeg() {
+        let source = include_str!("ffmpeg_dependency.rs");
+        let load_start = source.find("fn load_provided_ffmpeg()").unwrap();
+        let request_start = source.find("fn request_deferred_capability(").unwrap();
+        let load = &source[load_start..request_start];
+        assert!(
+            load.find("request_deferred_capability(").unwrap()
+                < load.find("validate_and_lock(&configured)").unwrap()
+        );
+        let validate_start = source.find("fn validate_and_lock(").unwrap();
+        let request = &source[request_start..validate_start];
+        assert!(
+            request.find("SetEvent(request_handle)").unwrap()
+                < request.find("WaitForMultipleObjects(&[").unwrap()
+        );
+        assert!(source.contains("host could not provide a verified FFmpeg capability"));
     }
 }

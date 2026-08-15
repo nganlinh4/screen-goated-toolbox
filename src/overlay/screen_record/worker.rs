@@ -6,6 +6,7 @@ mod embedded_assets;
 mod ipc;
 pub(crate) use ipc::run_gt_narration_test_cli;
 mod raw_video;
+mod startup_trace;
 mod webview_setup;
 mod window_proc;
 mod worker_control;
@@ -224,6 +225,7 @@ fn wnd_http_response(
 // --- PUBLIC API ---
 
 pub fn show_screen_record() {
+    startup_trace::log("worker-show-received");
     crate::log_info!("[ScreenRecord] show_screen_record requested");
     let capability = crate::runtime_support::require_webview2("Screen record");
     if !capability.is_supported() {

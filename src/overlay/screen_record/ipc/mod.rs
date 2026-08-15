@@ -139,6 +139,22 @@ pub fn handle_ipc_command(
             eprintln!("{msg}");
             Ok(serde_json::Value::Null)
         }
+        "report_startup_milestone" => {
+            let milestone = args["milestone"]
+                .as_str()
+                .ok_or("Missing startup milestone")?;
+            if !matches!(
+                milestone,
+                "frontend-module-evaluated"
+                    | "react-committed"
+                    | "first-visible-frame"
+                    | "projects-hydrated"
+            ) {
+                return Err("Unsupported startup milestone".to_string());
+            }
+            super::startup_trace::log(milestone);
+            Ok(serde_json::Value::Null)
+        }
         "clear_export_staging" => {
             if let Some(session_id) = args["sessionId"].as_str() {
                 native_export::staging::clear_session(session_id);
