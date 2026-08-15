@@ -151,3 +151,4 @@ debug = "line-tables-only"
 egui-wgpu = { path = "../../third_party/egui-wgpu" }
 egui-scale = { path = "../../libs/egui-scale" }
 windows-capture = { path = "../../third_party/windows-capture" }
+wgpu-hal = { path = "../../third_party/wgpu-hal" }

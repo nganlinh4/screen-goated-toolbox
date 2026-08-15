@@ -8,7 +8,7 @@ use super::external_tools::{self, ExternalTool, ExternalToolInstallEvent, Extern
 
 const MISSING_CAPABILITY_PREFIX: &str = "MISSING_CAPABILITY:";
 
-pub(crate) const RECORDER_REQUIRED_EXTERNAL_TOOLS: [ExternalTool; 1] = [ExternalTool::Ffmpeg];
+pub(crate) const RECORDER_REQUIRED_EXTERNAL_TOOLS: [ExternalTool; 0] = [];
 
 pub(crate) fn acquire_external_tool(tool: ExternalTool) -> Result<ExternalToolUse> {
     external_tools::acquire_installed(tool)
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn recorder_dependencies_are_host_managed() {
-        assert_eq!(RECORDER_REQUIRED_EXTERNAL_TOOLS, [ExternalTool::Ffmpeg]);
+        assert!(RECORDER_REQUIRED_EXTERNAL_TOOLS.is_empty());
     }
 
     #[test]

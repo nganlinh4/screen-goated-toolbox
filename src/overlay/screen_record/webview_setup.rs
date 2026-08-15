@@ -33,6 +33,8 @@ use super::handle_ipc_command;
 
 const MAX_IPC_JSON_BYTES: usize = 128 * 1024 * 1024;
 const MAX_CONCURRENT_IPC_JOBS: usize = 16;
+const WEBVIEW_DISK_CACHE_BYTES: usize = 32 * 1024 * 1024;
+const WEBVIEW_MEDIA_CACHE_BYTES: usize = 16 * 1024 * 1024;
 static IPC_JOBS_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 struct IpcJobGuard;
@@ -171,8 +173,6 @@ pub(super) unsafe fn internal_create_sr_loop() {
             }
         });
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
         let font_style_tag = format!(
             "<style id=\"sgt-font-face\">{}</style>",
             crate::overlay::html_components::font_manager::get_font_css()
@@ -284,6 +284,7 @@ pub(super) unsafe fn internal_create_sr_loop() {
         });
 
         super::IS_WARMED_UP = true;
+        super::startup_trace::log("webview-created");
 
         let port = ipc::start_global_media_server().unwrap_or(0);
         SERVER_PORT.store(port, std::sync::atomic::Ordering::SeqCst);
@@ -368,17 +369,14 @@ unsafe fn build_webview(
             })
             .with_url("screenrecord://localhost/index.html");
 
-        if let Some(port) = std::env::var("SGT_RECORDER_WEBVIEW2_DEBUG_PORT")
+        let debug_port = std::env::var("SGT_RECORDER_WEBVIEW2_DEBUG_PORT")
             .ok()
             .and_then(|raw| raw.parse::<u16>().ok())
-            .filter(|port| *port > 0)
-        {
-            let args = format!(
-                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --remote-debugging-port={port} --remote-debugging-address=127.0.0.1",
-            );
+            .filter(|port| *port > 0);
+        if let Some(port) = debug_port {
             crate::log_info!("[ScreenRecord] WebView2 smoke debugging enabled on port {port}");
-            builder = builder.with_additional_browser_args(args);
         }
+        builder = builder.with_additional_browser_args(webview_browser_args(debug_port));
 
         builder = crate::overlay::html_components::font_manager::configure_webview(builder);
         builder.build_as_child(wrapper)
@@ -392,6 +390,18 @@ unsafe fn build_webview(
         );
     }
     result
+}
+
+fn webview_browser_args(debug_port: Option<u16>) -> String {
+    let mut args = format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disk-cache-size={WEBVIEW_DISK_CACHE_BYTES} --media-cache-size={WEBVIEW_MEDIA_CACHE_BYTES}"
+    );
+    if let Some(port) = debug_port {
+        args.push_str(&format!(
+            " --remote-debugging-port={port} --remote-debugging-address=127.0.0.1"
+        ));
+    }
+    args
 }
 
 fn handle_ipc_message(msg: wry::http::Request<String>, send_hwnd: SendHwnd) {
@@ -547,5 +557,27 @@ unsafe fn handle_exit_fullscreen(hwnd: HWND) {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod browser_args_tests {
+    use super::*;
+
+    #[test]
+    fn production_browser_args_bound_disposable_caches() {
+        let args = webview_browser_args(None);
+        assert!(args.contains("--disk-cache-size=33554432"));
+        assert!(args.contains("--media-cache-size=16777216"));
+        assert!(!args.contains("--remote-debugging-port"));
+    }
+
+    #[test]
+    fn smoke_browser_args_keep_cache_bounds_and_loopback_debugging() {
+        let args = webview_browser_args(Some(9333));
+        assert!(args.contains("--disk-cache-size=33554432"));
+        assert!(args.contains("--media-cache-size=16777216"));
+        assert!(args.contains("--remote-debugging-port=9333"));
+        assert!(args.contains("--remote-debugging-address=127.0.0.1"));
     }
 }

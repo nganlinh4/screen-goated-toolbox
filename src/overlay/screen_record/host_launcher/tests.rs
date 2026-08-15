@@ -46,8 +46,7 @@ fn child_environment_forwards_only_valid_webview_runtime_roots() {
 
 #[test]
 fn worker_workspace_is_outside_the_component_registry() {
-    let runtime_root =
-        std::fs::canonicalize(crate::paths::app_runtime_local_data_dir()).unwrap();
+    let runtime_root = std::fs::canonicalize(crate::paths::app_runtime_local_data_dir()).unwrap();
     let workspace = recorder_worker_workspace().unwrap();
     assert!(workspace.starts_with(runtime_root.join("worker-workspaces")));
     assert!(!workspace.starts_with(crate::component_registry::components_root()));
@@ -81,20 +80,15 @@ fn response_reader_rejects_oversize_and_incomplete_frames() {
 }
 
 #[test]
-fn recorder_prepares_every_host_managed_external_capability() {
-    assert_eq!(
-        crate::component_registry::capabilities::RECORDER_REQUIRED_EXTERNAL_TOOLS,
-        [crate::component_registry::external_tools::ExternalTool::Ffmpeg]
-    );
+fn recorder_does_not_resolve_optional_tools_during_open() {
+    assert!(crate::component_registry::capabilities::RECORDER_REQUIRED_EXTERNAL_TOOLS.is_empty());
 }
 
 #[test]
-fn recorder_capabilities_are_resolved_before_worker_spawn() {
+fn recorder_holds_deferred_capability_for_the_worker_lifetime() {
     let source = include_str!("../host_launcher.rs");
-    let prepare = source.find("prepare_external_capabilities(cancelled, requested)").unwrap();
-    let spawn = source.find("let mut command = ProcessCommand::new(&executable)").unwrap();
-    assert!(prepare < spawn);
-    assert!(source.contains("SGT_FFMPEG_PATH"));
+    assert!(source.contains("DeferredFfmpeg::prepare"));
+    assert!(source.contains("_deferred_ffmpeg: deferred_ffmpeg"));
     assert!(source.contains("_external_capabilities: external_capabilities"));
 }
 

@@ -25,6 +25,7 @@ import {
   PROJECT_SWITCH_DEBUG,
 } from "../videoStatePreferences";
 import { restoreRawPath } from "./projectMediaMigration";
+import { reportStartupMilestone } from "@/lib/startupTelemetry";
 import {
   loadProjectVideo,
   loadProjectAudioMedia,
@@ -90,6 +91,7 @@ export function useProjects(props: UseProjectsProps) {
   const loadProjects = useCallback(async () => {
     const projects = await projectManager.getProjects();
     setProjects(projects);
+    reportStartupMilestone("projects-hydrated");
   }, []);
 
   const handleLoadProject = useCallback(

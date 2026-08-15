@@ -9,7 +9,7 @@ use anyhow::{Context, Result, anyhow, bail};
 
 use super::{
     MAX_COMPONENT_FILES, RecorderDelivery, WORKER_ID, owned_file, receipt, recovery, staging,
-    validate_install, version_root,
+    validate_install, validate_status, version_root,
 };
 use crate::component_registry::RemovalOutcome;
 use crate::component_registry::receipt::{file_matches, is_reparse_point};
@@ -23,12 +23,22 @@ pub(super) fn ensure_pair(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<()> {
+    if validate_status(web).is_ok() && validate_status(worker).is_ok() {
+        return Ok(());
+    }
+
+    repair_pair(web, worker, cancelled, on_progress)
+}
+
+pub(super) fn repair_pair(
+    web: &'static RecorderDelivery,
+    worker: &'static RecorderDelivery,
+    cancelled: &AtomicBool,
+    on_progress: impl Fn(u64, u64),
+) -> Result<()> {
     let _guard = INSTALL_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if validate_install(web).is_ok() && validate_install(worker).is_ok() {
-        return Ok(());
-    }
 
     let worker_failure = validate_install(worker)
         .err()

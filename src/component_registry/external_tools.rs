@@ -185,6 +185,10 @@ pub(crate) fn acquire_installed(tool: ExternalTool) -> Result<ExternalToolUse> {
     acquire_delivery(tool, delivery(tool)?)
 }
 
+pub(crate) fn expected_executable_path(tool: ExternalTool) -> Result<PathBuf> {
+    Ok(version_root(delivery(tool)?)?.join(tool.executable()))
+}
+
 pub(crate) fn current_status(tool: ExternalTool) -> ExternalToolStatus {
     let Some(delivery) = delivery_optional(tool) else {
         return ExternalToolStatus::Unavailable;
