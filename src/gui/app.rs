@@ -15,8 +15,8 @@ pub use utils::{exit_app, request_open_downloaded_tools, restart_app, signal_res
 use eframe::egui;
 
 impl eframe::App for SettingsApp {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.0, 0.0, 0.0, 0.0]
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Rgba::from(visuals.panel_fill).to_array()
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -46,6 +46,7 @@ impl eframe::App for SettingsApp {
 
         // Theme & Tray
         self.update_theme_and_tray(ctx);
+        crate::gui::resize_subclass::set_background_color(ctx.global_style().visuals.panel_fill);
 
         // Native resize pulse from the previous frame's custom chrome transition.
         self.pulse_custom_chrome_resize_if_pending(ctx);
@@ -112,11 +113,6 @@ impl eframe::App for SettingsApp {
             // Main Layout — central panel, fills the remaining root ui.
             self.render_main_layout(ui);
             self.render_preset_model_update_modal(ui);
-
-            // Window Resizing (Must be last to override cursors at edges)
-            if self.custom_chrome_ready {
-                self.render_window_resize_handles(ctx);
-            }
 
             // Overlays
             self.render_fade_overlay(ctx);

@@ -135,6 +135,10 @@ version = "0.30.13"
 optional = true
 default-features = false
 
+[target.'cfg(target_os = "windows")'.dependencies.windows]
+version = "0.62.2"
+features = ["Win32_Graphics_Dxgi"]
+
 [lints.clippy]
 allow_attributes = "warn"
 as_ptr_cast_mut = "warn"

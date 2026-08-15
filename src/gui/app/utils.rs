@@ -44,7 +44,11 @@ impl SettingsApp {
         }
 
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Transparent(true));
+        // The main window is visually opaque. Keeping a transparent swap chain here
+        // exposes the desktop (and then the clear texture) for a frame whenever the
+        // Win32 client rect outruns wgpu during a fast live resize. DWM supplies the
+        // rounded outer corners, so per-pixel transparency is unnecessary.
+        ctx.send_viewport_cmd(egui::ViewportCommand::Transparent(false));
         self.custom_chrome_ready = true;
         self.custom_chrome_resize_pulse_stage = 1;
         self.custom_chrome_restore_size = None;
