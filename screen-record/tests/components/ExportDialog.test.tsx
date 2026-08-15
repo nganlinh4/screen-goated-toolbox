@@ -71,7 +71,7 @@ function Harness({
   sourceVideoFps = 50,
 }: {
   initial: ExportOptions;
-  sourceVideoFps?: number;
+  sourceVideoFps?: number | null;
 }) {
   const [exportOptions, setExportOptions] = useState(initial);
   return (
@@ -150,11 +150,47 @@ describe("ExportDialog format-safe defaults", () => {
     await waitFor(() => {
       expect(readExportState()).toMatchObject({
         format: "mp4",
-        fps: 24,
+        fps: 48,
         width: 0,
         height: 0,
       });
     });
+  });
+
+  it("keeps match-recorded mode through an asynchronous metadata gap", async () => {
+    localStorage.setItem("screen-record-export-fps-pref-v1", "50");
+    const { rerender } = render(
+      <Harness initial={{ ...baseOptions, fps: 50 }} sourceVideoFps={null} />,
+    );
+
+    expect(readExportState().fps).toBe(50);
+    rerender(<Harness initial={{ ...baseOptions, fps: 50 }} sourceVideoFps={48} />);
+
+    await waitFor(() => expect(readExportState().fps).toBe(48));
+    expect(screen.getByRole("button", { name: /48 fps.*match recorded/i }))
+      .toHaveClass("ui-chip-button-active");
+  });
+
+  it("persists match-recorded as intent instead of a resolved number", async () => {
+    render(<Harness initial={{ ...baseOptions, fps: 60 }} sourceVideoFps={48} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /48 fps.*match recorded/i }));
+
+    expect(JSON.parse(localStorage.getItem("screen-record-export-fps-pref-v1") ?? "{}"))
+      .toEqual({ mode: "source", lastResolvedFps: 48 });
+  });
+
+  it("keeps an explicitly fixed FPS fixed across different source rates", async () => {
+    const { rerender } = render(
+      <Harness initial={{ ...baseOptions, fps: 50 }} sourceVideoFps={50} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^60 fps/i }));
+
+    rerender(<Harness initial={{ ...baseOptions, fps: 60 }} sourceVideoFps={48} />);
+
+    await waitFor(() => expect(readExportState().fps).toBe(60));
+    expect(JSON.parse(localStorage.getItem("screen-record-export-fps-pref-v1") ?? "{}"))
+      .toEqual({ mode: "fixed", fps: 60 });
   });
 
   it("loads export capabilities and default directory through IPC when needed", async () => {

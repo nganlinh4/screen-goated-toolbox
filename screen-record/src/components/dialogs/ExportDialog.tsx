@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { FolderOpen } from '@/components/ui/MaterialIcon';
@@ -27,6 +27,11 @@ import {
 } from '@/lib/videoExporter';
 import { getTotalTrimDuration } from '@/lib/trimSegments';
 import { useSettings } from '@/hooks/useSettings';
+import {
+  FIXED_EXPORT_FPS_VALUES,
+  getSavedExportFpsPreference,
+  saveExportFpsPreference,
+} from '@/hooks/videoStatePreferences';
 
 const GIF_FPS_VALUES: readonly number[] = [10, 15, 24];
 
@@ -88,7 +93,7 @@ export function ExportDialog({
   const [isPickingDir, setIsPickingDir] = useState(false);
   const [exportCapabilities, setExportCapabilities] = useState<ExportCapabilities | null>(null);
   const [capabilityProbeFailed, setCapabilityProbeFailed] = useState(false);
-  const autoMatchFpsPendingRef = useRef(false);
+  const [fpsPreference, setFpsPreference] = useState(getSavedExportFpsPreference);
 
   useEffect(() => {
     if (!show || exportOptions.outputDir) return;
@@ -104,6 +109,16 @@ export function ExportDialog({
 
   useEffect(() => {
     if (!show) return;
+
+    if (
+      fpsPreference.mode === 'source' &&
+      resolvedSourceFps !== null &&
+      fpsPreference.lastResolvedFps !== resolvedSourceFps
+    ) {
+      const preference = { mode: 'source' as const, lastResolvedFps: resolvedSourceFps };
+      setFpsPreference(preference);
+      saveExportFpsPreference(preference);
+    }
 
     let cancelled = false;
     setCapabilityProbeFailed(false);
@@ -148,19 +163,26 @@ export function ExportDialog({
   const nativeSourceFps = typeof sourceVideoFps === 'number' && Number.isFinite(sourceVideoFps) && sourceVideoFps > 0
     ? sourceVideoFps
     : null;
-  const sourceFpsValue = nativeSourceFps !== null
+  const resolvedSourceFps = nativeSourceFps !== null
     ? Math.round(nativeSourceFps)
-    : 60;
+    : null;
+  const sourceFpsValue = resolvedSourceFps ?? 60;
   const sourceResLabel = `${sourceResOptionW}×${sourceResOptionH}`;
   const selectedFormat = exportOptions.format === 'gif' ? 'gif' : 'mp4';
   const isGif = selectedFormat === 'gif';
   const mp4FpsChoiceValues = useMemo(
-    () => Array.from(new Set([sourceFpsValue, 24, 30, 60, 90, 120])).sort((a, b) => a - b),
-    [sourceFpsValue]
+    () => Array.from(new Set([
+      ...(fpsPreference.mode === 'fixed' ? [fpsPreference.fps] : []),
+      ...FIXED_EXPORT_FPS_VALUES,
+    ])).sort((a, b) => a - b),
+    [fpsPreference]
   );
-  const fpsChoiceValues = isGif
-    ? [...GIF_FPS_VALUES]
-    : mp4FpsChoiceValues;
+  const fpsChoices = isGif
+    ? GIF_FPS_VALUES.map((fps) => ({ key: `gif-${fps}`, fps, isSource: false, disabled: false }))
+    : [
+        { key: 'source', fps: sourceFpsValue, isSource: true, disabled: resolvedSourceFps === null },
+        ...mp4FpsChoiceValues.map((fps) => ({ key: `fixed-${fps}`, fps, isSource: false, disabled: false })),
+      ];
   const resOptions = (
     isGif
       ? computeGifResolutionOptions(baseW, baseH)
@@ -246,10 +268,7 @@ export function ExportDialog({
   })();
 
   useEffect(() => {
-    if (!show) {
-      autoMatchFpsPendingRef.current = false;
-      return;
-    }
+    if (!show) return;
 
     // Default resolution each time the dialog opens — GIF gets explicit width, MP4 gets "match recorded" (0x0).
     setExportOptions((prev) => {
@@ -264,39 +283,22 @@ export function ExportDialog({
       return { ...prev, width: 0, height: 0 };
     });
 
-    // Format-specific FPS must not leak across projects. GIF uses a deliberately
-    // tiny FPS set; MP4 must fall back to a visible MP4 choice if a prior GIF
-    // export left 10/15fps in the shared export options.
+    // GIF has its own deliberately small FPS set. MP4 resolves the persisted
+    // semantic preference only after source metadata exists, so a temporary
+    // metadata gap can never turn "match recorded" into fixed 60 FPS.
     setExportOptions((prev) => {
       const gif = (prev.format || 'mp4') === 'gif';
-      const allowed = gif ? GIF_FPS_VALUES : mp4FpsChoiceValues;
-      if (allowed.includes(prev.fps)) return prev;
-      const fps = gif
-        ? clampGifFps(prev.fps)
-        : sourceFpsValue;
+      if (gif) {
+        const fps = clampGifFps(prev.fps);
+        return prev.fps === fps ? prev : { ...prev, fps };
+      }
+      const fps = fpsPreference.mode === 'source'
+        ? resolvedSourceFps
+        : fpsPreference.fps;
+      if (fps === null || prev.fps === fps) return prev;
       return { ...prev, fps };
     });
-
-    // Only auto-match FPS if the user hasn't saved a preference yet.
-    const hasSavedFps = (() => {
-      try { return localStorage.getItem('screen-record-export-fps-pref-v1') !== null; } catch { return false; }
-    })();
-    if (!hasSavedFps) {
-      autoMatchFpsPendingRef.current = true;
-    }
-  }, [show, setExportOptions, baseW, baseH, mp4FpsChoiceValues, sourceFpsValue]);
-
-  useEffect(() => {
-    if (!show || !autoMatchFpsPendingRef.current) return;
-    setExportOptions((prev) => {
-      // Don't override GIF fps — it has its own limited choices
-      if ((prev.format || 'mp4') === 'gif') {
-        autoMatchFpsPendingRef.current = false;
-        return prev;
-      }
-      return prev.fps === sourceFpsValue ? prev : { ...prev, fps: sourceFpsValue };
-    });
-  }, [show, sourceFpsValue, setExportOptions]);
+  }, [show, setExportOptions, baseW, baseH, fpsPreference, resolvedSourceFps]);
 
   useEffect(() => {
     if (!show || exportOptions.format !== 'both') return;
@@ -397,7 +399,9 @@ export function ExportDialog({
                             const def = gifOptions[0];
                             return { ...prev, format: fmt, fps, width: def?.width ?? GIF_MAX_WIDTH, height: def?.height ?? 540 };
                           }
-                          const fps = mp4FpsChoiceValues.includes(prev.fps) ? prev.fps : sourceFpsValue;
+                          const fps = fpsPreference.mode === 'source'
+                            ? (resolvedSourceFps ?? prev.fps)
+                            : fpsPreference.fps;
                           return { ...prev, format: fmt, fps, width: 0, height: 0 };
                         })}
                         className={`format-option ui-chip-button flex-1 rounded-xl py-2 text-xs font-medium ${
@@ -417,27 +421,37 @@ export function ExportDialog({
                     <label className="text-xs font-medium text-[var(--on-surface-variant)]">{t.frameRate}</label>
                   </div>
                   <div className="fps-options grid grid-cols-3 gap-2">
-                    {fpsChoiceValues.map((fps) => {
-                      const isSourceOption = fps === sourceFpsValue;
+                    {fpsChoices.map(({ key, fps, isSource, disabled }) => {
+                      const active = isGif
+                        ? exportOptions.fps === fps
+                        : isSource
+                          ? fpsPreference.mode === 'source'
+                          : fpsPreference.mode === 'fixed' && fpsPreference.fps === fps;
                       return (
                         <button
-                          key={fps}
+                          key={key}
+                          disabled={disabled}
                           onClick={() => {
-                            autoMatchFpsPendingRef.current = false;
-                            setExportOptions(prev => ({ ...prev, fps }));
-                            if (!isGif) {
-                              try { localStorage.setItem('screen-record-export-fps-pref-v1', String(fps)); } catch { /* ignore */ }
+                            if (isGif) {
+                              setExportOptions(prev => ({ ...prev, fps }));
+                              return;
                             }
+                            const preference = isSource
+                              ? { mode: 'source' as const, lastResolvedFps: fps }
+                              : { mode: 'fixed' as const, fps };
+                            setFpsPreference(preference);
+                            saveExportFpsPreference(preference);
+                            setExportOptions(prev => ({ ...prev, fps }));
                           }}
                           className={`fps-option ui-chip-button rounded-xl py-2 text-xs font-medium ${
-                            exportOptions.fps === fps
+                            active
                               ? 'ui-chip-button-active'
                               : ''
                           }`}
                         >
                           <div className="flex flex-col items-center leading-tight">
-                            <span>{`${fps} fps`}</span>
-                            <span className={`text-[9px] opacity-70 ${isSourceOption ? 'block' : 'invisible'}`}>{isSourceOption ? t.matchRecorded : '.'}</span>
+                            <span>{isSource && resolvedSourceFps === null ? '… fps' : `${fps} fps`}</span>
+                            <span className={`text-[9px] opacity-70 ${isSource ? 'block' : 'invisible'}`}>{isSource ? t.matchRecorded : '.'}</span>
                           </div>
                         </button>
                       );
