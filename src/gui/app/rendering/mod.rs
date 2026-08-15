@@ -62,6 +62,12 @@ impl SettingsApp {
         let panel_fill = root_ui.visuals().panel_fill;
         let panes = self.detail_panes.clone();
 
+        // Paint the parent-owned content area before child panels advance its cursor. Any spacing
+        // that egui allocates between docked panels then inherits the same themed background.
+        root_ui
+            .painter()
+            .rect_filled(root_ui.available_rect_before_wrap(), 0.0, panel_fill);
+
         // NATIVE egui panels: egui sizes + clips each panel itself, so columns can
         // never overflow the window or cut each other off (the manual width math
         // kept mismatching the display scaling). Sidebar docks left (sized to its
@@ -111,12 +117,6 @@ impl SettingsApp {
                 }
                 self.update_sr_hotkey_recording(ctx);
             });
-
-        // Own the complete content region between the docked columns. Panel frames paint their
-        // contents, but egui can leave a narrow separator allocation on the parent UI itself.
-        root_ui
-            .painter()
-            .rect_filled(root_ui.available_rect_before_wrap(), 0.0, panel_fill);
 
         // Right-edge padding: an empty gutter docked first (outermost right) so the
         // outermost detail column doesn't sit flush against the window edge.
