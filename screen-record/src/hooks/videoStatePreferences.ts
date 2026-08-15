@@ -18,6 +18,7 @@ const CROP_PREF_KEY = "screen-record-crop-pref-v1";
 export const DEFAULT_EXPORT_FPS = 60;
 export const MIN_EXPORT_FPS = 1;
 export const MAX_EXPORT_FPS = 240;
+export const FIXED_EXPORT_FPS_VALUES = [24, 30, 60, 90, 120] as const;
 export const TRACK_DELAY_LIMIT_SEC = 2;
 export const MIN_CROP_SIZE = 0.05;
 export const PROJECT_LOAD_DEBUG = false;
@@ -196,20 +197,47 @@ const smartPointerPrefSetting = createPersistedSetting<boolean>(SMART_POINTER_PR
   fallback: true,
 });
 
-const exportFpsPrefSetting = createPersistedSetting<number>(EXPORT_FPS_PREF_KEY, {
-  parse: (raw) => {
-    if (raw === null) return DEFAULT_EXPORT_FPS;
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return DEFAULT_EXPORT_FPS;
-    const rounded = Math.round(parsed);
-    if (rounded < MIN_EXPORT_FPS || rounded > MAX_EXPORT_FPS) {
-      return DEFAULT_EXPORT_FPS;
-    }
-    return rounded;
+export type ExportFpsPreference =
+  | { mode: "source"; lastResolvedFps?: number }
+  | { mode: "fixed"; fps: number };
+
+const exportFpsPreferenceSetting = createPersistedSetting<ExportFpsPreference>(
+  EXPORT_FPS_PREF_KEY,
+  {
+    parse: (raw) => {
+      if (raw === null) return { mode: "source" };
+      try {
+        const parsed = JSON.parse(raw) as Partial<ExportFpsPreference>;
+        if (parsed.mode === "source") {
+          const lastResolvedFps = Math.round(Number(parsed.lastResolvedFps));
+          return Number.isFinite(lastResolvedFps) &&
+            lastResolvedFps >= MIN_EXPORT_FPS &&
+            lastResolvedFps <= MAX_EXPORT_FPS
+            ? { mode: "source", lastResolvedFps }
+            : { mode: "source" };
+        }
+        if (parsed.mode === "fixed" && typeof parsed.fps === "number") {
+          const fps = Math.round(parsed.fps);
+          if (fps >= MIN_EXPORT_FPS && fps <= MAX_EXPORT_FPS) {
+            return { mode: "fixed", fps };
+          }
+        }
+      } catch {
+        // Legacy values were stored as a plain numeric string.
+      }
+      const legacyFps = Math.round(Number(raw));
+      if (Number.isFinite(legacyFps) && legacyFps >= MIN_EXPORT_FPS && legacyFps <= MAX_EXPORT_FPS) {
+        if (!(FIXED_EXPORT_FPS_VALUES as readonly number[]).includes(legacyFps)) {
+          return { mode: "source", lastResolvedFps: legacyFps };
+        }
+        return { mode: "fixed", fps: legacyFps };
+      }
+      return { mode: "source" };
+    },
+    serialize: (preference) => JSON.stringify(preference),
+    fallback: { mode: "source" },
   },
-  serialize: (value) => String(value),
-  fallback: DEFAULT_EXPORT_FPS,
-});
+);
 
 export function getSavedCropPref(): CropRect | undefined {
   return cropPrefSetting.getInitial();
@@ -244,5 +272,16 @@ export function saveSmartPointerPref(enabled: boolean): void {
 }
 
 export function getSavedExportFpsPref(): number {
-  return exportFpsPrefSetting.getInitial();
+  const preference = exportFpsPreferenceSetting.getInitial();
+  return preference.mode === "fixed"
+    ? preference.fps
+    : preference.lastResolvedFps ?? DEFAULT_EXPORT_FPS;
+}
+
+export function getSavedExportFpsPreference(): ExportFpsPreference {
+  return exportFpsPreferenceSetting.getInitial();
+}
+
+export function saveExportFpsPreference(preference: ExportFpsPreference): void {
+  exportFpsPreferenceSetting.persist(preference);
 }
