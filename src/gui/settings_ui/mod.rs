@@ -13,6 +13,7 @@ mod tips;
 mod tips_entry;
 
 pub use confirm_dialog::{ConfirmModal, ConfirmResult};
+pub(crate) use footer::{FOOTER_HORIZONTAL_MARGIN, footer_minimum_window_width};
 pub use footer::{FooterToggles, render_footer};
 pub use global::render_global_settings;
 pub use history::render_history_panel;

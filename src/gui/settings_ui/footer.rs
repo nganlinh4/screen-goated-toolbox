@@ -4,7 +4,14 @@ use crate::gui::theme::AppTheme;
 use crate::gui::widgets::compact_filled_icon_button;
 use eframe::egui;
 
-pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggles<'_>) {
+pub(crate) const FOOTER_HORIZONTAL_MARGIN: i8 = 10;
+
+pub(crate) fn footer_minimum_window_width(content_width: f32) -> f32 {
+    let footer_width = content_width + f32::from(FOOTER_HORIZONTAL_MARGIN) * 2.0;
+    crate::MIN_WINDOW_WIDTH.max(footer_width.ceil())
+}
+
+pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggles<'_>) -> f32 {
     let FooterToggles {
         show_computer_control,
         show_screen_translate,
@@ -40,10 +47,11 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
         .y
         .max(screen_translate_label_height + ui.spacing().button_padding.y * 2.0);
 
-    ui.allocate_ui_with_layout(
+    let row = ui.allocate_ui_with_layout(
         egui::vec2(ui.available_width(), row_height),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
+            let content_left = ui.cursor().left();
             let theme = AppTheme::from_ui(ui);
             ui.spacing_mut().button_padding.x = 3.0;
             ui.spacing_mut().item_spacing.x = 3.0;
@@ -184,8 +192,11 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
                     screen_record_response.rect,
                 );
             });
+
+            (ui.cursor().left() - content_left).max(0.0)
         },
     );
+    row.inner
 }
 
 pub struct FooterToggles<'a> {

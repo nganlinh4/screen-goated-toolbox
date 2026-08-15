@@ -3,7 +3,7 @@ use crate::gui::locale::GlobalSettingsLocaleText;
 pub(super) fn get() -> GlobalSettingsLocaleText {
     GlobalSettingsLocaleText {
         controller_checkbox_label: "Controller",
-        api_keys_header: "API Keys",
+        api_keys_header: "",
         groq_label: "Groq API Key:",
         software_update_header: "Software Update",
         donate_header: "Support the Developer",
