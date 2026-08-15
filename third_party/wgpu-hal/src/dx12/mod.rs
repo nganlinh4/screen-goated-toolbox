@@ -638,17 +638,6 @@ impl Surface {
         matches!(self.target, SurfaceTarget::VisualFromWndHandle { .. })
     }
 
-    pub fn set_window_composition_clip(
-        &self,
-        width: u32,
-        height: u32,
-    ) -> Result<bool, crate::SurfaceError> {
-        let SurfaceTarget::VisualFromWndHandle { dcomp_state, .. } = &self.target else {
-            return Ok(false);
-        };
-        dcomp_state.lock().set_clip(width, height)
-    }
-
     /// Returns the waitable handle associated with this swap chain, if any.
     /// Handle is only valid while the swap chain is alive.
     pub unsafe fn waitable_handle(&self) -> Option<Foundation::HANDLE> {

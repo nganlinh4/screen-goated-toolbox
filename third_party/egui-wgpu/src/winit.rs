@@ -184,19 +184,6 @@ fn uses_dx12_window_composition(_surface: &wgpu::Surface<'static>) -> bool {
     false
 }
 
-#[cfg(target_os = "windows")]
-fn set_dx12_window_composition_clip(surface: &wgpu::Surface<'static>, width: u32, height: u32) {
-    let Some(surface) = (unsafe { surface.as_hal::<wgpu::hal::api::Dx12>() }) else {
-        return;
-    };
-    if let Err(err) = surface.set_window_composition_clip(width, height) {
-        log::warn!("Failed to update DirectComposition resize clip: {err:?}");
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn set_dx12_window_composition_clip(_surface: &wgpu::Surface<'static>, _width: u32, _height: u32) {}
-
 fn reserved_surface_extent(current: u32, requested: u32, monitor: u32, limit: u32) -> u32 {
     let required = requested.max(monitor);
     if required <= current {
@@ -784,7 +771,6 @@ impl Painter {
         let capacity_changed = surface_state.surface_width != old_surface_width
             || surface_state.surface_height != old_surface_height;
         if !capacity_changed && surface_state.surface_configured {
-            set_dx12_window_composition_clip(&surface_state.surface, width, height);
             return;
         }
 
@@ -792,8 +778,6 @@ impl Painter {
 
         let surface_width = surface_state.surface_width;
         let surface_height = surface_state.surface_height;
-        set_dx12_window_composition_clip(&surface_state.surface, width, height);
-
         if let Some(depth_format) = self.options.depth_stencil_format {
             self.depth_texture_view.insert(
                 viewport_id,
