@@ -3,8 +3,44 @@
 
 use super::super::types::SettingsApp;
 use crate::gui::locale::LocaleText;
-use crate::gui::settings_ui::{FooterToggles, render_footer, render_tips_modal};
+use crate::gui::settings_ui::{
+    FOOTER_HORIZONTAL_MARGIN, FooterToggles, footer_minimum_window_width, render_footer,
+    render_tips_modal,
+};
 use eframe::egui;
+
+const FOOTER_MINIMUM_WIDTH_ID: &str = "footer_minimum_window_width";
+
+fn enforce_footer_minimum_width(ctx: &egui::Context, content_width: f32) {
+    let minimum_width = footer_minimum_window_width(content_width);
+    let minimum_id = egui::Id::new(FOOTER_MINIMUM_WIDTH_ID);
+    let previous_width = ctx.data(|data| data.get_temp::<f32>(minimum_id));
+
+    if previous_width.is_none_or(|width| (width - minimum_width).abs() >= 0.5) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+            minimum_width,
+            crate::MIN_WINDOW_HEIGHT,
+        )));
+        ctx.data_mut(|data| data.insert_temp(minimum_id, minimum_width));
+    }
+
+    let (inner_size, maximized) = ctx.input(|input| {
+        let viewport = input.viewport();
+        (
+            viewport.inner_rect.map(|rect| rect.size()),
+            viewport.maximized.unwrap_or(false),
+        )
+    });
+    if !maximized
+        && let Some(inner_size) = inner_size
+        && inner_size.x + 0.5 < minimum_width
+    {
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+            minimum_width,
+            inner_size.y.max(crate::MIN_WINDOW_HEIGHT),
+        )));
+    }
+}
 
 impl SettingsApp {
     pub(crate) fn render_footer_and_tips_modal(&mut self, root_ui: &mut egui::Ui) {
@@ -14,12 +50,13 @@ impl SettingsApp {
         let visuals = root_ui.visuals().clone();
         let footer_bg = crate::gui::theme::AppTheme::from_dark(visuals.dark_mode).bar_bg();
 
+        let mut footer_content_width = 0.0;
         egui::Panel::bottom("footer_panel")
             .resizable(false)
             .show_separator_line(false)
             .frame(
                 egui::Frame::default()
-                    .inner_margin(egui::Margin::symmetric(10, 4))
+                    .inner_margin(egui::Margin::symmetric(FOOTER_HORIZONTAL_MARGIN, 4))
                     .fill(footer_bg)
                     .corner_radius(egui::CornerRadius {
                         nw: 0,
@@ -39,7 +76,7 @@ impl SettingsApp {
             )
             .show_inside(root_ui, |ui| {
                 let screen_translate_was_open = self.show_screen_translate_dialog;
-                render_footer(
+                footer_content_width = render_footer(
                     ui,
                     &text,
                     FooterToggles {
@@ -55,6 +92,7 @@ impl SettingsApp {
                     crate::overlay::screen_translate::prepare_detector();
                 }
             });
+        enforce_footer_minimum_width(ctx, footer_content_width);
 
         render_tips_modal(
             ctx,

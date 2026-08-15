@@ -40,11 +40,11 @@ pub use app_state::{APP, AppState};
 pub(crate) use config::load_config;
 pub use screen_capture::GdiCapture;
 
-pub const WINDOW_WIDTH: f32 = 1250.0;
-pub const WINDOW_HEIGHT: f32 = 650.0;
-// Floor the user can't drag below — keeps the sidebar + editor usable.
-pub const MIN_WINDOW_WIDTH: f32 = 1245.0;
-pub const MIN_WINDOW_HEIGHT: f32 = 660.0;
+// The footer raises this baseline per locale when its launchers need more room.
+pub const MIN_WINDOW_WIDTH: f32 = 1100.0;
+pub const MIN_WINDOW_HEIGHT: f32 = 720.0;
+pub const WINDOW_WIDTH: f32 = MIN_WINDOW_WIDTH;
+pub const WINDOW_HEIGHT: f32 = MIN_WINDOW_HEIGHT;
 
 fn main() -> eframe::Result<()> {
     app_entry::run()
