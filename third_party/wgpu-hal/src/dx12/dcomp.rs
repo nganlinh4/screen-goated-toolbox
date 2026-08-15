@@ -3,7 +3,13 @@ use core::{ffi, ptr};
 
 use once_cell::sync::Lazy;
 use windows::{
-    Win32::{Foundation::HWND, Graphics::DirectComposition},
+    Win32::{
+        Foundation::HWND,
+        Graphics::{Direct2D::Common::D2D_RECT_F, DirectComposition},
+        UI::WindowsAndMessaging::{
+            GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_NOREDIRECTIONBITMAP,
+        },
+    },
     core::Interface as _,
 };
 
@@ -82,6 +88,26 @@ impl DCompState {
         Ok(self.inner.as_mut().unwrap())
     }
 
+    pub fn set_clip(&mut self, width: u32, height: u32) -> Result<bool, crate::SurfaceError> {
+        let Some(inner) = self.inner.as_mut() else {
+            return Ok(false);
+        };
+        let clip = D2D_RECT_F {
+            left: 0.0,
+            top: 0.0,
+            right: width as f32,
+            bottom: height as f32,
+        };
+        unsafe { inner.visual.SetClip2(&raw const clip) }.map_err(|err| {
+            log::error!("IDCompositionVisual::SetClip failed: {err}");
+            crate::SurfaceError::Other("IDCompositionVisual::SetClip")
+        })?;
+        unsafe { inner.device.Commit() }.map_err(|err| {
+            log::error!("IDCompositionDevice::Commit failed: {err}");
+            crate::SurfaceError::Other("IDCompositionDevice::Commit")
+        })?;
+        Ok(true)
+    }
 }
 
 pub struct InnerState {
@@ -95,6 +121,21 @@ impl InnerState {
     /// Creates a DirectComposition device and a target for the given window handle.
     pub unsafe fn init(lib: &Arc<DCompLib>, hwnd: &HWND) -> Result<Self, crate::SurfaceError> {
         profiling::scope!("DCompState::init");
+
+        // This HWND is presented exclusively through DirectComposition. Disable DWM's separate
+        // redirected backing bitmap before binding the visual tree so window geometry and visual
+        // content use one composition path during interactive resizing.
+        let ex_style = unsafe { GetWindowLongPtrW(*hwnd, GWL_EXSTYLE) };
+        if ex_style & WS_EX_NOREDIRECTIONBITMAP.0 as isize == 0 {
+            unsafe {
+                SetWindowLongPtrW(
+                    *hwnd,
+                    GWL_EXSTYLE,
+                    ex_style | WS_EX_NOREDIRECTIONBITMAP.0 as isize,
+                )
+            };
+        }
+
         let dcomp_device = lib.create_device()?;
 
         let target = unsafe { dcomp_device.CreateTargetForHwnd(*hwnd, false) }.map_err(|err| {
