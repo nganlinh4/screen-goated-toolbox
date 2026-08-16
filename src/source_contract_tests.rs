@@ -61,6 +61,21 @@ fn restore_kernel_event_has_one_wait_owner() {
 }
 
 #[test]
+fn main_window_resize_has_one_native_owner() {
+    let app = read_source("src/gui/app.rs");
+    let app_utils = read_source("src/gui/app/utils.rs");
+    let overlays = read_source("src/gui/app/rendering/overlays.rs");
+    let native_resize = read_source("src/gui/resize_subclass.rs");
+
+    assert!(!app.contains("render_window_resize_handles"));
+    assert!(app.contains("visuals.panel_fill"));
+    assert!(app_utils.contains("ViewportCommand::Transparent(false)"));
+    assert!(!app_utils.contains("ViewportCommand::Transparent(true)"));
+    assert!(!overlays.contains("ViewportCommand::BeginResize"));
+    assert!(native_resize.contains("WM_NCHITTEST"));
+}
+
+#[test]
 fn egui_modals_use_the_shared_material_surface() {
     let gui_root = manifest_path("src/gui");
     let shared_surface = gui_root.join("widgets.rs");
