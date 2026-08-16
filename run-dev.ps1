@@ -36,6 +36,7 @@ if (-not $SkipCacheMaintenance) {
 }
 $env:SGT_DEV_CACHE_ROOT = $cacheRootResolved
 $env:CARGO_TARGET_DIR = $devCargoTarget
+Remove-Item Env:SGT_SCREEN_TRANSLATE_AUTO_EVIDENCE -ErrorAction SilentlyContinue
 $logDir = Join-Path $cacheRootResolved "evidence\dev-run-logs"
 
 if ($UseStagingDelivery) {

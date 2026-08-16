@@ -56,7 +56,7 @@
                 preferredFontSize = Math.max(1, Math.min(14, size.height));
             }
             var constrained = size.height < 260 || size.width < 420;
-            var minSize = isSourceReplacement ? 1 : (textLen < 200 ? 6 : 14);
+            var minSize = isSourceReplacement ? Math.min(5, preferredFontSize) : (textLen < 200 ? 6 : 14);
             var finalMaximum = isSourceReplacement ? preferredFontSize : (textLen < 300
                 ? 200
                 : (textLen < 1500 ? 100 : Math.max(24, Math.min(48, Math.floor(size.height / 10)))));
@@ -67,10 +67,10 @@
             var estimated = Math.sqrt((size.width * size.height) / (textLen + 1));
             body.style.fontWeight = '400';
             body.style.fontVariationSettings = "'slnt' 0, 'ROND' 100";
-            body.style.fontStretch = '90%';
+            body.style.fontStretch = isSourceReplacement ? '100%' : '90%';
             body.style.letterSpacing = '0px';
             body.style.wordSpacing = '0px';
-            body.style.lineHeight = isSourceReplacement ? '1.15' : '1.5';
+            body.style.lineHeight = isSourceReplacement ? '1.08' : '1.5';
             body.style.display = 'flex';
             body.style.flexDirection = 'column';
             // Measure from the top so oversized glyphs cannot hide in negative
@@ -84,9 +84,12 @@
                 blocks[index].style.marginBottom = isSourceReplacement ? '0' : '0.5em';
                 blocks[index].style.paddingBottom = '0';
             }
-            var widths = isSourceReplacement ? [90, 85, 80, 75, 70, 65, 60, 55] : [90];
+            var widths = isSourceReplacement
+                ? [100, 90, 80, 70, 60, 50, 40, 30, 25]
+                : [90];
             var best = minSize;
-            var bestWidth = 90;
+            var bestWidth = isSourceReplacement ? 100 : 90;
+            var bestScore = 0;
             var found = false;
             for (var widthIndex = 0; widthIndex < widths.length; widthIndex++) {
                 var candidateWidth = widths[widthIndex];
@@ -103,7 +106,7 @@
                 while (low <= high) {
                     var mid = Math.floor((low + high) / 2);
                     body.style.fontSize = mid + 'px';
-                    if (fits(text, size, fitTolerance, !isSourceReplacement)) {
+                    if (fits(text, size, fitTolerance, true)) {
                         candidateBest = mid;
                         candidateFound = true;
                         low = mid + 1;
@@ -111,11 +114,18 @@
                         high = mid - 1;
                     }
                 }
-                if (candidateFound && (!found || candidateBest > best
-                    || (candidateBest === best && candidateWidth > bestWidth))) {
+                // Treat width-axis compression as a readability cost, not free
+                // space. Deep condensation remains an emergency containment
+                // fallback while the complete variable-font axis remains usable.
+                var widthQuality = 0.35 + 0.65 * Math.min(100, candidateWidth) / 100;
+                var candidateScore = candidateBest * widthQuality;
+                if (candidateFound && (!found || candidateScore > bestScore
+                    || (Math.abs(candidateScore - bestScore) < 0.01
+                        && candidateWidth > bestWidth))) {
                     found = true;
                     best = candidateBest;
                     bestWidth = candidateWidth;
+                    bestScore = candidateScore;
                 }
             }
             body.style.fontStretch = bestWidth + '%';
@@ -136,7 +146,9 @@
                 }
                 body.style.fontSize = settleBest + 'px';
             }
-            body.style.justifyContent = 'center';
+            body.style.justifyContent = fits(text, size, fitTolerance, false)
+                ? 'center'
+                : 'flex-start';
         }
 
         function revealWords(animate, isNewSession) {
@@ -193,7 +205,7 @@
             });
         }
 
-        function installOverflowGuard() {
+        function installOverflowGuard(isSourceReplacement) {
             if (state.overflowObserver || typeof ResizeObserver === 'undefined') return;
             var debounceTimer = 0;
             state.overflowObserver = new ResizeObserver(function() {
@@ -202,12 +214,21 @@
                     debounceTimer = 0;
                     if (state.fit._sgtFitAnim) return;
                     var size = dimensions();
-                    var overflow = body.scrollHeight - size.height;
-                    if (overflow <= size.height * 0.05) return;
+                    var overflow = Math.max(
+                        body.scrollHeight - size.height,
+                        body.scrollWidth - size.width
+                    );
+                    if (overflow <= 0) return;
                     var current = parseFloat(body.style.fontSize) || 14;
-                    var minimum = state.reveal.lastRevealedIndex + 1 < 200 ? 6 : 14;
+                    var minimum = isSourceReplacement
+                        ? Math.min(5, Number(options.preferredFontSize) || 5)
+                        : (state.reveal.lastRevealedIndex + 1 < 200 ? 6 : 14);
                     if (current <= minimum) return;
-                    var next = Math.max(minimum, Math.floor(current * size.height / body.scrollHeight * 0.92));
+                    var scale = Math.min(
+                        size.height / Math.max(1, body.scrollHeight),
+                        size.width / Math.max(1, body.scrollWidth)
+                    );
+                    var next = Math.max(minimum, Math.floor(current * scale * 0.96));
                     if (next < current) {
                         body.style.fontSize = next + 'px';
                         state.fit._sgtCurrentFontSize = next;
@@ -244,7 +265,9 @@
             if (options.settleBeforeReveal) finishBodyPresentation();
             state.wordCount = body.querySelectorAll('.word').length;
             state.renderCount++;
-            if (!options.animateNewWords) installOverflowGuard();
+            if (!options.animateNewWords) {
+                installOverflowGuard(options.sourceReplacement === true);
+            }
         }
 
         function ensureGridRuntime() {

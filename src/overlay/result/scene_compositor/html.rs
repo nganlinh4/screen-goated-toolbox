@@ -517,7 +517,6 @@ function reportNavigation(id, entry) {
     max_depth: entry.navigationUrls.length
   }));
 }
-
 function navigateTo(entry, url) {
   cancelActiveFit(entry);
   entry.navigationUrls.splice(entry.navigationDepth);
@@ -533,7 +532,6 @@ function navigateTo(entry, url) {
   entry.frame.src = url;
   reportNavigation(entry.card.dataset.id, entry);
 }
-
 window.addEventListener('message', function(event) {
   if (!event.data || event.origin !== isolatedOrigin) return;
   const id = String(event.data.card_id || '');
@@ -591,7 +589,6 @@ window.addEventListener('message', function(event) {
       navigateTo(entry, event.data.url);
     }
 });
-
 __SGT_HOST_COMMAND_RUNTIME__
 
 </script><script>__SGT_BUTTON_SCRIPT__</script><script>__SGT_BUTTON_SCENE_RUNTIME__</script><script>__SGT_SETTLED_REVEAL_RUNTIME__</script><script>__SGT_RENDERER_BOOTSTRAP__</script>

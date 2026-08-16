@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::contract::DetectedTextRegion;
 use super::geometry::PixelRegion;
@@ -6,7 +6,7 @@ use super::geometry::PixelRegion;
 const BACKGROUND_BUCKETS: usize = 512;
 const RELIABLE_BACKGROUND_PERCENT: u8 = 28;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct VisualSignature {
     pub background_rgb: [u8; 3],

@@ -6,6 +6,7 @@ const SCREEN_RECORD_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--screen-record-webview2-d
 const CREATION_UI_TEST_FLAG: &str = "--creation-ui-test";
 const CREATION_WEBVIEW2_DEBUG_PORT_FLAG: &str = "--creation-webview2-debug-port";
 const SCREEN_TRANSLATE_UI_TEST_FLAG: &str = "--screen-translate-ui-test";
+const SCREEN_TRANSLATE_LAB_QUEUE_FLAG: &str = "--screen-translate-lab-queue";
 const RESULT_COMPOSITOR_SMOKE_FLAG: &str = "--result-compositor-smoke";
 const STATUS_COMPOSITOR_SMOKE_FLAG: &str = "--status-compositor-smoke";
 const REALTIME_COMPOSITOR_SMOKE_FLAG: &str = "--realtime-compositor-smoke";
@@ -117,6 +118,13 @@ impl StartupArgs {
             .filter(|value| !value.starts_with("--"))
             .map(PathBuf::from)
             .filter(|path| path.is_file())
+    }
+
+    pub(crate) fn screen_translate_lab_queue(&self) -> Option<PathBuf> {
+        self.value(SCREEN_TRANSLATE_LAB_QUEUE_FLAG)
+            .filter(|value| !value.starts_with("--"))
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute() && path.is_dir())
     }
 
     pub(crate) fn result_compositor_smoke(&self) -> bool {
@@ -269,6 +277,25 @@ mod tests {
                 RESULT_COMPOSITOR_SMOKE_FLAG
             ])
             .screen_translate_ui_test_image(),
+            None
+        );
+    }
+
+    #[test]
+    fn screen_translate_lab_queue_requires_an_absolute_directory() {
+        let directory = std::env::temp_dir();
+        assert_eq!(
+            args(&[
+                "sgt.exe",
+                SCREEN_TRANSLATE_LAB_QUEUE_FLAG,
+                directory.to_str().unwrap()
+            ])
+            .screen_translate_lab_queue(),
+            Some(directory)
+        );
+        assert_eq!(
+            args(&["sgt.exe", SCREEN_TRANSLATE_LAB_QUEUE_FLAG, "relative"])
+                .screen_translate_lab_queue(),
             None
         );
     }

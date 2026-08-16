@@ -17,6 +17,11 @@ use super::contract::{
 };
 use super::stream_parser::TranslationStreamParser;
 
+const MAX_UNRESOLVED_TAIL: usize = 3;
+const MIN_PARTIAL_COVERAGE_PERCENT: usize = 80;
+const MAX_TAIL_FAILURES: usize = 2;
+const TAIL_REPAIR_TIMEOUT: Duration = Duration::from_secs(3);
+
 pub(super) fn translate<F>(
     trace_id: &str,
     target_language: &str,
@@ -37,6 +42,7 @@ where
     let mut blocked_providers = HashSet::new();
     let mut accepted = Vec::new();
     let mut covered = HashSet::new();
+    let mut tail_failures = 0;
     let mut current =
         crate::model_config::get_model_by_id_with_custom(translation_model, &config.custom_models)
             .or_else(|| {
@@ -60,6 +66,11 @@ where
         }
         let schema = response_schema(pending.len());
         let request_text = prompt_with_instruction(target_language, translation_prompt, &pending)?;
+        let request_timeout = if can_finish_partial(candidates, &covered) {
+            TAIL_REPAIR_TIMEOUT
+        } else {
+            Duration::from_secs(20)
+        };
         if let Some(reason) =
             preflight_skip_reason(&current.id, &current.provider, &config, &blocked_providers)
                 .or_else(|| claim_model_attempt(&current.id))
@@ -79,6 +90,23 @@ where
                 current.provider
             );
             let mut parser = TranslationStreamParser::new(&pending);
+            let covered_before_attempt = covered.len();
+            let attempt_cancel = if request_timeout == TAIL_REPAIR_TIMEOUT {
+                let tail_cancel = Arc::new(AtomicBool::new(false));
+                let timeout_cancel = Arc::clone(&tail_cancel);
+                let job_cancel = Arc::clone(&cancel);
+                std::thread::spawn(move || {
+                    let deadline = std::time::Instant::now() + TAIL_REPAIR_TIMEOUT;
+                    while std::time::Instant::now() < deadline && !job_cancel.load(Ordering::SeqCst)
+                    {
+                        std::thread::sleep(Duration::from_millis(25));
+                    }
+                    timeout_cancel.store(true, Ordering::SeqCst);
+                });
+                tail_cancel
+            } else {
+                Arc::clone(&cancel)
+            };
             let response = translate_text_streaming(
                 TranslateTextRequest {
                     groq_api_key: &config.api_key,
@@ -93,8 +121,8 @@ where
                     response_schema: Some(&schema),
                     search_label: None,
                     ui_language: &config.ui_language,
-                    cancel_token: Some(Arc::clone(&cancel)),
-                    request_timeout: Some(Duration::from_secs(20)),
+                    cancel_token: Some(attempt_cancel),
+                    request_timeout: Some(request_timeout),
                     target_language: Some(target_language.to_string()),
                 },
                 |chunk| {
@@ -147,6 +175,21 @@ where
                 release_model_probe(&current.id);
                 bail!("screen translation was cancelled");
             }
+            if can_finish_partial(candidates, &covered) {
+                tail_failures += 1;
+                if tail_failures >= MAX_TAIL_FAILURES {
+                    let document = assembled_document(&accepted);
+                    record_model_success(&current.id);
+                    crate::log_info!(
+                        "[Screen Translate] trace={trace_id} completed with validated partial output regions={} omitted={}",
+                        document.regions.len(),
+                        candidates.len().saturating_sub(covered.len())
+                    );
+                    return Ok(document);
+                }
+            } else if covered.len() > covered_before_attempt {
+                tail_failures = 0;
+            }
             record_model_failure(&current.id, &error.to_string());
             if crate::overlay::utils::should_block_retry_provider(&error.to_string()) {
                 blocked_providers.insert(current.provider.clone());
@@ -190,9 +233,21 @@ fn completed_document(
     {
         return None;
     }
+    Some(assembled_document(accepted))
+}
+
+fn assembled_document(accepted: &[TranslationRegion]) -> TranslationDocument {
     let mut regions = accepted.to_vec();
     regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
-    Some(TranslationDocument { regions })
+    TranslationDocument { regions }
+}
+
+fn can_finish_partial(candidates: &[DetectedTextRegion], covered: &HashSet<u16>) -> bool {
+    let unresolved = candidates.len().saturating_sub(covered.len());
+    !covered.is_empty()
+        && unresolved > 0
+        && unresolved <= MAX_UNRESOLVED_TAIL
+        && covered.len() * 100 >= candidates.len() * MIN_PARTIAL_COVERAGE_PERCENT
 }
 
 fn accept_region(
@@ -218,9 +273,9 @@ mod tests {
         DetectedTextRegion {
             id,
             bounds: NormalizedBounds {
-                left: 10,
+                left: id.saturating_mul(200),
                 top,
-                right: 90,
+                right: id.saturating_mul(200).saturating_add(80),
                 bottom: top + 20,
             },
             source_text: format!("source-{id}"),
@@ -233,6 +288,7 @@ mod tests {
         TranslationRegion {
             id: candidate.id,
             member_ids: vec![candidate.id],
+            member_joins: Vec::new(),
             selections: vec![super::super::contract::TranslationSelection {
                 region_id: candidate.id,
                 candidate_id: format!("r{}c0", candidate.id),
@@ -241,7 +297,7 @@ mod tests {
             }],
             semantic_role: super::super::contract::SemanticRole::Standalone,
             source_text: candidate.source_text.clone(),
-            translated_text: format!("translated-{}", candidate.id),
+            translated_segments: vec![format!("translated-{}", candidate.id)],
             bounds: candidate.bounds,
             background_color: None,
             text_color: None,
@@ -286,7 +342,7 @@ mod tests {
         let mut covered = HashSet::new();
         let mut first_attempt = TranslationStreamParser::new(&candidates);
         for (_, region) in first_attempt.push(
-            r#"{"regions":[{"regionId":1,"candidateId":"r1c0","translationRequirement":"translation_required","translatedText":"first"},{"regionId":2,"candidateId":"bad","translationRequirement":"translation_required","translatedText":"bad"}]}"#,
+            r#"{"regions":[{"regionId":1,"memberIdsInReadingOrder":[1],"candidateIds":["r1c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["first"]},{"regionId":2,"memberIdsInReadingOrder":[2],"candidateIds":["bad"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["bad"]}]}"#,
         ) {
             accept_region(&mut accepted, &mut covered, region);
         }
@@ -299,18 +355,18 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![2, 3]
         );
-        assert_eq!(accepted[0].translated_text, "first");
+        assert_eq!(accepted[0].translated_segments, ["first"]);
 
         let mut fallback = TranslationStreamParser::new(&pending);
         for (_, region) in fallback.push(
-            r#"{"regions":[{"regionId":2,"candidateId":"r2c0","translationRequirement":"translation_required","translatedText":"second"},{"regionId":3,"candidateId":"r3c0","translationRequirement":"translation_required","translatedText":"third"}]}"#,
+            r#"{"regions":[{"regionId":2,"memberIdsInReadingOrder":[2],"candidateIds":["r2c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["second"]},{"regionId":3,"memberIdsInReadingOrder":[3],"candidateIds":["r3c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["third"]}]}"#,
         ) {
             accept_region(&mut accepted, &mut covered, region);
         }
 
         let completed = completed_document(&candidates, &accepted, &covered).unwrap();
         assert_eq!(completed.regions.len(), 3);
-        assert_eq!(completed.regions[0].translated_text, "first");
+        assert_eq!(completed.regions[0].translated_segments, ["first"]);
     }
 
     #[test]
@@ -318,16 +374,16 @@ mod tests {
         let candidate = candidate(1, 20);
         let mut region = translated(&candidate);
         region.source_text = "첫째 줄\n둘째 줄.".to_string();
-        region.translated_text = "첫째 줄 둘째 줄".to_string();
+        region.translated_segments = vec!["첫째 줄 둘째 줄".to_string()];
         assert!(super::super::contract::text_is_source_equivalent(
             &region.source_text,
-            &region.translated_text
+            &region.translated_segments.join(" ")
         ));
 
-        region.translated_text = "Dòng thứ nhất, dòng thứ hai.".to_string();
+        region.translated_segments = vec!["Dòng thứ nhất, dòng thứ hai.".to_string()];
         assert!(!super::super::contract::text_is_source_equivalent(
             &region.source_text,
-            &region.translated_text
+            &region.translated_segments.join(" ")
         ));
     }
 
@@ -335,11 +391,24 @@ mod tests {
     fn model_declared_already_target_text_is_accepted_without_a_retry() {
         let candidate = candidate(1, 20);
         let mut region = translated(&candidate);
-        region.translated_text = region.source_text.clone();
+        region.translated_segments = vec![region.source_text.clone()];
         let mut accepted = Vec::new();
         let mut covered = HashSet::new();
         assert!(accept_region(&mut accepted, &mut covered, region));
         assert_eq!(covered, HashSet::from([candidate.id]));
         assert_eq!(accepted.len(), 1);
+    }
+
+    #[test]
+    fn partial_completion_is_reserved_for_a_small_high_coverage_tail() {
+        let candidates = (1..=19)
+            .map(|id| candidate(id, id.saturating_mul(10)))
+            .collect::<Vec<_>>();
+        let covered = (1..=18).collect::<HashSet<_>>();
+        assert!(can_finish_partial(&candidates, &covered));
+
+        let insufficient = (1..=15).collect::<HashSet<_>>();
+        assert!(!can_finish_partial(&candidates, &insufficient));
+        assert!(!can_finish_partial(&candidates[..2], &HashSet::from([1])));
     }
 }

@@ -12,7 +12,7 @@ pub(super) fn bytes() -> &'static [u8] {
 pub(crate) fn face_css(source: &str) -> String {
     format!(
         "@font-face{{font-family:'Google Sans Flex';font-style:normal;\
-         font-weight:100 1000;font-stretch:25% 1000%;font-display:block;\
+         font-weight:100 1000;font-stretch:25% 151%;font-display:block;\
          src:url('{source}') format('truetype')}}"
     )
 }
@@ -37,7 +37,7 @@ mod tests {
         let css = isolated_face_css();
         assert_eq!(css.matches("data:font/ttf;base64,").count(), 1);
         assert!(css.contains("font-weight:100 1000"));
-        assert!(css.contains("font-stretch:25% 1000%"));
+        assert!(css.contains("font-stretch:25% 151%"));
         assert_eq!(bytes(), FONT_BYTES);
         assert_eq!(bytes(), crate::assets::GOOGLE_SANS_FLEX);
     }

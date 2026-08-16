@@ -166,7 +166,7 @@ mod tests {
         let mut parser = TranslationStreamParser::new(&candidates);
         assert!(parser.push("{\"reg").is_empty());
         let regions = parser.push(
-            "ions\":[{\"regionId\":7,\"candidateId\":\"r7c1\",\"translationRequirement\":\"translation_required\",\"translatedText\":\"done\"},",
+            "ions\":[{\"regionId\":7,\"memberIdsInReadingOrder\":[7],\"candidateIds\":[\"r7c1\"],\"memberJoins\":[],\"semanticRole\":\"standalone\",\"translationRequirement\":\"translation_required\",\"translatedSegments\":[\"done\"]},",
         );
         assert_eq!(regions.len(), 1);
         assert_eq!(regions[0].1.source_text, "alternate");
@@ -178,12 +178,12 @@ mod tests {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
         let regions = parser.push(
-            "{\"regions\":[{\"regionId\":7,\"candidateId\":\"bad\",\"translationRequirement\":\"translation_required\",\"translatedText\":\"bad\"},{\"regionId\":7,\"candidateId\":\"r7c0\",\"translationRequirement\":\"translation_required\",\"translatedText\":\"good\"}]}",
+            "{\"regions\":[{\"regionId\":7,\"memberIdsInReadingOrder\":[7],\"candidateIds\":[\"bad\"],\"memberJoins\":[],\"semanticRole\":\"standalone\",\"translationRequirement\":\"translation_required\",\"translatedSegments\":[\"bad\"]},{\"regionId\":7,\"memberIdsInReadingOrder\":[7],\"candidateIds\":[\"r7c0\"],\"memberJoins\":[],\"semanticRole\":\"standalone\",\"translationRequirement\":\"translation_required\",\"translatedSegments\":[\"good\"]}]}",
         );
 
         assert_eq!(parser.rejected_count(), 1);
         assert_eq!(regions.len(), 1);
-        assert_eq!(regions[0].1.translated_text, "good");
+        assert_eq!(regions[0].1.translated_segments, ["good"]);
     }
 
     #[test]
@@ -194,12 +194,12 @@ mod tests {
         candidates.push(second);
         let mut parser = TranslationStreamParser::new(&candidates);
         let emitted = parser.push(
-            r#"[{"regionId":7,"candidateId":"r7c0","translationRequirement":"translation_required","translatedText":"first"},{"regionId":8,"candidateId":"r8c0","translationRequirement":"translation_required","translatedText":"second"}]"#,
+            r#"[{"regionId":7,"memberIdsInReadingOrder":[7],"candidateIds":["r7c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["first"]},{"regionId":8,"memberIdsInReadingOrder":[8],"candidateIds":["r8c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["second"]}]"#,
         );
         assert_eq!(
             emitted
                 .iter()
-                .map(|(_, region)| region.translated_text.as_str())
+                .map(|(_, region)| region.translated_segments[0].as_str())
                 .collect::<Vec<_>>(),
             vec!["first", "second"]
         );

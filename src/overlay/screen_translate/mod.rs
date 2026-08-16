@@ -3,15 +3,22 @@
 mod appearance;
 mod backdrop;
 mod capture;
+mod cell_validation;
 pub(crate) mod contract;
 mod detector;
+mod detector_topology;
+#[cfg(debug_assertions)]
+mod diagnostic_raw;
 mod diagnostics;
 #[cfg(debug_assertions)]
 mod evidence_capture;
 pub(crate) mod geometry;
 mod inference;
-mod layout;
 mod render;
+mod render_expansion;
+mod render_scene;
+#[cfg(debug_assertions)]
+mod replay;
 mod runtime;
 mod schema;
 pub(crate) mod stream_parser;
@@ -75,6 +82,41 @@ pub(crate) fn run_ui_test(image_path: Option<std::path::PathBuf>) {
         capture::start_foreground();
     });
 }
+
+#[cfg(debug_assertions)]
+pub(crate) fn run_lab_queue(queue: std::path::PathBuf) {
+    prepare_detector();
+    std::thread::Builder::new()
+        .name("sgt-screen-translate-lab-queue".to_string())
+        .spawn(move || {
+            let request = queue.join("request.json");
+            loop {
+                if request.is_file() && !crate::overlay::is_busy() {
+                    let value = std::fs::read(&request)
+                        .ok()
+                        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+                    let _ = std::fs::remove_file(&request);
+                    if let Some(value) = value {
+                        if value.get("action").and_then(|item| item.as_str()) == Some("replay") {
+                            replay::start(value);
+                        } else if let Some(image) = value
+                            .get("image")
+                            .and_then(|item| item.as_str())
+                            .map(std::path::PathBuf::from)
+                            .filter(|path| path.is_absolute() && path.is_file())
+                        {
+                            capture::start_image(image);
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        })
+        .ok();
+}
+
+#[cfg(not(debug_assertions))]
+pub(crate) fn run_lab_queue(_queue: std::path::PathBuf) {}
 
 pub(crate) fn stop_detector() {
     detector::stop();

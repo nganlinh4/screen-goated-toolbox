@@ -12,14 +12,42 @@ pub(super) fn response_schema(region_count: usize, max_text_chars: usize) -> ser
                     "type": "object",
                     "properties": {
                         "regionId": { "type": "integer" },
-                        "candidateId": { "type": "string", "minLength": 3, "maxLength": 24 },
+                        "memberIdsInReadingOrder": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": region_count,
+                            "items": { "type": "integer" }
+                        },
+                        "candidateIds": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": region_count,
+                            "items": { "type": "string", "minLength": 3, "maxLength": 24 }
+                        },
+                        "memberJoins": {
+                            "type": "array",
+                            "maxItems": region_count,
+                            "items": {
+                                "type": "string",
+                                "enum": ["same_line", "wrapped_line", "same_column", "same_block"]
+                            }
+                        },
+                        "semanticRole": {
+                            "type": "string",
+                            "enum": ["standalone", "heading", "paragraph", "list_item", "label", "value", "dialogue"]
+                        },
                         "translationRequirement": {
                             "type": "string",
                             "enum": ["translation_required", "already_target", "non_linguistic"]
                         },
-                        "translatedText": { "type": "string", "minLength": 1, "maxLength": max_text_chars }
+                        "translatedSegments": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": region_count,
+                            "items": { "type": "string", "minLength": 1, "maxLength": max_text_chars }
+                        }
                     },
-                    "required": ["regionId", "candidateId", "translationRequirement", "translatedText"],
+                    "required": ["regionId", "memberIdsInReadingOrder", "candidateIds", "memberJoins", "semanticRole", "translationRequirement", "translatedSegments"],
                     "additionalProperties": false
                 }
             }

@@ -38,6 +38,7 @@ pub(super) fn run(
     creation_ui_test: Option<CreationUiTestApp>,
     screen_translate_ui_test: bool,
     screen_translate_ui_test_image: Option<PathBuf>,
+    screen_translate_lab_queue: Option<PathBuf>,
     pending_file_path: Option<PathBuf>,
 ) -> eframe::Result<()> {
     let initial_config = APP.lock().unwrap().config.clone();
@@ -124,6 +125,9 @@ pub(super) fn run(
                     crate::log_info!("[ScreenTranslateUiTest] Running Screen Translate");
                     crate::overlay::screen_translate::run_ui_test(screen_translate_ui_test_image);
                 });
+            }
+            if let Some(queue) = screen_translate_lab_queue {
+                crate::overlay::screen_translate::run_lab_queue(queue);
             }
 
             Ok(Box::new(gui::SettingsApp::new(gui::SettingsAppInit {

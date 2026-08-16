@@ -240,7 +240,7 @@ pub fn compact_filled_icon_button(
         FilledIconButtonLayout {
             minimum_horizontal_padding: 3.0,
             icon_gap: 3.0,
-            text_style: egui::TextStyle::Small,
+            text_style: egui::TextStyle::Button,
         },
     )
 }

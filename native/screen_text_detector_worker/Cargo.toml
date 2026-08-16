@@ -1,6 +1,6 @@
 [package]
 name = "sgt-screen-text-detector-worker"
-version = "3.2.4"
+version = "3.2.11"
 edition = "2024"
 publish = false
 
