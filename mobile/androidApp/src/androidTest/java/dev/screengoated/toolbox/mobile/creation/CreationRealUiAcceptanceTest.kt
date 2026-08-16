@@ -7,27 +7,36 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
-import dev.screengoated.toolbox.mobile.MainActivity
 import java.io.File
 import java.util.UUID
 import java.util.regex.Pattern
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.After
+import org.junit.Assume.assumeTrue
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -44,8 +53,12 @@ class CreationRealUiAcceptanceTest {
     private var sourceUri: Uri? = null
 
     @Before
-    fun removeOrphanedInputs() {
-        cancelUnassignedQualityControlJobs()
+    fun resetFreshCreationState() {
+        check(CreationJobJournal(context).load().none { creationStageIsBusy(it.status.stage) }) {
+            "Fresh acceptance reset refused while a creation dispatch is recoverable"
+        }
+        resetCreationFilesPreservingInstalledRuntime()
+        resetWorkerBrowserProfiles()
         context.contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             arrayOf(MediaStore.Images.Media._ID),
@@ -64,17 +77,28 @@ class CreationRealUiAcceptanceTest {
         }
     }
 
-    private fun cancelUnassignedQualityControlJobs() {
-        val manager = CreationJobManager.get(context)
-        CreationJobJournal(context).load()
-            .filter { record ->
-                record.ownerId.startsWith(QUALITY_CONTROL_OWNER_PREFIX) &&
-                    record.engineId == null &&
-                    creationStageIsBusy(record.status.stage)
+    private fun resetCreationFilesPreservingInstalledRuntime() {
+        val creationRoot = File(context.filesDir, "creation")
+        creationRoot.listFiles().orEmpty()
+            .filterNot { it.name == "runtime" }
+            .forEach { path ->
+                check(path.deleteRecursively()) {
+                    "Could not remove prior creation acceptance state: ${path.name}"
+                }
             }
-            .forEach { record ->
-                val tool = CreationTool.fromWireName(record.request.tool) ?: return@forEach
-                manager.cancel(record.ownerId, tool, record.request.jobId)
+        val cache = File(context.cacheDir, "creation")
+        check(!cache.exists() || cache.deleteRecursively()) {
+            "Could not remove prior creation acceptance cache"
+        }
+    }
+
+    private fun resetWorkerBrowserProfiles() {
+        context.dataDir.listFiles().orEmpty()
+            .filter { it.name.startsWith(WORKER_WEBVIEW_DIRECTORY_PREFIX) }
+            .forEach { path ->
+                check(path.deleteRecursively()) {
+                    "Could not remove prior worker browser profile: ${path.name}"
+                }
             }
     }
 
@@ -86,56 +110,105 @@ class CreationRealUiAcceptanceTest {
 
     @Test
     fun imageTo3dFastGeneratesValidatedGlb() {
-        runImageCase(CreationTool.IMAGE_TO_3D, "creation-mode-fast") {
+        runImageCase(
+            "3d-fast",
+            CreationTool.IMAGE_TO_3D,
+            "creation-mode-fast",
+            CreationGenerationMode.FAST,
+        ) {
             CreationArtifactValidator.validateGlb(it)
         }
     }
 
     @Test
     fun imageTo3dQualityGeneratesValidatedGlb() {
-        runImageCase(CreationTool.IMAGE_TO_3D, "creation-mode-quality") {
+        runImageCase(
+            "3d-quality",
+            CreationTool.IMAGE_TO_3D,
+            "creation-mode-quality",
+            CreationGenerationMode.QUALITY,
+        ) {
             CreationArtifactValidator.validateGlb(it)
         }
     }
 
     @Test
-    fun imageToSvgReleaseEntryIsHiddenWithoutStartingReadiness() {
-        assertReleaseEntryHidden("app-card-image-to-svg", CreationTool.IMAGE_TO_SVG)
+    fun imageToSvgSimpleGeneratesValidatedSvg() {
+        runImageCase("svg", CreationTool.IMAGE_TO_SVG, "creation-svg-simple", null) {
+            CreationArtifactValidator.validateSvg(it)
+        }
     }
 
     @Test
-    fun imageCreatorReleaseEntryIsHiddenWithoutStartingReadiness() {
-        assertReleaseEntryHidden("app-card-image-creator", CreationTool.IMAGE_CREATOR)
+    fun imageCreatorTextOnlyGeneratesValidatedPng() {
+        assumeTrue(
+            "Image creation restoration case is not released",
+            creationToolReleased(CreationTool.IMAGE_CREATOR),
+        )
+        runSurface(CreationTool.IMAGE_CREATOR) { startedAt, ownerId ->
+            compose.onNodeWithTag("creation-image-prompt")
+                .assertExists()
+                .performTextInput("Create a cobalt circle on a warm neutral background")
+            compose.onNodeWithTag("creation-primary-action").assertIsEnabled()
+            submitAndValidate(
+                "image-text",
+                CreationTool.IMAGE_CREATOR,
+                ownerId,
+                startedAt,
+                null,
+                emptyList(),
+            ) {
+                CreationArtifactValidator.validatePng(it, null, null)
+            }
+        }
     }
 
-    private fun assertReleaseEntryHidden(cardTag: String, tool: CreationTool) {
-        ActivityScenario.launch(MainActivity::class.java).use {
-            compose.onNodeWithTag("shell-tab-apps").performClick()
-            compose.waitUntil(timeoutMillis = 10_000) {
-                compose.onAllNodesWithTag("shell-section-apps")
+    @Test
+    fun imageCreatorReferenceEditGeneratesValidatedPng() {
+        assumeTrue(
+            "Image creation restoration case is not released",
+            creationToolReleased(CreationTool.IMAGE_CREATOR),
+        )
+        sourceUri = createInputImage()
+        runSurface(CreationTool.IMAGE_CREATOR) { startedAt, ownerId ->
+            compose.onNodeWithTag("creation-image-add-references")
+                .assertExists()
+                .performScrollTo()
+                .assertIsDisplayed()
+                .assertIsEnabled()
+                .performClick()
+            selectInputFromSystemPicker(requireNotNull(sourceUri))
+            compose.waitUntil(timeoutMillis = 30_000) {
+                compose.onAllNodesWithTag("creation-image-reference-0")
                     .fetchSemanticsNodes(atLeastOneRootRequired = false)
                     .isNotEmpty()
             }
-            compose.waitForIdle()
-            assertTrue(
-                compose.onAllNodesWithTag(cardTag)
-                    .fetchSemanticsNodes(atLeastOneRootRequired = false)
-                    .isEmpty(),
-            )
-            check(
-                CreationJobManager.get(context)
-                    .preparationStatus(tool) == "unavailable",
-            ) { "Disabled creation entry started readiness" }
+            compose.onNodeWithTag("creation-image-prompt")
+                .assertExists()
+                .performTextInput("Turn this into a crisp coral and cobalt poster")
+            compose.onNodeWithTag("creation-primary-action").assertIsEnabled()
+            submitAndValidate(
+                "image-reference-edit",
+                CreationTool.IMAGE_CREATOR,
+                ownerId,
+                startedAt,
+                null,
+                listOf(sha256(requireNotNull(sourceUri))),
+            ) {
+                CreationArtifactValidator.validatePng(it, null, null)
+            }
         }
     }
 
     private fun runImageCase(
+        caseName: String,
         tool: CreationTool,
         settingTag: String,
+        expectedGenerationMode: CreationGenerationMode?,
         validate: (File) -> Unit,
     ) {
         sourceUri = createInputImage()
-        runSurface(tool) { startedAt ->
+        runSurface(tool) { startedAt, ownerId ->
             val queueSizeBeforeImport = currentQueueSize()
             compose.onNodeWithTag("creation-add-input").assertExists().performClick()
             selectInputFromSystemPicker(requireNotNull(sourceUri))
@@ -147,52 +220,153 @@ class CreationRealUiAcceptanceTest {
             }
             compose.onNodeWithTag("creation-selected-input").assertExists()
             compose.onNodeWithTag("creation-selected-stage-draft").assertExists()
-            compose.onNodeWithTag(settingTag).assertExists().performClick()
+            val setting = compose.onNodeWithTag(settingTag)
+                .assertExists()
+                .performScrollTo()
+                .assertIsDisplayed()
+                .assertIsEnabled()
+            setting.performClick()
+            if (expectedGenerationMode != null) setting.assertIsOn()
             compose.onNodeWithTag("creation-primary-action").assertIsEnabled()
-            submitAndValidate(tool, startedAt, validate)
+            submitAndValidate(
+                caseName,
+                tool,
+                ownerId,
+                startedAt,
+                expectedGenerationMode,
+                listOf(sha256(requireNotNull(sourceUri))),
+                validate,
+            )
         }
     }
 
     private fun runSurface(
         tool: CreationTool,
-        body: (Long) -> Unit,
+        body: (Long, String) -> Unit,
     ) {
         val startedAt = System.currentTimeMillis()
+        val ownerId = "$QUALITY_CONTROL_OWNER_PREFIX${UUID.randomUUID()}"
         val intent = Intent(context, CreationMiniAppActivity::class.java)
             .putExtra("creation_tool", tool.wireName)
-            .putExtra("creation_owner_id", "$QUALITY_CONTROL_OWNER_PREFIX${UUID.randomUUID()}")
+            .putExtra("creation_owner_id", ownerId)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         ActivityScenario.launch<CreationMiniAppActivity>(intent).use {
             compose.onNodeWithTag("creation-root").assertExists()
-            body(startedAt)
+            body(startedAt, ownerId)
         }
     }
 
     private fun submitAndValidate(
+        caseName: String,
         tool: CreationTool,
+        ownerId: String,
         startedAt: Long,
+        expectedGenerationMode: CreationGenerationMode?,
+        expectedReferenceSha256: List<String>,
         validate: (File) -> Unit,
     ) {
         compose.onNodeWithTag("creation-primary-action").assertExists().performClick()
-        compose.waitUntil(timeoutMillis = MAXIMUM_CASE_RUNTIME_MS) {
-            val done = compose.onAllNodesWithTag("creation-selected-stage-done")
+        val acceptedCase = awaitWorkerAssignment(ownerId, tool)
+        val requestEvidence = CreationAcceptanceAttestation.acceptedRequest(
+            context,
+            acceptedCase,
+            expectedGenerationMode,
+            expectedReferenceSha256,
+        )
+        val history = awaitCommittedHistory(tool, acceptedCase, startedAt)
+        compose.waitUntil(timeoutMillis = 10_000) {
+            compose.onAllNodesWithTag("creation-selected-stage-done")
                 .fetchSemanticsNodes(atLeastOneRootRequired = false)
                 .isNotEmpty()
-            val failed = compose.onAllNodesWithTag("creation-selected-stage-failed")
-                .fetchSemanticsNodes(atLeastOneRootRequired = false)
-                .isNotEmpty()
-            done || failed
         }
-        val failed = compose.onAllNodesWithTag("creation-selected-stage-failed")
-            .fetchSemanticsNodes(atLeastOneRootRequired = false)
-            .isNotEmpty()
-        check(!failed) { "Creation reached a failed terminal state" }
-        val history = CreationJobManager.get(context).history.list(tool)
-            .firstOrNull { it.createdAtMs >= startedAt }
-            ?: error("Creation completed without a new committed history result")
+        compose.onNodeWithTag("creation-selected-stage-done").assertExists()
         val output = File(history.outputPath)
         assertTrue("Committed result does not exist", output.isFile)
         validate(output)
+        val artifactSha256 = sha256(output)
+        assertEquals("Committed artifact SHA-256 changed", history.committedSha256, artifactSha256)
+        assertEquals("Committed artifact size changed", history.committedSize, output.length())
+        val delivery = CreationAcceptanceAttestation.selectedRuntime(context)
+        val arguments = InstrumentationRegistry.getArguments()
+        assertEquals(
+            "Instrumentation case selection changed",
+            caseName,
+            requireNotNull(arguments.getString("sgtCreationCaseName")),
+        )
+        val caseId = requireNotNull(arguments.getString("sgtCreationCaseId"))
+        println(
+            "$ACCEPTANCE_EVIDENCE_PREFIX " +
+                JSONObject()
+                    .put("schemaVersion", 2)
+                    .put("caseName", caseName)
+                    .put("caseId", caseId)
+                    .put("distribution", delivery.distribution)
+                    .put("ownerId", ownerId)
+                    .put("engineId", requireNotNull(acceptedCase.engineId))
+                    .put("dispatchId", acceptedCase.request.dispatchId)
+                    .put("tool", tool.wireName)
+                    .put("acceptedRequestFingerprint", requestEvidence.fingerprint)
+                    .put(
+                        "acceptedGenerationMode",
+                        requestEvidence.generationMode ?: JSONObject.NULL,
+                    )
+                    .put("acceptedReferenceCount", requestEvidence.referenceSha256.size)
+                    .put("acceptedReferenceSha256", JSONArray(requestEvidence.referenceSha256))
+                    .put("acceptedRequestValidated", requestEvidence.frozenAndValidated)
+                    .put("artifactSize", output.length())
+                    .put("artifactSha256", artifactSha256)
+                    .put("artifactValidator", "project-structural-v1")
+                    .put("deliveryChannel", delivery.channel)
+                    .put("contractSha256", delivery.contractSha256)
+                    .put("runtimeArtifactSha256", delivery.runtimeArtifactSha256)
+                    .put("runtimeFactoryClass", delivery.runtimeFactoryClass)
+                    .put("runtimeVersion", delivery.runtimeVersion)
+                    .put("runtimeManifestSha256", delivery.runtimeManifestSha256)
+                    .put("runtimeSplitName", delivery.runtimeSplitName ?: JSONObject.NULL)
+                    .put("mailboxPollIntervalMs", delivery.mailboxPollIntervalMs)
+                    .toString(),
+        )
+    }
+
+    private fun awaitWorkerAssignment(
+        ownerId: String,
+        tool: CreationTool,
+    ): CreationJournalRecord {
+        val deadline = SystemClock.elapsedRealtime() + MAXIMUM_CASE_RUNTIME_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val current = CreationJobJournal(context).load().singleOrNull { record ->
+                record.ownerId == ownerId && record.request.tool == tool.wireName
+            }
+            if (current != null) {
+                check(current.status.stage !in TERMINAL_FAILURE_STAGES) {
+                    "Creation failed before worker assignment"
+                }
+                if (current.engineId != null) return current
+            }
+            SystemClock.sleep(ACCEPTANCE_POLL_INTERVAL_MS)
+        }
+        error("Creation did not receive a worker before its whole-job deadline")
+    }
+
+    private fun awaitCommittedHistory(
+        tool: CreationTool,
+        accepted: CreationJournalRecord,
+        startedAt: Long,
+    ): CreationHistoryEntry {
+        val deadline = SystemClock.elapsedRealtime() + MAXIMUM_CASE_RUNTIME_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            CreationJobManager.get(context).history.list(tool).firstOrNull {
+                it.createdAtMs >= startedAt && it.dispatchId == accepted.request.dispatchId
+            }?.let { return it }
+            val current = CreationJobJournal(context).load().singleOrNull {
+                it.request.dispatchId == accepted.request.dispatchId
+            }
+            check(current == null || current.status.stage !in TERMINAL_FAILURE_STAGES) {
+                "Creation reached a failed terminal state"
+            }
+            SystemClock.sleep(ACCEPTANCE_POLL_INTERVAL_MS)
+        }
+        error("Creation did not commit a result before its whole-job deadline")
     }
 
     private fun createInputImage(): Uri {
@@ -231,6 +405,10 @@ class CreationRealUiAcceptanceTest {
         return uri
     }
 
+    private fun sha256(uri: Uri): String = context.contentResolver.openInputStream(uri).use {
+        sha256(requireNotNull(it).readBytes())
+    }
+
     private fun currentQueueSize(): Int =
         compose.onAllNodesWithTag("creation-input")
             .fetchSemanticsNodes(atLeastOneRootRequired = false).size +
@@ -248,28 +426,24 @@ class CreationRealUiAcceptanceTest {
             check(cursor.moveToFirst())
             cursor.getString(0)
         }
-        val target = device.wait(
-            Until.findObject(
-                By.desc(Pattern.compile("^${Pattern.quote(displayName)},.*")),
-            ),
-            50_000,
-        ) ?: device.wait(Until.findObject(By.text(displayName)), 10_000)
-            ?: error("System picker did not show the prepared quality-control image")
-        val bounds = target.visibleBounds
-        check(!bounds.isEmpty) {
-            "System picker showed the quality-control image outside the visible viewport"
-        }
-        val selectionX = bounds.left + bounds.width() / 2
-        val selectionY = bounds.top + bounds.height() * 3 / 4
-        check(device.click(selectionX, selectionY)) {
-            "System picker could not tap the quality-control image at " +
-                "($selectionX, $selectionY), tileBounds=$bounds"
-        }
+        val bounds = clickPickerTile(displayName)
         device.waitForIdle(1_000)
-        if (!device.wait(Until.hasObject(By.pkg(context.packageName)), 3_000)) {
-            confirmPickerSelectionIfPresent()
+        confirmPickerSelectionIfPresent()
+        if (!waitForCreationAppForeground(3_000)) {
+            val recoveredIntoApp = recoverUnresponsiveSystemPicker() &&
+                waitForCreationAppForeground(5_000)
+            if (!recoveredIntoApp) {
+                clickPickerTile(displayName)
+                device.waitForIdle(1_000)
+                confirmPickerSelectionIfPresent()
+            }
         }
-        check(device.wait(Until.hasObject(By.pkg(context.packageName)), 10_000)) {
+        if (!waitForCreationAppForeground(10_000) &&
+            recoverUnresponsiveSystemPicker()
+        ) {
+            waitForCreationAppForeground(10_000)
+        }
+        check(waitForCreationAppForeground(20_000)) {
             "Creation app did not regain focus after choosing the quality-control image; " +
                 "foreground package=${device.currentPackageName}, tileBounds=$bounds"
         }
@@ -283,7 +457,47 @@ class CreationRealUiAcceptanceTest {
         compose.onNodeWithTag("creation-root").assertExists()
     }
 
+    private fun waitForCreationAppForeground(timeoutMillis: Long): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMillis
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (device.currentPackageName == context.packageName) return true
+            SystemClock.sleep(100)
+        }
+        return device.currentPackageName == context.packageName
+    }
+
+    private fun clickPickerTile(displayName: String): Rect {
+        val description = By.desc(Pattern.compile("^${Pattern.quote(displayName)},.*"))
+        val text = By.text(displayName)
+        val deadline = SystemClock.elapsedRealtime() + 60_000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val target = device.findObject(description) ?: device.findObject(text)
+            if (target != null) {
+                try {
+                    val bounds = target.visibleBounds
+                    if (!bounds.isEmpty) {
+                        target.longClick()
+                        return bounds
+                    }
+                } catch (_: StaleObjectException) {
+                    // The picker replaces thumbnail nodes while their previews are decoded.
+                }
+            }
+            SystemClock.sleep(250)
+        }
+        error("System picker did not show a stable, visible quality-control image tile")
+    }
+
     private fun confirmPickerSelectionIfPresent() {
+        val selectAction = device.wait(
+            Until.findObject(By.res(SYSTEM_PICKER_PACKAGE, "action_menu_select")),
+            5_000,
+        )
+        if (selectAction != null) {
+            selectAction.click()
+            device.waitForIdle(1_000)
+            return
+        }
         val labels = listOf("Open", "Select", "Add", "Done")
         val confirmation = labels.firstNotNullOfOrNull { label ->
             device.wait(Until.findObject(By.text(label)), 2_000)
@@ -292,9 +506,23 @@ class CreationRealUiAcceptanceTest {
         device.waitForIdle(1_000)
     }
 
-    private companion object {
-        const val INPUT_NAME_PREFIX = "sgt-creation-qc-"
-        const val QUALITY_CONTROL_OWNER_PREFIX = "quality-control-"
-        const val MAXIMUM_CASE_RUNTIME_MS = 2L * 60 * 60 * 1_000
+    private fun recoverUnresponsiveSystemPicker(): Boolean {
+        val wait = device.wait(Until.findObject(By.res("android", "aerr_wait")), 3_000)
+            ?: return false
+        wait.click()
+        device.waitForIdle(2_000)
+        return true
     }
+
+    private companion object {
+        const val ACCEPTANCE_EVIDENCE_PREFIX = "SGT_CREATION_ACCEPTANCE_EVIDENCE"
+        const val INPUT_NAME_PREFIX = "sgt-creation-qc-"
+        const val SYSTEM_PICKER_PACKAGE = "com.google.android.documentsui"
+        const val QUALITY_CONTROL_OWNER_PREFIX = "quality-control-"
+        const val WORKER_WEBVIEW_DIRECTORY_PREFIX = "app_webview_sgt_creation_"
+        const val ACCEPTANCE_POLL_INTERVAL_MS = 500L
+        const val MAXIMUM_CASE_RUNTIME_MS = 2L * 60 * 60 * 1_000
+        val TERMINAL_FAILURE_STAGES = setOf("failed", "cancelled")
+    }
+
 }

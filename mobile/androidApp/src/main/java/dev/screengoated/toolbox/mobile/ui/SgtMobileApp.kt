@@ -61,6 +61,7 @@ import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyScreen
 import dev.screengoated.toolbox.mobile.creation.CreationMiniAppActivity
+import dev.screengoated.toolbox.mobile.creation.CreationTool
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
@@ -314,7 +315,26 @@ internal fun SgtMobileApp(
                         onTranslationGummyClick = { showTranslationGummy = true },
                         onImageTo3dClick = {
                             appContext.startActivity(
-                                CreationMiniAppActivity.intent(appContext),
+                                CreationMiniAppActivity.intent(
+                                    appContext,
+                                    CreationTool.IMAGE_TO_3D,
+                                ),
+                            )
+                        },
+                        onImageToSvgClick = {
+                            appContext.startActivity(
+                                CreationMiniAppActivity.intent(
+                                    appContext,
+                                    CreationTool.IMAGE_TO_SVG,
+                                ),
+                            )
+                        },
+                        onImageCreatorClick = {
+                            appContext.startActivity(
+                                CreationMiniAppActivity.intent(
+                                    appContext,
+                                    CreationTool.IMAGE_CREATOR,
+                                ),
                             )
                         },
                         onPresetClick = { presetId -> activePresetId = presetId },

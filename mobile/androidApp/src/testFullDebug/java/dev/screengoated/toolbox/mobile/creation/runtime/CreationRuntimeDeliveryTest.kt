@@ -57,6 +57,34 @@ class CreationRuntimeDeliveryTest {
     }
 
     @Test
+    fun `debug delivery accepts the exact content addressed staging bundle`() {
+        val manifest = manifest()
+        val full = manifest.getJSONObject("android").getJSONObject("full")
+        full.put(
+            "downloadUrl",
+            full.getString("downloadUrl").replace(
+                "/download/sgt-runtime-bundles/",
+                "/download/sgt-runtime-staging/",
+            ),
+        )
+
+        assertEquals(full.getString("asset"), parseCreationRuntimeDelivery(manifest).asset)
+    }
+
+    @Test
+    fun `release delivery rejects the staging bundle`() {
+        val asset = "sgt-creation-runtime-android-arm64-${"a".repeat(16)}.zip"
+        val url =
+            "https://github.com/nganlinh4/screen-goated-toolbox/releases/" +
+                "download/sgt-runtime-staging/$asset"
+
+        assertEquals(
+            false,
+            creationRuntimeDownloadUrlIsImmutable(url, asset, allowStaging = false),
+        )
+    }
+
+    @Test
     fun `delivery manifest caps executable entries`() {
         val manifest = manifest()
         val entries = manifest.getJSONObject("android").getJSONArray("entries")
