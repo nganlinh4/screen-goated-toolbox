@@ -3,9 +3,9 @@
   "components": [
     {
       "id": "creation-3d-runtime",
-      "displayName": "3D Creation engine",
+      "displayName": "Creation engine",
       "kind": "sidecar",
-      "capabilities": ["image_to_3d"],
+      "capabilities": ["image_to_3d", "image_to_svg", "image_creator"],
       "dependencies": [],
       "removable": true
     },

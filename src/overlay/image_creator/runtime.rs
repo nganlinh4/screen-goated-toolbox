@@ -137,6 +137,9 @@ pub(super) fn default_output_dir() -> PathBuf {
 }
 
 pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, String> {
+    if !crate::creation_feature_availability::image_creator_release_enabled() {
+        return Err("Image creation is temporarily unavailable.".to_string());
+    }
     crate::overlay::creation_close::ensure_accepting("image")?;
     ensure_recovery_started();
     let inspected_sources = normalize_reference_paths(&mut request)?;

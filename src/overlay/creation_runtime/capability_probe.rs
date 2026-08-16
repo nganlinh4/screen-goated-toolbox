@@ -172,14 +172,25 @@ mod tests {
             size_bytes: 1,
             modified_nanos: 1,
         };
-        let valid = br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#;
-        let parsed =
-            parse_runtime_capabilities(binary.clone(), valid, "1.2.3", &["image_to_3d"]).unwrap();
+        let valid = br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#;
+        let parsed = parse_runtime_capabilities(
+            binary.clone(),
+            valid,
+            "1.2.3",
+            &["image_to_3d", "image_to_svg", "image_creator"],
+        )
+        .unwrap();
         assert!(parsed.fast_optional_instruction);
         assert!(!parsed.quality_optional_instruction);
 
         assert!(
-            parse_runtime_capabilities(binary.clone(), valid, "1.2.4", &["image_to_3d"],).is_none()
+            parse_runtime_capabilities(
+                binary.clone(),
+                valid,
+                "1.2.4",
+                &["image_to_3d", "image_to_svg", "image_creator"],
+            )
+            .is_none()
         );
         assert!(
             parse_runtime_capabilities(binary, valid, "1.2.3", &["image_to_3d", "image_to_svg"],)
@@ -194,12 +205,12 @@ mod tests {
             size_bytes: 1,
             modified_nanos: 1,
         };
-        let features = &["image_to_3d"];
+        let features = &["image_to_3d", "image_to_svg", "image_creator"];
         for invalid in [
-            br#"{"ok":true,"extra":1,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
-            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false},"future":{"optionalInstruction":true}}}}}}"#.as_slice(),
-            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":"yes"},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
-            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true}}}}}}"#.as_slice(),
+            br#"{"ok":true,"extra":1,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false},"future":{"optionalInstruction":true}}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":"yes"},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true}}}}}}"#.as_slice(),
             br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
         ] {
             assert!(

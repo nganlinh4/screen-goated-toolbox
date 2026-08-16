@@ -10,6 +10,7 @@ use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{HSTRING, PCWSTR};
+use wry::WebViewBuilderExtWindows;
 use wry::{DragDropEvent, Rect, WebContext, WebViewBuilder};
 
 const MIN_WINDOW_WIDTH: i32 = 760;
@@ -307,8 +308,9 @@ unsafe fn internal_create_loop() {
             )));
         }
 
+        let product_key = super::product_key();
         let webview_result = {
-            let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+            let init = crate::overlay::webview_init::acquire(product_key);
             let url = page_url.as_deref().unwrap_or("about:blank");
             let allowed_url = url.to_string();
             let mut builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
@@ -328,11 +330,30 @@ unsafe fn internal_create_loop() {
                 })
                 .with_drag_drop_handler(handle_file_drop)
                 .with_url(url);
+            if let Some(port) = std::env::var("SGT_CREATION_WEBVIEW2_DEBUG_PORT")
+                .ok()
+                .and_then(|raw| raw.parse::<u16>().ok())
+                .filter(|port| *port > 0)
+            {
+                builder = builder.with_additional_browser_args(format!(
+                    "--remote-debugging-port={port} --remote-debugging-address=127.0.0.1"
+                ));
+                crate::log_info!(
+                    "[CreationWebView] product={product_key} test debugging enabled on port {port}"
+                );
+            }
             builder = crate::overlay::html_components::font_manager::configure_webview(builder);
-            builder.build_as_child(&wrapper)
+            let result = builder.build_as_child(&wrapper);
+            init.finish(result.is_ok());
+            result
         };
 
         if let Ok(webview) = webview_result {
+            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+                product_key,
+                hwnd,
+                &webview,
+            );
             super::WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
         }
     });

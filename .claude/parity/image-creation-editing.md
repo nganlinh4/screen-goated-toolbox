@@ -1,12 +1,15 @@
 # Image Creation And Editing Parity
 
-## Archive Status
+## Restoration Status
 
-- The mini app is archived source only. Windows and Android release builds do
-  not compile its host implementation, embed its frontend, declare its worker
-  services, or deliver its runtime capability.
-- Archived source remains available for future restoration, but restoration
-  requires an explicit product-contract and packaging change on both platforms.
+- The mini app is temporarily hidden on Windows, Android Full, and Android Play.
+  Each platform preserves its compiled host, frontend assets, retained state,
+  and checksum-pinned runtime capability so a later compatible provider can
+  restore the launcher without reconstructing or re-archiving the feature.
+- The release gate removes the launcher and rejects direct job admission. It
+  does not start the surface or readiness work while hidden.
+- Image creation/editing is independently queued from Image to 3D and Image to
+  SVG while all three capabilities share one immutable runtime release.
 
 ## Canonical Source
 
@@ -22,11 +25,10 @@
 ## Product Contract
 
 - The app is named Create/edit image / 이미지 생성/편집 / Tạo/edit ảnh.
-- Release availability is owned by the shared product fixture. While disabled,
-  launcher UI omits the app. A direct or stale entry request shows the localized
-  app name with the shared localized “Coming soon” dialog, does not open the
-  creation surface, and does not start readiness or preparation work. Existing
-  prepared capacity is preserved.
+- Release availability is owned by the shared product fixture. While hidden,
+  no launcher is exposed and neither the creation surface nor readiness starts.
+  The preserved implementation resumes the normal first-paint and optional
+  runtime-repair contract when release availability is restored.
 - Its stable tool identifier is `image`, its operation is `create_image`, and
   its public job prefix is `image_`. References are optional and do not change
   the operation.
@@ -45,19 +47,48 @@
   session may submit another session implicitly.
 - At most two image jobs run simultaneously. Image, 3D, and SVG jobs have
   independent concurrency limits.
-- Readiness maintains an immediate reserve at least as large as the parallel-job
-  limit. Accepted demand expands preparation proactively within a bounded
-  capacity, and consuming prepared capacity starts background replenishment.
-  Existing ready work never waits for replenishment, and demand in another
-  creation tool cannot consume this tool's reserve.
+- Readiness maintains one speculative image workspace. One accepted image job
+  reuses that capacity without preparing another account; a second accepted
+  image job expands preparation to the two-job limit. Existing ready work never
+  waits for expansion, and demand in another creation tool cannot consume this
+  tool's reserve.
+- Fresh image-workspace preparation is serialized. A ready workspace or an
+  active image job may overlap replenishment, but two account-acquisition flows
+  never compete for the same bounded external preparation capacity.
+- If final observation fails after an accepted verification request, a stable
+  authenticated workspace is authoritative. The exact verified identity is
+  committed without repeating account creation or requesting another receipt.
 - Preparation follows the canonical visible entry sequence of the supported
   creation surface. Intermediate navigation is never treated as readiness; a
   slot becomes ready only after the authenticated workspace is visibly usable.
+  A newly authenticated workspace must remain stable before a navigation-based
+  persistence check can publish it as reusable capacity.
+- A committed account-page transition supersedes observations tied to the
+  replaced form document.
 - Reusable prepared capacity survives temporary sign-out and temporary
   unavailability. The existing workspace is reconciled before replacement,
   and a transient reconciliation failure schedules a later recheck instead of
   destroying the workspace. Fresh preparation replaces only capacity proven
   permanently unusable.
+- Mailbox preparation navigates once per retained provider session and polls
+  pending address state every second without reloading. Ordinary replenishment
+  rotates to a different address through the provider's in-page control while
+  retaining that session; an isolated provider session is a bounded fallback
+  only when in-page rotation is unavailable. Each retained provider session
+  owns at most one live mailbox. It cannot rotate while that mailbox is pooled,
+  claimed, or awaiting a receipt; rotation follows retirement of the prior
+  mailbox. Readiness requires the retained
+  identity to match the prepared address, and transient document readiness
+  cannot retire otherwise compatible capacity. A pooled identity is fresh for
+  a consumer only while that consumer has never claimed it; that atomic claim
+  remains observable through successful delivery even when preparation
+  occurred in an earlier worker generation. A temporary capacity pause keeps
+  uncommitted demand pending through a bounded recovery interval instead of
+  failing it at the first retry boundary.
+- Hidden automation presents the same desktop interaction surface on Windows
+  and Android. Android derives the browser product version from its installed
+  WebView while preserving the canonical desktop presentation identity; it
+  does not expose a mobile layout identity or add provider-specific branches.
 - Opening the surface paints the product UI before requesting readiness work.
   Idle surfaces do not poll jobs, history, or readiness. Job status and
   estimated-progress refreshes run only while accepted or recovered work is
@@ -71,6 +102,21 @@
 - `uploading` and reference-upload copy are valid only when the frozen request
   contains at least one reference. A text-only request remains `preparing`
   until generation starts.
+- Reference delivery first requires the visible semantic upload surface, then
+  selects one enabled, connected image input by composer ownership, active
+  surface, accessible name, stable identity, and accepted media type. A
+  visually hidden implementation input remains eligible for native chooser
+  activation; disconnected, disabled, semantically unowned, or equally ranked
+  inputs fail closed. A missed local chooser activation may be retried within
+  one bounded attempt window without navigating or submitting.
+- Post-upload retention remains fail-closed: a populated browser file input is
+  local chooser evidence, not proof that the creation surface retained the
+  reference. The bounded asynchronous retention wait is independent from the
+  ordinary control-discovery window. While waiting for the corresponding visible
+  reference control, the flow reconciles safe informational dialogs that can
+  appear on first use. Submission requires visible retention of every requested
+  reference, including multiplicity when filenames repeat, and the aggregate
+  retention window remains bounded within the whole-job deadline.
 - Busy progress combines the runtime's measured duration estimate and reported
   ratio with the same monotonic elapsed-time curve used by the 3D and SVG apps.
   It refreshes between visible status updates, shows localized remaining-time copy, and
@@ -79,6 +125,9 @@
   publish an artifact for it.
 - Recovery never duplicates an accepted request. A user retry creates a new job
   without mutating the prior result or history row.
+- A recovery handoff publishes execution loss only after the prior worker has
+  finished cleanup. The same dispatch cannot re-enter a worker instance that is
+  still retiring its previous execution state.
 - Success requires a nonempty PNG that decodes to positive bounded dimensions.
   Every accepted result is normalized to PNG. The artifact is committed
   atomically before success is emitted. Published PNGs are at most 64 MiB,
@@ -204,15 +253,22 @@
 - Android Full and Play tests read the same product fixture and verify
   independent sessions with a two-job concurrency ceiling.
 - Windows, Android Full, and Android Play entry tests read the shared release
-  availability flag and verify that the localized dialog appears without
-  starting the creation surface or readiness work.
-- While release availability is disabled, real UI acceptance selects the app
-  on Windows, Android Full, and Android Play, verifies the localized coming-soon
-  dialog, and proves that neither the surface nor readiness starts. When the
-  shared flag is enabled, acceptance instead submits one text-only job, waits
-  for a terminal state, and validates the committed image.
+  availability flag and verify that the launcher is absent, direct admission
+  is rejected, and neither the surface nor readiness starts.
+- Real generation acceptance is excluded while the release gate is disabled.
+  The retained text-only and one-reference cases remain available for a future
+  restoration qualification.
 - Prompt entry is accepted by the surface's editor state before submission;
-  matching rendered text alone is not sufficient acceptance evidence.
+  matching rendered text alone is not sufficient acceptance evidence. If the
+  sole semantic editor is replaced after activation but before any prompt is
+  committed, the flow reacquires the sole eligible replacement and still proves
+  the accepted editor state.
+- Reference entry is accepted only after the surface exposes its retained
+  reference control. File-input population alone is insufficient, and safe
+  first-use dialogs are reconciled during a bounded wait independent from
+  ordinary control discovery. Every requested reference remains visibly retained
+  before submission, including repeated filenames, and their aggregate wait is
+  bounded below the whole-job deadline.
 - A failed real UI case retains bounded terminal diagnostics, triggers private
   execution-readiness investigation and repair, then reruns in a fresh evidence
   directory. Acceptance is incomplete until the repaired build completes the

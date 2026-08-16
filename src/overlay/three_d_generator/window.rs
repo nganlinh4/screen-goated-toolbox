@@ -10,6 +10,7 @@ use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{HSTRING, PCWSTR, w};
+use wry::WebViewBuilderExtWindows;
 use wry::{DragDropEvent, Rect, WebContext, WebViewBuilder};
 
 const MIN_WINDOW_WIDTH: i32 = 840;
@@ -70,6 +71,11 @@ fn handle_file_drop(event: DragDropEvent) -> bool {
     true
 }
 
+fn test_launch_stays_hidden() -> bool {
+    std::env::var_os("SGT_CREATION_WEBVIEW2_DEBUG_PORT").is_some()
+        && std::env::var("SGT_CREATION_UI_TEST_HIDDEN").as_deref() == Ok("1")
+}
+
 pub(super) fn show() {
     unsafe {
         if !super::IS_READY {
@@ -83,8 +89,14 @@ pub(super) fn show() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
                     if super::IS_READY && !hwnd.is_invalid() {
-                        let _ =
-                            PostMessageW(Some(hwnd.0), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
+                        if !test_launch_stays_hidden() {
+                            let _ = PostMessageW(
+                                Some(hwnd.0),
+                                super::WM_APP_SHOW,
+                                WPARAM(0),
+                                LPARAM(0),
+                            );
+                        }
                         return;
                     }
                 }
@@ -92,7 +104,7 @@ pub(super) fn show() {
             return;
         }
         let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-        if !hwnd.is_invalid() {
+        if !hwnd.is_invalid() && !test_launch_stays_hidden() {
             let _ = PostMessageW(Some(hwnd.0), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
         }
     }
@@ -337,7 +349,7 @@ unsafe fn internal_create_loop() {
         }
 
         let webview_result = {
-            let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+            let init = crate::overlay::webview_init::acquire("three-d-generator");
             let url = page_url.as_deref().unwrap_or("about:blank");
             let mut builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
                 .with_background_color(background)
@@ -350,11 +362,30 @@ unsafe fn internal_create_loop() {
                 })
                 .with_drag_drop_handler(handle_file_drop)
                 .with_url(url);
+            if let Some(port) = std::env::var("SGT_CREATION_WEBVIEW2_DEBUG_PORT")
+                .ok()
+                .and_then(|raw| raw.parse::<u16>().ok())
+                .filter(|port| *port > 0)
+            {
+                builder = builder.with_additional_browser_args(format!(
+                    "--remote-debugging-port={port} --remote-debugging-address=127.0.0.1"
+                ));
+                crate::log_info!(
+                    "[CreationWebView] product=three-d-generator test debugging enabled on port {port}"
+                );
+            }
             builder = crate::overlay::html_components::font_manager::configure_webview(builder);
-            builder.build_as_child(&wrapper)
+            let result = builder.build_as_child(&wrapper);
+            init.finish(result.is_ok());
+            result
         };
 
         if let Ok(webview) = webview_result {
+            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+                "three-d-generator",
+                hwnd,
+                &webview,
+            );
             super::WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
             super::ASSET_PACK.with(|slot| *slot.borrow_mut() = Some(web_asset_pack));
         }

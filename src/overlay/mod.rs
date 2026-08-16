@@ -8,6 +8,7 @@ mod creation_identity;
 pub mod creation_intent_journal;
 mod creation_output;
 pub mod creation_preview;
+mod creation_preview_protocol;
 pub mod creation_process_supervisor;
 pub mod creation_progress;
 pub mod creation_recovery;
@@ -17,6 +18,8 @@ mod creation_source_snapshot;
 pub mod generation_history;
 pub(crate) mod image_capture_target;
 pub mod image_continuous_mode; // Non-blocking image selection mode (right-click gestures)
+pub mod image_creator;
+pub mod image_to_svg;
 pub mod input_history; // Persistent input history for arrow up/down navigation
 pub mod paint_utils;
 pub mod preset_wheel;

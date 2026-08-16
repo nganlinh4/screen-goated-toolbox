@@ -166,6 +166,70 @@ else {
     exit 1
 }
 
+# --- Build Image to SVG Frontend ---
+Write-Host "Building Image to SVG Frontend..." -ForegroundColor Cyan
+$svgDir = Join-Path $PSScriptRoot "image-to-svg-ui"
+$svgTargetDist = Join-Path $PSScriptRoot "src\overlay\image_to_svg\dist"
+
+Push-Location $svgDir
+try {
+    if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\.bin\vite.cmd")) {
+        npm install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FAILED: Image to SVG npm install failed." -ForegroundColor Red
+            exit 1
+        }
+    }
+    npm run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: Image to SVG build failed." -ForegroundColor Red
+        exit 1
+    }
+}
+finally {
+    Pop-Location
+}
+
+if (Test-Path $svgTargetDist) {
+    Write-Host "Image to SVG assets synchronized." -ForegroundColor Green
+}
+else {
+    Write-Host "FAILED: Image to SVG build did not produce dist folder." -ForegroundColor Red
+    exit 1
+}
+
+# --- Build Image Creator Frontend ---
+Write-Host "Building Image Creator Frontend..." -ForegroundColor Cyan
+$imageCreatorDir = Join-Path $PSScriptRoot "image-creator-ui"
+$imageCreatorTargetDist = Join-Path $PSScriptRoot "src\overlay\image_creator\dist"
+
+Push-Location $imageCreatorDir
+try {
+    if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\.bin\vite.cmd")) {
+        npm install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FAILED: Image Creator npm install failed." -ForegroundColor Red
+            exit 1
+        }
+    }
+    npm run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAILED: Image Creator build failed." -ForegroundColor Red
+        exit 1
+    }
+}
+finally {
+    Pop-Location
+}
+
+if (Test-Path $imageCreatorTargetDist) {
+    Write-Host "Image Creator assets synchronized." -ForegroundColor Green
+}
+else {
+    Write-Host "FAILED: Image Creator build did not produce dist folder." -ForegroundColor Red
+    exit 1
+}
+
 # --- Build TTS Playground Frontend ---
 Write-Host "Building TTS Playground Frontend..." -ForegroundColor Cyan
 $ttsDir = Join-Path $PSScriptRoot "tts-playground-ui"

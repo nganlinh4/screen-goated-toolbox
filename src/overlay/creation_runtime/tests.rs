@@ -2,9 +2,10 @@ use super::*;
 
 #[test]
 fn readiness_parser_accepts_only_the_public_state_contract() {
-    assert!(!supported_readiness_tool("image"));
-    assert!(!supported_readiness_tool("svg"));
     assert!(supported_readiness_tool("3d"));
+    assert!(supported_readiness_tool("svg"));
+    assert!(!supported_readiness_tool("image"));
+    assert!(!supported_readiness_tool("unknown"));
     assert_eq!(
         parse_readiness(br#"{"ok":true,"result":{"state":"ready"}}"#).as_deref(),
         Some("ready")

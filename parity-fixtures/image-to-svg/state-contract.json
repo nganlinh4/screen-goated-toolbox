@@ -1,20 +1,18 @@
 {
-  "schemaVersion": 32,
+  "schemaVersion": 41,
   "tool": "image-to-svg",
   "releaseAvailability": {
-    "enabled": false,
-    "entryVisible": false,
-    "entryBehavior": "coming_soon_dialog",
-    "dialogTitleUsesLocalizedAppName": true,
-    "dialogMessageKey": "coming_soon",
-    "startsSurface": false,
-    "startsReadiness": false,
+    "enabled": true,
+    "entryVisible": true,
+    "entryBehavior": "open_surface",
+    "startsSurface": true,
+    "startsReadiness": true,
     "preservesPreparedCapacity": true,
     "platforms": ["windows", "android_full", "android_play"],
-    "packaging": "archived_source_only",
-    "compiledHostCode": false,
-    "embeddedFrontendAssets": false,
-    "runtimeCapabilityDelivered": false
+    "packaging": "optional_content_addressed_runtime",
+    "compiledHostCode": true,
+    "embeddedFrontendAssets": true,
+    "runtimeCapabilityDelivered": true
   },
   "states": [
     "draft",
@@ -59,6 +57,22 @@
     "toolCapacityIsIsolated": true,
     "unresponsivePreparationIsRetiredBeforeRetry": true,
     "executionContextMatchesPresentationSurface": true
+  },
+  "mailboxPreparation": {
+    "desktopAutomationPresentationIdentity": true,
+    "pendingAddressPollIntervalMs": 1000,
+    "pendingAddressReloadsPage": false,
+    "singleNavigationPerSession": true,
+    "retainedProviderSessionRotatesAddressInPage": true,
+    "isolatedProviderSessionIsFallbackOnly": true,
+    "maximumLiveMailboxesPerProviderSession": 1,
+    "providerSessionRotationRequiresPriorMailboxRetirement": true,
+    "readinessRequiresRetainedIdentityMatch": true,
+    "transientDocumentReadinessDoesNotRetireCompatibleCapacity": true,
+    "pooledIdentityFreshnessRequiresNoPriorConsumerClaim": true,
+    "pooledIdentityClaimObservableThroughDelivery": true,
+    "temporaryCapacityPausePreservesPendingDemand": true,
+    "temporaryCapacityRecoveryIsBounded": true
   },
   "surfaceActivity": {
     "firstPaintPrecedesReadinessRequest": true,
@@ -241,6 +255,7 @@
     "intentRecordedBeforeSubmit": true,
     "replayMatchesOnlySameDispatchId": true,
     "acceptedJobResumedWithoutResubmit": true,
+    "workerCleanupPrecedesRecoveryRedispatch": true,
     "unknownSubmissionFailsClosed": true,
     "preparationRetriesAreBounded": true,
     "retryUsesFreshExecutionState": true,

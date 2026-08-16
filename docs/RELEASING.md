@@ -105,28 +105,78 @@ cargo clippy --all-targets -- -D warnings
 
 Run relevant frontend/mobile tests for changed subsystems. Do not waive failures to cut a release.
 
-For a release containing the Image-to-3D mini app, build the separately tracked
-runtime first and update the tracked delivery contract only after remote read-back.
-Image-to-SVG and image creation/editing are archived source only: their host
-modules, frontend assets, worker services, and runtime capabilities must not be
-present in Windows or Android release artifacts.
+### Promote optional-component candidates
+
+Development candidates live on `sgt-runtime-staging`; a release host may not
+reference that tag. For every changed delivery contract, promote the already
+tested candidate before the component-specific checkpoint below:
+
+```powershell
+py -3 .\scripts\component_release.py verify-staging
+py -3 .\scripts\component_release.py promote `
+  --contract-relative component-delivery/windows/recorder-v1.json `
+  --output $env:TEMP\recorder-v1.promoted.json
+git diff --no-index -- `
+  .\component-delivery\windows\recorder-v1.json `
+  $env:TEMP\recorder-v1.promoted.json
+```
+
+Review the promoted manifest, then either update the tracked contract
+deliberately or rerun promotion with
+`--apply-tracked .\component-delivery\windows\recorder-v1.json`. Promotion:
+
+- downloads and hashes the staging bytes;
+- reuses an identical production asset or uploads a new one without overwrite;
+- downloads and hashes the production bytes again; and
+- rewrites only staging URLs to `sgt-runtime-bundles`.
+
+Use `--clean-staging` only after the tracked production contract and dependent
+platform manifests are reviewed. It removes the promoted candidate from the
+mutable staging release but never removes production bytes. If no remote test
+was needed, upload the deterministic content-addressed package directly through
+the existing component checkpoint; do not create a fake staging record.
+
+Canonical package workspaces are under
+`%LOCALAPPDATA%/SGT-Development/cache/packages/release`; `build.ps1` selects that
+root automatically (or `SGT_DEV_CACHE_ROOT`) and keeps worker Cargo artifacts in
+the separate `cargo/package` lane. The old ignored `local-runtime-bundles`
+model/ASR manifests are accepted only as a migration fallback. Move newly
+generated packages to the managed cache and prune the legacy directory after
+its active release checkpoint is complete.
+
+The component-specific commands below use this shared setup:
+
+```powershell
+$env:SGT_DEV_CACHE_ROOT = Join-Path $env:LOCALAPPDATA "SGT-Development\cache"
+$componentPackageRoot = Join-Path $env:SGT_DEV_CACHE_ROOT "packages\release"
+$packageCargoTarget = Join-Path $env:SGT_DEV_CACHE_ROOT "cargo\package"
+New-Item -ItemType Directory -Path $componentPackageRoot -Force | Out-Null
+```
+
+For a release containing Image-to-3D, Image-to-SVG, or image creation/editing,
+build the separately tracked runtime first and update the tracked delivery
+contract only after remote read-back. Each capability is active on Windows,
+Android Full, and Android Play only when its release-availability fixture
+enables it. A capability can remain checksum-pinned and packaged while its
+launcher and job admission are temporarily disabled.
 
 ### Mandatory creation-runtime release checkpoint
 
 This is a blocking release requirement. Do not proceed to the Windows or
 Android host builds until every item is complete:
 
-1. Rebuild the Windows creation runtime from the reviewed private source.
-2. Rebuild both Android creation-runtime distributions from that same source.
-3. Regenerate the Windows, Android, and combined delivery manifests only after
-   all runtime artifacts have been rebuilt. Never reuse an earlier manifest.
-   The combined manifest must advertise exactly `image_to_3d` and its
-   `hostVersion` must equal the root `Cargo.toml` package version.
+1. Rebuild the Windows creation runtime when its packaged bytes can change.
+2. Rebuild both Android creation-runtime distributions when their packaged
+   bytes can change. Rebuild only the affected deterministic platform package.
+3. Regenerate the affected platform manifest and a combined delivery candidate.
+   The candidate must advertise exactly `image_to_3d`, `image_to_svg`, and
+   `image_creator`; its `hostVersion` must equal the root `Cargo.toml` package
+   version. Preserve the latest verified identity for an unaffected platform.
 4. Upload every rebuilt runtime under a new, uniquely versioned asset name on
    the existing GitHub runtime-bundles release. Never replace or delete an asset
    referenced by a released host; older signed hosts must keep resolving the
-   exact bytes they were built to verify. An Android-only refresh or a
-   local-only build is not a completed runtime release.
+   exact bytes they were built to verify. A local-only build is not a completed
+   runtime release for any platform whose bytes changed.
 5. Query the GitHub release again and verify every uploaded asset's name, size,
    and checksum against the newly generated manifests.
 6. Commit that exact verified combined delivery contract at
@@ -139,7 +189,8 @@ gitignored `local-runtime-bundles/sgt_creation_runtime/`.
 
 ```powershell
 .\native\sgt_3d_generator_runtime\scripts\build_exe.ps1
-.\native\sgt_3d_generator_runtime\scripts\build_android_runtime.ps1 -CopyToBundleDirectory
+.\native\sgt_3d_generator_runtime\scripts\build_android_runtime.ps1 `
+  -CopyToBundleDirectory -UpdateHostPins -Publish
 py -3 .\scripts\verify_creation_runtime_release.py --manifest .\component-delivery\creation-runtime-v1.json
 ```
 

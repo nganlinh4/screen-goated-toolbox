@@ -12,9 +12,10 @@
 
 ## Product Contract
 
-- The shipped creation runtime advertises and delivers only `image_to_3d`.
-  Archived SVG and image-creation capability code and assets are excluded from
-  Windows and Android artifacts.
+- The shipped creation runtime advertises and delivers `image_to_3d`,
+  `image_to_svg`, and `image_creator`. Windows and Android expose only the
+  capabilities enabled by their shared release-availability fixtures;
+  `image_creator` is currently delivered but hidden and unavailable for jobs.
 - Windows, Android Full, and Android Play consume one tracked, immutable
   delivery contract. Every artifact has an exact URL, version, size, and
   SHA-256; missing or invalid contract data fails the build. Local runtime
@@ -62,9 +63,57 @@
   creation tool cannot consume this tool's reserve.
 - Readiness requires an actionable creation surface. A signed-in surface that
   is still blocked by first-use guidance is resolved before it can accept work.
+  Semantic actionability is authoritative once the document is interactive;
+  unrelated resources that continue loading cannot hold a usable lane closed.
+  Account authorization is proved independently from stale page chrome, then
+  combined with the semantic creation controls before readiness is announced.
+  A fresh verification address is committed through the browser editor and
+  remains accepted by the provider form before the code request advances;
+  direct document-value equality alone is not proof of accepted text entry.
+  First-use guidance is recognized only from its own semantic state; an
+  unrelated open dialog neither becomes a readiness blocker nor receives a
+  guidance action. When that guidance exposes one unambiguous exit action, the
+  runtime takes it before attempting a multi-step setup path.
+  Each staged account transition activates its unique visible control once and
+  proves the resulting state before advancing; focus alone is not acceptance,
+  and an uncertain consequential transition is never repeated.
+  Hidden browser presentation remains responsive while a page continuously
+  renders; presentation back-pressure cannot block semantic readiness checks.
+  Hidden-browser input is routed to the presentation surface that owns the
+  target control. The owning browser view is focused before native pointer
+  activation, and activation is accepted only when that view handles the
+  complete pointer sequence. Browser layout coordinates are transformed to the
+  owning view's current dimensions at dispatch time; page scale and device
+  density are never assumed. A control cannot be accepted merely because input
+  intended for another display caused it to receive focus.
 - Each generation mode has an independently prepared execution lane. A lane
   that is slow or unavailable does not delay, revoke, or consume readiness for
   another mode, and independent lanes may prepare concurrently.
+- Mailbox preparation navigates once per retained provider session and polls
+  pending address state every second without reloading. Ordinary replenishment
+  rotates to a different address through the provider's in-page control while
+  retaining that session; an isolated provider session is a bounded fallback
+  only when in-page rotation is unavailable. Each retained provider session
+  owns at most one live mailbox. It cannot rotate while that mailbox is pooled,
+  claimed, or awaiting a receipt; rotation follows retirement of the prior
+  mailbox. Readiness requires the retained
+  identity to match the prepared address, and transient document readiness
+  cannot retire otherwise compatible capacity. A pooled identity is fresh for
+  a consumer only while that consumer has never claimed it; that atomic claim
+  remains observable through successful delivery even when preparation
+  occurred in an earlier worker generation. A temporary capacity pause keeps
+  uncommitted demand pending through a bounded recovery interval instead of
+  failing it at the first retry boundary. Verification captures the
+  mailbox receipt baseline before requesting a code and accepts only a newer
+  receipt. Each receipt is submitted at most once. Once a verification request
+  begins, that mailbox is retired even when setup later fails; a rejected code
+  requires one newly delivered replacement in the same execution context, and
+  ambiguous post-request state retires that execution context before retry.
+- Hidden automation presents the same desktop interaction surface on Windows
+  and Android. Android derives the browser product version from its installed
+  WebView while preserving the canonical desktop presentation identity and
+  viewport envelope; it does not expose a mobile layout identity or add
+  provider-specific branches.
 - Opening the surface paints the product UI before requesting readiness work.
   Idle surfaces do not poll jobs, history, or readiness. Job status and
   estimated-progress refreshes run only while accepted or recovered work is
@@ -221,9 +270,17 @@
 
 - Submission and recovery are bounded and fail closed when acceptance cannot be
   proven.
+- Transient provider name-resolution failures use a bounded, cancellation-safe
+  backoff for read-only work and requests known not to have reached the
+  provider. A consequential submission is never repeated after connection or
+  when its acceptance outcome is uncertain.
 - An accepted job is never submitted twice during recovery.
 - Restart recovery resumes the same dispatch without relying on source-content
   identity.
+- If execution is lost after provider acceptance, the host retains the exact
+  dispatch, request, and materialized input and requeues that same dispatch for
+  recovery. It is not recorded as a terminal failure and no consequential
+  submission is repeated.
 - Cancellation wins over late success and a stale completion cannot affect a
   newer execution.
 - A success event is emitted only after the output has been validated and
@@ -234,10 +291,16 @@
   before retry. Recreated execution state must use platform services belonging
   to its own presentation surface so an app or system-runtime update cannot
   preserve a mismatched context indefinitely.
+- A rendering operation that stops responding is bounded independently from the
+  two-hour whole-job watchdog. The unresponsive execution instance is retired,
+  and recovery never repeats a consequential action whose acceptance may have
+  occurred.
 - A recovery-reserved slot is checked against the exact request before
   assignment and cannot consume or fail an unrelated queued job.
 - Every finished assignment retires its execution instance before that slot is
   prepared for another job.
+- A recovery handoff publishes execution loss only after that retirement, so
+  the same dispatch cannot race preparation against its previous worker state.
 - A creation surface may contain multiple independent sessions. Closing it
   cancels its queued and running jobs, releases their owned execution resources,
   destroys the product surface, and prevents a late completion from publishing.

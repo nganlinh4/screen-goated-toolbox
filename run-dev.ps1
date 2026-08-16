@@ -3,6 +3,7 @@ param(
     [switch]$SkipFrontendBuild,
     [switch]$SkipNpmInstall,
     [switch]$SkipCreationRuntimeBuild,
+    [switch]$BuildLocalCreationRuntime,
     [switch]$UseStagingDelivery,
     [string]$DevCacheRoot,
     [ValidateRange(5, 200)]
@@ -133,9 +134,10 @@ function Build-CreationRuntime {
     }
 
     Write-Section "Building Creation Runtime"
+    $runtimeTarget = Join-Path $cacheRootResolved "cargo\creation-runtime-dev"
     Push-Location $runtimeRoot
     try {
-        & cargo.exe build --locked
+        & cargo.exe build --locked --target-dir $runtimeTarget
         if ($LASTEXITCODE -ne 0) {
             throw "Creation runtime debug build failed. Close any running development app and retry."
         }
@@ -144,7 +146,7 @@ function Build-CreationRuntime {
         Pop-Location
     }
 
-    $runtimeExe = Join-Path $runtimeRoot "target\debug\sgt_creation_runtime.exe"
+    $runtimeExe = Join-Path $runtimeTarget "debug\sgt_creation_runtime.exe"
     if (-not (Test-Path -LiteralPath $runtimeExe -PathType Leaf)) {
         throw "Creation runtime build did not produce $runtimeExe"
     }
@@ -174,7 +176,10 @@ function Quote-CmdArg {
 
 Push-Location $repoRoot
 try {
-    if (-not $SkipCreationRuntimeBuild) {
+    if ($BuildLocalCreationRuntime -and $SkipCreationRuntimeBuild) {
+        throw "Use only one of -BuildLocalCreationRuntime or -SkipCreationRuntimeBuild"
+    }
+    if ($BuildLocalCreationRuntime) {
         Build-CreationRuntime
     }
 
@@ -183,6 +188,8 @@ try {
         Sync-Frontend "Translation Gummy" "translation-gummy-ui" "src\overlay\translation_gummy\dist"
         Sync-Frontend "Screen Record" "screen-record" "src\overlay\screen_record\dist"
         Sync-Frontend "3D Generator" "3d-generator-ui" "src\overlay\three_d_generator\dist" -BuildsDirectlyToTarget
+        Sync-Frontend "Image to SVG" "image-to-svg-ui" "src\overlay\image_to_svg\dist" -BuildsDirectlyToTarget
+        Sync-Frontend "Image Creator" "image-creator-ui" "src\overlay\image_creator\dist" -BuildsDirectlyToTarget
         Sync-Frontend "TTS Playground" "tts-playground-ui" "src\overlay\tts_playground\dist"
     }
 

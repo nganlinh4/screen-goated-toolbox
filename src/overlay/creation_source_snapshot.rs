@@ -11,9 +11,7 @@ use super::creation_source::{InspectedImage, SourceDescriptor};
 mod presentation;
 mod storage;
 mod sweep;
-pub(crate) use presentation::presentation_path;
-#[cfg(test)]
-pub(crate) use presentation::presentation_paths;
+pub(crate) use presentation::{presentation_path, presentation_paths};
 use storage::*;
 pub(crate) use sweep::{sweep, sweep_pressure};
 

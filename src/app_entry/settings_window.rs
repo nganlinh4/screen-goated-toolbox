@@ -103,11 +103,19 @@ pub(super) fn run(
                     crate::overlay::screen_record::show_screen_record();
                 });
             }
-            if creation_ui_test.is_some() {
-                std::thread::spawn(|| {
+            if let Some(app) = creation_ui_test {
+                std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     crate::log_info!("[CreationUiTest] Opening creation window");
-                    crate::overlay::three_d_generator::show_three_d_generator();
+                    match app {
+                        CreationUiTestApp::ThreeD => {
+                            crate::overlay::three_d_generator::show_three_d_generator()
+                        }
+                        CreationUiTestApp::Image => {
+                            crate::overlay::image_creator::show_image_creator()
+                        }
+                        CreationUiTestApp::Svg => crate::overlay::image_to_svg::show_image_to_svg(),
+                    }
                 });
             }
             if screen_translate_ui_test {

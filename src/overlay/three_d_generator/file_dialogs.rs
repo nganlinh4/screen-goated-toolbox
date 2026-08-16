@@ -2,10 +2,8 @@ use std::path::PathBuf;
 
 pub(crate) const MAX_BATCH_IMAGES: usize = 100;
 pub(crate) const MAX_BATCH_BYTES: u64 = 512 * 1024 * 1024;
-#[cfg(test)]
-const MAX_REFERENCE_IMAGES: usize = 20;
-#[cfg(test)]
-const MAX_REFERENCE_BYTES: u64 = 100 * 1024 * 1024;
+pub(crate) const MAX_REFERENCE_IMAGES: usize = 20;
+pub(crate) const MAX_REFERENCE_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
 
 pub(crate) fn pick_image_dialog() -> Result<Option<PathBuf>, String> {
@@ -18,6 +16,14 @@ pub(crate) fn pick_image_dialog() -> Result<Option<PathBuf>, String> {
 
 pub(crate) fn pick_images_dialog() -> Result<Vec<PathBuf>, String> {
     admit_image_paths(raw_pick_images_dialog()?, MAX_BATCH_IMAGES, MAX_BATCH_BYTES)
+}
+
+pub(crate) fn pick_reference_images_dialog() -> Result<Vec<PathBuf>, String> {
+    admit_image_paths(
+        raw_pick_images_dialog()?,
+        MAX_REFERENCE_IMAGES,
+        MAX_REFERENCE_BYTES,
+    )
 }
 
 fn raw_pick_image_dialog() -> Result<Option<PathBuf>, String> {

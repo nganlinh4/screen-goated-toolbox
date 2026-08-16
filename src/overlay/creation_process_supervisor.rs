@@ -100,6 +100,10 @@ fn remaining_wall_time_ms(deadline_at_ms: u64, now: u64) -> Option<u64> {
     (remaining > 0).then_some(remaining.min(MAX_WALL_TIME_MS))
 }
 
+pub(crate) fn deadline_expired(deadline_at_ms: u64) -> bool {
+    remaining_wall_time_ms(deadline_at_ms, now_ms()).is_none()
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

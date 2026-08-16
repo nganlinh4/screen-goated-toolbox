@@ -22,6 +22,52 @@ fn image_creation_uses_two_jobs_and_exact_operation() {
 }
 
 #[test]
+fn image_entry_and_reference_retention_contract_remains_fail_closed() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../parity-fixtures/image-creation-editing/state-contract.json"
+    ))
+    .unwrap();
+    assert_eq!(fixture["fixtureVersion"].as_u64(), Some(65));
+
+    let quality = &fixture["qualityControl"];
+    assert_eq!(
+        quality["semanticEditorReplacementBeforeCommitIsReacquired"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        quality["promptAcceptedByEditorStateBeforeSubmit"].as_bool(),
+        Some(true)
+    );
+
+    let upload = &fixture["referenceUpload"];
+    for field in [
+        "asynchronousRetentionWaitIsBounded",
+        "retentionWaitIsIndependentFromControlDiscovery",
+        "visibleRetainedReferenceControlRequired",
+        "selectedFileInputAloneIsInsufficient",
+        "allRequestedReferencesRetainedBeforeSubmission",
+        "duplicateReferenceNamesRequireRetainedMultiplicity",
+        "aggregateRetentionWaitFitsWithinJobDeadline",
+        "safeInformationalDialogsReconciledDuringRetentionWait",
+    ] {
+        assert_eq!(upload[field].as_bool(), Some(true), "{field}");
+    }
+}
+
+#[test]
+fn hidden_image_creation_rejects_admission_before_mutating_output() {
+    let output =
+        std::env::temp_dir().join(format!("sgt-hidden-image-admission-{}", std::process::id()));
+    let mut request = request(Vec::new());
+    request.output_dir = Some(output.to_string_lossy().to_string());
+
+    let error = start_job(request).unwrap_err();
+
+    assert_eq!(error, "Image creation is temporarily unavailable.");
+    assert!(!output.exists());
+}
+
+#[test]
 fn image_sessions_accept_zero_or_multiple_unique_references() {
     let root = std::env::temp_dir().join(format!(
         "sgt-image-references-{}-{}",

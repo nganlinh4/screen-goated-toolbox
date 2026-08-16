@@ -1,12 +1,13 @@
 # Image to SVG Parity
 
-## Archive Status
+## Restoration Status
 
-- The mini app is archived source only. Windows and Android release builds do
-  not compile its host implementation, embed its frontend, declare its worker
-  services, or deliver its runtime capability.
-- Archived source remains available for future restoration, but restoration
-  requires an explicit product-contract and packaging change on both platforms.
+- The mini app is an active optional creation capability on Windows, Android
+  Full, and Android Play. Each platform exposes the same product contract and
+  installs the checksum-pinned creation runtime before first use.
+- Image-to-SVG is delivered alongside Image to 3D and image creation/editing.
+  The three capabilities remain independently gated; image creation/editing is
+  currently packaged but hidden and rejects job admission.
 
 ## Canonical Source
 
@@ -19,11 +20,9 @@
 
 ## Product Contract
 
-- Release availability is owned by the shared product fixture. While disabled,
-  launcher UI omits the app. A direct or stale entry request shows the localized
-  app name with the shared localized “Coming soon” dialog, does not open the
-  creation surface, and does not start readiness or preparation work. Existing
-  prepared capacity is preserved.
+- Release availability is owned by the shared product fixture. The visible
+  launcher opens the creation surface, then starts readiness after first paint.
+  First use repairs the selected optional runtime before accepting work.
 - One picker or drop may add multiple images as a batch.
 - Every SVG job has exactly one source image. A multi-image batch creates
   independent one-image sessions; references are never combined into one job.
@@ -67,6 +66,25 @@
   capacity, and consuming prepared capacity starts background replenishment.
   Existing ready work never waits for replenishment, and demand in another
   creation tool cannot consume this tool's reserve.
+- Mailbox preparation navigates once per retained provider session and polls
+  pending address state every second without reloading. Ordinary replenishment
+  rotates to a different address through the provider's in-page control while
+  retaining that session; an isolated provider session is a bounded fallback
+  only when in-page rotation is unavailable. Each retained provider session
+  owns at most one live mailbox. It cannot rotate while that mailbox is pooled,
+  claimed, or awaiting a receipt; rotation follows retirement of the prior
+  mailbox. Readiness requires the retained
+  identity to match the prepared address, and transient document readiness
+  cannot retire otherwise compatible capacity. A pooled identity is fresh for
+  a consumer only while that consumer has never claimed it; that atomic claim
+  remains observable through successful delivery even when preparation
+  occurred in an earlier worker generation. A temporary capacity pause keeps
+  uncommitted demand pending through a bounded recovery interval instead of
+  failing it at the first retry boundary.
+- Hidden automation presents the same desktop interaction surface on Windows
+  and Android. Android derives the browser product version from its installed
+  WebView while preserving the canonical desktop presentation identity; it
+  does not expose a mobile layout identity or add provider-specific branches.
 - Opening the surface paints the product UI before requesting readiness work.
   Idle surfaces do not poll jobs, history, or readiness. Job status and
   estimated-progress refreshes run only while accepted or recovered work is
@@ -226,6 +244,8 @@
   before a fresh workspace is admitted; live jobs, accepted recovery, published
   artifacts, and user-owned files remain protected.
 - Restart recovery binds to the same dispatch rather than submitting it again.
+- A recovery handoff publishes execution loss only after the prior worker has
+  finished cleanup, so recovery cannot race preparation against retiring state.
 - Cancellation wins over late success and stale completions cannot affect newer
   executions.
 - A creation surface may contain multiple independent sessions. Closing it

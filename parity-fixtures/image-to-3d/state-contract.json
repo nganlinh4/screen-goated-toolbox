@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 36,
+  "schemaVersion": 57,
   "tool": "image-to-3d",
   "runtimeDelivery": {
     "authority": "tracked-immutable-contract",
@@ -51,12 +51,48 @@
     "readyWorkDoesNotWaitForReplenishment": true,
     "toolCapacityIsIsolated": true,
     "actionableSurfaceRequired": true,
+    "interactiveSemanticSurfaceDoesNotWaitForUnrelatedResources": true,
+    "authorizationProofIndependentFromStalePageChrome": true,
+    "unrelatedDialogsDoNotBecomeFirstUseGuidance": true,
+    "uniqueFirstUseExitPrecedesMultiStepSetup": true,
+    "stagedControlActivationProvesStateTransition": true,
+    "hiddenBrowserRemainsResponsiveDuringContinuousRendering": true,
+    "hiddenBrowserInputTargetsOwningPresentation": true,
+    "nativePointerActivationRequiresOwningViewFocus": true,
+    "nativePointerActivationRequiresHandledSequence": true,
+    "nativePointerCoordinatesDeriveFromLayoutAndViewDimensions": true,
     "blockingFirstUseGuidanceResolved": true,
     "modePreparationIsIndependent": true,
     "independentLanesPrepareConcurrently": true,
     "laneFailureDoesNotRevokeOtherReadiness": true,
     "unresponsivePreparationIsRetiredBeforeRetry": true,
+    "unresponsiveOperationIsBoundedBeforeWholeJobWatchdog": true,
+    "uncertainConsequentialActionIsNotRepeated": true,
     "executionContextMatchesPresentationSurface": true
+  },
+  "mailboxPreparation": {
+    "desktopAutomationPresentationIdentity": true,
+    "hiddenBrowserMatchesCanonicalDesktopViewport": true,
+    "pendingAddressPollIntervalMs": 1000,
+    "pendingAddressReloadsPage": false,
+    "singleNavigationPerSession": true,
+    "retainedProviderSessionRotatesAddressInPage": true,
+    "isolatedProviderSessionIsFallbackOnly": true,
+    "maximumLiveMailboxesPerProviderSession": 1,
+    "providerSessionRotationRequiresPriorMailboxRetirement": true,
+    "readinessRequiresRetainedIdentityMatch": true,
+    "transientDocumentReadinessDoesNotRetireCompatibleCapacity": true,
+    "pooledIdentityFreshnessRequiresNoPriorConsumerClaim": true,
+    "pooledIdentityClaimObservableThroughDelivery": true,
+    "temporaryCapacityPausePreservesPendingDemand": true,
+    "temporaryCapacityRecoveryIsBounded": true,
+    "receiptBaselineCapturedBeforeVerificationRequest": true,
+    "verificationAddressUsesBrowserCommittedTextEntry": true,
+    "documentValueEqualityDoesNotProveAcceptedTextEntry": true,
+    "verificationReceiptSubmittedAtMostOnce": true,
+    "mailboxRetiredAfterVerificationRequest": true,
+    "rejectedReceiptRequiresNewDelivery": true,
+    "ambiguousPostRequestStateRetiresExecution": true
   },
   "surfaceActivity": {
     "firstPaintPrecedesReadinessRequest": true,
@@ -186,6 +222,15 @@
     "rapidPressesCreateDistinctJobs": true,
     "lateStartResponseCannotStealNewerSelection": true
   },
+  "providerTransport": {
+    "nameResolutionRetryIsBounded": true,
+    "readOnlyRequestsRetryNameResolution": true,
+    "requestsKnownNotToHaveConnectedMayRetry": true,
+    "uncertainConsequentialSubmissionIsNotRetried": true,
+    "confirmedNameResolutionFailureIsNotUnknownSubmission": true,
+    "cancellationInterruptsBackoff": true,
+    "nameResolutionRetryDelaysMs": [1000, 2000, 4000, 8000]
+  },
   "generationModes": {
     "default": "quality",
     "selectionVisible": true,
@@ -263,7 +308,7 @@
   },
   "runtimeCapabilities": {
     "contractVersion": 1,
-    "deliveredFeatures": ["image_to_3d"],
+    "deliveredFeatures": ["image_to_3d", "image_to_svg", "image_creator"],
     "strictProductOnlyManifest": true,
     "malformedOrMissingCapabilityFailsClosed": true,
     "optionalInstruction": {
@@ -282,6 +327,10 @@
     "contentFingerprintIsNotDispatchIdentity": true,
     "replayMatchesOnlySameDispatchId": true,
     "acceptedJobResumedWithoutResubmit": true,
+    "acceptedExecutionLossRetainsDispatchAndInput": true,
+    "acceptedExecutionLossRequeuesSameDispatch": true,
+    "acceptedExecutionLossIsNotTerminalFailure": true,
+    "workerCleanupPrecedesRecoveryRedispatch": true,
     "unknownSubmissionFailsClosed": true,
     "artifactCommittedBeforeHostSuccess": true,
     "recoveryRetentionHours": 168
@@ -399,7 +448,7 @@
     "wireframeAndOutlineIndependent": true
   },
   "hostLifecycle": {
-    "executionLossFailsActiveJobExactlyOnce": true,
+    "executionLossRequeuesActiveJobExactlyOnce": true,
     "staleCompletionCannotReleaseNewExecution": true,
     "cancelWinsOverLateSuccess": true,
     "lateSuccessCannotPublishAfterCancel": true,

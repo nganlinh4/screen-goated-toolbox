@@ -13,6 +13,8 @@ const REALTIME_COMPOSITOR_SMOKE_FLAG: &str = "--realtime-compositor-smoke";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CreationUiTestApp {
     ThreeD,
+    Image,
+    Svg,
 }
 
 pub(crate) struct StartupArgs {
@@ -90,14 +92,8 @@ impl StartupArgs {
             return None;
         }
 
-        let remote_arg =
-            format!("--remote-debugging-port={port} --remote-debugging-address=127.0.0.1");
-        let next_args = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
-            Ok(existing) if !existing.trim().is_empty() => format!("{existing} {remote_arg}"),
-            _ => remote_arg,
-        };
         unsafe {
-            std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", next_args);
+            std::env::set_var("SGT_CREATION_WEBVIEW2_DEBUG_PORT", &port);
             if std::env::var("SGT_CREATION_WEBVIEW2_DATA_DIR").is_err() {
                 std::env::set_var(
                     "SGT_CREATION_WEBVIEW2_DATA_DIR",
@@ -160,6 +156,8 @@ fn is_valid_webview2_debug_port(port: &str) -> bool {
 fn parse_creation_ui_test_app(value: Option<&str>) -> Option<CreationUiTestApp> {
     match value {
         Some("3d") => Some(CreationUiTestApp::ThreeD),
+        Some("image") => Some(CreationUiTestApp::Image),
+        Some("svg") => Some(CreationUiTestApp::Svg),
         _ => None,
     }
 }
@@ -232,14 +230,15 @@ mod tests {
             parse_creation_ui_test_app(Some("3d")),
             Some(CreationUiTestApp::ThreeD)
         );
-        for value in [
-            None,
-            Some(""),
-            Some("3D"),
-            Some("image"),
-            Some("svg"),
-            Some("unknown"),
-        ] {
+        assert_eq!(
+            parse_creation_ui_test_app(Some("image")),
+            Some(CreationUiTestApp::Image)
+        );
+        assert_eq!(
+            parse_creation_ui_test_app(Some("svg")),
+            Some(CreationUiTestApp::Svg)
+        );
+        for value in [None, Some(""), Some("3D"), Some("unknown")] {
             assert_eq!(parse_creation_ui_test_app(value), None);
         }
     }
