@@ -16,7 +16,14 @@ internal data class Worker(
     @Volatile var busy: Boolean = false,
     val assignment: CreationWorkerAssignmentGuard = CreationWorkerAssignmentGuard(),
     @Volatile var connectionEpoch: Long = 0,
-)
+) {
+    fun preparationState() = CreationPreparationSlotState(
+        connected = binder != null,
+        binding = binding,
+        ready = ready,
+        busy = busy,
+    )
+}
 
 internal data class Assignment(val worker: Worker, val binder: ICreationWorker)
 internal data class PreparedCall(val binder: ICreationWorker, val epoch: Long)

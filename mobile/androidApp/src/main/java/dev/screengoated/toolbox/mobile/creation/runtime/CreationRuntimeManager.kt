@@ -132,4 +132,4 @@ private const val GENERATION_MODES = "generationModes"
 private const val OPTIONAL_INSTRUCTION = "optionalInstruction"
 private val CREATION_GENERATION_MODES = setOf("fast", "quality")
 private val CREATION_RUNTIME_FEATURES =
-    setOf("image_to_3d")
+    setOf("image_to_3d", "image_to_svg", "image_creator")

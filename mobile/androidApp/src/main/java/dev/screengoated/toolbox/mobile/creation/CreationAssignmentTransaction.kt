@@ -42,3 +42,30 @@ internal fun applyCreationWorkerAssignment(
             .map(CreationContinuation::sourcePath),
     )
 }
+
+internal class CreationWorkerAssignmentCoordinator(
+    private val memory: CreationManagerMemory,
+    private val mutationLock: Any,
+    private val lock: Any,
+    private val journalWriter: CreationManagerJournalWriter,
+    private val recoveryLeases: CreationRecoveryWorkerLeases,
+    private val files: CreationFileStore,
+) {
+    fun record(request: CreationWorkerRequest, assignedEngine: String) {
+        val retired = synchronized(mutationLock) {
+            lateinit var change: CreationWorkerAssignmentChange
+            val snapshot = synchronized(lock) {
+                change = applyCreationWorkerAssignment(memory, request, assignedEngine)
+                journalWriter.snapshot(memory)
+            }
+            runCatching { journalWriter.writeRequired(snapshot) }.onFailure {
+                synchronized(lock) { change.rollback() }
+            }.getOrThrow()
+            change.retiredInputPaths
+        }
+        CreationTool.fromWireName(request.tool)?.let { tool ->
+            recoveryLeases.assign(request.jobId, tool, assignedEngine)
+        }
+        files.releaseJobInputs(retired)
+    }
+}

@@ -17,23 +17,35 @@ class CreationProductContractTest {
     private val json = Json { ignoreUnknownKeys = false }
 
     @Test
-    fun `release packages only the active 3d creation capability`() {
-        val active = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
+    fun `release packages every delivered creation capability`() {
+        val delivered = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
             .objectAt("runtimeCapabilities")
             .getValue("deliveredFeatures")
             .jsonArray
             .map { it.jsonPrimitive.content }
-        assertEquals(listOf("image_to_3d"), active)
+        assertEquals(listOf("image_to_3d", "image_to_svg", "image_creator"), delivered)
 
-        listOf(
-            "parity-fixtures/image-to-svg/state-contract.json",
-            "parity-fixtures/image-creation-editing/state-contract.json",
-        ).forEach { path ->
-            val release = loadFixture(path).objectAt("releaseAvailability")
-            assertEquals("archived_source_only", release.stringAt("packaging"))
-            assertFalse(release.booleanAt("compiledHostCode"))
-            assertFalse(release.booleanAt("embeddedFrontendAssets"))
-            assertFalse(release.booleanAt("runtimeCapabilityDelivered"))
+        val svg = loadFixture("parity-fixtures/image-to-svg/state-contract.json")
+            .objectAt("releaseAvailability")
+        assertTrue(svg.booleanAt("enabled"))
+        assertTrue(svg.booleanAt("entryVisible"))
+        assertEquals("open_surface", svg.stringAt("entryBehavior"))
+        assertTrue(svg.booleanAt("startsSurface"))
+        assertTrue(svg.booleanAt("startsReadiness"))
+
+        val image = loadFixture("parity-fixtures/image-creation-editing/state-contract.json")
+            .objectAt("releaseAvailability")
+        assertFalse(image.booleanAt("enabled"))
+        assertFalse(image.booleanAt("entryVisible"))
+        assertEquals("hidden", image.stringAt("entryBehavior"))
+        assertFalse(image.booleanAt("startsSurface"))
+        assertFalse(image.booleanAt("startsReadiness"))
+
+        listOf(svg, image).forEach { release ->
+            assertEquals("optional_content_addressed_runtime", release.stringAt("packaging"))
+            assertTrue(release.booleanAt("compiledHostCode"))
+            assertTrue(release.booleanAt("embeddedFrontendAssets"))
+            assertTrue(release.booleanAt("runtimeCapabilityDelivered"))
         }
     }
 
@@ -47,12 +59,12 @@ class CreationProductContractTest {
             "integrityValidatedBeforeUse",
         )
         val fixtures = listOf(
-            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 36),
-            Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 32),
+            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 57),
+            Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 41),
             Triple(
                 "parity-fixtures/image-creation-editing/state-contract.json",
                 "fixtureVersion",
-                46,
+                65,
             ),
         )
         fixtures.forEach { (path, versionField, version) ->
@@ -66,6 +78,65 @@ class CreationProductContractTest {
             assertFalse(publicBoundary.booleanAt("implementationDetailsVisible"))
             assertEquals(version, fixture.intAt(versionField))
         }
+    }
+
+    @Test
+    fun `unrelated dialogs are not treated as blocking first use guidance`() {
+        val readiness = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
+            .objectAt("readiness")
+
+        assertTrue(readiness.booleanAt("blockingFirstUseGuidanceResolved"))
+        assertTrue(readiness.booleanAt("unrelatedDialogsDoNotBecomeFirstUseGuidance"))
+    }
+
+    @Test
+    fun `mailbox preparation waits without reloading or retiring compatible capacity`() {
+        listOf(
+            "parity-fixtures/image-to-3d/state-contract.json",
+            "parity-fixtures/image-to-svg/state-contract.json",
+            "parity-fixtures/image-creation-editing/state-contract.json",
+        ).forEach { path ->
+            val mailbox = loadFixture(path).objectAt("mailboxPreparation")
+            assertEquals(1_000, mailbox.intAt("pendingAddressPollIntervalMs"))
+            assertFalse(mailbox.booleanAt("pendingAddressReloadsPage"))
+            assertTrue(mailbox.booleanAt("singleNavigationPerSession"))
+            assertTrue(mailbox.booleanAt("readinessRequiresRetainedIdentityMatch"))
+            assertTrue(
+                mailbox.booleanAt("transientDocumentReadinessDoesNotRetireCompatibleCapacity"),
+            )
+            assertTrue(mailbox.booleanAt("pooledIdentityFreshnessRequiresNoPriorConsumerClaim"))
+            assertTrue(mailbox.booleanAt("pooledIdentityClaimObservableThroughDelivery"))
+            assertTrue(mailbox.booleanAt("temporaryCapacityPausePreservesPendingDemand"))
+            assertTrue(mailbox.booleanAt("temporaryCapacityRecoveryIsBounded"))
+        }
+    }
+
+    @Test
+    fun `verification address requires browser committed provider state`() {
+        val mailbox = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
+            .objectAt("mailboxPreparation")
+
+        assertTrue(mailbox.booleanAt("verificationAddressUsesBrowserCommittedTextEntry"))
+        assertTrue(mailbox.booleanAt("documentValueEqualityDoesNotProveAcceptedTextEntry"))
+    }
+
+    @Test
+    fun `provider name resolution retry remains bounded and nonduplicating`() {
+        val transport = loadFixture("parity-fixtures/image-to-3d/state-contract.json")
+            .objectAt("providerTransport")
+
+        assertTrue(transport.booleanAt("nameResolutionRetryIsBounded"))
+        assertTrue(transport.booleanAt("readOnlyRequestsRetryNameResolution"))
+        assertTrue(transport.booleanAt("requestsKnownNotToHaveConnectedMayRetry"))
+        assertTrue(transport.booleanAt("uncertainConsequentialSubmissionIsNotRetried"))
+        assertTrue(transport.booleanAt("confirmedNameResolutionFailureIsNotUnknownSubmission"))
+        assertTrue(transport.booleanAt("cancellationInterruptsBackoff"))
+        assertEquals(
+            listOf(1_000, 2_000, 4_000, 8_000),
+            transport.getValue("nameResolutionRetryDelaysMs")
+                .jsonArray
+                .map { it.jsonPrimitive.int },
+        )
     }
 
     @Test
@@ -94,7 +165,6 @@ class CreationProductContractTest {
         listOf(
             "parity-fixtures/image-to-3d/state-contract.json",
             "parity-fixtures/image-to-svg/state-contract.json",
-            "parity-fixtures/image-creation-editing/state-contract.json",
         ).forEach { path ->
             val readiness = loadFixture(path).objectAt("readiness")
             assertTrue(readiness.booleanAt("immediateReserveCoversParallelLimit"))
@@ -104,6 +174,47 @@ class CreationProductContractTest {
             assertTrue(readiness.booleanAt("readyWorkDoesNotWaitForReplenishment"))
             assertTrue(readiness.booleanAt("toolCapacityIsIsolated"))
         }
+        val imageReadiness = loadFixture(
+            "parity-fixtures/image-creation-editing/state-contract.json",
+        ).objectAt("readiness")
+        assertEquals(1, imageReadiness.intAt("speculativeWorkspaceReserve"))
+        assertFalse(imageReadiness.booleanAt("immediateReserveCoversParallelLimit"))
+        assertFalse(
+            imageReadiness.booleanAt("singleAcceptedJobStartsSpeculativeReplenishment"),
+        )
+        assertTrue(imageReadiness.booleanAt("secondAcceptedJobExpandsToParallelLimit"))
+        assertTrue(imageReadiness.booleanAt("acceptedDemandExpandsPreparation"))
+        assertTrue(imageReadiness.booleanAt("expansionIsBounded"))
+        assertTrue(imageReadiness.booleanAt("readyWorkDoesNotWaitForReplenishment"))
+        assertTrue(imageReadiness.booleanAt("toolCapacityIsIsolated"))
+    }
+
+    @Test
+    fun `image reference upload targets only the active semantic control`() {
+        val upload = loadFixture("parity-fixtures/image-creation-editing/state-contract.json")
+            .objectAt("referenceUpload")
+
+        assertTrue(upload.booleanAt("actionableSemanticControlRequired"))
+        assertTrue(upload.booleanAt("visibleUploadSurfaceRequired"))
+        assertTrue(upload.booleanAt("hiddenImplementationInputEligible"))
+        assertTrue(upload.booleanAt("disconnectedOrDisabledInputRejected"))
+        assertTrue(upload.booleanAt("semanticallyUnownedInputRejected"))
+        assertTrue(upload.booleanAt("ambiguousInputRankingRejected"))
+        assertTrue(upload.booleanAt("localActivationRetryIsBounded"))
+        assertTrue(upload.booleanAt("activationRetryDoesNotNavigateOrSubmit"))
+        assertTrue(upload.booleanAt("visibleRetainedReferenceControlRequired"))
+        assertTrue(upload.booleanAt("selectedFileInputAloneIsInsufficient"))
+        assertTrue(upload.booleanAt("asynchronousRetentionWaitIsBounded"))
+        assertTrue(upload.booleanAt("retentionWaitIsIndependentFromControlDiscovery"))
+        assertTrue(upload.booleanAt("allRequestedReferencesRetainedBeforeSubmission"))
+        assertTrue(upload.booleanAt("duplicateReferenceNamesRequireRetainedMultiplicity"))
+        assertTrue(upload.booleanAt("aggregateRetentionWaitFitsWithinJobDeadline"))
+        assertTrue(upload.booleanAt("safeInformationalDialogsReconciledDuringRetentionWait"))
+
+        val quality = loadFixture("parity-fixtures/image-creation-editing/state-contract.json")
+            .objectAt("qualityControl")
+        assertTrue(quality.booleanAt("promptAcceptedByEditorStateBeforeSubmit"))
+        assertTrue(quality.booleanAt("semanticEditorReplacementBeforeCommitIsReacquired"))
     }
 
     @Test
@@ -136,9 +247,24 @@ class CreationProductContractTest {
         assertTrue(recovery.booleanAt("contentFingerprintIsNotDispatchIdentity"))
         assertTrue(recovery.booleanAt("replayMatchesOnlySameDispatchId"))
         assertTrue(recovery.booleanAt("acceptedJobResumedWithoutResubmit"))
+        assertTrue(recovery.booleanAt("acceptedExecutionLossRetainsDispatchAndInput"))
+        assertTrue(recovery.booleanAt("acceptedExecutionLossRequeuesSameDispatch"))
+        assertTrue(recovery.booleanAt("acceptedExecutionLossIsNotTerminalFailure"))
+        assertTrue(recovery.booleanAt("workerCleanupPrecedesRecoveryRedispatch"))
         assertTrue(recovery.booleanAt("unknownSubmissionFailsClosed"))
         assertTrue(recovery.booleanAt("artifactCommittedBeforeHostSuccess"))
         assertEquals(7 * 24, recovery.intAt("recoveryRetentionHours"))
+
+        listOf(
+            "parity-fixtures/image-to-svg/state-contract.json",
+            "parity-fixtures/image-creation-editing/state-contract.json",
+        ).forEach { path ->
+            assertTrue(
+                loadFixture(path)
+                    .objectAt("recovery")
+                    .booleanAt("workerCleanupPrecedesRecoveryRedispatch"),
+            )
+        }
     }
 
     @Test
@@ -147,7 +273,7 @@ class CreationProductContractTest {
         val lifecycle = fixture.objectAt("hostLifecycle")
         val timing = fixture.objectAt("timing")
 
-        assertTrue(lifecycle.booleanAt("executionLossFailsActiveJobExactlyOnce"))
+        assertTrue(lifecycle.booleanAt("executionLossRequeuesActiveJobExactlyOnce"))
         assertTrue(lifecycle.booleanAt("staleCompletionCannotReleaseNewExecution"))
         assertTrue(lifecycle.booleanAt("cancelWinsOverLateSuccess"))
         assertTrue(lifecycle.booleanAt("lateSuccessCannotPublishAfterCancel"))

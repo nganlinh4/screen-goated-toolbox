@@ -277,7 +277,6 @@ internal fun normalizeCreationImagePaths(
     val sources = rawSources
         .map { it.trim() }
         .filter { it.isNotEmpty() }
-        .distinct()
     return when (tool) {
         CreationTool.IMAGE_CREATOR -> sources.also {
             require(it.size <= CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES) {

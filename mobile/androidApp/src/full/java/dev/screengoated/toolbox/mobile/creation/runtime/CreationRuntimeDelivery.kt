@@ -83,13 +83,27 @@ internal fun parseCreationRuntimeDelivery(root: JSONObject): CreationRuntimeDeli
         require(it.asset == expectedAsset) {
             "Creation runtime asset is not content-addressed"
         }
-        require(it.downloadUrl == RUNTIME_BUNDLES_PREFIX + it.asset) {
+        require(
+            creationRuntimeDownloadUrlIsImmutable(
+                downloadUrl = it.downloadUrl,
+                asset = it.asset,
+                allowStaging = BuildConfig.DEBUG,
+            ),
+        ) {
             "Creation runtime URL is not immutable"
         }
         it.entry(ROLE_FACTORY_DEX)
         it.entry(ROLE_NATIVE_LIBRARY)
     }
 }
+
+internal fun creationRuntimeDownloadUrlIsImmutable(
+    downloadUrl: String,
+    asset: String,
+    allowStaging: Boolean,
+): Boolean =
+    downloadUrl == RUNTIME_BUNDLES_PREFIX + asset ||
+        (allowStaging && downloadUrl == RUNTIME_STAGING_PREFIX + asset)
 
 private fun JSONObject.requireObject(name: String): JSONObject =
     getJSONObject(name)
@@ -131,3 +145,5 @@ private const val MAXIMUM_DELIVERY_ENTRIES = 64
 private const val MAXIMUM_DELIVERY_BYTES = 1024L * 1024 * 1024
 private const val RUNTIME_BUNDLES_PREFIX =
     "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/"
+private const val RUNTIME_STAGING_PREFIX =
+    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-staging/"

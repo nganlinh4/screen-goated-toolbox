@@ -155,7 +155,7 @@ internal fun restoreCreationManagerMemory(
         record.continuation?.let { memory.continuations[jobId] = it }
         if (creationStageIsBusy(record.status.stage)) {
             CreationTool.fromWireName(record.request.tool)?.let { tool ->
-                recoveryLeases.acquire(jobId, tool)
+                recoveryLeases.acquire(jobId, tool, record.engineId)
             }
         }
     }

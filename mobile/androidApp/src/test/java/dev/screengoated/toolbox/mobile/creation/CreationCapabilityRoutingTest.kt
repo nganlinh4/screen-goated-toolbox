@@ -5,6 +5,7 @@ import dev.screengoated.toolbox.mobile.creation.runtime.isCompatibleCreationRunt
 import dev.screengoated.toolbox.mobile.creation.runtime.runtimeSupportsOptionalInstruction
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -45,6 +46,22 @@ class CreationCapabilityRoutingTest {
     }
 
     @Test
+    fun `execution loss uses the same dispatch recovery path`() {
+        assertTrue(CreationWorkerEvent(event = "execution_lost").requiresSameDispatchRecovery())
+        assertTrue(
+            CreationWorkerEvent(
+                event = "failure",
+                failureCode = "execution_lost",
+            ).requiresSameDispatchRecovery(),
+        )
+        assertFalse(
+            CreationWorkerEvent(event = "failure", failureCode = "timeout")
+                .requiresSameDispatchRecovery(),
+        )
+        assertFalse(CreationWorkerEvent(event = "success").requiresSameDispatchRecovery())
+    }
+
+    @Test
     fun `fast and quality modes preserve only product constraints`() {
         val fast = CreationContract.route3dMode(
             CreationGenerationMode.FAST,
@@ -63,6 +80,61 @@ class CreationCapabilityRoutingTest {
         assertEquals(CreationContract.QUALITY_MINIMUM_POLYCOUNT, quality.polycount)
         assertTrue(quality.autoSegment)
         assertTrue(quality.showAutoSegment)
+    }
+
+    @Test
+    fun `selected 3d mode survives draft queue submission and worker wire`() {
+        val codec = Json { encodeDefaults = true; explicitNulls = false }
+
+        CreationGenerationMode.entries.forEach { mode ->
+            val draft = routeCreationNativeItem(
+                CreationTool.IMAGE_TO_3D,
+                CreationNativeItem(
+                    id = "draft-${mode.wireName}",
+                    batchId = "batch-${mode.wireName}",
+                    sourcePath = "source.png",
+                    sourceName = "source.png",
+                    generationMode = mode.wireName,
+                ),
+                supportsInstruction = { false },
+            )
+            val queued = CreationNativeUiState(
+                items = listOf(draft),
+                selectedItemId = draft.id,
+            ).submitSelectedItem(
+                newItemId = "queued-${mode.wireName}",
+                newBatchId = "queued-batch-${mode.wireName}",
+                submissionToken = "token-${mode.wireName}",
+            ).selectedItem ?: error("Submission did not select the queued item")
+            val args = creationSubmissionArgs(CreationTool.IMAGE_TO_3D, queued)
+            val request = CreationWorkerRequest(
+                jobId = "job-${mode.wireName}",
+                dispatchId = "dispatch-${mode.wireName}",
+                requestFingerprint = "a".repeat(64),
+                sourceDescriptors = listOf(
+                    CreationSourceDescriptor("source.png", 123, "b".repeat(64)),
+                ),
+                tool = CreationTool.IMAGE_TO_3D.wireName,
+                generationMode = args.getValue("generationMode").jsonPrimitive.content,
+                operation = "generate",
+                imagePath = "source.png",
+                imagePaths = listOf("source.png"),
+                outputPath = "result.glb",
+                outputName = "result.glb",
+            )
+            val decoded = codec.decodeFromString(
+                CreationWorkerRequest.serializer(),
+                codec.encodeToString(CreationWorkerRequest.serializer(), request),
+            )
+
+            assertEquals(mode.wireName, queued.generationMode)
+            assertEquals(mode.wireName, args.getValue("generationMode").jsonPrimitive.content)
+            assertEquals(mode.wireName, decoded.generationMode)
+            assertEquals(
+                mode.wireName,
+                CreationJobFactory.initialStatus(CreationTool.IMAGE_TO_3D, decoded).generationMode,
+            )
+        }
     }
 
     @Test
@@ -155,13 +227,13 @@ class CreationCapabilityRoutingTest {
     fun `runtime handshake requires version and product capability manifest`() {
         val expected = CreationRuntimeProductDescriptor(
             runtimeVersion = "1",
-            features = setOf("image_to_3d"),
+            features = setOf("image_to_3d", "image_to_svg", "image_creator"),
         )
         val manifest = """
             {
               "contractVersion":1,
               "runtimeVersion":"1",
-              "features":["image_to_3d"],
+              "features":["image_to_3d","image_to_svg","image_creator"],
               "tools":{
                 "image_to_3d":{
                   "generationModes":{
@@ -179,7 +251,7 @@ class CreationCapabilityRoutingTest {
         assertFalse(
             isCompatibleCreationRuntimeManifest(
                 manifest.replace(
-                    "\"features\":[\"image_to_3d\"]",
+                    "\"features\":[\"image_to_3d\",\"image_to_svg\",\"image_creator\"]",
                     "\"features\":[\"image_to_3d\",\"image_to_svg\"]",
                 ),
                 expected,
@@ -207,8 +279,8 @@ class CreationCapabilityRoutingTest {
         assertFalse(
             isCompatibleCreationRuntimeManifest(
                 manifest.replace(
-                    "\"features\":[\"image_to_3d\"]",
-                    "\"features\":[\"image_to_3d\",\"image_to_3d\"]",
+                    "\"features\":[\"image_to_3d\",\"image_to_svg\",\"image_creator\"]",
+                    "\"features\":[\"image_to_3d\",\"image_to_svg\",\"image_creator\",\"image_creator\"]",
                 ),
                 expected,
             ),
@@ -221,7 +293,7 @@ class CreationCapabilityRoutingTest {
             {
               "contractVersion": 1,
               "runtimeVersion": "1",
-              "features": ["image_to_3d"],
+              "features": ["image_to_3d", "image_to_svg", "image_creator"],
               "tools": {
                 "image_to_3d": {
                   "generationModes": {

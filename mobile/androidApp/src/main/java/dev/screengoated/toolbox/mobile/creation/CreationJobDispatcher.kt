@@ -18,12 +18,18 @@ internal class CreationJobDispatcher(
     private val onPreparationFailed: (String) -> Unit,
 ) {
     private val signal = Channel<Unit>(Channel.CONFLATED)
+    private val preparationRecovery = CreationPreparationRecoveryWindow(
+        CreationContract.TEMPORARY_CAPACITY_RECOVERY_MS,
+    )
 
     init {
         scope.launch {
             for (ignored in signal) {
-                while (pendingSnapshot().isNotEmpty()) {
-                    if (!dispatchRound()) delay(DISPATCH_RETRY_DELAY_MS)
+                while (true) {
+                    val pending = pendingSnapshot()
+                    preparationRecovery.retain(pending.mapTo(mutableSetOf()) { it.jobId })
+                    if (pending.isEmpty()) break
+                    if (!dispatchRound(pending)) delay(DISPATCH_RETRY_DELAY_MS)
                 }
             }
         }
@@ -33,12 +39,14 @@ internal class CreationJobDispatcher(
         signal.trySend(Unit)
     }
 
-    private fun dispatchRound(): Boolean {
+    private fun dispatchRound(pendingSnapshot: List<CreationPendingDispatch>): Boolean {
         var dispatched = false
-        pendingSnapshot().forEach { pending ->
+        pendingSnapshot.forEach { pending ->
             val request = requestFor(pending.jobId)
             if (request == null) {
+                preparationRecovery.clear(pending.jobId)
                 removePending(pending.jobId)
+                dispatched = true
                 return@forEach
             }
             val result = workers.dispatch(
@@ -48,12 +56,28 @@ internal class CreationJobDispatcher(
             ) { assigned -> onAssigned(request, assigned) }
             when (result) {
                 is CreationWorkerDispatchResult.Assigned -> {
+                    preparationRecovery.clear(request.jobId)
                     removePending(request.jobId)
                     if (isCancelled(request.jobId)) workers.cancel(request.jobId)
                     onDispatched(request)
                     dispatched = true
                 }
+                CreationWorkerDispatchResult.TemporaryCapacityPause -> {
+                    if (preparationRecovery.shouldRetry(
+                            request.jobId,
+                            request.deadlineAtMs,
+                        )
+                    ) {
+                        workers.restartPreparation(pending.tool)
+                    } else {
+                        preparationRecovery.clear(request.jobId)
+                        removePending(request.jobId)
+                        onPreparationFailed(request.jobId)
+                        dispatched = true
+                    }
+                }
                 CreationWorkerDispatchResult.PreparationFailed -> {
+                    preparationRecovery.clear(request.jobId)
                     removePending(request.jobId)
                     onPreparationFailed(request.jobId)
                     dispatched = true

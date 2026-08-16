@@ -13,8 +13,12 @@ import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeStatus
 import dev.screengoated.toolbox.mobile.creation.runtime.runtimeSupportsOptionalInstruction
 import dev.screengoated.toolbox.mobile.creation.worker.ICreationWorker
 import dev.screengoated.toolbox.mobile.creation.worker.ICreationWorkerCallback
+import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker0Service
+import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker1Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker0Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker1Service
+import dev.screengoated.toolbox.mobile.creation.worker.ImageToSvgWorker0Service
+import dev.screengoated.toolbox.mobile.creation.worker.ImageToSvgWorker1Service
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +37,10 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     private val workers = listOf(
         Worker("3d-0", CreationTool.IMAGE_TO_3D, ImageTo3dWorker0Service::class.java),
         Worker("3d-1", CreationTool.IMAGE_TO_3D, ImageTo3dWorker1Service::class.java),
+        Worker("svg-0", CreationTool.IMAGE_TO_SVG, ImageToSvgWorker0Service::class.java),
+        Worker("svg-1", CreationTool.IMAGE_TO_SVG, ImageToSvgWorker1Service::class.java),
+        Worker("image-0", CreationTool.IMAGE_CREATOR, ImageCreatorWorker0Service::class.java),
+        Worker("image-1", CreationTool.IMAGE_CREATOR, ImageCreatorWorker1Service::class.java),
     )
     private val handler = Handler(context.mainLooper)
     private val jobWorkers = ConcurrentHashMap<String, String>()
@@ -44,10 +52,30 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     @Volatile private var runtimeAwaiting = false
     @Volatile private var preparationStateListener: (() -> Unit)? = null
 
-    fun acquire(tool: CreationTool, owner: String) {
+    fun acquireSurface(tool: CreationTool, owner: String) =
+        acquire(tool, owner, CreationWorkerLeaseKind.SURFACE)
+
+    fun acquireRecovery(tool: CreationTool, owner: String, requiredWorkerKey: String? = null) =
+        acquire(tool, owner, CreationWorkerLeaseKind.JOB, requiredWorkerKey)
+
+    fun requireRecoveryWorker(tool: CreationTool, owner: String, workerKey: String) {
+        val demand = synchronized(leaseLock) {
+            leases.requireWorker(tool, owner, workerKey)
+            leases.preparationDemand(tool)
+        }
+        trimToolCapacity(tool, demand)
+        schedulePreparation()
+    }
+
+    private fun acquire(
+        tool: CreationTool,
+        owner: String,
+        kind: CreationWorkerLeaseKind,
+        requiredWorkerKey: String? = null,
+    ) {
         if (!creationToolReleased(tool)) return
         synchronized(leaseLock) {
-            leases.acquire(tool, owner)
+            leases.acquire(tool, owner, kind, requiredWorkerKey)
             surfacePriority.remove(tool)
             surfacePriority.addFirst(tool)
         }
@@ -55,13 +83,18 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     }
 
     fun release(tool: CreationTool, owner: String) {
-        val last = synchronized(leaseLock) { leases.release(tool, owner) }
+        val (last, demand) = synchronized(leaseLock) {
+            leases.release(tool, owner) to leases.preparationDemand(tool)
+        }
         if (last) {
             shutdownTool(tool)
             synchronized(leaseLock) {
                 if (activePreparationTool == tool) activePreparationTool = null
                 surfacePriority.remove(tool)
             }
+            schedulePreparation()
+        } else {
+            trimToolCapacity(tool, demand)
             schedulePreparation()
         }
     }
@@ -81,9 +114,23 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             awaitRuntime()
             return
         }
+        val demands = synchronized(leaseLock) {
+            CreationTool.entries.associateWith { tool ->
+                leases.preparationDemand(tool)
+            }
+        }
         val ready = synchronized(workers) {
             CreationTool.entries.filterTo(mutableSetOf()) { tool ->
-                workers.filter { it.tool == tool }.all { it.ready }
+                val matching = workers.filter { it.tool == tool }
+                val demand = demands.getValue(tool)
+                creationPreparationCapacitySatisfied(
+                    matching.map(Worker::preparationState),
+                    demand.capacity,
+                    creationRequiredSlotIndexes(
+                        matching.map(Worker::key),
+                        demand.requiredWorkerKeys,
+                    ),
+                )
             }
         }
         val (selected, displaced) = synchronized(leaseLock) {
@@ -98,18 +145,23 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             next to previous?.takeIf { it != next }
         }
         selected ?: return
-        displaced?.let(::shutdownTool)
+        displaced?.let { tool ->
+            val interrupted = synchronized(workers) {
+                workers.filter { it.tool == tool && !it.ready && !it.busy }
+            }
+            shutdownWorkers(interrupted)
+        }
         val nextWorker = synchronized(workers) {
             val matching = workers.filter { it.tool == selected }
+            val demand = demands.getValue(selected)
             val slot = nextCreationPreparationSlot(
-                matching.map {
-                    CreationPreparationSlotState(
-                        connected = it.binder != null,
-                        binding = it.binding,
-                        ready = it.ready,
-                        busy = it.busy,
-                    )
-                },
+                matching.map(Worker::preparationState),
+                demand.capacity,
+                CreationContract.maximumConcurrentPreparations(selected),
+                creationRequiredSlotIndexes(
+                    matching.map(Worker::key),
+                    demand.requiredWorkerKeys,
+                ),
             )
             slot?.let(matching::get)
         }
@@ -157,6 +209,9 @@ internal class CreationWorkerPool private constructor(private val context: Conte
             return CreationWorkerDispatchResult.PreparationFailed
         }
         if (synchronized(leaseLock) { preparationFailures.isFailed(tool) }) {
+            return CreationWorkerDispatchResult.TemporaryCapacityPause
+        }
+        if (preferredWorker != null && workers.none { it.tool == tool && it.key == preferredWorker }) {
             return CreationWorkerDispatchResult.PreparationFailed
         }
         val requestJson = json.encodeToString(CreationWorkerRequest.serializer(), request)
@@ -223,41 +278,23 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         shutdownWorkers(workers.filter { it.tool == tool })
     }
 
-    private fun shutdownWorkers(selected: List<Worker>) {
-        val actions = synchronized(workers) {
-            selected.map { worker ->
-                val action = ShutdownAction(
-                    worker = worker,
-                    binder = worker.binder,
-                    connection = worker.connection,
-                    assignment = worker.assignment.lose(),
-                )
-                worker.binder = null
-                worker.connection = null
-                worker.binding = false
-                worker.prepareScheduled = false
-                worker.preparing = false
-                worker.ready = false
-                worker.busy = false
-                worker.connectionEpoch += 1
-                action
-            }.also { actions ->
-                actions.mapNotNull { it.assignment?.jobId }.forEach(jobWorkers::remove)
-            }
-        }
-        actions.forEach { action ->
-            action.assignment?.jobId?.let { runCatching { action.binder?.cancel(it) } }
-            action.connection?.let { runCatching { context.unbindService(it) } }
-            context.stopService(Intent(context, action.worker.serviceClass))
-            action.assignment?.sink?.invoke(
-                action.worker.key,
-                CreationWorkerEvent(
-                    jobId = action.assignment.jobId,
-                    event = "execution_lost",
-                    failureCode = "execution_lost",
+    private fun trimToolCapacity(tool: CreationTool, demand: CreationPreparationDemand) {
+        val selected = synchronized(workers) {
+            val matching = workers.filter { it.tool == tool }
+            creationPreparationRetirementSlots(
+                matching.map(Worker::preparationState),
+                demand.capacity,
+                creationRequiredSlotIndexes(
+                    matching.map(Worker::key),
+                    demand.requiredWorkerKeys,
                 ),
-            )
+            ).map(matching::get)
         }
+        shutdownWorkers(selected)
+    }
+
+    private fun shutdownWorkers(selected: List<Worker>) {
+        shutdownCreationWorkers(context, workers, selected, jobWorkers)
     }
 
     private fun awaitRuntime() {
@@ -395,6 +432,7 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                     }
                     synchronized(leaseLock) { preparationFailures.restart(worker.tool) }
                     completeToolPreparation(worker.tool)
+                    preparationStateListener?.invoke()
                     return
                 }
                 CreationPreparationEventDisposition.RETRY -> Unit
@@ -442,13 +480,23 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     }
 
     private fun completeToolPreparation(tool: CreationTool) {
+        val demand = synchronized(leaseLock) { leases.preparationDemand(tool) }
         val ready = synchronized(workers) {
-            workers.filter { it.tool == tool }.all { it.ready }
+            val matching = workers.filter { it.tool == tool }
+            creationPreparationCapacitySatisfied(
+                matching.map(Worker::preparationState),
+                demand.capacity,
+                creationRequiredSlotIndexes(
+                    matching.map(Worker::key),
+                    demand.requiredWorkerKeys,
+                ),
+            )
         }
         if (!ready) {
             schedulePreparation()
             return
         }
+        trimToolCapacity(tool, demand)
         synchronized(leaseLock) {
             if (activePreparationTool != tool) return
             activePreparationTool = null

@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.Process
+import android.util.Log
 import dev.screengoated.toolbox.mobile.creation.CreationTool
 import dev.screengoated.toolbox.mobile.creation.CreationContract
 import dev.screengoated.toolbox.mobile.creation.CreationWorkerEvent
@@ -111,11 +112,11 @@ internal abstract class CreationWorkerService : Service() {
             }
             jobs.remove(request.jobId)?.cancel()
             jobs[request.jobId] = scope.launch {
-                var terminalEmitted = false
+                val terminal = CreationWorkerTerminalRelay { callback.emit(it) }
                 try {
                     val remainingMs = request.deadlineAtMs - System.currentTimeMillis()
                     if (remainingMs <= 0L) {
-                        callback.emit(
+                        terminal.accept(
                             CreationWorkerEvent(
                                 jobId = request.jobId,
                                 generationMode = request.generationMode,
@@ -125,30 +126,20 @@ internal abstract class CreationWorkerService : Service() {
                         )
                         return@launch
                     }
+                    Log.i(
+                        "CreationWorker",
+                        "job_started tool=${workerTool.wireName} slot=$executionIndex " +
+                            "dispatchId=${request.dispatchId} " +
+                            "requestFingerprint=${request.requestFingerprint}",
+                    )
                     withTimeout(remainingMs) {
                         activeEngine.runJob(
                             requestJson,
-                            eventSink(callback) { event ->
-                                if (event.jobId == request.jobId &&
-                                    event.event in setOf("success", "failure", "cancelled")
-                                ) {
-                                    terminalEmitted = true
-                                }
-                            },
-                        )
-                    }
-                    if (!terminalEmitted) {
-                        callback.emit(
-                            CreationWorkerEvent(
-                                jobId = request.jobId,
-                                generationMode = request.generationMode,
-                                event = "failure",
-                                failureCode = "unexpected",
-                            ),
+                            decodedEventSink(terminal::accept),
                         )
                     }
                 } catch (_: TimeoutCancellationException) {
-                    callback.emit(
+                    terminal.accept(
                         CreationWorkerEvent(
                             jobId = request.jobId,
                             generationMode = request.generationMode,
@@ -157,7 +148,7 @@ internal abstract class CreationWorkerService : Service() {
                         ),
                     )
                 } catch (_: CancellationException) {
-                    callback.emit(
+                    terminal.accept(
                         CreationWorkerEvent(
                             jobId = request.jobId,
                             generationMode = request.generationMode,
@@ -165,7 +156,7 @@ internal abstract class CreationWorkerService : Service() {
                         ),
                     )
                 } catch (_: Throwable) {
-                    callback.emit(
+                    terminal.accept(
                         CreationWorkerEvent(
                             jobId = request.jobId,
                             generationMode = request.generationMode,
@@ -175,8 +166,18 @@ internal abstract class CreationWorkerService : Service() {
                     )
                 } finally {
                     jobs.remove(request.jobId)
-                    activeEngine.destroy()
+                    runCatching(activeEngine::destroy)
                     if (engine === activeEngine) engine = null
+                    callback.emit(
+                        terminal.complete(
+                            CreationWorkerEvent(
+                                jobId = request.jobId,
+                                generationMode = request.generationMode,
+                                event = "failure",
+                                failureCode = "unexpected",
+                            ),
+                        ),
+                    )
                 }
             }
         }
@@ -204,10 +205,16 @@ internal abstract class CreationWorkerService : Service() {
     private fun eventSink(
         callback: ICreationWorkerCallback,
         observe: (CreationWorkerEvent) -> Unit,
-    ) = CreationRuntimeEventSink { eventJson ->
-        val event = decodeCreationWorkerEvent(eventJson) ?: return@CreationRuntimeEventSink
+    ) = decodedEventSink { event ->
         observe(event)
         callback.emit(event)
+    }
+
+    private fun decodedEventSink(
+        receive: (CreationWorkerEvent) -> Unit,
+    ) = CreationRuntimeEventSink { eventJson ->
+        val event = decodeCreationWorkerEvent(eventJson) ?: return@CreationRuntimeEventSink
+        receive(event)
     }
 
     private fun ICreationWorkerCallback.emit(event: CreationWorkerEvent) {
@@ -223,5 +230,25 @@ internal class ImageTo3dWorker0Service : CreationWorkerService() {
 
 internal class ImageTo3dWorker1Service : CreationWorkerService() {
     override val workerTool = CreationTool.IMAGE_TO_3D
+    override val executionIndex = 1
+}
+
+internal class ImageToSvgWorker0Service : CreationWorkerService() {
+    override val workerTool = CreationTool.IMAGE_TO_SVG
+    override val executionIndex = 0
+}
+
+internal class ImageToSvgWorker1Service : CreationWorkerService() {
+    override val workerTool = CreationTool.IMAGE_TO_SVG
+    override val executionIndex = 1
+}
+
+internal class ImageCreatorWorker0Service : CreationWorkerService() {
+    override val workerTool = CreationTool.IMAGE_CREATOR
+    override val executionIndex = 0
+}
+
+internal class ImageCreatorWorker1Service : CreationWorkerService() {
+    override val workerTool = CreationTool.IMAGE_CREATOR
     override val executionIndex = 1
 }

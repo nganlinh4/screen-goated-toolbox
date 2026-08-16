@@ -27,7 +27,6 @@ internal object CreationImageSessions {
         } ?: new()
         val merged = (selected.referencePaths + paths)
             .filter(String::isNotBlank)
-            .distinct()
         val maximum = CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES
         val bounded = normalizedReferences(merged)
         val updated = selected.copy(
@@ -79,7 +78,6 @@ internal object CreationImageSessions {
     private fun normalizedReferences(paths: List<String>): List<String> =
         paths.asSequence()
             .filter(String::isNotBlank)
-            .distinct()
             .take(CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES)
             .toList()
 }

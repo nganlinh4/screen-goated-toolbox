@@ -70,7 +70,11 @@ internal fun CreationImageSettings(
                     items = item.referencePaths,
                     key = { index, path -> "$index:$path" },
                 ) { index, path ->
-                    Box(Modifier.size(82.dp)) {
+                    Box(
+                        Modifier
+                            .size(82.dp)
+                            .testTag("creation-image-reference-$index"),
+                    ) {
                         Surface(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -121,7 +125,10 @@ internal fun CreationImageSettings(
             enabled &&
             item.referencePaths.size < CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES
         ) {
-            OutlinedButton(onClick = onAddReferences) {
+            OutlinedButton(
+                onClick = onAddReferences,
+                modifier = Modifier.testTag("creation-image-add-references"),
+            ) {
                 Icon(painterResource(R.drawable.ms_add), contentDescription = null)
                 Text(strings.addReferences, modifier = Modifier.padding(start = 8.dp))
             }

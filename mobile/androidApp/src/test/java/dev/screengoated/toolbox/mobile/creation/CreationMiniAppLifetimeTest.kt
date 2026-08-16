@@ -114,39 +114,102 @@ class CreationMiniAppLifetimeTest {
     fun `worker leases retain concurrent surfaces and release the last owner`() {
         val leases = CreationWorkerLeaseRegistry()
 
-        assertTrue(leases.acquire(CreationTool.IMAGE_TO_SVG, "surface-a"))
-        assertFalse(leases.acquire(CreationTool.IMAGE_TO_SVG, "surface-b"))
+        assertTrue(
+            leases.acquire(
+                CreationTool.IMAGE_TO_SVG,
+                "surface-a",
+                CreationWorkerLeaseKind.SURFACE,
+            ),
+        )
+        assertFalse(
+            leases.acquire(
+                CreationTool.IMAGE_TO_SVG,
+                "surface-b",
+                CreationWorkerLeaseKind.SURFACE,
+            ),
+        )
+        assertEquals(2, leases.requestedCapacity(CreationTool.IMAGE_TO_SVG, 2, 2))
         assertFalse(leases.release(CreationTool.IMAGE_TO_SVG, "surface-a"))
         assertTrue(leases.retained(CreationTool.IMAGE_TO_SVG))
         assertTrue(leases.release(CreationTool.IMAGE_TO_SVG, "surface-b"))
         assertFalse(leases.retained(CreationTool.IMAGE_TO_SVG))
+        assertEquals(0, leases.requestedCapacity(CreationTool.IMAGE_TO_SVG, 2, 2))
     }
 
     @Test
-    fun `recovery lease protects workers after the surface closes`() {
+    fun `recovery lease preserves both 3D mode lanes after the surface closes`() {
         val leases = CreationWorkerLeaseRegistry()
-        leases.acquire(CreationTool.IMAGE_CREATOR, "surface-owner")
-        leases.acquire(CreationTool.IMAGE_CREATOR, "recovery-job")
+        leases.acquire(
+            CreationTool.IMAGE_TO_3D,
+            "surface-owner",
+            CreationWorkerLeaseKind.SURFACE,
+        )
+        leases.acquire(
+            CreationTool.IMAGE_TO_3D,
+            "recovery-job",
+            CreationWorkerLeaseKind.JOB,
+        )
 
-        assertFalse(leases.release(CreationTool.IMAGE_CREATOR, "surface-owner"))
-        assertTrue(leases.retained(CreationTool.IMAGE_CREATOR))
-        assertTrue(leases.release(CreationTool.IMAGE_CREATOR, "recovery-job"))
+        assertFalse(leases.release(CreationTool.IMAGE_TO_3D, "surface-owner"))
+        assertTrue(leases.retained(CreationTool.IMAGE_TO_3D))
+        assertEquals(2, leases.requestedCapacity(CreationTool.IMAGE_TO_3D, 2, 2))
+        assertTrue(leases.release(CreationTool.IMAGE_TO_3D, "recovery-job"))
+        assertEquals(0, leases.requestedCapacity(CreationTool.IMAGE_TO_3D, 2, 2))
+    }
+
+    @Test
+    fun `image demand expands only for two accepted jobs`() {
+        val leases = CreationWorkerLeaseRegistry()
+        leases.acquire(
+            CreationTool.IMAGE_CREATOR,
+            "surface-a",
+            CreationWorkerLeaseKind.SURFACE,
+        )
+        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
+        leases.acquire(
+            CreationTool.IMAGE_CREATOR,
+            "job-a",
+            CreationWorkerLeaseKind.JOB,
+        )
+        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
+        leases.acquire(
+            CreationTool.IMAGE_CREATOR,
+            "job-b",
+            CreationWorkerLeaseKind.JOB,
+        )
+        assertEquals(2, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
+        leases.release(CreationTool.IMAGE_CREATOR, "job-b")
+        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
+        leases.release(CreationTool.IMAGE_CREATOR, "surface-a")
+        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
+        leases.release(CreationTool.IMAGE_CREATOR, "job-a")
+        assertEquals(0, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
     }
 
     @Test
     fun `accepted job owns preparation until its terminal release`() {
-        val acquired = mutableListOf<Pair<CreationTool, String>>()
+        val acquired = mutableListOf<Triple<CreationTool, String, String?>>()
+        val required = mutableListOf<Triple<CreationTool, String, String>>()
         val released = mutableListOf<Pair<CreationTool, String>>()
         val leases = CreationRecoveryWorkerLeases(
-            acquireWorker = { tool, owner -> acquired += tool to owner },
+            acquireWorker = { tool, owner, worker -> acquired += Triple(tool, owner, worker) },
+            requireWorker = { tool, owner, worker ->
+                required += Triple(tool, owner, worker)
+            },
             releaseWorker = { tool, owner -> released += tool to owner },
         )
 
         leases.acquire("image-job", CreationTool.IMAGE_CREATOR)
         leases.acquire("image-job", CreationTool.IMAGE_CREATOR)
         assertEquals(
-            listOf(CreationTool.IMAGE_CREATOR to "recovery:image-job"),
+            listOf(Triple(CreationTool.IMAGE_CREATOR, "recovery:image-job", null)),
             acquired,
+        )
+        leases.assign("image-job", CreationTool.IMAGE_CREATOR, "image-1")
+        leases.assign("image-job", CreationTool.IMAGE_CREATOR, "image-1")
+        assertEquals(
+            listOf(Triple(CreationTool.IMAGE_CREATOR, "recovery:image-job", "image-1")),
+            required,
         )
 
         leases.release("image-job", CreationTool.IMAGE_CREATOR)

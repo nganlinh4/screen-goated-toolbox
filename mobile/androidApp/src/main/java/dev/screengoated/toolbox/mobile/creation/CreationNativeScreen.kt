@@ -128,7 +128,11 @@ internal fun CreationNativeScreen(
                 .padding(padding),
         ) {
             val wide = maxWidth >= 840.dp
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("creation-tool-${tool.wireName}"),
+            ) {
                 if (wide) {
                     CreationWideBody(
                         tool = tool,

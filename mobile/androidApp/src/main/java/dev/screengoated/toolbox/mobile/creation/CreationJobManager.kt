@@ -39,6 +39,9 @@ internal class CreationJobManager internal constructor(context: Context) {
     private val owners = memory.owners
     private val destinations = memory.destinations
     private val recoveryLeases = CreationRecoveryWorkerLeases(workers)
+    private val assignmentCoordinator = CreationWorkerAssignmentCoordinator(
+        memory, mutationLock, lock, journalWriter, recoveryLeases, files,
+    )
     private val ownerCloseCoordinator = CreationOwnerCloseCoordinator(
         ownerCloses, cancellations, files, workers, journalWriter, memory,
         dispatchQueue, mutationLock, lock, recoveryLeases,
@@ -76,7 +79,7 @@ internal class CreationJobManager internal constructor(context: Context) {
                 synchronized(lock) { dispatchQueue.remove(jobId) }
             }
         },
-        onAssigned = ::recordAssignment,
+        onAssigned = assignmentCoordinator::record,
         isCancelled = { jobId -> synchronized(lock) { jobs[jobId]?.stage == "cancelled" } },
         onEvent = ::handleWorkerEvent,
         onDispatched = { request ->
@@ -151,7 +154,7 @@ internal class CreationJobManager internal constructor(context: Context) {
     }
     suspend fun awaitStartup() = startup.await()
     fun acquireSurface(tool: CreationTool, ownerId: String): String =
-        "preparing".also { workers.acquire(tool, "surface:$ownerId") }
+        "preparing".also { workers.acquireSurface(tool, "surface:$ownerId") }
     fun releaseSurface(tool: CreationTool, ownerId: String) =
         workers.release(tool, "surface:$ownerId")
     fun closeOwner(tool: CreationTool, ownerId: String) =
@@ -312,7 +315,11 @@ internal class CreationJobManager internal constructor(context: Context) {
             throw failure
         }
         files.releaseJobInputs(retiredContinuationInputs)
-        recoveryLeases.acquire(draft.request.jobId, CreationTool.IMAGE_TO_3D)
+        recoveryLeases.acquire(
+            draft.request.jobId,
+            CreationTool.IMAGE_TO_3D,
+            snapshot.continuation.engineId,
+        )
         diagnostics.event(
             "job_queued",
             CreationTool.IMAGE_TO_3D.wireName,
@@ -384,21 +391,6 @@ internal class CreationJobManager internal constructor(context: Context) {
 
     fun deleteAllHistory(tool: CreationTool) =
         historyCoordinator.deleteAll(tool)
-    private fun recordAssignment(request: CreationWorkerRequest, assignedEngine: String) {
-        val retired = synchronized(mutationLock) {
-            lateinit var change: CreationWorkerAssignmentChange
-            val snapshot = synchronized(lock) {
-                change = applyCreationWorkerAssignment(memory, request, assignedEngine)
-                journalWriter.snapshot(memory)
-            }
-            runCatching { journalWriter.writeRequired(snapshot) }.onFailure {
-                synchronized(lock) { change.rollback() }
-            }.getOrThrow()
-            change.retiredInputPaths
-        }
-        files.releaseJobInputs(retired)
-    }
-
     private fun handleWorkerEvent(engineId: String, event: CreationWorkerEvent) {
         if (event.jobId == null) return
         synchronized(eventLock) {
@@ -418,10 +410,8 @@ internal class CreationJobManager internal constructor(context: Context) {
             fail(jobId)
             return
         }
-        when (event.event) {
-            "success" -> finish(engineId, jobId, event)
-            "failure" -> fail(jobId, event.failureCode)
-            "execution_lost" -> {
+        when {
+            event.requiresSameDispatchRecovery() -> {
                 synchronized(mutationLock) {
                     synchronized(lock) {
                         dispatchQueue.offer(
@@ -435,7 +425,9 @@ internal class CreationJobManager internal constructor(context: Context) {
                 }
                 dispatcher.signal()
             }
-            "cancelled" -> {
+            event.event == "success" -> finish(engineId, jobId, event)
+            event.event == "failure" -> fail(jobId, event.failureCode)
+            event.event == "cancelled" -> {
                 val ownerId = synchronized(lock) { owners[jobId] } ?: return
                 cancel(ownerId, requestTool(jobId) ?: return, jobId)
             }

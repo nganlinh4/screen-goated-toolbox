@@ -18,6 +18,9 @@ internal fun publicCreationFailureCategory(value: String?): String = value?.take
     )
 } ?: "unexpected"
 
+internal fun CreationWorkerEvent.requiresSameDispatchRecovery(): Boolean =
+    event == "execution_lost" || (event == "failure" && failureCode == "execution_lost")
+
 internal fun publicCreationStage(
     tool: CreationTool,
     observed: String,

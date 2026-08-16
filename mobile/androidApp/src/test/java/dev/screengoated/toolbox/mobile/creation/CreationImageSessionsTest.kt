@@ -33,7 +33,7 @@ class CreationImageSessionsTest {
         )
         assertEquals(1, state.items.size)
         assertEquals(
-            listOf("first.png", "second.png"),
+            listOf("first.png", "second.png", "first.png"),
             state.selectedItem?.referencePaths,
         )
         assertEquals("first.png", state.selectedItem?.sourcePath)
@@ -63,7 +63,7 @@ class CreationImageSessionsTest {
     @Test
     fun `wire image cardinality preserves plural order and uses legacy only as fallback`() {
         assertEquals(
-            listOf("first.png", "second.png"),
+            listOf("first.png", "second.png", "first.png"),
             normalizeCreationImagePaths(
                 CreationTool.IMAGE_CREATOR,
                 listOf(" first.png ", "second.png", "first.png"),

@@ -27,6 +27,8 @@ internal object CreationContract {
     const val QUALITY_MINIMUM_POLYCOUNT = 500
     const val MAXIMUM_PARALLEL_JOBS = 2
     const val IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS = 2
+    const val IMAGE_CREATOR_MINIMUM_PREPARED_CAPACITY = 1
+    const val IMAGE_CREATOR_MAXIMUM_CONCURRENT_PREPARATIONS = 1
     const val IMAGE_CREATOR_OPERATION = "create_image"
     const val IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS = 4_000
     const val MAXIMUM_OPTIONAL_INSTRUCTION_CHARACTERS = 1_000
@@ -39,6 +41,7 @@ internal object CreationContract {
     const val MAXIMUM_DECODED_IMAGE_PIXELS = 64_000_000L
     const val MAXIMUM_IMAGE_ARTIFACT_BYTES = 64L * 1024 * 1024
     const val MAXIMUM_JOB_RUNTIME_MS = 7_200_000L
+    const val TEMPORARY_CAPACITY_RECOVERY_MS = 16L * 60 * 1000
     const val MAXIMUM_GLB_ARTIFACT_BYTES = 100L * 1024 * 1024
     const val MAXIMUM_SVG_ARTIFACT_BYTES = 12L * 1024 * 1024
     const val MAXIMUM_SVG_ELEMENTS = 50_000
@@ -58,6 +61,20 @@ internal object CreationContract {
 
     fun maximumParallelJobs(tool: CreationTool): Int = when (tool) {
         CreationTool.IMAGE_CREATOR -> IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS
+        CreationTool.IMAGE_TO_3D,
+        CreationTool.IMAGE_TO_SVG,
+        -> MAXIMUM_PARALLEL_JOBS
+    }
+
+    fun maximumConcurrentPreparations(tool: CreationTool): Int = when (tool) {
+        CreationTool.IMAGE_CREATOR -> IMAGE_CREATOR_MAXIMUM_CONCURRENT_PREPARATIONS
+        CreationTool.IMAGE_TO_3D,
+        CreationTool.IMAGE_TO_SVG,
+        -> MAXIMUM_PARALLEL_JOBS
+    }
+
+    fun minimumPreparedCapacity(tool: CreationTool): Int = when (tool) {
+        CreationTool.IMAGE_CREATOR -> IMAGE_CREATOR_MINIMUM_PREPARED_CAPACITY
         CreationTool.IMAGE_TO_3D,
         CreationTool.IMAGE_TO_SVG,
         -> MAXIMUM_PARALLEL_JOBS

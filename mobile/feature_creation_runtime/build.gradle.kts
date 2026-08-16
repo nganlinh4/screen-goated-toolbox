@@ -28,9 +28,16 @@ fun Map<*, *>.requiredLong(name: String): Long =
         ?: error("Creation runtime manifest has invalid $name")
 
 val repoRoot = rootProject.projectDir.parentFile
-val manifestFile = repoRoot.resolve("component-delivery/creation-runtime-v1.json")
+evaluationDependsOn(":androidApp")
+val manifestFile = File(
+    rootProject.extensions.extraProperties.get("sgtCreationRuntimeDeliveryManifest") as? String
+        ?: error("Android app did not select a creation runtime delivery contract"),
+)
+val runtimeDeliveryChannel =
+    rootProject.extensions.extraProperties.get("sgtCreationRuntimeDeliveryChannel") as? String
+        ?: error("Android app did not select a creation runtime delivery channel")
 require(manifestFile.isFile) {
-    "Tracked creation runtime delivery contract is required: $manifestFile"
+    "Selected creation runtime delivery contract is required: $manifestFile"
 }
 val runtimeContract = manifestFile.let { source ->
     @Suppress("UNCHECKED_CAST")
@@ -65,11 +72,16 @@ val runtimeContract = manifestFile.let { source ->
         require(contract.asset == expectedAsset) {
             "Creation runtime Play asset is not content-addressed"
         }
+        val expectedTag = when (runtimeDeliveryChannel) {
+            "Production" -> "sgt-runtime-bundles"
+            "Staging" -> "sgt-runtime-staging"
+            else -> error("Unsupported creation runtime delivery channel $runtimeDeliveryChannel")
+        }
         require(
             contract.downloadUrl ==
                 "https://github.com/nganlinh4/screen-goated-toolbox/releases/" +
-                "download/sgt-runtime-bundles/${contract.asset}",
-        ) { "Creation runtime Play URL is not immutable" }
+                "download/$expectedTag/${contract.asset}",
+        ) { "Creation runtime Play URL does not use the selected delivery tag" }
     }
 }
 
@@ -140,8 +152,35 @@ val prepareCreationRuntime by tasks.registering {
 }
 
 val stageCreationRuntimeDelivery by tasks.registering(Sync::class) {
+    inputs.file(manifestFile)
+    inputs.property("creationRuntimeDeliveryChannel", runtimeDeliveryChannel)
     from(manifestFile) { rename { "delivery.json" } }
     into(generatedDeliveryAssets.map { it.dir("creation-runtime") })
+}
+
+val testDebugCreationRuntimeDeliverySelectionParity by tasks.registering {
+    group = "verification"
+    description = "Verifies Full and Play consume the same selected creation contract."
+    dependsOn(":androidApp:testDebugCreationRuntimeDeliverySelection")
+    inputs.file(manifestFile)
+    inputs.property("creationRuntimeDeliveryChannel", runtimeDeliveryChannel)
+    doLast {
+        val selectedByBase = File(
+            rootProject.extensions.extraProperties.get(
+                "sgtCreationRuntimeDeliveryManifest",
+            ) as String,
+        )
+        require(manifestFile.canonicalFile == selectedByBase.canonicalFile) {
+            "Full and Play creation runtime delivery contracts differ"
+        }
+        require(runtimeContract.downloadUrl?.contains(
+            when (runtimeDeliveryChannel) {
+                "Production" -> "/sgt-runtime-bundles/"
+                "Staging" -> "/sgt-runtime-staging/"
+                else -> error("Unsupported creation runtime delivery channel")
+            },
+        ) == true) { "Play creation runtime URL and selected channel differ" }
+    }
 }
 
 android {

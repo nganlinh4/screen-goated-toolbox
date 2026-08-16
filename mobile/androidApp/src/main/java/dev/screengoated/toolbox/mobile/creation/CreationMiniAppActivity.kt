@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class CreationMiniAppActivity : ComponentActivity() {
-    private val tool = CreationTool.IMAGE_TO_3D
+    private lateinit var tool: CreationTool
     private lateinit var viewModel: CreationNativeViewModel
 
     private val imagePicker = registerForActivityResult(
@@ -30,12 +30,35 @@ class CreationMiniAppActivity : ComponentActivity() {
         if (uris.isEmpty()) return@registerForActivityResult
         lifecycleScope.launch {
             runCatching {
+                val maximum = if (tool == CreationTool.IMAGE_CREATOR) {
+                    val configurableReferences = viewModel.state.value.selectedItem
+                        ?.takeIf {
+                            !it.submitted && it.stage == CreationNativeStage.DRAFT
+                        }
+                        ?.referencePaths
+                        ?.size
+                        ?: 0
+                    CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES -
+                        configurableReferences
+                } else {
+                    CreationContract.MAXIMUM_PICKER_BATCH_IMAGES
+                }
+                val existingReferences = if (tool == CreationTool.IMAGE_CREATOR) {
+                    viewModel.state.value.selectedItem
+                        ?.takeIf {
+                            !it.submitted && it.stage == CreationNativeStage.DRAFT
+                        }
+                        ?.referencePaths
+                        .orEmpty()
+                } else {
+                    emptyList()
+                }
                 withContext(Dispatchers.IO) {
                     CreationJobManager.get(this@CreationMiniAppActivity).files.importImages(
                         uris,
                         tool,
-                        CreationContract.MAXIMUM_PICKER_BATCH_IMAGES,
-                        emptyList(),
+                        maximum,
+                        existingReferences,
                     )
                 }
             }.onSuccess { paths ->
@@ -56,7 +79,11 @@ class CreationMiniAppActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (intent.getStringExtra(EXTRA_TOOL) != tool.wireName) {
+        tool = CreationTool.fromWireName(intent.getStringExtra(EXTRA_TOOL)) ?: run {
+            finish()
+            return
+        }
+        if (!creationToolReleased(tool)) {
             finish()
             return
         }
@@ -105,11 +132,11 @@ class CreationMiniAppActivity : ComponentActivity() {
         private const val EXTRA_TOOL = "creation_tool"
         private const val EXTRA_OWNER_ID = "creation_owner_id"
 
-        internal fun intent(context: Context): Intent = Intent(
+        internal fun intent(context: Context, tool: CreationTool): Intent = Intent(
             context,
             CreationMiniAppActivity::class.java,
         )
-            .putExtra(EXTRA_TOOL, CreationTool.IMAGE_TO_3D.wireName)
+            .putExtra(EXTRA_TOOL, tool.wireName)
             .putExtra(EXTRA_OWNER_ID, UUID.randomUUID().toString())
     }
 }

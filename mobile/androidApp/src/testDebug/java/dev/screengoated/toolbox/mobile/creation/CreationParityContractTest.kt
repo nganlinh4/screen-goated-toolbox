@@ -24,8 +24,10 @@ class CreationParityContractTest {
         val defaults = fixture["defaults"]!!.jsonObject
         val modelSafety = fixture["modelSafety"]!!.jsonObject
         val names = fixture["names"]!!.jsonObject
+        val readiness = fixture["readiness"]!!.jsonObject
         val presentation = fixture["presentation"]!!.jsonObject
         val lifecycle = fixture["hostLifecycle"]!!.jsonObject
+        val recovery = fixture["recovery"]!!.jsonObject
         val distribution = fixture["distribution"]!!.jsonObject
         val qualityControl = fixture["qualityControl"]!!.jsonObject
 
@@ -175,6 +177,8 @@ class CreationParityContractTest {
                 .toSet(),
         )
         assertTrue(presentation.boolean("sharedIconCatalog"))
+        assertTrue(readiness.boolean("unresponsiveOperationIsBoundedBeforeWholeJobWatchdog"))
+        assertTrue(readiness.boolean("uncertainConsequentialActionIsNotRepeated"))
         assertTrue(presentation.boolean("unchangedStatusRefreshPreservesSessionList"))
         assertTrue(presentation.boolean("hoveredSelectionTargetSurvivesStatusRefresh"))
         val geometryStats = presentation.getValue("geometryStats").jsonObject
@@ -183,6 +187,10 @@ class CreationParityContractTest {
         assertFalse(geometryStats.boolean("repeatedPresentationInstancesInflateTopology"))
         assertTrue(lifecycle.boolean("closeCancelsOnlyOwnerJobs"))
         assertTrue(lifecycle.boolean("closeDestroysProductSurface"))
+        assertTrue(lifecycle.boolean("executionLossRequeuesActiveJobExactlyOnce"))
+        assertTrue(recovery.boolean("acceptedExecutionLossRetainsDispatchAndInput"))
+        assertTrue(recovery.boolean("acceptedExecutionLossRequeuesSameDispatch"))
+        assertTrue(recovery.boolean("acceptedExecutionLossIsNotTerminalFailure"))
         assertTrue(distribution.boolean("behaviorIdentical"))
         assertTrue(distribution.boolean("featureSetIdentical"))
         assertRealUiQualityControl(qualityControl, setOf("fast", "quality"))
@@ -205,14 +213,14 @@ class CreationParityContractTest {
         val distribution = fixture["distribution"]!!.jsonObject
         val qualityControl = fixture["qualityControl"]!!.jsonObject
 
-        assertFalse(availability["enabled"]!!.jsonPrimitive.boolean)
-        assertFalse(availability["entryVisible"]!!.jsonPrimitive.boolean)
+        assertTrue(availability["enabled"]!!.jsonPrimitive.boolean)
+        assertTrue(availability["entryVisible"]!!.jsonPrimitive.boolean)
         assertEquals(
-            "coming_soon_dialog",
+            "open_surface",
             availability["entryBehavior"]!!.jsonPrimitive.content,
         )
-        assertFalse(availability["startsSurface"]!!.jsonPrimitive.boolean)
-        assertFalse(availability["startsReadiness"]!!.jsonPrimitive.boolean)
+        assertTrue(availability["startsSurface"]!!.jsonPrimitive.boolean)
+        assertTrue(availability["startsReadiness"]!!.jsonPrimitive.boolean)
         assertTrue(availability["preservesPreparedCapacity"]!!.jsonPrimitive.boolean)
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.int("maximumParallelJobs"))
         assertEquals(setOf("simple", "detail"), models.keys)
@@ -284,7 +292,7 @@ class CreationParityContractTest {
         assertFalse(availability["enabled"]!!.jsonPrimitive.boolean)
         assertFalse(availability["entryVisible"]!!.jsonPrimitive.boolean)
         assertEquals(
-            "coming_soon_dialog",
+            "hidden",
             availability["entryBehavior"]!!.jsonPrimitive.content,
         )
         assertFalse(availability["startsSurface"]!!.jsonPrimitive.boolean)
@@ -303,6 +311,10 @@ class CreationParityContractTest {
         assertEquals(
             CreationContract.IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS,
             fixture.int("maximumParallelJobs"),
+        )
+        assertEquals(
+            CreationContract.IMAGE_CREATOR_MAXIMUM_CONCURRENT_PREPARATIONS,
+            readiness.int("maximumConcurrentFreshPreparations"),
         )
         assertEquals(
             CreationContract.IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS,
@@ -346,10 +358,11 @@ class CreationParityContractTest {
         assertTrue(readiness.boolean("intermediateNavigationIsNotReadiness"))
         assertTrue(readiness.boolean("authenticatedWorkspaceRequired"))
         assertTrue(recovery.boolean("acceptedRequestResumedWithoutResubmit"))
+        assertTrue(recovery.boolean("workerCleanupPrecedesRecoveryRedispatch"))
         assertTrue(recovery.boolean("replayMatchesOnlySameDispatchId"))
         assertTrue(distribution.boolean("behaviorIdentical"))
         assertTrue(distribution.boolean("featureSetIdentical"))
-        assertRealUiQualityControl(qualityControl, setOf("text_only"))
+        assertRealUiQualityControl(qualityControl, emptySet())
         assertTrue(qualityControl.boolean("consequentialTransitionUsesRealControlInteraction"))
         assertTrue(qualityControl.boolean("intermediateNavigationIsNotReadinessProof"))
         assertTrue(qualityControl.boolean("transientPreparationRetryIsBounded"))
