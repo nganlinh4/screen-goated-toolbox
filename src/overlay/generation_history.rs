@@ -220,6 +220,10 @@ fn same_path(left: &str, right: &str) -> bool {
     left.eq_ignore_ascii_case(right)
 }
 
+pub(crate) fn is_managed_creation_artifact(path: &Path) -> bool {
+    retention::is_managed_artifact(path)
+}
+
 fn inspect_recorded_artifact(path: &Path) -> Result<(u64, String, bool), String> {
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|error| format!("Could not inspect artifact: {error}"))?;

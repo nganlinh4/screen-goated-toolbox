@@ -22,7 +22,6 @@ Useful options:
 ```powershell
 .\run-dev.ps1 -SkipFrontendBuild
 .\run-dev.ps1 -SkipNpmInstall
-.\run-dev.ps1 -SkipCreationRuntimeBuild
 .\run-dev.ps1 -CargoCommand test
 ```
 
@@ -43,12 +42,9 @@ source checkout, user output, or the lane used by the current command.
 Set `SGT_DEV_CACHE_ROOT` to relocate the cache. Use `-DevCacheLimitGiB` on
 `run-dev.ps1` only when the machine deliberately needs a different bound.
 
-When the separately tracked private creation-runtime checkout is present,
-`run-dev.ps1` builds its debug sidecar before launching the desktop host. The
-script stops if a running process keeps that executable locked, preventing a
-stale sidecar from being selected silently. Use
-`-SkipCreationRuntimeBuild` only when the private runtime was already built
-from the current source.
+`-BuildLocalCreationRuntime` remains a source diagnostic for maintainers of the
+separate checkout; the app never loads that local executable. Normal debug and
+release behavior uses only an exact external delivery contract.
 
 ## Optional-component candidate loop
 
@@ -66,7 +62,9 @@ and evidence into the bounded external cache:
 Supported wrapper names are `web-assets`, `recorder`, `computer-control`,
 `local-asr`, `vc-runtime`, `qwen-runtime`, and `external-tools`. `-Select <id>`
 may update one component in a multi-component contract; repeat it when several
-components changed.
+components changed. Creation, Android native runtimes, and model packages use
+their subsystem packager, then call `scripts/component_release.py stage` with
+the generated package manifest and tracked contract.
 
 Staging is a real network install: the script verifies local bytes, uploads a
 content-addressed candidate, downloads it again, and writes its exact contract
@@ -106,10 +104,11 @@ atomically compacts it to its newest 12 MiB at a complete-line boundary. The
 retention window is therefore activity-based rather than a fixed number of
 days. For support, request only `session.log`.
 
-After the active frontend assets exist, direct `cargo run` is valid for a
-checkout without the private Image-to-3D runtime. When that private checkout is
-present, prefer `run-dev.ps1` so its sidecar stays synchronized. Archived
-Image-to-SVG and image creation/editing sources are not built or synchronized.
+After the active frontend assets exist, direct `cargo run` is valid, but
+`run-dev.ps1` is preferred because it applies the bounded cache and delivery
+channel invariants. Optional mini-app source changes are not visible merely
+because a frontend `dist/` changed: package and stage the affected component,
+then launch with `-UseStagingDelivery`.
 Do not run `cargo check` again after successful all-target Clippy unless the
 target or feature set differs. Do not use a release build as routine
 validation; release packaging enables LTO/stripping and rebuilds every

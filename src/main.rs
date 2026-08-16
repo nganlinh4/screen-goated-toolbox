@@ -13,6 +13,7 @@ mod atomic_json;
 mod catalog_benchmark;
 mod component_registry;
 mod config;
+mod creation_feature_availability;
 mod debug_log;
 pub mod gui;
 mod history;

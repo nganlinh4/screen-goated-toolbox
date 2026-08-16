@@ -4,26 +4,24 @@ use std::path::Path;
 use serde_json::Value;
 
 const DEFAULT_MANIFEST: &str = "component-delivery/creation-runtime-v1.json";
-const RELEASE_PREFIX: &str =
-    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/";
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
-    let configured = manifest_dir.join(DEFAULT_MANIFEST);
-    println!("cargo:rerun-if-changed={}", configured.display());
+    let selected = crate::delivery_channel::select(manifest_dir, DEFAULT_MANIFEST);
+    let configured = selected.path;
 
     assert!(
         configured.is_file(),
         "missing verified creation-runtime delivery: {}",
         configured.display()
     );
-    let generated = delivery_source(&configured);
+    let generated = delivery_source(&configured, selected.channel);
 
     let output = out_dir.join("creation_runtime_delivery.rs");
     fs::write(&output, generated)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));
 }
 
-fn delivery_source(path: &Path) -> String {
+fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChannel) -> String {
     let raw = fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     let value: Value = serde_json::from_str(&raw)
@@ -85,8 +83,8 @@ fn delivery_source(path: &Path) -> String {
     );
     assert_eq!(
         unique_features,
-        std::collections::HashSet::from(["image_to_3d"]),
-        "{} must deliver only the active Image to 3D capability",
+        std::collections::HashSet::from(["image_to_3d", "image_to_svg", "image_creator"]),
+        "{} must deliver exactly the packaged creation capabilities",
         path.display()
     );
     let asset = required_object_string(windows, "asset", path);
@@ -119,12 +117,7 @@ fn delivery_source(path: &Path) -> String {
         "{} windows.asset must be content-addressed",
         path.display()
     );
-    assert_eq!(
-        url,
-        format!("{RELEASE_PREFIX}{asset}"),
-        "{} windows.downloadUrl must use the immutable runtime-bundles asset",
-        path.display()
-    );
+    crate::delivery_channel::assert_owned_asset_url(channel, asset, url, "creation runtime URL");
 
     format!(
         "const RUNTIME_DELIVERY: Option<RuntimeDelivery> = Some(RuntimeDelivery {{\n\
