@@ -2,6 +2,7 @@ mod detector;
 mod postprocess;
 mod recognizer;
 mod recognizer_cascade;
+mod row_split;
 
 use std::ffi::OsString;
 use std::fs;

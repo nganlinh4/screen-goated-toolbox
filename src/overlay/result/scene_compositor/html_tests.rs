@@ -99,10 +99,12 @@ fn text_only_cards_keep_the_fitter_without_card_chrome() {
     assert!(DOCUMENT.contains("preferredFontSize: entry.preferredFontSize"));
     assert!(DOCUMENT.contains("sourceReplacement: entry.sourceReplacement === true"));
     assert!(DOCUMENT.contains("preferredFontSize / scale"));
-    assert!(direct_runtime.contains("isSourceReplacement ? '1.15' : '1.5'"));
-    assert!(direct_runtime.contains("body.style.justifyContent = 'center'"));
-    assert!(direct_runtime.contains("[90, 85, 80, 75, 70, 65, 60, 55]"));
-    assert!(direct_runtime.contains("fits(text, size, fitTolerance, !isSourceReplacement)"));
+    assert!(direct_runtime.contains("isSourceReplacement ? '1.08' : '1.5'"));
+    assert!(direct_runtime.contains("? 'center'"));
+    assert!(direct_runtime.contains("[100, 90, 80, 70, 60, 50, 40, 30, 25]"));
+    assert!(direct_runtime.contains("Math.min(100, candidateWidth)"));
+    assert!(!direct_runtime.contains("stretchHigh = 151"));
+    assert!(direct_runtime.contains("fits(text, size, fitTolerance, true)"));
     assert!(direct_runtime.contains("!rejectPathologicalWrap || !hasPathologicalWrap"));
     assert!(!direct_runtime.contains("verticalInset"));
 }

@@ -16,6 +16,11 @@ use super::contract::{
 static CLIENT: LazyLock<Mutex<Option<client::DetectorClient>>> = LazyLock::new(|| Mutex::new(None));
 const MIN_TEXT_CONFIDENCE: f32 = 0.5;
 
+pub(super) struct DetectionBatch {
+    pub accepted: Vec<DetectedTextRegion>,
+    pub raw: Vec<DetectedRegion>,
+}
+
 pub(super) fn prepare(cancelled: std::sync::Arc<AtomicBool>) {
     let _ = std::thread::Builder::new()
         .name("sgt-screen-text-detector-prepare".to_string())
@@ -40,7 +45,7 @@ pub(super) fn detect(
     expected_width: u32,
     expected_height: u32,
     cancelled: &AtomicBool,
-) -> Result<Vec<DetectedTextRegion>> {
+) -> Result<DetectionBatch> {
     let mut client = CLIENT.lock().unwrap_or_else(|value| value.into_inner());
     if client.is_none() {
         *client = Some(client::DetectorClient::start(cancelled)?);
@@ -63,11 +68,14 @@ pub(super) fn detect(
         );
     }
 
+    let raw = regions.clone();
     regions.retain(|region| {
         region.right - region.left >= super::geometry::MIN_READABLE_WIDTH
             && region.bottom - region.top >= super::geometry::MIN_READABLE_HEIGHT
             && has_readable_recognition(region)
     });
+    remove_adjacent_icon_recognitions(&mut regions);
+    super::detector_topology::normalize(&mut regions);
 
     if regions.len() > MAX_CANDIDATES {
         regions.sort_by(|left, right| {
@@ -79,7 +87,7 @@ pub(super) fn detect(
         regions.truncate(MAX_CANDIDATES);
     }
     regions.sort_by_key(|region| (region.top, region.left, region.bottom, region.right));
-    Ok(regions
+    let accepted = regions
         .into_iter()
         .enumerate()
         .map(|(index, region)| {
@@ -92,7 +100,8 @@ pub(super) fn detect(
                 appearance: None,
             }
         })
-        .collect())
+        .collect();
+    Ok(DetectionBatch { accepted, raw })
 }
 
 fn has_readable_recognition(region: &DetectedRegion) -> bool {
@@ -106,6 +115,31 @@ fn has_readable_recognition(region: &DetectedRegion) -> bool {
         .any(|(text, confidence)| {
             confidence >= MIN_TEXT_CONFIDENCE && text.chars().any(char::is_alphabetic)
         })
+}
+
+fn remove_adjacent_icon_recognitions(regions: &mut Vec<DetectedRegion>) {
+    let snapshot = regions.clone();
+    regions.retain(|region| {
+        let width = region.right.saturating_sub(region.left);
+        let height = region.bottom.saturating_sub(region.top).max(1);
+        let compact =
+            width <= height.saturating_mul(3) / 2 && height <= width.max(1).saturating_mul(3) / 2;
+        let is_leading_icon = compact
+            && snapshot.iter().any(|neighbor| {
+                let neighbor_width = neighbor.right.saturating_sub(neighbor.left);
+                let horizontal_gap = neighbor.left.saturating_sub(region.right);
+                let vertical_overlap = region
+                    .bottom
+                    .min(neighbor.bottom)
+                    .saturating_sub(region.top.max(neighbor.top));
+                neighbor.left >= region.right
+                    && horizontal_gap <= height
+                    && neighbor_width >= height.saturating_mul(2)
+                    && vertical_overlap.saturating_mul(2)
+                        >= height.min(neighbor.bottom.saturating_sub(neighbor.top).max(1))
+            });
+        !is_leading_icon
+    });
 }
 
 fn recognition_candidates(region: &DetectedRegion) -> Vec<String> {
@@ -264,5 +298,32 @@ mod tests {
             }],
         };
         assert_eq!(recognition_candidates(&region)[0], "complete text");
+    }
+
+    #[test]
+    fn compact_leading_icon_recognition_does_not_become_translation_text() {
+        let region = |left, top, right, bottom, text: &str| DetectedRegion {
+            left,
+            top,
+            right,
+            bottom,
+            confidence: 0.9,
+            text: text.to_string(),
+            text_confidence: 0.9,
+            alternatives: Vec::new(),
+        };
+        let mut regions = vec![
+            region(10, 10, 30, 30, "noise"),
+            region(36, 10, 116, 30, "Readable label"),
+            region(10, 60, 30, 80, "Real"),
+        ];
+        remove_adjacent_icon_recognitions(&mut regions);
+        assert_eq!(
+            regions
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            ["Readable label", "Real"]
+        );
     }
 }

@@ -28,15 +28,12 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
     } else {
         egui::Color32::WHITE
     };
-    let screen_translate_label = text
-        .screen_translate
-        .screen_translate_btn
-        .replacen(" (", "\n(", 1);
+    let screen_translate_label = text.screen_translate.screen_translate_btn;
     let screen_translate_label_height = ui
         .painter()
         .layout_no_wrap(
-            screen_translate_label.clone(),
-            egui::TextStyle::Small.resolve(ui.style()),
+            screen_translate_label.to_owned(),
+            egui::TextStyle::Button.resolve(ui.style()),
             btn_text,
         )
         .rect
@@ -104,7 +101,7 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
             let screen_translate_response = compact_filled_icon_button(
                 ui,
                 Icon::Translate,
-                &screen_translate_label,
+                screen_translate_label,
                 theme.launch_screen_translate(),
                 btn_text,
                 6,
@@ -133,7 +130,6 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
             {
                 *show_tts_playground = true;
             }
-
             if compact_filled_icon_button(
                 ui,
                 Icon::DeployedCode,
@@ -242,10 +238,8 @@ mod tests {
 
     #[test]
     fn all_localized_launchers_stay_expanded_on_one_row_at_minimum_width() {
-        let screen =
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(crate::MIN_WINDOW_WIDTH, 100.0));
-        let mut overflows = Vec::new();
-
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(4_096.0, 100.0));
+        let mut localized_widths = Vec::new();
         for language in ["en", "vi", "ko"] {
             let context = egui::Context::default();
             crate::gui::configure_fonts(&context);
@@ -265,9 +259,9 @@ mod tests {
                 },
                 |ui| {
                     egui::Frame::default()
-                        .inner_margin(egui::Margin::symmetric(10, 4))
+                        .inner_margin(egui::Margin::symmetric(FOOTER_HORIZONTAL_MARGIN, 4))
                         .show(ui, |ui| {
-                            render_footer(
+                            let content_width = render_footer(
                                 ui,
                                 &text,
                                 FooterToggles {
@@ -279,6 +273,12 @@ mod tests {
                                     show_download: &mut show_download,
                                 },
                             );
+                            ui.ctx().data_mut(|data| {
+                                data.insert_temp(
+                                    egui::Id::new("footer_content_width_test_value"),
+                                    content_width,
+                                );
+                            });
                         });
                 },
             );
@@ -298,6 +298,9 @@ mod tests {
                     data.get_temp::<egui::Rect>(egui::Id::new("footer_screen_translate_test_rect"))
                 })
                 .expect("Screen Translate footer rect should be captured");
+            let content_width = context
+                .data(|data| data.get_temp::<f32>(egui::Id::new("footer_content_width_test_value")))
+                .expect("footer content width should be captured");
             assert!(
                 first_launcher_rect.width()
                     > crate::gui::icons::ICON_MD + ui_horizontal_button_chrome(),
@@ -308,21 +311,26 @@ mod tests {
                 "{language} launchers left one row: first={first_launcher_rect:?}, last={last_launcher_rect:?}"
             );
             assert!(
-                screen_translate_rect.top() <= first_launcher_rect.top()
-                    && screen_translate_rect.bottom() >= first_launcher_rect.bottom(),
-                "{language} two-line Screen Translate control left the footer row: screen_translate={screen_translate_rect:?}, launcher={first_launcher_rect:?}"
+                (screen_translate_rect.height() - first_launcher_rect.height()).abs() <= 1.0,
+                "{language} Screen Translate label wrapped onto another row: screen_translate={screen_translate_rect:?}, launcher={first_launcher_rect:?}"
             );
-            if !screen.contains_rect(last_launcher_rect) {
-                overflows.push(format!(
-                    "{language}: {:.1}px",
-                    last_launcher_rect.right() - screen.right()
-                ));
-            }
+            assert!(
+                content_width + 1.0 >= last_launcher_rect.right() - first_launcher_rect.left(),
+                "{language} measured footer width excludes a launcher: width={content_width}, first={first_launcher_rect:?}, last={last_launcher_rect:?}"
+            );
+            let minimum_width = footer_minimum_window_width(content_width);
+            assert!(
+                minimum_width + 1.0
+                    >= last_launcher_rect.right() + f32::from(FOOTER_HORIZONTAL_MARGIN),
+                "{language} footer minimum leaves its last launcher outside the viewport: minimum={minimum_width}, last={last_launcher_rect:?}"
+            );
+            localized_widths.push(content_width);
         }
         assert!(
-            overflows.is_empty(),
-            "footer row overflowed the minimum viewport: {}",
-            overflows.join(", ")
+            localized_widths
+                .windows(2)
+                .any(|pair| (pair[0] - pair[1]).abs() > 1.0),
+            "localized footer labels should produce locale-specific minimum widths: {localized_widths:?}"
         );
     }
 

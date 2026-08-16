@@ -234,10 +234,15 @@
                     // ===== PHASE 0: RESET (Start TIGHT like GDI) =====
                     // Long text keeps this compact baseline too, so the final settle-fit
                     // does not snap away from the condensed streaming look.
-                    applyBodyWdth(90);
+                    applyBodyWdth(isSourceReplacement ? 100 : 90);
                     body.style.letterSpacing = '0px';
                     body.style.wordSpacing = '0px';
-                    body.style.lineHeight = '1.15';
+                    body.style.lineHeight = isSourceReplacement ? '1.08' : '1.15';
+                    if (isSourceReplacement) {
+                        body.style.display = 'flex';
+                        body.style.flexDirection = 'column';
+                        body.style.justifyContent = 'flex-start';
+                    }
                     body.style.paddingTop = '0';
                     body.style.paddingBottom = '0';
                     // Headings (h1/h2/h3) keep their CSS-designed margins — the
@@ -383,11 +388,15 @@
                     if (!isStreamingFit && !preservedSize && textLen > 0 && (bestSize < maxSize - 2 || !foundFittingSize)) {
                         var baseSize = parseFloat(body.style.fontSize) || bestSize;
                         var bestComboSize = baseSize;
-                        var bestComboWdth = 90;
+                        var bestComboWdth = isSourceReplacement ? 100 : 90;
+                        var bestComboScore = bestComboSize;
                         var bestComboFits = fits();
                         var bestComboOverflow = Math.max(0, doc.scrollHeight - winH);
 
-                        for (var testWdth = 85; testWdth >= 55; testWdth -= 5) {
+                        var firstTestWdth = isSourceReplacement ? 100 : 85;
+                        var lastTestWdth = isSourceReplacement ? 25 : 55;
+                        var widthStep = isSourceReplacement ? 10 : 5;
+                        for (var testWdth = firstTestWdth; testWdth >= lastTestWdth; testWdth -= widthStep) {
                             applyBodyWdth(testWdth);
                             clearLastMargin();
 
@@ -413,13 +422,21 @@
                             var cFits = fits();
                             var cOverflow = Math.max(0, doc.scrollHeight - winH);
 
+                            var cScore = cBest
+                                * (0.72 + 0.28 * Math.min(100, testWdth) / 100);
                             if (
                                 (!bestComboFits && cFits)
-                                || (bestComboFits && cFits && cBest > bestComboSize)
+                                || (bestComboFits && cFits
+                                    && (isSourceReplacement
+                                        ? (cScore > bestComboScore
+                                            || (Math.abs(cScore - bestComboScore) < 0.01
+                                                && testWdth > bestComboWdth))
+                                        : cBest > bestComboSize))
                                 || (!bestComboFits && !cFits && (cOverflow < bestComboOverflow || (cOverflow === bestComboOverflow && testWdth > bestComboWdth)))
                             ) {
                                 bestComboSize = cBest;
                                 bestComboWdth = testWdth;
+                                bestComboScore = cScore;
                                 bestComboFits = cFits;
                                 bestComboOverflow = cOverflow;
                             }
@@ -427,6 +444,29 @@
 
                         applyBodyWdth(bestComboWdth);
                         body.style.fontSize = bestComboSize + 'px';
+                        clearLastMargin();
+                    }
+
+                    // Once the most readable contained size is known, consume
+                    // remaining horizontal room with the font's stretch axis.
+                    // This never changes the window or painted corridor.
+                    if (isSourceReplacement && fits()) {
+                        var committedWdth = parseFloat(body.style.fontStretch) || 100;
+                        var stretchLow = Math.floor(committedWdth);
+                        var stretchHigh = 151;
+                        var widestContainedWdth = committedWdth;
+                        while (stretchLow <= stretchHigh) {
+                            var stretchMid = Math.floor((stretchLow + stretchHigh) / 2);
+                            applyBodyWdth(stretchMid);
+                            clearLastMargin();
+                            if (fits()) {
+                                widestContainedWdth = stretchMid;
+                                stretchLow = stretchMid + 1;
+                            } else {
+                                stretchHigh = stretchMid - 1;
+                            }
+                        }
+                        applyBodyWdth(widestContainedWdth);
                         clearLastMargin();
                     }
 

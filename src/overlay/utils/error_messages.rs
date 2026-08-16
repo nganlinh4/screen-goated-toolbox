@@ -400,6 +400,7 @@ pub fn should_block_retry_provider(error: &str) -> bool {
     if error.contains("NO_API_KEY")
         || error.contains("INVALID_API_KEY")
         || error.contains("PROVIDER_DISABLED")
+        || error.contains("STRUCTURED_OUTPUT_REJECTED")
     {
         return true;
     }
@@ -425,10 +426,13 @@ mod tests {
     }
 
     #[test]
-    fn blocks_provider_for_auth_failures_only() {
+    fn blocks_provider_for_provider_wide_failures() {
         assert!(should_block_retry_provider("NO_API_KEY:groq"));
         assert!(should_block_retry_provider("INVALID_API_KEY"));
         assert!(should_block_retry_provider("PROVIDER_DISABLED:google"));
+        assert!(should_block_retry_provider(
+            "STRUCTURED_OUTPUT_REJECTED:google:HTTP 400 INVALID_ARGUMENT"
+        ));
         assert!(should_block_retry_provider(
             "request failed with status code 403"
         ));

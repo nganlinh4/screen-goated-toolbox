@@ -1,25 +1,22 @@
 #[cfg(debug_assertions)]
 mod debug {
+    use anyhow::{Context, Result};
+    use image::codecs::jpeg::JpegEncoder;
+    use image::{ExtendedColorType, ImageEncoder as _};
+    use serde::Serialize;
     use std::collections::HashMap;
     use std::path::{Path, PathBuf};
     use std::sync::{LazyLock, Mutex};
     use std::time::Duration;
 
-    use anyhow::{Context, Result};
-    use image::codecs::jpeg::JpegEncoder;
-    use image::{ExtendedColorType, ImageEncoder as _};
-    use serde::Serialize;
-
     use super::super::contract::{DetectedTextRegion, SemanticRole, TranslationDocument};
     use super::super::evidence_capture::capture_stable_selection;
     use super::super::geometry::{PixelRegion, normalized_region};
     use crate::overlay::selection::CapturedRegion;
-
     const MAX_RUNS: usize = 24;
     const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
     const RESULT_PAINT_TIMEOUT: Duration = Duration::from_secs(3);
     static FINALIZE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
     pub(crate) struct RunEvidence {
         state: Option<State>,
     }
@@ -75,6 +72,7 @@ mod debug {
         selected_source_text: Option<String>,
         translated_text: Option<String>,
         group_member_ids: Option<Vec<u16>>,
+        member_joins: Option<Vec<super::super::contract::MemberJoin>>,
         semantic_role: Option<SemanticRole>,
         visual_style: Option<super::super::appearance::VisualSignature>,
     }
@@ -132,11 +130,16 @@ mod debug {
             }
         }
 
-        pub(crate) fn detected(&mut self, candidates: &[DetectedTextRegion]) {
+        pub(crate) fn detected(
+            &mut self,
+            candidates: &[DetectedTextRegion],
+            raw: &[sgt_screen_text_detector_protocol::DetectedRegion],
+        ) {
             let Some(state) = self.state.as_mut() else {
                 return;
             };
             state.candidates = candidates.to_vec();
+            super::super::diagnostic_raw::save(&state.directory, &state.source_jpeg, raw);
             let source = state.source_jpeg.clone();
             let candidates = state.candidates.clone();
             let size = (state.selection.width, state.selection.height);
@@ -265,7 +268,10 @@ mod debug {
                         region
                             .selections
                             .iter()
-                            .map(move |selection| (selection.region_id, (region, selection)))
+                            .enumerate()
+                            .map(move |(index, selection)| {
+                                (selection.region_id, (region, selection, index))
+                            })
                     })
                     .collect::<HashMap<_, _>>()
             })
@@ -286,10 +292,13 @@ mod debug {
                     pixel_box: [pixels.x, pixels.y, pixels.width, pixels.height],
                     ocr_candidates: candidate.source_alternatives.clone(),
                     selected_source_text: translated
-                        .map(|(_, selection)| selection.source_text.clone()),
-                    translated_text: translated.map(|(region, _)| region.translated_text.clone()),
-                    group_member_ids: translated.map(|(region, _)| region.member_ids.clone()),
-                    semantic_role: translated.map(|(region, _)| region.semantic_role),
+                        .map(|(_, selection, _)| selection.source_text.clone()),
+                    translated_text: translated.and_then(|(region, _, index)| {
+                        region.translated_segments.get(index).cloned()
+                    }),
+                    group_member_ids: translated.map(|(region, _, _)| region.member_ids.clone()),
+                    member_joins: translated.map(|(region, _, _)| region.member_joins.clone()),
+                    semantic_role: translated.map(|(region, _, _)| region.semantic_role),
                     visual_style: candidate.appearance,
                 }
             })
@@ -427,6 +436,11 @@ mod debug {
     }
 
     fn evidence_root() -> Option<PathBuf> {
+        if std::env::var_os("SGT_SCREEN_TRANSLATE_AUTO_EVIDENCE").as_deref()
+            != Some(std::ffi::OsStr::new("1"))
+        {
+            return None;
+        }
         let cache = PathBuf::from(std::env::var_os("SGT_DEV_CACHE_ROOT")?);
         if !cache.is_absolute() {
             crate::log_info!("[Screen Translate] ignored non-absolute development cache root");
@@ -506,7 +520,6 @@ mod debug {
                 std::process::id()
             ))
         }
-
         #[test]
         fn detector_preview_paints_the_normalized_region() {
             let root = temporary_root("preview");
@@ -529,9 +542,7 @@ mod debug {
                 source_alternatives: vec!["text".to_string()],
                 appearance: None,
             }];
-
             save_detector_preview(&path, &jpeg, &candidates, (80, 60)).unwrap();
-
             let preview = image::open(&path).unwrap().to_rgb8();
             let edge = preview.get_pixel(20, 15).0;
             assert!(edge[0] > 180 && edge[1] < 100 && edge[2] < 130);
@@ -548,7 +559,6 @@ mod debug {
                 std::fs::create_dir(&run).unwrap();
                 std::fs::write(run.join("source.jpg"), [index as u8]).unwrap();
             }
-
             prune_runs(&root, &protected).unwrap();
 
             assert!(protected.is_dir());
@@ -559,30 +569,8 @@ mod debug {
 }
 
 #[cfg(not(debug_assertions))]
-mod release {
-    use super::super::contract::{DetectedTextRegion, TranslationDocument};
-    use crate::overlay::selection::CapturedRegion;
-
-    pub(crate) struct RunEvidence;
-
-    impl RunEvidence {
-        pub(crate) fn begin(
-            _trace_id: &str,
-            _capture: &CapturedRegion,
-            _source_jpeg: &[u8],
-            _target_language: &str,
-            _configured_model: &str,
-            _translation_prompt: &str,
-        ) -> Self {
-            Self
-        }
-
-        pub(crate) fn detected(&mut self, _candidates: &[DetectedTextRegion]) {}
-        pub(crate) fn finish(self, _document: TranslationDocument, _rendered_count: usize) {}
-        pub(crate) fn no_text(self) {}
-        pub(crate) fn fail(self, _stage: &str, _error: &anyhow::Error) {}
-    }
-}
+#[path = "diagnostics_release.rs"]
+mod release;
 
 #[cfg(debug_assertions)]
 pub(super) use debug::RunEvidence;

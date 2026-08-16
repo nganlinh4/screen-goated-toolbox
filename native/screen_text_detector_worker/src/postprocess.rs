@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use sgt_screen_text_detector_protocol::{DetectedRegion, MAX_REGIONS};
 
 const PIXEL_THRESHOLD: f32 = 0.3;
@@ -79,7 +77,7 @@ pub(crate) fn extract_regions(
         ));
     }
     regions.retain(|region| region.left < region.right && region.top < region.bottom);
-    regions.sort_by(reading_order);
+    sort_reading_order(&mut regions);
     regions
 }
 
@@ -168,17 +166,22 @@ fn scale_box(
     }
 }
 
-fn reading_order(left: &DetectedRegion, right: &DetectedRegion) -> Ordering {
-    let tolerance = ((left.bottom - left.top).min(right.bottom - right.top) / 2).max(2);
-    if left.top.abs_diff(right.top) <= tolerance {
-        left.left
-            .cmp(&right.left)
-            .then_with(|| left.top.cmp(&right.top))
-    } else {
-        left.top
-            .cmp(&right.top)
-            .then_with(|| left.left.cmp(&right.left))
-    }
+fn sort_reading_order(regions: &mut [DetectedRegion]) {
+    let mut heights = regions
+        .iter()
+        .map(|region| region.bottom.saturating_sub(region.top).max(1))
+        .collect::<Vec<_>>();
+    heights.sort_unstable();
+    let row_quantum = heights.get(heights.len() / 2).copied().unwrap_or(4).max(4) / 2;
+    regions.sort_by_key(|region| {
+        (
+            region.top / row_quantum,
+            region.left,
+            region.top,
+            region.bottom,
+            region.right,
+        )
+    });
 }
 
 #[cfg(test)]
@@ -219,5 +222,30 @@ mod tests {
         let regions = extract_regions(&map, 32, 32, 320, 320);
         assert_eq!(regions.len(), 1);
         assert!(regions[0].confidence >= 0.89);
+    }
+
+    #[test]
+    fn reading_order_is_total_for_overlapping_row_tolerances() {
+        let region = |left, top, right, bottom| DetectedRegion {
+            left,
+            top,
+            right,
+            bottom,
+            confidence: 0.9,
+            text: String::new(),
+            text_confidence: 0.0,
+            alternatives: Vec::new(),
+        };
+        let mut regions = vec![
+            region(60, 16, 90, 40),
+            region(10, 0, 40, 10),
+            region(20, 8, 50, 24),
+            region(5, 16, 35, 40),
+        ];
+        sort_reading_order(&mut regions);
+        assert_eq!(
+            regions.iter().map(|item| item.left).collect::<Vec<_>>(),
+            [10, 20, 5, 60]
+        );
     }
 }

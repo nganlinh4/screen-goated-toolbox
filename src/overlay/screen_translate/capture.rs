@@ -132,7 +132,7 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         &translation_prompt,
     );
 
-    let mut detected = match super::detector::detect(
+    let detected = match super::detector::detect(
         &jpeg,
         region.image.width(),
         region.image.height(),
@@ -144,10 +144,11 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
             return Err(error);
         }
     };
-    super::appearance::annotate_regions(&region.image, &mut detected);
-    let candidates = std::sync::Arc::<[super::contract::DetectedTextRegion]>::from(detected);
+    let mut accepted = detected.accepted;
+    super::appearance::annotate_regions(&region.image, &mut accepted);
+    let candidates = std::sync::Arc::<[super::contract::DetectedTextRegion]>::from(accepted);
     crate::overlay::result::latency::mark(&trace_id, "detector_complete");
-    evidence.detected(&candidates);
+    evidence.detected(&candidates, &detected.raw);
     if candidates.is_empty() {
         evidence.no_text();
         crate::overlay::auto_copy_badge::show_notification(

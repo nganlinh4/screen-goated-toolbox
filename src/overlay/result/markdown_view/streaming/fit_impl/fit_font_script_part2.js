@@ -116,9 +116,11 @@
                         body.style.letterSpacing = '0px';
                         clearLastMargin();
 
-                        var rescueBestWdth = 90;
+                        var rescueBestWdth = isSourceReplacement ? 100 : 90;
                         var rescueBestOverflow = Math.max(0, doc.scrollHeight - winH);
-                        for (var rescueWdth = 90; rescueWdth >= 45; rescueWdth -= 5) {
+                        var rescueStartWdth = isSourceReplacement ? 100 : 90;
+                        var rescueEndWdth = isSourceReplacement ? 25 : 45;
+                        for (var rescueWdth = rescueStartWdth; rescueWdth >= rescueEndWdth; rescueWdth -= 5) {
                             applyBodyWdth(rescueWdth);
                             clearLastMargin();
                             var rescueOverflow = Math.max(0, doc.scrollHeight - winH);
@@ -139,14 +141,14 @@
                             applyBodyWdth(verifiedSourceFit.fontStretch);
                             body.style.fontSize = verifiedSourceFit.fontSize + 'px';
                         }
-                        body.style.lineHeight = '1.15';
+                        body.style.lineHeight = '1.08';
                         body.style.letterSpacing = '0px';
                         body.style.wordSpacing = '0px';
                         clearLastMargin();
                         if (!fits()) {
                             var emergencyBestSize = 0;
-                            var emergencyBestWdth = 90;
-                            for (var emergencyWdth = 90; emergencyWdth >= 45; emergencyWdth -= 5) {
+                            var emergencyBestWdth = 100;
+                            for (var emergencyWdth = 100; emergencyWdth >= 25; emergencyWdth -= 5) {
                                 applyBodyWdth(emergencyWdth);
                                 var emergencyLow = 1;
                                 var emergencyHigh = Math.max(1, Math.floor(maxSize));
@@ -182,6 +184,9 @@
                     } else {
                         body.style.paddingTop = '0';
                         body.style.paddingBottom = '0';
+                    }
+                    if (isSourceReplacement) {
+                        body.style.justifyContent = fits() ? 'center' : 'flex-start';
                     }
 
                     // Debug telemetry for runtime font-axis behavior and final fit result.

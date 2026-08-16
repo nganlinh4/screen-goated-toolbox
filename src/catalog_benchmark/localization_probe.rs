@@ -284,7 +284,7 @@ fn changed_translation_ratio(
         .filter(|region| {
             !region
                 .source_text
-                .eq_ignore_ascii_case(&region.translated_text)
+                .eq_ignore_ascii_case(&region.translated_segments.join(" "))
         })
         .count();
     changed as f64 / document.regions.len() as f64
@@ -410,6 +410,7 @@ mod tests {
                 crate::overlay::screen_translate::contract::TranslationRegion {
                     id: 1,
                     member_ids: vec![1],
+                    member_joins: Vec::new(),
                     selections: vec![
                         crate::overlay::screen_translate::contract::TranslationSelection {
                             region_id: 1,
@@ -421,7 +422,7 @@ mod tests {
                     semantic_role:
                         crate::overlay::screen_translate::contract::SemanticRole::Standalone,
                     source_text: "Settings".to_string(),
-                    translated_text: "Cài đặt".to_string(),
+                    translated_segments: vec!["Cài đặt".to_string()],
                     bounds: [0, 0, 1, 1].into(),
                     background_color: None,
                     text_color: None,
@@ -429,6 +430,7 @@ mod tests {
                 crate::overlay::screen_translate::contract::TranslationRegion {
                     id: 2,
                     member_ids: vec![2],
+                    member_joins: Vec::new(),
                     selections: vec![
                         crate::overlay::screen_translate::contract::TranslationSelection {
                             region_id: 2,
@@ -440,7 +442,7 @@ mod tests {
                     semantic_role:
                         crate::overlay::screen_translate::contract::SemanticRole::Standalone,
                     source_text: "SGT".to_string(),
-                    translated_text: "SGT".to_string(),
+                    translated_segments: vec!["SGT".to_string()],
                     bounds: [1, 1, 2, 2].into(),
                     background_color: None,
                     text_color: None,

@@ -69,12 +69,14 @@ pub(crate) fn run() -> eframe::Result<()> {
     let creation_ui_test = startup_args.configure_creation_ui_test();
     let screen_translate_ui_test = startup_args.screen_translate_ui_test();
     let screen_translate_ui_test_image = startup_args.screen_translate_ui_test_image();
+    let screen_translate_lab_queue = startup_args.screen_translate_lab_queue();
     let result_compositor_smoke = startup_args.result_compositor_smoke();
     let status_compositor_smoke = startup_args.status_compositor_smoke();
     let realtime_compositor_smoke = startup_args.realtime_compositor_smoke();
     let isolated_ui_test = screen_record_wry_smoke
         || creation_ui_test.is_some()
         || screen_translate_ui_test
+        || screen_translate_lab_queue.is_some()
         || result_compositor_smoke
         || status_compositor_smoke
         || realtime_compositor_smoke;
@@ -176,6 +178,7 @@ pub(crate) fn run() -> eframe::Result<()> {
         creation_ui_test,
         screen_translate_ui_test,
         screen_translate_ui_test_image,
+        screen_translate_lab_queue,
         pending_file_path,
     )
 }

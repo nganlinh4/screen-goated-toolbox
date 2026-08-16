@@ -30,6 +30,7 @@ base64 = "0.22"
 semver = "1.0.28"
 zip = { version = "8.2", default-features = false, features = ["deflate-flate2"] }
 flate2 = "1.1"
+quick-xml = "0.38"
 
 # Image Processing
 image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }

@@ -85,13 +85,14 @@ mod tests {
 
         assert!(script.contains("isSourceReplacement ? 1"));
         assert!(script.contains("Math.min(winH, preferredFontSize)"));
-        assert!(script.contains("for (var testWdth = 85; testWdth >= 55"));
+        assert!(script.contains("var lastTestWdth = isSourceReplacement ? 25 : 55"));
+        assert!(script.contains("var stretchHigh = 151"));
         assert!(script.contains("!isStreamingFit && !isSourceReplacement"));
         assert!(!script.contains("fillsSourceReplacement"));
-        assert!(script.contains("for (var rescueWdth = 90; rescueWdth >= 45"));
+        assert!(script.contains("var rescueEndWdth = isSourceReplacement ? 25 : 45"));
         assert!(script.contains("if (isSourceReplacement && !fits())"));
         assert!(script.contains("verifiedSourceFit.fontSize"));
-        assert!(script.contains("for (var emergencyWdth = 90; emergencyWdth >= 45"));
+        assert!(script.contains("for (var emergencyWdth = 100; emergencyWdth >= 25"));
     }
 
     #[test]

@@ -9,38 +9,20 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SM_YVIRTUALSCREEN, SW_SHOWNOACTIVATE, ShowWindow, TranslateMessage,
 };
 
-use super::backdrop::{encode_data_url, reconstruct_blob_image_with_background};
 use super::contract::{DetectedTextRegion, TranslationDocument, TranslationRegion};
-use super::geometry::{MIN_READABLE_HEIGHT, MIN_READABLE_WIDTH, PixelRegion, normalized_region};
-use super::layout::{LayoutBlock, LayoutInput, plan_blocks};
+use super::render_scene::{PreparedBlock, PreparedScene, PreparedSource};
 use crate::overlay::result::{RefineContext, ResultControlOptions, ResultWindowParams, WindowType};
 use crate::overlay::selection::CapturedRegion;
-
-struct PreparedSource {
-    pixels: PixelRegion,
-    foreground: String,
-    source_text: String,
-    background: Option<([u8; 3], u8)>,
-}
-
-struct PreparedBlock {
-    member_ids: Vec<u16>,
-    layout: PixelRegion,
-    backdrop: String,
-    foreground: String,
-    preferred_font_size: f32,
-}
-
-struct PreparedScene {
-    sources: HashMap<u16, PreparedSource>,
-    blocks: Vec<PreparedBlock>,
-    member_to_block: HashMap<u16, usize>,
-}
 
 struct LiveBlock {
     prepared: PreparedBlock,
     hwnd: Option<HWND>,
     rendered_text: Option<String>,
+}
+
+struct CellTranslation {
+    source_text: String,
+    translated_text: String,
 }
 
 struct TranslationControls {
@@ -120,7 +102,7 @@ fn run_overlay_thread(
     first_visible: SyncSender<()>,
     completion: SyncSender<Result<usize, String>>,
 ) {
-    let prepared = match prepare_scene(job_id, &capture, &candidates) {
+    let scene = match super::render_scene::prepare_scene(job_id, &capture, &candidates) {
         Ok(prepared) => prepared,
         Err(error) => {
             let _ = completion.send(Err(error.to_string()));
@@ -136,22 +118,10 @@ fn run_overlay_thread(
     };
     let controls = TranslationControls {
         anchor: relative_selection_anchor(origin, (capture.width, capture.height), virtual_origin),
-        color: nearest_control_color(prepared.sources.values(), capture.width),
+        color: nearest_control_color(scene.sources.values(), capture.width),
     };
     let chain_id = format!("screen-translate-{job_id}");
-    let PreparedScene {
-        sources,
-        blocks,
-        member_to_block,
-    } = prepared;
-    let mut blocks = blocks
-        .into_iter()
-        .map(|prepared| LiveBlock {
-            prepared,
-            hwnd: None,
-            rendered_text: None,
-        })
-        .collect::<Vec<_>>();
+    let mut blocks: Vec<LiveBlock> = Vec::new();
     let mut translations = HashMap::new();
     let mut had_visible = false;
     let mut first_visible = Some(first_visible);
@@ -175,39 +145,35 @@ fn run_overlay_thread(
         }
         match receiver.recv_timeout(Duration::from_millis(8)) {
             Ok(RenderCommand::Region(region)) => {
-                let id = region.id;
-                translations.insert(id, region);
-                if let Some(&block_index) = member_to_block.get(&id)
-                    && refresh_block(
+                record_translations(region, &mut translations);
+                ensure_blocks(&translations, &scene, &mut blocks);
+                for block_index in 0..blocks.len() {
+                    if refresh_block(
                         block_index,
                         &mut blocks,
-                        &sources,
                         &translations,
                         origin,
                         &controls,
                         &chain_id,
                         &trace_id,
-                    )
-                {
-                    had_visible = true;
-                    super::runtime::register_overlay(job_id, chain_id.clone());
-                    if let Some(sender) = first_visible.take() {
-                        let _ = sender.send(());
+                    ) {
+                        had_visible = true;
+                        super::runtime::register_overlay(job_id, chain_id.clone());
+                        if let Some(sender) = first_visible.take() {
+                            let _ = sender.send(());
+                        }
                     }
                 }
             }
             Ok(RenderCommand::Complete(document)) => {
-                translations.extend(
-                    document
-                        .regions
-                        .into_iter()
-                        .map(|region| (region.id, region)),
-                );
+                for region in document.regions {
+                    record_translations(region, &mut translations);
+                }
+                ensure_blocks(&translations, &scene, &mut blocks);
                 for block_index in 0..blocks.len() {
                     if refresh_block(
                         block_index,
                         &mut blocks,
-                        &sources,
                         &translations,
                         origin,
                         &controls,
@@ -245,34 +211,61 @@ fn run_overlay_thread(
     }
 }
 
+fn ensure_blocks(
+    translations: &HashMap<Vec<u16>, CellTranslation>,
+    scene: &PreparedScene,
+    blocks: &mut Vec<LiveBlock>,
+) {
+    for member_ids in translations.keys() {
+        if blocks
+            .iter()
+            .any(|block| block.prepared.member_ids == *member_ids)
+        {
+            continue;
+        }
+        let Some(translation) = translations.get(member_ids) else {
+            continue;
+        };
+        let Ok(prepared) =
+            super::render_scene::prepare_block(member_ids, &translation.translated_text, scene)
+        else {
+            continue;
+        };
+        blocks.push(LiveBlock {
+            prepared,
+            hwnd: None,
+            rendered_text: None,
+        });
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn refresh_block(
     block_index: usize,
     blocks: &mut [LiveBlock],
-    sources: &HashMap<u16, PreparedSource>,
-    translations: &HashMap<u16, TranslationRegion>,
+    translations: &HashMap<Vec<u16>, CellTranslation>,
     origin: (i32, i32),
     controls: &TranslationControls,
     chain_id: &str,
     trace_id: &str,
 ) -> bool {
-    let block = &blocks[block_index].prepared;
-    if !block
-        .member_ids
-        .iter()
-        .all(|id| translations.contains_key(id))
+    if blocks[block_index]
+        .hwnd
+        .is_some_and(|hwnd| !unsafe { IsWindow(Some(hwnd)).as_bool() })
     {
+        blocks[block_index].hwnd = None;
+    }
+    let prepared = &blocks[block_index].prepared;
+    let Some(translation) = translations.get(&prepared.member_ids) else {
+        return false;
+    };
+    if !should_render_segment(&translation.source_text, &translation.translated_text) {
         return false;
     }
-    if !block
-        .member_ids
-        .iter()
-        .any(|id| translations.get(id).is_some_and(should_render))
+    let text = translation.translated_text.clone();
+    if blocks[block_index].rendered_text.as_deref() == Some(text.as_str())
+        && blocks[block_index].hwnd.is_some()
     {
-        return false;
-    }
-    let text = block_text(block, sources, translations);
-    if blocks[block_index].rendered_text.as_deref() == Some(text.as_str()) {
         return false;
     }
     if let Some(hwnd) = blocks[block_index].hwnd {
@@ -283,7 +276,7 @@ fn refresh_block(
     let root = blocks.iter().find_map(|block| block.hwnd);
     let hwnd = create_region_window(
         origin,
-        block,
+        &blocks[block_index].prepared,
         text.clone(),
         root.is_none(),
         controls,
@@ -298,26 +291,21 @@ fn refresh_block(
     root.is_none()
 }
 
-fn block_text(
-    block: &PreparedBlock,
-    sources: &HashMap<u16, PreparedSource>,
-    translations: &HashMap<u16, TranslationRegion>,
-) -> String {
-    block
-        .member_ids
-        .iter()
-        .filter_map(|id| {
-            translations
-                .get(id)
-                .map(|region| region.translated_text.as_str())
-                .or_else(|| sources.get(id).map(|source| source.source_text.as_str()))
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+fn record_translations(
+    region: TranslationRegion,
+    translations: &mut HashMap<Vec<u16>, CellTranslation>,
+) {
+    translations.insert(
+        region.member_ids,
+        CellTranslation {
+            source_text: region.source_text,
+            translated_text: region.translated_segments.join(" "),
+        },
+    );
 }
 
-fn should_render(region: &TranslationRegion) -> bool {
-    !super::contract::text_is_source_equivalent(&region.source_text, &region.translated_text)
+fn should_render_segment(source: &str, translated: &str) -> bool {
+    !super::contract::text_is_source_equivalent(source, translated)
 }
 
 fn create_region_window(
@@ -387,6 +375,7 @@ fn nearest_control_color<'a>(
     capture_width: u32,
 ) -> String {
     regions
+        .filter(|region| !region.foreground.is_empty())
         .min_by_key(|region| {
             let center_x = region.pixels.x.saturating_add(region.pixels.width / 2);
             let center_y = region.pixels.y.saturating_add(region.pixels.height / 2);
@@ -411,183 +400,6 @@ fn relative_selection_anchor(
     ]
 }
 
-fn prepare_scene(
-    job_id: u64,
-    capture: &CapturedRegion,
-    candidates: &[DetectedTextRegion],
-) -> Result<PreparedScene> {
-    let located = candidates
-        .iter()
-        .map(|candidate| {
-            (
-                candidate.id,
-                normalized_region(candidate.bounds, capture.width, capture.height),
-                candidate.appearance,
-                candidate.source_text.clone(),
-            )
-        })
-        .filter(|(_, region, _, _)| {
-            region.width >= MIN_READABLE_WIDTH && region.height >= MIN_READABLE_HEIGHT
-        })
-        .collect::<Vec<_>>();
-    let masks = located
-        .iter()
-        .map(|(_, region, _, _)| *region)
-        .collect::<Vec<_>>();
-    let layout_inputs = located
-        .iter()
-        .map(|(id, pixels, appearance, _)| LayoutInput {
-            id: *id,
-            pixels: *pixels,
-            appearance: *appearance,
-        })
-        .collect::<Vec<_>>();
-    let mut prepared = HashMap::with_capacity(located.len());
-    for (id, pixels, appearance, source_text) in located {
-        if !super::runtime::is_current(job_id) {
-            break;
-        }
-        let background = appearance
-            .map(|appearance| (appearance.background_rgb, appearance.background_confidence));
-        let (_, inferred_foreground) =
-            reconstruct_blob_image_with_background(&capture.image, pixels, &masks, background);
-        let foreground = appearance
-            .filter(|appearance| appearance.foreground_confidence >= 3)
-            .and_then(|appearance| appearance.foreground_rgb)
-            .map(super::appearance::color_hex)
-            .unwrap_or(inferred_foreground);
-        prepared.insert(
-            id,
-            PreparedSource {
-                pixels,
-                foreground,
-                source_text,
-                background,
-            },
-        );
-    }
-    let blocks = plan_blocks(&layout_inputs)
-        .into_iter()
-        .map(|block| prepare_block(block, &prepared, &capture.image, &masks))
-        .collect::<Result<Vec<_>>>()?;
-    let member_to_block = blocks
-        .iter()
-        .enumerate()
-        .flat_map(|(index, block)| block.member_ids.iter().map(move |id| (*id, index)))
-        .collect();
-    Ok(PreparedScene {
-        sources: prepared,
-        blocks,
-        member_to_block,
-    })
-}
-
-fn prepare_block(
-    block: LayoutBlock,
-    sources: &HashMap<u16, PreparedSource>,
-    image: &image::RgbaImage,
-    masks: &[PixelRegion],
-) -> Result<PreparedBlock> {
-    let background = block
-        .member_ids
-        .iter()
-        .filter_map(|id| sources.get(id)?.background)
-        .max_by_key(|(_, confidence)| *confidence);
-    let (backdrop, inferred_foreground) =
-        reconstruct_blob_image_with_background(image, block.pixels, masks, background);
-    let foreground = block
-        .member_ids
-        .iter()
-        .find_map(|id| sources.get(id).map(|source| source.foreground.clone()))
-        .unwrap_or(inferred_foreground);
-    Ok(PreparedBlock {
-        member_ids: block.member_ids,
-        layout: block.pixels,
-        backdrop: encode_data_url(&backdrop)?,
-        foreground,
-        preferred_font_size: (block.pixels.height as f32).clamp(8.0, 200.0),
-    })
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn control_anchor_is_relative_to_the_virtual_desktop() {
-        assert_eq!(
-            relative_selection_anchor((-1200, 300), (640, 480), (-1920, -200)),
-            [720, 500, 640, 480]
-        );
-    }
-
-    #[test]
-    fn source_equivalent_regions_do_not_require_visual_replacement() {
-        let region = TranslationRegion {
-            id: 1,
-            member_ids: vec![1],
-            selections: Vec::new(),
-            semantic_role: super::super::contract::SemanticRole::Value,
-            source_text: "example.com/path".to_string(),
-            translated_text: "example.com/path".to_string(),
-            bounds: [0, 0, 10, 10].into(),
-            background_color: None,
-            text_color: None,
-        };
-        assert!(!should_render(&region));
-    }
-
-    #[test]
-    fn grouped_text_reflows_without_preserving_ocr_line_breaks() {
-        let block = PreparedBlock {
-            member_ids: vec![1, 2],
-            layout: PixelRegion {
-                x: 0,
-                y: 0,
-                width: 100,
-                height: 40,
-            },
-            backdrop: String::new(),
-            foreground: String::new(),
-            preferred_font_size: 12.0,
-        };
-        let sources = HashMap::from([
-            (
-                1,
-                PreparedSource {
-                    pixels: block.layout,
-                    foreground: String::new(),
-                    source_text: "first".to_string(),
-                    background: None,
-                },
-            ),
-            (
-                2,
-                PreparedSource {
-                    pixels: block.layout,
-                    foreground: String::new(),
-                    source_text: "second".to_string(),
-                    background: None,
-                },
-            ),
-        ]);
-        let translated = TranslationRegion {
-            id: 1,
-            member_ids: vec![1],
-            selections: Vec::new(),
-            semantic_role: super::super::contract::SemanticRole::Standalone,
-            source_text: "first".to_string(),
-            translated_text: "translated".to_string(),
-            bounds: [0, 0, 10, 10].into(),
-            background_color: None,
-            text_color: None,
-        };
-        let mut translations = HashMap::from([(1, translated.clone())]);
-        assert_eq!(
-            block_text(&block, &sources, &translations),
-            "translated second"
-        );
-        translations.clear();
-        assert_eq!(block_text(&block, &sources, &translations), "first second");
-    }
-}
+#[path = "render_tests.rs"]
+mod tests;
