@@ -16,6 +16,11 @@
 - Use `anyhow::Result`. Remove dead code. Never add `#[allow(dead_code)]`.
 - No warnings. No incident-, app-, site-, person-, game-, model-run-, or language-specific hacks in reusable code, prompts, comments, or tests.
 - Prefer general capability/state invariants. Unknown future integrations must keep working.
+- UI ICONS — REQUIRED: use downloaded Material Symbols; never hand-author, trace,
+  or paste icon SVG/path data. Native egui: `node scripts/add_egui_material_icon.mjs
+  <material-symbol-name> <RustIconVariant>`. Screen recorder: `node
+  screen-record/scripts/add_material_icon.mjs <material-symbol-name>`. Shared
+  Android/offline-web catalog: `bash scripts/download_material_symbols.sh <name>`.
 - Public creation code, docs, fixtures, and tests contain only product behavior,
   stable public contracts, and delivery invariants. Do not document non-public
   implementation details, compatibility evidence, or real-run artifacts.
@@ -55,7 +60,7 @@
 - Semantic kebab-case class on JSX elements.
 - Preview = export. One parameter/math source; no separate look tuning.
 - Background catalog: `screen-record/src/config/shared-background-presets.json`.
-- UI icons: `node screen-record/scripts/add_material_icon.mjs <material-symbol-name>`.
+- UI icons follow the repository-wide required download rule above.
 - Cursor packs: single clipped `44x43` SVG per cursor; mirror dev + packaged assets; verify preview/export parity.
 - UI work: `.claude/skills/update-frontend/SKILL.md`.
 
