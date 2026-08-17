@@ -153,6 +153,7 @@ mod tests {
             bounds: bounds.into(),
             source_text: id.to_string(),
             source_alternatives: vec![id.to_string()],
+            recognition: Default::default(),
             appearance: None,
         }
     }

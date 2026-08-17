@@ -64,13 +64,21 @@ pub(crate) enum MemberJoin {
     SameBlock,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct DetectedTextRegion {
     pub id: u16,
     pub bounds: NormalizedBounds,
     pub source_text: String,
     pub source_alternatives: Vec<String>,
+    pub recognition: RecognitionEvidence,
     pub appearance: Option<super::appearance::VisualSignature>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct RecognitionEvidence {
+    pub locator_confidence: f32,
+    pub selected_confidence: f32,
+    pub competing_confidence: f32,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -102,7 +110,7 @@ impl From<NormalizedBounds> for [u16; 4] {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TranslationResponse {
-    cells: Vec<serde_json::Value>,
+    members: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -114,15 +122,13 @@ enum TranslationResponseEnvelope {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TranslatedCellResponse {
-    cell_id: u16,
+struct TranslatedMemberResponse {
+    member_id: u16,
     translation: String,
-    split_after_members: Vec<u16>,
 }
 
 pub(crate) fn response_schema(region_count: usize) -> serde_json::Value {
-    let cells = region_count.clamp(1, MAX_CANDIDATES);
-    super::schema::response_schema(cells, MAX_TEXT_CHARS)
+    super::schema::response_schema(region_count.clamp(1, MAX_CANDIDATES), MAX_TEXT_CHARS)
 }
 
 pub(crate) fn prompt_with_instruction(
@@ -159,8 +165,7 @@ pub(crate) fn prompt_with_instruction(
         .to_string();
     Ok(format!(
         "Translation preference:\n{instruction}\n\n\
-         Translate every supplied cell completely into {target_language}. Return one result for every cellId. A cell is already in reading order. Translate it as one coherent passage. Do not summarize, abbreviate, invent, or move content between cells. Preserve names, codes, punctuation, tone, and mixed-language meaning.\n\
-         splitAfterMembers is normally empty. Add a memberId only when the following member begins a genuinely separate item, such as another speaker, control, label, bullet, or paragraph. Use only supplied memberIds, in source order, and never include a cell's final member. Geometry, grouping validation, text distribution, and rendering are handled locally.\n\
+         Translate every supplied member completely into {target_language}. Cells and member order provide context only. Return exactly one members entry for every memberId. Each translation must belong only to that memberId; never move, merge, duplicate, or drop content between members or cells. Preserve names, usernames, handles, codes, punctuation, tone, and mixed-language meaning in the corresponding translation. Do not summarize, abbreviate, or invent. Geometry and rendering are handled locally.\n\
          Return only JSON matching the supplied schema.\n\
          Cells:\n{}",
         serde_json::to_string(&cells)?
@@ -174,20 +179,20 @@ pub(crate) fn parse_response(
     let envelope: TranslationResponseEnvelope = serde_json::from_str(unwrap_json(response))
         .context("response did not match the translation schema")?;
     let values = match envelope {
-        TranslationResponseEnvelope::Object(response) => response.cells,
-        TranslationResponseEnvelope::Array(cells) => cells,
+        TranslationResponseEnvelope::Object(response) => response.members,
+        TranslationResponseEnvelope::Array(members) => members,
     };
     let mut seen = HashSet::new();
     let mut regions = Vec::new();
     for value in values.into_iter().take(MAX_CANDIDATES) {
-        let Ok(response) = serde_json::from_value::<TranslatedCellResponse>(value) else {
+        let Ok(response) = serde_json::from_value::<TranslatedMemberResponse>(value) else {
             continue;
         };
-        if !seen.insert(response.cell_id) {
+        if !seen.insert(response.member_id) {
             continue;
         }
-        if let Ok(mut parsed) = validated_cell(response, candidates) {
-            regions.append(&mut parsed);
+        if let Ok(parsed) = validated_member(response, candidates) {
+            regions.push(parsed);
         }
     }
     regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
@@ -198,71 +203,29 @@ pub(crate) fn parse_streamed_region(
     value: &str,
     candidates: &[DetectedTextRegion],
 ) -> Result<Vec<(u16, TranslationRegion)>> {
-    let response: TranslatedCellResponse = serde_json::from_str(value)
-        .context("streamed cell did not match the translation schema")?;
-    Ok(validated_cell(response, candidates)?
-        .into_iter()
-        .map(|region| (region.id, region))
-        .collect())
+    let response: TranslatedMemberResponse = serde_json::from_str(value)
+        .context("streamed member did not match the translation schema")?;
+    let region = validated_member(response, candidates)?;
+    Ok(vec![(region.id, region)])
 }
 
-fn validated_cell(
-    response: TranslatedCellResponse,
+fn validated_member(
+    response: TranslatedMemberResponse,
     candidates: &[DetectedTextRegion],
-) -> Result<Vec<TranslationRegion>> {
-    let proposal = super::cell_proposals::propose(candidates)
-        .into_iter()
-        .find(|proposal| proposal.member_ids_in_reading_order.first() == Some(&response.cell_id))
-        .context("translation references an unknown local cell")?;
+) -> Result<TranslationRegion> {
+    let candidate = candidates
+        .iter()
+        .find(|candidate| candidate.id == response.member_id)
+        .context("translation references an unknown local member")?;
+    let selection = TranslationSelection {
+        region_id: candidate.id,
+        candidate_id: format!("r{}c0", candidate.id),
+        source_text: candidate.source_text.clone(),
+        bounds: candidate.bounds,
+    };
     let translation = clean_text(&response.translation, MAX_TEXT_CHARS)
         .context("translation is empty or too long")?;
-    let selections = proposal
-        .member_ids_in_reading_order
-        .iter()
-        .map(|id| {
-            let candidate = candidates
-                .iter()
-                .find(|candidate| candidate.id == *id)
-                .context("local cell member is missing")?;
-            Ok(TranslationSelection {
-                region_id: *id,
-                candidate_id: format!("r{id}c0"),
-                source_text: candidate.source_text.clone(),
-                bounds: candidate.bounds,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let translated_segments =
-        super::flow_layout::distribute_text(&translation, &selections, &proposal.member_joins);
-    let boundaries = valid_boundaries(
-        &response.split_after_members,
-        &proposal.member_ids_in_reading_order,
-    );
-    let mut starts = vec![0];
-    starts.extend(boundaries.into_iter().map(|index| index + 1));
-    starts.push(selections.len());
-    starts
-        .windows(2)
-        .map(|range| {
-            build_region(
-                &selections[range[0]..range[1]],
-                &proposal.member_joins[range[0]..range[1].saturating_sub(1)],
-                &translated_segments[range[0]..range[1]],
-                candidates,
-            )
-        })
-        .collect()
-}
-
-fn valid_boundaries(requested: &[u16], members: &[u16]) -> Vec<usize> {
-    let mut boundaries = requested
-        .iter()
-        .filter_map(|id| members.iter().position(|member| member == id))
-        .filter(|index| index + 1 < members.len())
-        .collect::<Vec<_>>();
-    boundaries.sort_unstable();
-    boundaries.dedup();
-    boundaries
+    build_region(&[selection], &[], &[translation], candidates)
 }
 
 fn build_region(
@@ -339,6 +302,7 @@ mod tests {
                 bounds: [10, 10, 30, 200].into(),
                 source_text: "first line".into(),
                 source_alternatives: vec!["first line".into()],
+                recognition: Default::default(),
                 appearance: None,
             },
             DetectedTextRegion {
@@ -346,6 +310,7 @@ mod tests {
                 bounds: [34, 10, 54, 200].into(),
                 source_text: "second line".into(),
                 source_alternatives: vec!["second line".into()],
+                recognition: Default::default(),
                 appearance: None,
             },
         ]
@@ -366,37 +331,21 @@ mod tests {
     }
 
     #[test]
-    fn one_translation_is_distributed_over_local_members() {
+    fn member_translations_preserve_exact_local_correspondence() {
         let parsed = parse_response(
-            r#"{"cells":[{"cellId":1,"translation":"một bản dịch hoàn chỉnh","splitAfterMembers":[]}]}"#,
-            &candidates(),
-        )
-        .unwrap();
-        assert_eq!(parsed.regions.len(), 1);
-        assert_eq!(parsed.regions[0].member_ids, [1, 2]);
-        assert_eq!(parsed.regions[0].translated_segments.len(), 2);
-    }
-
-    #[test]
-    fn advisory_split_creates_local_subcells_without_retranslating() {
-        let parsed = parse_response(
-            r#"{"cells":[{"cellId":1,"translation":"một hai ba bốn","splitAfterMembers":[1]}]}"#,
+            r#"{"members":[{"memberId":1,"translation":"dòng một"},{"memberId":2,"translation":"dòng hai"}]}"#,
             &candidates(),
         )
         .unwrap();
         assert_eq!(parsed.regions.len(), 2);
-        assert!(
-            parsed
-                .regions
-                .iter()
-                .all(|region| region.member_ids.len() == 1)
-        );
+        assert_eq!(parsed.regions[0].member_ids, [1]);
+        assert_eq!(parsed.regions[1].translated_segments, ["dòng hai"]);
     }
 
     #[test]
-    fn invalid_split_ids_are_ignored_without_rejection() {
+    fn unknown_member_is_rejected_without_losing_valid_members() {
         let parsed = parse_response(
-            r#"{"cells":[{"cellId":1,"translation":"một hai ba bốn","splitAfterMembers":[999]}]}"#,
+            r#"{"members":[{"memberId":1,"translation":"dòng một"},{"memberId":99,"translation":"lạ"}]}"#,
             &candidates(),
         )
         .unwrap();

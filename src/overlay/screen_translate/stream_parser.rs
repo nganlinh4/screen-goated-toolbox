@@ -39,8 +39,8 @@ impl<'a> TranslationStreamParser<'a> {
             self.buffer.push_str(chunk);
         }
         if !self.array_started {
-            if let Some(marker) = self.buffer.find("\"cells\"") {
-                let key_end = marker + "\"cells\"".len();
+            if let Some(marker) = self.buffer.find("\"members\"") {
+                let key_end = marker + "\"members\"".len();
                 let Some(offset) = self.buffer[key_end..].find('[') else {
                     return Vec::new();
                 };
@@ -161,6 +161,7 @@ mod tests {
             },
             source_text: "clear text".to_string(),
             source_alternatives: vec!["clear text".to_string(), "alternate".to_string()],
+            recognition: Default::default(),
             appearance: None,
         }]
     }
@@ -169,9 +170,8 @@ mod tests {
     fn emits_a_region_as_soon_as_its_object_closes() {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
-        assert!(parser.push("{\"cel").is_empty());
-        let regions =
-            parser.push("ls\":[{\"cellId\":7,\"translation\":\"done\",\"splitAfterMembers\":[]},");
+        assert!(parser.push("{\"mem").is_empty());
+        let regions = parser.push("bers\":[{\"memberId\":7,\"translation\":\"done\"},");
         assert_eq!(regions.len(), 1);
         assert_eq!(regions[0].1.source_text, "clear text");
         assert!(parser.push("]}").is_empty());
@@ -182,7 +182,7 @@ mod tests {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
         let regions = parser.push(
-            "{\"cells\":[{\"cellId\":7,\"translation\":3,\"splitAfterMembers\":[]},{\"cellId\":7,\"translation\":\"good\",\"splitAfterMembers\":[]}]}",
+            "{\"members\":[{\"memberId\":7,\"translation\":3},{\"memberId\":7,\"translation\":\"good\"}]}",
         );
 
         assert_eq!(parser.rejected_count(), 1);
@@ -199,7 +199,7 @@ mod tests {
         candidates.push(second);
         let mut parser = TranslationStreamParser::new(&candidates);
         let emitted = parser.push(
-            r#"[{"cellId":7,"translation":"first","splitAfterMembers":[]},{"cellId":8,"translation":"second","splitAfterMembers":[]}]"#,
+            r#"[{"memberId":7,"translation":"first"},{"memberId":8,"translation":"second"}]"#,
         );
         assert_eq!(
             emitted

@@ -4,6 +4,8 @@ use serde::Serialize;
 
 use super::contract::{DetectedTextRegion, MemberJoin, NormalizedBounds};
 
+pub(super) const MAX_MEMBERS_PER_CELL: usize = 4;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct CellProposal {
@@ -28,7 +30,7 @@ pub(super) fn propose(candidates: &[DetectedTextRegion]) -> Vec<CellProposal> {
         let mut members = vec![start.id];
         let mut joins = Vec::new();
         let mut current = *start;
-        while members.len() < 4
+        while members.len() < MAX_MEMBERS_PER_CELL
             && let Some((next, join)) = ordered
                 .iter()
                 .filter(|candidate| !used.contains(&candidate.id))
@@ -151,6 +153,7 @@ mod tests {
             bounds: bounds.into(),
             source_text: id.to_string(),
             source_alternatives: vec![id.to_string()],
+            recognition: Default::default(),
             appearance: None,
         }
     }

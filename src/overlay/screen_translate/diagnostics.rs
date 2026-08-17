@@ -69,6 +69,9 @@ mod debug {
         normalized_box_2d: [u16; 4],
         pixel_box: [u32; 4],
         ocr_candidates: Vec<String>,
+        locator_confidence: f32,
+        selected_ocr_confidence: f32,
+        competing_ocr_confidence: f32,
         selected_source_text: Option<String>,
         translated_text: Option<String>,
         group_member_ids: Option<Vec<u16>>,
@@ -291,6 +294,9 @@ mod debug {
                     normalized_box_2d: candidate.bounds.into(),
                     pixel_box: [pixels.x, pixels.y, pixels.width, pixels.height],
                     ocr_candidates: candidate.source_alternatives.clone(),
+                    locator_confidence: candidate.recognition.locator_confidence,
+                    selected_ocr_confidence: candidate.recognition.selected_confidence,
+                    competing_ocr_confidence: candidate.recognition.competing_confidence,
                     selected_source_text: translated
                         .map(|(_, selection, _)| selection.source_text.clone()),
                     translated_text: translated.and_then(|(region, _, index)| {
@@ -540,6 +546,7 @@ mod debug {
                 },
                 source_text: "text".to_string(),
                 source_alternatives: vec!["text".to_string()],
+                recognition: Default::default(),
                 appearance: None,
             }];
             save_detector_preview(&path, &jpeg, &candidates, (80, 60)).unwrap();
