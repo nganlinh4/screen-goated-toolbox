@@ -21,7 +21,7 @@ fn specialist_coverage_routes_only_matching_unicode() {
 }
 
 #[test]
-fn known_primary_script_prioritizes_its_matching_specialist() {
+fn known_capture_script_loads_its_matching_specialist_even_when_primary_is_confident() {
     let coverage = [[0x4e00, 0x9fff]];
     let model = ResolvedModel {
         model: PathBuf::new(),
@@ -39,9 +39,9 @@ fn known_primary_script_prioritizes_its_matching_specialist() {
         confidence: 0.0,
     };
     let results = primary_sets(vec![ambiguous.clone(), weak]);
-    assert!(model.matches_primary(&results));
-    assert!(model.matches_primary(&primary_sets(vec![ambiguous])));
-    assert!(!model.matches_primary(&primary_sets(vec![Recognition {
+    assert!(model.matches_capture(&results));
+    assert!(model.matches_capture(&primary_sets(vec![ambiguous])));
+    assert!(model.matches_capture(&primary_sets(vec![Recognition {
         text: "号合号合".to_string(),
         confidence: 0.99,
     }])));
