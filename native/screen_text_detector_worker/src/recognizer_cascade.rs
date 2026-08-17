@@ -15,6 +15,7 @@ const MAX_FALLBACKS: usize = 15;
 const MAX_COVERAGE_RANGES: usize = 16;
 const WARMUP_WIDTH: u32 = 320;
 const FAST_PATH_CONFIDENCE: f32 = 0.80;
+const SPECIALIST_ALTERNATIVE_CONFIDENCE: f32 = 0.60;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
 pub(crate) struct RecognizerCascade {
@@ -306,6 +307,7 @@ fn apply_fallback(
         .enumerate()
         .filter_map(|(index, result)| {
             (coverage_matches(&fallback.coverage, &result.primary.text)
+                || evidence_matches(&fallback.coverage, &result.primary)
                 || (probe_unresolved && unresolved[index]))
                 .then_some(index)
         })
@@ -322,7 +324,7 @@ fn apply_fallback(
         let primary_matches = coverage_matches(&fallback.coverage, &results[index].primary.text);
         let script_consistent = candidate.confidence >= FAST_PATH_CONFIDENCE
             && coverage_matches(&fallback.coverage, &candidate.text);
-        if !candidate.text.is_empty()
+        if specialist_alternative_is_usable(&fallback.coverage, &candidate)
             && !results[index]
                 .alternatives
                 .iter()
@@ -337,6 +339,11 @@ fn apply_fallback(
         unresolved[index] &= !(script_consistent && primary_matches);
     }
     Ok(())
+}
+
+fn specialist_alternative_is_usable(coverage: &[[u32; 2]], candidate: &Recognition) -> bool {
+    candidate.confidence >= SPECIALIST_ALTERNATIVE_CONFIDENCE
+        && coverage_matches(coverage, &candidate.text)
 }
 
 fn is_text_line_candidate(source: &RgbImage) -> bool {
@@ -455,17 +462,19 @@ impl ResolvedModel {
     }
 
     fn matches_capture(&self, results: &[RecognitionSet]) -> bool {
-        results
-            .iter()
-            .any(|result| coverage_matches(&self.coverage, &result.primary.text))
+        results.iter().any(|result| {
+            coverage_matches(&self.coverage, &result.primary.text)
+                || evidence_matches(&self.coverage, &result.primary)
+        })
     }
 }
 
 impl FallbackRecognizer {
     fn matches_capture(&self, results: &[RecognitionSet]) -> bool {
-        results
-            .iter()
-            .any(|result| coverage_matches(&self.coverage, &result.primary.text))
+        results.iter().any(|result| {
+            coverage_matches(&self.coverage, &result.primary.text)
+                || evidence_matches(&self.coverage, &result.primary)
+        })
     }
 }
 
@@ -477,6 +486,19 @@ fn coverage_matches(coverage: &[[u32; 2]], text: &str) -> bool {
                 .iter()
                 .any(|[start, end]| codepoint >= *start && codepoint <= *end)
         })
+}
+
+fn evidence_matches(coverage: &[[u32; 2]], result: &Recognition) -> bool {
+    let matches = result
+        .script_evidence
+        .iter()
+        .filter(|codepoint| {
+            coverage
+                .iter()
+                .any(|[start, end]| **codepoint >= *start && **codepoint <= *end)
+        })
+        .count();
+    matches >= 2 && matches.saturating_mul(4) >= result.token_count
 }
 
 fn resolve_regular_file(root: &Path, relative: &str) -> Result<PathBuf> {

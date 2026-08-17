@@ -5,10 +5,14 @@ fn fast_path_requires_confident_text() {
     assert!(!needs_alternatives(&Recognition {
         text: "ordinary text".to_string(),
         confidence: FAST_PATH_CONFIDENCE,
+        script_evidence: Vec::new(),
+        token_count: 13,
     }));
     assert!(needs_alternatives(&Recognition {
         text: String::new(),
         confidence: 1.0,
+        script_evidence: Vec::new(),
+        token_count: 0,
     }));
 }
 
@@ -18,6 +22,50 @@ fn specialist_coverage_routes_only_matching_unicode() {
     assert!(coverage_matches(&coverage, "Текст"));
     assert!(!coverage_matches(&coverage, "Text"));
     assert!(!coverage_matches(&[], "Текст"));
+}
+
+#[test]
+fn repeated_decoder_evidence_routes_a_confident_wrong_script() {
+    let coverage = [[0x0400, 0x052f]];
+    let result = Recognition {
+        text: "KAMEHE".to_string(),
+        confidence: 0.94,
+        script_evidence: vec!['К' as u32, 'А' as u32, 'М' as u32],
+        token_count: 6,
+    };
+    assert!(evidence_matches(&coverage, &result));
+
+    let stray = Recognition {
+        script_evidence: vec!['К' as u32],
+        ..result
+    };
+    assert!(!evidence_matches(&coverage, &stray));
+}
+
+#[test]
+fn specialist_output_requires_confidence_and_its_own_script() {
+    let coverage = [[0x0400, 0x052f]];
+    let usable = Recognition {
+        text: "Текст".to_string(),
+        confidence: SPECIALIST_ALTERNATIVE_CONFIDENCE,
+        script_evidence: Vec::new(),
+        token_count: 5,
+    };
+    assert!(specialist_alternative_is_usable(&coverage, &usable));
+    assert!(!specialist_alternative_is_usable(
+        &coverage,
+        &Recognition {
+            text: "Tekst".to_string(),
+            ..usable.clone()
+        }
+    ));
+    assert!(!specialist_alternative_is_usable(
+        &coverage,
+        &Recognition {
+            confidence: SPECIALIST_ALTERNATIVE_CONFIDENCE - 0.01,
+            ..usable
+        }
+    ));
 }
 
 #[test]
@@ -33,10 +81,14 @@ fn known_capture_script_loads_its_matching_specialist_even_when_primary_is_confi
     let ambiguous = Recognition {
         text: "号合号合".to_string(),
         confidence: 0.67,
+        script_evidence: Vec::new(),
+        token_count: 4,
     };
     let weak = Recognition {
         text: String::new(),
         confidence: 0.0,
+        script_evidence: Vec::new(),
+        token_count: 0,
     };
     let results = primary_sets(vec![ambiguous.clone(), weak]);
     assert!(model.matches_capture(&results));
@@ -44,6 +96,8 @@ fn known_capture_script_loads_its_matching_specialist_even_when_primary_is_confi
     assert!(model.matches_capture(&primary_sets(vec![Recognition {
         text: "号合号合".to_string(),
         confidence: 0.99,
+        script_evidence: Vec::new(),
+        token_count: 4,
     }])));
 }
 
@@ -59,6 +113,8 @@ fn unknown_script_probe_requires_capture_level_evidence() {
         Recognition {
             text: "V".to_string(),
             confidence: 0.57,
+            script_evidence: Vec::new(),
+            token_count: 1,
         };
         5
     ]);
@@ -77,6 +133,8 @@ fn unknown_script_probe_requires_capture_level_evidence() {
         Recognition {
             text: "Settings".to_string(),
             confidence: 0.99,
+            script_evidence: Vec::new(),
+            token_count: 8,
         };
         100
     ]);
@@ -85,6 +143,8 @@ fn unknown_script_probe_requires_capture_level_evidence() {
         Recognition {
             text: "百科".to_string(),
             confidence: 0.95,
+            script_evidence: Vec::new(),
+            token_count: 2,
         };
         5
     ]);
