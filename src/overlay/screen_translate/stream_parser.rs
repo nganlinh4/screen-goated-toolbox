@@ -39,11 +39,12 @@ impl<'a> TranslationStreamParser<'a> {
             self.buffer.push_str(chunk);
         }
         if !self.array_started {
-            if let Some(marker) = self.buffer.find("\"regions\"") {
-                let Some(offset) = self.buffer[marker + 9..].find('[') else {
+            if let Some(marker) = self.buffer.find("\"cells\"") {
+                let key_end = marker + "\"cells\"".len();
+                let Some(offset) = self.buffer[key_end..].find('[') else {
                     return Vec::new();
                 };
-                self.scan = marker + 9 + offset + 1;
+                self.scan = key_end + offset + 1;
             } else {
                 let Some(start) = self
                     .buffer
@@ -101,16 +102,20 @@ impl<'a> TranslationStreamParser<'a> {
                             let start = self.object_start.take().expect("object start is tracked");
                             let object = &self.buffer[start..=self.scan];
                             match parse_streamed_region(object, self.candidates) {
-                                Ok((id, region))
-                                    if region
-                                        .member_ids
-                                        .iter()
-                                        .all(|member| !self.emitted.contains(member)) =>
-                                {
-                                    self.emitted.extend(region.member_ids.iter().copied());
-                                    completed.push((id, region));
+                                Ok(regions) => {
+                                    for (id, region) in regions {
+                                        if region
+                                            .member_ids
+                                            .iter()
+                                            .all(|member| !self.emitted.contains(member))
+                                        {
+                                            self.emitted.extend(region.member_ids.iter().copied());
+                                            completed.push((id, region));
+                                        } else {
+                                            self.rejected += 1;
+                                        }
+                                    }
                                 }
-                                Ok(_) => self.rejected += 1,
                                 Err(_) => self.rejected += 1,
                             }
                         }
@@ -164,12 +169,11 @@ mod tests {
     fn emits_a_region_as_soon_as_its_object_closes() {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
-        assert!(parser.push("{\"reg").is_empty());
-        let regions = parser.push(
-            "ions\":[{\"regionId\":7,\"memberIdsInReadingOrder\":[7],\"candidateIds\":[\"r7c1\"],\"memberJoins\":[],\"semanticRole\":\"standalone\",\"translationRequirement\":\"translation_required\",\"translatedSegments\":[\"done\"]},",
-        );
+        assert!(parser.push("{\"cel").is_empty());
+        let regions =
+            parser.push("ls\":[{\"cellId\":7,\"translation\":\"done\",\"splitAfterMembers\":[]},");
         assert_eq!(regions.len(), 1);
-        assert_eq!(regions[0].1.source_text, "alternate");
+        assert_eq!(regions[0].1.source_text, "clear text");
         assert!(parser.push("]}").is_empty());
     }
 
@@ -178,7 +182,7 @@ mod tests {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
         let regions = parser.push(
-            "{\"regions\":[{\"regionId\":7,\"memberIdsInReadingOrder\":[7],\"candidateIds\":[\"bad\"],\"memberJoins\":[],\"semanticRole\":\"standalone\",\"translationRequirement\":\"translation_required\",\"translatedSegments\":[\"bad\"]},{\"regionId\":7,\"memberIdsInReadingOrder\":[7],\"candidateIds\":[\"r7c0\"],\"memberJoins\":[],\"semanticRole\":\"standalone\",\"translationRequirement\":\"translation_required\",\"translatedSegments\":[\"good\"]}]}",
+            "{\"cells\":[{\"cellId\":7,\"translation\":3,\"splitAfterMembers\":[]},{\"cellId\":7,\"translation\":\"good\",\"splitAfterMembers\":[]}]}",
         );
 
         assert_eq!(parser.rejected_count(), 1);
@@ -191,10 +195,11 @@ mod tests {
         let mut candidates = candidates();
         let mut second = candidates[0].clone();
         second.id = 8;
+        second.bounds = [100, 100, 120, 200].into();
         candidates.push(second);
         let mut parser = TranslationStreamParser::new(&candidates);
         let emitted = parser.push(
-            r#"[{"regionId":7,"memberIdsInReadingOrder":[7],"candidateIds":["r7c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["first"]},{"regionId":8,"memberIdsInReadingOrder":[8],"candidateIds":["r8c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["second"]}]"#,
+            r#"[{"cellId":7,"translation":"first","splitAfterMembers":[]},{"cellId":8,"translation":"second","splitAfterMembers":[]}]"#,
         );
         assert_eq!(
             emitted

@@ -3,6 +3,7 @@
 mod appearance;
 mod backdrop;
 mod capture;
+mod cell_proposals;
 mod cell_validation;
 pub(crate) mod contract;
 mod detector;
@@ -11,6 +12,7 @@ mod diagnostic_raw;
 mod diagnostics;
 #[cfg(debug_assertions)]
 mod evidence_capture;
+mod flow_layout;
 pub(crate) mod geometry;
 mod inference;
 mod render;
