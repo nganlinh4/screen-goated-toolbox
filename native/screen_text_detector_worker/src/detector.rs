@@ -337,6 +337,8 @@ fn merge_recognition_sets(
         .unwrap_or(crate::recognizer::Recognition {
             text: String::new(),
             confidence: 0.0,
+            script_evidence: Vec::new(),
+            token_count: 0,
         });
     crate::recognizer_cascade::RecognitionSet {
         primary,
@@ -446,6 +448,8 @@ mod tests {
             primary: Recognition {
                 text: "ab".to_string(),
                 confidence: 0.96,
+                script_evidence: Vec::new(),
+                token_count: 2,
             },
             alternatives: Vec::new(),
         };
@@ -453,6 +457,8 @@ mod tests {
             primary: Recognition {
                 text: "complete text".to_string(),
                 confidence: 0.82,
+                script_evidence: Vec::new(),
+                token_count: 13,
             },
             alternatives: Vec::new(),
         };
@@ -476,12 +482,16 @@ mod tests {
         let primary = Recognition {
             text: "한".repeat(MAX_REGION_TEXT_BYTES),
             confidence: f32::NAN,
+            script_evidence: Vec::new(),
+            token_count: MAX_REGION_TEXT_BYTES,
         };
         let alternatives = std::iter::once(primary.clone())
             .chain(
                 (0..MAX_RECOGNITION_ALTERNATIVES + 4).map(|index| Recognition {
                     text: format!("candidate-{index}"),
                     confidence: 1.5,
+                    script_evidence: Vec::new(),
+                    token_count: 11,
                 }),
             )
             .collect();

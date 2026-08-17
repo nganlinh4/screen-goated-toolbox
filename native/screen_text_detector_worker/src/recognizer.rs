@@ -18,6 +18,8 @@ const MAX_BATCH_SIZE: usize = 16;
 pub(crate) struct Recognition {
     pub(crate) text: String,
     pub(crate) confidence: f32,
+    pub(crate) script_evidence: Vec<u32>,
+    pub(crate) token_count: usize,
 }
 
 pub(crate) struct TextRecognizer {
@@ -206,17 +208,15 @@ fn decode(
     let mut confidence = 0.0_f32;
     let mut count = 0_usize;
     let mut previous = usize::MAX;
+    let mut script_evidence = Vec::new();
     for row in scores.chunks_exact(classes) {
-        let (index, score) = row
-            .iter()
-            .copied()
-            .enumerate()
-            .max_by(|left, right| left.1.total_cmp(&right.1))
-            .context("recognizer returned an empty timestep")?;
+        let candidates = top_candidates(row).context("recognizer returned an empty timestep")?;
+        let (index, score) = candidates[0];
         if index != 0 && index != previous && tokens.len() < MAX_CHARACTERS {
             tokens.push(characters[index].as_str());
             confidence += score;
             count += 1;
+            collect_script_evidence(&candidates, score, characters, &mut script_evidence);
         }
         previous = index;
     }
@@ -234,7 +234,42 @@ fn decode(
         } else {
             (confidence / count as f32).clamp(0.0, 1.0)
         },
+        script_evidence,
+        token_count: count,
     })
+}
+
+fn collect_script_evidence(
+    candidates: &[(usize, f32); 3],
+    winning_score: f32,
+    characters: &[String],
+    evidence: &mut Vec<u32>,
+) {
+    const SCORE_RATIO: f32 = 0.5;
+
+    for &(index, score) in candidates {
+        if index != 0 && score >= winning_score * SCORE_RATIO {
+            evidence.extend(characters[index].chars().map(|character| character as u32));
+        }
+    }
+}
+
+fn top_candidates(scores: &[f32]) -> Option<[(usize, f32); 3]> {
+    let first = *scores.first()?;
+    let mut best = [(0, first), (0, f32::NEG_INFINITY), (0, f32::NEG_INFINITY)];
+    for (index, score) in scores.iter().copied().enumerate().skip(1) {
+        if score > best[0].1 {
+            best[2] = best[1];
+            best[1] = best[0];
+            best[0] = (index, score);
+        } else if score > best[1].1 {
+            best[2] = best[1];
+            best[1] = (index, score);
+        } else if score > best[2].1 {
+            best[2] = (index, score);
+        }
+    }
+    Some(best)
 }
 
 fn reverse_directional(text: &str) -> String {
@@ -284,6 +319,23 @@ mod tests {
         ];
         let result = decode(&scores, 3, &characters, true).unwrap();
         assert_eq!(result.text, "B•A");
+    }
+
+    #[test]
+    fn ctc_decode_retains_close_character_candidates_as_script_evidence() {
+        let characters = vec![
+            String::new(),
+            "K".to_string(),
+            "К".to_string(),
+            "A".to_string(),
+            "А".to_string(),
+        ];
+        let scores = [0.0, 0.60, 0.39, 0.01, 0.0, 0.0, 0.01, 0.0, 0.58, 0.41];
+        let result = decode(&scores, 2, &characters, false).unwrap();
+        assert_eq!(result.text, "KA");
+        assert!(result.script_evidence.contains(&('К' as u32)));
+        assert!(result.script_evidence.contains(&('А' as u32)));
+        assert_eq!(result.token_count, 2);
     }
 
     #[test]
