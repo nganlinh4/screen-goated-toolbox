@@ -146,7 +146,7 @@ fn run_overlay_thread(
         match receiver.recv_timeout(Duration::from_millis(8)) {
             Ok(RenderCommand::Region(region)) => {
                 record_translations(region, &mut translations);
-                ensure_blocks(&translations, &scene, &mut blocks);
+                ensure_blocks(&translations, &scene, &mut blocks, true);
                 for block_index in 0..blocks.len() {
                     if refresh_block(
                         block_index,
@@ -170,7 +170,7 @@ fn run_overlay_thread(
                 for region in document.regions {
                     record_translations(region, &mut translations);
                 }
-                ensure_blocks(&translations, &scene, &mut blocks);
+                ensure_blocks(&translations, &scene, &mut blocks, false);
                 for block_index in 0..blocks.len() {
                     if refresh_block(
                         block_index,
@@ -217,13 +217,15 @@ fn ensure_blocks(
     translations: &HashMap<u16, SegmentTranslation>,
     scene: &PreparedScene,
     blocks: &mut Vec<LiveBlock>,
+    require_complete: bool,
 ) {
     for prepared in &scene.blocks {
-        if !prepared
+        let resolved = prepared
             .member_ids
             .iter()
-            .any(|member_id| translations.contains_key(member_id))
-        {
+            .filter(|member_id| translations.contains_key(member_id))
+            .count();
+        if resolved == 0 || (require_complete && resolved != prepared.member_ids.len()) {
             continue;
         }
         if blocks

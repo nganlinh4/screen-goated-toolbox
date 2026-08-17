@@ -1,10 +1,9 @@
 use super::super::types::SettingsApp;
 use crate::gui::icons::{self, Icon};
 use crate::gui::locale::LocaleText;
-use crate::gui::settings_ui::{model_selector, node_graph};
+use crate::gui::settings_ui::node_graph;
 use crate::gui::theme::AppTheme;
 use crate::gui::widgets::{dialog_header, filled_button, removable_chip};
-use crate::retry_model_chain::RetryChainKind;
 use eframe::egui;
 
 const DIALOG_WIDTH: f32 = 560.0;
@@ -97,7 +96,18 @@ impl SettingsApp {
         theme: &AppTheme,
         text: &LocaleText,
     ) {
-        let mut changed = false;
+        let priority_model = self
+            .config
+            .model_priority_chains
+            .text_to_text
+            .iter()
+            .find_map(|id| {
+                crate::model_config::get_model_by_id_with_custom(id, &self.config.custom_models)
+            });
+        let priority_name = priority_model
+            .as_ref()
+            .map(|model| model.localized_name(&self.config.ui_language))
+            .unwrap_or(crate::model_config::DEFAULT_TEXT_MODEL_ID);
         egui::Frame::new()
             .fill(theme.card_bg())
             .stroke(theme.card_stroke())
@@ -141,12 +151,13 @@ impl SettingsApp {
                                 .color(theme.on_surface_variant()),
                         );
                         ui.horizontal(|ui| {
-                            changed |= model_selector::render_model_combo(
-                                ui,
-                                "screen_translate_translation_model",
-                                &mut self.config.screen_translate.translation_model,
-                                RetryChainKind::TextToText,
-                                &self.config.ui_language,
+                            ui.label(egui::RichText::new(priority_name).strong());
+                            ui.label(
+                                egui::RichText::new(
+                                    text.screen_translate.screen_translate_fixed_badge,
+                                )
+                                .small()
+                                .color(theme.on_surface_variant()),
                             );
                         });
                         ui.end_row();
@@ -158,9 +169,6 @@ impl SettingsApp {
                         .color(theme.on_surface_variant()),
                 );
             });
-        if changed {
-            self.save_and_sync();
-        }
     }
 
     fn render_screen_translate_prompt(
