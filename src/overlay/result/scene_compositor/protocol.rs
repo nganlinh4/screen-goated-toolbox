@@ -1,4 +1,5 @@
 use crate::overlay::result::ResultPresentation;
+use crate::overlay::result::SourceReplacementRegion;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -39,6 +40,12 @@ pub struct SceneCard {
     pub preferred_font_size: Option<f32>,
     #[serde(default)]
     pub source_replacement: bool,
+    #[serde(default)]
+    pub source_vertical: bool,
+    #[serde(default)]
+    pub source_regions: Vec<SourceReplacementRegion>,
+    #[serde(default)]
+    pub source_segments: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -337,6 +344,9 @@ mod tests {
                 foreground_color: None,
                 preferred_font_size: None,
                 source_replacement: false,
+                source_vertical: false,
+                source_regions: Vec::new(),
+                source_segments: Vec::new(),
             },
         };
 

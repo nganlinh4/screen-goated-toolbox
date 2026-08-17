@@ -6,7 +6,6 @@ mod capture;
 mod cell_validation;
 pub(crate) mod contract;
 mod detector;
-mod detector_topology;
 #[cfg(debug_assertions)]
 mod diagnostic_raw;
 mod diagnostics;
@@ -15,13 +14,13 @@ mod evidence_capture;
 pub(crate) mod geometry;
 mod inference;
 mod render;
-mod render_expansion;
 mod render_scene;
 #[cfg(debug_assertions)]
 mod replay;
 mod runtime;
 mod schema;
 pub(crate) mod stream_parser;
+mod text_metrics;
 
 static CAPTURE_HANDLER: crate::overlay::image_capture_target::ImageCaptureHandler =
     crate::overlay::image_capture_target::ImageCaptureHandler {

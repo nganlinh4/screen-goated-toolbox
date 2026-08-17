@@ -12,12 +12,12 @@ mod window;
 
 pub use refine::{trigger_edit, trigger_refine_cancel, trigger_refine_submit};
 pub use state::{
-    ChainCancelToken, RefineContext, ResultControlOptions, ResultPresentation, WINDOW_STATES,
-    WindowType, close_chain_windows, link_windows,
+    ChainCancelToken, RefineContext, ResultControlOptions, ResultPresentation,
+    SourceReplacementRegion, WINDOW_STATES, WindowType, close_chain_windows, link_windows,
 };
 pub use window::{
     ResultWindowParams, create_result_window, create_text_only_result_window, get_chain_color,
-    update_window_text,
+    update_text_only_segments, update_window_text,
 };
 pub(crate) use window::{create_result_window_shell, initialize_result_window};
 

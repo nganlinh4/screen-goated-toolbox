@@ -32,6 +32,32 @@ pub(super) fn reconstruct_blob_image_with_background(
     (repaired, foreground)
 }
 
+pub(super) fn reconstruct_shaped_blob(
+    image: &image::RgbaImage,
+    target: PixelRegion,
+    text_regions: &[PixelRegion],
+    shape_regions: &[PixelRegion],
+    background: Option<([u8; 3], u8)>,
+) -> (image::RgbaImage, String) {
+    let (mut repaired, foreground) =
+        reconstruct_blob_image_with_background(image, target, text_regions, background);
+    for y in 0..repaired.height() {
+        for x in 0..repaired.width() {
+            let source_x = target.x.saturating_add(x);
+            let source_y = target.y.saturating_add(y);
+            if !shape_regions.iter().any(|region| {
+                source_x >= region.x
+                    && source_x < region.x.saturating_add(region.width)
+                    && source_y >= region.y
+                    && source_y < region.y.saturating_add(region.height)
+            }) {
+                repaired.get_pixel_mut(x, y).0[3] = 0;
+            }
+        }
+    }
+    (repaired, foreground)
+}
+
 pub(super) fn encode_data_url(image: &image::RgbaImage) -> Result<String> {
     let mut png = Vec::new();
     PngEncoder::new(&mut png)

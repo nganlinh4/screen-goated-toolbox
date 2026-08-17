@@ -17,10 +17,10 @@ use crate::overlay::selection::CapturedRegion;
 struct LiveBlock {
     prepared: PreparedBlock,
     hwnd: Option<HWND>,
-    rendered_text: Option<String>,
+    rendered_segments: Option<Vec<String>>,
 }
 
-struct CellTranslation {
+struct SegmentTranslation {
     source_text: String,
     translated_text: String,
 }
@@ -152,6 +152,7 @@ fn run_overlay_thread(
                         block_index,
                         &mut blocks,
                         &translations,
+                        &scene,
                         origin,
                         &controls,
                         &chain_id,
@@ -175,6 +176,7 @@ fn run_overlay_thread(
                         block_index,
                         &mut blocks,
                         &translations,
+                        &scene,
                         origin,
                         &controls,
                         &chain_id,
@@ -212,29 +214,28 @@ fn run_overlay_thread(
 }
 
 fn ensure_blocks(
-    translations: &HashMap<Vec<u16>, CellTranslation>,
+    translations: &HashMap<u16, SegmentTranslation>,
     scene: &PreparedScene,
     blocks: &mut Vec<LiveBlock>,
 ) {
-    for member_ids in translations.keys() {
-        if blocks
+    for prepared in &scene.blocks {
+        if !prepared
+            .member_ids
             .iter()
-            .any(|block| block.prepared.member_ids == *member_ids)
+            .any(|member_id| translations.contains_key(member_id))
         {
             continue;
         }
-        let Some(translation) = translations.get(member_ids) else {
+        if blocks
+            .iter()
+            .any(|block| block.prepared.component_id == prepared.component_id)
+        {
             continue;
-        };
-        let Ok(prepared) =
-            super::render_scene::prepare_block(member_ids, &translation.translated_text, scene)
-        else {
-            continue;
-        };
+        }
         blocks.push(LiveBlock {
-            prepared,
+            prepared: prepared.clone(),
             hwnd: None,
-            rendered_text: None,
+            rendered_segments: None,
         });
     }
 }
@@ -243,7 +244,8 @@ fn ensure_blocks(
 fn refresh_block(
     block_index: usize,
     blocks: &mut [LiveBlock],
-    translations: &HashMap<Vec<u16>, CellTranslation>,
+    translations: &HashMap<u16, SegmentTranslation>,
+    scene: &PreparedScene,
     origin: (i32, i32),
     controls: &TranslationControls,
     chain_id: &str,
@@ -256,28 +258,24 @@ fn refresh_block(
         blocks[block_index].hwnd = None;
     }
     let prepared = &blocks[block_index].prepared;
-    let Some(translation) = translations.get(&prepared.member_ids) else {
+    let Some(segments) = component_translation(prepared, scene, translations) else {
         return false;
     };
-    if !should_render_segment(&translation.source_text, &translation.translated_text) {
-        return false;
-    }
-    let text = translation.translated_text.clone();
-    if blocks[block_index].rendered_text.as_deref() == Some(text.as_str())
+    if blocks[block_index].rendered_segments.as_ref() == Some(&segments)
         && blocks[block_index].hwnd.is_some()
     {
         return false;
     }
     if let Some(hwnd) = blocks[block_index].hwnd {
-        crate::overlay::result::update_window_text(hwnd, &text);
-        blocks[block_index].rendered_text = Some(text);
+        crate::overlay::result::update_text_only_segments(hwnd, segments.clone());
+        blocks[block_index].rendered_segments = Some(segments);
         return false;
     }
     let root = blocks.iter().find_map(|block| block.hwnd);
     let hwnd = create_region_window(
         origin,
         &blocks[block_index].prepared,
-        text.clone(),
+        segments.clone(),
         root.is_none(),
         controls,
         chain_id,
@@ -287,21 +285,61 @@ fn refresh_block(
         crate::overlay::result::link_windows(root, hwnd);
     }
     blocks[block_index].hwnd = Some(hwnd);
-    blocks[block_index].rendered_text = Some(text);
+    blocks[block_index].rendered_segments = Some(segments);
     root.is_none()
 }
 
 fn record_translations(
     region: TranslationRegion,
-    translations: &mut HashMap<Vec<u16>, CellTranslation>,
+    translations: &mut HashMap<u16, SegmentTranslation>,
 ) {
-    translations.insert(
-        region.member_ids,
-        CellTranslation {
-            source_text: region.source_text,
-            translated_text: region.translated_segments.join(" "),
-        },
-    );
+    for ((member_id, selection), translated_text) in region
+        .member_ids
+        .into_iter()
+        .zip(region.selections)
+        .zip(region.translated_segments)
+    {
+        translations.insert(
+            member_id,
+            SegmentTranslation {
+                source_text: selection.source_text,
+                translated_text,
+            },
+        );
+    }
+}
+
+fn component_translation(
+    block: &PreparedBlock,
+    scene: &PreparedScene,
+    translations: &HashMap<u16, SegmentTranslation>,
+) -> Option<Vec<String>> {
+    let changed = block.member_ids.iter().any(|member_id| {
+        translations.get(member_id).is_some_and(|translation| {
+            should_render_segment(&translation.source_text, &translation.translated_text)
+        })
+    });
+    if !changed {
+        return None;
+    }
+    let segments = block
+        .member_ids
+        .iter()
+        .map(|member_id| {
+            translations
+                .get(member_id)
+                .map(|translation| translation.translated_text.as_str())
+                .or_else(|| {
+                    scene
+                        .sources
+                        .get(member_id)
+                        .map(|source| source.source_text.as_str())
+                })
+                .unwrap_or_default()
+        })
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    (!segments.iter().all(|text| text.trim().is_empty())).then_some(segments)
 }
 
 fn should_render_segment(source: &str, translated: &str) -> bool {
@@ -311,7 +349,7 @@ fn should_render_segment(source: &str, translated: &str) -> bool {
 fn create_region_window(
     origin: (i32, i32),
     group: &PreparedBlock,
-    translated_text: String,
+    translated_segments: Vec<String>,
     is_root: bool,
     controls: &TranslationControls,
     chain_id: &str,
@@ -342,7 +380,7 @@ fn create_region_window(
             start_editing: false,
             preset_prompt: String::new(),
             custom_bg_color: 0,
-            initial_text: translated_text,
+            initial_text: translated_segments.join("\n"),
             preset_id: None,
             is_chain_root: is_root,
             latency_trace_id: Some(trace_id.to_string()),
@@ -352,6 +390,9 @@ fn create_region_window(
         chain_id.to_string(),
         control_options,
         Some(group.preferred_font_size),
+        group.vertical_text,
+        group.source_regions.clone(),
+        translated_segments,
     );
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);

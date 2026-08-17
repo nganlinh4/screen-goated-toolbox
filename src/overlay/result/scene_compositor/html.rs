@@ -213,6 +213,7 @@ function runDirectFit(entry, streaming, settleBeforeReveal) {
     fontReady: true,
     settleBeforeReveal: Boolean(settleBeforeReveal),
     sourceReplacement: entry.sourceReplacement === true, preferredFontSize: entry.preferredFontSize,
+    sourceVertical: entry.sourceVertical === true,
     reportDiagnostic: function(payload) {
       window.ipc.postMessage(JSON.stringify({
         type: 'fit_diagnostic', id: Number(entry.card.dataset.id), payload: payload
@@ -287,7 +288,11 @@ function applyDirectContent(entry, message) {
       finalizing: message.type === 'finalize',
       animateNewWords: message.type === 'stream_update',
       settleBeforeReveal: Boolean(message.settle_before_reveal),
-      sourceReplacement: entry.sourceReplacement === true, preferredFontSize: entry.preferredFontSize
+      sourceReplacement: entry.sourceReplacement === true,
+      preferredFontSize: entry.preferredFontSize,
+      sourceVertical: entry.sourceVertical === true,
+      sourceRegions: entry.sourceRegions,
+      sourceSegments: entry.sourceSegments
     });
     entry.bodyElement.dataset.sgtMode = message.refining ? 'refining' : 'result';
     reportCardDiagnostic(entry.card.dataset.id, entry,
@@ -412,6 +417,9 @@ function applyAppearance(entry, model) {
   const becameVisible = !entry.visible && model.visible;
   entry.card.dataset.presentation = model.presentation || 'standard';
   entry.sourceReplacement = model.source_replacement === true;
+  entry.sourceVertical = model.source_vertical === true;
+  entry.sourceRegions = Array.isArray(model.source_regions) ? model.source_regions : [];
+  entry.sourceSegments = Array.isArray(model.source_segments) ? model.source_segments : [];
   const preferredFontSize = Number(model.preferred_font_size);
   const scale = window.devicePixelRatio || 1;
   entry.preferredFontSize = Number.isFinite(preferredFontSize) && preferredFontSize > 0

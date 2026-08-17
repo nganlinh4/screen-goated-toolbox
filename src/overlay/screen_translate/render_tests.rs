@@ -29,7 +29,7 @@ fn source_equivalent_regions_do_not_require_visual_replacement() {
 }
 
 #[test]
-fn semantic_cell_order_is_not_rewritten_by_geometry() {
+fn model_cell_is_recorded_as_individual_detector_segments() {
     let region = TranslationRegion {
         id: 4,
         member_ids: vec![4, 6, 7, 9],
@@ -38,7 +38,32 @@ fn semantic_cell_order_is_not_rewritten_by_geometry() {
             super::super::contract::MemberJoin::SameColumn,
             super::super::contract::MemberJoin::SameColumn,
         ],
-        selections: Vec::new(),
+        selections: vec![
+            super::super::contract::TranslationSelection {
+                region_id: 4,
+                candidate_id: "4:0".to_string(),
+                source_text: "one".to_string(),
+                bounds: [0, 0, 10, 10].into(),
+            },
+            super::super::contract::TranslationSelection {
+                region_id: 6,
+                candidate_id: "6:0".to_string(),
+                source_text: "two".to_string(),
+                bounds: [0, 0, 10, 10].into(),
+            },
+            super::super::contract::TranslationSelection {
+                region_id: 7,
+                candidate_id: "7:0".to_string(),
+                source_text: "three".to_string(),
+                bounds: [0, 0, 10, 10].into(),
+            },
+            super::super::contract::TranslationSelection {
+                region_id: 9,
+                candidate_id: "9:0".to_string(),
+                source_text: "four".to_string(),
+                bounds: [0, 0, 10, 10].into(),
+            },
+        ],
         semantic_role: super::super::contract::SemanticRole::Dialogue,
         source_text: "source cell".to_string(),
         translated_segments: vec![
@@ -53,6 +78,6 @@ fn semantic_cell_order_is_not_rewritten_by_geometry() {
     };
     let mut translations = HashMap::new();
     record_translations(region, &mut translations);
-    let translated = translations.get(&vec![4, 6, 7, 9]).unwrap();
-    assert_eq!(translated.translated_text, "first second third fourth");
+    assert_eq!(translations.get(&4).unwrap().translated_text, "first");
+    assert_eq!(translations.get(&9).unwrap().translated_text, "fourth");
 }

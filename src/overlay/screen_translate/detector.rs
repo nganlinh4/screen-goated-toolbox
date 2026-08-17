@@ -75,8 +75,6 @@ pub(super) fn detect(
             && has_readable_recognition(region)
     });
     remove_adjacent_icon_recognitions(&mut regions);
-    super::detector_topology::normalize(&mut regions);
-
     if regions.len() > MAX_CANDIDATES {
         regions.sort_by(|left, right| {
             right
