@@ -1,58 +1,34 @@
-//! Provider-neutral constrained-output shape for screen translation.
+//! Provider-neutral translation-only response shape.
 
-pub(super) fn response_schema(region_count: usize, max_text_chars: usize) -> serde_json::Value {
+pub(super) fn response_schema(cell_count: usize, max_text_chars: usize) -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "properties": {
-            "regions": {
+            "cells": {
                 "type": "array",
                 "minItems": 1,
-                "maxItems": region_count,
+                "maxItems": cell_count,
                 "items": {
                     "type": "object",
                     "properties": {
-                        "regionId": { "type": "integer" },
-                        "memberIdsInReadingOrder": {
+                        "cellId": { "type": "integer" },
+                        "translation": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": max_text_chars
+                        },
+                        "splitAfterMembers": {
                             "type": "array",
-                            "minItems": 1,
-                            "maxItems": region_count,
+                            "maxItems": 3,
                             "items": { "type": "integer" }
-                        },
-                        "candidateIds": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": region_count,
-                            "items": { "type": "string", "minLength": 3, "maxLength": 24 }
-                        },
-                        "memberJoins": {
-                            "type": "array",
-                            "maxItems": region_count,
-                            "items": {
-                                "type": "string",
-                                "enum": ["same_line", "wrapped_line", "same_column", "same_block"]
-                            }
-                        },
-                        "semanticRole": {
-                            "type": "string",
-                            "enum": ["standalone", "heading", "paragraph", "list_item", "label", "value", "dialogue"]
-                        },
-                        "translationRequirement": {
-                            "type": "string",
-                            "enum": ["translation_required", "already_target", "non_linguistic"]
-                        },
-                        "translatedSegments": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": region_count,
-                            "items": { "type": "string", "minLength": 1, "maxLength": max_text_chars }
                         }
                     },
-                    "required": ["regionId", "memberIdsInReadingOrder", "candidateIds", "memberJoins", "semanticRole", "translationRequirement", "translatedSegments"],
+                    "required": ["cellId", "translation", "splitAfterMembers"],
                     "additionalProperties": false
                 }
             }
         },
-        "required": ["regions"],
+        "required": ["cells"],
         "additionalProperties": false
     })
 }

@@ -342,7 +342,7 @@ mod tests {
         let mut covered = HashSet::new();
         let mut first_attempt = TranslationStreamParser::new(&candidates);
         for (_, region) in first_attempt.push(
-            r#"{"regions":[{"regionId":1,"memberIdsInReadingOrder":[1],"candidateIds":["r1c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["first"]},{"regionId":2,"memberIdsInReadingOrder":[2],"candidateIds":["bad"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["bad"]}]}"#,
+            r#"{"cells":[{"cellId":1,"translation":"first","splitAfterMembers":[]},{"cellId":2,"translation":3,"splitAfterMembers":[]}]}"#,
         ) {
             accept_region(&mut accepted, &mut covered, region);
         }
@@ -359,7 +359,7 @@ mod tests {
 
         let mut fallback = TranslationStreamParser::new(&pending);
         for (_, region) in fallback.push(
-            r#"{"regions":[{"regionId":2,"memberIdsInReadingOrder":[2],"candidateIds":["r2c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["second"]},{"regionId":3,"memberIdsInReadingOrder":[3],"candidateIds":["r3c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["third"]}]}"#,
+            r#"{"cells":[{"cellId":2,"translation":"second","splitAfterMembers":[]},{"cellId":3,"translation":"third","splitAfterMembers":[]}]}"#,
         ) {
             accept_region(&mut accepted, &mut covered, region);
         }

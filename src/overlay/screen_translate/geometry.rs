@@ -30,16 +30,6 @@ pub(crate) fn normalized_region(
     }
 }
 
-pub(super) fn source_flow(bounds: NormalizedBounds) -> &'static str {
-    let width = bounds.right.saturating_sub(bounds.left).max(1);
-    let height = bounds.bottom.saturating_sub(bounds.top).max(1);
-    if height > width.saturating_mul(3) / 2 {
-        "vertical"
-    } else {
-        "horizontal"
-    }
-}
-
 pub(crate) fn background_sample_region(
     region: PixelRegion,
     image_width: u32,

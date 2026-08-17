@@ -1,4 +1,4 @@
-//! Structured contract for translating detector-owned text regions.
+//! Translation-only model contract backed by locally owned visual cells.
 
 use std::collections::HashSet;
 
@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) const MAX_CANDIDATES: usize = 240;
 pub(crate) const MAX_SOURCE_CANDIDATES: usize = 3;
-const MAX_TRANSLATED_REGIONS: usize = MAX_CANDIDATES;
 const MAX_TEXT_CHARS: usize = 2_000;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -65,14 +64,6 @@ pub(crate) enum MemberJoin {
     SameBlock,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum TranslationRequirement {
-    TranslationRequired,
-    AlreadyTarget,
-    NonLinguistic,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DetectedTextRegion {
     pub id: u16,
@@ -111,7 +102,7 @@ impl From<NormalizedBounds> for [u16; 4] {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TranslationResponse {
-    regions: Vec<serde_json::Value>,
+    cells: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -123,18 +114,15 @@ enum TranslationResponseEnvelope {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TranslatedRegionResponse {
-    region_id: u16,
-    member_ids_in_reading_order: Vec<u16>,
-    candidate_ids: Vec<String>,
-    member_joins: Vec<MemberJoin>,
-    semantic_role: SemanticRole,
-    translation_requirement: TranslationRequirement,
-    translated_segments: Vec<String>,
+struct TranslatedCellResponse {
+    cell_id: u16,
+    translation: String,
+    split_after_members: Vec<u16>,
 }
 
 pub(crate) fn response_schema(region_count: usize) -> serde_json::Value {
-    super::schema::response_schema(region_count.max(1), MAX_TEXT_CHARS)
+    let cells = region_count.clamp(1, MAX_CANDIDATES);
+    super::schema::response_schema(cells, MAX_TEXT_CHARS)
 }
 
 pub(crate) fn prompt_with_instruction(
@@ -145,47 +133,37 @@ pub(crate) fn prompt_with_instruction(
     if candidates.is_empty() || candidates.len() > MAX_CANDIDATES {
         bail!("detector candidate count is outside the translation contract");
     }
-    let source_regions = candidates
-        .iter()
-        .map(|candidate| {
-            let source_candidates = candidate
-                .source_alternatives
+    let cells = super::cell_proposals::propose(candidates)
+        .into_iter()
+        .map(|proposal| {
+            let members = proposal
+                .member_ids_in_reading_order
                 .iter()
-                .enumerate()
-                .map(|(index, text)| {
+                .filter_map(|id| candidates.iter().find(|candidate| candidate.id == *id))
+                .map(|candidate| {
                     serde_json::json!({
-                        "candidateId": candidate_id(candidate.id, index),
-                        "characters": text.chars().count(),
-                        "text": text
+                        "memberId": candidate.id,
+                        "text": candidate.source_text
                     })
                 })
                 .collect::<Vec<_>>();
             serde_json::json!({
-                "regionId": candidate.id,
-                "box2d": <NormalizedBounds as Into<[u16; 4]>>::into(candidate.bounds),
-                "sourceFlow": super::geometry::source_flow(candidate.bounds),
-                "visualSignature": candidate.appearance,
-                "sourceCandidates": source_candidates
+                "cellId": proposal.member_ids_in_reading_order[0],
+                "members": members
             })
         })
         .collect::<Vec<_>>();
-    let source_regions = serde_json::to_string(&source_regions)?;
-    let translation_instruction = translation_instruction
+    let instruction = translation_instruction
         .replace("{target_language}", target_language)
         .trim()
         .to_string();
     Ok(format!(
-        "Translation preference:\n{translation_instruction}\n\n\
-         Required screen-translation contract:\n\
-         Translate the supplied atomic OCR regions into {target_language} and organize them into logical visual cells. A cell is one independently readable item: one heading, label, value, button, list item, dialogue turn, paragraph, or other standalone passage. Join only fragments that belong to that same item. Never join separate bullets, menu entries, controls, speakers, dialogue turns, or neighboring paragraphs merely because their boxes are close or visually similar. Adjacent columns of one vertical-script passage are one cell and must be ordered in that script's reading order with same_column joins; unrelated columns remain separate. Small pronunciation, reading, or annotation text must not become a second full-size copy of the passage it annotates.\n\
-         For every cell, regionId must equal its first memberIdsInReadingOrder value. List every member exactly once across the complete response. Choose one candidateId and return one translatedSegments string for each member in that same order. Translate the complete logical cell coherently, then partition that translation across translatedSegments so each segment fits the meaning and reading position of its corresponding source member. The combined segments must preserve the cell's complete meaning; never move neighboring-cell content into them. memberJoins describes every adjacent pair and therefore has exactly one fewer item than memberIdsInReadingOrder: same_line for fragments on one baseline, wrapped_line for continuation lines, same_column for a single vertical-script passage, and same_block only for fragments of one semantic passage that are not simple line continuations. semanticRole describes the complete cell.\n\
-         Use box2d, sourceFlow, visualSignature, text, punctuation, bullets, speaker prefixes, and reading flow together. Preserve separate items as separate results even when translating them in one request. Do not abbreviate, summarize, or add details to fit geometry. Preserve each member's local meaning in its corresponding translatedSegments entry; never exchange translations between member positions.\n\
-         Preserve usernames, product names, brand names, personal names, and incomplete OCR fragments unless a conventional target-language form is clear from the supplied text. Never expand a short or damaged fragment into an invented word. Preserve list markers and speaker prefixes when they belong to the source cell.\n\
-         translationRequirement is translation_required when the selected natural-language text differs from the requested target language, already_target only when it is already in the requested target language, and non_linguistic only when it contains no translatable language. The combined translatedSegments must express the complete selected source in {target_language}; selecting or copying OCR text is not translation. Copy only symbols, codes, numbers, and names that conventionally remain unchanged.\n\
-         Preserve every supplied integer regionId exactly once as a member. Never omit, duplicate, or invent a member.\n\
-         Translate all readable language, including ordinary interface labels, menu items, buttons, headings, navigation terms, proper nouns that have a conventional target-language form, and every source language in mixed-language text. If an entire block is already in {target_language} or contains no natural language, it may remain unchanged. Preserve meaning, punctuation, and tone.\n\
-         Return one JSON object matching the supplied schema, without Markdown or commentary.\n\
-         OCR regions:\n{source_regions}"
+        "Translation preference:\n{instruction}\n\n\
+         Translate every supplied cell completely into {target_language}. Return one result for every cellId. A cell is already in reading order. Translate it as one coherent passage. Do not summarize, abbreviate, invent, or move content between cells. Preserve names, codes, punctuation, tone, and mixed-language meaning.\n\
+         splitAfterMembers is normally empty. Add a memberId only when the following member begins a genuinely separate item, such as another speaker, control, label, bullet, or paragraph. Use only supplied memberIds, in source order, and never include a cell's final member. Geometry, grouping validation, text distribution, and rendering are handled locally.\n\
+         Return only JSON matching the supplied schema.\n\
+         Cells:\n{}",
+        serde_json::to_string(&cells)?
     ))
 }
 
@@ -193,43 +171,24 @@ pub(crate) fn parse_response(
     response: &str,
     candidates: &[DetectedTextRegion],
 ) -> Result<TranslationDocument> {
-    let json = unwrap_json(response);
-    let response: TranslationResponseEnvelope =
-        serde_json::from_str(json).context("response did not match the translation schema")?;
-    let values = match response {
-        TranslationResponseEnvelope::Object(response) => response.regions,
-        TranslationResponseEnvelope::Array(regions) => regions,
+    let envelope: TranslationResponseEnvelope = serde_json::from_str(unwrap_json(response))
+        .context("response did not match the translation schema")?;
+    let values = match envelope {
+        TranslationResponseEnvelope::Object(response) => response.cells,
+        TranslationResponseEnvelope::Array(cells) => cells,
     };
-    if values.len() > MAX_TRANSLATED_REGIONS {
-        bail!("response contains too many translated regions");
-    }
-    if candidates
-        .iter()
-        .map(|candidate| candidate.id)
-        .collect::<HashSet<_>>()
-        .len()
-        != candidates.len()
-    {
-        bail!("detector returned duplicate candidate ids");
-    }
-    let mut seen_members = HashSet::new();
-    let mut regions = Vec::with_capacity(values.len());
-    for value in values {
-        let Ok(response) = serde_json::from_value::<TranslatedRegionResponse>(value) else {
+    let mut seen = HashSet::new();
+    let mut regions = Vec::new();
+    for value in values.into_iter().take(MAX_CANDIDATES) {
+        let Ok(response) = serde_json::from_value::<TranslatedCellResponse>(value) else {
             continue;
         };
-        let Ok(region) = validated_region(response, candidates) else {
-            continue;
-        };
-        if region
-            .member_ids
-            .iter()
-            .any(|member| seen_members.contains(member))
-        {
+        if !seen.insert(response.cell_id) {
             continue;
         }
-        seen_members.extend(region.member_ids.iter().copied());
-        regions.push(region);
+        if let Ok(mut parsed) = validated_cell(response, candidates) {
+            regions.append(&mut parsed);
+        }
     }
     regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
     Ok(TranslationDocument { regions })
@@ -238,111 +197,106 @@ pub(crate) fn parse_response(
 pub(crate) fn parse_streamed_region(
     value: &str,
     candidates: &[DetectedTextRegion],
-) -> Result<(u16, TranslationRegion)> {
-    let response: TranslatedRegionResponse = serde_json::from_str(value)
-        .context("streamed region did not match the translation schema")?;
-    let region = validated_region(response, candidates)?;
-    Ok((region.id, region))
+) -> Result<Vec<(u16, TranslationRegion)>> {
+    let response: TranslatedCellResponse = serde_json::from_str(value)
+        .context("streamed cell did not match the translation schema")?;
+    Ok(validated_cell(response, candidates)?
+        .into_iter()
+        .map(|region| (region.id, region))
+        .collect())
 }
 
-fn validated_region(
-    response: TranslatedRegionResponse,
+fn validated_cell(
+    response: TranslatedCellResponse,
     candidates: &[DetectedTextRegion],
-) -> Result<TranslationRegion> {
-    if response.member_ids_in_reading_order.first().copied() != Some(response.region_id) {
-        bail!("translation cell id must be its first member id");
-    }
-    let bounds = super::cell_validation::validate_cell_members(
-        &response.member_ids_in_reading_order,
-        &response.member_joins,
-        candidates,
-    )?;
-    if response.candidate_ids.len() != response.member_ids_in_reading_order.len() {
-        bail!("translation candidate count does not match its cell");
-    }
-    if response.translated_segments.len() != response.member_ids_in_reading_order.len() {
-        bail!("translated segment count does not match its cell");
-    }
-    let mut selections = Vec::with_capacity(response.member_ids_in_reading_order.len());
-    for (&region_id, selected_id) in response
+) -> Result<Vec<TranslationRegion>> {
+    let proposal = super::cell_proposals::propose(candidates)
+        .into_iter()
+        .find(|proposal| proposal.member_ids_in_reading_order.first() == Some(&response.cell_id))
+        .context("translation references an unknown local cell")?;
+    let translation = clean_text(&response.translation, MAX_TEXT_CHARS)
+        .context("translation is empty or too long")?;
+    let selections = proposal
         .member_ids_in_reading_order
         .iter()
-        .zip(&response.candidate_ids)
-    {
-        let candidate = candidates
-            .iter()
-            .find(|candidate| candidate.id == region_id)
-            .ok_or_else(|| anyhow::anyhow!("translation unit member is unknown"))?;
-        let source_text = candidate
-            .source_alternatives
-            .iter()
-            .enumerate()
-            .find_map(|(index, text)| {
-                (candidate_id(candidate.id, index) == *selected_id).then(|| text.clone())
+        .map(|id| {
+            let candidate = candidates
+                .iter()
+                .find(|candidate| candidate.id == *id)
+                .context("local cell member is missing")?;
+            Ok(TranslationSelection {
+                region_id: *id,
+                candidate_id: format!("r{id}c0"),
+                source_text: candidate.source_text.clone(),
+                bounds: candidate.bounds,
             })
-            .ok_or_else(|| anyhow::anyhow!("translation candidate id is unknown"))?;
-        selections.push(TranslationSelection {
-            region_id,
-            candidate_id: selected_id.clone(),
-            source_text,
-            bounds: candidate.bounds,
-        });
-    }
-    let source_text = selections
-        .iter()
-        .map(|selection| selection.source_text.as_str())
-        .collect::<Vec<_>>()
-        .join(" ");
-    let translated_segments = response
-        .translated_segments
-        .iter()
-        .map(|segment| {
-            clean_text(segment, MAX_TEXT_CHARS)
-                .ok_or_else(|| anyhow::anyhow!("translated segment is empty or too long"))
         })
         .collect::<Result<Vec<_>>>()?;
-    let translated_text = translated_segments.join(" ");
-    if translated_text.chars().count() > MAX_TEXT_CHARS {
-        bail!("combined translated text is too long");
-    }
-    let source_equivalent = text_is_source_equivalent(&source_text, &translated_text);
-    match response.translation_requirement {
-        TranslationRequirement::TranslationRequired if source_equivalent => {
-            bail!("translation-required block remained source-equivalent");
-        }
-        TranslationRequirement::TranslationRequired
-            if suspiciously_preserves_source(&source_text, &translated_text) =>
-        {
-            bail!("translation-required block retained nearly all source text");
-        }
-        TranslationRequirement::AlreadyTarget | TranslationRequirement::NonLinguistic
-            if !source_equivalent =>
-        {
-            bail!("non-translated block changed its selected source text");
-        }
-        _ => {}
-    }
-    if !source_text.chars().any(char::is_alphabetic)
-        && translated_text.chars().any(char::is_alphabetic)
-    {
-        bail!("translation text is inconsistent with a non-language source selection");
-    }
+    let translated_segments =
+        super::flow_layout::distribute_text(&translation, &selections, &proposal.member_joins);
+    let boundaries = valid_boundaries(
+        &response.split_after_members,
+        &proposal.member_ids_in_reading_order,
+    );
+    let mut starts = vec![0];
+    starts.extend(boundaries.into_iter().map(|index| index + 1));
+    starts.push(selections.len());
+    starts
+        .windows(2)
+        .map(|range| {
+            build_region(
+                &selections[range[0]..range[1]],
+                &proposal.member_joins[range[0]..range[1].saturating_sub(1)],
+                &translated_segments[range[0]..range[1]],
+                candidates,
+            )
+        })
+        .collect()
+}
+
+fn valid_boundaries(requested: &[u16], members: &[u16]) -> Vec<usize> {
+    let mut boundaries = requested
+        .iter()
+        .filter_map(|id| members.iter().position(|member| member == id))
+        .filter(|index| index + 1 < members.len())
+        .collect::<Vec<_>>();
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    boundaries
+}
+
+fn build_region(
+    selections: &[TranslationSelection],
+    joins: &[MemberJoin],
+    translated_segments: &[String],
+    candidates: &[DetectedTextRegion],
+) -> Result<TranslationRegion> {
+    let member_ids = selections
+        .iter()
+        .map(|item| item.region_id)
+        .collect::<Vec<_>>();
+    let bounds = super::cell_validation::validate_cell_members(&member_ids, joins, candidates)?;
+    let source_text = selections
+        .iter()
+        .map(|item| item.source_text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
     Ok(TranslationRegion {
-        id: response.region_id,
-        member_ids: response.member_ids_in_reading_order,
-        member_joins: response.member_joins,
-        selections,
-        semantic_role: response.semantic_role,
+        id: member_ids[0],
+        member_ids,
+        member_joins: joins.to_vec(),
+        selections: selections.to_vec(),
+        semantic_role: if selections.len() > 1 {
+            SemanticRole::Paragraph
+        } else {
+            SemanticRole::Standalone
+        },
         source_text,
-        translated_segments,
+        translated_segments: translated_segments.to_vec(),
         bounds,
         background_color: None,
         text_color: None,
     })
-}
-
-fn candidate_id(region_id: u16, index: usize) -> String {
-    format!("r{region_id}c{index}")
 }
 
 fn unwrap_json(response: &str) -> &str {
@@ -367,25 +321,6 @@ pub(crate) fn text_is_source_equivalent(left: &str, right: &str) -> bool {
     comparable_text(left) == comparable_text(right)
 }
 
-fn suspiciously_preserves_source(source: &str, translated: &str) -> bool {
-    let source = comparable_text(source).chars().collect::<Vec<_>>();
-    let translated = comparable_text(translated).chars().collect::<Vec<_>>();
-    const GRAM: usize = 3;
-    if source.len() < 12 || translated.len() < GRAM {
-        return false;
-    }
-    let translated_grams = translated
-        .windows(GRAM)
-        .map(|window| window.to_vec())
-        .collect::<HashSet<_>>();
-    let source_grams = source.windows(GRAM);
-    let total = source_grams.len();
-    let retained = source_grams
-        .filter(|window| translated_grams.contains(*window))
-        .count();
-    retained.saturating_mul(100) >= total.saturating_mul(92)
-}
-
 fn comparable_text(text: &str) -> String {
     text.chars()
         .filter(|character| character.is_alphanumeric())
@@ -401,175 +336,54 @@ mod tests {
         vec![
             DetectedTextRegion {
                 id: 1,
-                bounds: [100, 20, 170, 180].into(),
-                source_text: "first".to_string(),
-                source_alternatives: vec!["first".to_string(), "f1rst".to_string()],
+                bounds: [10, 10, 30, 200].into(),
+                source_text: "first line".into(),
+                source_alternatives: vec!["first line".into()],
                 appearance: None,
             },
             DetectedTextRegion {
                 id: 2,
-                bounds: [300, 22, 370, 200].into(),
-                source_text: "second".to_string(),
-                source_alternatives: vec!["second".to_string()],
+                bounds: [34, 10, 54, 200].into(),
+                source_text: "second line".into(),
+                source_alternatives: vec!["second line".into()],
                 appearance: None,
             },
         ]
     }
 
-    fn translated(id: u16, candidate: usize, text: &str) -> String {
-        format!(
-            r#"{{"regionId":{id},"memberIdsInReadingOrder":[{id}],"candidateIds":["r{id}c{candidate}"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"translation_required","translatedSegments":["{text}"]}}"#
-        )
-    }
-
     #[test]
-    fn prompt_supplies_fixed_geometry_and_candidate_contract() {
-        let instructions = prompt_with_instruction(
-            "Target Language",
-            &crate::config::types::ScreenTranslateSettings::default_prompt(),
+    fn prompt_contains_translation_only_cells() {
+        let prompt = prompt_with_instruction(
+            "Vietnamese",
+            "Translate to {target_language}.",
             &candidates(),
         )
         .unwrap();
-        assert!(instructions.contains(r#""candidateId":"r1c0","characters":5,"text":"first""#));
-        assert!(instructions.contains(r#""box2d":[100,20,170,180]"#));
-        assert!(instructions.contains("organize them into logical visual cells"));
-        assert!(instructions.contains("Never join separate bullets"));
-        assert!(instructions.contains("Do not abbreviate, summarize"));
-        assert!(instructions.contains("memberJoins"));
+        assert!(prompt.contains(r#""cellId":1"#));
+        assert!(prompt.contains(r#""memberId":2,"text":"second line""#));
+        assert!(!prompt.contains("candidateIds"));
+        assert!(!prompt.contains("memberJoins"));
     }
 
     #[test]
-    fn prompt_expands_the_configured_target_language_placeholder() {
-        let instructions = prompt_with_instruction(
-            "Korean",
-            "Use concise wording in {target_language}.",
+    fn one_translation_is_distributed_over_local_members() {
+        let parsed = parse_response(
+            r#"{"cells":[{"cellId":1,"translation":"một bản dịch hoàn chỉnh","splitAfterMembers":[]}]}"#,
             &candidates(),
-        )
-        .unwrap();
-        assert!(instructions.contains("Use concise wording in Korean."));
-        assert!(!instructions.contains("{target_language}"));
-    }
-
-    #[test]
-    fn parser_maps_ids_to_detector_bounds_and_orders_them() {
-        let second = translated(2, 0, "two");
-        let first = translated(1, 0, "one");
-        let result = parse_response(
-            &format!(r#"{{"regions":[{second},{first}]}}"#),
-            &candidates(),
-        )
-        .unwrap();
-        assert_eq!(result.regions[0].translated_segments, ["one"]);
-        assert_eq!(result.regions[0].bounds, candidates()[0].bounds);
-        assert_eq!(result.regions[0].source_text, "first");
-        assert_eq!(result.regions[0].member_ids, vec![1]);
-    }
-
-    #[test]
-    fn parser_rejects_a_segment_count_that_does_not_match_cell_members() {
-        let mut candidates = candidates();
-        candidates[1].bounds = [168, 22, 238, 200].into();
-        let parsed = parse_response(
-            r#"{"regions":[{"regionId":1,"memberIdsInReadingOrder":[1,2],"candidateIds":["r1c0","r2c0"],"memberJoins":["wrapped_line"],"semanticRole":"paragraph","translationRequirement":"translation_required","translatedSegments":["only one"]}]}"#,
-            &candidates,
-        )
-        .unwrap();
-        assert!(parsed.regions.is_empty());
-    }
-
-    #[test]
-    fn parser_rejects_semantically_impossible_candidate_binding_per_block() {
-        let mut candidates = candidates();
-        candidates[0].source_alternatives[0] = "1.+".to_string();
-        let invalid = translated(1, 0, "A long translated sentence");
-        let valid = translated(2, 0, "two");
-        let parsed = parse_response(
-            &format!(r#"{{"regions":[{invalid},{valid}]}}"#),
-            &candidates,
-        )
-        .unwrap();
-        assert_eq!(parsed.regions.len(), 1);
-        assert_eq!(parsed.regions[0].id, 2);
-    }
-
-    #[test]
-    fn parser_accepts_the_equivalent_top_level_region_array() {
-        let candidates = candidates();
-        let parsed =
-            parse_response(&format!("[{}]", translated(1, 0, "uno")), &candidates).unwrap();
-        assert_eq!(parsed.regions.len(), 1);
-        assert_eq!(parsed.regions[0].translated_segments, ["uno"]);
-    }
-
-    #[test]
-    fn parser_rejects_a_malformed_top_level_contract() {
-        assert!(parse_response(r#"{"regions":"not-an-array"}"#, &candidates()).is_err());
-    }
-
-    #[test]
-    fn parser_does_not_let_one_changed_block_hide_an_untranslated_block() {
-        let unchanged_required = translated(1, 0, "first");
-        let translated = translated(2, 0, "dos");
-        let parsed = parse_response(
-            &format!(r#"{{"regions":[{unchanged_required},{translated}]}}"#),
-            &candidates(),
-        )
-        .unwrap();
-        assert_eq!(parsed.regions.len(), 1);
-        assert_eq!(parsed.regions[0].id, 2);
-    }
-
-    #[test]
-    fn parser_rejects_a_formatting_correction_claimed_as_translation() {
-        let mut candidates = candidates();
-        candidates[0].source_alternatives[0] =
-            "installation configration directory reference".to_string();
-        let response = translated(1, 0, "installation configuration directory reference");
-        let parsed =
-            parse_response(&format!(r#"{{"regions":[{response}]}}"#), &candidates).unwrap();
-        assert!(parsed.regions.is_empty());
-    }
-
-    #[test]
-    fn parser_accepts_unchanged_text_only_when_the_model_marks_it_nonrequired() {
-        let unchanged = r#"{"regionId":1,"memberIdsInReadingOrder":[1],"candidateIds":["r1c0"],"memberJoins":[],"semanticRole":"standalone","translationRequirement":"already_target","translatedSegments":["first"]}"#;
-        let parsed =
-            parse_response(&format!(r#"{{"regions":[{unchanged}]}}"#), &candidates()).unwrap();
-        assert_eq!(parsed.regions.len(), 1);
-        assert!(text_is_source_equivalent(
-            &parsed.regions[0].source_text,
-            &parsed.regions[0].translated_segments.join(" ")
-        ));
-    }
-
-    #[test]
-    fn adjacent_fragments_can_form_one_model_owned_logical_cell() {
-        let mut candidates = candidates();
-        candidates[1].bounds = [168, 22, 238, 200].into();
-        let parsed = parse_response(
-            r#"{"regions":[{"regionId":1,"memberIdsInReadingOrder":[1,2],"candidateIds":["r1c0","r2c0"],"memberJoins":["wrapped_line"],"semanticRole":"paragraph","translationRequirement":"translation_required","translatedSegments":["one coherent","passage"]}]}"#,
-            &candidates,
         )
         .unwrap();
         assert_eq!(parsed.regions.len(), 1);
         assert_eq!(parsed.regions[0].member_ids, [1, 2]);
-        assert_eq!(parsed.regions[0].source_text, "first second");
-        assert_eq!(
-            parsed.regions[0].translated_segments,
-            ["one coherent", "passage"]
-        );
-        assert_eq!(parsed.regions[0].semantic_role, SemanticRole::Paragraph);
-        assert_eq!(parsed.regions[0].member_joins, [MemberJoin::WrappedLine]);
+        assert_eq!(parsed.regions[0].translated_segments.len(), 2);
     }
 
     #[test]
-    fn neighboring_list_items_remain_independent_when_the_model_separates_them() {
-        let response = format!(
-            r#"{{"regions":[{},{}]}}"#,
-            translated(1, 0, "uno"),
-            translated(2, 0, "dos")
-        );
-        let parsed = parse_response(&response, &candidates()).unwrap();
+    fn advisory_split_creates_local_subcells_without_retranslating() {
+        let parsed = parse_response(
+            r#"{"cells":[{"cellId":1,"translation":"một hai ba bốn","splitAfterMembers":[1]}]}"#,
+            &candidates(),
+        )
+        .unwrap();
         assert_eq!(parsed.regions.len(), 2);
         assert!(
             parsed
@@ -580,16 +394,12 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_members_cannot_be_claimed_by_multiple_cells() {
-        let candidates = candidates();
-        let first = translated(1, 0, "uno");
-        let duplicate = r#"{"regionId":1,"memberIdsInReadingOrder":[1,2],"candidateIds":["r1c0","r2c0"],"memberJoins":["same_block"],"semanticRole":"paragraph","translationRequirement":"translation_required","translatedSegments":["duplicate","claim"]}"#;
+    fn invalid_split_ids_are_ignored_without_rejection() {
         let parsed = parse_response(
-            &format!(r#"{{"regions":[{first},{duplicate}]}}"#),
-            &candidates,
+            r#"{"cells":[{"cellId":1,"translation":"một hai ba bốn","splitAfterMembers":[999]}]}"#,
+            &candidates(),
         )
         .unwrap();
         assert_eq!(parsed.regions.len(), 1);
-        assert_eq!(parsed.regions[0].member_ids, [1]);
     }
 }
