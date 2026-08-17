@@ -92,9 +92,23 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         crate::APP
             .lock()
             .map(|app| {
+                let translation_model = app
+                    .config
+                    .model_priority_chains
+                    .text_to_text
+                    .iter()
+                    .find(|id| {
+                        crate::model_config::get_model_by_id_with_custom(
+                            id,
+                            &app.config.custom_models,
+                        )
+                        .is_some()
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string());
                 (
                     app.config.screen_translate.target_language.clone(),
-                    app.config.screen_translate.translation_model.clone(),
+                    translation_model,
                     app.config.screen_translate.translation_prompt.clone(),
                     app.config.ui_language.clone(),
                     app.config.graphics_mode.clone(),
