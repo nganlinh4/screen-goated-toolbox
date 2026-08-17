@@ -22,6 +22,15 @@ pub struct ResultControlOptions {
     pub edit_enabled: bool,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct SourceReplacementRegion {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub vertical: bool,
+}
+
 impl Default for ResultControlOptions {
     fn default() -> Self {
         Self {
@@ -110,6 +119,9 @@ pub struct WindowState {
     pub backdrop_data_url: Option<String>,
     pub foreground_color: Option<String>,
     pub preferred_font_size: Option<f32>,
+    pub source_vertical: bool,
+    pub source_regions: Vec<SourceReplacementRegion>,
+    pub source_segments: Vec<String>,
     pub copy_success: bool,
 
     // Edit Mode

@@ -75,6 +75,9 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
             state.backdrop_data_url.clone(),
             state.foreground_color.clone(),
             state.preferred_font_size,
+            state.source_vertical,
+            state.source_regions.clone(),
+            state.source_segments.clone(),
         )
     };
 
@@ -111,6 +114,9 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         foreground_color: snapshot.10,
         preferred_font_size: snapshot.11,
         source_replacement: snapshot.11.is_some(),
+        source_vertical: snapshot.12,
+        source_regions: snapshot.13,
+        source_segments: snapshot.14,
     };
 
     let previous = scenes.insert(hwnd_key, card.clone());

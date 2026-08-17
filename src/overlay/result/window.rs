@@ -151,6 +151,9 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
                     backdrop_data_url: None,
                     foreground_color: None,
                     preferred_font_size: None,
+                    source_vertical: false,
+                    source_regions: Vec::new(),
+                    source_segments: Vec::new(),
                     copy_success: false,
                     is_editing: start_editing,
                     context_data: context,
@@ -214,6 +217,9 @@ pub fn create_text_only_result_window(
     chain_id: String,
     control_options: Option<ResultControlOptions>,
     preferred_font_size: Option<f32>,
+    source_vertical: bool,
+    source_regions: Vec<super::state::SourceReplacementRegion>,
+    source_segments: Vec<String>,
 ) -> HWND {
     let hwnd = create_result_window_shell(params);
     {
@@ -224,6 +230,9 @@ pub fn create_text_only_result_window(
             state.backdrop_data_url = Some(backdrop_data_url);
             state.foreground_color = Some(foreground_color);
             state.preferred_font_size = preferred_font_size;
+            state.source_vertical = source_vertical;
+            state.source_regions = source_regions;
+            state.source_segments = source_segments;
             state.chain_id = Some(chain_id);
         }
     }
@@ -248,6 +257,22 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
         state.full_text = text.to_string();
     }
     super::scene_compositor::queue_window_sync(hwnd);
+}
+
+pub fn update_text_only_segments(hwnd: HWND, segments: Vec<String>) {
+    let text = segments.join("\n");
+    if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
+        return;
+    }
+    if let Some(state) = WINDOW_STATES.lock().unwrap().get_mut(&(hwnd.0 as isize)) {
+        state.full_text = text.clone();
+        state.source_segments = segments;
+    }
+    let wide_text = crate::overlay::utils::to_wstring(&text);
+    unsafe {
+        let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
+    }
+    super::scene_compositor::sync_window(hwnd, true);
 }
 
 #[cfg(test)]

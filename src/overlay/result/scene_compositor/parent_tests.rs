@@ -29,6 +29,9 @@ fn test_card(streaming: bool) -> SceneCard {
         backdrop_data_url: None,
         foreground_color: None,
         preferred_font_size: None,
+        source_vertical: false,
+        source_regions: Vec::new(),
+        source_segments: Vec::new(),
         source_replacement: false,
     }
 }

@@ -46,8 +46,287 @@
                 && (!rejectPathologicalWrap || !hasPathologicalWrap(text, size));
         }
 
+        function textUnits(text) {
+            if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+                var segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+                return Array.from(segmenter.segment(text), function(part) { return part.segment; });
+            }
+            return Array.from(text);
+        }
+
+        function maskRuns(data, imageWidth, imageHeight, orientation, offset, thickness) {
+            var extent = orientation === 'horizontal' ? imageWidth : imageHeight;
+            var depth = orientation === 'horizontal' ? imageHeight : imageWidth;
+            var from = Math.max(0, Math.floor(offset));
+            var to = Math.min(depth, Math.ceil(offset + thickness));
+            var runs = [];
+            var start = -1;
+            for (var position = 0; position < extent; position++) {
+                var opaque = 0;
+                var samples = 0;
+                for (var cross = from; cross < to; cross++) {
+                    var x = orientation === 'horizontal' ? position : cross;
+                    var y = orientation === 'horizontal' ? cross : position;
+                    samples++;
+                    if (data[(y * imageWidth + x) * 4 + 3] >= 192) opaque++;
+                }
+                // A lane is legal only when its complete rectangle belongs to
+                // the union mask. The span's own clipping then makes escape
+                // from a stair-shaped component impossible.
+                var legal = samples > 0 && opaque === samples;
+                if (legal && start < 0) start = position;
+                if ((!legal || position === extent - 1) && start >= 0) {
+                    var end = legal && position === extent - 1 ? position + 1 : position;
+                    if (end - start >= 2) runs.push([start, end]);
+                    start = -1;
+                }
+            }
+            return runs;
+        }
+
+        function shapeSlots(alpha, width, height, orientation, lineSize) {
+            var slots = [];
+            var depth = orientation === 'horizontal' ? height : width;
+            var offsets = [];
+            for (var offset = 0; offset + lineSize <= depth + 0.5; offset += lineSize) {
+                offsets.push(offset);
+            }
+            if (orientation === 'vertical') offsets.reverse();
+            for (var index = 0; index < offsets.length; index++) {
+                var runs = maskRuns(alpha, width, height, orientation, offsets[index], lineSize);
+                for (var runIndex = 0; runIndex < runs.length; runIndex++) {
+                    slots.push({ offset: offsets[index], from: runs[runIndex][0], to: runs[runIndex][1] });
+                }
+            }
+            return slots;
+        }
+
+        function fillShapePlan(text, alpha, width, height, orientation, fontSize, stretch) {
+            var lineSize = Math.max(1, fontSize * 1.08);
+            var slots = shapeSlots(alpha, width, height, orientation, lineSize);
+            if (!slots.length) return null;
+            var units = textUnits(text.replace(/\s+/g, ' ').trim());
+            var cursor = 0;
+            var context = document.createElement('canvas').getContext('2d');
+            context.font = '400 ' + fontSize + "px 'Google Sans Flex'";
+            var lines = [];
+            for (var slotIndex = 0; slotIndex < slots.length && cursor < units.length; slotIndex++) {
+                var slot = slots[slotIndex];
+                var capacity = slot.to - slot.from;
+                var value = '';
+                var used = 0;
+                while (cursor < units.length) {
+                    var unit = units[cursor];
+                    var advance = context.measureText(unit).width * stretch / 100;
+                    if (value && used + advance > capacity) break;
+                    if (!value && advance > capacity) break;
+                    value += unit;
+                    used += advance;
+                    cursor++;
+                }
+                value = value.trim();
+                if (value) lines.push({ slot: slot, text: value });
+            }
+            return {
+                orientation: orientation,
+                fontSize: fontSize,
+                stretch: stretch,
+                lines: lines,
+                consumed: cursor,
+                complete: cursor >= units.length
+            };
+        }
+
+        function renderShapePlan(plan) {
+            body.innerHTML = '';
+            body.style.cssText += ';position:absolute;inset:0;overflow:hidden;display:block;padding:0;margin:0;user-select:text;';
+            body.style.fontSize = plan.fontSize + 'px';
+            body.style.fontStretch = plan.stretch + '%';
+            body.style.fontWeight = '400';
+            body.style.fontVariationSettings = "'slnt' 0, 'ROND' 100";
+            body.style.lineHeight = '1.08';
+            for (var index = 0; index < plan.lines.length; index++) {
+                var line = plan.lines[index];
+                var element = document.createElement('span');
+                element.className = 'word';
+                element.textContent = line.text;
+                element.style.cssText = 'position:absolute;display:block;overflow:hidden;white-space:nowrap;user-select:text;background:transparent;';
+                if (plan.orientation === 'horizontal') {
+                    element.style.left = line.slot.from + 'px';
+                    element.style.top = line.slot.offset + 'px';
+                    element.style.width = (line.slot.to - line.slot.from) + 'px';
+                    element.style.height = (plan.fontSize * 1.08) + 'px';
+                } else {
+                    element.style.left = line.slot.offset + 'px';
+                    element.style.top = line.slot.from + 'px';
+                    element.style.width = (plan.fontSize * 1.08) + 'px';
+                    element.style.height = (line.slot.to - line.slot.from) + 'px';
+                    element.style.writingMode = 'vertical-rl';
+                    element.style.textOrientation = 'mixed';
+                }
+                body.appendChild(element);
+            }
+        }
+
+        function layoutSourceRegions(options) {
+            var regions = options.sourceRegions;
+            var segments = options.sourceSegments;
+            if (!Array.isArray(regions) || !Array.isArray(segments)
+                || !regions.length || regions.length !== segments.length) return false;
+            var size = dimensions();
+            var naturalWidth = Math.max(1, entry.backdrop.naturalWidth || size.width);
+            var naturalHeight = Math.max(1, entry.backdrop.naturalHeight || size.height);
+            var scaleX = size.width / naturalWidth;
+            var scaleY = size.height / naturalHeight;
+            body.innerHTML = '';
+            body.style.cssText += ';position:absolute;inset:0;overflow:hidden;display:block;padding:0;margin:0;user-select:text;';
+            var containers = [];
+            for (var index = 0; index < regions.length; index++) {
+                var region = regions[index];
+                var container = document.createElement('span');
+                var content = document.createElement('span');
+                container.className = 'source-line';
+                content.className = 'word source-line-text';
+                content.textContent = String(segments[index] || '');
+                container.style.cssText = 'position:absolute;display:flex;align-items:center;justify-content:center;overflow:visible;background:transparent;user-select:text;';
+                container.style.left = (Number(region.x) * scaleX) + 'px';
+                container.style.top = (Number(region.y) * scaleY) + 'px';
+                container.style.width = (Number(region.width) * scaleX) + 'px';
+                container.style.height = (Number(region.height) * scaleY) + 'px';
+                content.style.cssText = 'display:block;max-width:100%;max-height:100%;margin:0;padding:0;background:transparent;user-select:text;overflow:visible;white-space:nowrap;text-align:center;';
+                if (region.vertical === true) {
+                    content.style.writingMode = 'vertical-rl';
+                    content.style.textOrientation = 'mixed';
+                }
+                container.appendChild(content);
+                body.appendChild(container);
+                containers.push({ box: container, text: content });
+            }
+            function applyTypography(item, fontSize, stretch) {
+                var textNode = item.text;
+                textNode.style.fontSize = fontSize + 'px';
+                textNode.style.lineHeight = '1.08';
+                textNode.style.fontStretch = stretch + '%';
+                textNode.style.fontVariationSettings = "'slnt' 0, 'ROND' 100";
+            }
+            function shapedExtent(item) {
+                if (!item.text.textContent) return { width: 0, height: 0 };
+                var range = document.createRange();
+                range.selectNodeContents(item.text);
+                var rect = range.getBoundingClientRect();
+                return { width: rect.width, height: rect.height };
+            }
+            function itemFits(item) {
+                var extent = shapedExtent(item);
+                return extent.width <= item.box.clientWidth + 0.5
+                    && extent.height <= item.box.clientHeight + 0.5;
+            }
+            for (var widthItemIndex = 0; widthItemIndex < containers.length; widthItemIndex++) {
+                var widthItem = containers[widthItemIndex];
+                var vertical = regions[widthItemIndex].vertical === true;
+                var minorExtent = vertical ? widthItem.box.clientWidth : widthItem.box.clientHeight;
+                var fontLow = 0.1;
+                var fontHigh = Math.max(1, minorExtent * 2);
+                var fontSize = 0.1;
+                for (var fontAttempt = 0; fontAttempt < 12; fontAttempt++) {
+                    var fontMiddle = (fontLow + fontHigh) / 2;
+                    applyTypography(widthItem, fontMiddle, 25);
+                    void widthItem.text.offsetHeight;
+                    if (itemFits(widthItem)) {
+                        fontSize = fontMiddle;
+                        fontLow = fontMiddle;
+                    } else {
+                        fontHigh = fontMiddle;
+                    }
+                }
+                var widthLow = 25;
+                var widthHigh = 151;
+                var chosenWidth = 25;
+                for (var widthAttempt = 0; widthAttempt < 12; widthAttempt++) {
+                    var widthMiddle = (widthLow + widthHigh) / 2;
+                    applyTypography(widthItem, fontSize, widthMiddle);
+                    void widthItem.text.offsetHeight;
+                    if (itemFits(widthItem)) {
+                        chosenWidth = widthMiddle;
+                        widthLow = widthMiddle;
+                    } else {
+                        widthHigh = widthMiddle;
+                    }
+                }
+                applyTypography(widthItem, fontSize, chosenWidth);
+            }
+            for (var finalIndex = 0; finalIndex < containers.length; finalIndex++) {
+                var finalItem = containers[finalIndex];
+                var finalExtent = shapedExtent(finalItem);
+                var visualScale = Math.min(
+                    1,
+                    finalItem.box.clientWidth / Math.max(1, finalExtent.width),
+                    finalItem.box.clientHeight / Math.max(1, finalExtent.height)
+                );
+                if (visualScale < 1) {
+                    finalItem.text.style.transform = 'scale(' + visualScale + ')';
+                    finalItem.text.style.transformOrigin = 'center center';
+                }
+                finalItem.box.style.overflow = 'hidden';
+                finalItem.text.style.overflow = 'visible';
+            }
+            body.dataset.shapeLayout = 'true';
+            return true;
+        }
+
+        function layoutInBackdrop(options, text) {
+            if (!options.sourceReplacement || !entry.backdrop || !entry.backdrop.dataset.url) return false;
+            if (!entry.backdrop.complete || !entry.backdrop.naturalWidth) {
+                body.style.opacity = '0';
+                entry.backdrop.onload = function() {
+                    entry.backdrop.onload = null;
+                    var currentText = (body.innerText || body.textContent || text).trim();
+                    layoutInBackdrop(options, currentText);
+                    body.style.opacity = '1';
+                };
+                return true;
+            }
+            if (Array.isArray(options.sourceRegions) && options.sourceRegions.length) {
+                layoutSourceRegions(options);
+                return true;
+            }
+            var size = dimensions();
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(size.width));
+            canvas.height = Math.max(1, Math.round(size.height));
+            var context = canvas.getContext('2d', { willReadFrequently: true });
+            context.drawImage(entry.backdrop, 0, 0, canvas.width, canvas.height);
+            var alpha = context.getImageData(0, 0, canvas.width, canvas.height).data;
+            var preferred = Math.max(5, Math.min(Number(options.preferredFontSize) || 14, canvas.height));
+            var widths = [100, 90, 80, 70, 60, 50];
+            var best = null;
+            var fallback = null;
+            for (var fontSize = Math.floor(preferred); fontSize >= 5 && !best; fontSize--) {
+                for (var widthIndex = 0; widthIndex < widths.length; widthIndex++) {
+                    var orientation = options.sourceVertical ? 'vertical' : 'horizontal';
+                    var candidate = fillShapePlan(text, alpha, canvas.width, canvas.height,
+                        orientation, fontSize, widths[widthIndex]);
+                    if (candidate && candidate.complete) {
+                        best = candidate;
+                        break;
+                    }
+                    if (candidate && (!fallback || candidate.consumed > fallback.consumed)) {
+                        fallback = candidate;
+                    }
+                }
+            }
+            best = best || fallback;
+            if (!best) return false;
+            renderShapePlan(best);
+            body.dataset.shapeLayout = 'true';
+            return true;
+        }
+
         function inlineSize(options, text, isNewSession) {
-            if (!options.runInlineSizing || !isNewSession) return;
+            if (!options.runInlineSizing) return;
+            if (options.sourceReplacement && layoutInBackdrop(options, text)) return;
+            if (!isNewSession) return;
+            delete body.dataset.shapeLayout;
             var size = dimensions();
             var textLen = text.length;
             var isSourceReplacement = options.sourceReplacement === true;
@@ -205,7 +484,7 @@
             });
         }
 
-        function installOverflowGuard(isSourceReplacement) {
+        function installOverflowGuard(isSourceReplacement, preferredFontSize) {
             if (state.overflowObserver || typeof ResizeObserver === 'undefined') return;
             var debounceTimer = 0;
             state.overflowObserver = new ResizeObserver(function() {
@@ -221,7 +500,7 @@
                     if (overflow <= 0) return;
                     var current = parseFloat(body.style.fontSize) || 14;
                     var minimum = isSourceReplacement
-                        ? Math.min(5, Number(options.preferredFontSize) || 5)
+                        ? Math.min(5, Number(preferredFontSize) || 5)
                         : (state.reveal.lastRevealedIndex + 1 < 200 ? 6 : 14);
                     if (current <= minimum) return;
                     var scale = Math.min(
@@ -266,7 +545,7 @@
             state.wordCount = body.querySelectorAll('.word').length;
             state.renderCount++;
             if (!options.animateNewWords) {
-                installOverflowGuard(options.sourceReplacement === true);
+                installOverflowGuard(options.sourceReplacement === true, options.preferredFontSize);
             }
         }
 

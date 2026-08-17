@@ -1,30 +1,34 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
-use super::backdrop::{encode_data_url, reconstruct_blob_image_with_background};
+use super::backdrop::{encode_data_url, reconstruct_shaped_blob};
 use super::contract::DetectedTextRegion;
-use super::geometry::{MIN_READABLE_HEIGHT, MIN_READABLE_WIDTH, PixelRegion, normalized_region};
+use super::geometry::{PixelRegion, normalized_region};
 use crate::overlay::selection::CapturedRegion;
 
 pub(super) struct PreparedSource {
     pub pixels: PixelRegion,
+    pub source_text: String,
     pub foreground: String,
     pub background: Option<([u8; 3], u8)>,
 }
 
+#[derive(Clone)]
 pub(super) struct PreparedBlock {
+    pub component_id: u16,
     pub member_ids: Vec<u16>,
     pub layout: PixelRegion,
     pub backdrop: String,
     pub foreground: String,
     pub preferred_font_size: f32,
+    pub vertical_text: bool,
+    pub source_regions: Vec<crate::overlay::result::SourceReplacementRegion>,
 }
 
 pub(super) struct PreparedScene {
     pub sources: HashMap<u16, PreparedSource>,
-    image: image::RgbaImage,
-    masks: Vec<PixelRegion>,
+    pub blocks: Vec<PreparedBlock>,
 }
 
 pub(super) fn prepare_scene(
@@ -36,113 +40,189 @@ pub(super) fn prepare_scene(
         .iter()
         .map(|candidate| {
             (
-                candidate.id,
+                candidate,
                 normalized_region(candidate.bounds, capture.width, capture.height),
-                candidate.appearance,
             )
         })
-        .filter(|(_, region, _)| {
-            region.width >= MIN_READABLE_WIDTH && region.height >= MIN_READABLE_HEIGHT
-        })
         .collect::<Vec<_>>();
-    let masks = located
+    let all_regions = located
         .iter()
-        .map(|(_, region, _)| *region)
+        .map(|(_, region)| *region)
         .collect::<Vec<_>>();
     let mut sources = HashMap::with_capacity(located.len());
-    for (id, pixels, appearance) in located {
-        if !super::runtime::is_current(job_id) {
-            break;
-        }
-        let background = appearance
+    for (candidate, pixels) in &located {
+        let background = candidate
+            .appearance
             .map(|appearance| (appearance.background_rgb, appearance.background_confidence));
-        let foreground = appearance
+        let foreground = candidate
+            .appearance
             .filter(|appearance| appearance.foreground_confidence >= 3)
             .and_then(|appearance| appearance.foreground_rgb)
             .map(super::appearance::color_hex)
             .unwrap_or_default();
         sources.insert(
-            id,
+            candidate.id,
             PreparedSource {
-                pixels,
+                pixels: *pixels,
+                source_text: candidate.source_text.clone(),
                 foreground,
                 background,
             },
         );
     }
-    Ok(PreparedScene {
-        sources,
-        image: capture.image.clone(),
-        masks,
-    })
+
+    let mut blocks = Vec::new();
+    for member_ids in connected_components(&located) {
+        if !super::runtime::is_current(job_id) {
+            break;
+        }
+        let members = member_ids
+            .iter()
+            .filter_map(|id| sources.get(id))
+            .collect::<Vec<_>>();
+        let layout = union(members.iter().map(|source| source.pixels));
+        let shape_regions = members
+            .iter()
+            .map(|source| source.pixels)
+            .collect::<Vec<_>>();
+        let background = members
+            .iter()
+            .filter_map(|source| source.background)
+            .max_by_key(|(_, confidence)| *confidence);
+        let preferred_font_size = super::text_metrics::preferred_font_size(
+            &capture.image,
+            members
+                .iter()
+                .map(|source| (source.pixels, source.background)),
+        );
+        let vertical_text = members
+            .iter()
+            .all(|source| source.pixels.height > source.pixels.width.saturating_mul(3) / 2);
+        let source_regions = members
+            .iter()
+            .map(|source| crate::overlay::result::SourceReplacementRegion {
+                x: source.pixels.x.saturating_sub(layout.x),
+                y: source.pixels.y.saturating_sub(layout.y),
+                width: source.pixels.width,
+                height: source.pixels.height,
+                vertical: source.pixels.height > source.pixels.width.saturating_mul(3) / 2,
+            })
+            .collect();
+        let (backdrop, inferred_foreground) = reconstruct_shaped_blob(
+            &capture.image,
+            layout,
+            &all_regions,
+            &shape_regions,
+            background,
+        );
+        let foreground = members
+            .iter()
+            .find_map(|source| (!source.foreground.is_empty()).then(|| source.foreground.clone()))
+            .unwrap_or(inferred_foreground);
+        let component_id = member_ids[0];
+        blocks.push(PreparedBlock {
+            component_id,
+            member_ids,
+            layout,
+            backdrop: encode_data_url(&backdrop)?,
+            foreground,
+            preferred_font_size,
+            vertical_text,
+            source_regions,
+        });
+    }
+    Ok(PreparedScene { sources, blocks })
 }
 
-pub(super) fn prepare_block(
-    member_ids: &[u16],
-    translated_text: &str,
-    scene: &PreparedScene,
-) -> Result<PreparedBlock> {
-    let members = member_ids
+fn connected_components(located: &[(&DetectedTextRegion, PixelRegion)]) -> Vec<Vec<u16>> {
+    let mut assigned = vec![false; located.len()];
+    let mut components = Vec::new();
+    for start in 0..located.len() {
+        if assigned[start] {
+            continue;
+        }
+        assigned[start] = true;
+        let mut pending = vec![start];
+        let mut members = Vec::new();
+        while let Some(index) = pending.pop() {
+            members.push(located[index].0.id);
+            for candidate in 0..located.len() {
+                if !assigned[candidate] && touches(located[index].1, located[candidate].1) {
+                    assigned[candidate] = true;
+                    pending.push(candidate);
+                }
+            }
+        }
+        members.sort_unstable();
+        components.push(members);
+    }
+    components.sort_by_key(|members| members[0]);
+    components
+}
+
+fn touches(left: PixelRegion, right: PixelRegion) -> bool {
+    left.x <= right.x.saturating_add(right.width)
+        && right.x <= left.x.saturating_add(left.width)
+        && left.y <= right.y.saturating_add(right.height)
+        && right.y <= left.y.saturating_add(left.height)
+}
+
+fn union(regions: impl Iterator<Item = PixelRegion>) -> PixelRegion {
+    let regions = regions.collect::<Vec<_>>();
+    let left = regions.iter().map(|region| region.x).min().unwrap_or(0);
+    let top = regions.iter().map(|region| region.y).min().unwrap_or(0);
+    let right = regions
         .iter()
-        .map(|id| {
-            scene
-                .sources
-                .get(id)
-                .context("translation block member was not prepared")
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let left = members.iter().map(|source| source.pixels.x).min().unwrap();
-    let top = members.iter().map(|source| source.pixels.y).min().unwrap();
-    let right = members
-        .iter()
-        .map(|source| source.pixels.x.saturating_add(source.pixels.width))
+        .map(|region| region.x.saturating_add(region.width))
         .max()
-        .unwrap();
-    let bottom = members
+        .unwrap_or(left + 1);
+    let bottom = regions
         .iter()
-        .map(|source| source.pixels.y.saturating_add(source.pixels.height))
+        .map(|region| region.y.saturating_add(region.height))
         .max()
-        .unwrap();
-    let source_layout = PixelRegion {
+        .unwrap_or(top + 1);
+    PixelRegion {
         x: left,
         y: top,
         width: right.saturating_sub(left).max(1),
         height: bottom.saturating_sub(top).max(1),
-    };
-    let background = members
-        .iter()
-        .filter_map(|source| source.background)
-        .max_by_key(|(_, confidence)| *confidence);
-    let preferred_font_size = super::render_expansion::preferred_font_size(
-        &scene.image,
-        members
-            .iter()
-            .map(|source| (source.pixels, source.background)),
-    );
-    let member_regions = members
-        .iter()
-        .map(|source| source.pixels)
-        .collect::<Vec<_>>();
-    let layout = super::render_expansion::expand_vertical_surface(
-        &scene.image,
-        source_layout,
-        &member_regions,
-        &scene.masks,
-        background,
-        translated_text,
-        preferred_font_size,
-    );
-    let (backdrop, inferred_foreground) =
-        reconstruct_blob_image_with_background(&scene.image, layout, &scene.masks, background);
-    let foreground = members
-        .iter()
-        .find_map(|source| (!source.foreground.is_empty()).then(|| source.foreground.clone()))
-        .unwrap_or(inferred_foreground);
-    Ok(PreparedBlock {
-        member_ids: member_ids.to_vec(),
-        layout,
-        backdrop: encode_data_url(&backdrop)?,
-        foreground,
-        preferred_font_size,
-    })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn touching_rectangles_share_a_component_without_changing_their_bounds() {
+        let first = PixelRegion {
+            x: 10,
+            y: 10,
+            width: 20,
+            height: 10,
+        };
+        let second = PixelRegion {
+            x: 30,
+            y: 15,
+            width: 15,
+            height: 10,
+        };
+        let separate = PixelRegion {
+            x: 46,
+            y: 15,
+            width: 10,
+            height: 10,
+        };
+        assert!(touches(first, second));
+        assert!(!touches(second, separate));
+        assert_eq!(
+            first,
+            PixelRegion {
+                x: 10,
+                y: 10,
+                width: 20,
+                height: 10
+            }
+        );
+    }
 }
