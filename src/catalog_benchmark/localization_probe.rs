@@ -387,6 +387,7 @@ fn reference_candidates(
                 id: u16::try_from(index + 1).expect("localization fixture cap fits u16"),
                 source_text: region.source_text.clone(),
                 source_alternatives: vec![region.source_text.clone()],
+                recognition: Default::default(),
                 bounds: NormalizedBounds {
                     left: scaled(x, image_width),
                     top: scaled(y, image_height),

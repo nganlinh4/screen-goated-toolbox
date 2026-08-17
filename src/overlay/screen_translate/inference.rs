@@ -19,10 +19,138 @@ use super::stream_parser::TranslationStreamParser;
 
 const MAX_UNRESOLVED_TAIL: usize = 3;
 const MIN_PARTIAL_COVERAGE_PERCENT: usize = 80;
+const MAX_OMITTED_REGION_AREA: u32 = 4_000;
+const MAX_TOTAL_OMITTED_AREA: u32 = 8_000;
 const MAX_TAIL_FAILURES: usize = 2;
 const TAIL_REPAIR_TIMEOUT: Duration = Duration::from_secs(3);
 
+pub(super) struct TranslateInput<'a> {
+    pub trace_id: &'a str,
+    pub target_language: &'a str,
+    pub translation_model: &'a str,
+    pub translation_prompt: &'a str,
+    pub candidates: &'a [DetectedTextRegion],
+    pub image: &'a image::RgbaImage,
+}
+
 pub(super) fn translate<F>(
+    input: TranslateInput<'_>,
+    cancel: Arc<AtomicBool>,
+    mut on_event: F,
+) -> Result<TranslationDocument>
+where
+    F: FnMut(TranslationRegion),
+{
+    let TranslateInput {
+        trace_id,
+        target_language,
+        translation_model,
+        translation_prompt,
+        candidates,
+        image,
+    } = input;
+    let uncertain = super::vision_fallback::uncertain_members(candidates);
+    if uncertain.is_empty() {
+        return translate_text(
+            trace_id,
+            target_language,
+            translation_model,
+            translation_prompt,
+            candidates,
+            cancel,
+            on_event,
+        );
+    }
+    let vision_candidates = candidates.to_vec();
+    let vision_uncertain = uncertain.clone();
+    let vision_image = image.clone();
+    let vision_target = target_language.to_string();
+    let vision_trace = trace_id.to_string();
+    let vision_cancel = Arc::clone(&cancel);
+    let vision = std::thread::spawn(move || {
+        super::vision_fallback::translate(
+            &vision_trace,
+            &vision_image,
+            &vision_target,
+            &vision_candidates,
+            &vision_uncertain,
+            vision_cancel,
+        )
+    });
+    let reliable_candidates = candidates
+        .iter()
+        .filter(|candidate| !uncertain.contains(&candidate.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let text_result = if reliable_candidates.is_empty() {
+        Ok(TranslationDocument {
+            regions: Vec::new(),
+        })
+    } else {
+        translate_text(
+            trace_id,
+            target_language,
+            translation_model,
+            translation_prompt,
+            &reliable_candidates,
+            Arc::clone(&cancel),
+            &mut on_event,
+        )
+    };
+    let vision_document = vision
+        .join()
+        .map_err(|_| anyhow::anyhow!("batched vision fallback panicked"));
+    let mut vision_regions = match vision_document {
+        Ok(Ok(document)) => document.regions,
+        Ok(Err(error)) | Err(error) => {
+            crate::log_info!(
+                "[Screen Translate] trace={trace_id} batched vision fallback unavailable: {error:#}"
+            );
+            Vec::new()
+        }
+    };
+    let vision_covered = vision_regions
+        .iter()
+        .flat_map(|region| region.member_ids.iter().copied())
+        .collect::<HashSet<_>>();
+    let text_document = text_result?;
+    for region in &vision_regions {
+        on_event(region.clone());
+    }
+    let missing_vision = candidates
+        .iter()
+        .filter(|candidate| {
+            uncertain.contains(&candidate.id) && !vision_covered.contains(&candidate.id)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let fallback_document = if missing_vision.is_empty() {
+        TranslationDocument {
+            regions: Vec::new(),
+        }
+    } else {
+        crate::log_info!(
+            "[Screen Translate] trace={trace_id} vision left {} member(s) unresolved; routing only those members to text",
+            missing_vision.len()
+        );
+        translate_text(
+            trace_id,
+            target_language,
+            translation_model,
+            translation_prompt,
+            &missing_vision,
+            cancel,
+            &mut on_event,
+        )?
+    };
+    let mut regions = text_document.regions;
+    regions.append(&mut vision_regions);
+    regions.extend(fallback_document.regions);
+    regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
+    Ok(TranslationDocument { regions })
+}
+
+fn translate_text<F>(
     trace_id: &str,
     target_language: &str,
     translation_model: &str,
@@ -243,11 +371,22 @@ fn assembled_document(accepted: &[TranslationRegion]) -> TranslationDocument {
 }
 
 fn can_finish_partial(candidates: &[DetectedTextRegion], covered: &HashSet<u16>) -> bool {
-    let unresolved = candidates.len().saturating_sub(covered.len());
+    let pending = candidates
+        .iter()
+        .filter(|candidate| !covered.contains(&candidate.id))
+        .collect::<Vec<_>>();
+    let unresolved = pending.len();
+    let omitted_areas = pending.iter().map(|candidate| {
+        u32::from(candidate.bounds.right.saturating_sub(candidate.bounds.left))
+            * u32::from(candidate.bounds.bottom.saturating_sub(candidate.bounds.top))
+    });
+    let total_omitted_area = omitted_areas.clone().sum::<u32>();
     !covered.is_empty()
         && unresolved > 0
         && unresolved <= MAX_UNRESOLVED_TAIL
         && covered.len() * 100 >= candidates.len() * MIN_PARTIAL_COVERAGE_PERCENT
+        && omitted_areas.max().unwrap_or(0) <= MAX_OMITTED_REGION_AREA
+        && total_omitted_area <= MAX_TOTAL_OMITTED_AREA
 }
 
 fn accept_region(
@@ -280,6 +419,7 @@ mod tests {
             },
             source_text: format!("source-{id}"),
             source_alternatives: vec![format!("source-{id}")],
+            recognition: Default::default(),
             appearance: None,
         }
     }
@@ -342,7 +482,7 @@ mod tests {
         let mut covered = HashSet::new();
         let mut first_attempt = TranslationStreamParser::new(&candidates);
         for (_, region) in first_attempt.push(
-            r#"{"cells":[{"cellId":1,"translation":"first","splitAfterMembers":[]},{"cellId":2,"translation":3,"splitAfterMembers":[]}]}"#,
+            r#"{"members":[{"memberId":1,"translation":"first"},{"memberId":2,"translation":3}]}"#,
         ) {
             accept_region(&mut accepted, &mut covered, region);
         }
@@ -359,7 +499,7 @@ mod tests {
 
         let mut fallback = TranslationStreamParser::new(&pending);
         for (_, region) in fallback.push(
-            r#"{"cells":[{"cellId":2,"translation":"second","splitAfterMembers":[]},{"cellId":3,"translation":"third","splitAfterMembers":[]}]}"#,
+            r#"{"members":[{"memberId":2,"translation":"second"},{"memberId":3,"translation":"third"}]}"#,
         ) {
             accept_region(&mut accepted, &mut covered, region);
         }
@@ -410,5 +550,14 @@ mod tests {
         let insufficient = (1..=15).collect::<HashSet<_>>();
         assert!(!can_finish_partial(&candidates, &insufficient));
         assert!(!can_finish_partial(&candidates[..2], &HashSet::from([1])));
+
+        let mut salient = candidates.clone();
+        salient[18].bounds = NormalizedBounds {
+            left: 0,
+            top: 0,
+            right: 500,
+            bottom: 250,
+        };
+        assert!(!can_finish_partial(&salient, &covered));
     }
 }

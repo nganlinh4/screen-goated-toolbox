@@ -124,6 +124,7 @@ fn candidates(regions: &[ReplayRegion]) -> Result<Arc<[DetectedTextRegion]>> {
                 bounds: region.normalized_box_2d.into(),
                 source_text,
                 source_alternatives,
+                recognition: Default::default(),
                 appearance: region.visual_style,
             })
         })

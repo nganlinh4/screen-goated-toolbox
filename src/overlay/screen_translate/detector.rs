@@ -11,6 +11,7 @@ use sgt_screen_text_detector_protocol::DetectedRegion;
 
 use super::contract::{
     DetectedTextRegion, MAX_CANDIDATES, MAX_SOURCE_CANDIDATES, NormalizedBounds,
+    RecognitionEvidence,
 };
 
 static CLIENT: LazyLock<Mutex<Option<client::DetectorClient>>> = LazyLock::new(|| Mutex::new(None));
@@ -89,12 +90,18 @@ pub(super) fn detect(
         .into_iter()
         .enumerate()
         .map(|(index, region)| {
-            let source_alternatives = recognition_candidates(&region);
+            let ranked = recognition_candidates(&region);
+            let source_alternatives = ranked.iter().map(|item| item.0.clone()).collect::<Vec<_>>();
             DetectedTextRegion {
                 id: u16::try_from(index + 1).expect("candidate cap fits u16"),
                 bounds: normalized_bounds(&region, width, height),
                 source_text: source_alternatives[0].clone(),
                 source_alternatives,
+                recognition: RecognitionEvidence {
+                    locator_confidence: region.confidence,
+                    selected_confidence: ranked[0].1,
+                    competing_confidence: ranked.get(1).map_or(0.0, |item| item.1),
+                },
                 appearance: None,
             }
         })
@@ -140,7 +147,7 @@ fn remove_adjacent_icon_recognitions(regions: &mut Vec<DetectedRegion>) {
     });
 }
 
-fn recognition_candidates(region: &DetectedRegion) -> Vec<String> {
+fn recognition_candidates(region: &DetectedRegion) -> Vec<(String, f32)> {
     let mut ranked = std::iter::once((region.text.as_str(), region.text_confidence))
         .chain(
             region
@@ -156,10 +163,10 @@ fn recognition_candidates(region: &DetectedRegion) -> Vec<String> {
     ranked.sort_by(|left, right| {
         recognition_quality(right.0, right.1).total_cmp(&recognition_quality(left.0, left.1))
     });
-    let mut candidates = Vec::with_capacity(MAX_SOURCE_CANDIDATES);
-    for (text, _) in ranked {
-        if !candidates.iter().any(|known| known == text) {
-            candidates.push(text.to_string());
+    let mut candidates: Vec<(String, f32)> = Vec::with_capacity(MAX_SOURCE_CANDIDATES);
+    for (text, confidence) in ranked {
+        if !candidates.iter().any(|known| known.0 == text) {
+            candidates.push((text.to_string(), confidence));
             if candidates.len() == MAX_SOURCE_CANDIDATES {
                 break;
             }
@@ -275,7 +282,10 @@ mod tests {
             ],
         };
         assert_eq!(
-            recognition_candidates(&region),
+            recognition_candidates(&region)
+                .into_iter()
+                .map(|item| item.0)
+                .collect::<Vec<_>>(),
             vec!["correct", "second", "fourth"]
         );
     }
@@ -295,7 +305,7 @@ mod tests {
                 confidence: 0.82,
             }],
         };
-        assert_eq!(recognition_candidates(&region)[0], "complete text");
+        assert_eq!(recognition_candidates(&region)[0].0, "complete text");
     }
 
     #[test]
