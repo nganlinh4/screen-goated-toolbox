@@ -1,12 +1,12 @@
 {
   "architecture": "x64",
   "component": {
-    "asset": "screen-text-detector-3.2.11-b7eece4c6cb52ad0.zip",
-    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.11-b7eece4c6cb52ad0.zip",
+    "asset": "screen-text-detector-3.2.12-6e8185a1133921a7.zip",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.12-6e8185a1133921a7.zip",
     "files": [
       {
         "path": "bin/x64/sgt-screen-text-detector-worker.exe",
-        "sha256": "72285379c72e28e7949bb858c1eee4a49c5ef3bc2d6e84f4fbb9e014f281c9ae",
+        "sha256": "30bf73755c7327c9b764d2cee1685c4dd19b49e3aa56d52bc11ae3a465996d4f",
         "sizeBytes": 787456
       },
       {
@@ -146,10 +146,10 @@
       }
     ],
     "id": "screen-text-detector",
-    "sha256": "b7eece4c6cb52ad064db69abeba27507ec64d2d42406c460749646756508a5e9",
-    "sizeBytes": 105970998,
+    "sha256": "6e8185a1133921a70e8bf64be4b672804f3d77575f3961194f11bf251c52a844",
+    "sizeBytes": 105970978,
     "unpackedSizeBytes": 123215521,
-    "version": "3.2.11"
+    "version": "3.2.12"
   },
   "schemaVersion": 1
 }

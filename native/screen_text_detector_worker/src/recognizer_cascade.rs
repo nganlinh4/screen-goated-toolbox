@@ -154,15 +154,20 @@ impl RecognizerCascade {
             .collect::<Vec<_>>();
         let mut known_specialist_applied = false;
         for fallback in &mut self.fallbacks {
-            known_specialist_applied |= results.iter().enumerate().any(|(index, result)| {
-                unresolved[index] && coverage_matches(&fallback.coverage, &result.primary.text)
-            });
-            apply_fallback(fallback, sources, &mut results, &mut unresolved, false)?;
+            let capture_evidence = fallback.matches_capture(&results);
+            known_specialist_applied |= capture_evidence && unresolved.iter().any(|value| *value);
+            apply_fallback(
+                fallback,
+                sources,
+                &mut results,
+                &mut unresolved,
+                capture_evidence,
+            )?;
         }
         let mut matching = Vec::new();
         let mut remaining = Vec::new();
         for model in std::mem::take(&mut self.pending_fallbacks) {
-            if model.matches_primary(&results) {
+            if model.matches_capture(&results) {
                 matching.push(model);
             } else {
                 remaining.push(model);
@@ -171,10 +176,15 @@ impl RecognizerCascade {
         self.pending_fallbacks = remaining;
         let mut loaded = load_models_parallel(matching, Acceleration::Cpu)?;
         for fallback in &mut loaded {
-            known_specialist_applied |= results.iter().enumerate().any(|(index, result)| {
-                unresolved[index] && coverage_matches(&fallback.coverage, &result.primary.text)
-            });
-            apply_fallback(fallback, sources, &mut results, &mut unresolved, false)?;
+            let capture_evidence = fallback.matches_capture(&results);
+            known_specialist_applied |= capture_evidence && unresolved.iter().any(|value| *value);
+            apply_fallback(
+                fallback,
+                sources,
+                &mut results,
+                &mut unresolved,
+                capture_evidence,
+            )?;
         }
         self.fallbacks.extend(loaded);
         if !known_specialist_applied && unknown_probe_needed(&unresolved, &results) {
@@ -309,6 +319,7 @@ fn apply_fallback(
         .collect::<Vec<_>>();
     let candidates = fallback.recognizer.recognize_batch(&active_sources)?;
     for (&index, candidate) in active.iter().zip(candidates) {
+        let primary_matches = coverage_matches(&fallback.coverage, &results[index].primary.text);
         let script_consistent = candidate.confidence >= FAST_PATH_CONFIDENCE
             && coverage_matches(&fallback.coverage, &candidate.text);
         if !candidate.text.is_empty()
@@ -319,7 +330,11 @@ fn apply_fallback(
         {
             results[index].alternatives.push(candidate);
         }
-        unresolved[index] &= !script_consistent;
+        // A capture can contain multiple scripts. A specialist result for a
+        // blank/ambiguous crop is evidence, but must not prevent another
+        // capture-relevant specialist from contributing its own alternative.
+        // Direct script matches may resolve normally.
+        unresolved[index] &= !(script_consistent && primary_matches);
     }
     Ok(())
 }
@@ -439,11 +454,18 @@ impl ResolvedModel {
         }
     }
 
-    fn matches_primary(&self, results: &[RecognitionSet]) -> bool {
-        results.iter().any(|result| {
-            needs_alternatives(&result.primary)
-                && coverage_matches(&self.coverage, &result.primary.text)
-        })
+    fn matches_capture(&self, results: &[RecognitionSet]) -> bool {
+        results
+            .iter()
+            .any(|result| coverage_matches(&self.coverage, &result.primary.text))
+    }
+}
+
+impl FallbackRecognizer {
+    fn matches_capture(&self, results: &[RecognitionSet]) -> bool {
+        results
+            .iter()
+            .any(|result| coverage_matches(&self.coverage, &result.primary.text))
     }
 }
 
