@@ -1,7 +1,7 @@
 use sgt_screen_text_detector_protocol::{DetectedRegion, MAX_REGIONS};
 
-const PIXEL_THRESHOLD: f32 = 0.3;
-const BOX_THRESHOLD: f32 = 0.6;
+const PIXEL_THRESHOLD: f32 = 0.15;
+const BOX_THRESHOLD: f32 = 0.8;
 const UNCLIP_RATIO: f32 = 1.5;
 const MIN_SIDE: u32 = 3;
 
@@ -198,7 +198,7 @@ mod tests {
         }
         for y in 20..24 {
             for x in 2..12 {
-                map[y * 32 + x] = 0.8;
+                map[y * 32 + x] = 0.85;
             }
         }
         let regions = extract_regions(&map, 32, 32, 320, 160);
