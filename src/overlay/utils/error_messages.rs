@@ -90,38 +90,65 @@ pub fn get_error_message(error: &str, lang: &str, model_name: Option<&str>) -> S
     }
 }
 
-/// Extracts HTTP status code from error message
+/// Extracts HTTP status code from error message.
+///
+/// Accepts the shapes providers actually emit: `status code 429`, `HTTP 402: ...`,
+/// `error 500`, or a bare code delimited by non-alphanumeric characters. The
+/// boundary check keeps model names such as `llama-3.3-70b` or `qwen3-235b` from
+/// being mistaken for status codes.
 fn extract_http_status_code(error: &str) -> Option<u16> {
-    // Pattern: "status code XXX" or just a 3-digit code at the end
-    if let Some(pos) = error.find("status code ") {
-        let after = &error[pos + 12..];
-        let code_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-        return code_str.parse().ok();
-    }
+    const CODE_PREFIXES: [&str; 5] = ["status code ", "http ", "http/1.1 ", "error ", "code "];
 
-    // Also check for patterns like ": 429" at the end
-    let trimmed = error.trim();
-    if trimmed.len() >= 3 {
-        let last_3: String = trimmed
-            .chars()
-            .rev()
-            .take(3)
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect();
-        if last_3.chars().all(|c| c.is_ascii_digit())
-            && let Ok(code) = last_3.parse::<u16>()
-            && (400..=599).contains(&code)
-        {
-            return Some(code);
+    let lower = error.to_ascii_lowercase();
+    for prefix in CODE_PREFIXES {
+        let mut search_from = 0;
+        while let Some(pos) = lower[search_from..].find(prefix) {
+            let after = search_from + pos + prefix.len();
+            search_from = after;
+            if let Some(code) = parse_status_code_at(&lower, after) {
+                return Some(code);
+            }
         }
     }
 
-    // Check for "XXX" anywhere (common error codes)
-    [429, 400, 401, 403, 404, 500, 502, 503, 504]
-        .into_iter()
-        .find(|&code| error.contains(&code.to_string()))
+    first_delimited_status_code(&lower)
+}
+
+/// Parses a 3-digit HTTP status code starting at `offset`, rejecting longer digit runs.
+fn parse_status_code_at(text: &str, offset: usize) -> Option<u16> {
+    let bytes = text.as_bytes();
+    let digits: Vec<u8> = bytes[offset..]
+        .iter()
+        .copied()
+        .take_while(u8::is_ascii_digit)
+        .collect();
+    if digits.len() != 3 {
+        return None;
+    }
+    let code: u16 = std::str::from_utf8(&digits).ok()?.parse().ok()?;
+    (400..=599).contains(&code).then_some(code)
+}
+
+/// Scans for a standalone 3-digit code that is not embedded in a longer token.
+fn first_delimited_status_code(text: &str) -> Option<u16> {
+    let bytes = text.as_bytes();
+    for start in 0..bytes.len() {
+        if !bytes[start].is_ascii_digit() {
+            continue;
+        }
+        let preceded_by_token = start > 0 && bytes[start - 1].is_ascii_alphanumeric();
+        if preceded_by_token {
+            continue;
+        }
+        let end = start + 3;
+        if end > bytes.len() || bytes[end..].first().is_some_and(u8::is_ascii_alphanumeric) {
+            continue;
+        }
+        if let Some(code) = parse_status_code_at(text, start) {
+            return Some(code);
+        }
+    }
+    None
 }
 
 /// Extracts provider name from error URL
@@ -173,6 +200,28 @@ fn format_http_error(
             ),
             _ => format!(
                 "Error 429: Rate limit exceeded for model {}. Please wait a moment and try again.",
+                model_info
+            ),
+        },
+        402 => match lang {
+            "vi" => format!(
+                "Lỗi 402: Tài khoản {} đã hết hạn mức thanh toán. Vui lòng kiểm tra mục thanh toán của nhà cung cấp.",
+                model_info
+            ),
+            "ko" => format!(
+                "오류 402: {} 계정의 결제 한도가 소진되었습니다. 제공업체의 결제 페이지를 확인해 주세요.",
+                model_info
+            ),
+            "ja" => format!(
+                "エラー 402: {} のご利用枠が不足しています。プロバイダーの請求ページをご確認ください。",
+                model_info
+            ),
+            "zh" => format!(
+                "错误 402: {} 账户额度不足。请检查服务商的账单页面。",
+                model_info
+            ),
+            _ => format!(
+                "Error 402: Payment required for {}. Please check your billing page with the provider.",
                 model_info
             ),
         },
@@ -361,13 +410,32 @@ fn format_http_error(
     }
 }
 
+/// Billing/credit exhaustion markers. These are provider-wide: every model behind
+/// the same account fails identically, so retrying siblings only wastes requests.
+pub fn is_billing_exhausted_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("payment required")
+        || lower.contains("insufficient credit")
+        || lower.contains("insufficient_quota")
+        || lower.contains("insufficient funds")
+        || lower.contains("out of credits")
+        || lower.contains("credit balance is too low")
+}
+
 pub fn should_advance_retry_chain(error: &str) -> bool {
     if error.contains("NO_API_KEY") || error.contains("INVALID_API_KEY") {
         return true;
     }
 
+    if is_billing_exhausted_error(error) {
+        return true;
+    }
+
     if let Some(code) = extract_http_status_code(error) {
-        if matches!(code, 400 | 401 | 403 | 404 | 429) {
+        if matches!(
+            code,
+            400 | 401 | 402 | 403 | 404 | 408 | 409 | 413 | 422 | 425 | 429
+        ) {
             return true;
         }
         if (500..=599).contains(&code) {
@@ -383,9 +451,11 @@ pub fn should_advance_retry_chain(error: &str) -> bool {
         || lower_err.contains("peer disconnected")
         || lower_err.contains("connection reset")
         || lower_err.contains("connection aborted")
+        || lower_err.contains("connection closed")
         || lower_err.contains("broken pipe")
         || lower_err.contains("timed out")
         || lower_err.contains("timeout")
+        || lower_err.contains("deadline exceeded")
         || lower_err.contains("not found")
         || lower_err.contains("unsupported")
         || lower_err.contains("not support")
@@ -405,12 +475,68 @@ pub fn should_block_retry_provider(error: &str) -> bool {
         return true;
     }
 
-    matches!(extract_http_status_code(error), Some(401 | 403))
+    if is_billing_exhausted_error(error) {
+        return true;
+    }
+
+    matches!(extract_http_status_code(error), Some(401..=403))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{should_advance_retry_chain, should_block_retry_provider};
+    use super::{
+        extract_http_status_code, should_advance_retry_chain, should_block_retry_provider,
+    };
+
+    #[test]
+    fn extracts_status_codes_from_provider_phrasings() {
+        assert_eq!(
+            extract_http_status_code("Cerebras API Error HTTP 402: Payment required"),
+            Some(402)
+        );
+        assert_eq!(
+            extract_http_status_code("request failed with status code 429"),
+            Some(429)
+        );
+        assert_eq!(
+            extract_http_status_code("upstream returned: 503"),
+            Some(503)
+        );
+        assert_eq!(
+            extract_http_status_code("Error 422: unprocessable"),
+            Some(422)
+        );
+    }
+
+    #[test]
+    fn ignores_digits_embedded_in_model_names() {
+        assert_eq!(extract_http_status_code("model qwen3-235b failed"), None);
+        assert_eq!(extract_http_status_code("llama-3.3-70b-versatile"), None);
+        assert_eq!(extract_http_status_code("connection reset by peer"), None);
+    }
+
+    #[test]
+    fn advances_chain_for_billing_and_payload_failures() {
+        assert!(should_advance_retry_chain(
+            "Cerebras API Error HTTP 402: Payment required to access this resource. Visit your billing tab."
+        ));
+        assert!(should_advance_retry_chain("insufficient_quota"));
+        assert!(should_advance_retry_chain(
+            "request failed with status code 422"
+        ));
+        assert!(should_advance_retry_chain("deadline exceeded"));
+    }
+
+    #[test]
+    fn blocks_provider_for_billing_exhaustion() {
+        assert!(should_block_retry_provider(
+            "Cerebras API Error HTTP 402: Payment required to access this resource. Visit your billing tab."
+        ));
+        assert!(should_block_retry_provider("credit balance is too low"));
+        assert!(!should_block_retry_provider(
+            "Error 429: quota exceeded, please retry"
+        ));
+    }
 
     #[test]
     fn advances_chain_for_auth_and_not_found_failures() {
