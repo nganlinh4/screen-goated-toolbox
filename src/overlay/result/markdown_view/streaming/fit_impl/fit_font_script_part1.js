@@ -213,6 +213,7 @@
                     var finalStreamingTarget = fitState._sgtLastReportedFitTarget;
                     if (!isStreamingFit && finalStreamingTarget
                         && finalStreamingTarget.streaming
+                        && !isShortContent
                         && Number.isFinite(finalStreamingTarget.fontSize)) {
                         var displayedBeforeFinalProbe = parseFloat(body.style.fontSize);
                         var displayedStretchBeforeFinalProbe = parseFloat(body.style.fontStretch);

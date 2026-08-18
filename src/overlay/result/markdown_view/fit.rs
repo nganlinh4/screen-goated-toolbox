@@ -95,6 +95,7 @@ mod tests {
         let script = runtime_fit_script();
 
         assert!(script.contains("var finalStreamingTarget = fitState._sgtLastReportedFitTarget"));
+        assert!(script.contains("&& !isShortContent"));
         assert!(script.contains("finalTargetFits || targetAtReadableFloor"));
         assert!(script.contains("activeMotion.finalizing = true"));
     }

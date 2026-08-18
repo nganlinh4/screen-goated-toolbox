@@ -144,6 +144,8 @@ fn streamed_words_use_a_bounded_adaptive_reveal_queue() {
 fn ordinary_results_retain_a_scroll_recovery_path_while_streaming() {
     let direct_runtime = include_str!("direct_runtime.js");
     assert!(direct_runtime.contains("body.style.overflowY = 'auto'"));
+    assert!(direct_runtime.contains("options.sourceReplacement === true"));
+    assert!(!direct_runtime.contains("current * size.height / body.scrollHeight * 0.92"));
 }
 
 #[test]
