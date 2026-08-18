@@ -5,11 +5,10 @@ use std::process::Command as ProcessCommand;
 use anyhow::{Context as _, Result};
 
 pub(super) const WEBVIEW_RUNTIME_ROOT_ENV: [&str; 2] = ["ProgramFiles", "ProgramFiles(x86)"];
-pub(super) const PROVIDER_CREDENTIAL_ENV: [&str; 4] = [
+pub(super) const PROVIDER_CREDENTIAL_ENV: [&str; 3] = [
     "GEMINI_API_KEY",
     "GROQ_API_KEY",
     "OPENROUTER_API_KEY",
-    "CEREBRAS_API_KEY",
 ];
 
 pub(super) fn forward_provider_credentials(

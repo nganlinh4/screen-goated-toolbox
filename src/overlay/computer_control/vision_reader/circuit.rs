@@ -101,7 +101,7 @@ mod tests {
         ));
         assert!(is_oversize_error("payload too large"));
         assert!(is_oversize_error(
-            "Cerebras API Error HTTP 400: Please reduce the length of the messages or completion. Current length is 14859 while limit is 8192"
+            "Groq API Error HTTP 400: Please reduce the length of the messages or completion. Current length is 14859 while limit is 8192"
         ));
         assert!(is_oversize_error(
             "maximum context length exceeded for this request"

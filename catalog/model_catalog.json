@@ -2,7 +2,7 @@
   "schema_version": 8,
   "constants": {
     "default_image_model_id": "google-gemini-3-5-flash-lite-vision",
-    "default_text_model_id": "cerebras-zai-glm-4-7-text",
+    "default_text_model_id": "google-gemini-3-5-flash-lite-text",
     "gemini_embedding_api_model": "gemini-embedding-2",
     "gemini_live_api_model_2_5": "gemini-2.5-flash-native-audio-preview-12-2025",
     "gemini_live_api_model_3_1": "gemini-3.1-flash-live-preview",
@@ -86,21 +86,6 @@
       "replacement": null,
       "verified_at": "2026-08-10"
     },
-    "gemma-4-31b": {
-      "lifecycle": "preview",
-      "replacement": null,
-      "verified_at": "2026-08-10"
-    },
-    "gpt-oss-120b": {
-      "lifecycle": "stable",
-      "replacement": null,
-      "verified_at": "2026-08-10"
-    },
-    "zai-glm-4.7": {
-      "lifecycle": "preview",
-      "replacement": null,
-      "verified_at": "2026-08-10"
-    },
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
       "lifecycle": "stable",
       "replacement": null,
@@ -136,7 +121,6 @@
     "use_groq": true,
     "use_gemini": true,
     "use_openrouter": true,
-    "use_cerebras": true,
     "use_ollama": false
   },
   "priority_chains": {
@@ -145,7 +129,6 @@
       "google-gemini-3-1-flash-lite-vision",
       "groq-qwen-3-6-27b-vision",
       "google-gemini-robotics-er-2-vision",
-      "cerebras-gemma-4-31b-vision",
       "openrouter-nemotron-3-nano-omni-30b-a3b-vision",
       "google-gemma-4-31b-vision",
       "google-gemma-4-26b-a4b-vision",
@@ -153,8 +136,6 @@
       "google-gemini-3-6-flash-vision"
     ],
     "text_to_text": [
-      "cerebras-zai-glm-4-7-text",
-      "cerebras-gpt-oss-120b-text",
       "google-gemini-3-5-flash-lite-text",
       "groq-gpt-oss-20b-text",
       "groq-gpt-oss-120b-text",
@@ -316,13 +297,6 @@
     }
   ],
   "vision_request_profiles": {
-    "cerebras:gemma-4-31b": {
-      "input_order": "text-first",
-      "media_resolution": "provider-default",
-      "sampling": "provider-default",
-      "max_output_tokens": null,
-      "structured_output": "strict-json-schema"
-    },
     "groq:qwen/qwen3.6-27b": {
       "input_order": "text-first",
       "media_resolution": "provider-default",
@@ -425,18 +399,6 @@
       "supports_search": false,
       "search_tool_enabled_by_default": false,
       "reasoning_policy": "not-applicable"
-    },
-    "cerebras:gemma-4-31b": {
-      "name_vi": "C Cân bằng",
-      "name_ko": "C 균형",
-      "name_en": "C Balanced",
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited",
-      "intelligence_tier": 5,
-      "supports_search": false,
-      "search_tool_enabled_by_default": false,
-      "reasoning_policy": "openai-none"
     },
     "groq:qwen/qwen3.6-27b": {
       "name_vi": "G Thất thường",
@@ -654,30 +616,6 @@
       "search_tool_enabled_by_default": true,
       "reasoning_policy": "provider-managed"
     },
-    "cerebras:gpt-oss-120b": {
-      "name_vi": "C Nhanh",
-      "name_ko": "C 빠름",
-      "name_en": "C Fast",
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited",
-      "intelligence_tier": 5,
-      "supports_search": false,
-      "search_tool_enabled_by_default": false,
-      "reasoning_policy": "openai-low"
-    },
-    "cerebras:zai-glm-4.7": {
-      "name_vi": "C Kỹ",
-      "name_ko": "C 꼼꼼함",
-      "name_en": "C Careful",
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited",
-      "intelligence_tier": 5,
-      "supports_search": false,
-      "search_tool_enabled_by_default": false,
-      "reasoning_policy": "openai-none"
-    },
     "openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
       "name_vi": "O Nhanh",
       "name_ko": "O 빠름",
@@ -781,15 +719,6 @@
       "enabled": true,
       "typical_latency_ms": 800,
       "performance_source": "curated-2026-07-23:utility"
-    },
-    {
-      "id": "cerebras-gemma-4-31b-vision",
-      "provider": "cerebras",
-      "full_name": "gemma-4-31b",
-      "model_type": "Vision",
-      "enabled": true,
-      "typical_latency_ms": 900,
-      "performance_source": "benchmark-2026-08-10-protocol9:ocr-small-1024"
     },
     {
       "id": "groq-qwen-3-6-27b-vision",
@@ -969,24 +898,6 @@
       "model_type": "Text",
       "enabled": true,
       "typical_latency_ms": 1930,
-      "performance_source": "benchmark-2026-08-10-protocol9:text"
-    },
-    {
-      "id": "cerebras-gpt-oss-120b-text",
-      "provider": "cerebras",
-      "full_name": "gpt-oss-120b",
-      "model_type": "Text",
-      "enabled": true,
-      "typical_latency_ms": 368,
-      "performance_source": "benchmark-2026-08-10-protocol9:text"
-    },
-    {
-      "id": "cerebras-zai-glm-4-7-text",
-      "provider": "cerebras",
-      "full_name": "zai-glm-4.7",
-      "model_type": "Text",
-      "enabled": true,
-      "typical_latency_ms": 409,
       "performance_source": "benchmark-2026-08-10-protocol9:text"
     },
     {

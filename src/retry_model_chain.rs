@@ -369,9 +369,6 @@ pub fn provider_is_available(provider: &str, config: &Config) -> bool {
             config.use_openrouter
                 && credential_present("OPENROUTER_API_KEY", &config.openrouter_api_key)
         }
-        "cerebras" => {
-            config.use_cerebras && credential_present("CEREBRAS_API_KEY", &config.cerebras_api_key)
-        }
         "ollama" => config.use_ollama,
         "google-gtx" | "qrserver" | "parakeet" | "taalas" => true,
         _ => false,
@@ -403,15 +400,6 @@ fn provider_preflight_skip_reason(provider: &str, config: &Config) -> Option<Str
                 Some("PROVIDER_DISABLED:openrouter".to_string())
             } else if !credential_present("OPENROUTER_API_KEY", &config.openrouter_api_key) {
                 Some("NO_API_KEY:openrouter".to_string())
-            } else {
-                None
-            }
-        }
-        "cerebras" => {
-            if !config.use_cerebras {
-                Some("PROVIDER_DISABLED:cerebras".to_string())
-            } else if !credential_present("CEREBRAS_API_KEY", &config.cerebras_api_key) {
-                Some("NO_API_KEY:cerebras".to_string())
             } else {
                 None
             }

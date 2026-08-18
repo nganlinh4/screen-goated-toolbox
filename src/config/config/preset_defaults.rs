@@ -99,7 +99,6 @@ impl Config {
         self.use_groq |= recommended.use_groq;
         self.use_gemini |= recommended.use_gemini;
         self.use_openrouter |= recommended.use_openrouter;
-        self.use_cerebras |= recommended.use_cerebras;
         self.use_ollama |= recommended.use_ollama;
     }
 
@@ -556,7 +555,6 @@ mod tests {
         base.use_groq = false;
         base.use_gemini = false;
         base.use_openrouter = false;
-        base.use_cerebras = false;
         base.use_ollama = true;
         base.model_priority_chains.image_to_text = vec!["custom-image-priority".to_string()];
         base.model_priority_chains.text_to_text = vec!["custom-text-priority".to_string()];
@@ -581,7 +579,6 @@ mod tests {
         expected_applied.use_groq |= recommended.use_groq;
         expected_applied.use_gemini |= recommended.use_gemini;
         expected_applied.use_openrouter |= recommended.use_openrouter;
-        expected_applied.use_cerebras |= recommended.use_cerebras;
         expected_applied.use_ollama |= recommended.use_ollama;
         assert!(
             expected_applied.use_ollama,

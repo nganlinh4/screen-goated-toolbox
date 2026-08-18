@@ -1,6 +1,6 @@
 //! Shared helper for OpenAI-compatible `/chat/completions` providers.
 //!
-//! Several providers (Cerebras, OpenRouter, ...) hit the same OpenAI-style
+//! Several providers (Groq, OpenRouter, ...) hit the same OpenAI-style
 //! endpoint with the same POST + SSE streaming loop and the same non-streaming
 //! parse. This module centralizes that core so the per-provider functions stay
 //! thin wrappers that only build their payload + provider-specific preamble.
@@ -31,7 +31,7 @@ const MAX_PROVIDER_ERROR_MESSAGE_CHARS: usize = 1_024;
 ///   multimodal content as needed).
 /// * `streaming` — request + consume an SSE stream when `true`.
 /// * `reasoning_fallback` — when `true`, treat a content-less leading chunk as
-///   "thinking" even without an explicit `reasoning` delta (Cerebras
+///   "thinking" even without an explicit `reasoning` delta (some OpenAI-compatible
 ///   gpt-oss/zai-glm behavior). OpenRouter passes `false`.
 /// * `ui_language` — locale for the "thinking" indicator string.
 /// * `cancel_token` — cooperative cancellation flag.

@@ -22,15 +22,6 @@
         "structured_output": "strict-json-schema"
       },
       {
-        "provider": "cerebras",
-        "api_model": "gemma-4-31b",
-        "input_order": "text-first",
-        "media_resolution": "provider-default",
-        "sampling": "provider-default",
-        "max_output_tokens": null,
-        "structured_output": "strict-json-schema"
-      },
-      {
         "provider": "groq",
         "api_model": "qwen/qwen3.6-27b",
         "input_order": "text-first",
@@ -63,8 +54,21 @@
     "json_reserve_bytes": 16384,
     "maximum_encoded_image_bytes": 2500000,
     "minimum_encoded_image_bytes": 262144,
-    "jpeg_qualities": [90, 82, 74, 66, 58],
-    "resize_dimensions": [2048, 1792, 1536, 1280, 1024, 768],
+    "jpeg_qualities": [
+      90,
+      82,
+      74,
+      66,
+      58
+    ],
+    "resize_dimensions": [
+      2048,
+      1792,
+      1536,
+      1280,
+      1024,
+      768
+    ],
     "qwen_portable_tpm": {
       "limit": 8000,
       "completion_token_reserve": 512,

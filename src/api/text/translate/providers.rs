@@ -1,9 +1,7 @@
-use crate::api::cerebras;
 use crate::api::gemini_generate::{GeminiGenerateRequest, stream_gemini_generate};
 use crate::api::openai_compat::stream_openai_compat_payload;
 use anyhow::Result;
 use std::sync::{Arc, atomic::AtomicBool};
-use std::time::Duration;
 
 use super::TranslateTransportOptions;
 
@@ -83,62 +81,6 @@ where
             error
         }
     })
-}
-
-// --- CEREBRAS API ---
-pub(super) struct TranslateCerebrasRequest<'a> {
-    pub cerebras_api_key: &'a str,
-    pub model: &'a str,
-    pub instruction: &'a str,
-    pub text: &'a str,
-    pub streaming_enabled: bool,
-    pub ui_language: &'a str,
-    pub cancel_token: &'a Option<Arc<AtomicBool>>,
-    pub request_timeout: Option<Duration>,
-    pub response_schema: Option<&'a serde_json::Value>,
-}
-
-pub(super) fn translate_cerebras<F>(
-    request: TranslateCerebrasRequest<'_>,
-    on_chunk: &mut F,
-) -> Result<String>
-where
-    F: FnMut(&str),
-{
-    let TranslateCerebrasRequest {
-        cerebras_api_key,
-        model,
-        instruction,
-        text,
-        streaming_enabled,
-        ui_language,
-        cancel_token,
-        request_timeout,
-        response_schema,
-    } = request;
-    // Static instructions precede dynamic input so Cerebras automatic prefix
-    // caching can reuse the stable portion across repeated preset runs.
-    let messages = serde_json::json!([
-        { "role": "system", "content": instruction },
-        { "role": "user", "content": text }
-    ]);
-    cerebras::stream_chat(
-        cerebras::StreamChatRequest {
-            api_key: cerebras_api_key,
-            model,
-            messages,
-            streaming: streaming_enabled,
-            ui_language,
-            cancel_token,
-            error_label: "Cerebras API Error",
-            response_format: response_schema.and_then(|schema| {
-                cerebras::structured_response_format(model, "translation_result", schema)
-            }),
-            prediction: None,
-            request_timeout,
-        },
-        on_chunk,
-    )
 }
 
 // --- TAALAS API ---

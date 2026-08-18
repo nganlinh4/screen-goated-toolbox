@@ -170,7 +170,6 @@ fn attempts_fingerprint_the_current_production_reasoning_policy() {
         ("google-gemini-3-5-flash-lite-text", "gemini-level:minimal"),
         ("google-gemini-robotics-er-1-6-text", "gemini-budget:0"),
         ("groq-qwen-3-6-27b-vision", "openai-effort:none"),
-        ("cerebras-gpt-oss-120b-text", "openai-effort:low"),
     ];
     for (id, expected) in cases {
         let model = get_model_by_id(id).unwrap();

@@ -20,10 +20,6 @@ fn openrouter_is_enabled_for_new_and_missing_field_configs() {
         defaults.use_openrouter,
         crate::model_config::DEFAULT_USE_OPENROUTER
     );
-    assert_eq!(
-        defaults.use_cerebras,
-        crate::model_config::DEFAULT_USE_CEREBRAS
-    );
     assert_eq!(defaults.use_ollama, crate::model_config::DEFAULT_USE_OLLAMA);
     assert!(defaults.use_openrouter);
 

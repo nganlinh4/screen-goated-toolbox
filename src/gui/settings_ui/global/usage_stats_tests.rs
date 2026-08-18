@@ -36,7 +36,6 @@ fn google_and_live_share_a_section_without_sharing_endpoint_identity() {
             gemini: true,
             openrouter: true,
             ollama: true,
-            cerebras: true,
         },
     );
     assert_eq!(sections["google"].len(), 2);
@@ -49,7 +48,6 @@ fn disabled_explicit_provider_is_hidden_but_future_provider_remains_visible() {
         gemini: true,
         openrouter: true,
         ollama: true,
-        cerebras: true,
     };
     assert!(!provider_enabled("groq", toggles));
     assert!(provider_enabled("future-provider", toggles));
@@ -217,7 +215,7 @@ fn missing_live_snapshot_shows_only_the_static_quota() {
 #[test]
 fn empty_copy_names_every_provider_that_records_observed_usage() {
     let copy = LocaleText::get("vi").desktop_settings.usage_no_live_data;
-    for provider in ["Groq", "Cerebras", "OpenRouter"] {
+    for provider in ["Groq", "OpenRouter"] {
         assert!(copy.contains(provider), "{copy}");
     }
 }
@@ -228,7 +226,6 @@ fn uneven_provider_groups_balance_across_the_two_desktop_lanes() {
     let sections = BTreeMap::from([
         ("google".to_string(), vec![&sample; 12]),
         ("groq".to_string(), vec![&sample; 7]),
-        ("cerebras".to_string(), vec![&sample; 3]),
         ("openrouter".to_string(), vec![&sample; 2]),
         ("qwen3".to_string(), vec![&sample; 2]),
         ("google-gtx".to_string(), vec![&sample]),
@@ -246,6 +243,6 @@ fn uneven_provider_groups_balance_across_the_two_desktop_lanes() {
                 .sum()
         })
         .collect();
-    assert_eq!(columns.iter().flatten().count(), 9);
+    assert_eq!(columns.iter().flatten().count(), 8);
     assert!(weights[0].abs_diff(weights[1]) <= 2, "{weights:?}");
 }

@@ -13,7 +13,6 @@ pub struct RecommendedProviderDefaults {
     pub use_groq: bool,
     pub use_gemini: bool,
     pub use_openrouter: bool,
-    pub use_cerebras: bool,
     pub use_ollama: bool,
 }
 
@@ -23,7 +22,6 @@ impl Default for RecommendedProviderDefaults {
             use_groq: crate::model_config::DEFAULT_USE_GROQ,
             use_gemini: crate::model_config::DEFAULT_USE_GEMINI,
             use_openrouter: crate::model_config::DEFAULT_USE_OPENROUTER,
-            use_cerebras: crate::model_config::DEFAULT_USE_CEREBRAS,
             use_ollama: crate::model_config::DEFAULT_USE_OLLAMA,
         }
     }

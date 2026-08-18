@@ -76,7 +76,6 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
         ("DEFAULT_USE_GROQ", "use_groq"),
         ("DEFAULT_USE_GEMINI", "use_gemini"),
         ("DEFAULT_USE_OPENROUTER", "use_openrouter"),
-        ("DEFAULT_USE_CEREBRAS", "use_cerebras"),
         ("DEFAULT_USE_OLLAMA", "use_ollama"),
     ] {
         lines.push(format!(

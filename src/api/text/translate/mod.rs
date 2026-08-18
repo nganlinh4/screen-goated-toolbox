@@ -6,7 +6,7 @@ mod providers;
 
 use crate::api::providers::Provider;
 use anyhow::Result;
-use providers::{translate_cerebras, translate_gemini, translate_openrouter, translate_taalas};
+use providers::{translate_gemini, translate_openrouter, translate_taalas};
 use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Duration;
 
@@ -76,20 +76,6 @@ where
     let openrouter_api_key =
         crate::api::provider_credentials::resolve("OPENROUTER_API_KEY", &saved_openrouter_api_key);
 
-    let saved_cerebras_api_key = crate::APP
-        .lock()
-        .ok()
-        .and_then(|app| {
-            let config = app.config.clone();
-            if config.cerebras_api_key.is_empty() {
-                None
-            } else {
-                Some(config.cerebras_api_key.clone())
-            }
-        })
-        .unwrap_or_default();
-    let cerebras_api_key =
-        crate::api::provider_credentials::resolve("CEREBRAS_API_KEY", &saved_cerebras_api_key);
     let full_content;
     let prompt = format!("{}\n\n{}", instruction, text);
     let transport = TranslateTransportOptions {
@@ -200,23 +186,6 @@ where
                 &prompt,
                 response_schema,
                 transport,
-                &mut on_chunk,
-            )?;
-        }
-        Some(Provider::Cerebras) => {
-            // --- CEREBRAS API ---
-            full_content = translate_cerebras(
-                providers::TranslateCerebrasRequest {
-                    cerebras_api_key: &cerebras_api_key,
-                    model: &model,
-                    instruction: &instruction,
-                    text: &text,
-                    streaming_enabled,
-                    ui_language,
-                    cancel_token: &cancel_token,
-                    request_timeout,
-                    response_schema,
-                },
                 &mut on_chunk,
             )?;
         }

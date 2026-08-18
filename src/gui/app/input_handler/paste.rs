@@ -58,7 +58,6 @@ pub fn handle_paste(ctx: &egui::Context) -> bool {
     if let Some(id) = focused_id {
         let api_key_ids = [
             egui::Id::new("settings_api_key_groq"),
-            egui::Id::new("settings_api_key_cerebras"),
             egui::Id::new("settings_api_key_gemini"),
             egui::Id::new("settings_api_key_openrouter"),
             egui::Id::new("settings_api_key_ollama_url"),

@@ -43,10 +43,6 @@ fn recommended_defaults_match_the_shared_retry_fixture() {
         providers["use_openrouter"].as_bool(),
         Some(DEFAULT_USE_OPENROUTER)
     );
-    assert_eq!(
-        providers["use_cerebras"].as_bool(),
-        Some(DEFAULT_USE_CEREBRAS)
-    );
     assert_eq!(providers["use_ollama"].as_bool(), Some(DEFAULT_USE_OLLAMA));
     assert_eq!(
         models["generic_image"].as_str(),
@@ -93,39 +89,39 @@ fn recommended_defaults_match_the_shared_retry_fixture() {
 
 #[test]
 fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
-    assert_eq!(DEFAULT_TEXT_MODEL_ID, "cerebras-zai-glm-4-7-text");
+    assert_eq!(DEFAULT_TEXT_MODEL_ID, "google-gemini-3-5-flash-lite-text");
     assert_eq!(
         default_text_to_text_priority_chain_ids().first().copied(),
         Some(DEFAULT_TEXT_MODEL_ID)
     );
     let model = get_model_by_id(DEFAULT_TEXT_MODEL_ID).expect("default text model exists");
-    assert_eq!(model.provider, "cerebras");
-    assert_eq!(model.full_name, "zai-glm-4.7");
-    assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(409));
+    assert_eq!(model.provider, "google");
+    assert_eq!(model.full_name, "gemini-3.5-flash-lite");
+    assert_eq!(model.intelligence_tier, Some(6));
+    assert_eq!(model.typical_latency_ms, Some(592));
     assert_eq!(
         model.performance_source.as_deref(),
         Some("benchmark-2026-08-10-protocol9:text")
     );
     assert_eq!(
         default_text_to_text_priority_chain_ids().get(1).copied(),
-        Some("cerebras-gpt-oss-120b-text")
-    );
-    assert_eq!(
-        default_text_to_text_priority_chain_ids().get(3).copied(),
         Some("groq-gpt-oss-20b-text")
     );
     assert_eq!(
-        default_text_to_text_priority_chain_ids().get(4).copied(),
+        default_text_to_text_priority_chain_ids().get(2).copied(),
         Some("groq-gpt-oss-120b-text")
     );
     assert_eq!(
-        default_text_to_text_priority_chain_ids().get(6).copied(),
+        default_text_to_text_priority_chain_ids().get(3).copied(),
+        Some("google-gemini-3-1-flash-lite-text")
+    );
+    assert_eq!(
+        default_text_to_text_priority_chain_ids().get(4).copied(),
         Some("openrouter-nemotron-3-nano-omni-30b-a3b-text")
     );
     assert_eq!(
-        default_text_to_text_priority_chain_ids().get(5).copied(),
-        Some("google-gemini-3-1-flash-lite-text")
+        default_text_to_text_priority_chain_ids().get(6).copied(),
+        Some("google-gemma-4-26b-a4b-text")
     );
     let openrouter = get_model_by_id("openrouter-nemotron-3-nano-omni-30b-a3b-text")
         .expect("OpenRouter text fallback exists");
@@ -234,13 +230,6 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         );
     }
 
-    let cerebras_gemma = vision_request_profile("cerebras", "gemma-4-31b");
-    assert_eq!(cerebras_gemma.input_order, VisionInputOrder::TextFirst);
-    assert_eq!(
-        cerebras_gemma.structured_output,
-        StructuredOutputPolicy::StrictJsonSchema
-    );
-
     let qwen = vision_request_profile("groq", "qwen/qwen3.6-27b");
     assert_eq!(qwen.sampling, VisionSamplingPolicy::Qwen3GroqNonThinking);
     assert_eq!(qwen.max_output_tokens, Some(512));
@@ -275,7 +264,7 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
             "google-gemini-3-1-flash-lite-vision",
             "groq-qwen-3-6-27b-vision",
             "google-gemini-robotics-er-2-vision",
-            "cerebras-gemma-4-31b-vision",
+            "openrouter-nemotron-3-nano-omni-30b-a3b-vision",
         ]
     );
 

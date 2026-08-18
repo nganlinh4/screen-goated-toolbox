@@ -77,9 +77,9 @@ pub enum Icon {
 
     // Providers (aligned with the Android settings dialog)
     ElectricBolt, // groq        (Android: ms_electric_bolt)
-    Whatshot,     // cerebras    (Android: ms_local_fire_department)
     AutoAwesome,  // google / gemini  (Android: ms_auto_awesome)
     Translate,    // google-gtx  (Android: ms_translate)
+    Whatshot,     // (Android: ms_local_fire_department)
     Terminal,     // ollama      (Android: ms_terminal)
     Public,       // openrouter  (Android: ms_public)
     QrCode,       // qrserver
@@ -346,7 +346,6 @@ pub fn provider_icon(provider: &str) -> Icon {
         "google" | "gemini-live" => Icon::AutoAwesome,
         "google-gtx" => Icon::Translate,
         "groq" => Icon::ElectricBolt,
-        "cerebras" => Icon::Whatshot,
         "openrouter" => Icon::Public,
         "ollama" => Icon::Terminal,
         "qrserver" => Icon::QrCode,

@@ -46,9 +46,6 @@ fn key_for(provider: &str, config: &Config) -> Option<String> {
             "OPENROUTER_API_KEY",
             &config.openrouter_api_key,
         ),
-        "cerebras" => {
-            crate::api::provider_credentials::resolve("CEREBRAS_API_KEY", &config.cerebras_api_key)
-        }
         _ => String::new(),
     };
     let v = v.trim().to_string();

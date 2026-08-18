@@ -114,7 +114,7 @@ pub fn render_custom_models_modal(
                             changed = true;
                         }
                         columns[0].add_space(8.0);
-                        for provider in ["groq", "cerebras", "openrouter", "ollama"] {
+                        for provider in ["groq", "openrouter", "ollama"] {
                             if render_provider_section(&mut columns[1], config, provider, text) {
                                 changed = true;
                             }
@@ -560,7 +560,6 @@ fn provider_label(provider: &str) -> &str {
     match provider {
         "google" => "Gemini",
         "groq" => "Groq",
-        "cerebras" => "Cerebras",
         "openrouter" => "OpenRouter",
         "ollama" => "Ollama",
         _ => provider,

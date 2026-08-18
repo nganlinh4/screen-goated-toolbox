@@ -3,15 +3,13 @@ use serde::Deserialize;
 use urlencoding;
 
 use crate::api::client::{
-    UREQ_AGENT, UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_cerebras,
-    record_usage_simple,
+    UREQ_AGENT, UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_simple,
 };
 use crate::api::realtime_audio::state::TranslationRequest;
 use crate::config::Config;
 
 pub(super) struct TranslationKeys {
     pub(super) gemini: String,
-    pub(super) cerebras: String,
     pub(super) groq: String,
 }
 
@@ -79,14 +77,6 @@ fn translate_with_llm_chain(
         }
 
         let result = match model.provider.as_str() {
-            "cerebras" => translate_with_cerebras(
-                &keys.cerebras,
-                &model.full_name,
-                request,
-                target_language,
-                history_entries,
-                &model.id,
-            ),
             "google" => translate_with_google_model(
                 &keys.gemini,
                 &model.full_name,
@@ -172,51 +162,6 @@ fn translate_with_google_model(
     parse_translation_response(&json_text, request)
 }
 
-fn translate_with_cerebras(
-    api_key: &str,
-    model_name: &str,
-    request: &TranslationRequest,
-    target_language: &str,
-    history_entries: &[(String, String)],
-    stats_key: &str,
-) -> Option<ValidatedTranslationResponse> {
-    if api_key.trim().is_empty() {
-        return None;
-    }
-
-    let mut payload = serde_json::json!({
-        "model": model_name,
-        "messages": build_chat_messages(request, target_language, history_entries),
-        "stream": false,
-        "max_completion_tokens": 512,
-        "response_format": cerebras_response_format(),
-    });
-    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "cerebras", model_name);
-
-    let resp = UREQ_RESPONSE_AGENT
-        .post("https://api.cerebras.ai/v1/chat/completions")
-        .header("Authorization", &format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .send_json(payload)
-        .ok()?;
-
-    record_usage_cerebras(resp.headers(), stats_key);
-    if !resp.status().is_success() {
-        return None;
-    }
-
-    let root: serde_json::Value = resp.into_body().read_json().ok()?;
-    let content = root
-        .get("choices")?
-        .as_array()?
-        .first()?
-        .get("message")?
-        .get("content")?
-        .as_str()?;
-
-    parse_translation_response(content, request)
-}
-
 fn translate_with_gemini_live(
     model_name: &str,
     request: &TranslationRequest,
@@ -253,7 +198,7 @@ fn translate_with_groq(
         return None;
     }
 
-    let schema = cerebras_response_format()["json_schema"]["schema"].clone();
+    let schema = live_translate_response_format()["json_schema"]["schema"].clone();
     let mut payload = serde_json::json!({
         "model": model_name,
         "messages": build_chat_messages(request, target_language, history_entries),
@@ -461,7 +406,7 @@ Expected patches:\n{patches}",
     )
 }
 
-fn cerebras_response_format() -> serde_json::Value {
+fn live_translate_response_format() -> serde_json::Value {
     serde_json::json!({
         "type": "json_schema",
         "json_schema": {
