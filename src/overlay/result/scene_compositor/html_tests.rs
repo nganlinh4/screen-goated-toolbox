@@ -130,21 +130,29 @@ fn source_replacements_cannot_enter_the_ordinary_result_fitter() {
 }
 
 #[test]
-fn streamed_words_never_wait_in_a_renderer_backlog() {
+fn streamed_words_use_a_bounded_adaptive_reveal_queue() {
     let direct_runtime = include_str!("direct_runtime.js");
-    assert!(direct_runtime.contains("var entering = [];"));
-    assert!(direct_runtime.contains("reveal.lastRevealedIndex = words.length - 1;"));
-    assert!(direct_runtime.contains("opacity 0.12s ease-out"));
-    assert!(!direct_runtime.contains("reveal.credits +="));
-    assert!(!direct_runtime.contains("reveal.queue.shift()"));
+    assert!(direct_runtime.contains("var maximumLag = 80"));
+    assert!(direct_runtime.contains("reveal.queue.shift()"));
+    assert!(direct_runtime.contains("40 * (1 + reveal.queue.length / 10)"));
+    assert!(direct_runtime.contains("generation !== reveal.generation"));
+    assert!(direct_runtime.contains("opacity 0.35s ease-out"));
 }
 
 #[test]
-fn streaming_fit_work_is_bounded_without_delaying_content_updates() {
-    assert!(DOCUMENT.contains("if (elapsed < 80)"));
-    assert!(DOCUMENT.contains("queueFit(entry, true);"));
-    assert!(DOCUMENT.contains("entry.lastStreamingFitAt = now;"));
-    assert!(DOCUMENT.contains("clearTimeout(entry.streamingFitTimer);"));
+fn ordinary_results_retain_a_scroll_recovery_path_while_streaming() {
+    let direct_runtime = include_str!("direct_runtime.js");
+    assert!(direct_runtime.contains("body.style.overflowY = 'auto'"));
+}
+
+#[test]
+fn streaming_dom_replacement_is_immediate() {
+    assert!(DOCUMENT.contains("if (flushPendingContent(entry)) return;"));
+    assert!(DOCUMENT.contains("activateCard(entry, becameVisible);"));
+    assert!(!DOCUMENT.contains("contentFrame"));
+    assert!(!DOCUMENT.contains("lastContentFlushAt"));
+    assert!(!DOCUMENT.contains("lastStreamingFitAt"));
+    assert!(!DOCUMENT.contains("streamingFitTimer"));
 }
 
 #[test]

@@ -294,20 +294,23 @@
                         // reveal. Other final fits can still ease from visible state.
                         var fsDelta = Math.abs(targetFontSize - startFontSize);
                         var wDelta = Math.abs(targetWdth - startWdth);
-                        // Streaming fits are retargeted at the model's chunk
-                        // cadence. Use a linear path whose duration is derived
-                        // from remaining distance so retargeting preserves the
-                        // same visual velocity instead of restarting a cubic
-                        // acceleration pulse. Final fits happen once and keep
-                        // their eased settle.
-                        var PX_PER_SEC = isStreamingFit ? 55 : 75;
-                        var WDTH_PER_SEC = 120;
-                        var durationFromFont = (fsDelta / PX_PER_SEC) * 1000;
-                        var durationFromWdth = (wDelta / WDTH_PER_SEC) * 1000;
+                        // A growing response can move the target faster than a
+                        // fixed-speed animation. Increase velocity with target
+                        // debt so repeated retargeting converges instead of
+                        // accumulating a delayed final collapse. A visible final
+                        // fit continues the same linear controller.
+                        if (isStreamingFit) fitState._sgtStreamingMotionActive = true;
+                        var usesStreamingMotion = isStreamingFit
+                            || fitState._sgtStreamingMotionActive === true;
+                        var fontVelocity = usesStreamingMotion ? 55 + fsDelta * 7 : 75;
+                        var widthVelocity = usesStreamingMotion ? 120 + wDelta * 5 : 120;
+                        var durationFromFont = (fsDelta / fontVelocity) * 1000;
+                        var durationFromWdth = (wDelta / widthVelocity) * 1000;
                         var durationFromDelta = Math.max(durationFromFont, durationFromWdth);
-                        var minimumDuration = isStreamingFit ? 16 : 140;
-                        var maximumDuration = isStreamingFit ? 80 : 900;
-                        var duration = Math.max(minimumDuration, Math.min(maximumDuration, durationFromDelta));
+                        var minimumDuration = usesStreamingMotion ? 16 : 140;
+                        var maximumDuration = usesStreamingMotion ? 180 : 900;
+                        var duration = Math.max(minimumDuration,
+                            Math.min(maximumDuration, durationFromDelta));
                         // Only SNAP when the first fit of a session (no prior
                         // to animate from) or when the delta is essentially
                         // zero (< 0.1px wouldn't be visible anyway). Removed
@@ -321,13 +324,14 @@
                             applyPadding(targetPadTop, targetPadBottom);
                             fitState._sgtCurrentFontSize = targetFontSize;
                             fitState._sgtCurrentWdth = targetWdth;
+                            if (!isStreamingFit) fitState._sgtStreamingMotionActive = false;
                         } else {
                             applyAxes(startFontSize, startWdth);
                             applyPadding(startPadTop, startPadBottom);
                             var animStart = performance.now();
                             var tick = function(now) {
                                 var t = Math.min(1, (now - animStart) / duration);
-                                var eased = isStreamingFit
+                                var eased = usesStreamingMotion
                                     ? t
                                     : 1 - Math.pow(1 - t, 3);
                                 var curFs = startFontSize + (targetFontSize - startFontSize) * eased;
@@ -342,6 +346,9 @@
                                     fitState._sgtFitAnim = scheduleFitFrame(tick);
                                 } else {
                                     fitState._sgtFitAnim = null;
+                                    if (!isStreamingFit) {
+                                        fitState._sgtStreamingMotionActive = false;
+                                    }
                                 }
                             };
                             fitState._sgtFitAnim = scheduleFitFrame(tick);

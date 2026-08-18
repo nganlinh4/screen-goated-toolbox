@@ -50,13 +50,16 @@ mod tests {
     }
 
     #[test]
-    fn streaming_retargets_preserve_constant_scale_velocity() {
+    fn streaming_retargets_adapt_velocity_to_prevent_scale_debt() {
         let script = runtime_fit_script();
 
-        assert!(script.contains("var minimumDuration = isStreamingFit ? 16 : 140"));
-        assert!(script.contains("var eased = isStreamingFit"));
+        assert!(script.contains("55 + fsDelta * 7"));
+        assert!(script.contains("120 + wDelta * 5"));
+        assert!(script.contains("var maximumDuration = usesStreamingMotion ? 180 : 900"));
+        assert!(script.contains("fitState._sgtStreamingMotionActive = true"));
+        assert!(script.contains("var eased = usesStreamingMotion"));
         assert!(script.contains("? t"));
-        assert!(script.contains("var maximumDuration = isStreamingFit ? 80 : 900"));
+        assert!(!script.contains("_sgtContainmentTransition"));
     }
 
     #[test]
