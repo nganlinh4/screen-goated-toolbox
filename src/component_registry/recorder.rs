@@ -2,7 +2,7 @@
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use anyhow::{Result, bail};
 use sha2::{Digest as _, Sha256};
@@ -23,6 +23,7 @@ pub(crate) const WORKER_ID: &str = "recorder-worker";
 const ARCHITECTURE: &str = "x64";
 const WORKER_PATH: &str = "bin/x64/sgt-recorder-worker.exe";
 const MAX_COMPONENT_FILES: usize = 512;
+const MAX_VERIFICATION_WORKERS: usize = 8;
 
 struct RecorderFile {
     path: &'static str,
@@ -57,8 +58,15 @@ pub(crate) fn ensure_ready(
     let _mutation = super::acquire_mutation_guard()?;
     let web = delivery(WEB_ID)?;
     let worker = delivery(WORKER_ID)?;
-    install::ensure_pair(web, worker, cancelled, on_progress)?;
 
+    // A healthy install is the normal case, and acquisition already proves every
+    // owned byte. Probing it first keeps the open path to a single pass over the
+    // inventories instead of restating them before hashing them.
+    if let Ok(components) = acquire_verified_components(web, worker) {
+        return Ok(components);
+    }
+
+    install::ensure_pair(web, worker, cancelled, on_progress)?;
     match acquire_verified_components(web, worker) {
         Ok(components) => Ok(components),
         Err(first_error) => {
@@ -128,6 +136,28 @@ mod startup_path_tests {
         let acquisition = &source[start..end];
         assert_eq!(acquisition.matches("lock_component_files(").count(), 2);
         assert!(!acquisition.contains("validate_install("));
+    }
+
+    #[test]
+    fn healthy_open_verifies_the_inventory_once() {
+        let source = include_str!("recorder.rs");
+        let start = source.find("pub(crate) fn ensure_ready(").unwrap();
+        let end = source.find("fn acquire_verified_components(").unwrap();
+        let ready = &source[start..end];
+        let acquire = ready.find("acquire_verified_components(").unwrap();
+        let install = ready.find("install::ensure_pair(").unwrap();
+        assert!(
+            acquire < install,
+            "a healthy install must be acquired before any restating install pass"
+        );
+    }
+
+    #[test]
+    fn verification_workers_stay_bounded_and_never_idle() {
+        assert_eq!(super::verification_workers(0), 1);
+        assert_eq!(super::verification_workers(1), 1);
+        assert!(super::verification_workers(512) <= super::MAX_VERIFICATION_WORKERS);
+        assert!(super::verification_workers(512) >= 1);
     }
 
     #[test]
@@ -393,29 +423,79 @@ fn same_file(left: &OwnedComponentFile, right: &OwnedComponentFile) -> bool {
         && left.sha256.eq_ignore_ascii_case(&right.sha256)
 }
 
+/// Locks and verifies the inventory across a small pool. Every file is still
+/// opened, size-checked, and fully hashed before its handle is retained; the
+/// pool only overlaps the per-file open latency, which dominates a cold start.
 fn lock_component_files(root: &Path, files: &[RecorderFile]) -> Result<Vec<std::fs::File>> {
-    let mut locked = Vec::with_capacity(files.len());
-    for expected in files {
-        let path = resolve_owned_path(root, Path::new(expected.path))?;
-        let mut file = open_locked_regular_file(&path)?;
-        if file.metadata()?.len() != expected.size_bytes {
-            bail!("recorder component changed while acquiring its launch lease");
-        }
-        let mut hasher = Sha256::new();
-        let mut buffer = [0_u8; 128 * 1024];
-        loop {
-            let read = file.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..read]);
-        }
-        if !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected.sha256) {
-            bail!("recorder component changed while acquiring its launch lease");
-        }
-        locked.push(file);
+    let workers = verification_workers(files.len());
+    if workers <= 1 {
+        return files
+            .iter()
+            .map(|expected| lock_verified_file(root, expected))
+            .collect();
     }
-    Ok(locked)
+
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut locked = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(expected) = files.get(index) else {
+                            return Ok(locked);
+                        };
+                        locked.push(lock_verified_file(root, expected)?);
+                    }
+                })
+            })
+            .collect();
+
+        let mut locked = Vec::with_capacity(files.len());
+        let mut failure = None;
+        for handle in handles {
+            match handle.join() {
+                Ok(Ok(mut files)) => locked.append(&mut files),
+                Ok(Err(error)) => failure = failure.or(Some(error)),
+                Err(_) => {
+                    failure = failure.or_else(|| {
+                        Some(anyhow::anyhow!("recorder verification worker panicked"))
+                    })
+                }
+            }
+        }
+        match failure {
+            Some(error) => Err(error),
+            None => Ok(locked),
+        }
+    })
+}
+
+fn verification_workers(files: usize) -> usize {
+    let available = std::thread::available_parallelism().map_or(1, |value| value.get());
+    files.clamp(1, available.min(MAX_VERIFICATION_WORKERS))
+}
+
+fn lock_verified_file(root: &Path, expected: &RecorderFile) -> Result<std::fs::File> {
+    let path = resolve_owned_path(root, Path::new(expected.path))?;
+    let mut file = open_locked_regular_file(&path)?;
+    if file.metadata()?.len() != expected.size_bytes {
+        bail!("recorder component changed while acquiring its launch lease");
+    }
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 128 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    if !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected.sha256) {
+        bail!("recorder component changed while acquiring its launch lease");
+    }
+    Ok(file)
 }
 
 fn open_locked_regular_file(path: &Path) -> Result<std::fs::File> {
