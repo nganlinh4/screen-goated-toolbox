@@ -90,7 +90,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by viewModel.sessionState.collectAsStateWithLifecycle()
             val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
-            val cerebrasApiKey by viewModel.cerebrasApiKey.collectAsStateWithLifecycle()
             val groqApiKey by viewModel.groqApiKey.collectAsStateWithLifecycle()
             val openRouterApiKey by viewModel.openRouterApiKey.collectAsStateWithLifecycle()
             val ollamaUrl by viewModel.ollamaUrl.collectAsStateWithLifecycle()
@@ -145,12 +144,10 @@ class MainActivity : ComponentActivity() {
                     state = state,
                     providerKeys = ProviderKeysState(
                         apiKey = apiKey,
-                        cerebrasApiKey = cerebrasApiKey,
                         groqApiKey = groqApiKey,
                         openRouterApiKey = openRouterApiKey,
                         ollamaUrl = ollamaUrl,
                         onApiKeyChanged = viewModel::onApiKeyChanged,
-                        onCerebrasApiKeyChanged = viewModel::onCerebrasApiKeyChanged,
                         onGroqApiKeyChanged = viewModel::onGroqApiKeyChanged,
                         onOpenRouterApiKeyChanged = viewModel::onOpenRouterApiKeyChanged,
                         onOllamaUrlChanged = viewModel::onOllamaUrlChanged,

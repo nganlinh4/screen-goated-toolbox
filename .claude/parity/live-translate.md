@@ -73,7 +73,7 @@
   - if the translation pane is hidden, mobile must skip opening new translation requests just like Windows skips work when translation visibility is off
 - Realtime control contract:
   - translation providers must expose exactly two ids: `text-llm` and `google-gtx`
-  - `text-llm` walks the centralized `text_to_text` priority chain at translate time, picking the first model whose provider key/availability check passes (Cerebras / Google / Groq are the supported HTTP backends today); the per-model API name comes from the shared model catalog, not a separate realtime constant
+  - `text-llm` walks the centralized `text_to_text` priority chain at translate time, picking the first model whose provider key/availability check passes (Google / Groq are the supported HTTP backends today); the per-model API name comes from the shared model catalog, not a separate realtime constant
   - Android `text-llm` must reuse the same provider enabled/key availability checks as the preset retry chain before attempting a provider in the priority chain
   - `google-gtx` keeps the unofficial Google Translate endpoint and stays available without a key
   - Windows transcription providers are exposed in this order: `gemini-3.5-translate`, `gemini-live-audio`, `gemini-live-audio-3.1`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`

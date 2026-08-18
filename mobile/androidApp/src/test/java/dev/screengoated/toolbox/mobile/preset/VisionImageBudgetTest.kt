@@ -184,7 +184,7 @@ class VisionImageBudgetTest {
         assertEquals(2_000L, groqVisionRetryDelayMillis("Groq", 429, false, 2))
         assertEquals(null, groqVisionRetryDelayMillis("Groq", 429, true, 2))
         assertEquals(null, groqVisionRetryDelayMillis("Groq", 429, false, 3))
-        assertEquals(null, groqVisionRetryDelayMillis("Cerebras", 429, false, 2))
+        assertEquals(null, groqVisionRetryDelayMillis("OpenRouter", 429, false, 2))
     }
 
     private fun fixturePath(): Path {

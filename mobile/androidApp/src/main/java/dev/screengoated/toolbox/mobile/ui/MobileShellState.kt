@@ -23,12 +23,10 @@ internal data class ShellSectionRequest(
 @Immutable
 data class ProviderKeysState(
     val apiKey: String,
-    val cerebrasApiKey: String,
     val groqApiKey: String,
     val openRouterApiKey: String,
     val ollamaUrl: String,
     val onApiKeyChanged: (String) -> Unit,
-    val onCerebrasApiKeyChanged: (String) -> Unit,
     val onGroqApiKeyChanged: (String) -> Unit,
     val onOpenRouterApiKeyChanged: (String) -> Unit,
     val onOllamaUrlChanged: (String) -> Unit,

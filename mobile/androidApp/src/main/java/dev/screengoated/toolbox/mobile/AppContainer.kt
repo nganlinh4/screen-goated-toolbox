@@ -106,7 +106,6 @@ class AppContainer(
         apiKeys = {
             ApiKeys(
                 geminiKey = repository.currentApiKey(),
-                cerebrasKey = repository.currentCerebrasApiKey(),
                 groqKey = repository.currentGroqApiKey(),
                 openRouterKey = repository.currentOpenRouterApiKey(),
                 ollamaBaseUrl = repository.currentOllamaUrl(),
@@ -121,7 +120,6 @@ class AppContainer(
 
     internal fun currentPresetApiKeys() = ApiKeys(
         geminiKey = repository.currentApiKey(),
-        cerebrasKey = repository.currentCerebrasApiKey(),
         groqKey = repository.currentGroqApiKey(),
         openRouterKey = repository.currentOpenRouterApiKey(),
         ollamaBaseUrl = repository.currentOllamaUrl(),

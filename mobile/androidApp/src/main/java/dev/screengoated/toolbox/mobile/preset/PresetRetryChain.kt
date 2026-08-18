@@ -67,8 +67,6 @@ internal fun providerIsAvailable(
     -> settings.providerSettings.useGemini && apiKeys.geminiKey.isNotBlank()
     PresetModelProvider.OPENROUTER ->
         settings.providerSettings.useOpenRouter && apiKeys.openRouterKey.isNotBlank()
-    PresetModelProvider.CEREBRAS ->
-        settings.providerSettings.useCerebras && apiKeys.cerebrasKey.isNotBlank()
     PresetModelProvider.OLLAMA ->
         settings.providerSettings.useOllama && apiKeys.ollamaBaseUrl.isNotBlank()
     PresetModelProvider.GOOGLE_GTX,
@@ -108,8 +106,6 @@ internal fun preflightSkipReason(
             }
             PresetModelProvider.OPENROUTER ->
                 if (!settings.providerSettings.useOpenRouter) "PROVIDER_DISABLED:openrouter" else "NO_API_KEY:openrouter"
-            PresetModelProvider.CEREBRAS ->
-                if (!settings.providerSettings.useCerebras) "PROVIDER_DISABLED:cerebras" else "NO_API_KEY:cerebras"
             PresetModelProvider.OLLAMA ->
                 if (!settings.providerSettings.useOllama) "PROVIDER_DISABLED:ollama" else "OLLAMA_URL_MISSING"
             else -> null
@@ -221,7 +217,6 @@ private fun isRetryCandidateCompatible(
 
 private fun providerKey(provider: PresetModelProvider): String = when (provider) {
     PresetModelProvider.GOOGLE -> "google"
-    PresetModelProvider.CEREBRAS -> "cerebras"
     PresetModelProvider.GROQ -> "groq"
     PresetModelProvider.OPENROUTER -> "openrouter"
     PresetModelProvider.GOOGLE_GTX -> "google-gtx"

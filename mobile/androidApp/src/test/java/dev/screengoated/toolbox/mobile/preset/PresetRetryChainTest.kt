@@ -88,7 +88,6 @@ class PresetRetryChainTest {
             chainKind = PresetRetryChainKind.TEXT_TO_TEXT,
             apiKeys = ApiKeys(
                 geminiKey = "g",
-                cerebrasKey = "c",
                 groqKey = "r",
                 openRouterKey = "o",
                 ollamaBaseUrl = "http://localhost:11434",
@@ -186,10 +185,6 @@ class PresetRetryChainTest {
         assertEquals(
             providerSettings.getValue("use_openrouter").jsonPrimitive.boolean,
             defaults.providerSettings.useOpenRouter,
-        )
-        assertEquals(
-            providerSettings.getValue("use_cerebras").jsonPrimitive.boolean,
-            defaults.providerSettings.useCerebras,
         )
         assertEquals(
             providerSettings.getValue("use_ollama").jsonPrimitive.boolean,

@@ -69,43 +69,7 @@ pub fn snapshot_from_headers(
 ) -> Option<UsageSnapshot> {
     let provider = normalize_provider(provider);
     let mut metrics = Vec::new();
-    if provider == "cerebras" {
-        push(
-            &mut metrics,
-            headers,
-            UsageMetricKind::RequestsDay,
-            "x-ratelimit-remaining-requests-day",
-            "x-ratelimit-limit-requests-day",
-            "x-ratelimit-reset-requests-day",
-        );
-        push(
-            &mut metrics,
-            headers,
-            UsageMetricKind::RequestsMinute,
-            "x-ratelimit-remaining-requests-minute",
-            "x-ratelimit-limit-requests-minute",
-            "x-ratelimit-reset-requests-minute",
-        );
-        push(
-            &mut metrics,
-            headers,
-            UsageMetricKind::TokensMinute,
-            "x-ratelimit-remaining-tokens-minute",
-            "x-ratelimit-limit-tokens-minute",
-            "x-ratelimit-reset-tokens-minute",
-        );
-        push(
-            &mut metrics,
-            headers,
-            UsageMetricKind::TokensDay,
-            "x-ratelimit-remaining-tokens-day",
-            "x-ratelimit-limit-tokens-day",
-            "x-ratelimit-reset-tokens-day",
-        );
-        if metrics.is_empty() {
-            push_common(&mut metrics, headers);
-        }
-    } else if provider == "openrouter" {
+    if provider == "openrouter" {
         push(
             &mut metrics,
             headers,

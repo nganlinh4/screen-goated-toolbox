@@ -1,6 +1,6 @@
 ---
 name: update-model-catalog
-description: Discover, verify, benchmark, add, remove, rename, or reprioritize built-in AI models in Screen Goated Toolbox. Use for provider catalog refreshes, AI Studio quota audits, Groq or Cerebras model/rate-limit checks, OpenRouter free-model discovery, live production-path model comparisons, catalog latency/intelligence updates, preset/default changes, or retry-chain maintenance.
+description: Discover, verify, benchmark, add, remove, rename, or reprioritize built-in AI models in Screen Goated Toolbox. Use for provider catalog refreshes, AI Studio quota audits, Groq model/rate-limit checks, OpenRouter free-model discovery, live production-path model comparisons, catalog latency/intelligence updates, preset/default changes, or retry-chain maintenance.
 ---
 
 # Update Model Catalog

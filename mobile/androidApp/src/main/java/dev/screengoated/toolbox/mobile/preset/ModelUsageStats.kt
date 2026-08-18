@@ -114,45 +114,6 @@ object ModelUsageStats {
     ): UsageSnapshot? {
         val metrics = mutableListOf<UsageMetric>()
         when (provider) {
-            PresetModelProvider.CEREBRAS -> {
-                metrics.addMetric(
-                    headers,
-                    MetricKind.REQUESTS_DAY,
-                    HeaderTriple(
-                        "x-ratelimit-remaining-requests-day",
-                        "x-ratelimit-limit-requests-day",
-                        "x-ratelimit-reset-requests-day",
-                    ),
-                )
-                metrics.addMetric(
-                    headers,
-                    MetricKind.REQUESTS_MINUTE,
-                    HeaderTriple(
-                        "x-ratelimit-remaining-requests-minute",
-                        "x-ratelimit-limit-requests-minute",
-                        "x-ratelimit-reset-requests-minute",
-                    ),
-                )
-                metrics.addMetric(
-                    headers,
-                    MetricKind.TOKENS_MINUTE,
-                    HeaderTriple(
-                        "x-ratelimit-remaining-tokens-minute",
-                        "x-ratelimit-limit-tokens-minute",
-                        "x-ratelimit-reset-tokens-minute",
-                    ),
-                )
-                metrics.addMetric(
-                    headers,
-                    MetricKind.TOKENS_DAY,
-                    HeaderTriple(
-                        "x-ratelimit-remaining-tokens-day",
-                        "x-ratelimit-limit-tokens-day",
-                        "x-ratelimit-reset-tokens-day",
-                    ),
-                )
-                if (metrics.isEmpty()) metrics.addCommonMetrics(headers)
-            }
             PresetModelProvider.OPENROUTER -> {
                 metrics.addMetric(
                     headers,

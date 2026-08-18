@@ -48,9 +48,6 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
     val fullContent = StringBuilder()
     var thinkingShown = false
     var contentStarted = false
-    val reasoningFallback = model.provider == PresetModelProvider.CEREBRAS &&
-        (model.fullName.contains("gpt-oss") || model.fullName.contains("zai-glm"))
-
     httpClient.newCall(request).execute().use { response ->
         ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
@@ -69,89 +66,7 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
                 if (data.isBlank() || data == "[DONE]") return@forEach
 
                 val delta = extractOpenAiDelta(data)
-                if ((delta.reasoning.isNotEmpty() || reasoningFallback) && !thinkingShown && !contentStarted) {
-                    onChunk(thinkingLabel(uiLanguage))
-                    thinkingShown = true
-                }
-                if (delta.content.isNotEmpty()) {
-                    if (!contentStarted && thinkingShown) {
-                        contentStarted = true
-                        fullContent.append(delta.content)
-                        onChunk("${TextApiClient.WIPE_SIGNAL}$fullContent")
-                    } else {
-                        contentStarted = true
-                        fullContent.append(delta.content)
-                        onChunk(delta.content)
-                    }
-                }
-            }
-        }
-    }
-
-    return fullContent.toString()
-}
-
-internal suspend fun TextApiClient.streamCerebras(
-    model: PresetModelDescriptor,
-    prompt: String,
-    inputText: String,
-    apiKey: String,
-    uiLanguage: String,
-    onChunk: (String) -> Unit,
-    streamingEnabled: Boolean,
-    predictionContent: String?,
-): String {
-    if (apiKey.isBlank()) throw IOException("NO_API_KEY:cerebras")
-    if (!streamingEnabled) {
-        return generateCerebrasBlocking(
-            model = model,
-            prompt = prompt,
-            inputText = inputText,
-            apiKey = apiKey,
-            onChunk = onChunk,
-            predictionContent = predictionContent,
-        )
-    }
-
-    val encoded = encodeCerebrasJson(
-        cerebrasPayload(model.fullName, prompt, inputText, predictionContent = predictionContent),
-    )
-    val requestBuilder = Request.Builder()
-        .url(CEREBRAS_ENDPOINT)
-        .header("Authorization", "Bearer $apiKey")
-        .header("Content-Type", "application/json")
-        .post(encoded.body)
-    if (encoded.gzipEncoded) requestBuilder.header("Content-Encoding", "gzip")
-    val request = requestBuilder.build()
-
-    val fullContent = StringBuilder()
-    var thinkingShown = false
-    var contentStarted = false
-    val reasoningFallback = model.fullName.contains("gpt-oss") || model.fullName.contains("zai-glm")
-
-    httpClient.newCall(request).execute().use { response ->
-        ModelUsageStats.update(model.provider, model.fullName, response.headers)
-        if (!response.isSuccessful) {
-            val code = response.code
-            val errorBody = response.body.string().orEmpty()
-            Log.e(
-                "TextApiClient",
-                "Cerebras request failed code=$code model=${model.fullName} body=$errorBody",
-            )
-            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("cerebras"))
-            throw IOException("Cerebras request failed with $code")
-        }
-        val body = response.body
-        body.charStream().buffered().useLines { lines ->
-            lines.forEach { rawLine ->
-                coroutineContext.ensureActive()
-                val line = rawLine.trim()
-                if (!line.startsWith("data: ")) return@forEach
-                val data = line.removePrefix("data: ").trim()
-                if (data.isBlank() || data == "[DONE]") return@forEach
-
-                val delta = extractOpenAiDelta(data)
-                if ((delta.reasoning.isNotEmpty() || reasoningFallback) && !thinkingShown && !contentStarted) {
+                if (delta.reasoning.isNotEmpty() && !thinkingShown && !contentStarted) {
                     onChunk(thinkingLabel(uiLanguage))
                     thinkingShown = true
                 }
@@ -312,61 +227,6 @@ private suspend fun TextApiClient.generateOpenAiCompatibleBlocking(
         }
         if (content.isBlank()) {
             throw IOException("$providerName returned blank content.")
-        }
-        onChunk(content)
-        return content
-    }
-}
-
-private suspend fun TextApiClient.generateCerebrasBlocking(
-    model: PresetModelDescriptor,
-    prompt: String,
-    inputText: String,
-    apiKey: String,
-    onChunk: (String) -> Unit,
-    predictionContent: String?,
-): String {
-    val encoded = encodeCerebrasJson(
-        cerebrasPayload(
-            model.fullName,
-            prompt,
-            inputText,
-            stream = false,
-            predictionContent = predictionContent,
-        ),
-    )
-    val requestBuilder = Request.Builder()
-        .url(CEREBRAS_ENDPOINT)
-        .header("Authorization", "Bearer $apiKey")
-        .header("Content-Type", "application/json")
-        .post(encoded.body)
-    if (encoded.gzipEncoded) requestBuilder.header("Content-Encoding", "gzip")
-    val request = requestBuilder.build()
-
-    httpClient.newCall(request).execute().use { response ->
-        ModelUsageStats.update(model.provider, model.fullName, response.headers)
-        if (!response.isSuccessful) {
-            val code = response.code
-            val errorBody = response.body.string().orEmpty()
-            Log.e(
-                "TextApiClient",
-                "Cerebras request failed code=$code model=${model.fullName} body=$errorBody",
-            )
-            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("cerebras"))
-            throw IOException("Cerebras request failed with $code")
-        }
-        val content = try {
-            JSONObject(response.body.string().orEmpty())
-                .optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content", "")
-                .orEmpty()
-        } catch (_: JSONException) {
-            ""
-        }
-        if (content.isBlank()) {
-            throw IOException("Cerebras returned blank content.")
         }
         onChunk(content)
         return content

@@ -10,7 +10,7 @@
 - User-visible flow: the global settings action opens a model-management dialog with a header, provider-grouped model sections, provider-local add/scan actions, read-only built-in/discovered rows, and editable user rows.
 - State model: custom models keep `id`, `provider`, `displayName`, `fullName`, `modelType`, `enabled`, quota text, and optional search support. Built-in and discovered models are visible but locked.
 - Transition rules: adding, importing, scanning, editing, enabling, search toggling, and deleting custom models take effect immediately. Adding a provider model creates a unique `custom-<provider>-<slug>` id; imported OpenRouter and scanned Ollama models are skipped when the same provider/full name already exists.
-- Output contract: the editable provider order is Gemini, Groq, Cerebras, OpenRouter, Ollama. OpenRouter add/import controls live in the OpenRouter card, and Ollama scan lives in the Ollama card, so the dialog header is reserved for title/description/close only.
+- Output contract: the editable provider order is Gemini, Groq, OpenRouter, Ollama. OpenRouter add/import controls live in the OpenRouter card, and Ollama scan lives in the Ollama card, so the dialog header is reserved for title/description/close only.
 
 ## Failure And Recovery
 - Permission/runtime failures: none.

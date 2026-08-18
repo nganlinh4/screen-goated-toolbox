@@ -9,7 +9,6 @@ internal fun apiKeyErrorToastText(error: String, uiLanguage: String): String? {
     val provider = when {
         normalized.contains("groq", ignoreCase = true) -> "Groq"
         normalized.contains("openrouter", ignoreCase = true) -> "OpenRouter"
-        normalized.contains("cerebras", ignoreCase = true) -> "Cerebras"
         normalized.contains("openai", ignoreCase = true) -> "OpenAI"
         normalized.contains("google", ignoreCase = true) || normalized.contains("gemini", ignoreCase = true) -> "Google Gemini"
         else -> "API"

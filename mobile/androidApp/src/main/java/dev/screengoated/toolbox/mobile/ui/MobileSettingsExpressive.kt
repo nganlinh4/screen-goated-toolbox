@@ -343,7 +343,6 @@ private fun settingsMorphPath(
 
 internal fun providerAccent(label: String, colors: androidx.compose.material3.ColorScheme): Color = when (label) {
     "Gemini" -> colors.primary
-    "Cerebras" -> Color(0xFFFF7043)
     "Groq" -> Color(0xFFFFB300)
     "OpenRouter" -> colors.tertiary
     "Ollama" -> colors.secondary

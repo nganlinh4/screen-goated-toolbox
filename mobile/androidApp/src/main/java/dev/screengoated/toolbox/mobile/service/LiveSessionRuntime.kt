@@ -361,7 +361,6 @@ class LiveSessionRuntime(
             try {
                 var result = translationClient.translate(
                     geminiApiKey = repository.currentApiKey(),
-                    cerebrasApiKey = repository.currentCerebrasApiKey(),
                     groqApiKey = repository.currentGroqApiKey(),
                     request = request,
                     targetLanguage = repository.currentConfig().targetLanguage,
@@ -379,8 +378,7 @@ class LiveSessionRuntime(
                     val fallbackProvider = fallbackTranslationProviderId(requestedProvider)
                     result = translationClient.translateWithExactProvider(
                         geminiApiKey = repository.currentApiKey(),
-                        cerebrasApiKey = repository.currentCerebrasApiKey(),
-                        groqApiKey = repository.currentGroqApiKey(),
+                            groqApiKey = repository.currentGroqApiKey(),
                         request = request,
                         targetLanguage = repository.currentConfig().targetLanguage,
                         providerId = fallbackProvider,

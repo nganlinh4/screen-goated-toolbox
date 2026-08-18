@@ -50,7 +50,7 @@ internal val defaultTextSelectPresets: List<Preset> = listOf(
                 "Translate to {language1}. Output ONLY the translation.",
                 "language1" to "Vietnamese",
             ),
-            // Node 2: Cerebras
+            // Node 2: Default text model
             textBlock(
                 DEFAULT_TEXT_MODEL_ID,
                 "Translate the following text to {language1}. Output ONLY the translation.",

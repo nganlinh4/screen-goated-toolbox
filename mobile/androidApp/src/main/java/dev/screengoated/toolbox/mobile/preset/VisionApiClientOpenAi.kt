@@ -41,14 +41,12 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
         return generateOpenAiVisionBlocking(endpoint, apiKey, providerName, model, payload, onChunk)
     }
 
-    val encoded = if (providerName == "Cerebras") encodeCerebrasJson(payload) else null
-    val requestBuilder = Request.Builder()
+    val request = Request.Builder()
         .url(endpoint)
         .header("Authorization", "Bearer $apiKey")
         .header("Content-Type", "application/json")
-        .post(encoded?.body ?: payload.toString().toRequestBody(jsonMediaType))
-    if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
-    val request = requestBuilder.build()
+        .post(payload.toString().toRequestBody(jsonMediaType))
+        .build()
 
     val fullContent = StringBuilder()
     var thinkingShown = false
@@ -94,14 +92,12 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
     payload: JSONObject,
     onChunk: (String) -> Unit,
 ): String {
-    val encoded = if (providerName == "Cerebras") encodeCerebrasJson(payload) else null
-    val requestBuilder = Request.Builder()
+    val request = Request.Builder()
         .url(endpoint)
         .header("Authorization", "Bearer $apiKey")
         .header("Content-Type", "application/json")
-        .post(encoded?.body ?: payload.toString().toRequestBody(jsonMediaType))
-    if (encoded?.gzipEncoded == true) requestBuilder.header("Content-Encoding", "gzip")
-    val request = requestBuilder.build()
+        .post(payload.toString().toRequestBody(jsonMediaType))
+        .build()
 
     executeOpenAiVisionRequest(request, providerName, model).use { response ->
         val content = try {
@@ -264,8 +260,5 @@ internal fun openAiVisionPayload(
             .put("presence_penalty", 1.5)
     }
     model.visionMaxOutputTokens?.let { payload.put("max_completion_tokens", it) }
-    if (provider == PresetModelProvider.CEREBRAS && model.visionMaxOutputTokens == null) {
-        payload.put("max_completion_tokens", 8192)
-    }
     return applyFastReasoningPolicy(payload, provider, fullName)
 }

@@ -52,17 +52,17 @@ class TextApiClientTest {
     }
 
     @Test
-    fun cerebrasGptOssRequestBodyUsesCatalogApiModel() {
+    fun groqGptOssRequestBodyUsesCatalogApiModel() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
-                modelId = "cerebras-gpt-oss-120b-text",
+                modelId = "groq-gpt-oss-120b-text",
                 prompt = "Translate to Vietnamese.",
                 inputText = "Hello",
             ),
         ).jsonObject
 
         assertEquals(
-            "gpt-oss-120b",
+            "openai/gpt-oss-120b",
             payload.getValue("model").jsonPrimitive.content,
         )
         assertTrue(payload.getValue("stream").jsonPrimitive.boolean)
@@ -144,20 +144,6 @@ class TextApiClientTest {
                 PresetModelCatalog.searchToolEnabledByDefaultById(modelId),
             )
         }
-    }
-
-    @Test
-    fun cerebrasGptOssUsesItsCatalogReasoningAndLimit() {
-        val payload = json.parseToJsonElement(
-            client.debugBuildRequestBody(
-                modelId = "cerebras-gpt-oss-120b-text",
-                prompt = "Translate.",
-                inputText = "Hello",
-            ),
-        ).jsonObject
-        assertEquals("gpt-oss-120b", payload.getValue("model").jsonPrimitive.content)
-        assertEquals("low", payload.getValue("reasoning_effort").jsonPrimitive.content)
-        assertEquals(8192, payload.getValue("max_completion_tokens").jsonPrimitive.content.toInt())
     }
 
     @Test

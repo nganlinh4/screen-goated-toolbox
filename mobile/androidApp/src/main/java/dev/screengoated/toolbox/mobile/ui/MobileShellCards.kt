@@ -54,13 +54,11 @@ private data class ProviderDef(
 @Composable
 internal fun CredentialsCard(
     apiKey: String,
-    cerebrasApiKey: String,
     groqApiKey: String,
     openRouterApiKey: String,
     ollamaUrl: String,
     locale: MobileLocaleText,
     onApiKeyChanged: (String) -> Unit,
-    onCerebrasApiKeyChanged: (String) -> Unit,
     onGroqApiKeyChanged: (String) -> Unit,
     onOpenRouterApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
@@ -75,13 +73,6 @@ internal fun CredentialsCard(
                 keyLabel = locale.groqKeyLabel,
                 getKeyUrl = "https://console.groq.com/keys",
                 getKeyLabel = locale.groqGetKeyLink,
-            )
-            CredentialsProviderId.CEREBRAS -> ProviderDef(
-                label = provider.label,
-                icon = R.drawable.ms_local_fire_department,
-                keyLabel = locale.cerebrasKeyLabel,
-                getKeyUrl = "https://cloud.cerebras.ai/",
-                getKeyLabel = locale.cerebrasGetKeyLink,
             )
             CredentialsProviderId.GEMINI -> ProviderDef(
                 label = provider.label,
@@ -136,10 +127,9 @@ internal fun CredentialsCard(
 
             val fields = listOf(
                 FieldEntry(0, groqApiKey, onGroqApiKeyChanged),
-                FieldEntry(1, cerebrasApiKey, onCerebrasApiKeyChanged),
-                FieldEntry(2, apiKey, onApiKeyChanged),
-                FieldEntry(3, openRouterApiKey, onOpenRouterApiKeyChanged),
-                FieldEntry(4, ollamaUrl, onOllamaUrlChanged, isPassword = false),
+                FieldEntry(1, apiKey, onApiKeyChanged),
+                FieldEntry(2, openRouterApiKey, onOpenRouterApiKeyChanged),
+                FieldEntry(3, ollamaUrl, onOllamaUrlChanged, isPassword = false),
             )
             @Composable
             fun ApiKeyFieldContent(

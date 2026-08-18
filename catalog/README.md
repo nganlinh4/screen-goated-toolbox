@@ -29,7 +29,7 @@ Built-in IDs use lowercase ASCII kebab-case:
 
 `<provider>-<family>-<version-or-variant>-<capability>`
 
-- Provider is first: `google`, `groq`, `cerebras`, `openrouter`, `taalas`,
+- Provider is first: `google`, `groq`, `openrouter`, `taalas`,
   `qrserver`, or `local`.
 - Capability is last: `text`, `vision`, `audio`, or `search`.
 - The API endpoint belongs only in `full_name`; never copy slashes or provider
@@ -47,7 +47,7 @@ Examples:
 
 - `google-gemini-3-5-flash-lite-vision`
 - `groq-qwen-3-6-27b-vision`
-- `cerebras-gpt-oss-120b-text`
+- `groq-gpt-oss-120b-text`
 - `local-qwen-3-asr-1-7b-audio`
 
 ## Localized Display Names
@@ -61,13 +61,12 @@ base-name triplet across all modalities.
 | --- | --- |
 | Google, Gemini Live, Google GTX | `GG` |
 | Groq | `G` |
-| Cerebras | `C` |
 | OpenRouter | `O` |
 | Taalas | `T` |
 | Local runtimes | `L` |
 | QRServer | `QR` |
 
-Prefer the shortest useful description, for example `GG Chuẩn`, `C Kỹ`, or
+Prefer the shortest useful description, for example `GG Chuẩn`, `G Gọn`, or
 `G Thất thường`. A raw API/model version is not a user-facing
 specialty.
 
@@ -93,10 +92,10 @@ does not claim the absence of RPM, TPM, daily token, file-size, concurrency, or
 account-tier limits.
 
 The 2026-07-23 audit used the active project's AI Studio rate-limit page for
-Google/Gemini, Groq's official free-tier rate-limit table, and the official
-Cerebras rate-limit documentation. Paid-only endpoints are excluded from the
-built-in catalog. Recheck the exact active project/account before changing
-labels because provider tiers and project-specific limits can change.
+Google/Gemini and Groq's official free-tier rate-limit table. Paid-only
+endpoints are excluded from the built-in catalog. Recheck the exact active
+project/account before changing labels because provider tiers and
+project-specific limits can change.
 
 ## Performance Metadata
 
@@ -149,8 +148,7 @@ platforms and must not be reimplemented with model-name heuristics.
 - Ordinary OpenAI-compatible reasoning models use `none` where supported and
   otherwise the lowest supported level (`low`).
 - OpenRouter encodes that policy as nested
-  `reasoning: { effort: "<level>" }`; Groq and Cerebras use
-  `reasoning_effort`.
+  `reasoning: { effort: "<level>" }`; Groq uses `reasoning_effort`.
 - Gemini Live uses its exact endpoint profile.
 - Provider-managed compound/search behavior is explicit.
 - Help Assistant and Computer/Phone Control are correctness-sensitive
@@ -160,7 +158,7 @@ platforms and must not be reimplemented with model-name heuristics.
 ## Vision Request Policy
 
 `vision_request_profiles` is keyed by `<provider>:<exact API full_name>` and
-must cover every enabled ordinary Google, Groq, Cerebras, and OpenRouter vision
+must cover every enabled ordinary Google, Groq, and OpenRouter vision
 endpoint.
 It owns input-part order, media-resolution policy, fast sampling profile,
 optional output-token ceiling, and structured-output wire policy. Windows and
@@ -169,8 +167,8 @@ family-name substring.
 
 The current policies come from production-path transport probes:
 
-- Google vision endpoints use image-first ordering. Cerebras Gemma and Groq
-  Qwen use text-first ordering.
+- Google vision endpoints use image-first ordering. Groq Qwen uses
+  text-first ordering.
 - Media resolution remains provider-default. Lower resolution reduced Gemini
   input-token accounting but did not produce a durable end-to-end latency win.
 - Qwen 3.6 uses the Groq-accepted subset of its documented non-thinking

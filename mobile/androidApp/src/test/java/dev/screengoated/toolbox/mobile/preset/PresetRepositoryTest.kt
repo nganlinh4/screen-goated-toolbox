@@ -393,11 +393,6 @@ class PresetRepositoryTest {
         assertEquals(PresetModelType.VISION, visionModel.modelType)
         assertTrue(PresetModelCatalog.forType(PresetModelType.TEXT).any { it.id == "google-gemma-4-31b-text" })
         assertTrue(PresetModelCatalog.forType(PresetModelType.VISION).any { it.id == "google-gemma-4-31b-vision" })
-        val cerebrasVision = requireNotNull(
-            PresetModelCatalog.getById("cerebras-gemma-4-31b-vision"),
-        )
-        assertEquals(PresetModelProvider.CEREBRAS, cerebrasVision.provider)
-        assertEquals("gemma-4-31b", cerebrasVision.fullName)
         assertTrue(PresetModelCatalog.getById("google-gemma-4-26b-a4b-text-audio") == null)
         assertTrue(PresetModelCatalog.getById("gemma-4-31b-audio") == null)
     }

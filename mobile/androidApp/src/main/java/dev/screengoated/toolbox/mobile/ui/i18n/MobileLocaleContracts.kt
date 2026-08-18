@@ -123,12 +123,10 @@ interface MobileProviderText {
     val shellStatusStarting: String
     val shellStatusTranslating: String
     val geminiKeyLabel: String
-    val cerebrasKeyLabel: String
     val groqKeyLabel: String
     val openRouterKeyLabel: String
     val ollamaUrlLabel: String
     val geminiGetKeyLink: String
-    val cerebrasGetKeyLink: String
     val groqGetKeyLink: String
     val openRouterGetKeyLink: String
     val ollamaLearnMoreLink: String

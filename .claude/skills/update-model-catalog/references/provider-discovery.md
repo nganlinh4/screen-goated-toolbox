@@ -19,13 +19,6 @@ Use `.claude/skills/gemini-api-dev/SKILL.md` for Gemini wire-contract changes an
 3. Confirm exact modality, lifecycle, structured-output/tool support, and reasoning controls from first-party material.
 4. Treat rate-limit response headers gathered by the product as account-specific runtime evidence.
 
-## Cerebras
-
-1. Read Cerebras' official model and rate-limit documentation.
-2. Query its OpenAI-compatible list-models endpoint with the configured key when verifying availability.
-3. Confirm free/no-billing usability before admission. A model visible in documentation is not necessarily enabled for the current account.
-4. Verify structured output, tools, prediction, and reasoning effort independently; do not transfer GPT behavior to Gemma or vice versa.
-
 ## OpenRouter
 
 1. Run `scripts/openrouter_free_models.py` for the official API inventory.

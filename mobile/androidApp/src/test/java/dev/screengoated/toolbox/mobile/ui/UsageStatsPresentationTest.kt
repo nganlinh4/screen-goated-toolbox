@@ -23,7 +23,7 @@ class UsageStatsPresentationTest {
         val models = listOf(
             model("demo-text", PresetModelProvider.GROQ, "vendor/model", 900),
             model("demo-vision", PresetModelProvider.GROQ, "vendor/model", 700),
-            model("other-text", PresetModelProvider.CEREBRAS, "vendor/model", 600),
+            model("other-text", PresetModelProvider.OPENROUTER, "vendor/model", 600),
             model("local-parakeet", PresetModelProvider.PARAKEET, "local/parakeet", 200),
             model("local-ollama", PresetModelProvider.OLLAMA, "local/ollama", 100),
             model("local-moonshine", PresetModelProvider.MOONSHINE, "local/moonshine", 50),
@@ -88,7 +88,7 @@ class UsageStatsPresentationTest {
         listOf("en", "vi", "ko").forEach { language ->
             val locale = MobileLocaleText.forLanguage(language)
             assertTrue(locale.usageStatsSessionHint.isNotBlank())
-            listOf("Groq", "Cerebras", "OpenRouter").forEach { provider ->
+            listOf("Groq", "OpenRouter").forEach { provider ->
                 assertTrue(locale.usageStatsNoData.contains(provider))
             }
             assertTrue(locale.usageStatsEndpointCount.isNotBlank())
