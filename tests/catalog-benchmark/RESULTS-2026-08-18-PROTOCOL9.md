@@ -85,11 +85,26 @@ all-Google-and-Groq chain. Revisit if its reliability does not recover.
 
 The image chain keeps Gemini 3.5 Flash Lite first. OpenRouter dots-3 Note replaces
 Nemotron Omni in the OpenRouter slot: it more than doubles strict-pass (70% against
-33%) and completed every attempt. Groq Qwen 3.6 now posts the best accuracy and the
-lowest latency of any vision endpoint, and its earlier 7.5-second tail has collapsed
-to 1.2s; promoting it to lead the general image chain is a reviewed candidate for
-the next decision, deliberately deferred here because it also changes
-`default_image_model_id`.
+33%) and completed every attempt.
+
+Groq Qwen 3.6 posts the best accuracy and the lowest latency of any vision endpoint
+in this run, and its earlier 7.5-second tail has collapsed to 1.2s. It was evaluated
+for promotion to lead the general image chain and rejected, because its 10/10 result
+here is an artefact of benchmark scheduling rather than evidence of robustness.
+
+Round-major interleaving across fourteen vision rows spaces consecutive Qwen calls
+roughly forty seconds apart. Three focused repeat runs covering only four vision
+models, so roughly one Qwen call every ten seconds, failed 3 of 7 and 3 of 8 attempts
+with `HTTP 429 ... on tokens per minute (TPM): Limit 8000, Used 7174, Requested 2452`.
+A single OCR request against this endpoint costs about 2,450 tokens, so Groq's 8K TPM
+free-plan ceiling admits roughly three vision requests per minute. Gemini 3.5 Flash
+Lite carries 250K TPM against the same workload.
+
+Leading the chain means taking first contact for every image request, including the
+bursts a user generates when capturing several screenshots in a row. Availability is
+a hard gate for that position, so Qwen stays third: an excellent fallback whose
+token ceiling disqualifies it from leading. Revisit only if its TPM allowance rises.
+Accuracy when it did answer in the repeats remained high (1.000 and 0.896).
 
 ## Coordinate grounding
 
@@ -159,9 +174,25 @@ against the signed-in AI Studio rate-limit page and Groq's official free-plan ta
 plus live response headers; none required a change.
 
 `gemini-3.7-flash` is available on the free tier at the same 5 RPM / 250K TPM /
-20 RPD allowance as 3.5 and 3.6 Flash, and answers text and vision correctly. It is
-not cataloged: it rejects `thinkingLevel: MINIMAL` with HTTP 400, so it needs a
-reasoning policy the manifest does not currently express.
+20 RPD allowance as 3.5 and 3.6 Flash. It is not cataloged, for two reasons.
+
+Its thinking contract differs from every other cataloged Gemini 3 endpoint. Google's
+documentation gives `thinkingLevel` values of `low`, `medium` and `high` with a
+`medium` default, and states that `minimal` "is not supported and returns an error";
+a live probe confirmed HTTP 400 for `MINIMAL`. `thinkingBudget` is not documented for
+Gemini 3.x at all, so the apparent success of `thinkingBudget: 0` against this
+endpoint is undocumented behaviour and must not be relied on. Supporting it therefore
+needs a new `gemini-low` reasoning policy threaded through the Rust mapping, both
+validators, the Android generator, and `PresetModelCatalog.geminiThinkingConfig`,
+including `geminiImportantTaskThinkingConfig`, which matches only `GEMINI_MINIMAL` on
+Android while the Rust equivalent matches any `GeminiLevel`.
+
+The endpoint does not currently earn that work. Under `thinkingLevel: LOW` its text
+median across five samples was 1.721s, slower than both the new default (0.557s) and
+Gemini 3.5 Flash Lite (0.956s), with a 12.4s outlier. Its OCR probe took 39.1s,
+spent thought tokens despite LOW, returned prose rather than the requested plain text,
+and was followed by three consecutive HTTP 503 responses. Re-evaluate when its
+serving capacity stabilises.
 `gemini-omni-flash-preview` shows 0 RPM / 0 TPM / 0 RPD on the free tier and returned
 429 on two independent unused keys.
 
