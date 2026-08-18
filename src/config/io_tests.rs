@@ -152,7 +152,7 @@ fn migrate_config_sanitizes_model_priority_chains() {
         "retired_text_model".to_string(),
         "google-gemma-4-26b-a4b-text".to_string(),
         "qrserver-qr-scanner-vision".to_string(),
-        "groq-gpt-oss-120b-text".to_string(),
+        "groq-gpt-oss-20b-text".to_string(),
     ];
 
     migrate_config(&mut config);
@@ -170,7 +170,7 @@ fn migrate_config_sanitizes_model_priority_chains() {
         vec![
             crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
             "google-gemma-4-26b-a4b-text".to_string(),
-            "groq-gpt-oss-120b-text".to_string()
+            "groq-gpt-oss-20b-text".to_string()
         ]
     );
 }
