@@ -427,7 +427,7 @@
             }
         }
 
-        function installOverflowGuard(isSourceReplacement, preferredFontSize) {
+        function installSourceOverflowGuard(preferredFontSize) {
             if (state.overflowObserver || typeof ResizeObserver === 'undefined') return;
             var debounceTimer = 0;
             state.overflowObserver = new ResizeObserver(function() {
@@ -436,21 +436,18 @@
                     debounceTimer = 0;
                     if (state.fit._sgtFitAnim) return;
                     var size = dimensions();
-                    var overflow = isSourceReplacement
-                        ? Math.max(body.scrollHeight - size.height, body.scrollWidth - size.width)
-                        : body.scrollHeight - size.height;
-                    if (isSourceReplacement ? overflow <= 0 : overflow <= size.height * 0.05) return;
+                    var overflow = Math.max(
+                        body.scrollHeight - size.height,
+                        body.scrollWidth - size.width
+                    );
+                    if (overflow <= 0) return;
                     var current = parseFloat(body.style.fontSize) || 14;
-                    var minimum = isSourceReplacement
-                        ? Math.min(5, Number(preferredFontSize) || 5)
-                        : (state.reveal.lastRevealedIndex + 1 < 200 ? 6 : 14);
+                    var minimum = Math.min(5, Number(preferredFontSize) || 5);
                     if (current <= minimum) return;
-                    var next = isSourceReplacement
-                        ? Math.max(minimum, Math.floor(current * Math.min(
-                            size.height / Math.max(1, body.scrollHeight),
-                            size.width / Math.max(1, body.scrollWidth)
-                        ) * 0.96))
-                        : Math.max(minimum, Math.floor(current * size.height / body.scrollHeight * 0.92));
+                    var next = Math.max(minimum, Math.floor(current * Math.min(
+                        size.height / Math.max(1, body.scrollHeight),
+                        size.width / Math.max(1, body.scrollWidth)
+                    ) * 0.96));
                     if (next < current) {
                         body.style.fontSize = next + 'px';
                         state.fit._sgtCurrentFontSize = next;
@@ -492,8 +489,8 @@
             if (options.settleBeforeReveal) finishBodyPresentation();
             state.wordCount = body.querySelectorAll('.word').length;
             state.renderCount++;
-            if (!options.animateNewWords) {
-                installOverflowGuard(options.sourceReplacement === true, options.preferredFontSize);
+            if (!options.animateNewWords && options.sourceReplacement === true) {
+                installSourceOverflowGuard(options.preferredFontSize);
             }
         }
 

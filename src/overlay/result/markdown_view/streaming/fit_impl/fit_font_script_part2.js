@@ -334,9 +334,8 @@
                             motion.targetPadTop = targetPadTop;
                             motion.targetPadBottom = targetPadBottom;
                             motion.finalizing = !isStreamingFit;
-                            // Target search probes mutate the live axes. Restore
-                            // the controller's continuous position before the
-                            // browser can paint; only the controller advances it.
+                            // Search probes mutate the live axes. Restore the exact
+                            // currently painted A state before retargeting to B.
                             applyAxes(motion.fontSize, motion.fontStretch);
                             applyPadding(motion.padTop, motion.padBottom);
                             if (motion.frame !== null) return;
