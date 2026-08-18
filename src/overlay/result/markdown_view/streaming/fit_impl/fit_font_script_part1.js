@@ -184,28 +184,21 @@
                     var isTinyContent = textLen < 300;
                     var isConstrainedWindow = (winH < 260 || winW < 420);
                     var isConstrainedShortContent = isConstrainedWindow && textLen < 450;
-                    var isSourceReplacement = Boolean(fitContext && fitContext.sourceReplacement);
-                    var preferredFontSize = Number(fitContext && fitContext.preferredFontSize);
-                    if (!Number.isFinite(preferredFontSize) || preferredFontSize <= 0) {
-                        preferredFontSize = Math.max(1, Math.min(14, winH));
-                    }
                     // Allowed ranges — match streaming's 14px readability floor.
-                    var minSize = isSourceReplacement ? 1 : ((textLen < 200) ? 6 : 14);
+                    var minSize = (textLen < 200) ? 6 : 14;
                     // Streaming cap is deliberately conservative (48px). An
                     // early tiny chunk could otherwise be sized up to 96
                     // and then forced to climb down a long shrink ladder
                     // (110 -> 60 -> 44 -> 32) as the response grows. The
                     // final (non-streaming) fit keeps the full range so
                     // short final responses can still display large.
-                    var maxSize = isSourceReplacement
-                        ? Math.max(minSize, Math.min(winH, preferredFontSize))
-                        : (isStreamingFit
+                    var maxSize = isStreamingFit
                         ? Math.min(48, winH)
                         : (isTinyContent
                             ? 200
                             : (isShortContent
                                 ? 100
-                                : Math.max(24, Math.min(48, Math.floor(winH / 10))))));
+                                : Math.max(24, Math.min(48, Math.floor(winH / 10)))));
 
                     // A newer fit may be queued immediately after this invocation.
                     // Let the active interpolation paint during our two readiness
@@ -234,15 +227,9 @@
                     // ===== PHASE 0: RESET (Start TIGHT like GDI) =====
                     // Long text keeps this compact baseline too, so the final settle-fit
                     // does not snap away from the condensed streaming look.
-                    applyBodyWdth(isSourceReplacement ? 100 : 90);
+                    applyBodyWdth(90);
                     body.style.letterSpacing = '0px';
-                    body.style.wordSpacing = '0px';
-                    body.style.lineHeight = isSourceReplacement ? '1.08' : '1.15';
-                    if (isSourceReplacement) {
-                        body.style.display = 'flex';
-                        body.style.flexDirection = 'column';
-                        body.style.justifyContent = 'flex-start';
-                    }
+                    body.style.lineHeight = '1.15';
                     body.style.paddingTop = '0';
                     body.style.paddingBottom = '0';
                     // Headings (h1/h2/h3) keep their CSS-designed margins — the
@@ -388,15 +375,11 @@
                     if (!isStreamingFit && !preservedSize && textLen > 0 && (bestSize < maxSize - 2 || !foundFittingSize)) {
                         var baseSize = parseFloat(body.style.fontSize) || bestSize;
                         var bestComboSize = baseSize;
-                        var bestComboWdth = isSourceReplacement ? 100 : 90;
-                        var bestComboScore = bestComboSize;
+                        var bestComboWdth = 90;
                         var bestComboFits = fits();
                         var bestComboOverflow = Math.max(0, doc.scrollHeight - winH);
 
-                        var firstTestWdth = isSourceReplacement ? 100 : 85;
-                        var lastTestWdth = isSourceReplacement ? 25 : 55;
-                        var widthStep = isSourceReplacement ? 10 : 5;
-                        for (var testWdth = firstTestWdth; testWdth >= lastTestWdth; testWdth -= widthStep) {
+                        for (var testWdth = 85; testWdth >= 55; testWdth -= 5) {
                             applyBodyWdth(testWdth);
                             clearLastMargin();
 
@@ -422,21 +405,13 @@
                             var cFits = fits();
                             var cOverflow = Math.max(0, doc.scrollHeight - winH);
 
-                            var cScore = cBest
-                                * (0.72 + 0.28 * Math.min(100, testWdth) / 100);
                             if (
                                 (!bestComboFits && cFits)
-                                || (bestComboFits && cFits
-                                    && (isSourceReplacement
-                                        ? (cScore > bestComboScore
-                                            || (Math.abs(cScore - bestComboScore) < 0.01
-                                                && testWdth > bestComboWdth))
-                                        : cBest > bestComboSize))
+                                || (bestComboFits && cFits && cBest > bestComboSize)
                                 || (!bestComboFits && !cFits && (cOverflow < bestComboOverflow || (cOverflow === bestComboOverflow && testWdth > bestComboWdth)))
                             ) {
                                 bestComboSize = cBest;
                                 bestComboWdth = testWdth;
-                                bestComboScore = cScore;
                                 bestComboFits = cFits;
                                 bestComboOverflow = cOverflow;
                             }
@@ -447,39 +422,6 @@
                         clearLastMargin();
                     }
 
-                    // Once the most readable contained size is known, consume
-                    // remaining horizontal room with the font's stretch axis.
-                    // This never changes the window or painted corridor.
-                    if (isSourceReplacement && fits()) {
-                        var committedWdth = parseFloat(body.style.fontStretch) || 100;
-                        var stretchLow = Math.floor(committedWdth);
-                        var stretchHigh = 151;
-                        var widestContainedWdth = committedWdth;
-                        while (stretchLow <= stretchHigh) {
-                            var stretchMid = Math.floor((stretchLow + stretchHigh) / 2);
-                            applyBodyWdth(stretchMid);
-                            clearLastMargin();
-                            if (fits()) {
-                                widestContainedWdth = stretchMid;
-                                stretchLow = stretchMid + 1;
-                            } else {
-                                stretchHigh = stretchMid - 1;
-                            }
-                        }
-                        applyBodyWdth(widestContainedWdth);
-                        clearLastMargin();
-                    }
-
-                    // Keep a proven source-replacement composition as the
-                    // recovery point for any later metric drift.
-                    var verifiedSourceFit = null;
-                    if (isSourceReplacement && fits()) {
-                        verifiedSourceFit = {
-                            fontSize: parseFloat(body.style.fontSize) || bestSize,
-                            fontStretch: parseFloat(body.style.fontStretch) || 90
-                        };
-                    }
-
                     // Streaming keeps Phase 1's true best size. Growth headroom
                     // quantization is intentionally absent because it makes the
                     // streaming target disagree with the identical final DOM.
@@ -487,7 +429,7 @@
                     // ===== PHASES 2-7: gap filling =====
                     // During active streaming, skip the expansion passes entirely.
                     // They can stretch small partial chunks into narrow vertical columns.
-                    if (isShortContent && !isStreamingFit && !isSourceReplacement) {
+                    if (isShortContent && !isStreamingFit) {
                         // ===== PHASE 2: LINE HEIGHT =====
                         if (fits() && getGap() > 2) {
                             var lowLH = 1.15, highLH = 2.5, bestLH = 1.15;

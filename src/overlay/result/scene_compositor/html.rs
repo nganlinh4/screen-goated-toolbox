@@ -183,6 +183,23 @@ function cancelActiveFit(entry) {
 }
 function queueFit(entry, streaming) {
   if (!entry.ready || !entry.fontReady || !entry.visible || entry.navigationDepth !== 0 || !String(entry.body || '').trim()) return;
+  if (streaming) {
+    const now = performance.now();
+    const elapsed = now - Number(entry.lastStreamingFitAt || 0);
+    if (elapsed < 80) {
+      if (!entry.streamingFitTimer) {
+        entry.streamingFitTimer = setTimeout(function() {
+          entry.streamingFitTimer = null;
+          queueFit(entry, true);
+        }, Math.max(1, 80 - elapsed));
+      }
+      return;
+    }
+    entry.lastStreamingFitAt = now;
+  } else if (entry.streamingFitTimer) {
+    clearTimeout(entry.streamingFitTimer);
+    entry.streamingFitTimer = null;
+  }
   const key = entry.card.dataset.id;
   const current = pendingFits.get(key);
   const next = {
@@ -198,14 +215,16 @@ function queueFit(entry, streaming) {
   scheduleFit();
 }
 function runDirectFit(entry, streaming, settleBeforeReveal) {
+  if (entry.sourceReplacement === true) {
+    completeFit(entry);
+    return;
+  }
   window.__SGT_FIT_CONTEXT__ = {
     state: entry.directState.fit,
     body: entry.bodyElement,
     viewport: entry.card,
     fontReady: true,
     settleBeforeReveal: Boolean(settleBeforeReveal),
-    sourceReplacement: entry.sourceReplacement === true, preferredFontSize: entry.preferredFontSize,
-    sourceVertical: entry.sourceVertical === true,
     reportDiagnostic: function(payload) {
       window.ipc.postMessage(JSON.stringify({
         type: 'fit_diagnostic', id: Number(entry.card.dataset.id), payload: payload

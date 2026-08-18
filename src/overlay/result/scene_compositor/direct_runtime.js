@@ -263,6 +263,10 @@
             if (!options.runInlineSizing) return;
             if (options.sourceReplacement && layoutInBackdrop(options, text)) return;
             if (!isNewSession) return;
+            if (!options.sourceReplacement) {
+                inlineSizeOrdinary(text, options.finalizing);
+                return;
+            }
             delete body.dataset.shapeLayout;
             var size = dimensions();
             var textLen = text.length;
@@ -367,57 +371,91 @@
                 : 'flex-start';
         }
 
+        function inlineSizeOrdinary(text, finalizing) {
+            var size = dimensions();
+            var textLen = text.length;
+            var constrained = size.height < 260 || size.width < 420;
+            var minSize = textLen < 200 ? 6 : 14;
+            var finalMaximum = textLen < 300
+                ? 200
+                : (textLen < 1500 ? 100 : Math.max(24, Math.min(48, Math.floor(size.height / 10))));
+            var maxPossible = Math.min(finalizing ? finalMaximum : (constrained ? 40 : 48), size.height);
+            var estimated = Math.sqrt((size.width * size.height) / (textLen + 1));
+            var low = Math.max(minSize, Math.floor(estimated * 0.5));
+            var high = Math.min(maxPossible, Math.ceil(estimated * 1.15));
+            if (low > high) low = high;
+
+            body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+            body.style.letterSpacing = '0px';
+            body.style.wordSpacing = '0px';
+            body.style.lineHeight = '1.5';
+            body.style.paddingTop = '0';
+            body.style.paddingBottom = '0';
+            var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+            for (var index = 0; index < blocks.length; index++) {
+                blocks[index].style.marginBottom = '0.5em';
+                blocks[index].style.paddingBottom = '0';
+            }
+            var best = low;
+            while (low <= high) {
+                var mid = Math.floor((low + high) / 2);
+                body.style.fontSize = mid + 'px';
+                if (fits(text, size, 2, true)) {
+                    best = mid;
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
+                }
+            }
+            body.style.fontSize = Math.max(best, minSize) + 'px';
+            if (constrained && textLen < 450) {
+                var settleLow = minSize;
+                var settleHigh = best;
+                var settleBest = minSize;
+                while (settleLow <= settleHigh) {
+                    var settleMid = Math.floor((settleLow + settleHigh) / 2);
+                    body.style.fontSize = settleMid + 'px';
+                    if (fits(text, size, 2, true)) {
+                        settleBest = settleMid;
+                        settleLow = settleMid + 1;
+                    } else {
+                        settleHigh = settleMid - 1;
+                    }
+                }
+                body.style.fontSize = settleBest + 'px';
+            }
+        }
+
         function revealWords(animate, isNewSession) {
             var words = body.querySelectorAll('.word');
             var reveal = state.reveal;
-            if (isNewSession) {
-                reveal.queue = [];
-                reveal.lastRevealedIndex = words.length - 1;
-                reveal.credits = 0;
-                return;
-            }
-            if (!animate) {
-                reveal.queue = [];
-                reveal.lastRevealedIndex = words.length - 1;
-                reveal.credits = 0;
-                return;
-            }
             reveal.queue = [];
+            reveal.active = false;
+            reveal.credits = 0;
+            if (isNewSession || !animate) {
+                reveal.lastRevealedIndex = words.length - 1;
+                return;
+            }
             var start = Math.max(0, reveal.lastRevealedIndex + 1);
+            var entering = [];
             for (var index = start; index < words.length; index++) {
                 var word = words[index];
-                word.style.visibility = 'hidden';
+                word.style.visibility = 'visible';
                 word.style.opacity = '0';
-                word.style.filter = 'blur(3px)';
-                word.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
-                reveal.queue.push({ el: word, index: index });
+                word.style.filter = 'blur(2px)';
+                word.style.transition = 'opacity 0.12s ease-out, filter 0.12s ease-out';
+                entering.push(word);
             }
-            if (reveal.active || reveal.queue.length === 0) return;
-            reveal.active = true;
-            reveal.lastTick = performance.now();
-            reveal.credits = 1;
-            requestAnimationFrame(function tick(now) {
-                if (!reveal.queue.length) {
-                    reveal.active = false;
-                    reveal.credits = 0;
-                    return;
-                }
-                var elapsed = Math.max(0, now - reveal.lastTick);
-                reveal.lastTick = now;
-                reveal.credits += 40 * (1 + reveal.queue.length / 10) * elapsed / 1000;
-                var emitted = 0;
-                while (reveal.credits >= 1 && reveal.queue.length && emitted < 64) {
-                    var item = reveal.queue.shift();
-                    if (item.el && item.el.isConnected) {
-                        item.el.style.visibility = 'visible';
-                        item.el.style.opacity = '1';
-                        item.el.style.filter = 'blur(0)';
+            reveal.lastRevealedIndex = words.length - 1;
+            if (!entering.length) return;
+            requestAnimationFrame(function() {
+                for (var itemIndex = 0; itemIndex < entering.length; itemIndex++) {
+                    var item = entering[itemIndex];
+                    if (item.isConnected) {
+                        item.style.opacity = '1';
+                        item.style.filter = 'blur(0)';
                     }
-                    reveal.lastRevealedIndex = item.index;
-                    reveal.credits--;
-                    emitted++;
                 }
-                requestAnimationFrame(tick);
             });
         }
 
@@ -430,21 +468,21 @@
                     debounceTimer = 0;
                     if (state.fit._sgtFitAnim) return;
                     var size = dimensions();
-                    var overflow = Math.max(
-                        body.scrollHeight - size.height,
-                        body.scrollWidth - size.width
-                    );
-                    if (overflow <= 0) return;
+                    var overflow = isSourceReplacement
+                        ? Math.max(body.scrollHeight - size.height, body.scrollWidth - size.width)
+                        : body.scrollHeight - size.height;
+                    if (isSourceReplacement ? overflow <= 0 : overflow <= size.height * 0.05) return;
                     var current = parseFloat(body.style.fontSize) || 14;
                     var minimum = isSourceReplacement
                         ? Math.min(5, Number(preferredFontSize) || 5)
                         : (state.reveal.lastRevealedIndex + 1 < 200 ? 6 : 14);
                     if (current <= minimum) return;
-                    var scale = Math.min(
-                        size.height / Math.max(1, body.scrollHeight),
-                        size.width / Math.max(1, body.scrollWidth)
-                    );
-                    var next = Math.max(minimum, Math.floor(current * scale * 0.96));
+                    var next = isSourceReplacement
+                        ? Math.max(minimum, Math.floor(current * Math.min(
+                            size.height / Math.max(1, body.scrollHeight),
+                            size.width / Math.max(1, body.scrollWidth)
+                        ) * 0.96))
+                        : Math.max(minimum, Math.floor(current * size.height / body.scrollHeight * 0.92));
                     if (next < current) {
                         body.style.fontSize = next + 'px';
                         state.fit._sgtCurrentFontSize = next;
