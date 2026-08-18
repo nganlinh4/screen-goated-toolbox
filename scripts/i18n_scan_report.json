@@ -434,11 +434,6 @@
               "line": 326
             },
             {
-              "key": "use_cerebras_checkbox",
-              "value": "Cerebras",
-              "line": 329
-            },
-            {
               "key": "llm_label",
               "value": "LLM",
               "line": 470
@@ -554,11 +549,6 @@
               "key": "use_openrouter_checkbox",
               "value": "OpenRouter",
               "line": 326
-            },
-            {
-              "key": "use_cerebras_checkbox",
-              "value": "Cerebras",
-              "line": 329
             },
             {
               "key": "audio_src_mic",

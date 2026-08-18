@@ -503,7 +503,6 @@ internal class PresetAudioCaptureSession(
         val appContainer = (context.applicationContext as dev.screengoated.toolbox.mobile.SgtMobileApplication).appContainer
         return dev.screengoated.toolbox.mobile.preset.ApiKeys(
             geminiKey = appContainer.repository.currentApiKey(),
-            cerebrasKey = appContainer.repository.currentCerebrasApiKey(),
             groqKey = appContainer.repository.currentGroqApiKey(),
             openRouterKey = appContainer.repository.currentOpenRouterApiKey(),
             ollamaBaseUrl = appContainer.repository.currentOllamaUrl(),

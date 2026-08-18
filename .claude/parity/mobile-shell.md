@@ -40,7 +40,6 @@
   - global settings surface for credentials, live control, and TTS settings
   - credentials provider toggle and field order follows the Windows global settings order exactly:
     - `Groq`
-    - `Cerebras`
     - `Gemini`
     - `OpenRouter`
     - `Ollama`

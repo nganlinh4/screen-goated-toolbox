@@ -57,19 +57,6 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     streamingEnabled = streamingEnabled,
                 )
 
-                PresetModelProvider.CEREBRAS -> streamOpenAiVision(
-                    endpoint = CEREBRAS_ENDPOINT,
-                    apiKey = apiKeys.cerebrasKey,
-                    providerName = "Cerebras",
-                    model = model,
-                    prompt = prompt,
-                    imageBase64 = prepared.base64,
-                    mimeType = prepared.mimeType,
-                    uiLanguage = uiLanguage,
-                    onChunk = onChunk,
-                    streamingEnabled = streamingEnabled,
-                )
-
                 PresetModelProvider.OPENROUTER -> streamOpenAiVision(
                     endpoint = OPENROUTER_ENDPOINT,
                     apiKey = apiKeys.openRouterKey,

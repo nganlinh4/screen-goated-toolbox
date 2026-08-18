@@ -9,7 +9,6 @@
   "editable_provider_order": [
     "GOOGLE",
     "GROQ",
-    "CEREBRAS",
     "OPENROUTER",
     "OLLAMA"
   ],

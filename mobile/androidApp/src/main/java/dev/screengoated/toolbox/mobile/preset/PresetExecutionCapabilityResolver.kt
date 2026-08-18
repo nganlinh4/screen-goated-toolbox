@@ -205,7 +205,6 @@ internal class PresetExecutionCapabilityResolver {
         if (descriptor.modelType != PresetModelType.VISION) return false
         return descriptor.provider in setOf(
             PresetModelProvider.GOOGLE,
-            PresetModelProvider.CEREBRAS,
             PresetModelProvider.GROQ,
             PresetModelProvider.OPENROUTER,
             PresetModelProvider.OLLAMA,
@@ -220,7 +219,6 @@ internal class PresetExecutionCapabilityResolver {
         }
         return descriptor.provider in setOf(
             PresetModelProvider.GOOGLE,
-            PresetModelProvider.CEREBRAS,
             PresetModelProvider.GROQ,
             PresetModelProvider.OPENROUTER,
             PresetModelProvider.GOOGLE_GTX,

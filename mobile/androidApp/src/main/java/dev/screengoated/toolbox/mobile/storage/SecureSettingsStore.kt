@@ -93,16 +93,6 @@ class SecureSettingsStore(
         }
     }
 
-    fun loadCerebrasApiKey(): String {
-        return prefs.getString(KEY_CEREBRAS_API_KEY, "") ?: ""
-    }
-
-    fun saveCerebrasApiKey(apiKey: String) {
-        prefs.edit {
-            putString(KEY_CEREBRAS_API_KEY, apiKey)
-        }
-    }
-
     fun loadGroqApiKey(): String {
         return prefs.getString(KEY_GROQ_API_KEY, "") ?: ""
     }
@@ -241,7 +231,6 @@ class SecureSettingsStore(
         private const val LEGACY_KEY_BILINGUAL_RELAY_CONFIG = "bilingual_relay_config"
         private const val LEGACY_KEY_BILINGUAL_RELAY_TRANSCRIPTS = "bilingual_relay_transcripts"
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
-        private const val KEY_CEREBRAS_API_KEY = "cerebras_api_key"
         private const val KEY_GROQ_API_KEY = "groq_api_key"
         private const val KEY_OPENROUTER_API_KEY = "openrouter_api_key"
         private const val KEY_OLLAMA_URL = "ollama_url"

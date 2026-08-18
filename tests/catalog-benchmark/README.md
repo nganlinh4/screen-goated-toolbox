@@ -310,9 +310,7 @@ The helper applies a 3.1-second minimum between OpenRouter requests even when
 the general interval is lower. This stays below the no-billing account's
 20-requests/minute gate, so benchmark reliability is not depressed by the
 helper's own scheduling. A larger `CATALOG_BENCH_MIN_INTERVAL_MS` still wins.
-It similarly applies a 12.5-second Cerebras minimum for the free-trial
-five-requests/minute bucket. Both waits are excluded from measured model
-latency.
+This wait is excluded from measured model latency.
 
 ## Screen-text localization diagnostic
 

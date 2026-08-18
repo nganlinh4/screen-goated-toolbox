@@ -7,7 +7,6 @@ import java.io.IOException
 
 data class ApiKeys(
     val geminiKey: String = "",
-    val cerebrasKey: String = "",
     val groqKey: String = "",
     val openRouterKey: String = "",
     val ollamaBaseUrl: String = "",
@@ -38,17 +37,6 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     uiLanguage = uiLanguage,
                     onChunk = onChunk,
                     streamingEnabled = streamingEnabled,
-                )
-
-                PresetModelProvider.CEREBRAS -> streamCerebras(
-                    model = model,
-                    prompt = prompt,
-                    inputText = inputText,
-                    apiKey = apiKeys.cerebrasKey,
-                    uiLanguage = uiLanguage,
-                    onChunk = onChunk,
-                    streamingEnabled = streamingEnabled,
-                    predictionContent = predictionContent,
                 )
 
                 PresetModelProvider.GROQ -> {
@@ -170,13 +158,6 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     )
                 }
             }
-
-            PresetModelProvider.CEREBRAS -> cerebrasPayload(
-                fullName = model.fullName,
-                prompt = prompt,
-                inputText = inputText,
-                stream = streamingEnabled,
-            ).toString()
 
             else -> buildOpenAiCompatibleDebugPayload(
                 provider = model.provider,

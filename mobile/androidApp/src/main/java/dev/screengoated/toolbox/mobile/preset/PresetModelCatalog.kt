@@ -6,7 +6,6 @@ import kotlinx.serialization.Serializable
 
 enum class PresetModelProvider {
     GOOGLE,
-    CEREBRAS,
     GROQ,
     OPENROUTER,
     GOOGLE_GTX,

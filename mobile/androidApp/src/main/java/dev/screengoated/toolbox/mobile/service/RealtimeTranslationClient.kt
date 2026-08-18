@@ -37,7 +37,6 @@ class RealtimeTranslationClient(
 ) {
     suspend fun translate(
         geminiApiKey: String,
-        cerebrasApiKey: String,
         groqApiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
@@ -49,7 +48,6 @@ class RealtimeTranslationClient(
         runCatching {
             return@withContext translateWithExactProvider(
                 geminiApiKey = geminiApiKey,
-                cerebrasApiKey = cerebrasApiKey,
                 groqApiKey = groqApiKey,
                 request = request,
                 targetLanguage = targetLanguage,
@@ -62,7 +60,6 @@ class RealtimeTranslationClient(
         val fallbackId = if (primaryId == PROVIDER_GTX) PROVIDER_LLM else PROVIDER_GTX
         translateWithExactProvider(
             geminiApiKey = geminiApiKey,
-            cerebrasApiKey = cerebrasApiKey,
             groqApiKey = groqApiKey,
             request = request,
             targetLanguage = targetLanguage,
@@ -74,7 +71,6 @@ class RealtimeTranslationClient(
 
     suspend fun translateWithExactProvider(
         geminiApiKey: String,
-        cerebrasApiKey: String,
         groqApiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
@@ -84,7 +80,6 @@ class RealtimeTranslationClient(
     ): TranslationExecutionResult = withContext(Dispatchers.IO) {
         val apiKeys = ApiKeys(
             geminiKey = geminiApiKey,
-            cerebrasKey = cerebrasApiKey,
             groqKey = groqApiKey,
         )
         val response = dispatchProvider(
@@ -137,20 +132,6 @@ class RealtimeTranslationClient(
             }
             val attempt = runCatching {
                 when (descriptor.provider) {
-                    PresetModelProvider.CEREBRAS -> {
-                        val key = apiKeys.cerebrasKey.takeIf { it.isNotBlank() }
-                            ?: return@runCatching null
-                        translateWithOpenAiCompatible(
-                            endpoint = "https://api.cerebras.ai/v1/chat/completions",
-                            provider = descriptor.provider,
-                            providerName = "Cerebras",
-                            apiKey = key,
-                            model = descriptor.fullName,
-                            request = request,
-                            targetLanguage = targetLanguage,
-                        )
-                    }
-
                     PresetModelProvider.GOOGLE -> {
                         val key = apiKeys.geminiKey.takeIf { it.isNotBlank() }
                             ?: return@runCatching null
@@ -215,50 +196,6 @@ class RealtimeTranslationClient(
         return parseTranslationResponse(text, request)
     }
 
-    private fun translateWithOpenAiCompatible(
-        endpoint: String,
-        provider: PresetModelProvider,
-        providerName: String,
-        apiKey: String,
-        model: String,
-        request: TranslationRequest,
-        targetLanguage: String,
-    ): TranslationResponse {
-        val payload = applyFastReasoningPolicy(
-            JSONObject()
-            .put("model", model)
-            .put("messages", cerebrasMessages(request, targetLanguage))
-            .put("stream", false)
-            .put("max_completion_tokens", 512)
-            .put("response_format", cerebrasResponseFormat()),
-            provider,
-            model,
-        )
-        val requestBody = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
-
-        val httpRequest = Request.Builder()
-            .url(endpoint)
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .post(requestBody)
-            .build()
-
-        httpClient.newCall(httpRequest).execute().use { response ->
-            ModelUsageStats.update(provider, model, response.headers)
-            if (!response.isSuccessful) {
-                throw IOException("$providerName translation request failed with ${response.code}")
-            }
-            val body = response.body.string().orEmpty()
-            val root = JSONObject(body)
-            val jsonText = root.optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content")
-                .orEmpty()
-            return parseTranslationResponse(jsonText, request)
-        }
-    }
-
     private fun translateWithGroq(
         apiKey: String,
         model: String,
@@ -268,7 +205,7 @@ class RealtimeTranslationClient(
         val requestBody = applyFastReasoningPolicy(
             JSONObject()
                 .put("model", model)
-                .put("messages", cerebrasMessages(request, targetLanguage))
+                .put("messages", liveTranslateMessages(request, targetLanguage))
                 .put("stream", false)
             .put("max_tokens", 512)
             .put("response_format", JSONObject().put("type", "json_object")),

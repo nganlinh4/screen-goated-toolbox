@@ -23,7 +23,6 @@ internal data class ImportableOpenRouterModel(
 internal val CUSTOM_MODELS_EDITABLE_PROVIDERS = listOf(
     PresetModelProvider.GOOGLE,
     PresetModelProvider.GROQ,
-    PresetModelProvider.CEREBRAS,
     PresetModelProvider.OPENROUTER,
     PresetModelProvider.OLLAMA,
 )
@@ -154,7 +153,6 @@ internal fun addLabel(provider: PresetModelProvider, locale: MobileLocaleText): 
 internal fun providerLabel(provider: PresetModelProvider): String = when (provider) {
     PresetModelProvider.GOOGLE -> "Gemini"
     PresetModelProvider.GROQ -> "Groq"
-    PresetModelProvider.CEREBRAS -> "Cerebras"
     PresetModelProvider.OPENROUTER -> "OpenRouter"
     PresetModelProvider.OLLAMA -> "Ollama"
     else -> provider.name

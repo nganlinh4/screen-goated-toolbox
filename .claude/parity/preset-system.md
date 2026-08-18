@@ -31,9 +31,10 @@
 - The fast text-arena seed uses Groq GPT-OSS 20B. The general image retry
   chain keeps Gemini 3.5 Flash Lite first, then prioritizes the fast reliable
   Groq and OpenRouter OCR endpoints before higher-variance fallbacks. The text
-  chain keeps Cerebras GLM first for answer quality, with Groq GPT-OSS 20B as
-  its speed-specialized fallback before the remaining hosted endpoints. Exact order remains owned
-  only by the shared catalog and fixture.
+  chain keeps Gemini 3.5 Flash Lite first for answer quality, with Groq
+  GPT-OSS 20B as its speed-specialized fallback before the remaining hosted
+  endpoints. Exact order remains owned only by the shared catalog and
+  fixture.
 - The Windows one-time post-update recommendation prompt compares the staged
   preset models, priority chains, and recommended-provider defaults. Applying
   updates changed built-in model slots, restores both priority chains, and
@@ -84,11 +85,10 @@
 - Live server events are decoded structurally. Setup completion must be a top-level field, all audio parts in a frame are retained, and finite responses complete on either `turnComplete` or `generationComplete`.
 - Blank, legacy, or unknown Gemini TTS model values normalize to the catalog-owned TTS default on both platforms; listed models remain unchanged.
 - Provider/auth failures and retryable model failures remain distinct. Retrying an open result updates its loading status.
-- Cerebras vision is base64 PNG/JPEG through `gemma-4-31b` only. It uses the Cerebras key and endpoint on both platforms; it must never fall through to Groq.
 - Ordinary LLM vision request shape comes from
   `catalog/model_catalog.json#vision_request_profiles` on both platforms.
-  Google vision endpoints send image before text; Cerebras Gemma and Groq Qwen
-  send text before image. Media resolution remains provider-default:
+  Google vision endpoints send image before text; Groq Qwen sends text before
+  image. Media resolution remains provider-default:
   small-image probes showed no durable completion-latency win from forcing a
   lower setting. Plain OCR is non-streaming because the product consumes the
   complete transcription and the tested endpoints generally buffer their first
@@ -122,22 +122,11 @@
   chain. Do not duplicate a prose or platform-specific model list.
 - Computer-control pixel grounding has a separate catalog-owned fail-closed primary/fallback chain, locked by the Phone Control model-chain fixture. `CC_VISION_MODEL` explicitly replaces that default chain with one diagnostic model. General OCR/description fallbacks never inherit authority to click. A transport error, empty response, or malformed structured response may advance to the next grounding model; a valid not-visible or verification rejection is terminal. Coordinate clicks require a fresh marked-crop verification at 70% confidence; `CC_VERIFY_LOCATE=0` is a diagnostic escape hatch, not a preset default.
 - A vision model that returns a rate-limit/quota error enters a five-minute in-process cooldown, preventing later chain steps from repeatedly paying for the same known failure. Small provider `retry-after` recovery remains bounded inside the request.
-- Cerebras requests set a bounded `max_completion_tokens`, apply the
-  catalog-owned lowest supported reasoning effort (`none`, otherwise `low`),
-  gzip JSON bodies at 12 KiB, and expose daily-request plus token-minute rate
-  data.
 - OpenRouter ordinary text, refine, vision, and recorder-subtitle requests
   apply catalog reasoning policy through OpenRouter's nested
   `reasoning: { effort: "none" }` field. `reasoning_effort` is not an
   OpenRouter transport field. Unknown/custom OpenRouter models remain
   provider-managed unless they have an exact catalog profile.
-- Refine operations may attach Cerebras predicted output only for GPT-OSS 120B and GLM 4.7. Ordinary generation and Gemma never receive prediction fields.
-- Cerebras structured-output requests use strict schemas only on models that
-  document constrained decoding. The current Gemma 4 vision endpoint supports
-  strict schemas, but receives `response_format` only when a caller supplies an
-  explicit schema; plain OCR remains plain text. Tool requests are a separate
-  contract, permit parallel calls, and must stop after eight rounds; tools,
-  prediction, and `response_format` are never combined illegally.
 - Hidden blocks execute without windows; each visible result block owns its own result window.
 - Unsupported graph/provider paths return an explicit reason. Never guess from ID prefixes.
 

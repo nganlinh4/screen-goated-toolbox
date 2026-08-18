@@ -408,7 +408,6 @@ internal class PresetOverlayController(
         val repo = appContainer.repository
         return dev.screengoated.toolbox.mobile.preset.ApiKeys(
             geminiKey = repo.currentApiKey(),
-            cerebrasKey = repo.currentCerebrasApiKey(),
             groqKey = repo.currentGroqApiKey(),
             openRouterKey = repo.currentOpenRouterApiKey(),
             ollamaBaseUrl = repo.currentOllamaUrl(),

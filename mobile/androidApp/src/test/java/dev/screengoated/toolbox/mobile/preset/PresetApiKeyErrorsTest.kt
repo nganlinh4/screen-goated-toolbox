@@ -26,10 +26,6 @@ class PresetApiKeyErrorsTest {
             "Invalid Groq API key!",
             apiKeyErrorToastText(invalidApiKeyMessage("groq"), "en"),
         )
-        assertEquals(
-            "Invalid Cerebras API key!",
-            apiKeyErrorToastText(invalidApiKeyMessage("cerebras"), "en"),
-        )
     }
 
     @Test

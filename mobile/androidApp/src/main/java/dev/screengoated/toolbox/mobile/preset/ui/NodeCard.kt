@@ -229,7 +229,6 @@ internal fun NodeCard(
                                 dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GEMINI_LIVE,
                                 -> providerSettings.useGemini
                                 dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OPENROUTER -> providerSettings.useOpenRouter
-                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.CEREBRAS -> providerSettings.useCerebras
                                 dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OLLAMA -> providerSettings.useOllama
                                 else -> true
                             }

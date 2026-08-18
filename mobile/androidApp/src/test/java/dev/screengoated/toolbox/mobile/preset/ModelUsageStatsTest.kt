@@ -38,30 +38,7 @@ class ModelUsageStatsTest {
 
         assertNotEquals(
             ModelUsageStats.endpointKey(PresetModelProvider.GROQ, "vendor/model"),
-            ModelUsageStats.endpointKey(PresetModelProvider.CEREBRAS, "vendor/model"),
-        )
-    }
-
-    @Test
-    fun cerebrasHeadersRemainIndependentTypedBuckets() {
-        val snapshot = ModelUsageStats.snapshotFromHeaders(
-            PresetModelProvider.CEREBRAS,
-            headers(
-                "x-ratelimit-remaining-requests-day" to "14399",
-                "x-ratelimit-limit-requests-day" to "14400",
-                "x-ratelimit-remaining-tokens-minute" to "59000",
-                "x-ratelimit-limit-tokens-minute" to "60000",
-            ),
-            123,
-        )!!
-
-        assertEquals(123, snapshot.observedAtUnixSeconds)
-        assertEquals(
-            listOf(
-                ModelUsageStats.MetricKind.REQUESTS_DAY,
-                ModelUsageStats.MetricKind.TOKENS_MINUTE,
-            ),
-            snapshot.metrics.map { it.kind },
+            ModelUsageStats.endpointKey(PresetModelProvider.OPENROUTER, "vendor/model"),
         )
     }
 

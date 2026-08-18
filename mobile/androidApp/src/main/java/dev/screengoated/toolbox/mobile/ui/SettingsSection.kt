@@ -21,7 +21,6 @@ import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 @Composable
 internal fun GlobalSection(
     apiKey: String,
-    cerebrasApiKey: String,
     groqApiKey: String,
     openRouterApiKey: String,
     ollamaUrl: String,
@@ -32,7 +31,6 @@ internal fun GlobalSection(
     locale: MobileLocaleText,
     wideLayout: Boolean,
     onApiKeyChanged: (String) -> Unit,
-    onCerebrasApiKeyChanged: (String) -> Unit,
     onGroqApiKeyChanged: (String) -> Unit,
     onOpenRouterApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
@@ -57,13 +55,11 @@ internal fun GlobalSection(
         if (wideLayout || compactLandscape) {
             CredentialsCard(
                 apiKey = apiKey,
-                cerebrasApiKey = cerebrasApiKey,
                 groqApiKey = groqApiKey,
                 openRouterApiKey = openRouterApiKey,
                 ollamaUrl = ollamaUrl,
                 locale = locale,
                 onApiKeyChanged = onApiKeyChanged,
-                onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
                 onGroqApiKeyChanged = onGroqApiKeyChanged,
                 onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
                 onOllamaUrlChanged = onOllamaUrlChanged,
@@ -126,13 +122,11 @@ internal fun GlobalSection(
         } else {
             CredentialsCard(
                 apiKey = apiKey,
-                cerebrasApiKey = cerebrasApiKey,
                 groqApiKey = groqApiKey,
                 openRouterApiKey = openRouterApiKey,
                 ollamaUrl = ollamaUrl,
                 locale = locale,
                 onApiKeyChanged = onApiKeyChanged,
-                onCerebrasApiKeyChanged = onCerebrasApiKeyChanged,
                 onGroqApiKeyChanged = onGroqApiKeyChanged,
                 onOpenRouterApiKeyChanged = onOpenRouterApiKeyChanged,
                 onOllamaUrlChanged = onOllamaUrlChanged,

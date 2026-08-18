@@ -49,7 +49,6 @@ class MainViewModel(
     val sessionState: StateFlow<dev.screengoated.toolbox.mobile.shared.live.LiveSessionState> =
         repository.state
     val apiKey: StateFlow<String> = repository.apiKey
-    val cerebrasApiKey: StateFlow<String> = repository.cerebrasApiKey
     val groqApiKey: StateFlow<String> = repository.groqApiKey
     val openRouterApiKey: StateFlow<String> = repository.openRouterApiKey
     val ollamaUrl: StateFlow<String> = repository.ollamaUrl
@@ -99,10 +98,6 @@ class MainViewModel(
 
     fun onApiKeyChanged(apiKey: String) {
         repository.updateApiKey(apiKey)
-    }
-
-    fun onCerebrasApiKeyChanged(apiKey: String) {
-        repository.updateCerebrasApiKey(apiKey)
     }
 
     fun onGroqApiKeyChanged(apiKey: String) {

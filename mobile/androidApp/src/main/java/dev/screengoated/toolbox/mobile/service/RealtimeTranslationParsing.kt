@@ -12,7 +12,7 @@ import java.io.IOException
 // extracted from RealtimeTranslationClient. These are pure helpers with no
 // dependency on the HTTP client or session state.
 
-internal fun RealtimeTranslationClient.cerebrasMessages(
+internal fun RealtimeTranslationClient.liveTranslateMessages(
     request: TranslationRequest,
     targetLanguage: String,
 ): JSONArray {
@@ -102,57 +102,6 @@ internal fun RealtimeTranslationClient.buildStructuredPrompt(
         append("Expected patches:\n")
         append(expectedPatches.toString())
     }
-}
-
-internal fun RealtimeTranslationClient.cerebrasResponseFormat(): JSONObject {
-    val patchSchema = JSONObject()
-        .put("type", "object")
-        .put(
-            "properties",
-            JSONObject()
-                .put("sourceStart", JSONObject().put("type", "integer"))
-                .put("sourceEnd", JSONObject().put("type", "integer"))
-                .put(
-                    "state",
-                    JSONObject()
-                        .put("type", "string")
-                        .put("enum", JSONArray().put("final").put("draft")),
-                )
-                .put("translation", JSONObject().put("type", "string")),
-        )
-        .put(
-            "required",
-            JSONArray()
-                .put("sourceStart")
-                .put("sourceEnd")
-                .put("state")
-                .put("translation"),
-        )
-        .put("additionalProperties", false)
-
-    val schema = JSONObject()
-        .put("type", "object")
-        .put(
-            "properties",
-            JSONObject().put(
-                "patches",
-                JSONObject()
-                    .put("type", "array")
-                    .put("items", patchSchema),
-            ),
-        )
-        .put("required", JSONArray().put("patches"))
-        .put("additionalProperties", false)
-
-    return JSONObject()
-        .put("type", "json_schema")
-        .put(
-            "json_schema",
-            JSONObject()
-                .put("name", "live_translate_patches")
-                .put("strict", true)
-                .put("schema", schema),
-        )
 }
 
 internal fun RealtimeTranslationClient.parseTranslationResponse(

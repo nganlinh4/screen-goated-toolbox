@@ -37,7 +37,6 @@ class AndroidLiveSessionRepository(
     private var persistedConfig = normalizeConfig(settingsStore.loadConfig())
     private var transientSessionConfigActive = false
     private val mutableApiKey = MutableStateFlow(settingsStore.loadApiKey())
-    private val mutableCerebrasApiKey = MutableStateFlow(settingsStore.loadCerebrasApiKey())
     private val mutableGroqApiKey = MutableStateFlow(settingsStore.loadGroqApiKey())
     private val mutableOpenRouterApiKey = MutableStateFlow(settingsStore.loadOpenRouterApiKey())
     private val mutableOllamaUrl = MutableStateFlow(settingsStore.loadOllamaUrl())
@@ -51,7 +50,6 @@ class AndroidLiveSessionRepository(
     private val mutableCustomModels = MutableStateFlow(settingsStore.loadCustomModels())
 
     val apiKey: StateFlow<String> = mutableApiKey.asStateFlow()
-    val cerebrasApiKey: StateFlow<String> = mutableCerebrasApiKey.asStateFlow()
     val groqApiKey: StateFlow<String> = mutableGroqApiKey.asStateFlow()
     val openRouterApiKey: StateFlow<String> = mutableOpenRouterApiKey.asStateFlow()
     val ollamaUrl: StateFlow<String> = mutableOllamaUrl.asStateFlow()
@@ -108,11 +106,6 @@ class AndroidLiveSessionRepository(
     fun updateApiKey(apiKey: String) {
         mutableApiKey.value = apiKey
         settingsStore.saveApiKey(apiKey.trim())
-    }
-
-    fun updateCerebrasApiKey(apiKey: String) {
-        mutableCerebrasApiKey.value = apiKey
-        settingsStore.saveCerebrasApiKey(apiKey.trim())
     }
 
     fun updateGroqApiKey(apiKey: String) {
@@ -291,7 +284,6 @@ class AndroidLiveSessionRepository(
 
     fun currentApiKey(): String = apiKey.value.trim()
 
-    fun currentCerebrasApiKey(): String = cerebrasApiKey.value.trim()
 
     fun currentGroqApiKey(): String = groqApiKey.value.trim()
 

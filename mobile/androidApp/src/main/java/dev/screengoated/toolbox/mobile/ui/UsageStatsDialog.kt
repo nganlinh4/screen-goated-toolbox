@@ -371,13 +371,6 @@ private fun usageProviderSections(settings: PresetProviderSettings): List<Provid
             "https://console.groq.com/docs/rate-limits",
         ),
         ProviderSection(
-            "Cerebras",
-            PresetModelProvider.CEREBRAS,
-            setOf(PresetModelProvider.CEREBRAS),
-            settings.useCerebras,
-            "https://cloud.cerebras.ai/",
-        ),
-        ProviderSection(
             "Google Gemini",
             PresetModelProvider.GOOGLE,
             setOf(PresetModelProvider.GOOGLE, PresetModelProvider.GEMINI_LIVE),
@@ -402,7 +395,6 @@ private fun providerSection(name: String, provider: PresetModelProvider): Provid
 @Composable
 private fun usageStatsAccent(provider: PresetModelProvider): Color = when (provider) {
     PresetModelProvider.GROQ -> MaterialTheme.colorScheme.primary
-    PresetModelProvider.CEREBRAS -> MaterialTheme.colorScheme.error
     PresetModelProvider.GOOGLE,
     PresetModelProvider.GEMINI_LIVE,
     -> MaterialTheme.colorScheme.tertiary

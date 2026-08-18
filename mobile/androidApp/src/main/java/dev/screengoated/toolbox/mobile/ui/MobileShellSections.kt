@@ -267,7 +267,6 @@ internal fun SectionDetail(
 
             MobileShellSection.SETTINGS -> GlobalSection(
                 apiKey = providerKeys.apiKey,
-                cerebrasApiKey = providerKeys.cerebrasApiKey,
                 groqApiKey = providerKeys.groqApiKey,
                 openRouterApiKey = providerKeys.openRouterApiKey,
                 ollamaUrl = providerKeys.ollamaUrl,
@@ -278,7 +277,6 @@ internal fun SectionDetail(
                 locale = locale,
                 wideLayout = wideLayout,
                 onApiKeyChanged = providerKeys.onApiKeyChanged,
-                onCerebrasApiKeyChanged = providerKeys.onCerebrasApiKeyChanged,
                 onGroqApiKeyChanged = providerKeys.onGroqApiKeyChanged,
                 onOpenRouterApiKeyChanged = providerKeys.onOpenRouterApiKeyChanged,
                 onOllamaUrlChanged = providerKeys.onOllamaUrlChanged,

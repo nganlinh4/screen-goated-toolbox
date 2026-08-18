@@ -25,7 +25,7 @@
   audio-second/day buckets are never concatenated into an ambiguous counter.
 - A missing live snapshot shows only the catalog quota. It does not add a
   per-endpoint "not observed" marker or fabricate remaining values. The one
-  dialog-level empty message names Groq, Cerebras, and OpenRouter as the
+  dialog-level empty message names Groq and OpenRouter as the
   providers whose response paths currently feed observed usage.
 - Provider-scoped quotas appear once in the provider header, not once per
   endpoint. OpenRouter's free request/day allowance is provider-scoped.
