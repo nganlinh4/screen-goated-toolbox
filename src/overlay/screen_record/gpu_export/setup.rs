@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Once, OnceLock};
 use wgpu::util::DeviceExt;
 
 mod uniforms;
@@ -492,5 +492,90 @@ pub(super) fn shared_gpu_context() -> Result<&'static SharedGpuContext, String> 
     match SHARED_GPU_CONTEXT.get_or_init(create_shared_gpu_context) {
         Ok(ctx) => Ok(ctx),
         Err(err) => Err(err.clone()),
+    }
+}
+
+/// Builds the shared context off the critical path.
+///
+/// The first `create_render_pipeline` on the compositor shader costs 8-10s: it
+/// is where the ~39KB uber-shader becomes HLSL, then DXC output, then a driver
+/// pipeline state object. That cost is per process and the worker is not
+/// retained between sessions, so without this every session paid it inside its
+/// first export. Starting it as soon as the window is up overlaps it with the
+/// user opening a project and editing. `get_or_init` makes a concurrent export
+/// wait for this same initialisation rather than duplicate it.
+pub(crate) fn prewarm_shared_gpu_context() {
+    static STARTED: Once = Once::new();
+    STARTED.call_once(|| {
+        if std::thread::Builder::new()
+            .name("sgt-export-gpu-prewarm".to_string())
+            .spawn(|| {
+                let started = std::time::Instant::now();
+                let outcome = match shared_gpu_context() {
+                    Ok(_) => "ready".to_string(),
+                    Err(error) => format!("failed: {error}"),
+                };
+                crate::log_info!(
+                    "[Export][GPU] prewarm {outcome} in {}ms",
+                    started.elapsed().as_millis()
+                );
+            })
+            .is_err()
+        {
+            crate::log_info!("[Export][GPU] prewarm thread could not start");
+        }
+    });
+}
+
+#[cfg(test)]
+mod prewarm_tests {
+    #[test]
+    fn prewarm_runs_off_the_caller_thread_and_only_once() {
+        let source = include_str!("setup.rs");
+        let start = source
+            .find("pub(crate) fn prewarm_shared_gpu_context()")
+            .unwrap();
+        let body = &source[start..];
+        assert!(
+            body.contains("STARTED.call_once("),
+            "repeated window shows must not spawn repeated prewarm threads"
+        );
+        assert!(
+            body.find("thread::Builder::new()").unwrap()
+                < body.find("match shared_gpu_context()").unwrap(),
+            "the pipeline build must happen on the spawned thread, not the caller"
+        );
+    }
+
+    #[test]
+    fn showing_the_window_starts_the_prewarm() {
+        let source = include_str!("../window_proc.rs");
+        let start = source.find("WM_APP_SHOW =>").unwrap();
+        let end = source.find("WM_APP_UPDATE_SETTINGS =>").unwrap();
+        assert!(
+            source[start..end].contains("prewarm_shared_gpu_context()"),
+            "the export pipeline must start building as soon as the window is shown"
+        );
+    }
+
+    #[test]
+    #[ignore = "builds the real GPU pipeline"]
+    fn prewarm_absorbs_the_pipeline_build_before_export_asks_for_it() {
+        super::prewarm_shared_gpu_context();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while super::SHARED_GPU_CONTEXT.get().is_none() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "prewarm did not finish building the shared context"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let started = std::time::Instant::now();
+        assert!(super::shared_gpu_context().is_ok());
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(50),
+            "export acquired the prewarmed context in {:?}, expected it to be ready",
+            started.elapsed()
+        );
     }
 }
