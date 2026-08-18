@@ -180,7 +180,7 @@ fn recognition_quality(text: &str, confidence: f32) -> f32 {
         .chars()
         .filter(|character| character.is_alphanumeric())
         .count()
-        .clamp(1, 16) as f32;
+        .clamp(1, 64) as f32;
     confidence.max(0.0) * useful_characters.sqrt()
 }
 

@@ -4,7 +4,7 @@ use super::contract::DetectedTextRegion;
 use super::geometry::PixelRegion;
 
 const BACKGROUND_BUCKETS: usize = 512;
-const RELIABLE_BACKGROUND_PERCENT: u8 = 28;
+pub(super) const RELIABLE_BACKGROUND_PERCENT: u8 = 28;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

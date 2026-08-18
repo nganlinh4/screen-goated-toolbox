@@ -1,13 +1,13 @@
 {
   "architecture": "x64",
   "component": {
-    "asset": "screen-text-detector-3.2.14-1d7fa1bced5ffb1e.zip",
-    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.14-1d7fa1bced5ffb1e.zip",
+    "asset": "screen-text-detector-3.2.15-38e99d479a9cc61c.zip",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.15-38e99d479a9cc61c.zip",
     "files": [
       {
         "path": "bin/x64/sgt-screen-text-detector-worker.exe",
-        "sha256": "e0ec498a97b442905052606d936aa3f5bdfb6789e7ae77b61192952e9ea25d3b",
-        "sizeBytes": 791040
+        "sha256": "6476527734e04073794a00c08fe3f4043ac013b75035732c37b2f58a5a172f53",
+        "sizeBytes": 795136
       },
       {
         "path": "licenses/PP-OCRv5-mobile-det-README.md",
@@ -146,10 +146,10 @@
       }
     ],
     "id": "screen-text-detector",
-    "sha256": "1d7fa1bced5ffb1efb0cbcdaa2245cc2c328cadd511f85902db0da98142a91c7",
-    "sizeBytes": 105972459,
-    "unpackedSizeBytes": 123219105,
-    "version": "3.2.14"
+    "sha256": "38e99d479a9cc61cf18b83cadc22e4fa3895deb94058837670248ca307a38957",
+    "sizeBytes": 105974403,
+    "unpackedSizeBytes": 123223201,
+    "version": "3.2.15"
   },
   "schemaVersion": 1
 }

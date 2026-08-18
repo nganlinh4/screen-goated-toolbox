@@ -11,6 +11,7 @@ pub(super) struct PreparedSource {
     pub pixels: PixelRegion,
     pub source_text: String,
     pub foreground: String,
+    foreground_rgb: Option<[u8; 3]>,
     pub background: Option<([u8; 3], u8)>,
 }
 
@@ -54,10 +55,11 @@ pub(super) fn prepare_scene(
         let background = candidate
             .appearance
             .map(|appearance| (appearance.background_rgb, appearance.background_confidence));
-        let foreground = candidate
+        let foreground_rgb = candidate
             .appearance
             .filter(|appearance| appearance.foreground_confidence >= 3)
-            .and_then(|appearance| appearance.foreground_rgb)
+            .and_then(|appearance| appearance.foreground_rgb);
+        let foreground = foreground_rgb
             .map(super::appearance::color_hex)
             .unwrap_or_default();
         sources.insert(
@@ -66,6 +68,7 @@ pub(super) fn prepare_scene(
                 pixels: *pixels,
                 source_text: candidate.source_text.clone(),
                 foreground,
+                foreground_rgb,
                 background,
             },
         );
@@ -95,9 +98,7 @@ pub(super) fn prepare_scene(
                 .iter()
                 .map(|source| (source.pixels, source.background)),
         );
-        let vertical_text = members
-            .iter()
-            .all(|source| source.pixels.height > source.pixels.width.saturating_mul(3) / 2);
+        let vertical_text = dominant_orientation_is_vertical(&shape_regions);
         let source_regions = members
             .iter()
             .map(|source| crate::overlay::result::SourceReplacementRegion {
@@ -115,9 +116,12 @@ pub(super) fn prepare_scene(
             &shape_regions,
             background,
         );
-        let foreground = members
-            .iter()
-            .find_map(|source| (!source.foreground.is_empty()).then(|| source.foreground.clone()))
+        let reliable_background = background.filter(|(_, confidence)| {
+            *confidence >= super::appearance::RELIABLE_BACKGROUND_PERCENT
+        });
+        let foreground = reliable_background
+            .and_then(|(background, _)| most_contrasting_foreground(&members, background))
+            .map(super::appearance::color_hex)
             .unwrap_or(inferred_foreground);
         let component_id = member_ids[0];
         blocks.push(PreparedBlock {
@@ -132,6 +136,20 @@ pub(super) fn prepare_scene(
         });
     }
     Ok(PreparedScene { sources, blocks })
+}
+
+fn most_contrasting_foreground(
+    sources: &[&PreparedSource],
+    background: [u8; 3],
+) -> Option<[u8; 3]> {
+    sources
+        .iter()
+        .filter_map(|source| source.foreground_rgb)
+        .max_by_key(|foreground| luminance(*foreground).abs_diff(luminance(background)))
+}
+
+fn luminance(rgb: [u8; 3]) -> u32 {
+    (299 * u32::from(rgb[0]) + 587 * u32::from(rgb[1]) + 114 * u32::from(rgb[2])) / 1000
 }
 
 fn connected_components(located: &[(&DetectedTextRegion, PixelRegion)]) -> Vec<Vec<u16>> {
@@ -165,6 +183,18 @@ fn touches(left: PixelRegion, right: PixelRegion) -> bool {
         && right.x <= left.x.saturating_add(left.width)
         && left.y <= right.y.saturating_add(right.height)
         && right.y <= left.y.saturating_add(left.height)
+}
+
+fn dominant_orientation_is_vertical(regions: &[PixelRegion]) -> bool {
+    let (vertical_area, horizontal_area) = regions.iter().fold((0_u64, 0_u64), |areas, region| {
+        let area = u64::from(region.width) * u64::from(region.height);
+        if region.height > region.width.saturating_mul(3) / 2 {
+            (areas.0.saturating_add(area), areas.1)
+        } else {
+            (areas.0, areas.1.saturating_add(area))
+        }
+    });
+    vertical_area > horizontal_area
 }
 
 fn union(regions: impl Iterator<Item = PixelRegion>) -> PixelRegion {
@@ -223,6 +253,34 @@ mod tests {
                 width: 20,
                 height: 10
             }
+        );
+    }
+
+    #[test]
+    fn dominant_area_keeps_a_mixed_component_vertical() {
+        let regions = [
+            PixelRegion {
+                x: 0,
+                y: 0,
+                width: 40,
+                height: 240,
+            },
+            PixelRegion {
+                x: 45,
+                y: 210,
+                width: 80,
+                height: 20,
+            },
+        ];
+        assert!(dominant_orientation_is_vertical(&regions));
+    }
+
+    #[test]
+    fn foreground_contrast_is_measured_against_the_merged_background() {
+        let background = [109, 7, 18];
+        assert!(
+            luminance([235, 210, 170]).abs_diff(luminance(background))
+                > luminance([147, 16, 42]).abs_diff(luminance(background))
         );
     }
 }

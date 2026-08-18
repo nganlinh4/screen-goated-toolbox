@@ -22,6 +22,8 @@ const MIN_PARTIAL_COVERAGE_PERCENT: usize = 80;
 const MAX_OMITTED_REGION_AREA: u32 = 4_000;
 const MAX_TOTAL_OMITTED_AREA: u32 = 8_000;
 const MAX_TAIL_FAILURES: usize = 2;
+const MAX_CONTENT_ATTEMPTS: usize = 2;
+const MAX_TOTAL_ATTEMPTS: usize = 3;
 const TAIL_REPAIR_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(super) struct TranslateInput<'a> {
@@ -113,7 +115,20 @@ where
         .iter()
         .flat_map(|region| region.member_ids.iter().copied())
         .collect::<HashSet<_>>();
-    let text_document = text_result?;
+    let (text_document, text_error) = match text_result {
+        Ok(document) => (document, None),
+        Err(error) => {
+            crate::log_info!(
+                "[Screen Translate] trace={trace_id} text branch unavailable; preserving batched vision output: {error:#}"
+            );
+            (
+                TranslationDocument {
+                    regions: Vec::new(),
+                },
+                Some(error),
+            )
+        }
+    };
     for region in &vision_regions {
         on_event(region.clone());
     }
@@ -124,7 +139,7 @@ where
         })
         .cloned()
         .collect::<Vec<_>>();
-    let fallback_document = if missing_vision.is_empty() {
+    let fallback_document = if missing_vision.is_empty() || text_error.is_some() {
         TranslationDocument {
             regions: Vec::new(),
         }
@@ -147,6 +162,11 @@ where
     regions.append(&mut vision_regions);
     regions.extend(fallback_document.regions);
     regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
+    if regions.is_empty()
+        && let Some(error) = text_error
+    {
+        return Err(error);
+    }
     Ok(TranslationDocument { regions })
 }
 
@@ -171,6 +191,8 @@ where
     let mut accepted = Vec::new();
     let mut covered = HashSet::new();
     let mut tail_failures = 0;
+    let mut content_attempts = 0;
+    let mut total_attempts = 0;
     let mut current =
         crate::model_config::get_model_by_id_with_custom(translation_model, &config.custom_models)
             .or_else(|| {
@@ -197,6 +219,7 @@ where
         let request_timeout = if can_finish_partial(candidates, &covered) {
             TAIL_REPAIR_TIMEOUT
         } else {
+            total_attempts += 1;
             Duration::from_secs(20)
         };
         if let Some(reason) =
@@ -235,7 +258,7 @@ where
             } else {
                 Arc::clone(&cancel)
             };
-            let response = translate_text_streaming(
+            let transport = translate_text_streaming(
                 TranslateTextRequest {
                     groq_api_key: &config.api_key,
                     gemini_api_key: &config.gemini_api_key,
@@ -260,8 +283,12 @@ where
                         }
                     }
                 },
-            )
-            .and_then(|response| parse_response(&response, &pending));
+            );
+            let received_content = transport.is_ok();
+            if received_content {
+                content_attempts += 1;
+            }
+            let response = transport.and_then(|response| parse_response(&response, &pending));
             let error = match response {
                 Ok(document) => {
                     for region in document.regions {
@@ -322,11 +349,29 @@ where
             if crate::overlay::utils::should_block_retry_provider(&error.to_string()) {
                 blocked_providers.insert(current.provider.clone());
             }
+            if received_content && content_attempts == 1 {
+                blocked_providers.insert(current.provider.clone());
+                crate::log_info!(
+                    "[Screen Translate] trace={trace_id} backup requires provider diversity after model={}",
+                    current.id
+                );
+            }
             failed.push(current.id.clone());
             crate::log_info!(
                 "[Screen Translate] trace={trace_id} text model failed model={} reason={error}",
                 current.id
             );
+            if content_attempts >= MAX_CONTENT_ATTEMPTS || total_attempts >= MAX_TOTAL_ATTEMPTS {
+                if accepted.is_empty() {
+                    return Err(error).context("translation models returned no validated output");
+                }
+                crate::log_info!(
+                    "[Screen Translate] trace={trace_id} stopped at bounded fallback budget regions={} omitted={}",
+                    accepted.len(),
+                    candidates.len().saturating_sub(covered.len())
+                );
+                return Ok(assembled_document(&accepted));
+            }
         }
         current = resolve_next_retry_model(
             &current.id,
@@ -395,6 +440,9 @@ fn accept_region(
     region: TranslationRegion,
 ) -> bool {
     if region.member_ids.iter().any(|id| covered.contains(id)) {
+        return false;
+    }
+    if super::translation_validation::is_suspiciously_unchanged(&region) {
         return false;
     }
     covered.extend(region.member_ids.iter().copied());
@@ -507,36 +555,6 @@ mod tests {
         let completed = completed_document(&candidates, &accepted, &covered).unwrap();
         assert_eq!(completed.regions.len(), 3);
         assert_eq!(completed.regions[0].translated_segments, ["first"]);
-    }
-
-    #[test]
-    fn source_equivalence_ignores_layout_whitespace_and_punctuation() {
-        let candidate = candidate(1, 20);
-        let mut region = translated(&candidate);
-        region.source_text = "첫째 줄\n둘째 줄.".to_string();
-        region.translated_segments = vec!["첫째 줄 둘째 줄".to_string()];
-        assert!(super::super::contract::text_is_source_equivalent(
-            &region.source_text,
-            &region.translated_segments.join(" ")
-        ));
-
-        region.translated_segments = vec!["Dòng thứ nhất, dòng thứ hai.".to_string()];
-        assert!(!super::super::contract::text_is_source_equivalent(
-            &region.source_text,
-            &region.translated_segments.join(" ")
-        ));
-    }
-
-    #[test]
-    fn model_declared_already_target_text_is_accepted_without_a_retry() {
-        let candidate = candidate(1, 20);
-        let mut region = translated(&candidate);
-        region.translated_segments = vec![region.source_text.clone()];
-        let mut accepted = Vec::new();
-        let mut covered = HashSet::new();
-        assert!(accept_region(&mut accepted, &mut covered, region));
-        assert_eq!(covered, HashSet::from([candidate.id]));
-        assert_eq!(accepted.len(), 1);
     }
 
     #[test]

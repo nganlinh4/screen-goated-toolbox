@@ -1,11 +1,8 @@
 pub const DOCUMENT: &str = r#"<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
+<html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style id="sgt-theme-css"></style><style id="sgt-controls-theme-css"></style>
-<style>
-__SGT_FONT_FACE____SGT_BUTTON_CSS__
+<style>__SGT_FONT_FACE____SGT_BUTTON_CSS__
 html,body,#scene{position:fixed;inset:0;margin:0;overflow:hidden;background:transparent}
 body{font-family:'Google Sans Flex';user-select:none}
 #scene{pointer-events:none}
@@ -16,16 +13,11 @@ body{font-family:'Google Sans Flex';user-select:none}
 .region-backdrop{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:0}
 .direct-host,.result-frame{position:relative;z-index:1;display:block;width:100%;height:100%;border:0;background:transparent;user-select:text}
 .result-card[data-presentation="text_only"] .direct-host,.result-card[data-presentation="text_only"] .result-frame{user-select:text;cursor:text}
-</style>
-</head>
-<body>
-<span class="font-prewarm" aria-hidden="true">SGT</span>
+</style></head><body><span class="font-prewarm" aria-hidden="true">SGT</span>
 <main id="scene"></main><aside id="button-container"></aside>
-<script>__SGT_DIRECT_RUNTIME__</script>
-<script>
-window.__SGT_RUN_FIT__ = function(streaming) { __SGT_FIT_RUNTIME__ };
-const scene = document.getElementById('scene');
-const isolatedOrigin = __SGT_ISOLATED_ORIGIN_JSON__;
+<script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script>
+<script>window.__SGT_RUN_FIT__ = function(streaming) { __SGT_FIT_RUNTIME__ };
+const scene = document.getElementById('scene'); const isolatedOrigin = __SGT_ISOLATED_ORIGIN_JSON__;
 const cards = new Map();
 const cardStyleText = __SGT_CARD_CSS_JSON__;
 let currentThemeCss = '';

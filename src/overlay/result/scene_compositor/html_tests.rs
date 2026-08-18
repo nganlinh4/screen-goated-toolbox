@@ -87,6 +87,12 @@ fn result_card_outline_does_not_bleed_into_the_control_gap() {
 #[test]
 fn text_only_cards_keep_the_fitter_without_card_chrome() {
     let direct_runtime = include_str!("direct_runtime.js");
+    let shape_runtime = include_str!("shape_runtime.js");
+    assert!(shape_runtime.contains("window.__SGT_SHAPE_LAYOUT__"));
+    assert!(shape_runtime.contains("prefersVerticalWriting"));
+    assert!(shape_runtime.contains("Script=Han"));
+    assert!(direct_runtime.contains("shapeLayout.prefersVerticalWriting(text)"));
+    assert!(!direct_runtime.contains("overflowWrap = 'anywhere'"));
     assert!(DOCUMENT.contains("data-presentation=\"text_only\""));
     assert!(DOCUMENT.contains("background:transparent!important;box-shadow:none"));
     assert!(DOCUMENT.contains("const backdrop = document.createElement('img')"));
@@ -104,6 +110,11 @@ fn text_only_cards_keep_the_fitter_without_card_chrome() {
     assert!(direct_runtime.contains("[100, 90, 80, 70, 60, 50, 40, 30, 25]"));
     assert!(direct_runtime.contains("Math.min(100, candidateWidth)"));
     assert!(!direct_runtime.contains("stretchHigh = 151"));
+    assert!(direct_runtime.contains("applyTypography(widthItem, fontMiddle, 50)"));
+    assert!(direct_runtime.contains("var vertical = regions[widthItemIndex].vertical === true;"));
+    assert!(!direct_runtime.contains(
+        "region.vertical === true\n                    && shapeLayout.prefersVerticalWriting"
+    ));
     assert!(direct_runtime.contains("fits(text, size, fitTolerance, true)"));
     assert!(direct_runtime.contains("!rejectPathologicalWrap || !hasPathologicalWrap"));
     assert!(!direct_runtime.contains("verticalInset"));

@@ -83,7 +83,12 @@ impl TextRecognizer {
     }
 
     pub(crate) fn recognize_batch(&mut self, sources: &[RgbImage]) -> Result<Vec<Recognition>> {
-        let prepared = sources.iter().map(prepare).collect::<Result<Vec<_>>>()?;
+        let plan = RecognitionPlan::new(sources)?;
+        let prepared = plan
+            .tiles
+            .iter()
+            .map(|tile| prepare(&tile.image))
+            .collect::<Result<Vec<_>>>()?;
         let mut order = (0..prepared.len()).collect::<Vec<_>>();
         order.sort_unstable_by_key(|index| prepared[*index].width);
         let mut recognized = (0..prepared.len()).map(|_| None).collect::<Vec<_>>();
@@ -120,15 +125,168 @@ impl TextRecognizer {
                         .context("recognizer output batch is truncated")?,
                     steps,
                     &self.characters,
-                    self.reverse_output,
+                    false,
                 )?);
             }
         }
-        recognized
+        let recognized = recognized
             .into_iter()
             .map(|result| result.context("recognizer omitted a batch result"))
-            .collect()
+            .collect::<Result<Vec<_>>>()?;
+        plan.assemble(recognized, self.reverse_output)
     }
+}
+
+struct RecognitionPlan {
+    source_count: usize,
+    tiles: Vec<RecognitionTile>,
+}
+
+struct RecognitionTile {
+    source_index: usize,
+    image: RgbImage,
+    separated_from_previous: bool,
+}
+
+impl RecognitionPlan {
+    fn new(sources: &[RgbImage]) -> Result<Self> {
+        let mut tiles = Vec::new();
+        for (source_index, source) in sources.iter().enumerate() {
+            if source.width() == 0 || source.height() == 0 {
+                bail!("recognizer crop is empty");
+            }
+            let ranges = recognition_ranges(source);
+            for (index, range) in ranges.into_iter().enumerate() {
+                tiles.push(RecognitionTile {
+                    source_index,
+                    image: image::imageops::crop_imm(
+                        source,
+                        range.start,
+                        0,
+                        range.end - range.start,
+                        source.height(),
+                    )
+                    .to_image(),
+                    separated_from_previous: index > 0 && range.separated,
+                });
+            }
+        }
+        Ok(Self {
+            source_count: sources.len(),
+            tiles,
+        })
+    }
+
+    fn assemble(
+        self,
+        recognized: Vec<Recognition>,
+        reverse_output: bool,
+    ) -> Result<Vec<Recognition>> {
+        if recognized.len() != self.tiles.len() {
+            bail!("recognizer tile result count mismatch");
+        }
+        let mut results = (0..self.source_count)
+            .map(|_| Recognition {
+                text: String::new(),
+                confidence: 0.0,
+                script_evidence: Vec::new(),
+                token_count: 0,
+            })
+            .collect::<Vec<_>>();
+        for (tile, result) in self.tiles.into_iter().zip(recognized) {
+            let target = &mut results[tile.source_index];
+            if tile.separated_from_previous
+                && !target.text.is_empty()
+                && !result.text.is_empty()
+                && (target.text.chars().any(char::is_whitespace)
+                    || result.text.chars().any(char::is_whitespace))
+            {
+                target.text.push(' ');
+            }
+            target.text.push_str(result.text.trim());
+            target.confidence += result.confidence * result.token_count as f32;
+            target.token_count += result.token_count;
+            target.script_evidence.extend(result.script_evidence);
+        }
+        for result in &mut results {
+            result.confidence = if result.token_count == 0 {
+                0.0
+            } else {
+                (result.confidence / result.token_count as f32).clamp(0.0, 1.0)
+            };
+            result.text = if reverse_output {
+                reverse_directional(&result.text)
+            } else {
+                std::mem::take(&mut result.text)
+            }
+            .trim()
+            .to_string();
+        }
+        Ok(results)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RecognitionRange {
+    start: u32,
+    end: u32,
+    separated: bool,
+}
+
+fn recognition_ranges(source: &RgbImage) -> Vec<RecognitionRange> {
+    let max_source_width =
+        (MAX_INPUT_WIDTH as u64 * source.height() as u64 / INPUT_HEIGHT as u64) as u32;
+    if source.width() <= max_source_width.max(1) {
+        return vec![RecognitionRange {
+            start: 0,
+            end: source.width(),
+            separated: false,
+        }];
+    }
+
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    let mut separated_from_previous = false;
+    while source.width() - start > max_source_width {
+        let earliest = start + max_source_width.saturating_mul(3) / 4;
+        let latest = (start + max_source_width).min(source.width() - 1);
+        let cut = quietest_cut(source, earliest, latest);
+        ranges.push(RecognitionRange {
+            start,
+            end: cut,
+            separated: separated_from_previous,
+        });
+        start = cut;
+        separated_from_previous = true;
+    }
+    ranges.push(RecognitionRange {
+        start,
+        end: source.width(),
+        separated: separated_from_previous,
+    });
+    ranges
+}
+
+fn quietest_cut(source: &RgbImage, earliest: u32, latest: u32) -> u32 {
+    (earliest..=latest)
+        .min_by_key(|&x| column_activity(source, x))
+        .unwrap_or(latest)
+}
+
+fn column_activity(source: &RgbImage, x: u32) -> u64 {
+    let radius = (source.height() / 6).clamp(1, 4);
+    let start = x.saturating_sub(radius);
+    let end = (x + radius).min(source.width() - 1);
+    (start..end)
+        .flat_map(|column| (0..source.height()).map(move |y| (column, y)))
+        .map(|(column, y)| {
+            let a = source.get_pixel(column, y);
+            let b = source.get_pixel(column + 1, y);
+            (0..3)
+                .map(|channel| u64::from(a[channel].abs_diff(b[channel])))
+                .sum::<u64>()
+        })
+        .sum()
 }
 
 struct PreparedTextLine {
@@ -344,6 +502,70 @@ mod tests {
         let wide = prepare(&RgbImage::new(4_000, 20)).unwrap();
         assert_eq!(narrow.width, MIN_INPUT_WIDTH);
         assert_eq!(wide.width, MAX_INPUT_WIDTH);
+    }
+
+    #[test]
+    fn extreme_line_is_tiled_without_resizing_any_tile_past_the_cap() {
+        let source = RgbImage::from_pixel(1_427, 20, image::Rgb([255, 255, 255]));
+        let ranges = recognition_ranges(&source);
+        assert_eq!(ranges.first().unwrap().start, 0);
+        assert_eq!(ranges.last().unwrap().end, source.width());
+        assert!(ranges.len() > 1);
+        assert!(ranges.windows(2).all(|pair| pair[0].end == pair[1].start));
+        for range in ranges {
+            let crop = image::imageops::crop_imm(
+                &source,
+                range.start,
+                0,
+                range.end - range.start,
+                source.height(),
+            )
+            .to_image();
+            let expected = crop.width() as f64 * f64::from(INPUT_HEIGHT) / f64::from(crop.height());
+            assert!(expected <= f64::from(MAX_INPUT_WIDTH));
+        }
+    }
+
+    #[test]
+    fn tiled_results_reassemble_in_source_order_with_weighted_confidence() {
+        let plan = RecognitionPlan {
+            source_count: 1,
+            tiles: vec![
+                RecognitionTile {
+                    source_index: 0,
+                    image: RgbImage::new(10, 10),
+                    separated_from_previous: false,
+                },
+                RecognitionTile {
+                    source_index: 0,
+                    image: RgbImage::new(10, 10),
+                    separated_from_previous: true,
+                },
+            ],
+        };
+        let results = plan
+            .assemble(
+                vec![
+                    Recognition {
+                        text: "first part".to_string(),
+                        confidence: 0.9,
+                        script_evidence: vec![1],
+                        token_count: 9,
+                    },
+                    Recognition {
+                        text: "second part".to_string(),
+                        confidence: 0.6,
+                        script_evidence: vec![2],
+                        token_count: 10,
+                    },
+                ],
+                false,
+            )
+            .unwrap();
+        assert_eq!(results[0].text, "first part second part");
+        assert_eq!(results[0].token_count, 19);
+        assert!((results[0].confidence - (14.1 / 19.0)).abs() < 0.001);
+        assert_eq!(results[0].script_evidence, vec![1, 2]);
     }
 
     #[test]
