@@ -66,6 +66,11 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
         )
         .replace("__SGT_CARD_CSS_JSON__", &card_css_json)
         .replace("__SGT_SHAPE_RUNTIME__", include_str!("shape_runtime.js"))
+        .replace(
+            "__SGT_DOM_PATCH_RUNTIME__",
+            include_str!("dom_patch_runtime.js"),
+        )
+        .replace("__SGT_REVEAL_RUNTIME__", include_str!("reveal_runtime.js"))
         .replace("__SGT_DIRECT_RUNTIME__", &direct_runtime)
         .replace(
             "__SGT_HOST_COMMAND_RUNTIME__",
@@ -95,6 +100,8 @@ mod tests {
 
         assert!(document.contains("Google Sans Flex"));
         assert!(document.contains("window.__SGT_CREATE_DIRECT_RUNTIME__"));
+        assert!(document.contains("window.__SGT_PATCH_BODY__"));
+        assert!(document.contains("window.__SGT_CREATE_REVEAL_RUNTIME__"));
         assert!(document.contains("window.__SGT_RUN_FIT__"));
         assert!(document.contains("attachShadow"));
         assert!(document.contains("src:url('/font.ttf')"));
@@ -106,6 +113,8 @@ mod tests {
         assert!(document.contains("inset 0 0 0 1px var(--result-outline)"));
         assert!(!document.contains("__SGT_CARD_CSS_JSON__"));
         assert!(!document.contains("__SGT_DIRECT_RUNTIME__"));
+        assert!(!document.contains("__SGT_DOM_PATCH_RUNTIME__"));
+        assert!(!document.contains("__SGT_REVEAL_RUNTIME__"));
         assert!(!document.contains("__SGT_HOST_COMMAND_RUNTIME__"));
         assert!(!document.contains("__SGT_SETTLED_REVEAL_RUNTIME__"));
         assert!(!document.contains("__SGT_FIT_RUNTIME__"));

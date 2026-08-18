@@ -60,6 +60,10 @@ mod tests {
         assert!(script.contains("var eased = usesStreamingMotion"));
         assert!(script.contains("? t"));
         assert!(!script.contains("_sgtContainmentTransition"));
+        assert!(script.contains("fitState._sgtMotionController"));
+        assert!(script.contains("motion.fontVelocity +="));
+        assert!(script.contains("var steps = Math.max(1, Math.ceil(elapsed * 120))"));
+        assert!(script.contains("if (motion.frame !== null) return"));
     }
 
     #[test]
@@ -76,11 +80,23 @@ mod tests {
     fn streaming_target_search_has_bounded_layout_work() {
         let script = runtime_fit_script();
 
-        assert!(script.contains("MAX_STREAMING_REFINEMENT_PROBES = 2"));
+        assert!(!script.contains("MAX_STREAMING_REFINEMENT_PROBES"));
         assert!(script.contains("previousTarget.fontSize"));
+        assert!(script.contains("needsStreamingRefinement = estimate > minSize"));
+        assert!(script.contains("fitContext.requestRefinement()"));
+        assert!(script.contains("if (!isStreamingFit && !foundFittingSize && !fits())"));
         assert!(script.contains("layoutProbes: layoutProbeCount"));
         assert!(script.contains("paintedShrinkPxPerSec: paintedShrinkPxPerSec"));
         assert!(!script.contains("hasPathologicalWrap"));
+    }
+
+    #[test]
+    fn final_fit_reuses_contained_or_floor_streaming_geometry() {
+        let script = runtime_fit_script();
+
+        assert!(script.contains("var finalStreamingTarget = fitState._sgtLastReportedFitTarget"));
+        assert!(script.contains("finalTargetFits || targetAtReadableFloor"));
+        assert!(script.contains("activeMotion.finalizing = true"));
     }
 
     #[test]

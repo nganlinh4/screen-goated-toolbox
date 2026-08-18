@@ -110,7 +110,7 @@
                     }
 
                     // ===== PHASE 8: OVERFLOW RESCUE CONDENSE =====
-                    if (!foundFittingSize && !fits()) {
+                    if (!isStreamingFit && !foundFittingSize && !fits()) {
                         var rescueSize = Math.max(minSize, parseFloat(body.style.fontSize) || minSize);
                         body.style.fontSize = rescueSize + 'px';
                         body.style.letterSpacing = '0px';
@@ -132,7 +132,7 @@
                     }
 
                     // ===== FINAL: Fill any remaining gap by distributing space =====
-                    var finalGap = winH - doc.scrollHeight;
+                    var finalGap = isStreamingFit ? 0 : winH - doc.scrollHeight;
                     if (!isStreamingFit && finalGap > 2) {
                         body.style.paddingTop = Math.floor(finalGap * 0.3) + 'px';
                         body.style.paddingBottom = Math.floor(finalGap * 0.7) + 'px';
@@ -311,6 +311,91 @@
                         var maximumDuration = usesStreamingMotion ? 180 : 900;
                         var duration = Math.max(minimumDuration,
                             Math.min(maximumDuration, durationFromDelta));
+                        function retargetContinuousMotion() {
+                            var motion = fitState._sgtMotionController;
+                            if (!motion) {
+                                motion = {
+                                    frame: null,
+                                    lastTime: 0,
+                                    fontSize: startFontSize,
+                                    fontVelocity: 0,
+                                    fontStretch: startWdth,
+                                    stretchVelocity: 0,
+                                    padTop: startPadTop,
+                                    padTopVelocity: 0,
+                                    padBottom: startPadBottom,
+                                    padBottomVelocity: 0,
+                                    finalizing: false
+                                };
+                                fitState._sgtMotionController = motion;
+                            }
+                            motion.targetFontSize = targetFontSize;
+                            motion.targetFontStretch = targetWdth;
+                            motion.targetPadTop = targetPadTop;
+                            motion.targetPadBottom = targetPadBottom;
+                            motion.finalizing = !isStreamingFit;
+                            // Target search probes mutate the live axes. Restore
+                            // the controller's continuous position before the
+                            // browser can paint; only the controller advances it.
+                            applyAxes(motion.fontSize, motion.fontStretch);
+                            applyPadding(motion.padTop, motion.padBottom);
+                            if (motion.frame !== null) return;
+
+                            motion.lastTime = performance.now();
+                            var tickMotion = function(now) {
+                                var elapsed = Math.max(0.001,
+                                    Math.min(0.05, (now - motion.lastTime) / 1000));
+                                motion.lastTime = now;
+                                var steps = Math.max(1, Math.ceil(elapsed * 120));
+                                var dt = elapsed / steps;
+                                for (var step = 0; step < steps; step++) {
+                                    var debt = Math.abs(motion.targetFontSize - motion.fontSize);
+                                    var omega = 20 + Math.min(16, debt * 0.55);
+                                    var damping = 2 * omega;
+                                    motion.fontVelocity += (omega * omega
+                                        * (motion.targetFontSize - motion.fontSize)
+                                        - damping * motion.fontVelocity) * dt;
+                                    motion.fontSize += motion.fontVelocity * dt;
+                                    motion.stretchVelocity += (omega * omega
+                                        * (motion.targetFontStretch - motion.fontStretch)
+                                        - damping * motion.stretchVelocity) * dt;
+                                    motion.fontStretch += motion.stretchVelocity * dt;
+                                    motion.padTopVelocity += (omega * omega
+                                        * (motion.targetPadTop - motion.padTop)
+                                        - damping * motion.padTopVelocity) * dt;
+                                    motion.padTop += motion.padTopVelocity * dt;
+                                    motion.padBottomVelocity += (omega * omega
+                                        * (motion.targetPadBottom - motion.padBottom)
+                                        - damping * motion.padBottomVelocity) * dt;
+                                    motion.padBottom += motion.padBottomVelocity * dt;
+                                }
+                                applyAxes(motion.fontSize, motion.fontStretch);
+                                applyPadding(motion.padTop, motion.padBottom);
+                                fitState._sgtCurrentFontSize = motion.fontSize;
+                                fitState._sgtCurrentWdth = motion.fontStretch;
+                                var settled = Math.abs(motion.targetFontSize - motion.fontSize) < 0.03
+                                    && Math.abs(motion.fontVelocity) < 0.15
+                                    && Math.abs(motion.targetFontStretch - motion.fontStretch) < 0.08
+                                    && Math.abs(motion.stretchVelocity) < 0.3
+                                    && Math.abs(motion.targetPadTop - motion.padTop) < 0.08
+                                    && Math.abs(motion.targetPadBottom - motion.padBottom) < 0.08;
+                                if (settled) {
+                                    applyAxes(motion.targetFontSize, motion.targetFontStretch);
+                                    applyPadding(motion.targetPadTop, motion.targetPadBottom);
+                                    motion.fontSize = motion.targetFontSize;
+                                    motion.fontStretch = motion.targetFontStretch;
+                                    motion.padTop = motion.targetPadTop;
+                                    motion.padBottom = motion.targetPadBottom;
+                                    motion.frame = null;
+                                    if (motion.finalizing) {
+                                        fitState._sgtStreamingMotionActive = false;
+                                    }
+                                } else {
+                                    motion.frame = scheduleFitFrame(tickMotion);
+                                }
+                            };
+                            motion.frame = scheduleFitFrame(tickMotion);
+                        }
                         // Only SNAP when the first fit of a session (no prior
                         // to animate from) or when the delta is essentially
                         // zero (< 0.1px wouldn't be visible anyway). Removed
@@ -318,7 +403,9 @@
                         // forming the visible "stair-step" between chunks.
                         var snapThreshold = 0.1;
                         var snapWThreshold = 0.3;
-                        if (settleBeforeReveal || !hadPriorSize
+                        if (usesStreamingMotion && hadPriorSize && !settleBeforeReveal) {
+                            retargetContinuousMotion();
+                        } else if (settleBeforeReveal || !hadPriorSize
                             || (fsDelta < snapThreshold && wDelta < snapWThreshold)) {
                             applyAxes(targetFontSize, targetWdth);
                             applyPadding(targetPadTop, targetPadBottom);

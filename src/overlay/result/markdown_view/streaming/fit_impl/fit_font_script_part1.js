@@ -16,6 +16,7 @@
         get scrollHeight() { return fitBody ? fitBody.scrollHeight : 0; },
         get scrollWidth() { return fitBody ? fitBody.scrollWidth : 0; }
     } : document.documentElement;
+    var needsStreamingRefinement = false;
 
     fitState._sgtFitCallCount = (fitState._sgtFitCallCount || 0) + 1;
     if (fitState._sgtFitting) return;
@@ -56,6 +57,10 @@
             try {
                 if (fitContext && typeof fitContext.complete === 'function') {
                     fitContext.complete();
+                    if (needsStreamingRefinement
+                        && typeof fitContext.requestRefinement === 'function') {
+                        fitContext.requestRefinement();
+                    }
                 } else if (window.parent && window.parent !== window) {
                     window.parent.postMessage({ type: 'fit_complete' }, '*');
                 }
@@ -200,6 +205,57 @@
                                 ? 100
                                 : Math.max(24, Math.min(48, Math.floor(winH / 10)))));
 
+                    // Final content commonly differs only by stream framing. Reuse
+                    // the verified streaming target when it still contains the DOM,
+                    // or when it already reached the readability floor and further
+                    // font-size search cannot improve containment. Scrolling remains
+                    // the recovery path for the latter case.
+                    var finalStreamingTarget = fitState._sgtLastReportedFitTarget;
+                    if (!isStreamingFit && finalStreamingTarget
+                        && finalStreamingTarget.streaming
+                        && Number.isFinite(finalStreamingTarget.fontSize)) {
+                        var displayedBeforeFinalProbe = parseFloat(body.style.fontSize);
+                        var displayedStretchBeforeFinalProbe = parseFloat(body.style.fontStretch);
+                        body.style.fontSize = finalStreamingTarget.fontSize + 'px';
+                        applyBodyWdth(finalStreamingTarget.fontStretch || 90);
+                        clearLastMargin();
+                        var finalTargetFits = metricsFit(readLayoutMetrics());
+                        var targetAtReadableFloor = finalStreamingTarget.fontSize <= minSize + 0.1;
+                        if (finalTargetFits || targetAtReadableFloor) {
+                            var activeMotion = fitState._sgtMotionController;
+                            if (activeMotion) {
+                                activeMotion.targetFontSize = finalStreamingTarget.fontSize;
+                                activeMotion.targetFontStretch = finalStreamingTarget.fontStretch || 90;
+                                activeMotion.targetPadTop = 0;
+                                activeMotion.targetPadBottom = 0;
+                                activeMotion.finalizing = true;
+                                if (activeMotion.frame !== null
+                                    && Number.isFinite(displayedBeforeFinalProbe)) {
+                                    body.style.fontSize = displayedBeforeFinalProbe + 'px';
+                                    applyBodyWdth(Number.isFinite(displayedStretchBeforeFinalProbe)
+                                        ? displayedStretchBeforeFinalProbe
+                                        : activeMotion.fontStretch);
+                                }
+                            } else {
+                                fitState._sgtStreamingMotionActive = false;
+                            }
+                            fitState._sgtLastFinalFit = {
+                                textLen: textLen,
+                                winW: winW,
+                                winH: winH,
+                                fontSize: finalStreamingTarget.fontSize,
+                                fontStretch: finalStreamingTarget.fontStretch || 90
+                            };
+                            return;
+                        }
+                        if (Number.isFinite(displayedBeforeFinalProbe)) {
+                            body.style.fontSize = displayedBeforeFinalProbe + 'px';
+                        }
+                        applyBodyWdth(Number.isFinite(displayedStretchBeforeFinalProbe)
+                            ? displayedStretchBeforeFinalProbe
+                            : 90);
+                    }
+
                     // A newer fit may be queued immediately after this invocation.
                     // Let the active interpolation paint during our two readiness
                     // frames, then freeze it at the latest displayed value immediately
@@ -289,41 +345,11 @@
                                 minSize,
                                 Math.min(searchHigh - 1, Math.floor(searchHigh * estimateScale))
                             );
-                            var searchLow = minSize;
-                            var searchUpper = searchHigh - 1;
-
-                            body.style.fontSize = estimate + 'px';
-                            clearLastMargin();
-                            if (fits()) {
-                                foundFittingSize = true;
-                                bestSize = estimate;
-                                searchLow = estimate + 1;
-                            } else {
-                                searchUpper = estimate - 1;
-                            }
-
-                            var refinementProbe = 0;
-                            var MAX_STREAMING_REFINEMENT_PROBES = 2;
-                            while (searchLow <= searchUpper
-                                && refinementProbe < MAX_STREAMING_REFINEMENT_PROBES) {
-                                var refinementSize = Math.floor((searchLow + searchUpper) / 2);
-                                body.style.fontSize = refinementSize + 'px';
-                                clearLastMargin();
-                                if (fits()) {
-                                    foundFittingSize = true;
-                                    bestSize = refinementSize;
-                                    searchLow = refinementSize + 1;
-                                } else {
-                                    searchUpper = refinementSize - 1;
-                                }
-                                refinementProbe++;
-                            }
-
-                            if (!foundFittingSize) {
-                                bestSize = minSize;
-                            }
+                            bestSize = estimate;
+                            foundFittingSize = estimate === minSize;
                             body.style.fontSize = bestSize + 'px';
                             clearLastMargin();
+                            needsStreamingRefinement = estimate > minSize;
                         }
                     } else {
                         while (low <= high) {
