@@ -2,8 +2,8 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "recorder-web-5.4.3-762f28ffdeefef83.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.4.3-762f28ffdeefef83.zip",
+      "asset": "recorder-web-5.4.3-65aa70505ed541fe.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.4.3-65aa70505ed541fe.zip",
       "files": [
         {
           "path": "assets/AudioPanel.js",
@@ -37,8 +37,8 @@
         },
         {
           "path": "assets/EditorOverlays.js",
-          "sha256": "766937bb653f539114b6c76b7db2104bfae90e34e63c449501d1e643b5a3a860",
-          "sizeBytes": 73478
+          "sha256": "28be50c2da4ad9f0d5e9a9f4a711be908035aa3e4b5ba4e82c72b581b7fbe128",
+          "sizeBytes": 73752
         },
         {
           "path": "assets/NarrationPanel.js",
@@ -82,8 +82,8 @@
         },
         {
           "path": "assets/compositionExport.js",
-          "sha256": "0039d9c7cfe42d94d9846fa86fd42730824de2788c90401112e88cc81efa75a7",
-          "sizeBytes": 3550
+          "sha256": "75a4b5b3f1d560bf48833f1d33a0421a12bda09e4997d1ecce6f4321047b4870",
+          "sizeBytes": 3573
         },
         {
           "path": "assets/editor-renderer.js",
@@ -102,13 +102,18 @@
         },
         {
           "path": "assets/index.js",
-          "sha256": "86df92a5a877ce924abf6298af8309c31133451daccb3a6f044daa201177965e",
-          "sizeBytes": 645565
+          "sha256": "da52116819bf0f7164fa6b9a3b03d7988137b4adc900344130d1ff8c93432ae1",
+          "sizeBytes": 643859
         },
         {
           "path": "assets/rolldown-runtime.js",
           "sha256": "6f5330f281c713c1b765ec52977b36599538b8d52c5dd3ce94d211f5b0e7debf",
           "sizeBytes": 826
+        },
+        {
+          "path": "assets/trimSegments.js",
+          "sha256": "a9ddc4c0dcd62cea1cc7f47b228108c4c2a7841b48d515ed82f5e05fd6373394",
+          "sizeBytes": 2833
         },
         {
           "path": "assets/utils.js",
@@ -137,8 +142,8 @@
         },
         {
           "path": "assets/videoExporter.js",
-          "sha256": "1433ef74f3be3a1cec83f0daac533196366d4a78a5d0aea62e78fb365fb552e5",
-          "sizeBytes": 11400
+          "sha256": "bb595b7dcbce76ffa9c6e38ddd1761f290e893369f54883c8a4ec6923f112d03",
+          "sizeBytes": 11428
         },
         {
           "path": "bg-antelope-canyon.jpg",
@@ -1007,8 +1012,8 @@
         },
         {
           "path": "index.html",
-          "sha256": "6edf738d8607c531c5949b5d43f3f94cbc7b556f21900c4c78f36406d1a856f4",
-          "sizeBytes": 1174
+          "sha256": "c1a2eedbee43edcf8f8acdde5b950d1c9c570b0a632a7321f4f8899bacfbdd11",
+          "sizeBytes": 1248
         },
         {
           "path": "licenses/THIRD-PARTY-LICENSES.json",
@@ -1022,23 +1027,23 @@
         }
       ],
       "id": "recorder-web",
-      "sha256": "762f28ffdeefef834c92a46c4df5c8af0f464fb1a4ab526e4ada7f3575fdea02",
-      "sizeBytes": 902404,
-      "unpackedSizeBytes": 2671128,
+      "sha256": "65aa70505ed541fe453c202e12a6f7d300da4d2685fd9b259da8d792ec9062b2",
+      "sizeBytes": 903244,
+      "unpackedSizeBytes": 2672654,
       "version": "5.4.3"
     },
     {
-      "asset": "recorder-worker-5.4.3-22b34def26fc6c54.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.4.3-22b34def26fc6c54.zip",
+      "asset": "recorder-worker-5.4.3-98b5cdd3117eb4f8.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.4.3-98b5cdd3117eb4f8.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "f060b91966ef5e7466fd24013e07ed9fa02281062f8aae6dd13baf2e480580c8",
-          "sizeBytes": 9852416
+          "sha256": "0aef229fd58e8497c97a03427420784df643eae72478ead1b10a5713ff582581",
+          "sizeBytes": 9852928
         },
         {
           "path": "licenses/THIRD-PARTY-LICENSES.json",
-          "sha256": "f1dd6110cff30c7aef806f531a1fd6aebe8bb128893eec3746d8c095cf2a809d",
+          "sha256": "b2e2a945fa7d702c65a9556b0b2ee7c7cb75df870380837dc076dc8627d5cc31",
           "sizeBytes": 3955014
         },
         {
@@ -1048,9 +1053,9 @@
         }
       ],
       "id": "recorder-worker",
-      "sha256": "22b34def26fc6c5458037e190ed9153966e7ca5a029039027d2d7682fc8aad40",
-      "sizeBytes": 4975316,
-      "unpackedSizeBytes": 13808502,
+      "sha256": "98b5cdd3117eb4f8a079f7ae5794d799d5a9eb5a8c8d7df893c685bbc4e5ef69",
+      "sizeBytes": 4976192,
+      "unpackedSizeBytes": 13809014,
       "version": "5.4.3"
     }
   ],
