@@ -4,7 +4,6 @@ use image::ImageEncoder as _;
 use image::codecs::png::PngEncoder;
 
 use super::geometry::{PixelRegion, background_sample_region};
-
 pub(super) fn reconstruct_blob_image_with_background(
     image: &image::RgbaImage,
     target: PixelRegion,
@@ -15,7 +14,7 @@ pub(super) fn reconstruct_blob_image_with_background(
     let context = image::imageops::crop_imm(image, sample.x, sample.y, sample.width, sample.height)
         .to_image();
     let trusted_background = background
-        .filter(|(_, confidence)| *confidence >= 60)
+        .filter(|(_, confidence)| *confidence >= super::appearance::RELIABLE_BACKGROUND_PERCENT)
         .map(|(rgb, _)| image::Rgba([rgb[0], rgb[1], rgb[2], 255]));
     let reconstructed = inpaint_regions(&context, sample, text_regions, trusted_background);
     let repaired = image::imageops::crop_imm(
@@ -31,7 +30,6 @@ pub(super) fn reconstruct_blob_image_with_background(
     let foreground = foreground_color(&source, &repaired);
     (repaired, foreground)
 }
-
 pub(super) fn reconstruct_shaped_blob(
     image: &image::RgbaImage,
     target: PixelRegion,
@@ -39,7 +37,7 @@ pub(super) fn reconstruct_shaped_blob(
     shape_regions: &[PixelRegion],
     background: Option<([u8; 3], u8)>,
 ) -> (image::RgbaImage, String) {
-    let (mut repaired, foreground) =
+    let (mut repaired, _) =
         reconstruct_blob_image_with_background(image, target, text_regions, background);
     for y in 0..repaired.height() {
         for x in 0..repaired.width() {
@@ -55,9 +53,11 @@ pub(super) fn reconstruct_shaped_blob(
             }
         }
     }
+    let source = image::imageops::crop_imm(image, target.x, target.y, target.width, target.height)
+        .to_image();
+    let foreground = foreground_color(&source, &repaired);
     (repaired, foreground)
 }
-
 pub(super) fn encode_data_url(image: &image::RgbaImage) -> Result<String> {
     let mut png = Vec::new();
     PngEncoder::new(&mut png)
@@ -73,7 +73,6 @@ pub(super) fn encode_data_url(image: &image::RgbaImage) -> Result<String> {
         base64::engine::general_purpose::STANDARD.encode(png)
     ))
 }
-
 fn inpaint_regions(
     context: &image::RgbaImage,
     sample: PixelRegion,
@@ -142,7 +141,6 @@ fn inpaint_regions(
     }
     result
 }
-
 fn nearest_known_pixels(mask: &[bool], width: u32, height: u32) -> [Vec<usize>; 4] {
     let mut maps = std::array::from_fn(|_| vec![usize::MAX; mask.len()]);
     for y in 0..height as usize {
@@ -184,7 +182,6 @@ fn nearest_known_pixels(mask: &[bool], width: u32, height: u32) -> [Vec<usize>; 
     }
     maps
 }
-
 fn interpolate_background(
     image: &image::RgbaImage,
     target: usize,
@@ -210,7 +207,6 @@ fn interpolate_background(
     }
     image::Rgba(total.map(|channel| (channel / total_weight).round().clamp(0.0, 255.0) as u8))
 }
-
 fn directional_estimate(
     image: &image::RgbaImage,
     target: usize,
@@ -255,20 +251,16 @@ fn directional_estimate(
     let edge_penalty = 1.0 + disagreement / 16.0;
     Some((color, 1.0 / (span.sqrt() * edge_penalty * edge_penalty)))
 }
-
 fn contrast_color(image: &image::RgbaImage) -> String {
     let (total, count) = image.pixels().fold((0.0f64, 0u64), |(sum, count), pixel| {
-        let linear = |value: u8| {
-            let channel = f64::from(value) / 255.0;
-            if channel <= 0.04045 {
-                channel / 12.92
-            } else {
-                ((channel + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        let luminance =
-            0.2126 * linear(pixel[0]) + 0.7152 * linear(pixel[1]) + 0.0722 * linear(pixel[2]);
-        (sum + luminance, count + 1)
+        if pixel[3] < 128 {
+            (sum, count)
+        } else {
+            (
+                sum + relative_luminance([pixel[0], pixel[1], pixel[2]]),
+                count + 1,
+            )
+        }
     });
     if count > 0 && total / count as f64 > 0.42 {
         "#111111".to_string()
@@ -276,7 +268,6 @@ fn contrast_color(image: &image::RgbaImage) -> String {
         "#FFFFFF".to_string()
     }
 }
-
 #[derive(Clone, Copy, Default)]
 struct ColorBucket {
     score: u64,
@@ -330,7 +321,37 @@ fn foreground_color(source: &image::RgbaImage, backdrop: &image::RgbaImage) -> S
     let color = bucket
         .weighted_rgb
         .map(|total| (total / bucket.weight).min(255) as u8);
+    let (background_luminance, background_pixels) = backdrop
+        .pixels()
+        .filter(|pixel| pixel[3] >= 128)
+        .fold((0.0, 0_u64), |(sum, count), pixel| {
+            (
+                sum + relative_luminance([pixel[0], pixel[1], pixel[2]]),
+                count + 1,
+            )
+        });
+    if background_pixels > 0 {
+        let background_luminance = background_luminance / background_pixels as f64;
+        let foreground_luminance = relative_luminance(color);
+        let contrast = (foreground_luminance.max(background_luminance) + 0.05)
+            / (foreground_luminance.min(background_luminance) + 0.05);
+        if contrast < 3.0 {
+            return contrast_color(backdrop);
+        }
+    }
     format!("#{:02X}{:02X}{:02X}", color[0], color[1], color[2])
+}
+
+fn relative_luminance(rgb: [u8; 3]) -> f64 {
+    let linear = |value: u8| {
+        let channel = f64::from(value) / 255.0;
+        if channel <= 0.04045 {
+            channel / 12.92
+        } else {
+            ((channel + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2])
 }
 
 fn color_distance(left: image::Rgba<u8>, right: image::Rgba<u8>) -> u16 {
@@ -445,23 +466,15 @@ mod tests {
     }
 
     #[test]
-    fn foreground_sampling_is_stable_over_a_nonuniform_background() {
-        let backdrop = image::RgbaImage::from_fn(48, 24, |x, y| {
-            image::Rgba([
-                30 + x as u8 * 3,
-                65 + y as u8 * 2,
-                150u8.saturating_sub(x as u8),
-                255,
-            ])
-        });
+    fn low_contrast_sample_falls_back_to_a_readable_neutral() {
+        let backdrop = image::RgbaImage::from_pixel(40, 24, image::Rgba([112, 6, 20, 255]));
         let mut source = backdrop.clone();
-        let glyph = image::Rgba([238, 74, 36, 255]);
         for y in 4..20 {
-            for x in 18..25 {
-                source.put_pixel(x, y, glyph);
+            for x in 16..24 {
+                source.put_pixel(x, y, image::Rgba([145, 17, 43, 255]));
             }
         }
-        assert_eq!(foreground_color(&source, &backdrop), "#EE4A24");
+        assert_eq!(foreground_color(&source, &backdrop), "#FFFFFF");
     }
 
     #[test]

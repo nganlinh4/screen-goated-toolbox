@@ -65,6 +65,7 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
             &crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX.to_string(),
         )
         .replace("__SGT_CARD_CSS_JSON__", &card_css_json)
+        .replace("__SGT_SHAPE_RUNTIME__", include_str!("shape_runtime.js"))
         .replace("__SGT_DIRECT_RUNTIME__", &direct_runtime)
         .replace(
             "__SGT_HOST_COMMAND_RUNTIME__",

@@ -149,7 +149,8 @@ pub(crate) fn prompt_with_instruction(
                 .map(|candidate| {
                     serde_json::json!({
                         "memberId": candidate.id,
-                        "text": candidate.source_text
+                        "text": candidate.source_text,
+                        "ocrReadings": candidate.source_alternatives
                     })
                 })
                 .collect::<Vec<_>>();
@@ -165,7 +166,7 @@ pub(crate) fn prompt_with_instruction(
         .to_string();
     Ok(format!(
         "Translation preference:\n{instruction}\n\n\
-         Translate every supplied member completely into {target_language}. Cells and member order provide context only. Return exactly one members entry for every memberId. Each translation must belong only to that memberId; never move, merge, duplicate, or drop content between members or cells. Preserve names, usernames, handles, codes, punctuation, tone, and mixed-language meaning in the corresponding translation. Do not summarize, abbreviate, or invent. Geometry and rendering are handled locally.\n\
+         Translate every supplied member completely into {target_language}. When ocrReadings differ, use the most complete coherent reading; they are alternate OCR observations of the same pixels, not additional text. Cells and member order provide context only. Return exactly one members entry for every memberId. Each translation must belong only to that memberId; never move, merge, duplicate, or drop content between members or cells. Preserve names, usernames, handles, codes, punctuation, tone, and mixed-language meaning in the corresponding translation. Do not summarize, abbreviate, or invent. Geometry and rendering are handled locally.\n\
          Return only JSON matching the supplied schema.\n\
          Cells:\n{}",
         serde_json::to_string(&cells)?
@@ -325,7 +326,9 @@ mod tests {
         )
         .unwrap();
         assert!(prompt.contains(r#""cellId":1"#));
-        assert!(prompt.contains(r#""memberId":2,"text":"second line""#));
+        assert!(prompt.contains(r#""memberId":2"#));
+        assert!(prompt.contains(r#""text":"second line""#));
+        assert!(prompt.contains(r#""ocrReadings":["second line"]"#));
         assert!(!prompt.contains("candidateIds"));
         assert!(!prompt.contains("memberJoins"));
     }
@@ -340,6 +343,18 @@ mod tests {
         assert_eq!(parsed.regions.len(), 2);
         assert_eq!(parsed.regions[0].member_ids, [1]);
         assert_eq!(parsed.regions[1].translated_segments, ["dòng hai"]);
+    }
+
+    #[test]
+    fn source_equivalence_ignores_layout_whitespace_and_punctuation() {
+        assert!(text_is_source_equivalent(
+            "첫째 줄\n둘째 줄.",
+            "첫째 줄 둘째 줄"
+        ));
+        assert!(!text_is_source_equivalent(
+            "첫째 줄 둘째 줄.",
+            "Dòng thứ nhất, dòng thứ hai."
+        ));
     }
 
     #[test]

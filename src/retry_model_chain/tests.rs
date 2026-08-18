@@ -2,7 +2,7 @@ use super::{
     MODEL_TIMEOUT_COOLDOWN, RetryChainKind, benchmark_derived_timeout, claim_model_attempt_at,
     interactive_request_timeout, model_cooldown_skip_reason_at, preflight_skip_reason,
     rate_limit_error, record_model_failure_at, record_model_success, release_model_probe,
-    resolve_next_configured_model, resolve_next_retry_model,
+    resolve_next_configured_model, resolve_next_retry_model, unavailable_model_error,
 };
 use crate::config::Config;
 use std::collections::HashSet;
@@ -111,6 +111,27 @@ fn rate_limit_still_opens_its_existing_cooldown_immediately() {
         .expect("rate limits should open a cooldown immediately");
     assert!(reason.starts_with("MODEL_RATE_LIMIT_COOLDOWN:"));
     record_model_success(model_id);
+}
+
+#[test]
+fn unavailable_model_opens_a_cooldown_immediately() {
+    let model_id = "test-unavailable-model-text";
+    let started = Instant::now();
+    record_model_success(model_id);
+
+    let error = "API HTTP 404: Model example is archived and unavailable";
+    assert!(unavailable_model_error(error));
+    record_model_failure_at(model_id, error, started);
+
+    let reason = model_cooldown_skip_reason_at(model_id, started + Duration::from_secs(1))
+        .expect("an unavailable model should open its circuit");
+    assert!(reason.starts_with("MODEL_UNAVAILABLE_COOLDOWN:"));
+    record_model_success(model_id);
+}
+
+#[test]
+fn unrelated_not_found_errors_do_not_disable_a_model() {
+    assert!(!unavailable_model_error("API HTTP 404: file not found"));
 }
 
 #[test]

@@ -13,6 +13,8 @@ const MODEL_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(300);
 #[cfg(not(feature = "recorder-worker"))]
 const MODEL_TIMEOUT_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 #[cfg(not(feature = "recorder-worker"))]
+const MODEL_UNAVAILABLE_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
+#[cfg(not(feature = "recorder-worker"))]
 const MODEL_TIMEOUT_FAILURE_THRESHOLD: u8 = 2;
 #[cfg(not(feature = "recorder-worker"))]
 const INTERACTIVE_TIMEOUT_MULTIPLIER: u64 = 10;
@@ -26,6 +28,7 @@ const MAX_INTERACTIVE_TIMEOUT_MS: u64 = 30_000;
 enum ModelCooldownKind {
     RateLimit,
     Timeout,
+    Unavailable,
 }
 
 #[cfg(not(feature = "recorder-worker"))]
@@ -34,6 +37,7 @@ impl ModelCooldownKind {
         match self {
             Self::RateLimit => MODEL_RATE_LIMIT_COOLDOWN,
             Self::Timeout => MODEL_TIMEOUT_COOLDOWN,
+            Self::Unavailable => MODEL_UNAVAILABLE_COOLDOWN,
         }
     }
 
@@ -41,6 +45,7 @@ impl ModelCooldownKind {
         match self {
             Self::RateLimit => "MODEL_RATE_LIMIT_COOLDOWN",
             Self::Timeout => "MODEL_TIMEOUT_COOLDOWN",
+            Self::Unavailable => "MODEL_UNAVAILABLE_COOLDOWN",
         }
     }
 }
@@ -85,6 +90,16 @@ fn timeout_error(error: &str) -> bool {
 }
 
 #[cfg(not(feature = "recorder-worker"))]
+fn unavailable_model_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    (lower.contains("http 404") || lower.contains("status code 404"))
+        && (lower.contains("model") || lower.contains("deployment"))
+        && (lower.contains("unavailable")
+            || lower.contains("archived")
+            || lower.contains("not found"))
+}
+
+#[cfg(not(feature = "recorder-worker"))]
 pub fn interactive_request_timeout(
     model_id: &str,
     config: &Config,
@@ -118,7 +133,8 @@ pub fn record_model_failure(model_id: &str, error: &str) {
 fn record_model_failure_at(model_id: &str, error: &str, now: Instant) {
     let is_rate_limit = rate_limit_error(error);
     let is_timeout = timeout_error(error);
-    if !is_rate_limit && !is_timeout {
+    let is_unavailable = unavailable_model_error(error);
+    if !is_rate_limit && !is_timeout && !is_unavailable {
         if let Ok(mut circuits) = MODEL_CIRCUITS.lock()
             && let Some(ModelCircuitState::HalfOpen { kind }) = circuits.get(model_id).copied()
         {
@@ -155,6 +171,8 @@ fn record_model_failure_at(model_id: &str, error: &str, now: Instant) {
                 ModelCooldownKind::RateLimit
             } else if is_timeout {
                 ModelCooldownKind::Timeout
+            } else if is_unavailable {
+                ModelCooldownKind::Unavailable
             } else {
                 kind
             };
@@ -165,6 +183,13 @@ fn record_model_failure_at(model_id: &str, error: &str, now: Instant) {
         }
         ModelCircuitState::Monitoring { .. } if is_rate_limit => {
             let kind = ModelCooldownKind::RateLimit;
+            *state = ModelCircuitState::Open {
+                kind,
+                until: now + kind.duration(),
+            };
+        }
+        ModelCircuitState::Monitoring { .. } if is_unavailable => {
+            let kind = ModelCooldownKind::Unavailable;
             *state = ModelCircuitState::Open {
                 kind,
                 until: now + kind.duration(),

@@ -1,5 +1,6 @@
 (function() {
     var gridRuntime = null;
+    var shapeLayout = window.__SGT_SHAPE_LAYOUT__;
 
     function createRuntime(entry, callbacks) {
         var body = entry.bodyElement;
@@ -46,97 +47,6 @@
                 && (!rejectPathologicalWrap || !hasPathologicalWrap(text, size));
         }
 
-        function textUnits(text) {
-            if (typeof Intl !== 'undefined' && Intl.Segmenter) {
-                var segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-                return Array.from(segmenter.segment(text), function(part) { return part.segment; });
-            }
-            return Array.from(text);
-        }
-
-        function maskRuns(data, imageWidth, imageHeight, orientation, offset, thickness) {
-            var extent = orientation === 'horizontal' ? imageWidth : imageHeight;
-            var depth = orientation === 'horizontal' ? imageHeight : imageWidth;
-            var from = Math.max(0, Math.floor(offset));
-            var to = Math.min(depth, Math.ceil(offset + thickness));
-            var runs = [];
-            var start = -1;
-            for (var position = 0; position < extent; position++) {
-                var opaque = 0;
-                var samples = 0;
-                for (var cross = from; cross < to; cross++) {
-                    var x = orientation === 'horizontal' ? position : cross;
-                    var y = orientation === 'horizontal' ? cross : position;
-                    samples++;
-                    if (data[(y * imageWidth + x) * 4 + 3] >= 192) opaque++;
-                }
-                // A lane is legal only when its complete rectangle belongs to
-                // the union mask. The span's own clipping then makes escape
-                // from a stair-shaped component impossible.
-                var legal = samples > 0 && opaque === samples;
-                if (legal && start < 0) start = position;
-                if ((!legal || position === extent - 1) && start >= 0) {
-                    var end = legal && position === extent - 1 ? position + 1 : position;
-                    if (end - start >= 2) runs.push([start, end]);
-                    start = -1;
-                }
-            }
-            return runs;
-        }
-
-        function shapeSlots(alpha, width, height, orientation, lineSize) {
-            var slots = [];
-            var depth = orientation === 'horizontal' ? height : width;
-            var offsets = [];
-            for (var offset = 0; offset + lineSize <= depth + 0.5; offset += lineSize) {
-                offsets.push(offset);
-            }
-            if (orientation === 'vertical') offsets.reverse();
-            for (var index = 0; index < offsets.length; index++) {
-                var runs = maskRuns(alpha, width, height, orientation, offsets[index], lineSize);
-                for (var runIndex = 0; runIndex < runs.length; runIndex++) {
-                    slots.push({ offset: offsets[index], from: runs[runIndex][0], to: runs[runIndex][1] });
-                }
-            }
-            return slots;
-        }
-
-        function fillShapePlan(text, alpha, width, height, orientation, fontSize, stretch) {
-            var lineSize = Math.max(1, fontSize * 1.08);
-            var slots = shapeSlots(alpha, width, height, orientation, lineSize);
-            if (!slots.length) return null;
-            var units = textUnits(text.replace(/\s+/g, ' ').trim());
-            var cursor = 0;
-            var context = document.createElement('canvas').getContext('2d');
-            context.font = '400 ' + fontSize + "px 'Google Sans Flex'";
-            var lines = [];
-            for (var slotIndex = 0; slotIndex < slots.length && cursor < units.length; slotIndex++) {
-                var slot = slots[slotIndex];
-                var capacity = slot.to - slot.from;
-                var value = '';
-                var used = 0;
-                while (cursor < units.length) {
-                    var unit = units[cursor];
-                    var advance = context.measureText(unit).width * stretch / 100;
-                    if (value && used + advance > capacity) break;
-                    if (!value && advance > capacity) break;
-                    value += unit;
-                    used += advance;
-                    cursor++;
-                }
-                value = value.trim();
-                if (value) lines.push({ slot: slot, text: value });
-            }
-            return {
-                orientation: orientation,
-                fontSize: fontSize,
-                stretch: stretch,
-                lines: lines,
-                consumed: cursor,
-                complete: cursor >= units.length
-            };
-        }
-
         function renderShapePlan(plan) {
             body.innerHTML = '';
             body.style.cssText += ';position:absolute;inset:0;overflow:hidden;display:block;padding:0;margin:0;user-select:text;';
@@ -144,28 +54,47 @@
             body.style.fontStretch = plan.stretch + '%';
             body.style.fontWeight = '400';
             body.style.fontVariationSettings = "'slnt' 0, 'ROND' 100";
-            body.style.lineHeight = '1.08';
+            body.style.lineHeight = plan.lineSize + 'px';
             for (var index = 0; index < plan.lines.length; index++) {
                 var line = plan.lines[index];
                 var element = document.createElement('span');
                 element.className = 'word';
                 element.textContent = line.text;
-                element.style.cssText = 'position:absolute;display:block;overflow:hidden;white-space:nowrap;user-select:text;background:transparent;';
+                element.style.cssText = 'position:absolute;display:block;overflow:visible;white-space:nowrap;user-select:text;background:transparent;';
                 if (plan.orientation === 'horizontal') {
                     element.style.left = line.slot.from + 'px';
                     element.style.top = line.slot.offset + 'px';
                     element.style.width = (line.slot.to - line.slot.from) + 'px';
-                    element.style.height = (plan.fontSize * 1.08) + 'px';
+                    element.style.height = plan.lineSize + 'px';
                 } else {
                     element.style.left = line.slot.offset + 'px';
                     element.style.top = line.slot.from + 'px';
-                    element.style.width = (plan.fontSize * 1.08) + 'px';
+                    element.style.width = plan.lineSize + 'px';
                     element.style.height = (line.slot.to - line.slot.from) + 'px';
                     element.style.writingMode = 'vertical-rl';
                     element.style.textOrientation = 'mixed';
                 }
                 body.appendChild(element);
             }
+        }
+
+        function renderedShapePlanFits() {
+            var lines = body.querySelectorAll('.word');
+            if (!lines.length) return false;
+            for (var index = 0; index < lines.length; index++) {
+                var line = lines[index];
+                var selection = document.createRange();
+                selection.selectNodeContents(line);
+                var content = selection.getBoundingClientRect();
+                var bounds = line.getBoundingClientRect();
+                if (line.scrollWidth > line.clientWidth + 0.5
+                    || line.scrollHeight > line.clientHeight + 0.5
+                    || content.left < bounds.left - 0.5
+                    || content.top < bounds.top - 0.5
+                    || content.right > bounds.right + 0.5
+                    || content.bottom > bounds.bottom + 0.5) return false;
+            }
+            return true;
         }
 
         function layoutSourceRegions(options) {
@@ -230,7 +159,7 @@
                 var fontSize = 0.1;
                 for (var fontAttempt = 0; fontAttempt < 12; fontAttempt++) {
                     var fontMiddle = (fontLow + fontHigh) / 2;
-                    applyTypography(widthItem, fontMiddle, 25);
+                    applyTypography(widthItem, fontMiddle, 50);
                     void widthItem.text.offsetHeight;
                     if (itemFits(widthItem)) {
                         fontSize = fontMiddle;
@@ -239,9 +168,9 @@
                         fontHigh = fontMiddle;
                     }
                 }
-                var widthLow = 25;
+                var widthLow = 50;
                 var widthHigh = 151;
-                var chosenWidth = 25;
+                var chosenWidth = 50;
                 for (var widthAttempt = 0; widthAttempt < 12; widthAttempt++) {
                     var widthMiddle = (widthLow + widthHigh) / 2;
                     applyTypography(widthItem, fontSize, widthMiddle);
@@ -291,6 +220,12 @@
                 return true;
             }
             var size = dimensions();
+            body.style.webkitMaskImage = 'url("' + entry.backdrop.dataset.url + '")';
+            body.style.maskImage = 'url("' + entry.backdrop.dataset.url + '")';
+            body.style.webkitMaskSize = '100% 100%';
+            body.style.maskSize = '100% 100%';
+            body.style.webkitMaskRepeat = 'no-repeat';
+            body.style.maskRepeat = 'no-repeat';
             var canvas = document.createElement('canvas');
             canvas.width = Math.max(1, Math.round(size.width));
             canvas.height = Math.max(1, Math.round(size.height));
@@ -299,25 +234,27 @@
             var alpha = context.getImageData(0, 0, canvas.width, canvas.height).data;
             var preferred = Math.max(5, Math.min(Number(options.preferredFontSize) || 14, canvas.height));
             var widths = [100, 90, 80, 70, 60, 50];
-            var best = null;
             var fallback = null;
-            for (var fontSize = Math.floor(preferred); fontSize >= 5 && !best; fontSize--) {
+            for (var fontSize = Math.floor(preferred); fontSize >= 1; fontSize--) {
                 for (var widthIndex = 0; widthIndex < widths.length; widthIndex++) {
-                    var orientation = options.sourceVertical ? 'vertical' : 'horizontal';
-                    var candidate = fillShapePlan(text, alpha, canvas.width, canvas.height,
+                    var orientation = options.sourceVertical
+                        && shapeLayout.prefersVerticalWriting(text) ? 'vertical' : 'horizontal';
+                    var candidate = shapeLayout.fillPlan(text, alpha, canvas.width, canvas.height,
                         orientation, fontSize, widths[widthIndex]);
                     if (candidate && candidate.complete) {
-                        best = candidate;
-                        break;
+                        renderShapePlan(candidate);
+                        if (renderedShapePlanFits()) {
+                            body.dataset.shapeLayout = 'true';
+                            return true;
+                        }
                     }
                     if (candidate && (!fallback || candidate.consumed > fallback.consumed)) {
                         fallback = candidate;
                     }
                 }
             }
-            best = best || fallback;
-            if (!best) return false;
-            renderShapePlan(best);
+            if (!fallback) return false;
+            renderShapePlan(fallback);
             body.dataset.shapeLayout = 'true';
             return true;
         }
