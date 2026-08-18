@@ -91,11 +91,17 @@ does not publish or enforce a daily request-count ceiling for that endpoint; it
 does not claim the absence of RPM, TPM, daily token, file-size, concurrency, or
 account-tier limits.
 
-The 2026-07-23 audit used the active project's AI Studio rate-limit page for
-Google/Gemini and Groq's official free-tier rate-limit table. Paid-only
-endpoints are excluded from the built-in catalog. Recheck the exact active
-project/account before changing labels because provider tiers and
-project-specific limits can change.
+The 2026-08-18 audit re-verified every built-in quota label against the active
+project's signed-in AI Studio rate-limit page, Groq's official free-plan
+rate-limit table, and Groq's live `x-ratelimit-*` response headers. All twenty
+labels matched and none were changed. Paid-only endpoints are excluded from the
+built-in catalog. Recheck the exact active project/account before changing labels
+because provider tiers and project-specific limits can change.
+
+Quota is a distinct axis from latency and accuracy, and it can disqualify an
+endpoint from leading a chain on its own: a token-per-minute ceiling low enough to
+throttle normal bursts makes an otherwise excellent model a poor first choice. See
+the 2026-08-18 decision record for the worked example.
 
 ## Performance Metadata
 
