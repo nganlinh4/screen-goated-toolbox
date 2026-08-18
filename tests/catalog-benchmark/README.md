@@ -1,6 +1,8 @@
 # Catalog benchmark
 
 Current catalog decision record:
+[`RESULTS-2026-08-18-PROTOCOL9.md`](RESULTS-2026-08-18-PROTOCOL9.md).
+The preceding protocol-9 decision remains in
 [`RESULTS-2026-08-10-PROTOCOL9.md`](RESULTS-2026-08-10-PROTOCOL9.md).
 The preceding protocol-7 decision remains in
 [`RESULTS-2026-08-06-PROTOCOL7.md`](RESULTS-2026-08-06-PROTOCOL7.md).

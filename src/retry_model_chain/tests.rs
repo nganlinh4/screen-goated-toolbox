@@ -29,11 +29,11 @@ fn benchmark_timeout_is_multiplied_and_bounded() {
 fn streaming_requests_do_not_receive_a_total_response_deadline() {
     let config = Config::default();
     assert_eq!(
-        interactive_request_timeout("google-gemini-3-6-flash-vision", &config, false),
-        Some(Duration::from_millis(14_140))
+        interactive_request_timeout("google-gemini-3-5-flash-lite-vision", &config, false),
+        Some(Duration::from_millis(12_340))
     );
     assert_eq!(
-        interactive_request_timeout("google-gemini-3-6-flash-vision", &config, true),
+        interactive_request_timeout("google-gemini-3-5-flash-lite-vision", &config, true),
         None
     );
 }

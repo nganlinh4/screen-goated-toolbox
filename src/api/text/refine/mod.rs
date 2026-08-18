@@ -336,18 +336,18 @@ mod tests {
             state
                 .preferred_text_model("groq", "gemini", "openrouter")
                 .map(|model| model.0),
+            Some("groq-gpt-oss-120b-text".to_string())
+        );
+
+        state.use_groq = false;
+        assert_eq!(
+            state
+                .preferred_text_model("", "gemini", "openrouter")
+                .map(|model| model.0),
             Some("google-gemini-3-5-flash-lite-text".to_string())
         );
 
         state.use_gemini = false;
-        assert_eq!(
-            state
-                .preferred_text_model("groq", "", "openrouter")
-                .map(|model| model.0),
-            Some("groq-gpt-oss-20b-text".to_string())
-        );
-
-        state.use_groq = false;
         assert_eq!(
             state
                 .preferred_text_model("", "", "openrouter")
