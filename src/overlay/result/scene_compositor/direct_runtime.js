@@ -429,6 +429,8 @@
         function revealWords(animate, isNewSession) {
             var words = body.querySelectorAll('.word');
             var reveal = state.reveal;
+            reveal.generation++;
+            var generation = reveal.generation;
             reveal.queue = [];
             reveal.active = false;
             reveal.credits = 0;
@@ -437,26 +439,45 @@
                 return;
             }
             var start = Math.max(0, reveal.lastRevealedIndex + 1);
-            var entering = [];
+            var maximumLag = 80;
+            if (words.length - start > maximumLag) {
+                start = words.length - maximumLag;
+                reveal.lastRevealedIndex = start - 1;
+            }
             for (var index = start; index < words.length; index++) {
                 var word = words[index];
-                word.style.visibility = 'visible';
+                word.style.visibility = 'hidden';
                 word.style.opacity = '0';
-                word.style.filter = 'blur(2px)';
-                word.style.transition = 'opacity 0.12s ease-out, filter 0.12s ease-out';
-                entering.push(word);
+                word.style.filter = 'blur(3px)';
+                word.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
+                reveal.queue.push({ element: word, index: index });
             }
-            reveal.lastRevealedIndex = words.length - 1;
-            if (!entering.length) return;
-            requestAnimationFrame(function() {
-                for (var itemIndex = 0; itemIndex < entering.length; itemIndex++) {
-                    var item = entering[itemIndex];
-                    if (item.isConnected) {
-                        item.style.opacity = '1';
-                        item.style.filter = 'blur(0)';
+            if (!reveal.queue.length) return;
+            reveal.active = true;
+            reveal.lastTick = performance.now();
+            reveal.credits = 1;
+            var tick = function(now) {
+                if (generation !== reveal.generation) return;
+                var elapsed = Math.max(0, now - reveal.lastTick);
+                reveal.lastTick = now;
+                var wordsPerSecond = 40 * (1 + reveal.queue.length / 10);
+                reveal.credits += wordsPerSecond * elapsed / 1000;
+                var emitted = 0;
+                while (reveal.credits >= 1 && reveal.queue.length && emitted < 64) {
+                    var item = reveal.queue.shift();
+                    if (item.element.isConnected) {
+                        item.element.style.visibility = 'visible';
+                        item.element.style.opacity = '1';
+                        item.element.style.filter = 'blur(0)';
                     }
+                    reveal.lastRevealedIndex = item.index;
+                    reveal.credits -= 1;
+                    emitted++;
                 }
-            });
+                if (reveal.queue.length) requestAnimationFrame(tick);
+                else reveal.active = false;
+            };
+            requestAnimationFrame(tick);
         }
 
         function installOverflowGuard(isSourceReplacement, preferredFontSize) {
@@ -511,6 +532,10 @@
             var firstRender = state.renderCount === 0;
             if (firstRender) body.style.opacity = '0';
             body.innerHTML = options.html;
+            if (!options.sourceReplacement) {
+                body.style.overflowX = 'hidden';
+                body.style.overflowY = 'auto';
+            }
             var text = (body.innerText || body.textContent || '').trim();
             var isNewSession = firstRender || (previousWords < 5 && text.length < 50);
             inlineSize(options, text, isNewSession);

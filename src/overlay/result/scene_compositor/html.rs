@@ -117,7 +117,7 @@ function ensureCard(id) {
       wordCount: 0,
       renderCount: 0,
       overflowObserver: null,
-      reveal: { queue: [], active: false, lastRevealedIndex: -1, lastTick: 0, credits: 0 },
+      reveal: { queue: [], active: false, lastRevealedIndex: -1, lastTick: 0, credits: 0, generation: 0 },
       fit: {}
     }
   };
@@ -183,23 +183,6 @@ function cancelActiveFit(entry) {
 }
 function queueFit(entry, streaming) {
   if (!entry.ready || !entry.fontReady || !entry.visible || entry.navigationDepth !== 0 || !String(entry.body || '').trim()) return;
-  if (streaming) {
-    const now = performance.now();
-    const elapsed = now - Number(entry.lastStreamingFitAt || 0);
-    if (elapsed < 80) {
-      if (!entry.streamingFitTimer) {
-        entry.streamingFitTimer = setTimeout(function() {
-          entry.streamingFitTimer = null;
-          queueFit(entry, true);
-        }, Math.max(1, 80 - elapsed));
-      }
-      return;
-    }
-    entry.lastStreamingFitAt = now;
-  } else if (entry.streamingFitTimer) {
-    clearTimeout(entry.streamingFitTimer);
-    entry.streamingFitTimer = null;
-  }
   const key = entry.card.dataset.id;
   const current = pendingFits.get(key);
   const next = {
