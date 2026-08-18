@@ -260,7 +260,6 @@ impl SettingsApp {
                     &mut self.show_api_key,
                     &mut self.show_gemini_api_key,
                     &mut self.show_openrouter_api_key,
-                    &mut self.show_cerebras_api_key,
                     &usage_stats,
                     &self.updater,
                     &self.update_status,

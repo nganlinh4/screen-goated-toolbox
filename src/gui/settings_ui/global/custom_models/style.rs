@@ -13,7 +13,6 @@ pub(super) fn provider_accent(provider: &str, dark: bool) -> Color32 {
     let (d, l) = match provider {
         "google" => ((124, 156, 245), (66, 92, 210)),
         "groq" => ((236, 154, 74), (176, 92, 18)),
-        "cerebras" => ((230, 116, 100), (192, 58, 42)),
         "openrouter" => ((112, 152, 236), (52, 96, 200)),
         "ollama" => ((96, 198, 152), (28, 140, 92)),
         _ => ((124, 154, 204), (64, 96, 168)),

@@ -10,7 +10,6 @@ from model_catalog_validation import validate_manifest
 
 PROVIDER_MAP = {
     "google": "GOOGLE",
-    "cerebras": "CEREBRAS",
     "groq": "GROQ",
     "openrouter": "OPENROUTER",
     "google-gtx": "GOOGLE_GTX",
@@ -175,7 +174,6 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
             f"        useGroq = {str(provider_defaults['use_groq']).lower()},",
             f"        useGemini = {str(provider_defaults['use_gemini']).lower()},",
             f"        useOpenRouter = {str(provider_defaults['use_openrouter']).lower()},",
-            f"        useCerebras = {str(provider_defaults['use_cerebras']).lower()},",
             f"        useOllama = {str(provider_defaults['use_ollama']).lower()},",
             "    )",
             "",

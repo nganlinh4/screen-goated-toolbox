@@ -174,41 +174,6 @@ pub fn record_groq_json_usage(stats_key: &str, root: &serde_json::Value) {
     }
 }
 
-/// Record model usage from the Cerebras rate-limit headers.
-///
-/// Prefers the per-day headers (`-requests-day`) and falls back to the
-/// non-day variants. When the limit is still unknown, falls back to the
-/// model catalog's `quota_limit_en` value. The store is updated whenever
-/// either remaining or limit is known.
-pub fn record_usage_cerebras(headers: &HeaderMap, stats_key: &str) {
-    record_usage_headers("cerebras", stats_key, headers);
-}
-
-/// Log Cerebras automatic prompt-cache and predicted-output contribution.
-pub fn record_cerebras_json_usage(stats_key: &str, root: &serde_json::Value) {
-    let cached = root
-        .pointer("/usage/prompt_tokens_details/cached_tokens")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let accepted = root
-        .pointer("/usage/completion_tokens_details/accepted_prediction_tokens")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let rejected = root
-        .pointer("/usage/completion_tokens_details/rejected_prediction_tokens")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    if cached > 0 || accepted > 0 || rejected > 0 {
-        crate::log_info!(
-            "[Cerebras][usage] model={} cached_tokens={} prediction_accepted={} prediction_rejected={}",
-            stats_key,
-            cached,
-            accepted,
-            rejected
-        );
-    }
-}
-
 #[cfg(test)]
 mod tls_tests {
     use super::*;

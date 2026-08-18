@@ -3,6 +3,9 @@
 use super::conversion::markdown_to_html;
 
 /// Generate a filename using the centralized default text model.
+///
+/// Routes through the shared text path so the filename request follows whichever
+/// provider the default text model belongs to instead of one hardcoded endpoint.
 pub fn generate_filename(content: &str) -> String {
     let default_name = "result.html".to_string();
 
@@ -11,98 +14,84 @@ pub fn generate_filename(content: &str) -> String {
     else {
         return default_name;
     };
-    if default_model.provider != "cerebras" {
+    if crate::model_config::model_is_non_llm(&default_model.id) {
         return default_name;
     }
-    let saved_cerebras_key = if let Ok(app) = crate::APP.lock() {
-        app.config.cerebras_api_key.clone()
-    } else {
+
+    let Ok(app) = crate::APP.lock() else {
         return default_name;
     };
-    let cerebras_key =
-        crate::api::provider_credentials::resolve("CEREBRAS_API_KEY", &saved_cerebras_key);
-    if cerebras_key.is_empty() {
-        return default_name;
-    }
-    let api_model = default_model.full_name;
+    let groq_api_key =
+        crate::api::provider_credentials::resolve("GROQ_API_KEY", &app.config.api_key);
+    let gemini_api_key =
+        crate::api::provider_credentials::resolve("GEMINI_API_KEY", &app.config.gemini_api_key);
+    let ui_language = app.config.ui_language.clone();
+    drop(app);
 
     // Truncate to avoid token limits (first 4000 chars is enough for context).
     // Slice by chars, not bytes — a byte cut would panic mid-UTF-8 on ko/vi content.
     let prompt_content: String = content.chars().take(4000).collect();
 
-    let prompt = format!(
-        "Generate a short, kebab-case filename (without extension) for the following content. \
-        Do NOT include 'html' in the name. \
-        The filename must be descriptive but concise (max 5 words). \
-        Output ONLY the filename, nothing else. No markdown, no quotes, no explanations.\n\nContent:\n{}",
-        prompt_content
+    let instruction = "Generate a short, kebab-case filename (without extension) for the following content.         Do NOT include 'html' in the name.         The filename must be descriptive but concise (max 5 words).         Output ONLY the filename, nothing else. No markdown, no quotes, no explanations."
+        .to_string();
+
+    let response = crate::api::text::translate_text_streaming(
+        crate::api::text::TranslateTextRequest {
+            groq_api_key: &groq_api_key,
+            gemini_api_key: &gemini_api_key,
+            text: prompt_content,
+            instruction,
+            model: default_model.full_name.clone(),
+            provider: default_model.provider.clone(),
+            streaming_enabled: false,
+            use_json_format: false,
+            response_schema: None,
+            search_label: None,
+            ui_language: &ui_language,
+            cancel_token: None,
+            request_timeout: None,
+            target_language: None,
+        },
+        |_| {},
     );
 
-    let mut payload = serde_json::json!({
-        "model": api_model,
-        "messages": [
-            { "role": "user", "content": prompt }
-        ],
-        "temperature": 0.3,
-        "max_tokens": 60
-    });
-    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "cerebras", &api_model);
-
-    match crate::api::client::UREQ_AGENT
-        .post("https://api.cerebras.ai/v1/chat/completions")
-        .header("Authorization", &format!("Bearer {}", cerebras_key))
-        .send_json(payload)
-    {
-        Ok(resp) => {
-            if let Ok(json) = resp.into_body().read_json::<serde_json::Value>()
-                && let Some(choice) = json
-                    .get("choices")
-                    .and_then(|c| c.as_array())
-                    .and_then(|c| c.first())
-                && let Some(content) = choice
-                    .get("message")
-                    .and_then(|m| m.get("content"))
-                    .and_then(|s| s.as_str())
-            {
-                let mut name = content.trim().to_string();
-
-                // Clean up quotes/markdown
-                name = name.replace(['"', '\'', '`'], "");
-
-                // Remove potential .html extension if the model disobeyed
-                if name.to_lowercase().ends_with(".html") {
-                    name = name[..name.len() - 5].to_string();
-                }
-
-                // Remove trailing -html or _html if present to avoid redundancy
-                let lower_name = name.to_lowercase();
-                if lower_name.ends_with("-html") || lower_name.ends_with("_html") {
-                    name = name[..name.len() - 5].to_string();
-                }
-
-                // Basic validation: remove invalid characters for Windows filenames
-                let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
-                name = name
-                    .chars()
-                    .filter(|c| !invalid_chars.contains(c))
-                    .collect();
-
-                if name.is_empty() {
-                    return default_name;
-                }
-
-                // Always append .html
-                name.push_str(".html");
-
-                return name;
-            }
-            default_name
-        }
+    match response {
+        Ok(raw) => sanitize_generated_filename(&raw).unwrap_or(default_name),
         Err(e) => {
             eprintln!("Failed to generate filename: {}", e);
             default_name
         }
     }
+}
+
+/// Turns a model's raw filename suggestion into a safe `.html` filename.
+fn sanitize_generated_filename(raw: &str) -> Option<String> {
+    // Clean up quotes/markdown
+    let mut name = raw.trim().replace(['"', '\'', '`'], "");
+
+    // Remove potential .html extension if the model disobeyed
+    if name.to_lowercase().ends_with(".html") {
+        name.truncate(name.len() - 5);
+    }
+
+    // Remove trailing -html or _html if present to avoid redundancy
+    let lower_name = name.to_lowercase();
+    if lower_name.ends_with("-html") || lower_name.ends_with("_html") {
+        name.truncate(name.len() - 5);
+    }
+
+    // Basic validation: remove invalid characters for Windows filenames
+    const INVALID_CHARS: [char; 9] = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+    name = name
+        .chars()
+        .filter(|c| !INVALID_CHARS.contains(c))
+        .collect();
+
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    Some(format!("{name}.html"))
 }
 
 /// Save the current content as HTML file using Windows File Save dialog

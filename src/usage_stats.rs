@@ -115,51 +115,7 @@ pub fn snapshot_from_headers(
     let provider = normalize_provider(provider);
     let mut metrics = Vec::new();
 
-    if provider == "cerebras" {
-        push_metric(
-            &mut metrics,
-            headers,
-            UsageMetricKind::RequestsDay,
-            HeaderTriple::new(
-                "x-ratelimit-remaining-requests-day",
-                "x-ratelimit-limit-requests-day",
-                "x-ratelimit-reset-requests-day",
-            ),
-        );
-        push_metric(
-            &mut metrics,
-            headers,
-            UsageMetricKind::RequestsMinute,
-            HeaderTriple::new(
-                "x-ratelimit-remaining-requests-minute",
-                "x-ratelimit-limit-requests-minute",
-                "x-ratelimit-reset-requests-minute",
-            ),
-        );
-        push_metric(
-            &mut metrics,
-            headers,
-            UsageMetricKind::TokensMinute,
-            HeaderTriple::new(
-                "x-ratelimit-remaining-tokens-minute",
-                "x-ratelimit-limit-tokens-minute",
-                "x-ratelimit-reset-tokens-minute",
-            ),
-        );
-        push_metric(
-            &mut metrics,
-            headers,
-            UsageMetricKind::TokensDay,
-            HeaderTriple::new(
-                "x-ratelimit-remaining-tokens-day",
-                "x-ratelimit-limit-tokens-day",
-                "x-ratelimit-reset-tokens-day",
-            ),
-        );
-        if metrics.is_empty() {
-            push_common_metrics(&mut metrics, headers);
-        }
-    } else if provider == "openrouter" {
+    if provider == "openrouter" {
         push_metric(
             &mut metrics,
             headers,
@@ -388,26 +344,6 @@ mod tests {
     }
 
     #[test]
-    fn cerebras_keeps_each_rate_bucket_typed() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-ratelimit-remaining-requests-day",
-            "14400".parse().unwrap(),
-        );
-        headers.insert("x-ratelimit-limit-requests-day", "14400".parse().unwrap());
-        headers.insert(
-            "x-ratelimit-remaining-tokens-minute",
-            "59000".parse().unwrap(),
-        );
-        headers.insert("x-ratelimit-limit-tokens-minute", "60000".parse().unwrap());
-
-        let snapshot = snapshot_from_headers("cerebras", &headers, 123).unwrap();
-        assert_eq!(snapshot.metrics.len(), 2);
-        assert_eq!(snapshot.metrics[0].kind, UsageMetricKind::RequestsDay);
-        assert_eq!(snapshot.metrics[1].kind, UsageMetricKind::TokensMinute);
-    }
-
-    #[test]
     fn openrouter_headers_use_one_provider_scope() {
         assert_eq!(
             usage_key_for_response("openrouter", "first/model"),
@@ -467,7 +403,7 @@ mod tests {
         );
         assert_eq!(
             fixture["observed_usage_providers"],
-            serde_json::json!(["groq", "cerebras", "openrouter"])
+            serde_json::json!(["groq", "openrouter"])
         );
     }
 }

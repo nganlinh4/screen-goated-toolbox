@@ -11,7 +11,6 @@ pub struct Credentials {
     pub groq: String,
     gemini: CredentialPool,
     openrouter: CredentialPool,
-    cerebras: String,
 }
 
 struct CredentialPool {
@@ -103,10 +102,6 @@ impl Credentials {
             groq: crate::api::provider_credentials::resolve("GROQ_API_KEY", &config.api_key),
             gemini: CredentialPool::load("GEMINI_API_KEY", &config.gemini_api_key),
             openrouter: CredentialPool::load("OPENROUTER_API_KEY", &config.openrouter_api_key),
-            cerebras: crate::api::provider_credentials::resolve(
-                "CEREBRAS_API_KEY",
-                &config.cerebras_api_key,
-            ),
         }
     }
 
@@ -115,7 +110,6 @@ impl Credentials {
             "google" | "gemini-live" => !self.gemini.is_empty(),
             "groq" => !self.groq.is_empty(),
             "openrouter" => !self.openrouter.is_empty(),
-            "cerebras" => !self.cerebras.is_empty(),
             "google-gtx" | "taalas" | "ollama" => true,
             _ => false,
         }
@@ -285,7 +279,6 @@ pub struct Pacer {
 }
 
 const OPENROUTER_FREE_MIN_INTERVAL: Duration = Duration::from_millis(3_100);
-const CEREBRAS_FREE_MIN_INTERVAL: Duration = Duration::from_millis(12_500);
 
 impl Pacer {
     pub fn from_env() -> Result<Self> {
@@ -312,7 +305,6 @@ impl Pacer {
     fn interval_for(&self, provider: &str) -> Duration {
         match provider {
             "openrouter" => self.min_interval.max(OPENROUTER_FREE_MIN_INTERVAL),
-            "cerebras" => self.min_interval.max(CEREBRAS_FREE_MIN_INTERVAL),
             _ => self.min_interval,
         }
     }
@@ -365,7 +357,6 @@ mod tests {
             groq: String::new(),
             gemini: CredentialPool::empty(),
             openrouter: CredentialPool::empty(),
-            cerebras: String::new(),
         }
     }
 
@@ -391,11 +382,6 @@ mod tests {
             default.interval_for("openrouter"),
             Duration::from_millis(3_100)
         );
-        assert_eq!(
-            default.interval_for("cerebras"),
-            Duration::from_millis(12_500)
-        );
-
         let slower_override = Pacer {
             min_interval: Duration::from_millis(5_000),
             last_call: Default::default(),

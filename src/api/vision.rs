@@ -207,20 +207,13 @@ where
         request_timeout,
     } = request;
 
-    let (saved_openrouter_key, saved_cerebras_key) = crate::APP
+    let saved_openrouter_key = crate::APP
         .lock()
         .ok()
-        .map(|app| {
-            (
-                app.config.openrouter_api_key.clone(),
-                app.config.cerebras_api_key.clone(),
-            )
-        })
+        .map(|app| app.config.openrouter_api_key.clone())
         .unwrap_or_default();
     let openrouter_api_key =
         super::provider_credentials::resolve("OPENROUTER_API_KEY", &saved_openrouter_key);
-    let cerebras_api_key =
-        super::provider_credentials::resolve("CEREBRAS_API_KEY", &saved_cerebras_key);
 
     let prepare_started = Instant::now();
     let prepared_image = prepare_image_payload(
@@ -393,37 +386,6 @@ where
                 response_schema: response_schema.as_ref(),
                 media_resolution: request_policy::media_resolution(profile),
                 retry_observer: Some(&mut retry_observer),
-            },
-            on_chunk,
-        )?;
-    } else if Provider::from_wire(&provider) == Some(Provider::Cerebras) {
-        let ui_language = crate::APP
-            .lock()
-            .ok()
-            .map(|app| app.config.ui_language.clone())
-            .unwrap_or_else(|| "en".to_string());
-        let profile = crate::model_config::vision_request_profile("cerebras", &model);
-        let content = request_policy::openai_content(profile, &prompt, &mime_type, &b64_image);
-        let messages = serde_json::json!([{
-            "role": "user",
-            "content": content
-        }]);
-        let response_format = response_schema.as_ref().and_then(|schema| {
-            crate::api::cerebras::structured_response_format(&model, "image_result", schema)
-        });
-        trace.mark_provider_started();
-        full_content = crate::api::cerebras::stream_chat(
-            crate::api::cerebras::StreamChatRequest {
-                api_key: &cerebras_api_key,
-                model: &model,
-                messages,
-                streaming: streaming_enabled,
-                ui_language: &ui_language,
-                cancel_token: &cancel_token,
-                error_label: "Cerebras Vision API Error",
-                response_format,
-                prediction: None,
-                request_timeout,
             },
             on_chunk,
         )?;

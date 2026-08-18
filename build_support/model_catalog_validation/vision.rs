@@ -14,10 +14,7 @@ pub(super) fn validate_request_profiles(
         .filter(|model| {
             model.get("enabled").and_then(serde_json::Value::as_bool) == Some(true)
                 && string(model, "model_type") == "Vision"
-                && matches!(
-                    string(model, "provider"),
-                    "google" | "groq" | "cerebras" | "openrouter"
-                )
+                && matches!(string(model, "provider"), "google" | "groq" | "openrouter")
         })
         .map(|model| {
             format!(

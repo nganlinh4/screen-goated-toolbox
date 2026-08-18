@@ -1,5 +1,4 @@
 pub mod audio;
-pub mod cerebras;
 pub mod client;
 pub mod gemini_embed;
 pub mod gemini_generate;
@@ -121,9 +120,6 @@ mod tests {
             ("groq", "qwen/qwen3.6-27b", "none"),
             ("groq", "openai/gpt-oss-120b", "low"),
             ("groq", "openai/gpt-oss-20b", "low"),
-            ("cerebras", "gpt-oss-120b", "low"),
-            ("cerebras", "zai-glm-4.7", "none"),
-            ("cerebras", "gemma-4-31b", "none"),
         ] {
             let mut payload = serde_json::json!({});
             apply_ordinary_openai_reasoning_policy(&mut payload, provider, model);

@@ -3,8 +3,6 @@ fn api_key_provider_name(error: &str) -> &'static str {
         "Groq"
     } else if error.contains("openrouter") {
         "OpenRouter"
-    } else if error.contains("cerebras") {
-        "Cerebras"
     } else if error.contains("openai") {
         "OpenAI"
     } else if error.contains("google") || error.contains("gemini") {
@@ -491,7 +489,7 @@ mod tests {
     #[test]
     fn extracts_status_codes_from_provider_phrasings() {
         assert_eq!(
-            extract_http_status_code("Cerebras API Error HTTP 402: Payment required"),
+            extract_http_status_code("OpenRouter API Error HTTP 402: Payment required"),
             Some(402)
         );
         assert_eq!(
@@ -518,7 +516,7 @@ mod tests {
     #[test]
     fn advances_chain_for_billing_and_payload_failures() {
         assert!(should_advance_retry_chain(
-            "Cerebras API Error HTTP 402: Payment required to access this resource. Visit your billing tab."
+            "OpenRouter API Error HTTP 402: Payment required to access this resource. Visit your billing tab."
         ));
         assert!(should_advance_retry_chain("insufficient_quota"));
         assert!(should_advance_retry_chain(
@@ -530,7 +528,7 @@ mod tests {
     #[test]
     fn blocks_provider_for_billing_exhaustion() {
         assert!(should_block_retry_provider(
-            "Cerebras API Error HTTP 402: Payment required to access this resource. Visit your billing tab."
+            "OpenRouter API Error HTTP 402: Payment required to access this resource. Visit your billing tab."
         ));
         assert!(should_block_retry_provider("credit balance is too low"));
         assert!(!should_block_retry_provider(

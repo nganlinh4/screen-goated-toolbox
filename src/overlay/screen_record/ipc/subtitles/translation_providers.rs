@@ -58,14 +58,6 @@ pub fn translate_subtitle_chunk(
             &user_payload,
             history,
         )?,
-        "cerebras" => translate_with_hosted_openai(
-            config,
-            model,
-            target_language,
-            instructions,
-            &user_payload,
-            history,
-        )?,
         "openrouter" => translate_with_openrouter(
             config,
             model,
@@ -359,7 +351,7 @@ fn translate_with_groq(
     if config.api_key.trim().is_empty() {
         return Err("NO_API_KEY:groq".to_string());
     }
-    let schema = cerebras_response_format()["json_schema"]["schema"].clone();
+    let schema = subtitle_translation_response_format()["json_schema"]["schema"].clone();
     let mut payload = serde_json::json!({
         "model": model.full_name,
         "messages": build_chat_messages(target_language, instructions, user_payload, history),
@@ -381,7 +373,7 @@ fn translate_with_groq(
     )
 }
 
-fn cerebras_response_format() -> serde_json::Value {
+fn subtitle_translation_response_format() -> serde_json::Value {
     serde_json::json!({
         "type": "json_schema",
         "json_schema": {
@@ -409,48 +401,6 @@ fn cerebras_response_format() -> serde_json::Value {
         }
     })
 }
-
-fn translate_with_hosted_openai(
-    config: &Config,
-    model: &ModelConfig,
-    target_language: &str,
-    instructions: Option<&str>,
-    user_payload: &str,
-    history: &[TranslationConversationTurn],
-) -> Result<String, String> {
-    let (endpoint, api_key, label) = match model.provider.as_str() {
-        "cerebras" => (
-            "https://api.cerebras.ai/v1/chat/completions",
-            &config.cerebras_api_key,
-            "Cerebras",
-        ),
-        provider => return Err(format!("Unsupported hosted provider: {provider}")),
-    };
-    if api_key.trim().is_empty() {
-        return Err(format!("NO_API_KEY:{}", model.provider));
-    }
-    let mut payload = serde_json::json!({
-        "model": model.full_name,
-        "messages": build_chat_messages(target_language, instructions, user_payload, history),
-        "stream": false,
-        "max_completion_tokens": 8192,
-        "response_format": cerebras_response_format(),
-    });
-    crate::api::apply_ordinary_openai_reasoning_policy(
-        &mut payload,
-        &model.provider,
-        &model.full_name,
-    );
-    post_openai_compat_chat(
-        endpoint,
-        api_key,
-        label,
-        payload,
-        &[("Content-Type", "application/json")],
-        Some((&model.provider, &model.full_name)),
-    )
-}
-
 fn translate_with_openrouter(
     config: &Config,
     model: &ModelConfig,

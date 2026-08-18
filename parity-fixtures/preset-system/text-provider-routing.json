@@ -6,13 +6,6 @@
   },
   "cases": [
     {
-      "name": "cerebras_gemma_is_the_cerebras_vision_route",
-      "model_id": "cerebras-gemma-4-31b-vision",
-      "provider": "CEREBRAS",
-      "api_model": "gemma-4-31b",
-      "supports_search": false
-    },
-    {
       "name": "gemini_text_search_and_thinking_follow_windows_rules",
       "model_id": "google-gemini-3-flash-text",
       "provider": "GOOGLE",
@@ -75,10 +68,10 @@
       "supports_search": true
     },
     {
-      "name": "cerebras_gpt_oss_policy_is_provider_qualified",
-      "model_id": "cerebras-gpt-oss-120b-text",
-      "provider": "CEREBRAS",
-      "api_model": "gpt-oss-120b",
+      "name": "groq_gpt_oss_policy_is_provider_qualified",
+      "model_id": "groq-gpt-oss-120b-text",
+      "provider": "GROQ",
+      "api_model": "openai/gpt-oss-120b",
       "supports_search": false,
       "reasoning_effort": "low"
     },

@@ -94,7 +94,6 @@ fn validate_model_id(id: &str) {
         [
             "google",
             "groq",
-            "cerebras",
             "openrouter",
             "taalas",
             "qrserver",
@@ -206,7 +205,7 @@ fn validate_reasoning_policy(
     let compatible = match provider {
         "google" => matches!(policy, "gemini-disabled" | "gemini-minimal"),
         "gemini-live" => policy == "live-profile",
-        "groq" | "cerebras" | "openrouter" => matches!(
+        "groq" | "openrouter" => matches!(
             policy,
             "not-applicable" | "openai-none" | "openai-low" | "provider-managed"
         ),
@@ -478,7 +477,6 @@ fn provider_prefix(provider: &str) -> &str {
     match provider {
         "google" | "google-gtx" | "gemini-live" => "GG",
         "groq" => "G",
-        "cerebras" => "C",
         "openrouter" => "O",
         "taalas" => "T",
         "parakeet" | "qwen3" => "L",
@@ -491,7 +489,6 @@ fn provider_id_prefix(provider: &str) -> &str {
     match provider {
         "google" | "google-gtx" | "gemini-live" => "google-",
         "groq" => "groq-",
-        "cerebras" => "cerebras-",
         "openrouter" => "openrouter-",
         "taalas" => "taalas-",
         "parakeet" | "qwen3" => "local-",

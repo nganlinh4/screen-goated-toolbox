@@ -32,7 +32,6 @@ struct ProviderToggles {
     gemini: bool,
     openrouter: bool,
     ollama: bool,
-    cerebras: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -58,7 +57,6 @@ pub fn render_usage_modal(
     use_gemini: bool,
     use_openrouter: bool,
     use_ollama: bool,
-    use_cerebras: bool,
     custom_models: &[CustomModelDefinition],
 ) {
     if !*show_modal {
@@ -73,7 +71,6 @@ pub fn render_usage_modal(
         gemini: use_gemini,
         openrouter: use_openrouter,
         ollama: use_ollama,
-        cerebras: use_cerebras,
     };
 
     let modal = crate::gui::widgets::material_modal(
@@ -207,7 +204,6 @@ fn provider_enabled(provider: &str, toggles: ProviderToggles) -> bool {
         "google" | "gemini-live" => toggles.gemini,
         "openrouter" => toggles.openrouter,
         "ollama" => toggles.ollama,
-        "cerebras" => toggles.cerebras,
         _ => true,
     }
 }
@@ -490,7 +486,6 @@ fn provider_name(provider: &str) -> String {
         "google" => "Google Gemini".to_string(),
         "google-gtx" => "Google Translate".to_string(),
         "groq" => "Groq".to_string(),
-        "cerebras" => "Cerebras".to_string(),
         "openrouter" => "OpenRouter".to_string(),
         "ollama" => "Ollama".to_string(),
         "qrserver" => "QR Server".to_string(),
@@ -504,7 +499,6 @@ fn provider_name(provider: &str) -> String {
 fn provider_dashboard(provider: &str) -> Option<&'static str> {
     match provider {
         "groq" => Some("https://console.groq.com/docs/rate-limits"),
-        "cerebras" => Some("https://cloud.cerebras.ai/"),
         "google" => Some("https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit"),
         "openrouter" => Some("https://openrouter.ai/activity"),
         _ => None,
@@ -514,7 +508,6 @@ fn provider_dashboard(provider: &str) -> Option<&'static str> {
 fn provider_accent(theme: &AppTheme, provider: &str) -> egui::Color32 {
     match provider {
         "groq" => theme.warning(),
-        "cerebras" => theme.danger_text(),
         "google" => theme.accent_help(),
         "openrouter" => theme.accent_fill(),
         "taalas" => theme.accent_three_d_generator(),

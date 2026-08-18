@@ -1,9 +1,8 @@
 // --- PROVIDER-SPECIFIC REFINE HANDLERS ---
-// Gemini, Cerebras, OpenRouter, Groq, and Taalas refinement implementations.
+// Gemini, OpenRouter, Groq, and Taalas refinement implementations.
 
 mod groq_compound;
 
-use crate::api::cerebras;
 use crate::api::client::{UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_simple};
 use crate::api::gemini_generate::{GeminiGenerateRequest, stream_gemini_generate};
 use crate::api::openai_compat::stream_openai_compat_payload;
@@ -64,51 +63,6 @@ where
         .ok_or_else(|| anyhow::anyhow!("Taalas Refine Error: empty or failed response"))?;
     on_chunk(&text);
     Ok(text)
-}
-
-// --- CEREBRAS REFINE ---
-pub(super) struct RefineCerebrasRequest<'a> {
-    pub cerebras_api_key: &'a str,
-    pub final_prompt: &'a str,
-    pub previous_text: &'a str,
-    pub model: &'a str,
-    pub streaming_enabled: bool,
-    pub ui_language: &'a str,
-    pub cancel_token: &'a Option<Arc<AtomicBool>>,
-}
-
-pub(super) fn refine_cerebras<F>(
-    request: RefineCerebrasRequest<'_>,
-    on_chunk: &mut F,
-) -> Result<String>
-where
-    F: FnMut(&str),
-{
-    let RefineCerebrasRequest {
-        cerebras_api_key,
-        final_prompt,
-        previous_text,
-        model,
-        streaming_enabled,
-        ui_language,
-        cancel_token,
-    } = request;
-    let messages = serde_json::json!([{ "role": "user", "content": final_prompt }]);
-    cerebras::stream_chat(
-        cerebras::StreamChatRequest {
-            api_key: cerebras_api_key,
-            model,
-            messages,
-            streaming: streaming_enabled,
-            ui_language,
-            cancel_token,
-            error_label: "Cerebras Refine Error",
-            response_format: None,
-            prediction: Some(previous_text),
-            request_timeout: None,
-        },
-        on_chunk,
-    )
 }
 
 // --- OPENROUTER REFINE ---

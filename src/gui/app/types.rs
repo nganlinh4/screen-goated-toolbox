@@ -55,7 +55,6 @@ pub struct SettingsApp {
     pub(crate) show_api_key: bool,
     pub(crate) show_gemini_api_key: bool,
     pub(crate) show_openrouter_api_key: bool,
-    pub(crate) show_cerebras_api_key: bool,
     pub(crate) icon_dark: Option<egui::TextureHandle>,
     pub(crate) icon_light: Option<egui::TextureHandle>,
 

@@ -152,10 +152,6 @@ pub fn run_translation_loop(
                         "GEMINI_API_KEY",
                         &app.config.gemini_api_key,
                     ),
-                    cerebras: crate::api::provider_credentials::resolve(
-                        "CEREBRAS_API_KEY",
-                        &app.config.cerebras_api_key,
-                    ),
                     groq: crate::api::provider_credentials::resolve(
                         "GROQ_API_KEY",
                         &app.config.api_key,

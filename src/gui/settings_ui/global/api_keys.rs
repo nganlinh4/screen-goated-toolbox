@@ -9,7 +9,6 @@ pub(super) struct ApiKeyVisibility<'a> {
     pub(super) groq: &'a mut bool,
     pub(super) gemini: &'a mut bool,
     pub(super) openrouter: &'a mut bool,
-    pub(super) cerebras: &'a mut bool,
 }
 
 pub(super) struct ApiKeyCardStyle {
@@ -28,7 +27,6 @@ pub(super) fn render_api_keys_card(
         groq,
         gemini,
         openrouter,
-        cerebras,
     } = visibility;
     let mut changed = false;
     egui::Frame::new()
@@ -51,15 +49,6 @@ pub(super) fn render_api_keys_card(
 
                 if ui
                     .checkbox(&mut config.use_groq, text.preset_basics.use_groq_checkbox)
-                    .changed()
-                {
-                    changed = true;
-                }
-                if ui
-                    .checkbox(
-                        &mut config.use_cerebras,
-                        text.preset_basics.use_cerebras_checkbox,
-                    )
                     .changed()
                 {
                     changed = true;
@@ -114,36 +103,6 @@ pub(super) fn render_api_keys_card(
                     };
                     if icon_button(ui, eye_icon).clicked() {
                         *groq = !*groq;
-                    }
-                });
-            }
-
-            if config.use_cerebras {
-                ui.horizontal(|ui| {
-                    ui.label(text.preset_basics.cerebras_api_key_label);
-                    if ui.link(text.preset_basics.cerebras_get_key_link).clicked() {
-                        let _ = open::that("https://cloud.cerebras.ai/");
-                    }
-                });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut config.cerebras_api_key)
-                                .id(egui::Id::new("settings_api_key_cerebras"))
-                                .password(!*cerebras)
-                                .desired_width(API_KEY_FIELD_WIDTH),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    let eye_icon = if *cerebras {
-                        Icon::EyeOpen
-                    } else {
-                        Icon::EyeClosed
-                    };
-                    if icon_button(ui, eye_icon).clicked() {
-                        *cerebras = !*cerebras;
                     }
                 });
             }

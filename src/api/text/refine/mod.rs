@@ -28,11 +28,9 @@ struct RefineCatalogState {
     text_priority: Vec<String>,
     custom_models: Vec<CustomModelDefinition>,
     saved_openrouter_api_key: String,
-    saved_cerebras_api_key: String,
     use_groq: bool,
     use_gemini: bool,
     use_openrouter: bool,
-    use_cerebras: bool,
 }
 
 impl Default for RefineCatalogState {
@@ -44,11 +42,9 @@ impl Default for RefineCatalogState {
                 .collect(),
             custom_models: Vec::new(),
             saved_openrouter_api_key: String::new(),
-            saved_cerebras_api_key: String::new(),
             use_groq: crate::model_config::DEFAULT_USE_GROQ,
             use_gemini: crate::model_config::DEFAULT_USE_GEMINI,
             use_openrouter: crate::model_config::DEFAULT_USE_OPENROUTER,
-            use_cerebras: crate::model_config::DEFAULT_USE_CEREBRAS,
         }
     }
 }
@@ -62,11 +58,9 @@ impl RefineCatalogState {
                 text_priority: app.config.model_priority_chains.text_to_text.clone(),
                 custom_models: app.config.custom_models.clone(),
                 saved_openrouter_api_key: app.config.openrouter_api_key.clone(),
-                saved_cerebras_api_key: app.config.cerebras_api_key.clone(),
                 use_groq: app.config.use_groq,
                 use_gemini: app.config.use_gemini,
                 use_openrouter: app.config.use_openrouter,
-                use_cerebras: app.config.use_cerebras,
             })
             .unwrap_or_default()
     }
@@ -76,7 +70,6 @@ impl RefineCatalogState {
         groq_api_key: &str,
         gemini_api_key: &str,
         openrouter_api_key: &str,
-        cerebras_api_key: &str,
     ) -> Option<(String, String)> {
         self.text_priority
             .iter()
@@ -91,7 +84,6 @@ impl RefineCatalogState {
                         groq_api_key,
                         gemini_api_key,
                         openrouter_api_key,
-                        cerebras_api_key,
                     )
             })
             .map(|model| (model.id, model.provider))
@@ -103,13 +95,11 @@ impl RefineCatalogState {
         groq_api_key: &str,
         gemini_api_key: &str,
         openrouter_api_key: &str,
-        cerebras_api_key: &str,
     ) -> bool {
         match Provider::from_wire(&model.provider) {
             Some(Provider::Google | Provider::GeminiLive) => {
                 self.use_gemini && !gemini_api_key.trim().is_empty()
             }
-            Some(Provider::Cerebras) => self.use_cerebras && !cerebras_api_key.trim().is_empty(),
             Some(Provider::OpenRouter) => {
                 self.use_openrouter && !openrouter_api_key.trim().is_empty()
             }
@@ -142,10 +132,6 @@ where
         "OPENROUTER_API_KEY",
         &catalog_state.saved_openrouter_api_key,
     );
-    let cerebras_api_key = crate::api::provider_credentials::resolve(
-        "CEREBRAS_API_KEY",
-        &catalog_state.saved_cerebras_api_key,
-    );
 
     let final_prompt = format!(
         "Content:\n{}\n\nInstruction:\n{}\n\nOutput ONLY the result.",
@@ -163,7 +149,6 @@ where
                 groq_api_key,
                 gemini_api_key,
                 &openrouter_api_key,
-                &cerebras_api_key,
             ) {
                 model
             } else {
@@ -185,9 +170,7 @@ where
             groq_api_key,
             gemini_api_key,
             openrouter_api_key: &openrouter_api_key,
-            cerebras_api_key: &cerebras_api_key,
             final_prompt: &final_prompt,
-            previous_text: &previous_text,
             model: p_model,
             provider: p_provider,
             streaming_enabled,
@@ -266,9 +249,7 @@ struct RefineTextOnlyRequest<'a, F> {
     groq_api_key: &'a str,
     gemini_api_key: &'a str,
     openrouter_api_key: &'a str,
-    cerebras_api_key: &'a str,
     final_prompt: &'a str,
-    previous_text: &'a str,
     model: String,
     provider: String,
     streaming_enabled: bool,
@@ -285,9 +266,7 @@ where
         groq_api_key,
         gemini_api_key,
         openrouter_api_key,
-        cerebras_api_key,
         final_prompt,
-        previous_text,
         model,
         provider,
         streaming_enabled,
@@ -323,19 +302,6 @@ where
         )
     } else if Provider::from_wire(&provider) == Some(Provider::Taalas) {
         providers::refine_taalas(final_prompt, cancel_token, on_chunk)
-    } else if Provider::from_wire(&provider) == Some(Provider::Cerebras) {
-        providers::refine_cerebras(
-            providers::RefineCerebrasRequest {
-                cerebras_api_key,
-                final_prompt,
-                previous_text,
-                model: &model,
-                streaming_enabled,
-                ui_language,
-                cancel_token,
-            },
-            on_chunk,
-        )
     } else if Provider::from_wire(&provider) == Some(Provider::OpenRouter) {
         providers::refine_openrouter(
             openrouter_api_key,
@@ -368,23 +334,7 @@ mod tests {
         let mut state = RefineCatalogState::default();
         assert_eq!(
             state
-                .preferred_text_model("groq", "gemini", "openrouter", "cerebras")
-                .map(|model| model.0),
-            Some("cerebras-zai-glm-4-7-text".to_string())
-        );
-
-        state.use_cerebras = false;
-        assert_eq!(
-            state
-                .preferred_text_model("groq", "gemini", "openrouter", "")
-                .map(|model| model.0),
-            Some("google-gemini-3-5-flash-lite-text".to_string())
-        );
-
-        state.use_groq = false;
-        assert_eq!(
-            state
-                .preferred_text_model("", "gemini", "openrouter", "")
+                .preferred_text_model("groq", "gemini", "openrouter")
                 .map(|model| model.0),
             Some("google-gemini-3-5-flash-lite-text".to_string())
         );
@@ -392,7 +342,15 @@ mod tests {
         state.use_gemini = false;
         assert_eq!(
             state
-                .preferred_text_model("", "", "openrouter", "")
+                .preferred_text_model("groq", "", "openrouter")
+                .map(|model| model.0),
+            Some("groq-gpt-oss-20b-text".to_string())
+        );
+
+        state.use_groq = false;
+        assert_eq!(
+            state
+                .preferred_text_model("", "", "openrouter")
                 .map(|model| model.0),
             Some("openrouter-nemotron-3-nano-omni-30b-a3b-text".to_string())
         );

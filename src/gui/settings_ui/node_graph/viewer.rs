@@ -18,7 +18,6 @@ pub struct ChainViewer<'a> {
     pub use_groq: bool,
     pub use_gemini: bool,
     pub use_openrouter: bool,
-    pub use_cerebras: bool,
     pub use_ollama: bool,
     pub preset_type: String, // "image", "audio", "text"
 }
@@ -33,7 +32,6 @@ impl<'a> ChainViewer<'a> {
             use_groq: config.use_groq,
             use_gemini: config.use_gemini,
             use_openrouter: config.use_openrouter,
-            use_cerebras: config.use_cerebras,
             use_ollama: config.use_ollama,
             preset_type: preset_type.to_string(),
         }
@@ -45,7 +43,6 @@ impl<'a> ChainViewer<'a> {
             "groq" => self.use_groq,
             "google" | "gemini-live" => self.use_gemini,
             "openrouter" => self.use_openrouter,
-            "cerebras" => self.use_cerebras,
             "ollama" => self.use_ollama,
             _ => true, // Unknown providers are enabled by default
         }

@@ -267,7 +267,6 @@ impl SettingsApp {
             show_api_key: false,
             show_gemini_api_key: false,
             show_openrouter_api_key: false,
-            show_cerebras_api_key: false,
             icon_dark: None,
             icon_light: None,
             current_preset_idx: match view_mode {

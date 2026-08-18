@@ -33,10 +33,6 @@ fn default_use_openrouter() -> bool {
     crate::model_config::DEFAULT_USE_OPENROUTER
 }
 
-fn default_use_cerebras() -> bool {
-    crate::model_config::DEFAULT_USE_CEREBRAS
-}
-
 fn default_use_ollama() -> bool {
     crate::model_config::DEFAULT_USE_OLLAMA
 }
@@ -180,10 +176,6 @@ pub struct Config {
     #[serde(default)]
     pub openrouter_api_key: String,
 
-    /// Cerebras AI API key
-    #[serde(default)]
-    pub cerebras_api_key: String,
-
     // -------------------------------------------------------------------------
     // Presets
     // -------------------------------------------------------------------------
@@ -282,10 +274,6 @@ pub struct Config {
     /// Enable OpenRouter models
     #[serde(default = "default_use_openrouter")]
     pub use_openrouter: bool,
-
-    /// Enable Cerebras AI models
-    #[serde(default = "default_use_cerebras")]
-    pub use_cerebras: bool,
 
     /// Enable local Ollama models
     #[serde(default = "default_use_ollama")]
@@ -487,7 +475,6 @@ impl Default for Config {
             api_key: String::new(),
             gemini_api_key: String::new(),
             openrouter_api_key: String::new(),
-            cerebras_api_key: String::new(),
 
             // Presets - use the centralized ordered list
             presets: get_default_presets(),
@@ -518,7 +505,6 @@ impl Default for Config {
             use_groq: crate::model_config::DEFAULT_USE_GROQ,
             use_gemini: crate::model_config::DEFAULT_USE_GEMINI,
             use_openrouter: crate::model_config::DEFAULT_USE_OPENROUTER,
-            use_cerebras: crate::model_config::DEFAULT_USE_CEREBRAS,
             use_ollama: crate::model_config::DEFAULT_USE_OLLAMA,
             model_priority_chains: ModelPriorityChains::default(),
 
