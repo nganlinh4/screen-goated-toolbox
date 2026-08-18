@@ -15,6 +15,8 @@ const MODEL_TIMEOUT_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 #[cfg(not(feature = "recorder-worker"))]
 const MODEL_UNAVAILABLE_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
 #[cfg(not(feature = "recorder-worker"))]
+const MODEL_BILLING_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
+#[cfg(not(feature = "recorder-worker"))]
 const MODEL_TIMEOUT_FAILURE_THRESHOLD: u8 = 2;
 #[cfg(not(feature = "recorder-worker"))]
 const INTERACTIVE_TIMEOUT_MULTIPLIER: u64 = 10;
@@ -29,6 +31,7 @@ enum ModelCooldownKind {
     RateLimit,
     Timeout,
     Unavailable,
+    Billing,
 }
 
 #[cfg(not(feature = "recorder-worker"))]
@@ -38,6 +41,7 @@ impl ModelCooldownKind {
             Self::RateLimit => MODEL_RATE_LIMIT_COOLDOWN,
             Self::Timeout => MODEL_TIMEOUT_COOLDOWN,
             Self::Unavailable => MODEL_UNAVAILABLE_COOLDOWN,
+            Self::Billing => MODEL_BILLING_COOLDOWN,
         }
     }
 
@@ -46,6 +50,7 @@ impl ModelCooldownKind {
             Self::RateLimit => "MODEL_RATE_LIMIT_COOLDOWN",
             Self::Timeout => "MODEL_TIMEOUT_COOLDOWN",
             Self::Unavailable => "MODEL_UNAVAILABLE_COOLDOWN",
+            Self::Billing => "MODEL_BILLING_COOLDOWN",
         }
     }
 }
@@ -86,17 +91,33 @@ fn rate_limit_error(error: &str) -> bool {
 #[cfg(not(feature = "recorder-worker"))]
 fn timeout_error(error: &str) -> bool {
     let lower = error.to_ascii_lowercase();
-    lower.contains("timeout") || lower.contains("timed out")
+    lower.contains("timeout") || lower.contains("timed out") || lower.contains("deadline exceeded")
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+fn billing_error(error: &str) -> bool {
+    crate::overlay::utils::is_billing_exhausted_error(error)
 }
 
 #[cfg(not(feature = "recorder-worker"))]
 fn unavailable_model_error(error: &str) -> bool {
     let lower = error.to_ascii_lowercase();
-    (lower.contains("http 404") || lower.contains("status code 404"))
-        && (lower.contains("model") || lower.contains("deployment"))
-        && (lower.contains("unavailable")
-            || lower.contains("archived")
-            || lower.contains("not found"))
+    let is_404 = lower.contains("http 404")
+        || lower.contains("status code 404")
+        || lower.contains("error 404");
+    if !is_404 || !(lower.contains("model") || lower.contains("deployment")) {
+        return false;
+    }
+    lower.contains("unavailable")
+        || lower.contains("archived")
+        || lower.contains("not found")
+        || lower.contains("no such model")
+        || lower.contains("does not exist")
+        || lower.contains("doesn't exist")
+        || lower.contains("decommissioned")
+        || lower.contains("deprecated")
+        || lower.contains("has been removed")
+        || lower.contains("was removed")
 }
 
 #[cfg(not(feature = "recorder-worker"))]
@@ -134,7 +155,8 @@ fn record_model_failure_at(model_id: &str, error: &str, now: Instant) {
     let is_rate_limit = rate_limit_error(error);
     let is_timeout = timeout_error(error);
     let is_unavailable = unavailable_model_error(error);
-    if !is_rate_limit && !is_timeout && !is_unavailable {
+    let is_billing = billing_error(error);
+    if !is_rate_limit && !is_timeout && !is_unavailable && !is_billing {
         if let Ok(mut circuits) = MODEL_CIRCUITS.lock()
             && let Some(ModelCircuitState::HalfOpen { kind }) = circuits.get(model_id).copied()
         {
@@ -167,7 +189,9 @@ fn record_model_failure_at(model_id: &str, error: &str, now: Instant) {
     match *state {
         ModelCircuitState::Open { until, .. } if until > now => {}
         ModelCircuitState::HalfOpen { kind } => {
-            let kind = if is_rate_limit {
+            let kind = if is_billing {
+                ModelCooldownKind::Billing
+            } else if is_rate_limit {
                 ModelCooldownKind::RateLimit
             } else if is_timeout {
                 ModelCooldownKind::Timeout
@@ -176,6 +200,13 @@ fn record_model_failure_at(model_id: &str, error: &str, now: Instant) {
             } else {
                 kind
             };
+            *state = ModelCircuitState::Open {
+                kind,
+                until: now + kind.duration(),
+            };
+        }
+        ModelCircuitState::Monitoring { .. } if is_billing => {
+            let kind = ModelCooldownKind::Billing;
             *state = ModelCircuitState::Open {
                 kind,
                 until: now + kind.duration(),
