@@ -15,7 +15,7 @@ body{font-family:'Google Sans Flex';user-select:none}
 .result-card[data-presentation="text_only"] .direct-host,.result-card[data-presentation="text_only"] .result-frame{user-select:text;cursor:text}
 </style></head><body><span class="font-prewarm" aria-hidden="true">SGT</span>
 <main id="scene"></main><aside id="button-container"></aside>
-<script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script>
+<script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DOM_PATCH_RUNTIME__</script><script>__SGT_REVEAL_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script>
 <script>window.__SGT_RUN_FIT__ = function(streaming) { __SGT_FIT_RUNTIME__ };
 const scene = document.getElementById('scene'); const isolatedOrigin = __SGT_ISOLATED_ORIGIN_JSON__;
 const cards = new Map();
@@ -212,6 +212,9 @@ function runDirectFit(entry, streaming, settleBeforeReveal) {
       window.ipc.postMessage(JSON.stringify({
         type: 'fit_diagnostic', id: Number(entry.card.dataset.id), payload: payload
       }));
+    },
+    requestRefinement: function() {
+      setTimeout(function() { queueFit(entry, true); }, 0);
     },
     complete: function() { completeFit(entry); }
   };

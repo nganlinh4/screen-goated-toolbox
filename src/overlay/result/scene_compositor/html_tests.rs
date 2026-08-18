@@ -131,12 +131,13 @@ fn source_replacements_cannot_enter_the_ordinary_result_fitter() {
 
 #[test]
 fn streamed_words_use_a_bounded_adaptive_reveal_queue() {
-    let direct_runtime = include_str!("direct_runtime.js");
-    assert!(direct_runtime.contains("var maximumLag = 80"));
-    assert!(direct_runtime.contains("reveal.queue.shift()"));
-    assert!(direct_runtime.contains("40 * (1 + reveal.queue.length / 10)"));
-    assert!(direct_runtime.contains("generation !== reveal.generation"));
-    assert!(direct_runtime.contains("opacity 0.35s ease-out"));
+    let reveal_runtime = include_str!("reveal_runtime.js");
+    assert!(reveal_runtime.contains("var maximumLag = 80"));
+    assert!(reveal_runtime.contains("reveal.queue.shift()"));
+    assert!(reveal_runtime.contains("40 * (1 + reveal.queue.length / 10)"));
+    assert!(reveal_runtime.contains("generation !== reveal.generation"));
+    assert!(reveal_runtime.contains("opacity 0.22s ease-out"));
+    assert!(!reveal_runtime.contains("blur(3px)"));
 }
 
 #[test]
@@ -153,6 +154,24 @@ fn streaming_dom_replacement_is_immediate() {
     assert!(!DOCUMENT.contains("lastContentFlushAt"));
     assert!(!DOCUMENT.contains("lastStreamingFitAt"));
     assert!(!DOCUMENT.contains("streamingFitTimer"));
+}
+
+#[test]
+fn ordinary_streaming_preserves_unchanged_dom_identity() {
+    let direct_runtime = include_str!("direct_runtime.js");
+    let patch_runtime = include_str!("dom_patch_runtime.js");
+    assert!(direct_runtime.contains("window.__SGT_PATCH_BODY__(body, options.html)"));
+    assert!(patch_runtime.contains("syncNode(existing, next)"));
+    assert!(patch_runtime.contains("current.nodeValue = fresh.nodeValue"));
+    assert!(!patch_runtime.contains("body.innerHTML = html"));
+    assert!(DOCUMENT.contains("requestRefinement: function()"));
+}
+
+#[test]
+fn direct_card_destruction_stops_persistent_scale_motion() {
+    let direct_runtime = include_str!("direct_runtime.js");
+    assert!(direct_runtime.contains("cancelAnimationFrame(motion.frame)"));
+    assert!(direct_runtime.contains("state.fit._sgtMotionController = null"));
 }
 
 #[test]
