@@ -56,6 +56,7 @@ mod tests {
         assert!(script.contains("var minimumDuration = isStreamingFit ? 16 : 140"));
         assert!(script.contains("var eased = isStreamingFit"));
         assert!(script.contains("? t"));
+        assert!(script.contains("var maximumDuration = isStreamingFit ? 80 : 900"));
     }
 
     #[test]
@@ -80,27 +81,22 @@ mod tests {
     }
 
     #[test]
-    fn source_replacement_preserves_composition_and_guarantees_containment() {
+    fn ordinary_result_fitter_has_no_source_replacement_policy() {
         let script = runtime_fit_script();
 
-        assert!(script.contains("isSourceReplacement ? 1"));
-        assert!(script.contains("Math.min(winH, preferredFontSize)"));
-        assert!(script.contains("var lastTestWdth = isSourceReplacement ? 25 : 55"));
-        assert!(script.contains("var stretchHigh = 151"));
-        assert!(script.contains("!isStreamingFit && !isSourceReplacement"));
-        assert!(!script.contains("fillsSourceReplacement"));
-        assert!(script.contains("var rescueEndWdth = isSourceReplacement ? 25 : 45"));
-        assert!(script.contains("if (isSourceReplacement && !fits())"));
-        assert!(script.contains("verifiedSourceFit.fontSize"));
-        assert!(script.contains("for (var emergencyWdth = 100; emergencyWdth >= 25"));
+        assert!(!script.contains("isSourceReplacement"));
+        assert!(!script.contains("preferredFontSize"));
+        assert!(!script.contains("verifiedSourceFit"));
+        assert!(script.contains("for (var testWdth = 85; testWdth >= 55"));
+        assert!(script.contains("for (var rescueWdth = 90; rescueWdth >= 45"));
     }
 
     #[test]
-    fn remaining_vertical_space_is_centered_symmetrically() {
+    fn remaining_vertical_space_keeps_the_established_result_composition() {
         let script = runtime_fit_script();
 
-        assert!(script.contains("var centeredTop = Math.floor(finalGap / 2)"));
-        assert!(script.contains("finalGap - centeredTop"));
-        assert!(!script.contains("finalGap * 0.3"));
+        assert!(script.contains("Math.floor(finalGap * 0.3)"));
+        assert!(script.contains("Math.floor(finalGap * 0.7)"));
+        assert!(!script.contains("var centeredTop"));
     }
 }

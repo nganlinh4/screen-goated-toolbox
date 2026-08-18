@@ -121,6 +121,33 @@ fn text_only_cards_keep_the_fitter_without_card_chrome() {
 }
 
 #[test]
+fn source_replacements_cannot_enter_the_ordinary_result_fitter() {
+    assert!(DOCUMENT.contains("if (entry.sourceReplacement === true)"));
+    assert!(DOCUMENT.contains("completeFit(entry);"));
+    let fit = crate::overlay::result::markdown_view::fit::runtime_fit_script();
+    assert!(!fit.contains("isSourceReplacement"));
+    assert!(!fit.contains("preferredFontSize"));
+}
+
+#[test]
+fn streamed_words_never_wait_in_a_renderer_backlog() {
+    let direct_runtime = include_str!("direct_runtime.js");
+    assert!(direct_runtime.contains("var entering = [];"));
+    assert!(direct_runtime.contains("reveal.lastRevealedIndex = words.length - 1;"));
+    assert!(direct_runtime.contains("opacity 0.12s ease-out"));
+    assert!(!direct_runtime.contains("reveal.credits +="));
+    assert!(!direct_runtime.contains("reveal.queue.shift()"));
+}
+
+#[test]
+fn streaming_fit_work_is_bounded_without_delaying_content_updates() {
+    assert!(DOCUMENT.contains("if (elapsed < 80)"));
+    assert!(DOCUMENT.contains("queueFit(entry, true);"));
+    assert!(DOCUMENT.contains("entry.lastStreamingFitAt = now;"));
+    assert!(DOCUMENT.contains("clearTimeout(entry.streamingFitTimer);"));
+}
+
+#[test]
 fn resizing_debounces_fit_without_penalizing_position_only_dragging() {
     assert!(DOCUMENT.contains("const resized = entry.card.clientWidth !== width"));
     assert!(DOCUMENT.contains("setTimeout(function() { queueFit(entry, entry.streaming); }, 40)"));
