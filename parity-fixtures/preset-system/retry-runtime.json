@@ -29,22 +29,23 @@
   "model_priority_chains": {
     "image_to_text": [
       "groq-qwen-3-6-27b-vision",
-      "google-gemini-3-5-flash-lite-vision",
+      "google-gemini-3-flash-vision",
       "google-gemini-3-1-flash-lite-vision",
-      "google-gemini-robotics-er-2-vision",
-      "openrouter-dots-3-note-vision",
+      "google-gemini-3-5-flash-lite-vision",
+      "google-gemini-robotics-er-1-6-vision",
       "google-gemma-4-31b-vision",
-      "google-gemma-4-26b-a4b-vision",
-      "google-gemini-3-flash-vision"
+      "openrouter-dots-3-note-vision",
+      "google-gemini-robotics-er-2-vision",
+      "google-gemma-4-26b-a4b-vision"
     ],
     "text_to_text": [
       "groq-gpt-oss-120b-text",
       "google-gemini-3-5-flash-lite-text",
       "groq-gpt-oss-20b-text",
       "google-gemini-3-1-flash-lite-text",
-      "openrouter-nemotron-3-nano-omni-30b-a3b-text",
       "google-gemma-4-31b-text",
-      "google-gemma-4-26b-a4b-text"
+      "google-gemma-4-26b-a4b-text",
+      "openrouter-nemotron-3-nano-omni-30b-a3b-text"
     ]
   }
 }

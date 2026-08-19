@@ -178,7 +178,7 @@ fn search_capable_retry_skips_incompatible_priority_candidates() {
     )
     .expect("image chain should produce a next model");
 
-    assert_eq!(next.id, "google-gemini-3-1-flash-lite-vision");
+    assert_eq!(next.id, "google-gemini-3-flash-vision");
     assert!(crate::model_config::model_supports_search_by_id_with_custom(&next.id, &[]));
     assert_ne!(next.id, "google-gemma-4-31b-vision");
 }
