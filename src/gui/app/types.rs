@@ -79,6 +79,10 @@ pub struct SettingsApp {
     pub(crate) startup_stage: u8,
     pub(crate) custom_chrome_ready: bool,
     pub(crate) custom_chrome_resize_pulse_stage: u8,
+    /// Last window geometry seen, and when it last changed. Geometry is saved
+    /// once it settles rather than at exit — see `persist_geometry_when_settled`.
+    pub(crate) last_window_geometry: Option<(f32, f32, f32, f32)>,
+    pub(crate) window_geometry_changed_at: Option<std::time::Instant>,
     pub(crate) custom_chrome_restore_size: Option<(i32, i32)>,
 
     pub(crate) cached_audio_devices: Arc<Mutex<Vec<(String, String)>>>,
@@ -103,15 +107,14 @@ pub struct SettingsApp {
     pub(crate) last_edited_preset_key: Option<(usize, String, String)>,
     // ------------------------
 
-    // --- USAGE MODAL STATE ---
-    pub(crate) show_usage_modal: bool,
+    // --- MODELS HUB MODAL STATE ---
+    pub(crate) show_models_modal: bool,
+    pub(crate) models_tab: crate::gui::settings_ui::global::ModelsTab,
     // --- DROP OVERLAY STATE ---
     pub(crate) drop_overlay_fade: f32,
     // --- TTS SETTINGS MODAL STATE ---
     pub(crate) show_tts_modal: bool,
     pub(crate) show_tools_modal: bool,
-    pub(crate) show_model_priority_modal: bool,
-    pub(crate) show_custom_models_modal: bool,
     pub(crate) show_restore_defaults_modal: bool,
     pub(crate) show_preset_model_update_modal: bool,
     // --------------------

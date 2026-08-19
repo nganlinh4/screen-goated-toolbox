@@ -48,6 +48,7 @@ impl eframe::App for SettingsApp {
             self.check_updater();
             self.update_theme_and_tray(ctx);
             self.pulse_custom_chrome_resize_if_pending(ctx);
+            self.persist_geometry_when_settled(ctx);
             self.update_startup(ctx);
             self.update_bubble_sync();
             self.update_splash(ctx);
@@ -130,7 +131,6 @@ impl eframe::App for SettingsApp {
     }
 
     fn on_exit(&mut self) {
-        crate::gui::window_state::save_main_window();
         let _ = crate::overlay::three_d_generator::shutdown();
         let _ = crate::overlay::image_to_svg::shutdown();
         let _ = crate::overlay::image_creator::shutdown();

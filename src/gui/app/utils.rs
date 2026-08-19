@@ -49,8 +49,25 @@ impl SettingsApp {
         // Win32 client rect outruns wgpu during a fast live resize. DWM supplies the
         // rounded outer corners, so per-pixel transparency is unnecessary.
         ctx.send_viewport_cmd(egui::ViewportCommand::Transparent(false));
+
+        // Dropping the decorations keeps the *outer* rect and hands the vacated
+        // caption and borders to the client area, so the window silently grew by
+        // the frame — about 39pt taller and 16pt wider — on every launch. Ask for
+        // the client size we actually wanted, now that the frame is gone.
+        let maximized = ctx.input(|input| input.viewport().maximized.unwrap_or(false));
+        if !maximized {
+            let (width, height) = crate::gui::window_state::restored_inner_size()
+                .unwrap_or((crate::WINDOW_WIDTH, crate::WINDOW_HEIGHT));
+            crate::log_info!(
+                "[WindowState] re-applying client size after chrome: {width}x{height}"
+            );
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(width, height)));
+        }
+
         self.custom_chrome_ready = true;
-        self.custom_chrome_resize_pulse_stage = 1;
+        // Let that resize land before the repaint pulse samples the window, or the
+        // pulse restores the pre-resize rect and undoes it.
+        self.custom_chrome_resize_pulse_stage = 4;
         self.custom_chrome_restore_size = None;
         ctx.request_repaint();
     }
@@ -58,6 +75,10 @@ impl SettingsApp {
     pub(crate) fn pulse_custom_chrome_resize_if_pending(&mut self, ctx: &egui::Context) {
         match self.custom_chrome_resize_pulse_stage {
             0 => return,
+            // One frame of grace for the post-decoration resize.
+            4 => {
+                self.custom_chrome_resize_pulse_stage = 1;
+            }
             1 => {
                 self.custom_chrome_restore_size = begin_main_window_resize_pulse();
                 self.custom_chrome_resize_pulse_stage = 2;
@@ -77,6 +98,53 @@ impl SettingsApp {
             }
         }
         ctx.request_repaint();
+    }
+
+    /// Writes the window geometry once the user stops dragging it.
+    ///
+    /// This is the app's only continuous save: exit is not a reliable moment,
+    /// because the close button hides to tray, tray Quit calls `process::exit`,
+    /// and a development run is usually killed outright — none of which unwind.
+    /// Saving when the geometry settles means a resize, move, or maximize
+    /// survives however the process ends, including a kill.
+    pub(crate) fn persist_geometry_when_settled(&mut self, ctx: &egui::Context) {
+        if !self.is_main_ui_ready() {
+            return;
+        }
+
+        let geometry = ctx.input(|input| {
+            let viewport = input.viewport();
+            viewport.outer_rect.map(|outer| {
+                let size = viewport
+                    .inner_rect
+                    .map_or(outer.size(), |inner| inner.size());
+                (outer.min.x, outer.min.y, size.x, size.y)
+            })
+        });
+        let Some(geometry) = geometry else {
+            return;
+        };
+
+        let moved = self
+            .last_window_geometry
+            .is_none_or(|last| geometry_differs(last, geometry));
+        if moved {
+            self.last_window_geometry = Some(geometry);
+            self.window_geometry_changed_at = Some(std::time::Instant::now());
+            return;
+        }
+
+        let Some(changed_at) = self.window_geometry_changed_at else {
+            return;
+        };
+        if crate::gui::resize_subclass::is_live_resize()
+            || changed_at.elapsed() < GEOMETRY_SETTLE_DELAY
+        {
+            return;
+        }
+
+        self.window_geometry_changed_at = None;
+        crate::gui::window_state::save_main_window();
     }
 
     pub(crate) fn is_main_ui_ready(&self) -> bool {
@@ -194,6 +262,17 @@ fn force_main_window_frame_changed() {
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
         );
     }
+}
+
+/// How long the window must hold still before its geometry is written.
+const GEOMETRY_SETTLE_DELAY: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// Whether two geometries differ by enough to be a real move, not jitter.
+fn geometry_differs(a: (f32, f32, f32, f32), b: (f32, f32, f32, f32)) -> bool {
+    (a.0 - b.0).abs() > 0.5
+        || (a.1 - b.1).abs() > 0.5
+        || (a.2 - b.2).abs() > 0.5
+        || (a.3 - b.3).abs() > 0.5
 }
 
 fn begin_main_window_resize_pulse() -> Option<(i32, i32)> {
@@ -365,7 +444,13 @@ pub fn restart_app() {
 }
 
 /// Cleanly exit the process after best-effort recorder cleanup.
+///
+/// Flushes the window geometry first. `persist_geometry_when_settled` has
+/// normally written it already; this catches a quit within the settle delay of
+/// a resize. It cannot live in `App::on_exit` — `process::exit` never unwinds,
+/// so eframe never sees the shutdown.
 pub fn exit_app() -> ! {
+    crate::gui::window_state::save_main_window();
     crate::overlay::screen_record::cleanup_on_app_exit();
     std::process::exit(0)
 }
