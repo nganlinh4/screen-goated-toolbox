@@ -189,7 +189,11 @@ The current policies come from production-path transport probes:
 - `structured_output` is a wire policy, not a default. `prompt-only` means a
   model is asked for structure in the prompt without attaching a schema;
   `json-object` and `strict-json-schema` select documented constrained modes.
-  Plain OCR never requests JSON. A structural caller must provide a schema, and
+  Plain OCR normally requests plain text. The one exception is a `json-object`
+  endpoint serving a non-streaming plain-text caller: those requests carry a
+  `{"text": ...}` envelope and are unwrapped on the way out, because Qwen 3.6
+  otherwise appends a re-tokenized repetition of the text it just emitted. The
+  envelope is a wire detail; callers still receive plain text. A structural caller must provide a schema, and
   the provider adapter may attach it only when the exact profile allows it.
 
 OCR catalog timing measures full-answer completion through the real

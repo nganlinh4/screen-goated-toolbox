@@ -45,8 +45,12 @@ fn groq_vision_payload(
     b64_image: &str,
     streaming: bool,
     response_schema: Option<&serde_json::Value>,
+    plain_text_envelope: bool,
 ) -> serde_json::Value {
     let profile = crate::model_config::vision_request_profile("groq", model);
+    let envelope_prompt = plain_text_envelope
+        .then(|| format!("{prompt}{}", request_policy::PLAIN_TEXT_ENVELOPE_PROMPT));
+    let prompt = envelope_prompt.as_deref().unwrap_or(prompt);
     let content = request_policy::openai_content(profile, prompt, mime_type, b64_image);
     let mut payload = serde_json::json!({
         "model": model,
@@ -70,6 +74,8 @@ fn groq_vision_payload(
     if let Some(schema) = response_schema {
         payload["response_format"] =
             crate::api::groq::structured_response_format(model, "image_result", schema.clone());
+    } else if plain_text_envelope {
+        payload["response_format"] = serde_json::json!({ "type": "json_object" });
     }
     payload
 }
@@ -434,6 +440,11 @@ where
             return Err(anyhow::anyhow!("NO_API_KEY:groq"));
         }
 
+        let plain_text_envelope = request_policy::needs_plain_text_envelope(
+            crate::model_config::vision_request_profile("groq", &model),
+            streaming_enabled,
+            response_schema.is_some(),
+        );
         let payload = groq_vision_payload(
             &model,
             &prompt,
@@ -441,6 +452,7 @@ where
             &b64_image,
             streaming_enabled,
             response_schema.as_ref(),
+            plain_text_envelope,
         );
 
         let payload_bytes = serde_json::to_vec(&payload)
@@ -505,7 +517,11 @@ where
                 .map_err(|e| anyhow::anyhow!("Failed to decode non-streaming response: {}", e))?;
 
             if let Some(choice) = chat_resp.choices.first() {
-                full_content = choice.message.content.clone();
+                full_content = if plain_text_envelope {
+                    request_policy::unwrap_plain_text_envelope(&choice.message.content)
+                } else {
+                    choice.message.content.clone()
+                };
                 on_chunk(&full_content);
             }
         }

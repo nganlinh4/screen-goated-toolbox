@@ -9,6 +9,7 @@ fn qwen_payload_stays_below_tpm_and_disables_reasoning() {
         "AA==",
         false,
         None,
+        false,
     );
     assert_eq!(payload["max_completion_tokens"], 512);
     assert_eq!(payload["reasoning_format"], "hidden");
@@ -26,6 +27,7 @@ fn qwen_payload_stays_below_tpm_and_disables_reasoning() {
         "AA==",
         false,
         None,
+        false,
     );
     assert!(generic.get("max_completion_tokens").is_none());
     assert!(generic.get("reasoning_format").is_none());
@@ -41,6 +43,7 @@ fn vision_schema_uses_generic_json_mode() {
         "AA==",
         false,
         Some(&schema),
+        false,
     );
     let qwen = groq_vision_payload(
         "qwen/qwen3.6-27b",
@@ -49,9 +52,62 @@ fn vision_schema_uses_generic_json_mode() {
         "AA==",
         false,
         Some(&schema),
+        false,
     );
     assert_eq!(generic["response_format"]["type"], "json_object");
     assert_eq!(qwen["response_format"]["type"], "json_object");
+}
+
+#[test]
+fn json_object_endpoints_wrap_plain_text_and_unwrap_the_reply() {
+    use crate::model_config::vision_request_profile;
+
+    let qwen = vision_request_profile("groq", "qwen/qwen3.6-27b");
+    let generic = vision_request_profile("groq", "future-vision-model");
+
+    // Only json-object endpoints, only plain text, only when not streaming.
+    assert!(request_policy::needs_plain_text_envelope(
+        qwen, false, false
+    ));
+    assert!(!request_policy::needs_plain_text_envelope(
+        qwen, true, false
+    ));
+    assert!(!request_policy::needs_plain_text_envelope(
+        qwen, false, true
+    ));
+    assert!(!request_policy::needs_plain_text_envelope(
+        generic, false, false
+    ));
+
+    let payload = groq_vision_payload(
+        "qwen/qwen3.6-27b",
+        "Extract all text.",
+        "image/png",
+        "AA==",
+        false,
+        None,
+        true,
+    );
+    assert_eq!(payload["response_format"]["type"], "json_object");
+    let sent = payload["messages"][0]["content"][0]["text"]
+        .as_str()
+        .expect("text part is first for this endpoint");
+    assert!(sent.starts_with("Extract all text."));
+    assert!(sent.contains("\"text\""));
+
+    assert_eq!(
+        request_policy::unwrap_plain_text_envelope("{\"text\": \"Điều khiển máy tính\"}"),
+        "Điều khiển máy tính"
+    );
+    // Fails open rather than losing text.
+    assert_eq!(
+        request_policy::unwrap_plain_text_envelope("Điều khiển máy tính"),
+        "Điều khiển máy tính"
+    );
+    assert_eq!(
+        request_policy::unwrap_plain_text_envelope("{\"other\": 1}"),
+        "{\"other\": 1}"
+    );
 }
 
 #[test]
@@ -128,7 +184,8 @@ fn groq_rust_pipeline_live() {
         TranslateImageRequest {
             groq_api_key: &api_key,
             gemini_api_key: "",
-            prompt: "Reply with only OK.".to_string(),
+            prompt: std::env::var("GROQ_TEST_PROMPT")
+                .unwrap_or_else(|_| "Reply with only OK.".to_string()),
             model: "qwen/qwen3.6-27b".to_string(),
             provider: "groq".to_string(),
             image,
@@ -141,6 +198,7 @@ fn groq_rust_pipeline_live() {
         |_| {},
     )
     .unwrap();
+    println!("[groq_rust_pipeline_live] answer={answer:?}");
     assert!(!answer.trim().is_empty());
     assert!(!answer.contains("<think>"));
 }
