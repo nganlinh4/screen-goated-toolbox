@@ -217,6 +217,14 @@ fn a_reported_rate_limit_window_replaces_the_fixed_cooldown() {
         reported_cooldown("HTTP 429 retry-after: 22"),
         Some(Duration::from_secs(22))
     );
+    // Gemini reports the same fact in its body instead of a header.
+    assert_eq!(
+        reported_cooldown(
+            "HTTP 429: You exceeded your current quota ...              * Quota exceeded for metric: generate_content_free_tier_requests, limit: 0              Please retry in 32.814072061s."
+        ),
+        Some(Duration::from_secs_f64(32.814072061))
+    );
+
     // An exhausted daily quota backs off far past the old five-minute constant.
     assert_eq!(
         reported_cooldown("429 rate limit, please try again in 2h15m"),

@@ -82,17 +82,24 @@ const MIN_REPORTED_COOLDOWN: Duration = Duration::from_secs(5);
 /// Reads the wait a provider reports alongside a rate-limit rejection.
 ///
 /// Groq answers a 429 with `retry-after` and a message ending in "Please try
-/// again in 22.012s", and its token and request windows differ by orders of
-/// magnitude: a token-per-minute window reopens in seconds while an exhausted
+/// again in 22.012s"; Gemini has no rate-limit headers at all but ends its
+/// RESOURCE_EXHAUSTED body with "Please retry in 32.814072061s". Token and
+/// request windows differ by orders of magnitude: a token-per-minute window reopens in seconds while an exhausted
 /// daily quota takes hours. Honouring the reported figure keeps a fast model
 /// available instead of benching it for the fixed five minutes, and still backs
 /// off properly when the provider really is done for the day.
 #[cfg(not(feature = "recorder-worker"))]
 pub(super) fn reported_cooldown(error: &str) -> Option<Duration> {
     let lower = error.to_ascii_lowercase();
-    let tail = ["try again in ", "retry after ", "retry-after: "]
-        .into_iter()
-        .find_map(|marker| lower.split_once(marker).map(|(_, rest)| rest.to_string()))?;
+    // "please retry in 32.8s" is Gemini's wording; the others are Groq/OpenAI style.
+    let tail = [
+        "try again in ",
+        "retry in ",
+        "retry after ",
+        "retry-after: ",
+    ]
+    .into_iter()
+    .find_map(|marker| lower.split_once(marker).map(|(_, rest)| rest.to_string()))?;
     let seconds = parse_duration_seconds(tail.trim())?;
     Some(Duration::from_secs_f64(seconds).clamp(MIN_REPORTED_COOLDOWN, MAX_REPORTED_COOLDOWN))
 }

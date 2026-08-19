@@ -12,6 +12,15 @@ const GROQ_MIN_IMAGE_BYTES: usize = 262_144;
 const GROQ_JPEG_QUALITIES: [u8; 5] = [90, 82, 74, 66, 58];
 const GROQ_RESIZE_DIMENSIONS: [u32; 6] = [2048, 1792, 1536, 1280, 1024, 768];
 const QWEN_PORTABLE_TPM_LIMIT: usize = 8_000;
+/// Worst-case image + envelope tokens for one Qwen vision request.
+///
+/// Measured against the live Groq endpoint on 2026-08-19 rather than derived
+/// from Qwen's published `smart_resize`, which predicts 64-256 tokens for these
+/// inputs while Groq bills 770-1794. Groq's cost tracks aspect ratio and not
+/// resolution at all: every 16:9 input from 1024x576 to 1920x1080 billed 770,
+/// every square input from 128x128 to 1024x1024 billed 1282, and 4:3 billed
+/// 1794, in exact steps of 512. The reserve therefore sits above the highest
+/// figure observed across the whole sweep instead of scaling with pixels.
 const QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE: usize = 3_072;
 const QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN: usize = 3;
 
