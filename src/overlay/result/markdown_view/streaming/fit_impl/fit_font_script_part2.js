@@ -406,6 +406,21 @@
                             retargetContinuousMotion();
                         } else if (settleBeforeReveal || !hadPriorSize
                             || (fsDelta < snapThreshold && wDelta < snapWThreshold)) {
+                            // A hidden final render is an authoritative settle point.
+                            // An older streaming controller may still own a queued
+                            // frame; cancel it before snapping or it can overwrite
+                            // this target immediately after the surface is revealed.
+                            if (settleBeforeReveal) {
+                                if (fitState._sgtFitAnim) {
+                                    cancelFitFrame(fitState._sgtFitAnim);
+                                    fitState._sgtFitAnim = null;
+                                }
+                                var staleMotion = fitState._sgtMotionController;
+                                if (staleMotion && staleMotion.frame !== null) {
+                                    cancelFitFrame(staleMotion.frame);
+                                }
+                                fitState._sgtMotionController = null;
+                            }
                             applyAxes(targetFontSize, targetWdth);
                             applyPadding(targetPadTop, targetPadBottom);
                             fitState._sgtCurrentFontSize = targetFontSize;

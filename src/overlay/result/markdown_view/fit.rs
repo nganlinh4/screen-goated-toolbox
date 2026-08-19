@@ -101,6 +101,14 @@ mod tests {
     }
 
     #[test]
+    fn hidden_final_settle_cancels_stale_scale_motion_before_reveal() {
+        let script = runtime_fit_script();
+        assert!(script.contains("if (settleBeforeReveal)"));
+        assert!(script.contains("cancelFitFrame(staleMotion.frame)"));
+        assert!(script.contains("fitState._sgtMotionController = null"));
+    }
+
+    #[test]
     fn ordinary_result_fitter_has_no_source_replacement_policy() {
         let script = runtime_fit_script();
 
