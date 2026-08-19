@@ -212,6 +212,24 @@ pub fn get_all_models() -> &'static [ModelConfig] {
     &ALL_MODELS[..]
 }
 
+/// Short, user-facing provider name for compact surfaces.
+///
+/// Deliberately separate from the longer names the usage dashboard and API-key
+/// notifications use; those strings are locked by their own parity fixtures.
+pub fn provider_display_name(provider: &str) -> &str {
+    match provider {
+        "google" | "gemini-live" => "Gemini",
+        "google-gtx" => "Google Translate",
+        "groq" => "Groq",
+        "openrouter" => "OpenRouter",
+        "ollama" => "Ollama",
+        "taalas" => "Taalas",
+        "qrserver" => "QR Server",
+        "parakeet" | "qwen3" => "Local",
+        other => other,
+    }
+}
+
 pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
     let custom_models = crate::APP
         .lock()

@@ -191,18 +191,21 @@ html, body {
 }
 
 .model-badge {
-    width: auto;
+    display: flex;
+    align-items: center;
+    height: calc(24px * var(--control-scale));
     max-width: calc(120px * var(--control-scale));
-    padding: 0 calc(7px * var(--control-scale));
+    padding: 0 calc(4px * var(--control-scale));
+    background: none;
+    border: none;
     cursor: default;
+    pointer-events: none;
+    user-select: none;
     font-size: calc(9px * var(--control-scale));
     font-weight: 600;
     letter-spacing: 0.02em;
-    opacity: 0.75;
-}
-.model-badge:hover {
-    background: var(--btn-bg);
-    opacity: 1;
+    color: var(--chain-control-color, var(--btn-color));
+    opacity: 0.6;
 }
 .model-badge-text {
     overflow: hidden;
@@ -210,9 +213,10 @@ html, body {
     white-space: nowrap;
 }
 .button-group.vertical .model-badge {
-    width: calc(24px * var(--control-scale));
-    max-width: calc(24px * var(--control-scale));
-    padding: 0 calc(2px * var(--control-scale));
+    max-width: calc(30px * var(--control-scale));
+    padding: calc(2px * var(--control-scale)) 0;
+    height: auto;
+    justify-content: center;
     font-size: calc(7px * var(--control-scale));
 }
 

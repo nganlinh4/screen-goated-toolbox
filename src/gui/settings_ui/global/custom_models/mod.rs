@@ -19,115 +19,37 @@ use style::{accent_icon, on_color, provider_accent, wash};
 
 static OLLAMA_SCAN_REQUESTED: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
 
-pub fn render_custom_models_modal(
+/// Renders the Custom Models tab body inside the shared models hub.
+///
+/// Each provider card owns its own actions — scan sits next to that provider's
+/// add button, where it applies — so the body is nothing but the two columns
+/// of cards and the hub header stays a single uncluttered row.
+pub fn render_custom_models_body(
     ui: &mut egui::Ui,
     config: &mut Config,
     text: &LocaleText,
-    show_modal: &mut bool,
+    body_height: f32,
 ) -> bool {
-    if !*show_modal {
-        return false;
-    }
-
-    let theme = AppTheme::from_ui(ui);
     let mut changed = false;
-    let modal = crate::gui::widgets::material_modal(
-        ui.ctx(),
-        &theme,
-        egui::Id::new("custom_models_modal"),
-        |ui| {
-            ui.set_width(1120.0);
-            ui.set_min_height(580.0);
 
-            // Header: title + description on the left; the Import/Scan toolbar
-            // buttons sit on the right, immediately left of the close (×) button.
-            let dark = ui.visuals().dark_mode;
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(text.model_catalog.custom_models_title)
-                        .size(18.0)
-                        .strong()
-                        .color(theme.on_surface()),
-                );
-                ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new(text.model_catalog.custom_models_desc)
-                        .size(11.5)
-                        .color(theme.on_surface_variant()),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // right_to_left: first added is rightmost → close, then the
-                    // two buttons render to its left as [Import][Scan][×].
-                    if icons::icon_button(ui, Icon::Close).clicked() {
-                        *show_modal = false;
+    egui::ScrollArea::vertical()
+        .id_salt("custom_models_body")
+        .max_height(body_height)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.columns(2, |columns| {
+                if render_provider_section(&mut columns[0], config, "google", text) {
+                    changed = true;
+                }
+                columns[0].add_space(8.0);
+                for provider in ["groq", "openrouter", "ollama"] {
+                    if render_provider_section(&mut columns[1], config, provider, text) {
+                        changed = true;
                     }
-                    ui.add_space(10.0);
-                    let ollama_accent = provider_accent("ollama", dark);
-                    if filled_icon_button(
-                        ui,
-                        Icon::Terminal,
-                        text.model_catalog.custom_models_scan_ollama,
-                        ollama_accent,
-                        on_color(ollama_accent),
-                        10,
-                    )
-                    .clicked()
-                    {
-                        if let Ok(mut requested) = OLLAMA_SCAN_REQUESTED.lock() {
-                            *requested = true;
-                        }
-                        if config.use_ollama {
-                            trigger_ollama_model_scan();
-                        }
-                    }
-                    ui.add_space(8.0);
-                    let openrouter_accent = provider_accent("openrouter", dark);
-                    if filled_icon_button(
-                        ui,
-                        Icon::Public,
-                        text.model_catalog.custom_models_import_openrouter,
-                        openrouter_accent,
-                        on_color(openrouter_accent),
-                        10,
-                    )
-                    .clicked()
-                    {
-                        start_openrouter_import(config.openrouter_api_key.clone());
-                    }
-                });
+                    columns[1].add_space(8.0);
+                }
             });
-            ui.add_space(10.0);
-
-            // Scan/import status line (results popup + ollama progress).
-            ui.horizontal(|ui| {
-                render_ollama_scan_status(ui, config);
-            });
-            render_openrouter_import_results(ui, config, text, &mut changed);
-            ui.add_space(6.0);
-
-            egui::ScrollArea::vertical()
-                .max_height(520.0)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.columns(2, |columns| {
-                        if render_provider_section(&mut columns[0], config, "google", text) {
-                            changed = true;
-                        }
-                        columns[0].add_space(8.0);
-                        for provider in ["groq", "openrouter", "ollama"] {
-                            if render_provider_section(&mut columns[1], config, provider, text) {
-                                changed = true;
-                            }
-                            columns[1].add_space(8.0);
-                        }
-                    });
-                });
-        },
-    );
-
-    if modal.should_close() {
-        *show_modal = false;
-    }
+        });
 
     changed
 }
@@ -153,7 +75,7 @@ fn render_provider_section(
         .fill(theme.card_bg())
         .stroke(theme.card_stroke())
         .corner_radius(CornerRadius::same(12))
-        .inner_margin(Margin::same(12))
+        .inner_margin(Margin::same(crate::gui::theme::space::CARD))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
 
@@ -172,6 +94,8 @@ fn render_provider_section(
                         .size(14.0)
                         .color(theme.on_surface()),
                 );
+                // right_to_left: add CTA pins to the edge, the provider's
+                // scan action sits immediately to its left.
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if provider != "ollama"
                         && filled_icon_button(
@@ -182,6 +106,7 @@ fn render_provider_section(
                             on_color(accent),
                             8,
                         )
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
                         .clicked()
                     {
                         config
@@ -189,8 +114,16 @@ fn render_provider_section(
                             .push(new_custom_model(provider, &config.custom_models));
                         changed = true;
                     }
+                    render_scan_action(ui, config, provider, text, accent);
                 });
             });
+
+            if provider == "ollama" {
+                ui.horizontal(|ui| render_ollama_scan_status(ui, config));
+            }
+            if provider == "openrouter" {
+                render_openrouter_import_results(ui, config, text, &mut changed);
+            }
             ui.add_space(8.0);
 
             let builtins: Vec<&ModelConfig> = provider_models
@@ -276,7 +209,10 @@ fn render_locked_model_row(
             if ui.visuals().dark_mode { 0.10 } else { 0.12 },
         ))
         .corner_radius(CornerRadius::same(8))
-        .inner_margin(Margin::symmetric(10, 6))
+        .inner_margin(Margin::symmetric(
+            crate::gui::theme::space::EDGE,
+            crate::gui::theme::space::SNUG,
+        ))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -308,7 +244,10 @@ fn type_badge(ui: &mut egui::Ui, theme: &AppTheme, label: &str) {
             if ui.visuals().dark_mode { 0.24 } else { 0.18 },
         ))
         .corner_radius(CornerRadius::same(7))
-        .inner_margin(Margin::symmetric(7, 2))
+        .inner_margin(Margin::symmetric(
+            crate::gui::theme::space::SNUG,
+            crate::gui::theme::space::HAIR,
+        ))
         .show(ui, |ui| {
             ui.label(
                 egui::RichText::new(label)
@@ -316,6 +255,46 @@ fn type_badge(ui: &mut egui::Ui, theme: &AppTheme, label: &str) {
                     .color(theme.on_surface()),
             );
         });
+}
+
+/// Discovery action for the providers that have one, drawn as a quiet outlined
+/// button so it reads as secondary to the card's filled add CTA.
+fn render_scan_action(
+    ui: &mut egui::Ui,
+    config: &Config,
+    provider: &str,
+    text: &LocaleText,
+    accent: Color32,
+) {
+    let (icon, label) = match provider {
+        "ollama" => (Icon::Terminal, text.model_catalog.custom_models_scan_ollama),
+        "openrouter" => (
+            Icon::Public,
+            text.model_catalog.custom_models_import_openrouter,
+        ),
+        _ => return,
+    };
+
+    if provider != "ollama" {
+        ui.add_space(6.0);
+    }
+    let theme = AppTheme::from_ui(ui);
+    if filled_icon_button(ui, icon, label, wash(&theme, accent, 0.18), accent, 8)
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+    {
+        match provider {
+            "ollama" => {
+                if let Ok(mut requested) = OLLAMA_SCAN_REQUESTED.lock() {
+                    *requested = true;
+                }
+                if config.use_ollama {
+                    trigger_ollama_model_scan();
+                }
+            }
+            _ => start_openrouter_import(config.openrouter_api_key.clone()),
+        }
+    }
 }
 
 fn render_ollama_scan_status(ui: &mut egui::Ui, config: &Config) {
@@ -363,7 +342,7 @@ fn render_user_model_row(
             wash(theme, accent, if dark { 0.42 } else { 0.40 }),
         ))
         .corner_radius(CornerRadius::same(10))
-        .inner_margin(Margin::same(10))
+        .inner_margin(Margin::same(crate::gui::theme::space::EDGE))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -450,7 +429,10 @@ fn labelled_field(
             .add(
                 egui::TextEdit::singleline(value)
                     .desired_width(f32::INFINITY)
-                    .margin(Margin::symmetric(8, 5)),
+                    .margin(Margin::symmetric(
+                        crate::gui::theme::space::GAP,
+                        crate::gui::theme::space::TIGHT,
+                    )),
             )
             .changed();
     });
@@ -557,13 +539,7 @@ fn ollama_status_text(ui_language: &str, state: &str, count: usize) -> String {
 }
 
 fn provider_label(provider: &str) -> &str {
-    match provider {
-        "google" => "Gemini",
-        "groq" => "Groq",
-        "openrouter" => "OpenRouter",
-        "ollama" => "Ollama",
-        _ => provider,
-    }
+    crate::model_config::provider_display_name(provider)
 }
 
 fn model_type_label(model_type: ModelType, text: &LocaleText) -> &'static str {
