@@ -412,9 +412,9 @@
       "reasoning_policy": "not-applicable"
     },
     "groq:qwen/qwen3.6-27b": {
-      "name_vi": "G Thất thường",
-      "name_ko": "G 불안정",
-      "name_en": "G Unstable",
+      "name_vi": "G Tốt",
+      "name_ko": "G 좋음",
+      "name_en": "G Good",
       "quota_vi": "1000 lượt/ngày",
       "quota_ko": "1000회/일",
       "quota_en": "1000 requests/day",

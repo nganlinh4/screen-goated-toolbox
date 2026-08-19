@@ -67,7 +67,7 @@ base-name triplet across all modalities.
 | QRServer | `QR` |
 
 Prefer the shortest useful description, for example `GG Chuẩn`, `G Gọn`, or
-`G Thất thường`. A raw API/model version is not a user-facing
+`G Gọn`. A raw API/model version is not a user-facing
 specialty.
 
 Do not put modality/capability words (`Ảnh`, `Chữ`, OCR, positioning), quota or
