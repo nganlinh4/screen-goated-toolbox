@@ -3,7 +3,63 @@ use crate::gui::icons::{Icon, draw_icon_static, icon_button};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
 
-const API_KEY_FIELD_WIDTH: f32 = 400.0;
+/// A key row: the field claims every point left after the row's trailing
+/// control, so the eye stays pinned to the right edge at any card width.
+///
+/// The fields used to be a fixed 400pt, which left dead space between the key
+/// and its eye on a wide card and would have overflowed a narrow one. Laying
+/// the row out right-to-left puts the trailing control first and hands the
+/// field whatever remains, which needs no width constant at all.
+fn secret_row(ui: &mut egui::Ui, id: &str, value: &mut String, visible: &mut bool) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let eye = if *visible {
+                Icon::EyeOpen
+            } else {
+                Icon::EyeClosed
+            };
+            if icon_button(ui, eye)
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked()
+            {
+                *visible = !*visible;
+            }
+            let width = ui.available_width();
+            changed = ui
+                .add(
+                    egui::TextEdit::singleline(value)
+                        .id(egui::Id::new(id))
+                        .password(!*visible)
+                        .desired_width(width),
+                )
+                .changed();
+        });
+    });
+    changed
+}
+
+/// Same geometry for the plain URL row, whose trailing slot holds a status
+/// label instead of a toggle.
+fn url_row(ui: &mut egui::Ui, id: &str, value: &mut String, status: Option<String>) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if let Some(status) = status {
+                ui.label(egui::RichText::new(status).size(11.0));
+            }
+            let width = ui.available_width();
+            changed = ui
+                .add(
+                    egui::TextEdit::singleline(value)
+                        .id(egui::Id::new(id))
+                        .desired_width(width),
+                )
+                .changed();
+        });
+    });
+    changed
+}
 
 pub(super) struct ApiKeyVisibility<'a> {
     pub(super) groq: &'a mut bool,
@@ -84,27 +140,9 @@ pub(super) fn render_api_keys_card(
                         let _ = open::that("https://console.groq.com/keys");
                     }
                 });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut config.api_key)
-                                .id(egui::Id::new("settings_api_key_groq"))
-                                .password(!*groq)
-                                .desired_width(API_KEY_FIELD_WIDTH),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    let eye_icon = if *groq {
-                        Icon::EyeOpen
-                    } else {
-                        Icon::EyeClosed
-                    };
-                    if icon_button(ui, eye_icon).clicked() {
-                        *groq = !*groq;
-                    }
-                });
+                if secret_row(ui, "settings_api_key_groq", &mut config.api_key, groq) {
+                    changed = true;
+                }
             }
 
             if config.use_gemini {
@@ -114,27 +152,14 @@ pub(super) fn render_api_keys_card(
                         let _ = open::that("https://aistudio.google.com/app/apikey");
                     }
                 });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut config.gemini_api_key)
-                                .id(egui::Id::new("settings_api_key_gemini"))
-                                .password(!*gemini)
-                                .desired_width(API_KEY_FIELD_WIDTH),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    let eye_icon = if *gemini {
-                        Icon::EyeOpen
-                    } else {
-                        Icon::EyeClosed
-                    };
-                    if icon_button(ui, eye_icon).clicked() {
-                        *gemini = !*gemini;
-                    }
-                });
+                if secret_row(
+                    ui,
+                    "settings_api_key_gemini",
+                    &mut config.gemini_api_key,
+                    gemini,
+                ) {
+                    changed = true;
+                }
             }
 
             if config.use_openrouter {
@@ -147,27 +172,14 @@ pub(super) fn render_api_keys_card(
                         let _ = open::that("https://openrouter.ai/settings/keys");
                     }
                 });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut config.openrouter_api_key)
-                                .id(egui::Id::new("settings_api_key_openrouter"))
-                                .password(!*openrouter)
-                                .desired_width(API_KEY_FIELD_WIDTH),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    let eye_icon = if *openrouter {
-                        Icon::EyeOpen
-                    } else {
-                        Icon::EyeClosed
-                    };
-                    if icon_button(ui, eye_icon).clicked() {
-                        *openrouter = !*openrouter;
-                    }
-                });
+                if secret_row(
+                    ui,
+                    "settings_api_key_openrouter",
+                    &mut config.openrouter_api_key,
+                    openrouter,
+                ) {
+                    changed = true;
+                }
             }
 
             if config.use_ollama {
@@ -177,24 +189,17 @@ pub(super) fn render_api_keys_card(
                         let _ = open::that("https://docs.ollama.com/api/introduction#base-url");
                     }
                 });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut config.ollama_base_url)
-                                .id(egui::Id::new("settings_api_key_ollama_url"))
-                                .desired_width(API_KEY_FIELD_WIDTH),
-                        )
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    if let Some(status) = ui
-                        .ctx()
-                        .memory(|mem| mem.data.get_temp::<String>(egui::Id::new("ollama_status")))
-                    {
-                        ui.label(egui::RichText::new(&status).size(11.0));
-                    }
-                });
+                let status = ui
+                    .ctx()
+                    .memory(|mem| mem.data.get_temp::<String>(egui::Id::new("ollama_status")));
+                if url_row(
+                    ui,
+                    "settings_api_key_ollama_url",
+                    &mut config.ollama_base_url,
+                    status,
+                ) {
+                    changed = true;
+                }
             }
         });
     changed
