@@ -228,6 +228,10 @@ pub struct Config {
     #[serde(default = "default_favorite_overlay_opacity")]
     pub favorite_overlay_opacity: u8,
 
+    /// Number of completed result overlays that have shown the control discovery pulse.
+    #[serde(default)]
+    pub result_controls_discovery_pulse_count: u8,
+
     /// Last category checklist used by the selective restore-defaults dialog.
     #[serde(default)]
     pub restore_defaults_selection: RestoreDefaultsSelection,
@@ -491,6 +495,7 @@ impl Default for Config {
             cc_max_memory_items: default_cc_memory_limit(),
             graphics_mode: "standard".to_string(),
             favorite_overlay_opacity: default_favorite_overlay_opacity(),
+            result_controls_discovery_pulse_count: 0,
             restore_defaults_selection: RestoreDefaultsSelection::default(),
             pending_preset_model_update: None,
 

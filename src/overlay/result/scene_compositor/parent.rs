@@ -89,6 +89,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
     let Some(geometry) = read_geometry(hwnd, requested_visible, snapshot.8) else {
         return;
     };
+    claim_window_onboarding_pulse(hwnd_key);
     let controls = super::controls::snapshot(hwnd_key).unwrap_or_default();
     let mut scenes = SCENES.lock().unwrap();
     let stack_order = scenes
@@ -129,6 +130,50 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
     if !snapshot.0.is_empty() {
         crate::overlay::result::latency::mark_window(hwnd, "compositor_command_queued");
     }
+}
+
+fn claim_window_onboarding_pulse(hwnd_key: isize) {
+    let should_claim = {
+        let mut states = WINDOW_STATES.lock().unwrap();
+        states.get_mut(&hwnd_key).is_some_and(|state| {
+            let eligible = state.is_chain_root
+                && !state.onboarding_pulse_claimed
+                && !state.is_streaming_active
+                && !state.full_text.trim().is_empty();
+            if eligible {
+                state.onboarding_pulse_claimed = true;
+            }
+            eligible
+        })
+    };
+    if !should_claim {
+        return;
+    }
+    let pulse_token = claim_result_controls_onboarding_pulse();
+    if let Some(state) = WINDOW_STATES.lock().unwrap().get_mut(&hwnd_key) {
+        state.onboarding_pulse_token = pulse_token;
+    }
+}
+
+const RESULT_CONTROLS_ONBOARDING_LIMIT: u8 = 10;
+
+fn reserve_result_controls_onboarding_pulse(count: &mut u8) -> Option<u8> {
+    if *count >= RESULT_CONTROLS_ONBOARDING_LIMIT {
+        return None;
+    }
+    *count += 1;
+    Some(*count)
+}
+
+fn claim_result_controls_onboarding_pulse() -> u8 {
+    let mut app = crate::APP.lock().unwrap();
+    let Some(token) = reserve_result_controls_onboarding_pulse(
+        &mut app.config.result_controls_discovery_pulse_count,
+    ) else {
+        return 0;
+    };
+    crate::config::save_config(&app.config);
+    token
 }
 
 fn command_for_transition(

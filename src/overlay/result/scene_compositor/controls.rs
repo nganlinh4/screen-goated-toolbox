@@ -184,6 +184,7 @@ fn from_state(
         input_text: state.input_text.clone(),
         opacity_percent: state.opacity_percent,
         group_ids: connected_ids(id, states),
+        onboarding_pulse_token: state.onboarding_pulse_token,
     }
 }
 
@@ -253,6 +254,8 @@ mod tests {
             opacity_percent: 100,
             preset_id: None,
             is_chain_root: false,
+            onboarding_pulse_claimed: false,
+            onboarding_pulse_token: 0,
         }
     }
 

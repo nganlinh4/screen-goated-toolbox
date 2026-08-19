@@ -272,6 +272,7 @@ function completeFit(entry) {
   if (!completed.streaming && completed.contentRevision === entry.contentRevision) {
     reportCardDiagnostic(entry.card.dataset.id, entry, 'final_fit_completed', {});
     revealSettledContent(entry, completed.contentRevision);
+    window.__SGT_BUTTON_SCENE__?.pulseCompletion(entry.card.dataset.id);
   }
   clearTimeout(completed.timeout);
   activeFit = null;

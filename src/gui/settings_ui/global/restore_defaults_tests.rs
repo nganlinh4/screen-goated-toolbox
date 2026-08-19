@@ -21,6 +21,7 @@ const ALWAYS_KEPT: &[&str] = &[
     "pending_preset_model_update",
     "screen_record_hotkeys",
     "computer_control_hotkeys",
+    "result_controls_discovery_pulse_count",
 ];
 const PRESETS: &[&str] = &[
     "presets",

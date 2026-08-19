@@ -16,10 +16,12 @@ pub use state::{
     SourceReplacementRegion, WINDOW_STATES, WindowType, close_chain_windows, link_windows,
 };
 pub use window::{
-    ResultWindowParams, create_result_window, create_text_only_result_window, get_chain_color,
-    update_text_only_segments, update_window_text,
+    ResultWindowParams, TextOnlyResultOptions, create_result_window,
+    create_text_only_result_window, get_chain_color, update_text_only_segments, update_window_text,
 };
-pub(crate) use window::{create_result_window_shell, initialize_result_window};
+pub(crate) use window::{
+    configure_text_only_result_window, create_result_window_shell, initialize_result_window,
+};
 
 pub(crate) fn subtle_outline_color(is_dark: bool) -> &'static str {
     if is_dark {

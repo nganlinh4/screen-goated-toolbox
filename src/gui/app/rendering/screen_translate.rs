@@ -62,6 +62,8 @@ impl SettingsApp {
                 ui.add_space(8.0);
                 self.render_screen_translate_language(ui, text);
                 ui.add_space(8.0);
+                self.render_screen_translate_opacity(ui, &theme, text);
+                ui.add_space(8.0);
                 self.render_screen_translate_models(ui, &theme, text);
                 ui.add_space(8.0);
                 self.render_screen_translate_prompt(ui, &theme, text);
@@ -76,6 +78,38 @@ impl SettingsApp {
             self.show_screen_translate_dialog = false;
             self.recording_screen_translate_hotkey = false;
             self.screen_translate_hotkey_conflict_msg = None;
+        }
+    }
+
+    fn render_screen_translate_opacity(
+        &mut self,
+        ui: &mut egui::Ui,
+        theme: &AppTheme,
+        text: &LocaleText,
+    ) {
+        let mut changed = false;
+        egui::Frame::new()
+            .fill(theme.card_bg())
+            .stroke(theme.card_stroke())
+            .corner_radius(egui::CornerRadius::same(10))
+            .inner_margin(egui::Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(text.screen_translate.screen_translate_opacity_label);
+                    changed = ui
+                        .add(
+                            egui::Slider::new(
+                                &mut self.config.screen_translate.overlay_opacity,
+                                10..=100,
+                            )
+                            .suffix("%")
+                            .show_value(true),
+                        )
+                        .changed();
+                });
+            });
+        if changed {
+            self.save_and_sync();
         }
     }
 

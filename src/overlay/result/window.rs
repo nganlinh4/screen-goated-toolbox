@@ -180,6 +180,8 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
                     opacity_percent: favorite_overlay_opacity,
                     preset_id: preset_id.clone(),
                     is_chain_root,
+                    onboarding_pulse_claimed: false,
+                    onboarding_pulse_token: 0,
                 },
             );
         }
@@ -210,38 +212,50 @@ pub fn create_result_window(params: ResultWindowParams) -> HWND {
     hwnd
 }
 
+pub struct TextOnlyResultOptions {
+    pub backdrop_data_url: String,
+    pub foreground_color: String,
+    pub chain_id: String,
+    pub control_options: Option<ResultControlOptions>,
+    pub preferred_font_size: Option<f32>,
+    pub source_vertical: bool,
+    pub source_regions: Vec<super::state::SourceReplacementRegion>,
+    pub source_segments: Vec<String>,
+    pub opacity_percent: Option<u8>,
+}
+
 pub fn create_text_only_result_window(
     params: ResultWindowParams,
-    backdrop_data_url: String,
-    foreground_color: String,
-    chain_id: String,
-    control_options: Option<ResultControlOptions>,
-    preferred_font_size: Option<f32>,
-    source_vertical: bool,
-    source_regions: Vec<super::state::SourceReplacementRegion>,
-    source_segments: Vec<String>,
+    options: TextOnlyResultOptions,
 ) -> HWND {
     let hwnd = create_result_window_shell(params);
+    configure_text_only_result_window(hwnd, options);
+    initialize_result_window(hwnd);
+    hwnd
+}
+
+pub(crate) fn configure_text_only_result_window(hwnd: HWND, options: TextOnlyResultOptions) {
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
             state.presentation = ResultPresentation::TextOnly;
-            state.control_options = control_options;
-            state.backdrop_data_url = Some(backdrop_data_url);
-            state.foreground_color = Some(foreground_color);
-            state.preferred_font_size = preferred_font_size;
-            state.source_vertical = source_vertical;
-            state.source_regions = source_regions;
-            state.source_segments = source_segments;
-            state.chain_id = Some(chain_id);
+            state.control_options = options.control_options;
+            state.backdrop_data_url = Some(options.backdrop_data_url);
+            state.foreground_color = Some(options.foreground_color);
+            state.preferred_font_size = options.preferred_font_size;
+            state.source_vertical = options.source_vertical;
+            state.source_regions = options.source_regions;
+            state.source_segments = options.source_segments;
+            state.chain_id = Some(options.chain_id);
+            if let Some(opacity) = options.opacity_percent {
+                state.opacity_percent = opacity.clamp(10, 100);
+            }
         }
     }
     unsafe {
         let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
         let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (style | WS_EX_TRANSPARENT.0) as isize);
     }
-    initialize_result_window(hwnd);
-    hwnd
 }
 
 pub fn update_window_text(hwnd: HWND, text: &str) {

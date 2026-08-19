@@ -3,6 +3,8 @@
   let externalDrag = false;
   let nativeDrag = false;
   let controlsHiddenForDrag = false;
+  const completionPulseTokens = new Map();
+  const completedCards = new Set();
 
   function mergeCard(model) {
     const key = String(model.id);
@@ -23,17 +25,21 @@
     }));
   }
 
+  function hideControlsForDrag() {
+    if (controlsHiddenForDrag) return;
+    controlsHiddenForDrag = true;
+    document.getElementById('button-container').style.visibility = 'hidden';
+    clearClickableRegions();
+  }
+
   function rebuild() {
+    const container = document.getElementById('button-container');
     if (externalDrag) {
-      if (!controlsHiddenForDrag) {
-        controlsHiddenForDrag = true;
-        window.updateWindows({});
-        clearClickableRegions();
-      }
+      hideControlsForDrag();
       return;
     }
     if (nativeDrag) return;
-    controlsHiddenForDrag = false;
+    const restoreControlsAfterLayout = controlsHiddenForDrag;
     const scale = window.devicePixelRatio || 1;
     const windows = {};
     for (const [key, model] of models) {
@@ -49,6 +55,11 @@
       };
     }
     window.updateWindows(windows);
+    if (restoreControlsAfterLayout) {
+      container.style.visibility = '';
+      controlsHiddenForDrag = false;
+    }
+    for (const key of completedCards) tryPulseCompletion(key);
     for (const [key, model] of models) {
       if (model.stackOrder !== undefined) {
         window.setWindowButtonStackOrder(key, model.stackOrder);
@@ -79,7 +90,9 @@
     } else if (command.type === 'raise') {
       mergeCard({ id: command.id, stack_order: command.stack_order });
     } else if (command.type === 'remove') {
-      models.delete(String(command.id));
+      const key = String(command.id);
+      models.delete(key);
+      completedCards.delete(key);
     } else if (command.type === 'refine_text') {
       window.setRefineText(String(command.id), String(command.text || ''), Boolean(command.is_insert));
       return;
@@ -96,6 +109,40 @@
 
   function setDragActive(active) {
     nativeDrag = Boolean(active);
+    if (nativeDrag) hideControlsForDrag();
+  }
+
+  function tryPulseCompletion(key) {
+    const model = models.get(key);
+    const token = Number(model?.controls?.onboardingPulseToken || 0);
+    if (!token || completionPulseTokens.get(key) === token) return;
+    const group = document.querySelector('.button-group[data-hwnd="' + key + '"]');
+    if (!group) return;
+    completionPulseTokens.set(key, token);
+    const started = performance.now();
+    const duration = 1250;
+    function animatePulse(now) {
+      const progress = Math.min(1, (now - started) / duration);
+      const pulseOpacity = Math.sin(Math.PI * progress);
+      const scale = 1 + (0.05 * Math.sin(Math.PI * progress));
+      group.dataset.pulseOpacity = String(pulseOpacity);
+      group.style.setProperty('transform', 'scale(' + scale + ')', 'important');
+      window.updateButtonOpacity();
+      if (progress < 1) {
+        requestAnimationFrame(animatePulse);
+        return;
+      }
+      delete group.dataset.pulseOpacity;
+      group.style.removeProperty('transform');
+      window.updateButtonOpacity();
+    }
+    requestAnimationFrame(animatePulse);
+  }
+
+  function pulseCompletion(id) {
+    const key = String(id);
+    completedCards.add(key);
+    tryPulseCompletion(key);
   }
 
   const applyResultCommand = window.applyHostCommand;
@@ -106,6 +153,7 @@
   window.__SGT_BUTTON_SCENE__ = {
     rebuild: rebuild,
     clearClickableRegions: clearClickableRegions,
-    setDragActive: setDragActive
+    setDragActive: setDragActive,
+    pulseCompletion: pulseCompletion
   };
 })();
