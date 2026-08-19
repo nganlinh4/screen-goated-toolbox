@@ -106,11 +106,11 @@ fn run_text(
     );
     let started = Instant::now();
     let mut callback_events = Vec::new();
-    let result = credentials.with_provider_key(&model.provider, |gemini_api_key| {
+    let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_text_streaming(
             TranslateTextRequest {
-                groq_api_key: &credentials.groq,
-                gemini_api_key,
+                groq_api_key: Credentials::groq_key_for(&model.provider, provider_key),
+                gemini_api_key: provider_key,
                 text: case.input.clone(),
                 instruction,
                 model: model.full_name.clone(),
@@ -220,11 +220,11 @@ fn run_ocr(
     let prompt = case.instruction.clone();
     let started = Instant::now();
     let mut callback_events = Vec::new();
-    let result = credentials.with_provider_key(&model.provider, |gemini_api_key| {
+    let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_image_streaming(
             TranslateImageRequest {
-                groq_api_key: &credentials.groq,
-                gemini_api_key,
+                groq_api_key: Credentials::groq_key_for(&model.provider, provider_key),
+                gemini_api_key: provider_key,
                 prompt,
                 model: model.full_name.clone(),
                 provider: model.provider.clone(),
