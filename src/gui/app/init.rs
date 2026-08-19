@@ -287,6 +287,8 @@ impl SettingsApp {
             startup_stage: 0,
             custom_chrome_ready: false,
             custom_chrome_resize_pulse_stage: 0,
+            last_window_geometry: None,
+            window_geometry_changed_at: None,
             custom_chrome_restore_size: None,
             cached_audio_devices,
             snarl: None,
@@ -307,16 +309,15 @@ impl SettingsApp {
             selected_tips_category: crate::gui::locale::UsageTipCategory::default(),
             // ---------------
 
-            // --- USAGE MODAL INIT ---
-            show_usage_modal: false,
+            // --- MODELS HUB MODAL INIT ---
+            show_models_modal: false,
+            models_tab: crate::gui::settings_ui::global::ModelsTab::default(),
             drop_overlay_fade: 0.0,
             // --- TTS SETTINGS MODAL INIT ---
             // --- TTS SETTINGS MODAL INIT ---
             show_tts_modal: false,
             // --- TOOLS MODAL INIT ---
             show_tools_modal: false,
-            show_model_priority_modal: false,
-            show_custom_models_modal: false,
             show_restore_defaults_modal: false,
             show_preset_model_update_modal,
             // -----------------------

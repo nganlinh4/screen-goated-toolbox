@@ -167,7 +167,11 @@ impl SettingsApp {
                 let x_logical = center_x_physical / pixels_per_point;
                 let y_logical = center_y_physical / pixels_per_point;
 
-                if !self.config.start_in_tray {
+                // Only a first run gets centred at the default size. With a
+                // saved geometry these two commands would overwrite what the
+                // user resized the window to, every single launch — which they
+                // did, silently, even before the save path was fixed.
+                if !self.config.start_in_tray && !crate::gui::window_state::restored_geometry() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
                         x_logical, y_logical,
                     )));
@@ -234,10 +238,12 @@ impl SettingsApp {
                     self.splash = Some(crate::gui::splash::SplashScreen::new(ctx));
                 }
 
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                    WINDOW_WIDTH,
-                    WINDOW_HEIGHT,
-                )));
+                if !crate::gui::window_state::restored_geometry() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                        WINDOW_WIDTH,
+                        WINDOW_HEIGHT,
+                    )));
+                }
 
                 self.startup_stage = 36;
             }
