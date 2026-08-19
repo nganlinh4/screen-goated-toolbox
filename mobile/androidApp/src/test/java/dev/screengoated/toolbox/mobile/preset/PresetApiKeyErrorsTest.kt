@@ -19,7 +19,7 @@ class PresetApiKeyErrorsTest {
             apiKeyErrorToastText(invalidApiKeyMessage("OpenRouter"), "en"),
         )
         assertEquals(
-            "Invalid Google Gemini API key!",
+            "Invalid Gemini API key!",
             apiKeyErrorToastText(invalidApiKeyMessage("google"), "en"),
         )
         assertEquals(

@@ -35,106 +35,95 @@ struct ProviderToggles {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct UsageDialogLayout {
-    width: f32,
-    body_height: f32,
-    column_count: usize,
+pub struct UsageDialogLayout {
+    pub width: f32,
+    pub body_height: f32,
+    pub column_count: usize,
 }
 
 type ProviderSectionRows<'a> = (String, Vec<&'a ModelConfig>);
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "modal rendering consumes distinct provider toggles and shared UI state"
+    reason = "usage rendering consumes distinct provider toggles and shared UI state"
 )]
-pub fn render_usage_modal(
+/// Renders the Usage Statistics tab body inside the shared models hub.
+///
+/// `body_height` is the hub's fixed content height, so switching tabs never
+/// resizes the modal.
+pub fn render_usage_body(
     ui: &mut egui::Ui,
     usage_stats: &UsageStore,
     text: &LocaleText,
     lang: &str,
-    show_modal: &mut bool,
     use_groq: bool,
     use_gemini: bool,
     use_openrouter: bool,
     use_ollama: bool,
     custom_models: &[CustomModelDefinition],
+    body_height: f32,
 ) {
-    if !*show_modal {
-        return;
-    }
-
     let theme = AppTheme::from_ui(ui);
-    let content_rect = ui.ctx().content_rect();
-    let layout = usage_dialog_layout(content_rect.size());
     let toggles = ProviderToggles {
         groq: use_groq,
         gemini: use_gemini,
         openrouter: use_openrouter,
         ollama: use_ollama,
     };
+    let column_count = if ui.available_width() >= WIDE_DIALOG_MIN_WIDTH {
+        WIDE_COLUMN_COUNT
+    } else {
+        1
+    };
 
-    let modal = crate::gui::widgets::material_modal(
-        ui.ctx(),
-        &theme,
-        egui::Id::new("usage_statistics_modal"),
-        |ui| {
-            ui.set_width(layout.width);
-            let description = if usage_stats.is_empty() {
-                text.desktop_settings.usage_no_live_data
-            } else {
-                text.desktop_settings.usage_session_hint
-            };
+    let all_models = get_all_models_with_custom(custom_models);
+    let rows = endpoint_representatives(&all_models);
+    let sections = group_rows(rows, toggles);
 
-            if crate::gui::widgets::dialog_header(
-                ui,
-                &theme,
-                text.desktop_settings.usage_statistics_title,
-                Some(description),
-                |_| {},
-            ) {
-                *show_modal = false;
-            }
+    egui::ScrollArea::vertical()
+        .id_salt("usage_stats_body")
+        .max_height(body_height)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let columns = balance_sections(sections, column_count);
+            ui.columns(column_count, |column_uis| {
+                for (column_ui, column_sections) in column_uis.iter_mut().zip(columns.iter()) {
+                    column_ui.spacing_mut().item_spacing.y = 6.0;
+                    for (section_key, section_rows) in column_sections {
+                        render_provider_section(
+                            column_ui,
+                            &theme,
+                            text,
+                            lang,
+                            section_key,
+                            section_rows,
+                            usage_stats,
+                        );
+                    }
+                }
+            });
+        });
+}
 
-            let all_models = get_all_models_with_custom(custom_models);
-            let rows = endpoint_representatives(&all_models);
-            let sections = group_rows(rows, toggles);
-
-            egui::ScrollArea::vertical()
-                .max_height(layout.body_height)
-                .min_scrolled_height(layout.body_height)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.set_min_height(layout.body_height);
-                    let columns = balance_sections(sections, layout.column_count);
-                    ui.columns(layout.column_count, |column_uis| {
-                        for (column_ui, column_sections) in
-                            column_uis.iter_mut().zip(columns.iter())
-                        {
-                            column_ui.spacing_mut().item_spacing.y = 6.0;
-                            for (section_key, section_rows) in column_sections {
-                                render_provider_section(
-                                    column_ui,
-                                    &theme,
-                                    text,
-                                    lang,
-                                    section_key,
-                                    section_rows,
-                                    usage_stats,
-                                );
-                            }
-                        }
-                    });
-                });
-        },
-    );
-
-    if modal.should_close() {
-        *show_modal = false;
+/// Supporting copy for the Usage tab header.
+///
+/// The two lines say different useful things — where the numbers come from,
+/// and what to do when there are none — so instead of picking one, both are
+/// returned and the header crossfades between them. With live data recorded
+/// the "no data yet" line has nothing to add, so it drops out.
+pub fn usage_descriptions(usage_stats: &UsageStore, text: &LocaleText) -> Vec<&'static str> {
+    if usage_stats.is_empty() {
+        vec![
+            text.desktop_settings.usage_no_live_data,
+            text.desktop_settings.usage_session_hint,
+        ]
+    } else {
+        vec![text.desktop_settings.usage_session_hint]
     }
 }
 
-fn usage_dialog_layout(viewport_size: egui::Vec2) -> UsageDialogLayout {
+pub fn usage_dialog_layout(viewport_size: egui::Vec2) -> UsageDialogLayout {
     let width = (viewport_size.x - DIALOG_HORIZONTAL_MARGIN).clamp(360.0, DIALOG_MAX_WIDTH);
     let body_height =
         (viewport_size.y - DIALOG_VERTICAL_RESERVE).clamp(280.0, DIALOG_MAX_BODY_HEIGHT);
@@ -232,7 +221,7 @@ fn render_provider_section(
             blend(theme.card_stroke().color, accent, 0.24),
         ))
         .corner_radius(egui::CornerRadius::same(9))
-        .inner_margin(egui::Margin::same(6))
+        .inner_margin(egui::Margin::same(crate::gui::theme::space::SNUG))
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 1.0;
             render_section_header(ui, text, section_key, accent);
@@ -246,10 +235,10 @@ fn render_provider_section(
                 let mut status = shared_quota.to_string();
                 let mut color = accent;
                 if let Some(snapshot) = usage_stats.get(&UsageKey::provider("openrouter")) {
-                    let (snapshot_label, snapshot_color) = snapshot_summary(snapshot, text, theme);
+                    let summary = snapshot_summary(snapshot, text, theme);
                     status.push_str(" · ");
-                    status.push_str(&snapshot_label);
-                    color = snapshot_color;
+                    status.push_str(&summary.compact);
+                    color = summary.color;
                 }
                 render_status_strip(
                     ui,
@@ -344,13 +333,16 @@ fn render_endpoint_row(
     egui::Frame::new()
         .fill(blend(theme.dialog_surface(), theme.neutral_fill(), 0.16))
         .corner_radius(egui::CornerRadius::same(4))
-        .inner_margin(egui::Margin::symmetric(4, 1))
+        .inner_margin(egui::Margin::symmetric(
+            crate::gui::theme::space::TIGHT,
+            crate::gui::theme::space::MICRO,
+        ))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let row_width = ui.available_width();
             let columns = endpoint_columns(row_width);
             let snapshot = usage_stats.get(&UsageKey::endpoint(&model.provider, &model.full_name));
-            let (status, status_color) =
+            let status =
                 endpoint_status(snapshot, model, provider_quota_is_shared, text, lang, theme);
             let (row_rect, row_response) = ui.allocate_exact_size(
                 egui::vec2(row_width, ENDPOINT_ROW_HEIGHT),
@@ -371,55 +363,82 @@ fn render_endpoint_row(
                 rects.name,
                 egui::Layout::left_to_right(egui::Align::Center),
             );
-            name_ui
-                .add(
-                    egui::Label::new(
-                        egui::RichText::new(localized_name)
-                            .size(ENDPOINT_NAME_FONT_SIZE)
-                            .strong(),
-                    )
-                    .truncate(),
+            // No explicit tooltip: egui already shows the full text when a
+            // truncated label elides, and adding one stacks two popups.
+            name_ui.add(
+                egui::Label::new(
+                    egui::RichText::new(localized_name)
+                        .size(ENDPOINT_NAME_FONT_SIZE)
+                        .strong(),
                 )
-                .on_hover_text(localized_name);
+                .truncate(),
+            );
 
             let mut id_ui = cell_ui(
                 ui,
                 rects.id,
                 egui::Layout::left_to_right(egui::Align::Center),
             );
-            id_ui
-                .add(
-                    egui::Label::new(
-                        egui::RichText::new(format!("· {}", model.full_name))
-                            .monospace()
-                            .size(ENDPOINT_ID_FONT_SIZE)
-                            .color(theme.on_surface_variant()),
-                    )
-                    .truncate(),
+            id_ui.add(
+                egui::Label::new(
+                    egui::RichText::new(format!("· {}", model.full_name))
+                        .monospace()
+                        .size(ENDPOINT_ID_FONT_SIZE)
+                        .color(theme.on_surface_variant()),
                 )
-                .on_hover_text(&model.full_name);
+                .truncate(),
+            );
 
-            if !status.is_empty() {
+            if !status.compact.is_empty() {
+                // Right-aligned so the quota figures form one column edge and
+                // no slack is stranded between them and the card border.
                 let mut status_ui = cell_ui(
                     ui,
                     rects.status,
-                    egui::Layout::left_to_right(egui::Align::Center),
+                    egui::Layout::right_to_left(egui::Align::Center),
                 );
-                status_ui
-                    .add(
-                        egui::Label::new(
-                            egui::RichText::new(&status)
-                                .monospace()
-                                .size(ENDPOINT_STATUS_FONT_SIZE)
-                                .color(status_color),
-                        )
-                        .truncate(),
+                let (headline, opacity) = rotating_headline(&status, &status_ui);
+                let response = status_ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(headline)
+                            .monospace()
+                            .size(ENDPOINT_STATUS_FONT_SIZE)
+                            .color(status.color.gamma_multiply(opacity)),
                     )
-                    .on_hover_text(&status);
+                    .truncate()
+                    .show_tooltip_when_elided(status.detail.is_none()),
+                );
+                if let Some(detail) = &status.detail {
+                    response.on_hover_text(detail);
+                }
             }
 
             row_response.on_hover_text(format!("{} · {}", model.provider, model.full_name));
         });
+}
+
+/// Picks which metric the lane shows right now and how opaque it is.
+///
+/// A row can carry several live limits (TPM, RPD, RPM...) and only one fits
+/// the lane, so they take turns on the shared crossfade clock. Rows with a
+/// single metric or a static quota never animate.
+fn rotating_headline<'a>(status: &'a EndpointStatus, ui: &egui::Ui) -> (&'a str, f32) {
+    if status.rotation.len() < 2 {
+        return (status.compact.as_str(), 1.0);
+    }
+    let (index, opacity) = crate::gui::widgets::crossfade_phase(ui, status.rotation.len());
+    (status.rotation[index].as_str(), opacity)
+}
+
+/// What the quota lane shows: a short line that always fits, plus the full
+/// breakdown for the tooltip when there is more to say.
+struct EndpointStatus {
+    /// What to show when nothing rotates (a static quota, or a lone metric).
+    compact: String,
+    /// One entry per live metric, cycled through in the lane.
+    rotation: Vec<String>,
+    detail: Option<String>,
+    color: egui::Color32,
 }
 
 fn endpoint_status(
@@ -429,22 +448,38 @@ fn endpoint_status(
     text: &LocaleText,
     lang: &str,
     theme: &AppTheme,
-) -> (String, egui::Color32) {
+) -> EndpointStatus {
     match snapshot {
         Some(snapshot) => snapshot_summary(snapshot, text, theme),
-        None if provider_quota_is_shared => (String::new(), theme.on_surface_variant()),
-        None => (
-            model.localized_quota(lang).to_string(),
-            theme.on_surface_variant(),
-        ),
+        None if provider_quota_is_shared => EndpointStatus {
+            compact: String::new(),
+            rotation: Vec::new(),
+            detail: None,
+            color: theme.on_surface_variant(),
+        },
+        None => EndpointStatus {
+            compact: model.localized_quota(lang).to_string(),
+            rotation: Vec::new(),
+            detail: None,
+            color: theme.on_surface_variant(),
+        },
     }
 }
 
+/// Live headers, compacted to the one number that decides anything.
+///
+/// A snapshot can carry several metrics (RPD, RPM, TPM, ...) each with a reset
+/// clock, which runs to ~40 characters — far past the lane, where it elided to
+/// an unreadable `999/1000 ↻1m..`. The lane now shows the *scarcest* metric as
+/// `KIND remaining/limit`: the one closest to running out is the only one that
+/// changes a decision, and the freshness stays encoded in the text colour.
+/// Everything else — every metric, its reset, and how old the reading is —
+/// moves to the tooltip.
 fn snapshot_summary(
     snapshot: &UsageSnapshot,
     text: &LocaleText,
     theme: &AppTheme,
-) -> (String, egui::Color32) {
+) -> EndpointStatus {
     let mut segments = Vec::with_capacity(snapshot.metrics.len() + 1);
     for metric in &snapshot.metrics {
         let remaining = metric.remaining.as_deref().unwrap_or("—");
@@ -477,23 +512,59 @@ fn snapshot_summary(
             theme.danger_text(),
         ),
     };
+
+    let compact = scarcest_metric(snapshot).unwrap_or_else(|| freshness.clone());
+    let rotation = snapshot.metrics.iter().map(metric_headline).collect();
     segments.push(freshness);
-    (segments.join(" · "), color)
+    EndpointStatus {
+        compact,
+        rotation,
+        detail: Some(segments.join(" · ")),
+        color,
+    }
+}
+
+/// `KIND remaining/limit` — the lane's unit of rotation.
+fn metric_headline(metric: &crate::usage_stats::UsageMetric) -> String {
+    format!(
+        "{} {}/{}",
+        metric.kind.label(),
+        metric.remaining.as_deref().unwrap_or("—"),
+        metric.limit.as_deref().unwrap_or("—")
+    )
+}
+
+/// `KIND remaining/limit` for the metric with the least headroom left.
+///
+/// Ranking is by remaining/limit where both parse as numbers; metrics that do
+/// not parse rank last but still win over nothing, so the lane never goes
+/// blank just because a provider sent a non-numeric header.
+fn scarcest_metric(snapshot: &UsageSnapshot) -> Option<String> {
+    snapshot
+        .metrics
+        .iter()
+        .min_by(|a, b| {
+            headroom(a)
+                .partial_cmp(&headroom(b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(metric_headline)
+}
+
+fn headroom(metric: &crate::usage_stats::UsageMetric) -> f32 {
+    let parse = |value: &Option<String>| {
+        value
+            .as_deref()
+            .and_then(|raw| raw.replace(',', "").parse::<f32>().ok())
+    };
+    match (parse(&metric.remaining), parse(&metric.limit)) {
+        (Some(remaining), Some(limit)) if limit > 0.0 => remaining / limit,
+        _ => f32::INFINITY,
+    }
 }
 
 fn provider_name(provider: &str) -> String {
-    match provider {
-        "google" => "Google Gemini".to_string(),
-        "google-gtx" => "Google Translate".to_string(),
-        "groq" => "Groq".to_string(),
-        "openrouter" => "OpenRouter".to_string(),
-        "ollama" => "Ollama".to_string(),
-        "qrserver" => "QR Server".to_string(),
-        "parakeet" => "Parakeet".to_string(),
-        "qwen3" => "Qwen Local".to_string(),
-        "taalas" => "Taalas".to_string(),
-        _ => provider.to_string(),
-    }
+    crate::model_config::provider_full_name(provider).to_string()
 }
 
 fn provider_dashboard(provider: &str) -> Option<&'static str> {

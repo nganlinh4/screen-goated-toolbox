@@ -371,7 +371,7 @@ private fun usageProviderSections(settings: PresetProviderSettings): List<Provid
             "https://console.groq.com/docs/rate-limits",
         ),
         ProviderSection(
-            "Google Gemini",
+            "Gemini",
             PresetModelProvider.GOOGLE,
             setOf(PresetModelProvider.GOOGLE, PresetModelProvider.GEMINI_LIVE),
             settings.useGemini,
@@ -386,7 +386,7 @@ private fun usageProviderSections(settings: PresetProviderSettings): List<Provid
         ),
         providerSection("Taalas", PresetModelProvider.TAALAS),
         providerSection("Google Translate", PresetModelProvider.GOOGLE_GTX),
-        providerSection("QR Server", PresetModelProvider.QRSERVER),
+        providerSection("QR", PresetModelProvider.QRSERVER),
     )
 
 private fun providerSection(name: String, provider: PresetModelProvider): ProviderSection =
