@@ -120,10 +120,16 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
     );
     assert_eq!(
         default_text_to_text_priority_chain_ids().get(4).copied(),
+        Some("google-gemma-4-31b-text")
+    );
+    // 5/10 reliability keeps the OpenRouter row at the tail, where a partly
+    // available third provider still beats having none.
+    assert_eq!(
+        default_text_to_text_priority_chain_ids().last().copied(),
         Some("openrouter-nemotron-3-nano-omni-30b-a3b-text")
     );
     assert_eq!(
-        default_text_to_text_priority_chain_ids().get(6).copied(),
+        default_text_to_text_priority_chain_ids().get(5).copied(),
         Some("google-gemma-4-26b-a4b-text")
     );
     let openrouter = get_model_by_id("openrouter-nemotron-3-nano-omni-30b-a3b-text")
@@ -264,10 +270,10 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         &default_image_to_text_priority_chain_ids()[..5],
         &[
             "groq-qwen-3-6-27b-vision",
-            "google-gemini-3-5-flash-lite-vision",
+            "google-gemini-3-flash-vision",
             "google-gemini-3-1-flash-lite-vision",
-            "google-gemini-robotics-er-2-vision",
-            "openrouter-dots-3-note-vision",
+            "google-gemini-3-5-flash-lite-vision",
+            "google-gemini-robotics-er-1-6-vision",
         ]
     );
 

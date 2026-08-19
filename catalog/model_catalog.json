@@ -131,22 +131,23 @@
   "priority_chains": {
     "image_to_text": [
       "groq-qwen-3-6-27b-vision",
-      "google-gemini-3-5-flash-lite-vision",
+      "google-gemini-3-flash-vision",
       "google-gemini-3-1-flash-lite-vision",
-      "google-gemini-robotics-er-2-vision",
-      "openrouter-dots-3-note-vision",
+      "google-gemini-3-5-flash-lite-vision",
+      "google-gemini-robotics-er-1-6-vision",
       "google-gemma-4-31b-vision",
-      "google-gemma-4-26b-a4b-vision",
-      "google-gemini-3-flash-vision"
+      "openrouter-dots-3-note-vision",
+      "google-gemini-robotics-er-2-vision",
+      "google-gemma-4-26b-a4b-vision"
     ],
     "text_to_text": [
       "groq-gpt-oss-120b-text",
       "google-gemini-3-5-flash-lite-text",
       "groq-gpt-oss-20b-text",
       "google-gemini-3-1-flash-lite-text",
-      "openrouter-nemotron-3-nano-omni-30b-a3b-text",
       "google-gemma-4-31b-text",
-      "google-gemma-4-26b-a4b-text"
+      "google-gemma-4-26b-a4b-text",
+      "openrouter-nemotron-3-nano-omni-30b-a3b-text"
     ]
   },
   "feature_model_chains": {
@@ -897,6 +898,15 @@
       "performance_source": "benchmark-2026-08-18-protocol9:text"
     },
     {
+      "id": "openrouter-dots-3-note-text",
+      "provider": "openrouter",
+      "full_name": "dots-studio/dots-3-note-preview:free",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 1120,
+      "performance_source": "screen-2026-08-19-text-capability"
+    },
+    {
       "id": "groq-gpt-oss-120b-text",
       "provider": "groq",
       "full_name": "openai/gpt-oss-120b",
@@ -931,6 +941,15 @@
       "enabled": true,
       "typical_latency_ms": 2067,
       "performance_source": "benchmark-2026-08-18-protocol9:text"
+    },
+    {
+      "id": "groq-qwen-3-6-27b-text",
+      "provider": "groq",
+      "full_name": "qwen/qwen3.6-27b",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 342,
+      "performance_source": "screen-2026-08-19-text-capability"
     },
     {
       "id": "google-gemini-2-5-live-text",
@@ -1030,6 +1049,15 @@
       "enabled": true,
       "typical_latency_ms": 3847,
       "performance_source": "benchmark-2026-08-18-protocol9:text"
+    },
+    {
+      "id": "google-gemini-robotics-er-2-text",
+      "provider": "google",
+      "full_name": "gemini-robotics-er-2-preview",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 1388,
+      "performance_source": "screen-2026-08-19-text-capability"
     },
     {
       "id": "groq-whisper-large-v3-turbo-audio",
