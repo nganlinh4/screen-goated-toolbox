@@ -182,10 +182,14 @@ The current policies come from production-path transport probes:
   `presence_penalty: 1.5`) together with the separate catalog-owned
   `reasoning_effort: none`. Do not send `top_k` or `min_p`: live endpoint
   probes return HTTP 400 for both fields.
-- Qwen vision reserves 512 output tokens. A production-path OCR probe used 220
-  completion tokens, while the ten benchmark responses were at most 390
-  characters. The lower ceiling reduced Groq TPD admission from 4,483 to 2,937
-  tokens for the same small-image request without truncation.
+- Every ordinary vision endpoint reserves 512 output tokens. A production-path
+  OCR probe used 220 completion tokens, while the ten benchmark responses were at
+  most 390 characters, so the ceiling is generous for extraction while bounding
+  what a single call can cost. On Groq it also reduced TPD admission from 4,483
+  to 2,937 tokens for the same small-image request without truncation, because a
+  reserve is charged whether it is used or not. The value is uniform so that
+  image behaviour does not change with the endpoint a chain happens to reach;
+  roughly 250-380 words depending on language, which bounds prose replies too.
 - `structured_output` is a wire policy, not a default. `prompt-only` means a
   model is asked for structure in the prompt without attaching a schema;
   `json-object` and `strict-json-schema` select documented constrained modes.

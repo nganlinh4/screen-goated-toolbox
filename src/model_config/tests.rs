@@ -59,10 +59,7 @@ fn recommended_defaults_match_the_shared_retry_fixture() {
         models["image_translate"].as_str(),
         Some(PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID)
     );
-    assert_eq!(
-        models["image_ask"].as_str(),
-        Some(PRESET_IMAGE_ACCURATE_MODEL_ID)
-    );
+    assert_eq!(models["image_ask"].as_str(), Some(DEFAULT_IMAGE_MODEL_ID));
     assert_eq!(models["generic_text"].as_str(), Some(DEFAULT_TEXT_MODEL_ID));
     assert_eq!(
         models["text_arena_fast"].as_str(),

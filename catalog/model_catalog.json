@@ -312,77 +312,77 @@
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     },
     "google:gemma-4-31b-it": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3.1-flash-lite": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3.5-flash-lite": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-robotics-er-1.6-preview": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-robotics-er-2-preview": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3-flash-preview": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3.5-flash": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3.6-flash": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     },
     "openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
       "input_order": "text-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "prompt-only"
     },
     "openrouter:dots-studio/dots-3-note-preview:free": {
       "input_order": "text-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": null,
+      "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     }
   },
