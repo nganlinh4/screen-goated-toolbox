@@ -52,9 +52,13 @@ pub(crate) fn mark(trace_id: &str, phase: &'static str) {
         trace.phases.insert(phase, elapsed_ms);
         elapsed_ms
     };
-    crate::debug_log::log_debug(&format!(
-        "[OverlayPerf] trace={trace_id} phase={phase} elapsed_ms={elapsed_ms:.1}"
-    ));
+    let message =
+        format!("[OverlayPerf] trace={trace_id} phase={phase} elapsed_ms={elapsed_ms:.1}");
+    if trace_id.starts_with("screen-translate-") {
+        crate::log_info!("{message}");
+    } else {
+        crate::debug_log::log_debug(&message);
+    }
 }
 
 pub(crate) fn mark_window(hwnd: HWND, phase: &'static str) {
