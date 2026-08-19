@@ -154,7 +154,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_summarize", "Summarize content")
             .image()
             .blocks(vec![
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
                     .prompt("Analyze this image and summarize its content in {language1}. Only return the summary text, super concisely. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .language("Vietnamese")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
@@ -166,7 +166,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_desc", "Image description")
             .image()
             .blocks(vec![
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
                     .prompt("Describe this image in {language1}. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .language("Vietnamese")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
@@ -179,7 +179,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .dynamic_prompt()
             .blocks(vec![
-                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
+                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
                     .prompt("")
                     .language("Vietnamese")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
@@ -293,17 +293,17 @@ mod tests {
             );
         }
 
-        for id in [
-            "preset_ocr",
-            "preset_ocr_read",
-            "preset_summarize",
-            "preset_desc",
-            "preset_ask_image",
-        ] {
+        // Short-extraction presets ride the fast default.
+        for id in ["preset_ocr", "preset_ocr_read"] {
             assert_eq!(first_model(&presets, id), DEFAULT_IMAGE_MODEL_ID, "{id}");
         }
 
+        // Prose-generating presets need an endpoint without a small output
+        // ceiling: the default reserves only enough tokens for short OCR.
         for id in [
+            "preset_summarize",
+            "preset_desc",
+            "preset_ask_image",
             "preset_extract_table",
             "preset_fact_check",
             "preset_omniscient_god",
