@@ -1,3 +1,9 @@
+> **Amended 2026-08-20.** The envelope this record called a confirmed fix has
+> since been removed as ineffective, and the OCR rows below were measured through
+> a request shape that no longer exists. Latency, reliability, the text and
+> coordinate suites and every chain order still stand; the OCR accuracy figures do
+> not. See "Amendment" at the end.
+
 # Catalog benchmark — 2026-08-19 (protocol 10)
 
 Full-catalog run: 520 attempts over 44 rows in 2h09m, plus two merged recovery
@@ -6,7 +12,7 @@ logical run; no fragment is registered independently. This is the first complete
 run under protocol 10 and it discharges the OCR rerun that
 [`RESULTS-2026-08-19-FOLLOWUP.md`](RESULTS-2026-08-19-FOLLOWUP.md) required.
 
-## The JSON envelope fix is confirmed
+## The JSON envelope fix appeared confirmed
 
 Qwen 3.6 was the reason protocol moved to 10, and the rerun settles it. Mean OCR
 rose from 0.940 to **0.989** at 100% reliability, the best accuracy of any endpoint
@@ -124,3 +130,41 @@ endpoints are unusable, the best accurate one taking 23.6s. `riva-translate-4b-v
 answers in 0.5–0.7s but silently returns English for any non-English target, which
 is a wrong-language success rather than an error and needs conditional routing
 before it could be used.
+
+## Amendment, 2026-08-20
+
+The envelope was not a fix, and the section above is wrong.
+
+It was adopted on three samples of one case. Re-tested against a screenshot of
+two filenames differing only in their timestamp, it corrupts three times out of
+three without streaming, two of four with it, against two of three sending no
+envelope at all. Seeds do not avoid the fault and a strict array schema does not
+either, failing four of four. Groq documents `presence_penalty` and
+`frequency_penalty` as unsupported by every model it serves and exposes neither
+`top_k`, `min_p` nor `repetition_penalty`, which is the entire set of controls
+Qwen's model card prescribes, so the fault cannot be suppressed from the request
+at all. The envelope was therefore charging every vision call an added
+instruction and a JSON wrapper for no measured benefit, and it is removed.
+
+A reply that restates itself is now cut back to the text before the restatement,
+which costs no tokens and no second call. A cut requires damage as well as
+repetition -- a broken word of the kind the defect emits and correct output never
+does -- because tables, forms and receipts legitimately repeat whole rows.
+
+**The OCR accuracy figures in this record are void.** They were measured with the
+envelope applied, and Qwen's 0.989 in particular describes a request this product
+no longer sends. `benchmark_protocol_version` is 11 and every OCR row needs a
+fresh run. Text, coordinate and localization rows are unaffected, as is every
+chain order, which rests on reliability and latency rather than OCR accuracy.
+
+Two corrections to how this was diagnosed, recorded so the reasoning is not
+repeated. The fault was first blamed on streaming, on the assumption that OCR
+presets stream and so skipped the envelope; they do not, and no image preset in
+the product streams. The benchmark is faithful to production here. What the
+benchmark does lack is content that provokes the fault: none of its ten OCR cases
+contains the near-duplicate lines that trigger it, which is how a 0.989 score
+coexisted with a plainly broken result. The suite is fixed at ten cases of
+difficulty one through ten, so the regression corpus lives in the unit tests
+beside the guard instead, built from replies captured live. Measuring how often
+each endpoint repeats would need a separate diagnostic that does not feed catalog
+history, in the manner of the existing Screen Translate probe.

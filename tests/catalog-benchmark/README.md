@@ -1,9 +1,11 @@
 # Catalog benchmark
 
 Current catalog decision record:
-[`RESULTS-2026-08-19-PROTOCOL10.md`](RESULTS-2026-08-19-PROTOCOL10.md), the first
-complete run under protocol 10 and the current source of every chain order,
-default and latency.
+[`RESULTS-2026-08-19-PROTOCOL10.md`](RESULTS-2026-08-19-PROTOCOL10.md), the source
+of every chain order, default and latency. Amended on 2026-08-20: its OCR accuracy
+figures were measured through a request shape the product no longer sends, so
+`benchmark_protocol_version` is 11 and every OCR row needs a fresh run. Latency,
+reliability, the text and coordinate suites and all chain orders still stand.
 The interim decisions it absorbs remain in
 [`RESULTS-2026-08-19-FOLLOWUP.md`](RESULTS-2026-08-19-FOLLOWUP.md), and the run those
 rested on is

@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "benchmark_protocol_version": 10,
+  "benchmark_protocol_version": 11,
   "selection": "latest_complete_run_per_model_suite",
   "vision_representative_max_edge_px": 1024,
   "minimum_representative_cases_per_vision_suite": 4,
