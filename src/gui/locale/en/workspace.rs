@@ -5,7 +5,7 @@ pub(super) fn get() -> WorkspaceLocaleText {
         history_btn: "History",
         history_title: "Result Library",
         max_items_label: "Max Items:",
-        cc_memory_max_label: "CC Memory:",
+        cc_memory_max_label: "Computer Control Memory:",
         history_empty: "No history yet.",
         clear_all_history_btn: "Clear All",
         view_image_btn: "View Image",

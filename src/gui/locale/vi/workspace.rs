@@ -5,7 +5,7 @@ pub(super) fn get() -> WorkspaceLocaleText {
         history_btn: "Lịch sử",
         history_title: "Thư viện kết quả",
         max_items_label: "Giới hạn lưu:",
-        cc_memory_max_label: "Bộ nhớ CC:",
+        cc_memory_max_label: "Bộ nhớ Điều khiển máy tính:",
         history_empty: "Chưa có lịch sử nào.",
         clear_all_history_btn: "Dọn tất cả",
         view_image_btn: "Xem ảnh",
