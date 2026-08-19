@@ -11,6 +11,7 @@ pub struct ScreenTranslateLocaleText {
     pub screen_translate_model_fallback_hint: &'static str,
     pub screen_translate_prompt_label: &'static str,
     pub screen_translate_prompt_hint: &'static str,
+    pub screen_translate_opacity_label: &'static str,
     pub screen_translate_hotkey_label: &'static str,
     pub screen_translate_hotkey_empty: &'static str,
     pub screen_translate_locating: &'static str,

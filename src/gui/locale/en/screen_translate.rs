@@ -14,6 +14,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_model_fallback_hint: "Failures continue through the Text → Text priority list.",
         screen_translate_prompt_label: "Translation prompt",
         screen_translate_prompt_hint: "Use {target_language} for the selected destination language.",
+        screen_translate_opacity_label: "Overlay opacity",
         screen_translate_hotkey_label: "Shortcuts",
         screen_translate_hotkey_empty: "No shortcut set",
         screen_translate_locating: "Locating and translating text…",

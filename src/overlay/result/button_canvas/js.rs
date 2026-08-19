@@ -105,7 +105,10 @@ function updateButtonOpacity() {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         const maxRadius = 150;
-        let opacity = group.classList.contains('proximity-pinned') ? 1 : Math.max(0, Math.min(1, 1 - (dist / maxRadius)));
+        const proximityOpacity = group.classList.contains('proximity-pinned')
+            ? 1 : Math.max(0, Math.min(1, 1 - (dist / maxRadius)));
+        const pulseOpacity = Math.max(0, Math.min(1, Number(group.dataset.pulseOpacity || 0)));
+        const opacity = Math.max(proximityOpacity, pulseOpacity);
 
         group.style.opacity = opacity;
 
@@ -486,5 +489,6 @@ function updateWindows(windowsData) {
 }
 
 window.updateWindows = updateWindows;
+window.updateButtonOpacity = updateButtonOpacity;
 "#
 }

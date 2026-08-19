@@ -169,6 +169,8 @@ pub struct WindowState {
     pub opacity_percent: u8,       // Transparency level (0-100)
     pub preset_id: Option<String>, // ID of the preset that spawned this window
     pub is_chain_root: bool,       // True if this is the first window in a chain
+    pub onboarding_pulse_claimed: bool,
+    pub onboarding_pulse_token: u8,
 }
 
 // SAFETY: Raw pointers are not Send/Sync, but we only use them within the main thread

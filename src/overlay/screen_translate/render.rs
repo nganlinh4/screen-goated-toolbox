@@ -14,6 +14,8 @@ use super::render_scene::{PreparedBlock, PreparedScene, PreparedSource};
 use crate::overlay::result::{RefineContext, ResultControlOptions, ResultWindowParams, WindowType};
 use crate::overlay::selection::CapturedRegion;
 
+const CONTROL_SCALE_PERCENT: u16 = 150;
+
 struct LiveBlock {
     prepared: PreparedBlock,
     hwnd: Option<HWND>,
@@ -28,6 +30,7 @@ struct SegmentTranslation {
 struct TranslationControls {
     anchor: [i32; 4],
     color: String,
+    opacity_percent: u8,
 }
 
 enum RenderCommand {
@@ -119,6 +122,10 @@ fn run_overlay_thread(
     let controls = TranslationControls {
         anchor: relative_selection_anchor(origin, (capture.width, capture.height), virtual_origin),
         color: nearest_control_color(scene.sources.values(), capture.width),
+        opacity_percent: crate::APP
+            .lock()
+            .map(|app| app.config.screen_translate.overlay_opacity.clamp(10, 100))
+            .unwrap_or(100),
     };
     let chain_id = format!("screen-translate-{job_id}");
     let mut blocks: Vec<LiveBlock> = Vec::new();
@@ -367,7 +374,7 @@ fn create_region_window(
     let control_options = is_root.then(|| ResultControlOptions {
         anchor_rect: Some(controls.anchor),
         control_color: Some(controls.color.clone()),
-        scale_percent: 200,
+        scale_percent: CONTROL_SCALE_PERCENT,
         group_actions: true,
         edit_enabled: false,
     });
@@ -387,14 +394,17 @@ fn create_region_window(
             is_chain_root: is_root,
             latency_trace_id: Some(trace_id.to_string()),
         },
-        group.backdrop.clone(),
-        group.foreground.clone(),
-        chain_id.to_string(),
-        control_options,
-        Some(group.preferred_font_size),
-        group.vertical_text,
-        group.source_regions.clone(),
-        translated_segments,
+        crate::overlay::result::TextOnlyResultOptions {
+            backdrop_data_url: group.backdrop.clone(),
+            foreground_color: group.foreground.clone(),
+            chain_id: chain_id.to_string(),
+            control_options,
+            preferred_font_size: Some(group.preferred_font_size),
+            source_vertical: group.vertical_text,
+            source_regions: group.source_regions.clone(),
+            source_segments: translated_segments,
+            opacity_percent: Some(controls.opacity_percent),
+        },
     );
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);

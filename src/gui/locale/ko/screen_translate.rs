@@ -14,6 +14,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_model_fallback_hint: "실패하면 텍스트 → 텍스트 우선순위 목록을 이어서 시도합니다.",
         screen_translate_prompt_label: "번역 프롬프트",
         screen_translate_prompt_hint: "선택한 대상 언어에는 {target_language}를 사용하세요.",
+        screen_translate_opacity_label: "오버레이 불투명도",
         screen_translate_hotkey_label: "단축키",
         screen_translate_hotkey_empty: "설정된 단축키 없음",
         screen_translate_locating: "텍스트를 찾고 번역하는 중…",

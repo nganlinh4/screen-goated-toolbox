@@ -1,8 +1,8 @@
 use super::button_canvas;
 use super::state::{ResultControlOptions, ResultPresentation, WINDOW_STATES, link_windows};
 use super::{
-    RefineContext, ResultWindowParams, WindowType, create_result_window,
-    create_text_only_result_window,
+    RefineContext, ResultWindowParams, TextOnlyResultOptions, WindowType,
+    configure_text_only_result_window, create_result_window_shell, initialize_result_window,
 };
 use crate::win_types::SendHwnd;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -229,21 +229,7 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
             is_chain_root: window.is_chain_root,
             latency_trace_id: None,
         };
-        let hwnd = match window.presentation {
-            ResultPresentation::Standard => create_result_window(params),
-            ResultPresentation::TextOnly => create_text_only_result_window(
-                params,
-                window.backdrop_data_url.clone().unwrap_or_default(),
-                window.foreground_color.clone().unwrap_or_default(),
-                format!("restored-overlay-{}", window.restore_id),
-                window.control_options.clone(),
-                window.preferred_font_size,
-                window.source_vertical,
-                window.source_regions.clone(),
-                window.source_segments.clone(),
-            ),
-        };
-
+        let hwnd = create_result_window_shell(params);
         if hwnd.is_invalid() {
             let _ = tx.send(None);
             if coinit.is_ok() {
@@ -252,6 +238,22 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
                 }
             }
             return;
+        }
+        if window.presentation == ResultPresentation::TextOnly {
+            configure_text_only_result_window(
+                hwnd,
+                TextOnlyResultOptions {
+                    backdrop_data_url: window.backdrop_data_url.clone().unwrap_or_default(),
+                    foreground_color: window.foreground_color.clone().unwrap_or_default(),
+                    chain_id: format!("restored-overlay-{}", window.restore_id),
+                    control_options: window.control_options.clone(),
+                    preferred_font_size: window.preferred_font_size,
+                    source_vertical: window.source_vertical,
+                    source_regions: window.source_regions.clone(),
+                    source_segments: window.source_segments.clone(),
+                    opacity_percent: Some(window.opacity_percent),
+                },
+            );
         }
 
         {
@@ -274,8 +276,11 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
                 state.opacity_percent = window.opacity_percent;
                 state.cancellation_token = None;
                 state.chain_id = None;
+                state.onboarding_pulse_claimed = true;
+                state.onboarding_pulse_token = 0;
             }
         }
+        initialize_result_window(hwnd);
 
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOWNA);

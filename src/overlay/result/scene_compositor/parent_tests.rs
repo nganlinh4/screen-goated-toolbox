@@ -1,5 +1,19 @@
 use super::*;
 
+#[test]
+fn onboarding_control_pulse_is_reserved_exactly_ten_times() {
+    let mut count = 0;
+    for expected in 1..=RESULT_CONTROLS_ONBOARDING_LIMIT {
+        assert_eq!(
+            reserve_result_controls_onboarding_pulse(&mut count),
+            Some(expected)
+        );
+        assert_eq!(count, expected);
+    }
+    assert_eq!(reserve_result_controls_onboarding_pulse(&mut count), None);
+    assert_eq!(count, RESULT_CONTROLS_ONBOARDING_LIMIT);
+}
+
 fn test_card(streaming: bool) -> SceneCard {
     SceneCard {
         id: 42,

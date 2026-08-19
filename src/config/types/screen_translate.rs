@@ -12,6 +12,8 @@ pub struct ScreenTranslateSettings {
     pub translation_model: String,
     #[serde(default = "default_translation_prompt")]
     pub translation_prompt: String,
+    #[serde(default = "default_overlay_opacity")]
+    pub overlay_opacity: u8,
     #[serde(default)]
     pub hotkeys: Vec<Hotkey>,
 }
@@ -27,6 +29,10 @@ fn default_translation_model() -> String {
 fn default_translation_prompt() -> String {
     "Translate every readable text region into {target_language}. Preserve meaning, tone, names, numbers, and punctuation."
         .to_string()
+}
+
+fn default_overlay_opacity() -> u8 {
+    100
 }
 
 impl ScreenTranslateSettings {
@@ -47,6 +53,7 @@ impl ScreenTranslateSettings {
         if self.translation_prompt.is_empty() {
             self.translation_prompt = default_translation_prompt();
         }
+        self.overlay_opacity = self.overlay_opacity.clamp(10, 100);
         self
     }
 
@@ -65,6 +72,7 @@ impl Default for ScreenTranslateSettings {
             target_language: default_target_language(),
             translation_model: default_translation_model(),
             translation_prompt: default_translation_prompt(),
+            overlay_opacity: default_overlay_opacity(),
             hotkeys: Vec::new(),
         }
     }
@@ -80,6 +88,7 @@ mod tests {
             target_language: "  ".to_string(),
             translation_model: "  ".to_string(),
             translation_prompt: "  ".to_string(),
+            overlay_opacity: 0,
             hotkeys: Vec::new(),
         }
         .normalized();
@@ -90,6 +99,7 @@ mod tests {
             crate::model_config::DEFAULT_TEXT_MODEL_ID
         );
         assert!(settings.translation_prompt.contains("{target_language}"));
+        assert_eq!(settings.overlay_opacity, 10);
     }
 
     #[test]
@@ -99,6 +109,7 @@ mod tests {
             target_language: "Korean".to_string(),
             translation_model: "custom".to_string(),
             translation_prompt: "Custom".to_string(),
+            overlay_opacity: 37,
             hotkeys: hotkeys.clone(),
         };
 
@@ -114,5 +125,6 @@ mod tests {
             settings.translation_prompt,
             ScreenTranslateSettings::default_prompt()
         );
+        assert_eq!(settings.overlay_opacity, 100);
     }
 }

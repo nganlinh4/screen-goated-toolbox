@@ -138,6 +138,8 @@ mod tests {
         assert!(document.contains("sgt-controls-theme-css"));
         assert!(document.contains("window.__SGT_BUTTON_SCENE__"));
         assert!(document.contains("Unified result controls did not initialize"));
+        assert!(document.contains("container.style.visibility = 'hidden'"));
+        assert!(!document.contains("window.updateWindows({});"));
     }
 
     #[test]

@@ -69,6 +69,7 @@ pub struct SceneControls {
     pub input_text: String,
     pub opacity_percent: u8,
     pub group_ids: Vec<isize>,
+    pub onboarding_pulse_token: u8,
 }
 
 impl Default for SceneControls {
@@ -92,6 +93,7 @@ impl Default for SceneControls {
             input_text: String::new(),
             opacity_percent: 100,
             group_ids: Vec::new(),
+            onboarding_pulse_token: 0,
         }
     }
 }
