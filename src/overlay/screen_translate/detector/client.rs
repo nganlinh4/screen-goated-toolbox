@@ -315,6 +315,15 @@ fn estimated_warmup_progress(elapsed: Duration) -> f32 {
     progress.min(WARMUP_PROGRESS_CEILING)
 }
 
+impl Drop for DetectorClient {
+    fn drop(&mut self) {
+        if let Some(stdin) = self.stdin.as_mut() {
+            let _ = write_client(stdin, self.next_request_id, &ClientMessage::Shutdown);
+        }
+        self.terminate();
+    }
+}
+
 #[cfg(test)]
 mod warmup_progress_tests {
     use super::*;
@@ -324,14 +333,5 @@ mod warmup_progress_tests {
         assert_eq!(estimated_warmup_progress(Duration::ZERO), 0.0);
         assert!(estimated_warmup_progress(Duration::from_millis(800)) > 70.0);
         assert!(estimated_warmup_progress(Duration::from_secs(30)) <= 90.0);
-    }
-}
-
-impl Drop for DetectorClient {
-    fn drop(&mut self) {
-        if let Some(stdin) = self.stdin.as_mut() {
-            let _ = write_client(stdin, self.next_request_id, &ClientMessage::Shutdown);
-        }
-        self.terminate();
     }
 }
