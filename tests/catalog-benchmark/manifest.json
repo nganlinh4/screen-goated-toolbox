@@ -9,8 +9,14 @@
       "target_language": "Vietnamese",
       "input": "The meeting starts at nine tomorrow morning.",
       "reference": "Cuộc họp bắt đầu lúc chín giờ sáng mai.",
-      "required_terms": ["giờ", "sáng mai"],
-      "rubric": ["Preserves the meeting as the subject", "Preserves the time as 9:00 tomorrow morning"]
+      "required_terms": [
+        "giờ",
+        "sáng mai"
+      ],
+      "rubric": [
+        "Preserves the meeting as the subject",
+        "Preserves the time as 9:00 tomorrow morning"
+      ]
     },
     {
       "id": "text-02-register",
@@ -19,8 +25,14 @@
       "target_language": "English",
       "input": "Phiền bạn gửi lại hóa đơn trước cuối ngày hôm nay nhé.",
       "reference": "Could you please resend the invoice by the end of today?",
-      "required_terms": ["invoice", "today"],
-      "rubric": ["Keeps the polite register", "Expresses a deadline no later than the end of today"]
+      "required_terms": [
+        "invoice",
+        "today"
+      ],
+      "rubric": [
+        "Keeps the polite register",
+        "Expresses a deadline no later than the end of today"
+      ]
     },
     {
       "id": "text-03-numeric-fidelity",
@@ -29,10 +41,32 @@
       "target_language": "Vietnamese",
       "input": "The sensor reported 1.05 °C, not 1.5 °C; the threshold remains at −2 °C.",
       "reference": "Cảm biến ghi nhận 1,05 °C, không phải 1,5 °C; ngưỡng vẫn là −2 °C.",
-      "required_terms": ["cảm biến", "ngưỡng"],
-      "required_exact": ["°C"],
-      "required_exact_any": [["1,05", "1.05"], ["1,5", "1.5"], ["−2", "-2"]],
-      "rubric": ["Keeps 1.05 distinct from 1.5", "Preserves the negative two-degree threshold", "Does not convert or drop the unit"]
+      "required_terms": [
+        "cảm biến",
+        "ngưỡng"
+      ],
+      "required_exact": [
+        "°C"
+      ],
+      "required_exact_any": [
+        [
+          "1,05",
+          "1.05"
+        ],
+        [
+          "1,5",
+          "1.5"
+        ],
+        [
+          "−2",
+          "-2"
+        ]
+      ],
+      "rubric": [
+        "Keeps 1.05 distinct from 1.5",
+        "Preserves the negative two-degree threshold",
+        "Does not convert or drop the unit"
+      ]
     },
     {
       "id": "text-04-ui-format",
@@ -41,11 +75,31 @@
       "target_language": "English",
       "input": "注意：更新中は電源を切らないでください。\n完了後、［設定］→［同期］を開きます。",
       "reference": "Caution: Do not turn off the power during the update.\nWhen it is complete, open ［Settings］ → ［Sync］.",
-      "required_terms": ["update", "power", "Settings", "Sync"],
-      "required_exact": ["→"],
-      "required_exact_any": [["［Settings］", "[Settings]"], ["［Sync］", "[Sync]"]],
+      "required_terms": [
+        "update",
+        "power",
+        "Settings",
+        "Sync"
+      ],
+      "required_exact": [
+        "→"
+      ],
+      "required_exact_any": [
+        [
+          "［Settings］",
+          "[Settings]"
+        ],
+        [
+          "［Sync］",
+          "[Sync]"
+        ]
+      ],
       "expected_line_count": 2,
-      "rubric": ["Preserves the warning", "Preserves the two-line structure", "Preserves the menu navigation order and exact bracketed labels"]
+      "rubric": [
+        "Preserves the warning",
+        "Preserves the two-line structure",
+        "Preserves the menu navigation order and exact bracketed labels"
+      ]
     },
     {
       "id": "text-05-idiom",
@@ -54,9 +108,18 @@
       "target_language": "Vietnamese",
       "input": "그 제안은 겉보기에는 좋아도 막상 뚜껑을 열어 보면 문제가 한두 가지가 아니다.",
       "reference": "Đề xuất đó nhìn bề ngoài có vẻ tốt, nhưng khi xem xét kỹ thì vấn đề không chỉ có một hai chuyện.",
-      "required_terms": ["đề xuất", "vấn đề"],
-      "forbidden_terms": ["nắp"],
-      "rubric": ["Renders the idiom naturally rather than mentioning a literal lid", "Preserves the contrast between appearance and closer inspection", "Conveys that there are many problems"]
+      "required_terms": [
+        "đề xuất",
+        "vấn đề"
+      ],
+      "forbidden_terms": [
+        "nắp"
+      ],
+      "rubric": [
+        "Renders the idiom naturally rather than mentioning a literal lid",
+        "Preserves the contrast between appearance and closer inspection",
+        "Conveys that there are many problems"
+      ]
     },
     {
       "id": "text-06-placeholders",
@@ -65,9 +128,21 @@
       "target_language": "Vietnamese",
       "input": "Si {{user_name}} n'a pas confirmé avant le 03/04/2026, n'effacez ni <draft_id> ni le dossier « À revoir ».",
       "reference": "Nếu {{user_name}} chưa xác nhận trước ngày 03/04/2026, đừng xóa <draft_id> hoặc thư mục « Cần xem lại ».",
-      "required_terms": ["xác nhận", "đừng xóa", "thư mục"],
-      "required_exact": ["{{user_name}}", "<draft_id>", "03/04/2026"],
-      "rubric": ["Preserves both placeholders byte-for-byte", "Preserves the date without guessing month/day order", "Prohibits deleting either protected item"]
+      "required_terms": [
+        "xác nhận",
+        "đừng xóa",
+        "thư mục"
+      ],
+      "required_exact": [
+        "{{user_name}}",
+        "<draft_id>",
+        "03/04/2026"
+      ],
+      "rubric": [
+        "Preserves both placeholders byte-for-byte",
+        "Preserves the date without guessing month/day order",
+        "Prohibits deleting either protected item"
+      ]
     },
     {
       "id": "text-07-legal-scope",
@@ -76,8 +151,18 @@
       "target_language": "English",
       "input": "除非甲方在收到通知后的两个工作日内书面反对，否则不得视为其放弃任何权利。",
       "reference": "Unless Party A objects in writing within two business days after receiving notice, this must not be deemed a waiver of any rights.",
-      "required_terms": ["Party A", "in writing", "two business days", "must not", "any rights"],
-      "rubric": ["Keeps the unless-condition scoped to a written objection", "Does not reverse the prohibition on treating silence as waiver", "Preserves the two-business-day window"]
+      "required_terms": [
+        "Party A",
+        "in writing",
+        "two business days",
+        "must not",
+        "any rights"
+      ],
+      "rubric": [
+        "Keeps the unless-condition scoped to a written objection",
+        "Does not reverse the prohibition on treating silence as waiver",
+        "Preserves the two-business-day window"
+      ]
     },
     {
       "id": "text-08-gender-neutral",
@@ -86,10 +171,27 @@
       "target_language": "English",
       "input": "Deniz, Ekin'e yedeğin bozulduğunu söyledikten sonra ondan yalnızca 23.40'tan sonra değiştirilen dosyaları geri yüklemesini istedi.",
       "reference": "After Deniz told Ekin that the backup had failed, they asked them to restore only the files modified after 23:40.",
-      "required_terms": ["Deniz", "Ekin", "backup", "only", "files"],
-      "required_exact": ["23:40"],
-      "forbidden_terms": ["he", "she", "his", "her"],
-      "rubric": ["Does not invent a gender for Deniz or Ekin", "Restores only files modified after 23:40", "Keeps the request directed from Deniz to Ekin"]
+      "required_terms": [
+        "Deniz",
+        "Ekin",
+        "backup",
+        "only",
+        "files"
+      ],
+      "required_exact": [
+        "23:40"
+      ],
+      "forbidden_terms": [
+        "he",
+        "she",
+        "his",
+        "her"
+      ],
+      "rubric": [
+        "Does not invent a gender for Deniz or Ekin",
+        "Restores only files modified after 23:40",
+        "Keeps the request directed from Deniz to Ekin"
+      ]
     },
     {
       "id": "text-09-counterfactual",
@@ -98,8 +200,18 @@
       "target_language": "English",
       "input": "No fue hasta que dejó de llover que Marta se dio cuenta de que, si Luis no hubiera cerrado la ventana, los documentos se habrían mojado.",
       "reference": "It was not until it stopped raining that Marta realized that, if Luis had not closed the window, the documents would have gotten wet.",
-      "required_terms": ["Marta", "Luis", "not until", "had not closed", "would have"],
-      "rubric": ["Preserves the not-until timing", "Preserves the unreal past condition", "Does not imply that the documents actually became wet"]
+      "required_terms": [
+        "Marta",
+        "Luis",
+        "not until",
+        "had not closed",
+        "would have"
+      ],
+      "rubric": [
+        "Preserves the not-until timing",
+        "Preserves the unreal past condition",
+        "Does not imply that the documents actually became wet"
+      ]
     },
     {
       "id": "text-10-structured-constraints",
@@ -108,11 +220,31 @@
       "target_language": "Vietnamese",
       "input": "状态：**禁止部署**\n- 保持 ${BUILD_ID} 不变。\n- 仅恢复 UTC+9 23:40 之后修改的文件；不要恢复归档。\n- “可以”表示许可，不表示可能性。",
       "reference": "Trạng thái: **KHÔNG ĐƯỢC TRIỂN KHAI**\n- Giữ nguyên ${BUILD_ID}.\n- Chỉ khôi phục các tệp được sửa sau 23:40 UTC+9; không khôi phục tệp lưu trữ.\n- “Có thể” biểu thị sự cho phép, không phải khả năng.",
-      "required_terms": ["KHÔNG ĐƯỢC TRIỂN KHAI", "Chỉ", "lưu trữ", "cho phép"],
-      "required_exact": ["**", "${BUILD_ID}", "23:40", "UTC+9"],
-      "required_exact_any": [["“Có thể”", "\"Có thể\""]],
+      "required_terms": [
+        "KHÔNG ĐƯỢC TRIỂN KHAI",
+        "Chỉ",
+        "lưu trữ",
+        "cho phép"
+      ],
+      "required_exact": [
+        "**",
+        "${BUILD_ID}",
+        "23:40",
+        "UTC+9"
+      ],
+      "required_exact_any": [
+        [
+          "“Có thể”",
+          "\"Có thể\""
+        ]
+      ],
       "expected_line_count": 4,
-      "rubric": ["Preserves the Markdown structure and placeholder", "Keeps the deployment prohibition emphatic", "Restores only post-23:40 files and explicitly excludes the archive", "Explains 可以 as permission rather than probability"]
+      "rubric": [
+        "Preserves the Markdown structure and placeholder",
+        "Keeps the deployment prohibition emphatic",
+        "Restores only post-23:40 files and explicitly excludes the archive",
+        "Explains 可以 as permission rather than probability"
+      ]
     }
   ],
   "coordinate_cases": [
@@ -122,7 +254,12 @@
       "image": "images/coordinate/01-vlc.png",
       "target": "the large Play button at the bottom-left",
       "context": "Resume the paused video in VLC.",
-      "box_px": [5.0, 417.0, 31.0, 31.0]
+      "box_px": [
+        5.0,
+        417.0,
+        31.0,
+        31.0
+      ]
     },
     {
       "id": "coordinate-02-dense-sidebar",
@@ -130,7 +267,12 @@
       "image": "images/coordinate/02-office.png",
       "target": "the Math Formula item in the left Create list",
       "context": "Create a new formula document from the LibreOffice start screen.",
-      "box_px": [15.0, 500.0, 157.0, 39.0]
+      "box_px": [
+        15.0,
+        500.0,
+        157.0,
+        39.0
+      ]
     },
     {
       "id": "coordinate-03-small-button",
@@ -138,7 +280,12 @@
       "image": "images/coordinate/03-settings.png",
       "target": "the Check for updates button",
       "context": "Check whether this application has an available update.",
-      "box_px": [634.0, 517.0, 155.0, 34.0]
+      "box_px": [
+        634.0,
+        517.0,
+        155.0,
+        34.0
+      ]
     },
     {
       "id": "coordinate-04-icon-only",
@@ -146,7 +293,12 @@
       "image": "images/coordinate/04-vector-editor.png",
       "target": "the small red X that closes the Fill and Stroke panel",
       "context": "Close only the Fill and Stroke panel in the vector editor.",
-      "box_px": [1243.0, 146.0, 21.0, 21.0]
+      "box_px": [
+        1243.0,
+        146.0,
+        21.0,
+        21.0
+      ]
     },
     {
       "id": "coordinate-05-tiny-tree-row",
@@ -154,7 +306,12 @@
       "image": "images/coordinate/05-3d-editor.png",
       "target": "the Camera object item label in the upper-right Scene Collection tree",
       "context": "Select the Camera object in Blender's Scene Collection.",
-      "box_px": [818.0, 84.0, 67.0, 14.0]
+      "box_px": [
+        818.0,
+        84.0,
+        67.0,
+        14.0
+      ]
     },
     {
       "id": "coordinate-06-duplicate-color",
@@ -162,7 +319,12 @@
       "image": "images/coordinate/06-duplicate-color.png",
       "target": "the Colour 2 selector, not Colour 1 or any palette swatch",
       "context": "Choose the secondary drawing color before editing it.",
-      "box_px": [225.0, 139.0, 41.0, 69.0]
+      "box_px": [
+        225.0,
+        139.0,
+        41.0,
+        69.0
+      ]
     },
     {
       "id": "coordinate-07-row-relative-add",
@@ -170,7 +332,12 @@
       "image": "images/coordinate/07-mobile-controls.jpg",
       "target": "the green plus beside Alarm under More Controls",
       "context": "Add Alarm to the included Control Center controls.",
-      "box_px": [947.0, 1496.0, 74.0, 82.0]
+      "box_px": [
+        947.0,
+        1496.0,
+        74.0,
+        82.0
+      ]
     },
     {
       "id": "coordinate-08-filter-chip-remove",
@@ -178,7 +345,12 @@
       "image": "images/coordinate/08-filter-chip.png",
       "target": "the X inside the Byte Blaze assignee filter chip, not the X at the far right of the filter bar",
       "context": "Remove only Byte Blaze from the current assignee filters.",
-      "box_px": [782.0, 372.0, 64.0, 51.0]
+      "box_px": [
+        782.0,
+        372.0,
+        64.0,
+        51.0
+      ]
     },
     {
       "id": "coordinate-09-score-relative-vote",
@@ -186,7 +358,12 @@
       "image": "images/coordinate/09-nested-comments.png",
       "target": "the up-arrow for the comment whose score is 72",
       "context": "Upvote the nested comment that currently has a score of 72.",
-      "box_px": [129.0, 1078.0, 59.0, 51.0]
+      "box_px": [
+        129.0,
+        1078.0,
+        59.0,
+        51.0
+      ]
     },
     {
       "id": "coordinate-10-repeated-star",
@@ -194,7 +371,12 @@
       "image": "images/coordinate/10-rating-stars.png",
       "target": "the fourth star from the left in the five-star rating row",
       "context": "Give the product a four-star rating.",
-      "box_px": [612.0, 395.0, 35.0, 55.0]
+      "box_px": [
+        612.0,
+        395.0,
+        35.0,
+        55.0
+      ]
     }
   ],
   "ocr_cases": [
@@ -219,7 +401,12 @@
       "difficulty": 4,
       "image": "images/ocr/03-multilingual-sign.jpg",
       "input_mode": "screen-crop-png",
-      "crop_px": [328, 136, 350, 758],
+      "crop_px": [
+        328,
+        136,
+        350,
+        758
+      ],
       "instruction": "Extract all text from this image exactly as it appears. Output ONLY the text.",
       "reference": "JB\n07\nT\n01\nNakano\n中野\n나카노"
     },
@@ -228,7 +415,12 @@
       "difficulty": 5,
       "image": "images/ocr/04-vietnamese-wikipedia.jpg",
       "input_mode": "screen-crop-png",
-      "crop_px": [314, 285, 760, 270],
+      "crop_px": [
+        314,
+        285,
+        760,
+        270
+      ],
       "instruction": "Extract all text from this image exactly as it appears. Output ONLY the text.",
       "reference": "WIKIPEDIA TIẾNG VIỆT\nBạn chính là tác giả của Wikipedia\nBài viết: Tra cứu · Bài mới · Hỏi đáp · Thỉnh cầu · Thư viện",
       "accepted_references": [
@@ -276,12 +468,12 @@
       "reference": "Shop Succulents | Assorted Collection of Live Air Plants, Hand Selected Variety Pack of Air Succulents | Collection of 6 — $21.96\nSunset Jade Plant - Crassula - Easy to Grow House Plant - 4\" Pot — $12.50\nAmerican Plant Exchange Windmill Cold Hardy Palm Tree Live Plant, 4\" Pot, Indoor Outdoor Use — $21.96\nLive Rare Echeveria Ice Green Succulent Plant Fully Rooted in 2\" Plant Pots — $15.98"
     },
     {
-      "id": "ocr-10-handwriting",
+      "id": "ocr-11-directory-listing",
       "difficulty": 10,
-      "image": "images/ocr/10-handwritten-address.jpg",
-      "input_mode": "original-file",
-      "instruction": "Transcribe only the first handwritten paragraph beneath the letterhead, ending at ‘created equal’. Do not include the letterhead. Output ONLY the paragraph.",
-      "reference": "Four score and seven years ago our fathers brought forth, upon this continent, a new nation, conceived in liberty, and dedicated to the proposition that \"all men are created equal.\""
+      "image": "images/ocr/11-directory-listing.png",
+      "input_mode": "screen-crop-png",
+      "instruction": "Transcribe every line of this terminal output exactly as it appears, in order. Output ONLY the text.",
+      "reference": "C:\\Temp> dir\n Volume in drive C is C\n Volume Serial Number is 74F5-B93C\n\n Directory of C:\\Temp\n\n2009-08-25  11:59    <DIR>          .\n2009-08-25  11:59    <DIR>          ..\n2007-03-01  11:37         2,321,600 AdobeUpdater12345.exe\n2009-04-03  10:01            27,988 dd_depcheckdotnetfx30.txt\n2009-04-03  10:01               764 dd_dotnetfx3error.txt\n2009-04-03  10:01            32,572 dd_dotnetfx3install.txt\n2009-06-09  13:46            35,145 GenProfile.log\n2009-08-05  12:11               155 KB969856.log\n2009-04-20  08:37               402 MSI29e0b.LOG\n2009-04-09  16:34            38,895 offcln11.log\n2009-04-03  16:02    <DIR>          OfficePatches\n2009-07-14  14:30    <DIR>          OHotfix\n2009-08-25  10:52            16,384 Perflib_Perfdata_c30.dat\n2009-04-03  10:01             1,744 uxeventlog.txt\n2009-08-25  11:42        50,245,632 WFV2F.tmp\n2009-04-20  10:07             1,397 {AC76BA86-7AD7-1033-7B44-A81200000003}.ini\n2009-04-20  10:13               617 {AC76BA86-7AD7-1033-7B44-A81300000003}.ini\n              13 File(s)     52,723,295 bytes\n               4 Dir(s)  83,570,208,768 bytes free"
     }
   ],
   "localization_cases": [
@@ -291,19 +483,123 @@
       "image": "images/localization/01-comment-thread.png",
       "target_language": "Vietnamese",
       "regions": [
-        { "source_text": "@Togekab00m 2 weeks ago", "box_px": [14, 12, 155, 16] },
-        { "source_text": "i did not realise this was just vibes based before watching, i can't recommend this to anyone", "box_px": [14, 34, 573, 18] },
-        { "source_text": "Reply", "box_px": [110, 64, 37, 16] },
-        { "source_text": "6 replies", "box_px": [14, 111, 75, 16] },
-        { "source_text": "@axiyo3770 2 weeks ago", "box_px": [14, 157, 144, 17] },
-        { "source_text": "Jade cutter still one of the best weapon in the game", "box_px": [14, 179, 345, 17] },
-        { "source_text": "Atk scaling - use JC", "box_px": [14, 200, 132, 16] },
-        { "source_text": "Hp scaling - use JC", "box_px": [14, 220, 130, 16] },
-        { "source_text": "Def scaling - use it and all in crd on your artifact", "box_px": [14, 240, 348, 17] },
-        { "source_text": "Reply", "box_px": [104, 271, 42, 16] },
-        { "source_text": "@gabrielbcorona 2 weeks ago", "box_px": [14, 312, 164, 17] },
-        { "source_text": "I'm glad i got a duplicate of Skirk's weapon. It fits her visual and is a great weapon for her.", "box_px": [14, 334, 555, 18] },
-        { "source_text": "Reply", "box_px": [104, 364, 42, 16] }
+        {
+          "source_text": "@Togekab00m 2 weeks ago",
+          "box_px": [
+            14,
+            12,
+            155,
+            16
+          ]
+        },
+        {
+          "source_text": "i did not realise this was just vibes based before watching, i can't recommend this to anyone",
+          "box_px": [
+            14,
+            34,
+            573,
+            18
+          ]
+        },
+        {
+          "source_text": "Reply",
+          "box_px": [
+            110,
+            64,
+            37,
+            16
+          ]
+        },
+        {
+          "source_text": "6 replies",
+          "box_px": [
+            14,
+            111,
+            75,
+            16
+          ]
+        },
+        {
+          "source_text": "@axiyo3770 2 weeks ago",
+          "box_px": [
+            14,
+            157,
+            144,
+            17
+          ]
+        },
+        {
+          "source_text": "Jade cutter still one of the best weapon in the game",
+          "box_px": [
+            14,
+            179,
+            345,
+            17
+          ]
+        },
+        {
+          "source_text": "Atk scaling - use JC",
+          "box_px": [
+            14,
+            200,
+            132,
+            16
+          ]
+        },
+        {
+          "source_text": "Hp scaling - use JC",
+          "box_px": [
+            14,
+            220,
+            130,
+            16
+          ]
+        },
+        {
+          "source_text": "Def scaling - use it and all in crd on your artifact",
+          "box_px": [
+            14,
+            240,
+            348,
+            17
+          ]
+        },
+        {
+          "source_text": "Reply",
+          "box_px": [
+            104,
+            271,
+            42,
+            16
+          ]
+        },
+        {
+          "source_text": "@gabrielbcorona 2 weeks ago",
+          "box_px": [
+            14,
+            312,
+            164,
+            17
+          ]
+        },
+        {
+          "source_text": "I'm glad i got a duplicate of Skirk's weapon. It fits her visual and is a great weapon for her.",
+          "box_px": [
+            14,
+            334,
+            555,
+            18
+          ]
+        },
+        {
+          "source_text": "Reply",
+          "box_px": [
+            104,
+            364,
+            42,
+            16
+          ]
+        }
       ]
     },
     {
@@ -312,15 +608,87 @@
       "image": "images/localization/02-mobile-settings.png",
       "target_language": "Vietnamese",
       "regions": [
-        { "source_text": "Settings", "box_px": [46, 130, 226, 55] },
-        { "source_text": "License", "box_px": [47, 300, 171, 44] },
-        { "source_text": "Attribution-ShareAlike 4.0", "box_px": [47, 364, 480, 39] },
-        { "source_text": "Automatically get current location", "box_px": [47, 520, 721, 48] },
-        { "source_text": "Retrieve current location to offer category suggestions if image is not geotagged", "box_px": [47, 584, 813, 94] },
-        { "source_text": "Become a Beta Tester", "box_px": [47, 792, 473, 44] },
-        { "source_text": "Opt-in to our beta channel on Google Play and get early access to new features and bug fixes", "box_px": [47, 854, 920, 95] },
-        { "source_text": "Night mode", "box_px": [47, 1060, 238, 53] },
-        { "source_text": "Use dark theme", "box_px": [47, 1123, 309, 41] }
+        {
+          "source_text": "Settings",
+          "box_px": [
+            46,
+            130,
+            226,
+            55
+          ]
+        },
+        {
+          "source_text": "License",
+          "box_px": [
+            47,
+            300,
+            171,
+            44
+          ]
+        },
+        {
+          "source_text": "Attribution-ShareAlike 4.0",
+          "box_px": [
+            47,
+            364,
+            480,
+            39
+          ]
+        },
+        {
+          "source_text": "Automatically get current location",
+          "box_px": [
+            47,
+            520,
+            721,
+            48
+          ]
+        },
+        {
+          "source_text": "Retrieve current location to offer category suggestions if image is not geotagged",
+          "box_px": [
+            47,
+            584,
+            813,
+            94
+          ]
+        },
+        {
+          "source_text": "Become a Beta Tester",
+          "box_px": [
+            47,
+            792,
+            473,
+            44
+          ]
+        },
+        {
+          "source_text": "Opt-in to our beta channel on Google Play and get early access to new features and bug fixes",
+          "box_px": [
+            47,
+            854,
+            920,
+            95
+          ]
+        },
+        {
+          "source_text": "Night mode",
+          "box_px": [
+            47,
+            1060,
+            238,
+            53
+          ]
+        },
+        {
+          "source_text": "Use dark theme",
+          "box_px": [
+            47,
+            1123,
+            309,
+            41
+          ]
+        }
       ]
     },
     {
@@ -329,61 +697,501 @@
       "image": "images/localization/03-desktop-audio.png",
       "target_language": "Vietnamese",
       "regions": [
-        { "source_text": "Audio – System Settings", "box_px": [607, 24, 155, 18] },
-        { "source_text": "Search...", "box_px": [70, 58, 61, 19] },
-        { "source_text": "Audio", "box_px": [295, 58, 45, 20] },
-        { "source_text": "Appearance", "box_px": [55, 95, 84, 18] },
-        { "source_text": "Workspace", "box_px": [25, 124, 83, 19] },
-        { "source_text": "Workspace Behaviour", "box_px": [55, 154, 146, 18] },
-        { "source_text": "Window Management", "box_px": [55, 184, 139, 18] },
-        { "source_text": "Shortcuts", "box_px": [55, 214, 73, 18] },
-        { "source_text": "Startup and Shutdown", "box_px": [55, 244, 158, 18] },
-        { "source_text": "Search", "box_px": [55, 273, 54, 18] },
-        { "source_text": "Personalisation", "box_px": [25, 303, 109, 18] },
-        { "source_text": "Notifications", "box_px": [55, 333, 91, 18] },
-        { "source_text": "Users", "box_px": [55, 363, 46, 18] },
-        { "source_text": "Regional Settings", "box_px": [55, 393, 121, 18] },
-        { "source_text": "Accessibility", "box_px": [55, 423, 89, 18] },
-        { "source_text": "Applications", "box_px": [55, 453, 89, 18] },
-        { "source_text": "KDE Wallet", "box_px": [55, 483, 81, 18] },
-        { "source_text": "Online Accounts", "box_px": [55, 513, 112, 18] },
-        { "source_text": "User Feedback", "box_px": [55, 543, 101, 18] },
-        { "source_text": "Network", "box_px": [25, 573, 67, 18] },
-        { "source_text": "Connections", "box_px": [55, 603, 88, 18] },
-        { "source_text": "Settings", "box_px": [55, 633, 64, 18] },
-        { "source_text": "Hardware", "box_px": [25, 663, 70, 18] },
-        { "source_text": "Input Devices", "box_px": [55, 693, 96, 18] },
-        { "source_text": "Display and Monitor", "box_px": [55, 723, 140, 18] },
-        { "source_text": "Audio", "box_px": [55, 753, 44, 18] },
-        { "source_text": "Multimedia", "box_px": [55, 783, 78, 18] },
-        { "source_text": "Highlight Changed Settings", "box_px": [85, 802, 180, 20] },
-        { "source_text": "Help", "box_px": [332, 802, 39, 20] },
-        { "source_text": "Playback Devices", "box_px": [294, 94, 127, 20] },
-        { "source_text": "Speakers (Family 17h (Models 10h-1fh) HD Audio Controller Analog Stereo)", "box_px": [325, 127, 515, 21] },
-        { "source_text": "Test", "box_px": [1184, 127, 39, 21] },
-        { "source_text": "Balance", "box_px": [1250, 127, 60, 21] },
-        { "source_text": "Port:", "box_px": [821, 173, 36, 19] },
-        { "source_text": "Speakers", "box_px": [864, 173, 67, 19] },
-        { "source_text": "Profile:", "box_px": [1068, 173, 50, 19] },
-        { "source_text": "Analog Stereo Duplex", "box_px": [1128, 173, 147, 19] },
-        { "source_text": "EasyEffects Sink", "box_px": [325, 264, 117, 20] },
-        { "source_text": "Test", "box_px": [1184, 264, 39, 20] },
-        { "source_text": "Balance", "box_px": [1250, 264, 60, 20] },
-        { "source_text": "Recording Devices", "box_px": [294, 352, 140, 21] },
-        { "source_text": "Internal Microphone (Family 17h (Models 10h-1fh) HD Audio Controller Analog Stereo)", "box_px": [325, 388, 592, 21] },
-        { "source_text": "Balance", "box_px": [1250, 388, 60, 21] },
-        { "source_text": "Port:", "box_px": [821, 429, 36, 19] },
-        { "source_text": "Internal Microphone", "box_px": [864, 429, 139, 19] },
-        { "source_text": "Profile:", "box_px": [1068, 429, 50, 19] },
-        { "source_text": "Analog Stereo Duplex", "box_px": [1128, 429, 147, 19] },
-        { "source_text": "EasyEffects Source", "box_px": [325, 525, 132, 20] },
-        { "source_text": "Balance", "box_px": [1250, 525, 60, 20] },
-        { "source_text": "Inactive Cards", "box_px": [294, 614, 102, 20] },
-        { "source_text": "Raven/Raven2/Fenghuang HDMI/DP Audio Controller", "box_px": [333, 660, 356, 21] },
-        { "source_text": "Profile:", "box_px": [1077, 660, 50, 19] },
-        { "source_text": "Off", "box_px": [1135, 660, 27, 19] },
-        { "source_text": "Playback Streams", "box_px": [294, 704, 124, 20] },
-        { "source_text": "Notification Sounds", "box_px": [352, 729, 132, 21] }
+        {
+          "source_text": "Audio – System Settings",
+          "box_px": [
+            607,
+            24,
+            155,
+            18
+          ]
+        },
+        {
+          "source_text": "Search...",
+          "box_px": [
+            70,
+            58,
+            61,
+            19
+          ]
+        },
+        {
+          "source_text": "Audio",
+          "box_px": [
+            295,
+            58,
+            45,
+            20
+          ]
+        },
+        {
+          "source_text": "Appearance",
+          "box_px": [
+            55,
+            95,
+            84,
+            18
+          ]
+        },
+        {
+          "source_text": "Workspace",
+          "box_px": [
+            25,
+            124,
+            83,
+            19
+          ]
+        },
+        {
+          "source_text": "Workspace Behaviour",
+          "box_px": [
+            55,
+            154,
+            146,
+            18
+          ]
+        },
+        {
+          "source_text": "Window Management",
+          "box_px": [
+            55,
+            184,
+            139,
+            18
+          ]
+        },
+        {
+          "source_text": "Shortcuts",
+          "box_px": [
+            55,
+            214,
+            73,
+            18
+          ]
+        },
+        {
+          "source_text": "Startup and Shutdown",
+          "box_px": [
+            55,
+            244,
+            158,
+            18
+          ]
+        },
+        {
+          "source_text": "Search",
+          "box_px": [
+            55,
+            273,
+            54,
+            18
+          ]
+        },
+        {
+          "source_text": "Personalisation",
+          "box_px": [
+            25,
+            303,
+            109,
+            18
+          ]
+        },
+        {
+          "source_text": "Notifications",
+          "box_px": [
+            55,
+            333,
+            91,
+            18
+          ]
+        },
+        {
+          "source_text": "Users",
+          "box_px": [
+            55,
+            363,
+            46,
+            18
+          ]
+        },
+        {
+          "source_text": "Regional Settings",
+          "box_px": [
+            55,
+            393,
+            121,
+            18
+          ]
+        },
+        {
+          "source_text": "Accessibility",
+          "box_px": [
+            55,
+            423,
+            89,
+            18
+          ]
+        },
+        {
+          "source_text": "Applications",
+          "box_px": [
+            55,
+            453,
+            89,
+            18
+          ]
+        },
+        {
+          "source_text": "KDE Wallet",
+          "box_px": [
+            55,
+            483,
+            81,
+            18
+          ]
+        },
+        {
+          "source_text": "Online Accounts",
+          "box_px": [
+            55,
+            513,
+            112,
+            18
+          ]
+        },
+        {
+          "source_text": "User Feedback",
+          "box_px": [
+            55,
+            543,
+            101,
+            18
+          ]
+        },
+        {
+          "source_text": "Network",
+          "box_px": [
+            25,
+            573,
+            67,
+            18
+          ]
+        },
+        {
+          "source_text": "Connections",
+          "box_px": [
+            55,
+            603,
+            88,
+            18
+          ]
+        },
+        {
+          "source_text": "Settings",
+          "box_px": [
+            55,
+            633,
+            64,
+            18
+          ]
+        },
+        {
+          "source_text": "Hardware",
+          "box_px": [
+            25,
+            663,
+            70,
+            18
+          ]
+        },
+        {
+          "source_text": "Input Devices",
+          "box_px": [
+            55,
+            693,
+            96,
+            18
+          ]
+        },
+        {
+          "source_text": "Display and Monitor",
+          "box_px": [
+            55,
+            723,
+            140,
+            18
+          ]
+        },
+        {
+          "source_text": "Audio",
+          "box_px": [
+            55,
+            753,
+            44,
+            18
+          ]
+        },
+        {
+          "source_text": "Multimedia",
+          "box_px": [
+            55,
+            783,
+            78,
+            18
+          ]
+        },
+        {
+          "source_text": "Highlight Changed Settings",
+          "box_px": [
+            85,
+            802,
+            180,
+            20
+          ]
+        },
+        {
+          "source_text": "Help",
+          "box_px": [
+            332,
+            802,
+            39,
+            20
+          ]
+        },
+        {
+          "source_text": "Playback Devices",
+          "box_px": [
+            294,
+            94,
+            127,
+            20
+          ]
+        },
+        {
+          "source_text": "Speakers (Family 17h (Models 10h-1fh) HD Audio Controller Analog Stereo)",
+          "box_px": [
+            325,
+            127,
+            515,
+            21
+          ]
+        },
+        {
+          "source_text": "Test",
+          "box_px": [
+            1184,
+            127,
+            39,
+            21
+          ]
+        },
+        {
+          "source_text": "Balance",
+          "box_px": [
+            1250,
+            127,
+            60,
+            21
+          ]
+        },
+        {
+          "source_text": "Port:",
+          "box_px": [
+            821,
+            173,
+            36,
+            19
+          ]
+        },
+        {
+          "source_text": "Speakers",
+          "box_px": [
+            864,
+            173,
+            67,
+            19
+          ]
+        },
+        {
+          "source_text": "Profile:",
+          "box_px": [
+            1068,
+            173,
+            50,
+            19
+          ]
+        },
+        {
+          "source_text": "Analog Stereo Duplex",
+          "box_px": [
+            1128,
+            173,
+            147,
+            19
+          ]
+        },
+        {
+          "source_text": "EasyEffects Sink",
+          "box_px": [
+            325,
+            264,
+            117,
+            20
+          ]
+        },
+        {
+          "source_text": "Test",
+          "box_px": [
+            1184,
+            264,
+            39,
+            20
+          ]
+        },
+        {
+          "source_text": "Balance",
+          "box_px": [
+            1250,
+            264,
+            60,
+            20
+          ]
+        },
+        {
+          "source_text": "Recording Devices",
+          "box_px": [
+            294,
+            352,
+            140,
+            21
+          ]
+        },
+        {
+          "source_text": "Internal Microphone (Family 17h (Models 10h-1fh) HD Audio Controller Analog Stereo)",
+          "box_px": [
+            325,
+            388,
+            592,
+            21
+          ]
+        },
+        {
+          "source_text": "Balance",
+          "box_px": [
+            1250,
+            388,
+            60,
+            21
+          ]
+        },
+        {
+          "source_text": "Port:",
+          "box_px": [
+            821,
+            429,
+            36,
+            19
+          ]
+        },
+        {
+          "source_text": "Internal Microphone",
+          "box_px": [
+            864,
+            429,
+            139,
+            19
+          ]
+        },
+        {
+          "source_text": "Profile:",
+          "box_px": [
+            1068,
+            429,
+            50,
+            19
+          ]
+        },
+        {
+          "source_text": "Analog Stereo Duplex",
+          "box_px": [
+            1128,
+            429,
+            147,
+            19
+          ]
+        },
+        {
+          "source_text": "EasyEffects Source",
+          "box_px": [
+            325,
+            525,
+            132,
+            20
+          ]
+        },
+        {
+          "source_text": "Balance",
+          "box_px": [
+            1250,
+            525,
+            60,
+            20
+          ]
+        },
+        {
+          "source_text": "Inactive Cards",
+          "box_px": [
+            294,
+            614,
+            102,
+            20
+          ]
+        },
+        {
+          "source_text": "Raven/Raven2/Fenghuang HDMI/DP Audio Controller",
+          "box_px": [
+            333,
+            660,
+            356,
+            21
+          ]
+        },
+        {
+          "source_text": "Profile:",
+          "box_px": [
+            1077,
+            660,
+            50,
+            19
+          ]
+        },
+        {
+          "source_text": "Off",
+          "box_px": [
+            1135,
+            660,
+            27,
+            19
+          ]
+        },
+        {
+          "source_text": "Playback Streams",
+          "box_px": [
+            294,
+            704,
+            124,
+            20
+          ]
+        },
+        {
+          "source_text": "Notification Sounds",
+          "box_px": [
+            352,
+            729,
+            132,
+            21
+          ]
+        }
       ]
     },
     {
@@ -392,8 +1200,24 @@
       "image": "images/localization/04-vlc-korean.png",
       "target_language": "Vietnamese",
       "regions": [
-        { "source_text": "VLC 미디어 재생기", "box_px": [344, 4, 132, 23] },
-        { "source_text": "미디어(M) 재생(L) 오디오(A) 비디오(V) 자막(T) 도구(O) 보기(I) 도움말(H)", "box_px": [10, 29, 486, 23] }
+        {
+          "source_text": "VLC 미디어 재생기",
+          "box_px": [
+            344,
+            4,
+            132,
+            23
+          ]
+        },
+        {
+          "source_text": "미디어(M) 재생(L) 오디오(A) 비디오(V) 자막(T) 도구(O) 보기(I) 도움말(H)",
+          "box_px": [
+            10,
+            29,
+            486,
+            23
+          ]
+        }
       ]
     },
     {
@@ -402,16 +1226,96 @@
       "image": "images/localization/05-mobile-wikipedia-japanese.png",
       "target_language": "Vietnamese",
       "regions": [
-        { "source_text": "最終編集: 9 時間前、Highcollar", "box_px": [103, 211, 373, 32] },
-        { "source_text": "関連ページ", "box_px": [32, 353, 145, 33] },
-        { "source_text": "ほぼ日刊イトイ新聞", "box_px": [214, 462, 297, 39] },
-        { "source_text": "MOTHERシリーズ", "box_px": [214, 602, 267, 40] },
-        { "source_text": "任天堂のコンピュータゲームシ...", "box_px": [214, 647, 365, 35] },
-        { "source_text": "宮本茂", "box_px": [214, 764, 121, 40] },
-        { "source_text": "日本のゲームクリエイター", "box_px": [214, 807, 319, 36] },
-        { "source_text": "Wikipedia®", "box_px": [31, 969, 172, 39] },
-        { "source_text": "コンテンツは、特に記載されていない限", "box_px": [32, 1048, 504, 36] },
-        { "source_text": "り、CC BY-SA 3.0のもとで利用可能です。", "box_px": [31, 1086, 557, 39] }
+        {
+          "source_text": "最終編集: 9 時間前、Highcollar",
+          "box_px": [
+            103,
+            211,
+            373,
+            32
+          ]
+        },
+        {
+          "source_text": "関連ページ",
+          "box_px": [
+            32,
+            353,
+            145,
+            33
+          ]
+        },
+        {
+          "source_text": "ほぼ日刊イトイ新聞",
+          "box_px": [
+            214,
+            462,
+            297,
+            39
+          ]
+        },
+        {
+          "source_text": "MOTHERシリーズ",
+          "box_px": [
+            214,
+            602,
+            267,
+            40
+          ]
+        },
+        {
+          "source_text": "任天堂のコンピュータゲームシ...",
+          "box_px": [
+            214,
+            647,
+            365,
+            35
+          ]
+        },
+        {
+          "source_text": "宮本茂",
+          "box_px": [
+            214,
+            764,
+            121,
+            40
+          ]
+        },
+        {
+          "source_text": "日本のゲームクリエイター",
+          "box_px": [
+            214,
+            807,
+            319,
+            36
+          ]
+        },
+        {
+          "source_text": "Wikipedia®",
+          "box_px": [
+            31,
+            969,
+            172,
+            39
+          ]
+        },
+        {
+          "source_text": "コンテンツは、特に記載されていない限",
+          "box_px": [
+            32,
+            1048,
+            504,
+            36
+          ]
+        },
+        {
+          "source_text": "り、CC BY-SA 3.0のもとで利用可能です。",
+          "box_px": [
+            31,
+            1086,
+            557,
+            39
+          ]
+        }
       ]
     },
     {
@@ -420,22 +1324,150 @@
       "image": "images/localization/06-firefox-arabic.png",
       "target_language": "Vietnamese",
       "regions": [
-        { "source_text": "فيرفكس", "box_px": [1497, 278, 96, 41] },
-        { "source_text": "المحتويات", "box_px": [1768, 337, 83, 26] },
-        { "source_text": "المقدمة", "box_px": [1785, 385, 70, 25] },
-        { "source_text": "التاريخ", "box_px": [1799, 427, 53, 25] },
-        { "source_text": "المميزات", "box_px": [1783, 464, 72, 25] },
-        { "source_text": "المعايير", "box_px": [1784, 501, 71, 25] },
-        { "source_text": "اللغات", "box_px": [1791, 538, 63, 25] },
-        { "source_text": "التسمية", "box_px": [1785, 575, 70, 25] },
-        { "source_text": "ميزات المتصفح", "box_px": [1724, 612, 131, 29] },
-        { "source_text": "النقد", "box_px": [1807, 649, 48, 25] },
-        { "source_text": "وقت البدء", "box_px": [1779, 686, 76, 25] },
-        { "source_text": "استخدام الذاكرة", "box_px": [1748, 723, 107, 25] },
-        { "source_text": "تنسيق صفحات الويب", "box_px": [1718, 760, 137, 26] },
-        { "source_text": "دعم تحميل الويندوز", "box_px": [1706, 797, 149, 27] },
-        { "source_text": "آراء المنافسين", "box_px": [1747, 834, 108, 26] },
-        { "source_text": "تاريخ الإصدارات", "box_px": [1734, 871, 121, 26] }
+        {
+          "source_text": "فيرفكس",
+          "box_px": [
+            1497,
+            278,
+            96,
+            41
+          ]
+        },
+        {
+          "source_text": "المحتويات",
+          "box_px": [
+            1768,
+            337,
+            83,
+            26
+          ]
+        },
+        {
+          "source_text": "المقدمة",
+          "box_px": [
+            1785,
+            385,
+            70,
+            25
+          ]
+        },
+        {
+          "source_text": "التاريخ",
+          "box_px": [
+            1799,
+            427,
+            53,
+            25
+          ]
+        },
+        {
+          "source_text": "المميزات",
+          "box_px": [
+            1783,
+            464,
+            72,
+            25
+          ]
+        },
+        {
+          "source_text": "المعايير",
+          "box_px": [
+            1784,
+            501,
+            71,
+            25
+          ]
+        },
+        {
+          "source_text": "اللغات",
+          "box_px": [
+            1791,
+            538,
+            63,
+            25
+          ]
+        },
+        {
+          "source_text": "التسمية",
+          "box_px": [
+            1785,
+            575,
+            70,
+            25
+          ]
+        },
+        {
+          "source_text": "ميزات المتصفح",
+          "box_px": [
+            1724,
+            612,
+            131,
+            29
+          ]
+        },
+        {
+          "source_text": "النقد",
+          "box_px": [
+            1807,
+            649,
+            48,
+            25
+          ]
+        },
+        {
+          "source_text": "وقت البدء",
+          "box_px": [
+            1779,
+            686,
+            76,
+            25
+          ]
+        },
+        {
+          "source_text": "استخدام الذاكرة",
+          "box_px": [
+            1748,
+            723,
+            107,
+            25
+          ]
+        },
+        {
+          "source_text": "تنسيق صفحات الويب",
+          "box_px": [
+            1718,
+            760,
+            137,
+            26
+          ]
+        },
+        {
+          "source_text": "دعم تحميل الويندوز",
+          "box_px": [
+            1706,
+            797,
+            149,
+            27
+          ]
+        },
+        {
+          "source_text": "آراء المنافسين",
+          "box_px": [
+            1747,
+            834,
+            108,
+            26
+          ]
+        },
+        {
+          "source_text": "تاريخ الإصدارات",
+          "box_px": [
+            1734,
+            871,
+            121,
+            26
+          ]
+        }
       ]
     }
   ]
