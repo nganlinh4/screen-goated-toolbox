@@ -219,19 +219,8 @@ unsafe extern "system" fn window_proc(
                 super::activation::restore_nonactivating_style(hwnd);
                 DefWindowProcW(hwnd, message, wparam, lparam)
             }
-            WM_MOUSEMOVE if handle_button_drag_move() => LRESULT(0),
-            WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP
-                if super::button_input::has_active_drag() =>
-            {
-                finish_button_drag(hwnd);
-                LRESULT(0)
-            }
-            WM_CAPTURECHANGED | WM_CANCELMODE if super::button_input::has_active_drag() => {
-                recover_button_drag(hwnd);
-                LRESULT(0)
-            }
             WM_TIMER if wparam.0 == INPUT_TIMER_ID => {
-                poll_compositor_cursor(hwnd);
+                poll_compositor_cursor();
                 LRESULT(0)
             }
             WM_CLOSE => {
@@ -487,36 +476,8 @@ fn apply_scene_state(command: &HostCommand) {
     }
 }
 
-fn finish_button_drag(hwnd: HWND) {
-    if let Some((event, offset)) = unsafe { super::button_input::finish_drag() } {
-        finish_button_drag_preview(offset);
-        emit_event(event);
-        super::region::update(hwnd, true);
-    }
-}
-
-fn recover_button_drag(hwnd: HWND) {
-    if let Some((event, offset)) = unsafe { super::button_input::recover_stale_drag(hwnd) } {
-        finish_button_drag_preview(offset);
-        emit_event(event);
-        super::region::update(hwnd, true);
-    }
-}
-
-fn handle_button_drag_move() -> bool {
-    match unsafe { super::button_input::handle_mouse_move() } {
-        None => false,
-        Some(None) => true,
-        Some(Some((x, y))) => {
-            evaluate_script(&format!("window.previewResultDrag?.({x},{y});"));
-            true
-        }
-    }
-}
-
-fn poll_compositor_cursor(hwnd: HWND) {
+fn poll_compositor_cursor() {
     if super::button_input::is_dragging() {
-        recover_button_drag(hwnd);
         return;
     }
     let mut cursor = windows::Win32::Foundation::POINT::default();
@@ -531,12 +492,6 @@ fn poll_compositor_cursor(hwnd: HWND) {
         cursor.y - virtual_y
     );
     evaluate_script(&script);
-}
-
-fn finish_button_drag_preview((x, y): (i32, i32)) {
-    evaluate_script(&format!(
-        "window.previewResultDrag?.({x},{y});window.finishResultDragPreview?.();window.setResultDraggingCursor?.(false);window.__SGT_BUTTON_SCENE__?.setDragActive(false);"
-    ));
 }
 
 fn evaluate_script(script: &str) {

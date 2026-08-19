@@ -2,14 +2,10 @@ use super::protocol::{ButtonAction, ChildEvent, DragOutcome, SceneCard, SceneRec
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
-use std::time::{Duration, Instant};
-use windows::Win32::Foundation::{HWND, POINT, RECT};
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetCapture, ReleaseCapture, SetCapture, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
-};
+use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetCursorPos, GetWindowRect, IsWindow,
-    SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+    BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetWindowRect, SWP_NOACTIVATE,
+    SWP_NOSIZE, SWP_NOZORDER,
 };
 
 #[derive(Debug, PartialEq)]
@@ -31,8 +27,6 @@ enum DragMode {
 struct ActiveDrag {
     id: isize,
     targets: Vec<isize>,
-    start: POINT,
-    last_preview_at: Instant,
     click_outcome: DragOutcome,
 }
 
@@ -85,9 +79,10 @@ pub(super) fn handle_renderer_message(
             super::activation::focus_renderer(host);
             RendererInput::RefreshRegion
         }
-        "result_drag_start" => begin_drag(host, id, DragMode::One, cards),
-        "result_group_drag_start" => begin_drag(host, id, DragMode::Group, cards),
-        "result_all_drag_start" => begin_drag(host, id, DragMode::All, cards),
+        "result_drag_start" => begin_drag(id, DragMode::One, cards),
+        "result_group_drag_start" => begin_drag(id, DragMode::Group, cards),
+        "result_all_drag_start" => begin_drag(id, DragMode::All, cards),
+        "result_drag_finish" => finish_drag_from_message(&message),
         _ => button_action(id, action, &message)
             .map(RendererInput::Event)
             .unwrap_or(RendererInput::RefreshRegion),
@@ -160,12 +155,7 @@ fn update_regions(message: &serde_json::Value) {
     *BUTTON_REGIONS.lock().unwrap() = regions;
 }
 
-fn begin_drag(
-    host: HWND,
-    id: isize,
-    mode: DragMode,
-    cards: &HashMap<isize, SceneCard>,
-) -> RendererInput {
+fn begin_drag(id: isize, mode: DragMode, cards: &HashMap<isize, SceneCard>) -> RendererInput {
     let Some(card) = cards.get(&id) else {
         return RendererInput::RefreshRegion;
     };
@@ -182,21 +172,12 @@ fn begin_drag(
         DragMode::Group => DragOutcome::CloseGroup,
         DragMode::All => DragOutcome::CloseAll,
     };
-    let mut cursor = POINT::default();
-    if unsafe { GetCursorPos(&mut cursor) }.is_err() {
-        return RendererInput::RefreshRegion;
-    }
     *ACTIVE_DRAG.lock().unwrap() = Some(ActiveDrag {
         id,
         targets,
-        start: cursor,
-        last_preview_at: Instant::now(),
         click_outcome,
     });
     BUTTON_REGIONS.lock().unwrap().clear();
-    unsafe {
-        let _ = SetCapture(host);
-    }
     RendererInput::EventAndRefresh(ChildEvent::DragStarted)
 }
 
@@ -217,25 +198,6 @@ pub(super) fn set_external_drag(active: bool) {
 
 pub(super) fn is_dragging() -> bool {
     EXTERNAL_DRAG.load(Ordering::SeqCst) || ACTIVE_DRAG.lock().unwrap().is_some()
-}
-
-pub(super) fn has_active_drag() -> bool {
-    ACTIVE_DRAG.lock().unwrap().is_some()
-}
-
-pub(super) unsafe fn handle_mouse_move() -> Option<Option<(i32, i32)>> {
-    let mut active = ACTIVE_DRAG.lock().unwrap();
-    let drag = active.as_mut()?;
-    let now = Instant::now();
-    if now.duration_since(drag.last_preview_at) < Duration::from_millis(8) {
-        return Some(None);
-    }
-    let mut cursor = POINT::default();
-    if unsafe { GetCursorPos(&mut cursor) }.is_err() {
-        return Some(None);
-    }
-    drag.last_preview_at = now;
-    Some(Some((cursor.x - drag.start.x, cursor.y - drag.start.y)))
 }
 
 unsafe fn move_targets(targets: &[isize], dx: i32, dy: i32) {
@@ -265,53 +227,42 @@ unsafe fn move_targets(targets: &[isize], dx: i32, dy: i32) {
     }
 }
 
-pub(super) unsafe fn finish_drag() -> Option<(ChildEvent, (i32, i32))> {
+fn finish_drag_with_offset(dx: i32, dy: i32) -> Option<ChildEvent> {
     let drag = ACTIVE_DRAG.lock().unwrap().take()?;
-    unsafe {
-        let _ = ReleaseCapture();
-    }
-    let mut cursor = POINT::default();
-    let _ = unsafe { GetCursorPos(&mut cursor) };
-    let dx = cursor.x - drag.start.x;
-    let dy = cursor.y - drag.start.y;
     let outcome = if dx.saturating_mul(dx) + dy.saturating_mul(dy) < 25 {
         drag.click_outcome
     } else {
         unsafe { move_targets(&drag.targets, dx, dy) };
         DragOutcome::Moved
     };
-    Some((
-        ChildEvent::DragFinished {
-            id: drag.id,
-            targets: drag.targets,
-            outcome,
-        },
-        (dx, dy),
-    ))
+    Some(ChildEvent::DragFinished {
+        id: drag.id,
+        targets: drag.targets,
+        outcome,
+    })
 }
 
-pub(super) unsafe fn recover_stale_drag(host: HWND) -> Option<(ChildEvent, (i32, i32))> {
-    let active = ACTIVE_DRAG.lock().unwrap();
-    let drag = active.as_ref()?;
-    let target = HWND(drag.id as *mut std::ffi::c_void);
-    let valid = unsafe { IsWindow(Some(target)).as_bool() };
-    let captured = unsafe { GetCapture() == host };
-    let button_down = unsafe {
-        GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0
-            || GetAsyncKeyState(VK_RBUTTON.0 as i32) < 0
-            || GetAsyncKeyState(VK_MBUTTON.0 as i32) < 0
+fn finish_drag_from_message(message: &serde_json::Value) -> RendererInput {
+    let (dx, dy) = drag_offset(message);
+    finish_drag_with_offset(dx, dy)
+        .map(RendererInput::EventAndRefresh)
+        .unwrap_or(RendererInput::RefreshRegion)
+}
+
+fn drag_offset(message: &serde_json::Value) -> (i32, i32) {
+    let coordinate = |name| {
+        message
+            .get(name)
+            .and_then(|value| value.as_i64())
+            .unwrap_or_default()
+            .clamp(i32::MIN as i64, i32::MAX as i64) as i32
     };
-    drop(active);
-    if valid && captured && button_down {
-        None
-    } else {
-        unsafe { finish_drag() }
-    }
+    (coordinate("dx"), coordinate("dy"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{button_action, interactive_regions, update_regions};
+    use super::{button_action, drag_offset, interactive_regions, update_regions};
     use crate::overlay::result::scene_compositor::protocol::{ButtonAction, ChildEvent, SceneRect};
 
     #[test]
@@ -331,6 +282,19 @@ mod tests {
     fn selection_copy_is_not_a_parent_button_action() {
         let message = serde_json::json!({ "text": "selected result" });
         assert!(button_action(42, "copy_selection", &message).is_none());
+    }
+
+    #[test]
+    fn compositor_drag_offset_is_physical_and_bounded() {
+        assert_eq!(
+            drag_offset(&serde_json::json!({ "dx": -720, "dy": 480 })),
+            (-720, 480)
+        );
+        assert_eq!(
+            drag_offset(&serde_json::json!({ "dx": i64::MAX, "dy": i64::MIN })),
+            (i32::MAX, i32::MIN)
+        );
+        assert_eq!(drag_offset(&serde_json::json!({})), (0, 0));
     }
 
     #[test]
