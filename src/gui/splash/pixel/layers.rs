@@ -7,10 +7,9 @@ use super::super::math::Vec3;
 use super::super::scene::{Cloud, MoonFeature, Voxel};
 use super::super::{ANIMATION_DURATION, C_WHITE, DrawListEntry};
 use super::raster::{
-    bayer4, blend, disc, fill_disc, fill_disc_clip, glow, hash2, lerp3, mul3, put, rgb, smooth,
-    to_col,
+    bayer4, disc, fill_disc, fill_disc_clip, glow, hash2, lerp3, mul3, put, rgb, smooth, to_col,
 };
-use super::{Frame, VoxelDraw};
+use super::{Frame, Rgb, VoxelDraw};
 use crate::WINDOW_WIDTH;
 use eframe::egui::{Color32, Pos2, Vec2};
 use std::cell::RefCell;
@@ -429,48 +428,105 @@ pub(super) fn paint_vignette(buf: &mut [Color32], f: &Frame) {
 
 // --- THEME BUTTON (pixel sun/moon, top-left, drawn into the FB) -------------
 
-pub(super) fn paint_theme_button(buf: &mut [Color32], f: &Frame) {
-    let s = f.s;
-    let cx = 32.0 * s;
-    let cy = 30.0 * s;
-    let r = 13.0 * s;
-    // Subtle chip backing.
-    fill_disc(buf, f, (cx, cy), 17.0 * s, (8.0, 8.0, 14.0), 0.35);
-    if f.is_dark {
-        // Sun (click -> switch to light): disc + 8 rays.
-        fill_disc(buf, f, (cx, cy), r, (255.0, 210.0, 80.0), 0.95);
-        for k in 0..8 {
-            let a = k as f32 / 8.0 * std::f32::consts::TAU;
-            put(
-                buf,
-                f.w,
-                f.h,
-                cx + a.cos() * r * 1.7,
-                cy + a.sin() * r * 1.7,
-                (255.0, 220.0, 110.0),
-                0.9,
-            );
-        }
-    } else {
-        // Moon (click -> switch to dark): a TRUE crescent — paint only the lit
-        // pixels (moon disc minus an offset disc), so there's no black overlay.
-        let mcx = cx + r * 0.55;
-        let mcy = cy - r * 0.2;
-        let mr = r * 0.95;
-        let x0 = (cx - r).floor().max(0.0) as usize;
-        let x1 = ((cx + r).ceil().max(0.0) as usize).min(f.w);
-        let y0 = (cy - r).floor().max(0.0) as usize;
-        let y1 = ((cy + r).ceil().max(0.0) as usize).min(f.h);
-        for yy in y0..y1 {
-            for xx in x0..x1 {
-                let pxc = xx as f32 + 0.5;
-                let pyc = yy as f32 + 0.5;
-                let in_moon = (pxc - cx).powi(2) + (pyc - cy).powi(2) <= r * r;
-                let in_carve = (pxc - mcx).powi(2) + (pyc - mcy).powi(2) <= mr * mr;
-                if in_moon && !in_carve {
-                    blend(buf, f.w, xx, yy, (235.0, 240.0, 255.0), 0.95);
+/// The theme toggle is drawn from sprites rather than rasterised circles.
+///
+/// A circle filled by distance test lands on whatever pixels the radius and
+/// sub-pixel centre happen to cover, so its edge steps unevenly and shifts with
+/// the scale factor — and single-pixel rays around it read as loose specks. A
+/// fixed grid blitted as square blocks is symmetric by construction and stays
+/// crisp at any size, the same way the splash font keeps its glyph cells on the
+/// scene grid.
+const THEME_SPRITE: usize = 15;
+
+/// Flat single-ink art: no rim, no gradient, no highlight. Shading at 15px only
+/// muddies the silhouette, and the disc reads better as one solid shape.
+///
+/// The moon carries sparkles because the sun's rays make it the wider mark;
+/// without them the crescent — barely half a disc of ink — looks like a smaller
+/// icon in the same slot rather than its counterpart.
+const SUN_SPRITE: [&str; THEME_SPRITE] = [
+    ".......#.......",
+    ".......#.......",
+    "..#.........#..",
+    ".....#####.....",
+    "....#######....",
+    "...#########...",
+    "...#########...",
+    "##.#########.##",
+    "...#########...",
+    "...#########...",
+    "....#######....",
+    ".....#####.....",
+    "..#.........#..",
+    ".......#.......",
+    ".......#.......",
+];
+
+const MOON_SPRITE: [&str; THEME_SPRITE] = [
+    "...............",
+    "...............",
+    ".....####......",
+    "....####....#..",
+    "...####....###.",
+    "..####......#..",
+    "..####.........",
+    "..####.........",
+    "..####.......#.",
+    "..####.....#...",
+    "...####...###..",
+    "....####...#...",
+    ".....####......",
+    "...............",
+    "...............",
+];
+
+/// Paints one sprite as `cell`-sized blocks, snapped to whole framebuffer
+/// pixels so no block straddles a pixel boundary.
+fn blit_sprite(
+    buf: &mut [Color32],
+    f: &Frame,
+    sprite: &[&str; THEME_SPRITE],
+    centre: (f32, f32),
+    cell: f32,
+    col: Rgb,
+    alpha: f32,
+) {
+    let cell = cell.max(1.0).round();
+    let span = cell * THEME_SPRITE as f32;
+    let ox = (centre.0 - span * 0.5).round();
+    let oy = (centre.1 - span * 0.5).round();
+
+    for (row, line) in sprite.iter().enumerate() {
+        for (col_idx, glyph) in line.bytes().enumerate() {
+            if glyph != b'#' {
+                continue;
+            }
+            let x0 = ox + col_idx as f32 * cell;
+            let y0 = oy + row as f32 * cell;
+            for dy in 0..cell as usize {
+                for dx in 0..cell as usize {
+                    put(buf, f.w, f.h, x0 + dx as f32, y0 + dy as f32, col, alpha);
                 }
             }
         }
     }
+}
+
+pub(super) fn paint_theme_button(buf: &mut [Color32], f: &Frame) {
+    let s = f.s;
+    let cx = 32.0 * s;
+    let cy = 30.0 * s;
+    // Subtle chip backing.
+    fill_disc(buf, f, (cx, cy), 17.0 * s, (8.0, 8.0, 14.0), 0.35);
+
+    // One art pixel per ~2.6 logical pixels keeps the disc the size it was.
+    let cell = (2.6 * s).round().max(1.0);
+    let (sprite, ink) = if f.is_dark {
+        // Sun: click to switch to light.
+        (&SUN_SPRITE, (250.0, 196.0, 60.0))
+    } else {
+        // Moon: click to switch to dark.
+        (&MOON_SPRITE, (226.0, 234.0, 252.0))
+    };
+    blit_sprite(buf, f, sprite, (cx, cy), cell, ink, 0.98);
 }
