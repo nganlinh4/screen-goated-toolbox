@@ -14,7 +14,7 @@ pub(super) fn tool_card_frame(theme: &AppTheme) -> Frame {
         .fill(theme.card_bg())
         .stroke(theme.card_stroke())
         .corner_radius(CornerRadius::same(10))
-        .inner_margin(Margin::same(10))
+        .inner_margin(Margin::same(crate::gui::theme::space::EDGE))
 }
 
 /// Render a tool card with the themed container, deriving the theme from `ui`.

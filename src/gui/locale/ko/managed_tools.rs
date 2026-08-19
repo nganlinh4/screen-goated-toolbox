@@ -2,7 +2,7 @@ use crate::gui::locale::ManagedToolsLocaleText;
 
 pub(super) fn get() -> ManagedToolsLocaleText {
     ManagedToolsLocaleText {
-        downloaded_tools_button: "다운로드된 도구",
+        downloaded_tools_button: "도구",
         downloaded_tools_title: "다운로드된 도구 관리",
         downloaded_tools_clean_all: "다운로드된 도구 모두 정리",
         downloaded_tools_clean_confirm_title: "다운로드된 도구를 모두 제거할까요?",

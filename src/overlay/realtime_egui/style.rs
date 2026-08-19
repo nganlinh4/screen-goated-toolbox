@@ -49,7 +49,10 @@ impl RealtimeEguiTheme {
 
 pub(super) fn card_frame(theme: &RealtimeEguiTheme) -> egui::Frame {
     egui::Frame::new()
-        .inner_margin(egui::Margin::symmetric(10, 8))
+        .inner_margin(egui::Margin::symmetric(
+            crate::gui::theme::space::EDGE,
+            crate::gui::theme::space::GAP,
+        ))
         .corner_radius(egui::CornerRadius::same(10))
         .fill(theme.surface)
         .stroke(egui::Stroke::new(1.0, theme.border.gamma_multiply(0.55)))
@@ -57,7 +60,7 @@ pub(super) fn card_frame(theme: &RealtimeEguiTheme) -> egui::Frame {
 
 pub(super) fn pill_frame(theme: &RealtimeEguiTheme) -> egui::Frame {
     egui::Frame::new()
-        .inner_margin(egui::Margin::same(3))
+        .inner_margin(egui::Margin::same(crate::gui::theme::space::TIGHT))
         .corner_radius(egui::CornerRadius::same(14))
         .fill(theme.control)
         .stroke(egui::Stroke::new(1.0, theme.border.gamma_multiply(0.45)))
@@ -132,7 +135,10 @@ pub(super) fn split_panel_frame(
     add_contents: impl FnOnce(&mut egui::Ui),
 ) {
     let frame = egui::Frame::new()
-        .inner_margin(egui::Margin::symmetric(8, 7))
+        .inner_margin(egui::Margin::symmetric(
+            crate::gui::theme::space::GAP,
+            crate::gui::theme::space::SNUG,
+        ))
         .corner_radius(egui::CornerRadius::same(10))
         .fill(theme.surface.gamma_multiply(0.78))
         .stroke(egui::Stroke::new(1.0, theme.border.gamma_multiply(0.3)));

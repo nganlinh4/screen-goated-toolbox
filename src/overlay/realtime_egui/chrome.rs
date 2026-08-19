@@ -82,7 +82,10 @@ pub(super) fn render_translation_header(
 
 fn panel_header_frame(theme: &RealtimeEguiTheme) -> egui::Frame {
     egui::Frame::new()
-        .inner_margin(egui::Margin::symmetric(6, 5))
+        .inner_margin(egui::Margin::symmetric(
+            crate::gui::theme::space::SNUG,
+            crate::gui::theme::space::TIGHT,
+        ))
         .corner_radius(egui::CornerRadius::same(8))
         .fill(theme.header)
         .stroke(egui::Stroke::new(1.0, theme.border.gamma_multiply(0.45)))
@@ -94,7 +97,7 @@ pub(super) fn render_device_warning(
     locale: &crate::gui::locale::LocaleText,
 ) {
     egui::Frame::new()
-        .inner_margin(egui::Margin::symmetric(10, 5))
+        .inner_margin(egui::Margin::symmetric(crate::gui::theme::space::EDGE, crate::gui::theme::space::TIGHT))
         .corner_radius(egui::CornerRadius::same(8))
         .fill(theme.warning.gamma_multiply(0.12))
         .stroke(egui::Stroke::new(1.0, theme.warning.gamma_multiply(0.45)))

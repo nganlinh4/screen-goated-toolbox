@@ -2,7 +2,7 @@ use crate::gui::locale::ManagedToolsLocaleText;
 
 pub(super) fn get() -> ManagedToolsLocaleText {
     ManagedToolsLocaleText {
-        downloaded_tools_button: "Downloaded Tools",
+        downloaded_tools_button: "Tools",
         downloaded_tools_title: "Downloaded Tools Manager",
         downloaded_tools_clean_all: "Clean All Downloaded Tools",
         downloaded_tools_clean_confirm_title: "Remove all downloaded tools?",

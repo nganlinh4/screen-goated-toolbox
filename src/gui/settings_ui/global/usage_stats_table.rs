@@ -3,7 +3,10 @@ use crate::gui::theme::{AppTheme, blend};
 use eframe::egui;
 
 pub(super) const CELL_GAP: f32 = 6.0;
-pub(super) const WIDE_STATUS_COLUMN_WIDTH: f32 = 190.0;
+/// Quota / live-usage lane. Sized to the longest status string
+/// ("14400 lượt/ngày") rather than to a round number, so every spare pixel goes
+/// to the model id lane next to it.
+pub(super) const WIDE_STATUS_COLUMN_WIDTH: f32 = 104.0;
 pub(super) const WIDE_NAME_COLUMN_WIDTH: f32 = 118.0;
 pub(super) const PROVIDER_NAME_COLUMN_WIDTH: f32 = 110.0;
 
@@ -102,7 +105,10 @@ pub(super) fn render_status_strip(
     egui::Frame::new()
         .fill(blend(theme.dialog_surface(), accent, 0.08))
         .corner_radius(egui::CornerRadius::same(4))
-        .inner_margin(egui::Margin::symmetric(4, 2))
+        .inner_margin(egui::Margin::symmetric(
+            crate::gui::theme::space::TIGHT,
+            crate::gui::theme::space::HAIR,
+        ))
         .show(ui, |ui| {
             let row_width = ui.available_width();
             let columns = endpoint_columns(row_width);
@@ -118,29 +124,25 @@ pub(super) fn render_status_strip(
                 label_rect,
                 egui::Layout::left_to_right(egui::Align::Center),
             );
-            label_ui
-                .add(
-                    egui::Label::new(egui::RichText::new(label).size(9.5).strong().color(accent))
-                        .truncate(),
-                )
-                .on_hover_text(label);
+            label_ui.add(
+                egui::Label::new(egui::RichText::new(label).size(9.5).strong().color(accent))
+                    .truncate(),
+            );
 
             let mut status_ui = cell_ui(
                 ui,
                 rects.status,
-                egui::Layout::left_to_right(egui::Align::Center),
+                egui::Layout::right_to_left(egui::Align::Center),
             );
-            status_ui
-                .add(
-                    egui::Label::new(
-                        egui::RichText::new(&status)
-                            .monospace()
-                            .size(status_font_size)
-                            .color(accent),
-                    )
-                    .truncate(),
+            status_ui.add(
+                egui::Label::new(
+                    egui::RichText::new(&status)
+                        .monospace()
+                        .size(status_font_size)
+                        .color(accent),
                 )
-                .on_hover_text(status);
+                .truncate(),
+            );
         });
 }
 

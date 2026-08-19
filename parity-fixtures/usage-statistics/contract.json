@@ -65,9 +65,9 @@
   "presentation": {
     "desktop_preferred_columns": 2,
     "desktop_minimum_wide_width": 900,
-    "desktop_maximum_dialog_width": 1170,
+    "desktop_maximum_dialog_width": 1000,
     "desktop_maximum_body_height": 570,
-    "desktop_wide_status_column_width": 190,
+    "desktop_wide_status_column_width": 104,
     "desktop_localized_name_column_width": 118,
     "desktop_provider_name_column_width": 110,
     "provider_endpoint_count_visibility": "hidden",

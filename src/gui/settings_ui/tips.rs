@@ -152,7 +152,7 @@ fn render_rail_layout(
         egui::Frame::new()
             .fill(blend(theme.dialog_surface(), theme.neutral_fill(), 0.34))
             .corner_radius(egui::CornerRadius::same(12))
-            .inner_margin(egui::Margin::same(8))
+            .inner_margin(egui::Margin::same(crate::gui::theme::space::GAP))
             .show(ui, |ui| {
                 ui.set_width(RAIL_WIDTH);
                 ui.set_height(body_height);

@@ -6,7 +6,13 @@ const INTER_COLUMN_GAP: f32 = 2.0;
 const LATENCY_COLUMN_WIDTH: f32 = 32.0;
 pub(crate) const PREFIX_WIDTH: f32 =
     INTELLIGENCE_COLUMN_WIDTH + INTER_COLUMN_GAP + LATENCY_COLUMN_WIDTH;
-const PREFIX_HEIGHT: f32 = 18.0;
+/// Matches the design system's control height so the prefix fills its row.
+///
+/// `allocate_ui_with_layout` places its box at the cursor, i.e. top-aligned, so
+/// a box shorter than the row lifts everything inside it by half the
+/// difference. Sizing it to the row height keeps the latency figure on the
+/// same baseline as the rest of the row.
+const PREFIX_HEIGHT: f32 = crate::gui::theme::CONTROL_HEIGHT;
 
 pub fn format_latency_ms(milliseconds: Option<u32>) -> String {
     let Some(milliseconds) = milliseconds else {

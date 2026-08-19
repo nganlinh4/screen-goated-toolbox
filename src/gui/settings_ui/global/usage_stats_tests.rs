@@ -86,12 +86,15 @@ fn normal_settings_window_uses_the_shared_wide_dashboard_contract() {
             .as_u64()
             .unwrap() as usize
     );
-    assert_eq!(
-        layout.width,
-        fixture["presentation"]["desktop_maximum_dialog_width"]
-            .as_f64()
-            .unwrap() as f32
-    );
+    // The cap is a cap, not the width at the smallest window: at
+    // MIN_WINDOW_WIDTH the dialog is narrower than it, and it must still clear
+    // the window edges.
+    let cap = fixture["presentation"]["desktop_maximum_dialog_width"]
+        .as_f64()
+        .unwrap() as f32;
+    assert_eq!(usage_dialog_layout(egui::vec2(4_096.0, 1_000.0)).width, cap);
+    assert!(layout.width <= cap);
+    assert!(layout.width < crate::MIN_WINDOW_WIDTH);
     assert_eq!(
         usage_dialog_layout(egui::vec2(crate::MIN_WINDOW_WIDTH, 1_000.0)).body_height,
         fixture["presentation"]["desktop_maximum_body_height"]
@@ -200,8 +203,10 @@ fn missing_live_snapshot_shows_only_the_static_quota() {
     let sample = model("sample", "demo", "sample", 100);
     let theme = AppTheme::from_dark(true);
     let text = LocaleText::get("vi");
-    let (label, _) = endpoint_status(None, &sample, false, &text, "vi", &theme);
-    assert_eq!(label, "10 lượt/ngày");
+    let status = endpoint_status(None, &sample, false, &text, "vi", &theme);
+    assert_eq!(status.compact, "10 lượt/ngày");
+    assert!(status.rotation.is_empty());
+    assert!(status.detail.is_none());
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),

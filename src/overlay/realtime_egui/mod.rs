@@ -193,7 +193,10 @@ pub fn render_minimal_overlay(ctx: &egui::Context) {
                 .frame(
                     egui::Frame::new()
                         .fill(panel_fill)
-                        .inner_margin(egui::Margin::symmetric(12, 8))
+                        .inner_margin(egui::Margin::symmetric(
+                            crate::gui::theme::space::CARD,
+                            crate::gui::theme::space::GAP,
+                        ))
                         .stroke(egui::Stroke::new(1.0, border))
                         .corner_radius(egui::CornerRadius::same(12)),
                 )

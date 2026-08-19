@@ -10,6 +10,8 @@ mod custom_models;
 mod donate_section;
 mod downloaded_tools;
 mod model_priority;
+mod models_modal;
+pub use models_modal::ModelsTab;
 mod restore_defaults;
 mod tts_settings;
 mod update_section;
@@ -17,14 +19,12 @@ mod usage_stats;
 
 use crate::gui::settings_ui::download_manager::DownloadManager;
 use api_keys::{ApiKeyCardStyle, ApiKeyVisibility, render_api_keys_card};
-use custom_models::render_custom_models_modal;
 use donate_section::render_donate_section_content;
 use downloaded_tools::render_downloaded_tools_modal;
-use model_priority::render_model_priority_modal;
+use models_modal::{ModelsHubState, ProviderEnabled, render_models_modal};
 use restore_defaults::render_restore_defaults_modal;
 use tts_settings::render_tts_settings_modal;
 use update_section::render_update_section_content;
-use usage_stats::render_usage_modal;
 
 #[expect(
     clippy::too_many_arguments,
@@ -43,12 +43,10 @@ pub fn render_global_settings(
     auto_launcher: &Option<AutoLaunch>,
     current_admin_state: bool,
     text: &LocaleText,
-    show_usage_modal: &mut bool,
-
+    show_models_modal: &mut bool,
+    models_tab: &mut ModelsTab,
     show_tts_modal: &mut bool,
     show_tools_modal: &mut bool,
-    show_model_priority_modal: &mut bool,
-    show_custom_models_modal: &mut bool,
     show_restore_defaults_modal: &mut bool,
     download_manager: &mut DownloadManager,
     _cached_audio_devices: &std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
@@ -82,15 +80,15 @@ pub fn render_global_settings(
 
     ui.add_space(10.0);
 
-    // === USAGE STATISTICS & TTS SETTINGS BUTTONS ===
+    // === HUB BUTTONS: Models / Tools / Voice / Help (single row) ===
     let on_btn = theme.on_accent();
 
     ui.horizontal(|ui| {
         if crate::gui::widgets::filled_icon_button(
             ui,
-            Icon::BarChart,
-            text.desktop_settings.usage_statistics_title,
-            theme.btn_stats(),
+            Icon::Priority,
+            text.model_catalog.models_hub_button,
+            theme.btn_priority(),
             on_btn,
             10,
         )
@@ -98,7 +96,23 @@ pub fn render_global_settings(
         .on_hover_text(text.desktop_settings.usage_statistics_tooltip)
         .clicked()
         {
-            *show_usage_modal = true;
+            *show_models_modal = true;
+        }
+
+        ui.add_space(10.0);
+
+        if crate::gui::widgets::filled_icon_button(
+            ui,
+            Icon::Download,
+            text.auxiliary.managed_tools.downloaded_tools_button,
+            theme.btn_tools(),
+            on_btn,
+            10,
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+        {
+            *show_tools_modal = true;
         }
 
         ui.add_space(10.0);
@@ -121,56 +135,6 @@ pub fn render_global_settings(
 
         if crate::gui::widgets::filled_icon_button(
             ui,
-            Icon::Download,
-            text.auxiliary.managed_tools.downloaded_tools_button,
-            theme.btn_tools(),
-            on_btn,
-            10,
-        )
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
-        {
-            *show_tools_modal = true;
-        }
-    });
-
-    ui.add_space(10.0);
-
-    ui.horizontal(|ui| {
-        if crate::gui::widgets::filled_icon_button(
-            ui,
-            Icon::Priority,
-            text.model_catalog.model_priority_button,
-            theme.btn_priority(),
-            on_btn,
-            10,
-        )
-        .clicked()
-        {
-            *show_model_priority_modal = true;
-        }
-
-        ui.add_space(10.0);
-
-        if crate::gui::widgets::filled_icon_button(
-            ui,
-            Icon::Settings,
-            text.model_catalog.custom_models_button,
-            theme.btn_tools(),
-            on_btn,
-            10,
-        )
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
-        {
-            *show_custom_models_modal = true;
-        }
-
-        ui.add_space(10.0);
-
-        // Help assistant — shares the Model Priority row (its teal accent kept).
-        if crate::gui::widgets::filled_icon_button(
-            ui,
             Icon::AutoStories,
             text.shell.help_assistant_btn,
             theme.accent_help(),
@@ -187,19 +151,25 @@ pub fn render_global_settings(
         }
     });
 
-    // === USAGE STATISTICS MODAL ===
-    render_usage_modal(
+    // === MODELS HUB MODAL (priority / usage / custom tabs) ===
+    if render_models_modal(
         ui,
+        config,
         usage_stats,
         text,
-        &config.ui_language,
-        show_usage_modal,
-        config.use_groq,
-        config.use_gemini,
-        config.use_openrouter,
-        config.use_ollama,
-        &config.custom_models,
-    );
+        ProviderEnabled {
+            groq: config.use_groq,
+            gemini: config.use_gemini,
+            openrouter: config.use_openrouter,
+            ollama: config.use_ollama,
+        },
+        ModelsHubState {
+            show_modal: show_models_modal,
+            tab: models_tab,
+        },
+    ) {
+        changed = true;
+    }
 
     // === TOOLS MODAL ===
     let ctx = ui.ctx().clone();
@@ -207,14 +177,6 @@ pub fn render_global_settings(
 
     // === TTS SETTINGS MODAL ===
     if render_tts_settings_modal(ui, config, text, show_tts_modal) {
-        changed = true;
-    }
-
-    if render_model_priority_modal(ui, config, text, show_model_priority_modal) {
-        changed = true;
-    }
-
-    if render_custom_models_modal(ui, config, text, show_custom_models_modal) {
         changed = true;
     }
 

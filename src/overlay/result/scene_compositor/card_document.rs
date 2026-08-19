@@ -47,6 +47,10 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
         .replace("__SGT_GRID_JS_URL__", grid_js_url);
 
     DOCUMENT
+        // Inlined first: the scene runtime carries placeholders of its own
+        // (`__SGT_CARD_CSS_JSON__`, `__SGT_BOX_RADIUS_PX__`), so it has to be
+        // in the document before the substitution pass reaches them.
+        .replace("__SGT_SCENE_RUNTIME__", include_str!("scene_runtime.js"))
         .replace("__SGT_FONT_FACE__", &super::font::face_css("/font.ttf"))
         .replace(
             "__SGT_BUTTON_CSS__",

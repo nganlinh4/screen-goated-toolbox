@@ -2,7 +2,7 @@ use crate::gui::locale::ManagedToolsLocaleText;
 
 pub(super) fn get() -> ManagedToolsLocaleText {
     ManagedToolsLocaleText {
-        downloaded_tools_button: "Công cụ đã tải",
+        downloaded_tools_button: "Công cụ",
         downloaded_tools_title: "Quản lý công cụ đã tải",
         downloaded_tools_clean_all: "Dọn tất cả công cụ đã tải",
         downloaded_tools_clean_confirm_title: "Xoá tất cả công cụ đã tải?",

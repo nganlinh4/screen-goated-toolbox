@@ -16,7 +16,9 @@ use usage_stats_table::{cell_ui, endpoint_columns, provider_header_rects, render
 
 const DIALOG_HORIZONTAL_MARGIN: f32 = 32.0;
 const DIALOG_VERTICAL_RESERVE: f32 = 64.0;
-const DIALOG_MAX_WIDTH: f32 = 1170.0;
+/// Cap for the models hub dialog. Every tab reads comfortably below this and
+/// it keeps the surface clear of the window edges.
+const DIALOG_MAX_WIDTH: f32 = 1000.0;
 const DIALOG_MAX_BODY_HEIGHT: f32 = 570.0;
 const WIDE_DIALOG_MIN_WIDTH: f32 = 900.0;
 const WIDE_COLUMN_COUNT: usize = 2;

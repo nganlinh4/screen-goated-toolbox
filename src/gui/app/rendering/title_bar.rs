@@ -5,8 +5,15 @@
 
 use super::super::types::{DetailPane, SettingsApp};
 use crate::gui::locale::LocaleText;
+use crate::gui::settings_ui::FOOTER_MARGIN;
 use crate::gui::settings_ui::ViewMode;
 use eframe::egui;
+
+/// Inset from the window edge for the bars that top and tail the window.
+///
+/// Shared with the launch bar so both ends of the window sit at one distance
+/// from the frame.
+const BAR_INSET: i8 = FOOTER_MARGIN;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 #[cfg(target_os = "windows")]
@@ -29,20 +36,19 @@ impl SettingsApp {
             .exact_size(40.0)
             .frame(
                 egui::Frame::default()
+                    // Maximized, the window controls run to the very corner so
+                    // they stay reachable by slamming the pointer into it.
+                    // Floating, they clear the 12px rounded corner by one bar
+                    // inset — the same one the launch bar uses at the bottom.
                     .inner_margin(if is_maximized {
                         egui::Margin {
-                            left: 8,
+                            left: BAR_INSET,
                             right: 0,
                             top: 0,
                             bottom: 0,
                         }
                     } else {
-                        egui::Margin {
-                            left: 8,
-                            right: 8,
-                            top: 6,
-                            bottom: 6,
-                        }
+                        egui::Margin::same(BAR_INSET)
                     })
                     .fill(bar_bg)
                     .corner_radius(egui::CornerRadius {
@@ -145,9 +151,9 @@ impl SettingsApp {
     }
 
     fn render_title_bar_left_side(&mut self, ui: &mut egui::Ui, text: &LocaleText) {
-        // Nudge the controls in from the rounded left corner so they breathe.
-        ui.add_space(6.0);
-
+        // No nudge here: the panel's own inset already clears the corner, and
+        // stacking a second one put the first control 14px in while the bar at
+        // the other end of the window sat at 6px.
         // Theme switcher
         let (theme_icon, theme_tip) = match self.config.theme_mode {
             crate::config::ThemeMode::Dark => (crate::gui::icons::Icon::Moon, "Theme: Dark"),

@@ -4,10 +4,23 @@ use crate::gui::theme::AppTheme;
 use crate::gui::widgets::compact_filled_icon_button;
 use eframe::egui;
 
-pub(crate) const FOOTER_HORIZONTAL_MARGIN: i8 = 10;
+/// Inset from the window edge on every side of the launch bar.
+///
+/// One value for all four sides on purpose: the bar sits in the window's
+/// bottom corners, where an inset that differs between the side and the bottom
+/// is the first thing the eye picks up. It is tighter than
+/// [`crate::gui::theme::space::EDGE`] because a bar is denser than a panel.
+pub(crate) const FOOTER_MARGIN: i8 = crate::gui::theme::WINDOW_EDGE_INSET;
+
+/// Where the measured launcher-row width is parked between frames, so the next
+/// frame can centre the row. It only changes with the locale, so the one-frame
+/// lag is never visible.
+fn content_width_id() -> egui::Id {
+    egui::Id::new("footer_measured_content_width")
+}
 
 pub(crate) fn footer_minimum_window_width(content_width: f32) -> f32 {
-    let footer_width = content_width + f32::from(FOOTER_HORIZONTAL_MARGIN) * 2.0;
+    let footer_width = content_width + f32::from(FOOTER_MARGIN) * 2.0;
     crate::MIN_WINDOW_WIDTH.max(footer_width.ceil())
 }
 
@@ -44,10 +57,21 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
         .y
         .max(screen_translate_label_height + ui.spacing().button_padding.y * 2.0);
 
+    // Any width beyond what the launchers need is split evenly instead of
+    // being dumped on the right: the window is sized to the bar, so leftover
+    // width only appears after a resize, and a left-packed row turns that into
+    // a visibly wider gap on one side than the other.
+    let measured_width = ui
+        .ctx()
+        .data(|data| data.get_temp::<f32>(content_width_id()))
+        .unwrap_or(0.0);
+    let leading_slack = ((ui.available_width() - measured_width) / 2.0).max(0.0);
+
     let row = ui.allocate_ui_with_layout(
         egui::vec2(ui.available_width(), row_height),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
+            ui.add_space(leading_slack);
             let content_left = ui.cursor().left();
             let theme = AppTheme::from_ui(ui);
             ui.spacing_mut().button_padding.x = 3.0;
@@ -217,7 +241,14 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
                 );
             });
 
-            (ui.cursor().left() - content_left).max(0.0)
+            // To the last launcher's edge, not to the cursor: the cursor has
+            // already stepped past a trailing `item_spacing`, and counting that
+            // phantom column made the row measure 3px wider than it draws —
+            // enough to skew the centring and leave a fatter gap on the right.
+            let content_width = (screen_record_response.rect.right() - content_left).max(0.0);
+            ui.ctx()
+                .data_mut(|data| data.insert_temp(content_width_id(), content_width));
+            content_width
         },
     );
     row.inner
@@ -235,6 +266,28 @@ pub struct FooterToggles<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The launch bar sits in the window's bottom corners, so its inset must
+    /// read the same going left, right, and down. It used to be 10px at the
+    /// sides against 4px at the bottom, from a named constant paired with a
+    /// bare literal.
+    #[test]
+    fn the_launch_bar_is_inset_equally_on_every_side() {
+        // Wider than the window minimum, so the footer's own width governs.
+        let content_width = crate::MIN_WINDOW_WIDTH + 200.0;
+        let minimum = footer_minimum_window_width(content_width);
+        let side_slack = (minimum - content_width) / 2.0;
+        assert_eq!(
+            side_slack,
+            f32::from(FOOTER_MARGIN),
+            "the width the footer asks for must leave one margin on each side"
+        );
+        assert_eq!(
+            FOOTER_MARGIN,
+            crate::gui::theme::WINDOW_EDGE_INSET,
+            "the launch bar sits at the shared window-edge inset"
+        );
+    }
 
     #[test]
     fn all_localized_launchers_stay_expanded_on_one_row_at_minimum_width() {
@@ -259,7 +312,7 @@ mod tests {
                 },
                 |ui| {
                     egui::Frame::default()
-                        .inner_margin(egui::Margin::symmetric(FOOTER_HORIZONTAL_MARGIN, 4))
+                        .inner_margin(egui::Margin::same(FOOTER_MARGIN))
                         .show(ui, |ui| {
                             let content_width = render_footer(
                                 ui,
@@ -314,15 +367,21 @@ mod tests {
                 (screen_translate_rect.height() - first_launcher_rect.height()).abs() <= 1.0,
                 "{language} Screen Translate label wrapped onto another row: screen_translate={screen_translate_rect:?}, launcher={first_launcher_rect:?}"
             );
+            // Equal, not merely "at least": the measurement feeds the centring,
+            // so a width that overshoots by even a trailing item gap tips the
+            // row off centre.
+            let launcher_span = last_launcher_rect.right() - first_launcher_rect.left();
             assert!(
-                content_width + 1.0 >= last_launcher_rect.right() - first_launcher_rect.left(),
-                "{language} measured footer width excludes a launcher: width={content_width}, first={first_launcher_rect:?}, last={last_launcher_rect:?}"
+                (content_width - launcher_span).abs() <= 1.0,
+                "{language} measured footer width does not match its launchers: width={content_width}, span={launcher_span}, first={first_launcher_rect:?}, last={last_launcher_rect:?}"
             );
+            // Measured as a span, not an absolute edge: the row centres itself
+            // in whatever width it is given, so its launchers only sit against
+            // the left margin when the window is at the minimum.
             let minimum_width = footer_minimum_window_width(content_width);
             assert!(
-                minimum_width + 1.0
-                    >= last_launcher_rect.right() + f32::from(FOOTER_HORIZONTAL_MARGIN),
-                "{language} footer minimum leaves its last launcher outside the viewport: minimum={minimum_width}, last={last_launcher_rect:?}"
+                minimum_width + 1.0 >= launcher_span + f32::from(FOOTER_MARGIN) * 2.0,
+                "{language} footer minimum leaves its last launcher outside the viewport: minimum={minimum_width}, span={launcher_span}, first={first_launcher_rect:?}, last={last_launcher_rect:?}"
             );
             localized_widths.push(content_width);
         }
