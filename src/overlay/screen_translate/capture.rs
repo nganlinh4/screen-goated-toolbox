@@ -132,6 +132,7 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         &translation_prompt,
     );
 
+    crate::overlay::result::latency::mark(&trace_id, "detector_started");
     let detected = match super::detector::detect(
         &jpeg,
         region.image.width(),

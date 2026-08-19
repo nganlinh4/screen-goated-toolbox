@@ -27,14 +27,17 @@ pub(crate) struct DetectionResult {
 }
 
 pub(crate) struct TextDetector {
-    cpu: DetectorBackend,
+    cpu: CpuFallback,
     direct_ml_recognizer: Option<RecognizerCascade>,
     direct_ml_locator: Option<TextLocator>,
 }
 
-struct DetectorBackend {
-    locator: TextLocator,
-    recognizer: RecognizerCascade,
+struct CpuFallback {
+    detector: std::path::PathBuf,
+    model_root: std::path::PathBuf,
+    recognizer_catalog: std::path::PathBuf,
+    locator: Option<TextLocator>,
+    recognizer: Option<RecognizerCascade>,
 }
 
 struct TextLocator {
@@ -56,7 +59,6 @@ impl TextDetector {
         model_root: &Path,
         recognizer_catalog: &Path,
     ) -> Result<Self> {
-        let cpu = DetectorBackend::load(cpu_detector, model_root, recognizer_catalog)?;
         let direct_ml_locator = optional_acceleration(
             TextLocator::load(direct_ml_detector, Acceleration::DirectMl).and_then(
                 |mut locator| {
@@ -81,6 +83,13 @@ impl TextDetector {
                 "recognizer",
             )
         });
+        let mut cpu = CpuFallback::new(cpu_detector, model_root, recognizer_catalog);
+        if direct_ml_locator.is_none() {
+            cpu.load_locator()?;
+        }
+        if direct_ml_recognizer.is_none() {
+            cpu.load_recognizer()?;
+        }
         Ok(Self {
             cpu,
             direct_ml_recognizer,
@@ -90,10 +99,18 @@ impl TextDetector {
 
     pub(crate) fn detect_jpeg(&mut self, jpeg: &[u8]) -> Result<DetectionResult> {
         let image = decode_bounded_jpeg(jpeg)?;
-        let located = if let Some(locator) = self.direct_ml_locator.as_mut() {
-            locator.locate(&image)?
-        } else {
-            self.cpu.locator.locate(&image)?
+        let located = match self.direct_ml_locator.as_mut() {
+            Some(locator) => match locator.locate(&image) {
+                Ok(located) => located,
+                Err(error) => {
+                    eprintln!(
+                        "DirectML text locator failed; using CPU for later requests: {error:#}"
+                    );
+                    self.direct_ml_locator = None;
+                    self.cpu.locator()?.locate(&image)?
+                }
+            },
+            None => self.cpu.locator()?.locate(&image)?,
         };
         let recognized = if let Some(recognizer) = self.direct_ml_recognizer.as_mut() {
             match recognizer.recognize_batch(&located.crops) {
@@ -103,11 +120,11 @@ impl TextDetector {
                         "DirectML text recognizer failed; using CPU for later requests: {error:#}"
                     );
                     self.direct_ml_recognizer = None;
-                    recognize_cpu(&mut self.cpu.recognizer, &located.crops)?
+                    recognize_cpu(self.cpu.recognizer()?, &located.crops)?
                 }
             }
         } else {
-            recognize_cpu(&mut self.cpu.recognizer, &located.crops)?
+            recognize_cpu(self.cpu.recognizer()?, &located.crops)?
         };
         Ok(located.complete(recognized))
     }
@@ -131,22 +148,50 @@ fn recognize_cpu(
     recognizer.recognize_alternatives(crops, primary)
 }
 
-impl DetectorBackend {
-    fn load(detector: &Path, model_root: &Path, recognizer_catalog: &Path) -> Result<Self> {
-        let model_root = model_root.to_path_buf();
-        let recognizer_catalog = recognizer_catalog.to_path_buf();
-        let recognizer_loader = std::thread::spawn(move || {
-            RecognizerCascade::load(&model_root, &recognizer_catalog, Acceleration::Cpu, true)
-        });
-        let locator = TextLocator::load(detector, Acceleration::Cpu)?;
-        let mut recognizer = recognizer_loader
-            .join()
-            .map_err(|_| anyhow::anyhow!("recognizer cascade loader thread panicked"))??;
+impl CpuFallback {
+    fn new(detector: &Path, model_root: &Path, recognizer_catalog: &Path) -> Self {
+        Self {
+            detector: detector.to_path_buf(),
+            model_root: model_root.to_path_buf(),
+            recognizer_catalog: recognizer_catalog.to_path_buf(),
+            locator: None,
+            recognizer: None,
+        }
+    }
+
+    fn load_locator(&mut self) -> Result<()> {
+        self.locator = Some(TextLocator::load(&self.detector, Acceleration::Cpu)?);
+        Ok(())
+    }
+
+    fn load_recognizer(&mut self) -> Result<()> {
+        let mut recognizer = RecognizerCascade::load(
+            &self.model_root,
+            &self.recognizer_catalog,
+            Acceleration::Cpu,
+            true,
+        )?;
         recognizer.warm_all()?;
-        Ok(Self {
-            locator,
-            recognizer,
-        })
+        self.recognizer = Some(recognizer);
+        Ok(())
+    }
+
+    fn locator(&mut self) -> Result<&mut TextLocator> {
+        if self.locator.is_none() {
+            self.load_locator()?;
+        }
+        self.locator
+            .as_mut()
+            .context("CPU text locator was not initialized")
+    }
+
+    fn recognizer(&mut self) -> Result<&mut RecognizerCascade> {
+        if self.recognizer.is_none() {
+            self.load_recognizer()?;
+        }
+        self.recognizer
+            .as_mut()
+            .context("CPU text recognizer was not initialized")
     }
 }
 
