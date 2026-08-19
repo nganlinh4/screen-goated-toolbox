@@ -251,3 +251,28 @@ fn a_reported_rate_limit_window_replaces_the_fixed_cooldown() {
         Some(Duration::from_secs(6 * 60 * 60))
     );
 }
+
+#[test]
+fn real_groq_rate_headers_populate_the_token_budget() {
+    use crate::retry_model_chain::{budget, budget_key, record_token_budget};
+
+    // Values captured verbatim from a live Groq vision response on 2026-08-19.
+    let mut headers = ureq::http::HeaderMap::new();
+    headers.insert("x-ratelimit-limit-tokens", "8000".parse().unwrap());
+    headers.insert("x-ratelimit-remaining-tokens", "1000".parse().unwrap());
+    headers.insert("x-ratelimit-reset-tokens", "22.012s".parse().unwrap());
+    record_token_budget("groq", "qwen/qwen3.6-27b", &headers);
+
+    let key = budget_key("groq", "qwen/qwen3.6-27b");
+    // 1000 left cannot cover the cheapest measured call plus its output reserve.
+    assert!(budget::shortfall(&key, budget::MEASURED_MIN_IMAGE_TOKENS + 512).is_some());
+    // ... but it comfortably covers a hypothetical tiny one, so nothing is blocked.
+    assert_eq!(budget::shortfall(&key, 500), None);
+
+    // A response without the headers must leave admission untouched.
+    record_token_budget("groq", "unmetered-model", &ureq::http::HeaderMap::new());
+    assert_eq!(
+        budget::shortfall(&budget_key("groq", "unmetered-model"), 9_000),
+        None
+    );
+}

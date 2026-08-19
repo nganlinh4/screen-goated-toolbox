@@ -140,6 +140,8 @@ pub fn record_usage_headers(provider: &str, full_name: &str, headers: &HeaderMap
         return;
     };
     let key = crate::usage_stats::usage_key_for_response(provider, full_name);
+    #[cfg(not(feature = "recorder-worker"))]
+    crate::retry_model_chain::record_token_budget(provider, full_name, headers);
     if let Ok(mut app) = APP.lock() {
         app.model_usage_stats.insert(key, snapshot);
     }
