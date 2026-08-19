@@ -4,6 +4,7 @@ mod footer;
 mod global;
 pub mod help_assistant;
 mod history;
+mod list_reorder;
 pub(crate) mod model_selector;
 pub mod node_graph;
 pub mod pointer_gallery;
