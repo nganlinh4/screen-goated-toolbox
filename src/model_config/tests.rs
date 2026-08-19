@@ -2,28 +2,31 @@ use super::*;
 
 #[test]
 fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
-    assert_eq!(
-        DEFAULT_IMAGE_MODEL_ID,
-        "google-gemini-3-5-flash-lite-vision"
-    );
+    assert_eq!(DEFAULT_IMAGE_MODEL_ID, "groq-qwen-3-6-27b-vision");
     assert_eq!(
         default_image_to_text_priority_chain_ids().first().copied(),
         Some(DEFAULT_IMAGE_MODEL_ID)
     );
     let model = get_model_by_id(DEFAULT_IMAGE_MODEL_ID).expect("default vision model exists");
-    assert_eq!(model.provider, "google");
-    assert_eq!(model.full_name, "gemini-3.5-flash-lite");
-    assert_eq!(model.intelligence_tier, Some(6));
-    assert_eq!(model.typical_latency_ms, Some(1234));
+    assert_eq!(model.provider, "groq");
+    assert_eq!(model.full_name, "qwen/qwen3.6-27b");
+    assert_eq!(model.intelligence_tier, Some(4));
+    assert_eq!(model.typical_latency_ms, Some(739));
     assert_eq!(
         model.performance_source.as_deref(),
         Some("benchmark-2026-08-18-protocol9:ocr-small-1024")
     );
-    assert_eq!(PRESET_IMAGE_ACCURATE_MODEL_ID, DEFAULT_IMAGE_MODEL_ID);
+    // The accuracy-oriented presets deliberately stay on Gemini rather than
+    // tracking the general default: Qwen reserves only 512 output tokens.
+    assert_eq!(
+        PRESET_IMAGE_ACCURATE_MODEL_ID,
+        "google-gemini-3-5-flash-lite-vision"
+    );
     assert_eq!(
         PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
-        DEFAULT_IMAGE_MODEL_ID
+        "google-gemini-3-5-flash-lite-vision"
     );
+    assert_ne!(PRESET_IMAGE_ACCURATE_MODEL_ID, DEFAULT_IMAGE_MODEL_ID);
 }
 
 #[test]
@@ -260,9 +263,9 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
     assert_eq!(
         &default_image_to_text_priority_chain_ids()[..5],
         &[
+            "groq-qwen-3-6-27b-vision",
             "google-gemini-3-5-flash-lite-vision",
             "google-gemini-3-1-flash-lite-vision",
-            "groq-qwen-3-6-27b-vision",
             "google-gemini-robotics-er-2-vision",
             "openrouter-dots-3-note-vision",
         ]
