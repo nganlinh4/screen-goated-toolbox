@@ -220,7 +220,6 @@ where
         let request_timeout = if can_finish_partial(candidates, &covered) {
             TAIL_REPAIR_TIMEOUT
         } else {
-            total_attempts += 1;
             Duration::from_secs(20)
         };
         if let Some(reason) =
@@ -236,6 +235,11 @@ where
                 blocked_providers.insert(current.provider.clone());
             }
         } else {
+            // Only a dispatched request spends the fallback budget; a model skipped
+            // for cooldown costs nothing and must leave the budget for a live one.
+            if request_timeout != TAIL_REPAIR_TIMEOUT {
+                total_attempts += 1;
+            }
             attempt_sequence += 1;
             crate::log_info!(
                 "[Screen Translate] trace={trace_id} model attempt model={} provider={}",

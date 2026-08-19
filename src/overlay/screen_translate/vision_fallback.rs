@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -9,10 +9,15 @@ use image::{Rgba, RgbaImage};
 
 use crate::api::{TranslateImageRequest, translate_image_streaming};
 use crate::model_config::ModelType;
+use crate::retry_model_chain::{
+    RetryChainKind, claim_model_attempt, preflight_skip_reason, record_model_failure,
+    record_model_success, release_model_probe, resolve_next_retry_model,
+};
 
 use super::contract::{DetectedTextRegion, TranslationDocument, parse_response, response_schema};
 
 const VISION_TIMEOUT: Duration = Duration::from_secs(8);
+const MAX_VISION_ATTEMPTS: usize = 3;
 const LOW_RECOGNITION_CONFIDENCE: f32 = 0.72;
 const CLOSE_COMPETITOR_MARGIN: f32 = 0.06;
 
@@ -52,25 +57,6 @@ pub(super) fn translate(
         .lock()
         .map(|app| app.config.clone())
         .map_err(|_| anyhow::anyhow!("app configuration is unavailable"))?;
-    let model = config
-        .model_priority_chains
-        .image_to_text
-        .iter()
-        .filter_map(|id| {
-            crate::model_config::get_model_by_id_with_custom(id, &config.custom_models)
-        })
-        .find(|model| {
-            model.model_type == ModelType::Vision
-                && !crate::model_config::model_is_non_llm(&model.id)
-                && crate::retry_model_chain::preflight_skip_reason(
-                    &model.id,
-                    &model.provider,
-                    &config,
-                    &HashSet::new(),
-                )
-                .is_none()
-        })
-        .context("no configured vision model is available")?;
     let cells = super::cell_proposals::propose(candidates)
         .into_iter()
         .filter(|cell| {
@@ -99,40 +85,152 @@ pub(super) fn translate(
         "This image is a top-to-bottom atlas of uncertain screen-text cells separated by colored bars. {mapping}. Read each panel directly from its pixels and translate all of its natural-language text completely into {target_language}. Preserve names, usernames, handles, codes, punctuation, tone, and line meaning. Never use OCR guesses from outside the image. Return exactly one members entry for every mapped memberId. Keep each translation with its corresponding memberId without moving, merging, duplicating, or dropping content. Return only JSON matching the schema."
     );
     crate::log_info!(
-        "[Screen Translate] trace={trace_id} batched vision fallback model={} cells={} atlas={}x{}",
-        model.id,
+        "[Screen Translate] trace={trace_id} batched vision fallback cells={} atlas={}x{}",
         cells.len(),
         atlas.width(),
         atlas.height()
     );
-    let started = Instant::now();
-    let response = translate_image_streaming(
+
+    let mut failed = Vec::new();
+    let mut blocked_providers = HashSet::new();
+    let mut attempts = 0;
+    let mut current = first_vision_model(&config, &blocked_providers)
+        .context("no configured vision model is available")?;
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            bail!("screen translation was cancelled");
+        }
+        if let Some(reason) =
+            preflight_skip_reason(&current.id, &current.provider, &config, &blocked_providers)
+                .or_else(|| claim_model_attempt(&current.id))
+        {
+            crate::log_info!(
+                "[Screen Translate] trace={trace_id} vision model skipped model={} reason={reason}",
+                current.id
+            );
+            failed.push(current.id.clone());
+            if crate::overlay::utils::should_block_retry_provider(&reason) {
+                blocked_providers.insert(current.provider.clone());
+            }
+        } else {
+            attempts += 1;
+            crate::log_info!(
+                "[Screen Translate] trace={trace_id} vision model attempt model={} provider={}",
+                current.id,
+                current.provider
+            );
+            let started = Instant::now();
+            let outcome = request_translation(
+                &config,
+                &current,
+                prompt.clone(),
+                atlas.clone(),
+                uncertain.len(),
+                Arc::clone(&cancel),
+            )
+            .and_then(|response| {
+                let document = parse_response(&response, candidates)?;
+                Ok(TranslationDocument {
+                    regions: document
+                        .regions
+                        .into_iter()
+                        .filter(|region| region.member_ids.iter().any(|id| uncertain.contains(id)))
+                        .collect(),
+                })
+            });
+            match outcome {
+                Ok(document) => {
+                    record_model_success(&current.id);
+                    crate::log_info!(
+                        "[Screen Translate] trace={trace_id} batched vision fallback complete model={} elapsed_ms={}",
+                        current.id,
+                        started.elapsed().as_millis()
+                    );
+                    return Ok(document);
+                }
+                Err(error) => {
+                    if cancel.load(Ordering::SeqCst) {
+                        release_model_probe(&current.id);
+                        bail!("screen translation was cancelled");
+                    }
+                    crate::log_info!(
+                        "[Screen Translate] trace={trace_id} vision model failed model={} reason={error}",
+                        current.id
+                    );
+                    record_model_failure(&current.id, &error.to_string());
+                    if crate::overlay::utils::should_block_retry_provider(&error.to_string()) {
+                        blocked_providers.insert(current.provider.clone());
+                    }
+                    failed.push(current.id.clone());
+                    if attempts >= MAX_VISION_ATTEMPTS {
+                        return Err(error).context("vision models returned no validated output");
+                    }
+                }
+            }
+        }
+        current = resolve_next_retry_model(
+            &current.id,
+            &failed,
+            &blocked_providers,
+            RetryChainKind::ImageToText,
+            &config,
+        )
+        .context("all configured vision models failed")?;
+    }
+}
+
+/// First vision model in the configured chain, ignoring cooldown so the attempt
+/// loop reports the skip and advances instead of failing the whole fallback.
+fn first_vision_model(
+    config: &crate::config::Config,
+    blocked_providers: &HashSet<String>,
+) -> Option<crate::model_config::ModelConfig> {
+    config
+        .model_priority_chains
+        .image_to_text
+        .iter()
+        .filter_map(|id| {
+            crate::model_config::get_model_by_id_with_custom(id, &config.custom_models)
+        })
+        .find(|model| {
+            model.model_type == ModelType::Vision
+                && !crate::model_config::model_is_non_llm(&model.id)
+        })
+        .or_else(|| {
+            resolve_next_retry_model(
+                "",
+                &[],
+                blocked_providers,
+                RetryChainKind::ImageToText,
+                config,
+            )
+        })
+}
+
+fn request_translation(
+    config: &crate::config::Config,
+    model: &crate::model_config::ModelConfig,
+    prompt: String,
+    atlas: RgbaImage,
+    member_count: usize,
+    cancel: Arc<AtomicBool>,
+) -> Result<String> {
+    translate_image_streaming(
         TranslateImageRequest {
             groq_api_key: &config.api_key,
             gemini_api_key: &config.gemini_api_key,
             prompt,
-            model: model.full_name,
-            provider: model.provider,
+            model: model.full_name.clone(),
+            provider: model.provider.clone(),
             image: atlas,
             original_bytes: None,
             streaming_enabled: false,
-            response_schema: Some(response_schema(uncertain.len())),
+            response_schema: Some(response_schema(member_count)),
             cancel_token: Some(cancel),
             request_timeout: Some(VISION_TIMEOUT),
         },
         |_| {},
-    )?;
-    crate::log_info!(
-        "[Screen Translate] trace={trace_id} batched vision fallback complete elapsed_ms={}",
-        started.elapsed().as_millis()
-    );
-    let document = parse_response(&response, candidates)?;
-    let regions = document
-        .regions
-        .into_iter()
-        .filter(|region| region.member_ids.iter().any(|id| uncertain.contains(id)))
-        .collect();
-    Ok(TranslationDocument { regions })
+    )
 }
 
 fn build_atlas(
