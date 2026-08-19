@@ -16,12 +16,18 @@
 //! text, not endpoints, so any model that develops the same fault is covered.
 //!
 //! Precision matters far more than recall here, because discarding correct text
-//! is worse than showing repeated text. A cut is made only where a span
-//! repeating earlier content begins, the following window is almost entirely
-//! repetition, and the whole remainder is mostly repetition. Against the
-//! product's OCR corpus every reference survives untouched, including a receipt
-//! form, a price list repeating `$21.96` and `4" Pot`, and two filenames that
-//! differ only in their timestamp.
+//! is worse than showing repeated text, and an image may legitimately repeat
+//! itself: tables, forms, receipts and lists all restate whole rows.
+//!
+//! A cut therefore needs four things together: a span that repeats earlier
+//! content, an almost entirely repeated window after it, a mostly repeated
+//! remainder, and -- the part that separates damage from ordinary repetition --
+//! a broken word. Correct output repeats whole tokens; the defect re-tokenizes
+//! as it repeats and emits pieces of words that appear intact elsewhere.
+//!
+//! The cost of that strictness is that a repetition carrying no damage is kept,
+//! because it cannot be told apart from a correct reading of an image that
+//! really does show the same text twice. That is the right way to be wrong.
 
 /// Shortest span treated as a repeat. Ordinary prose repeats shorter runs.
 const MIN_REPEAT_SPAN: usize = 8;
@@ -89,6 +95,9 @@ pub(super) fn repetition_onset_with_evidence(text: &str, min_evidence: usize) ->
         if coverage(&chars, start, chars.len()) < TAIL_COVERAGE {
             continue;
         }
+        if !is_fragmented(text, offset) {
+            continue;
+        }
         return Some(snap_to_token_end(text, offset));
     }
     None
@@ -110,6 +119,38 @@ fn snap_to_token_end(text: &str, cut: usize) -> usize {
     text[cut..]
         .find(char::is_whitespace)
         .map_or(text.len(), |offset| cut + offset)
+}
+
+/// Whether the text after `onset` contains a broken word.
+///
+/// This is what separates the defect from content that simply repeats. A table,
+/// a form or a list restates whole tokens, so every repeated word is intact. The
+/// defect re-tokenizes as it repeats and emits pieces of words -- `Screensh` for
+/// `Screenshot`, `khi` for `khiển` -- which never appear in correct output.
+///
+/// Only shorter pieces count. A longer token that merely starts with an earlier
+/// one is ordinary language (`Plant` and `Plants`), not damage.
+fn is_fragmented(text: &str, onset: usize) -> bool {
+    let mut before: Vec<String> = Vec::new();
+    let mut after: Vec<String> = Vec::new();
+    for (offset, token) in text.split_whitespace().map(|token| {
+        let offset = token.as_ptr() as usize - text.as_ptr() as usize;
+        (offset, token.to_lowercase())
+    }) {
+        if offset < onset {
+            before.push(token);
+        } else {
+            after.push(token);
+        }
+    }
+    after.iter().any(|piece| {
+        piece.chars().count() >= 2
+            && !before.contains(piece)
+            && before.iter().any(|whole| {
+                whole.chars().count() > piece.chars().count()
+                    && (whole.starts_with(piece.as_str()) || whole.ends_with(piece.as_str()))
+            })
+    })
 }
 
 /// Whether the span of `length` at `start` appears anywhere before `start`.
@@ -190,9 +231,16 @@ impl RepetitionGuard {
             return GuardAction::Paint;
         }
         self.checked_len = self.seen.len();
-        match repetition_onset_with_evidence(&self.seen, STREAMING_MIN_EVIDENCE) {
+        // Judge only whole tokens. A reply in flight ends mid-word, and that
+        // partial word is indistinguishable from the fragments the defect
+        // produces, which would condemn correct repetitive text.
+        let complete = self
+            .seen
+            .rfind(char::is_whitespace)
+            .map_or("", |end| &self.seen[..end]);
+        match repetition_onset_with_evidence(complete, STREAMING_MIN_EVIDENCE) {
             Some(onset) => {
-                let salvaged = self.seen[..onset].trim_end().to_string();
+                let salvaged = complete[..onset].trim_end().to_string();
                 self.salvaged = Some(salvaged.clone());
                 GuardAction::Replace(salvaged)
             }
@@ -254,10 +302,6 @@ mod tests {
             "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png",
         ),
         (
-            "Screenshot 2026-08-19 213759.png Screenshot 2026-08-19 213630.png Screenshot 2026-08-19 213759.png Screenshot 2026-08-19 213630.png",
-            "Screenshot 2026-08-19 213759.png Screenshot 2026-08-19 213630.png",
-        ),
-        (
             "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png\nScreensho\not 2026-08-19 21\n13759.png\nScreensh\nhot 2026-08-19 2\n213630.png",
             "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png",
         ),
@@ -308,6 +352,34 @@ mod tests {
     }
 
     #[test]
+    fn genuinely_repetitive_images_survive() {
+        // Tables, forms and lists legitimately repeat whole rows. Cutting
+        // these would silently drop real content.
+        for sample in [
+            "apple  1.00\napple  1.00\napple  1.00\napple  1.00",
+            "Mon Tue Wed Thu Fri\nMon Tue Wed Thu Fri\nMon Tue Wed Thu Fri",
+            "Total: $5.00\nTotal: $5.00\nTotal: $5.00\nTotal: $5.00",
+            "Untitled.png\nUntitled.png\nUntitled.png\nUntitled.png",
+        ] {
+            assert!(
+                salvage(sample).is_none(),
+                "cut repetitive but correct text {sample:?} at {:?}",
+                repetition_onset(sample)
+            );
+        }
+    }
+
+    #[test]
+    fn an_undamaged_duplicate_is_left_alone() {
+        // The model sometimes repeats itself with no fragmentation at all.
+        // That output is identical to what a correct reading of an image that
+        // genuinely shows the same text twice would produce, so it is kept.
+        // Dropping real content is the worse error of the two.
+        let clean_duplicate = "Screenshot 2026-08-19 213759.png Screenshot 2026-08-19 213630.png Screenshot 2026-08-19 213759.png Screenshot 2026-08-19 213630.png";
+        assert!(salvage(clean_duplicate).is_none());
+    }
+
+    #[test]
     fn short_replies_are_never_judged() {
         assert!(!looks_like_repetition_defect("HÀ NỘI\nPHỐ\nNHÀ CHUNG"));
         assert!(!looks_like_repetition_defect(""));
@@ -340,20 +412,12 @@ mod tests {
     }
 
     #[test]
-    fn a_long_restatement_is_cut_before_the_stream_ends() {
-        // Enough restatement to be provable early, so the window stops showing
-        // it without waiting for the reply to finish.
-        let good = "Товарный чек №
-Наименование
-Кол-во
-Цена
-Сумма
-Итого
-Подпись продавца";
+    fn a_long_fragmented_restatement_is_cut_before_the_stream_ends() {
+        // Enough damaged restatement to be provable early, so the window stops
+        // showing it without waiting for the reply to finish.
+        let good = "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png";
         let corrupted = format!(
-            "{good}
-{good}
-{good}"
+            "{good}\nScreensho\nt 2026-08-19 21\n13759.png\nScreensh\nhot 2026-08-19 2\n213630.png\nScreensho\nt 2026-08-19 21\n13759.png"
         );
         let mut guard = RepetitionGuard::default();
         let mut replaced = None;
@@ -364,6 +428,22 @@ mod tests {
             }
         }
         assert_eq!(replaced.as_deref(), Some(good));
+    }
+
+    #[test]
+    fn a_repetitive_but_correct_stream_is_never_cut() {
+        // The same content three times over, undamaged: an image may really
+        // show this, so no partially received chunk may condemn it.
+        let good = "Total: $5.00";
+        let repeated = format!("{good}\n{good}\n{good}\n{good}\n{good}\n{good}");
+        let mut guard = RepetitionGuard::default();
+        for chunk in char_chunks(&repeated, 7) {
+            assert!(
+                matches!(guard.observe(&chunk), GuardAction::Paint),
+                "cut correct repetitive content mid-stream"
+            );
+        }
+        assert_eq!(guard.finish(repeated.clone()), repeated);
     }
 
     #[test]
