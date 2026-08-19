@@ -1,7 +1,6 @@
 use crate::api::gemini_generate::GeminiMediaResolution;
 use crate::model_config::{
-    StructuredOutputPolicy, VisionInputOrder, VisionMediaResolutionPolicy, VisionRequestProfile,
-    VisionSamplingPolicy,
+    VisionInputOrder, VisionMediaResolutionPolicy, VisionRequestProfile, VisionSamplingPolicy,
 };
 
 pub(super) fn gemini_parts(
@@ -43,47 +42,6 @@ fn ordered_parts(
         VisionInputOrder::TextFirst => serde_json::json!([text, image]),
         VisionInputOrder::ImageFirst => serde_json::json!([image, text]),
     }
-}
-
-/// Instruction appended when plain text has to travel inside a JSON envelope.
-pub(super) const PLAIN_TEXT_ENVELOPE_PROMPT: &str =
-    "
-
-Respond with a single JSON object of the form {\"text\": \"<all extracted text>\"} and nothing else.";
-
-/// Whether a plain-text extraction must be wrapped in a JSON envelope.
-///
-/// Qwen 3.6 on Groq deterministically appends a re-tokenized repetition of the
-/// text it just emitted when asked for bare text: at temperature 0 the wrong
-/// answer is its highest-probability completion, and neither sampling changes
-/// nor upscaling the image avoids it. This is the upstream Qwen3-VL repetition
-/// defect (QwenLM/Qwen3-VL#1611), not a transport problem. Constraining the
-/// reply to a JSON object gives the grammar a closing quote and brace, which
-/// terminates generation cleanly; Groq documents JSON object mode as the
-/// supported path for models without strict structured outputs.
-///
-/// Only endpoints the catalog marks `json-object` take this path, and only when
-/// the caller wants plain text and is not streaming — a streamed envelope would
-/// paint raw JSON into the result window.
-pub(super) fn needs_plain_text_envelope(
-    profile: VisionRequestProfile,
-    streaming: bool,
-    has_schema: bool,
-) -> bool {
-    !streaming && !has_schema && profile.structured_output == StructuredOutputPolicy::JsonObject
-}
-
-/// Recovers the text from a [`PLAIN_TEXT_ENVELOPE_PROMPT`] reply.
-///
-/// Fails open: anything that is not the expected envelope is returned unchanged,
-/// so a malformed reply degrades to today's behaviour instead of losing text.
-pub(super) fn unwrap_plain_text_envelope(content: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(content.trim())
-        .ok()
-        .as_ref()
-        .and_then(|value| value.get("text"))
-        .and_then(serde_json::Value::as_str)
-        .map_or_else(|| content.to_string(), str::to_string)
 }
 
 pub(super) fn media_resolution(profile: VisionRequestProfile) -> Option<GeminiMediaResolution> {
