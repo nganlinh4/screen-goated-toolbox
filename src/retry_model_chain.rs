@@ -7,6 +7,7 @@ use crate::model_config::{
 use std::collections::HashSet;
 use std::time::Duration;
 
+mod budget;
 mod cooldown;
 
 #[cfg(not(feature = "recorder-worker"))]
@@ -23,6 +24,50 @@ use cooldown::model_cooldown_skip_reason;
 pub use cooldown::{
     claim_model_attempt, record_model_failure, record_model_success, release_model_probe,
 };
+
+/// Stores the token balance a provider reported for one endpoint.
+///
+/// Only the per-minute token window is tracked; request-count windows are far
+/// larger than a single call and are already handled by the cooldown.
+#[cfg(not(feature = "recorder-worker"))]
+pub fn record_token_budget(provider: &str, api_model: &str, headers: &ureq::http::HeaderMap) {
+    // Counts are plain integers; only the reset carries a duration suffix.
+    let count =
+        |name: &str| -> Option<u32> { headers.get(name)?.to_str().ok()?.trim().parse().ok() };
+    let reset = headers
+        .get("x-ratelimit-reset-tokens")
+        .and_then(|value| value.to_str().ok())
+        .and_then(cooldown::parse_duration_seconds);
+    let (Some(limit), Some(remaining), Some(reset)) = (
+        count("x-ratelimit-limit-tokens"),
+        count("x-ratelimit-remaining-tokens"),
+        reset,
+    ) else {
+        return;
+    };
+    budget::record(
+        &budget_key(provider, api_model),
+        limit,
+        remaining,
+        Duration::from_secs_f64(reset),
+    );
+}
+
+/// Key a token budget by the exact provider-qualified endpoint.
+#[cfg(not(feature = "recorder-worker"))]
+fn budget_key(provider: &str, api_model: &str) -> String {
+    format!("{}:{}", provider.trim(), api_model.trim())
+}
+
+/// Cheapest total this endpoint could be billed for one vision call, or `None`
+/// when the catalog has no measured floor to compare against.
+#[cfg(not(feature = "recorder-worker"))]
+fn minimum_vision_request_tokens(provider: &str, api_model: &str) -> Option<u32> {
+    let profile = crate::model_config::vision_request_profile(provider, api_model);
+    profile
+        .max_output_tokens
+        .map(|reserve| budget::MEASURED_MIN_IMAGE_TOKENS + reserve)
+}
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn interactive_request_timeout(
@@ -147,6 +192,19 @@ pub fn preflight_skip_reason(
     #[cfg(not(feature = "recorder-worker"))]
     if let Some(reason) = model_cooldown_skip_reason(model_id) {
         return Some(reason);
+    }
+    // A window that cannot cover even the cheapest call this endpoint accepts
+    // will reject the next one, so skip it rather than pay for the rejection.
+    #[cfg(not(feature = "recorder-worker"))]
+    if let Some(model) = get_model_by_id_with_custom(model_id, &config.custom_models)
+        && let Some(minimum) = minimum_vision_request_tokens(&model.provider, &model.full_name)
+        && let Some(wait) =
+            budget::shortfall(&budget_key(&model.provider, &model.full_name), minimum)
+    {
+        return Some(format!(
+            "MODEL_TOKEN_BUDGET:{model_id}:{}s",
+            wait.as_secs().max(1)
+        ));
     }
     #[cfg(feature = "recorder-worker")]
     if let Some(remaining) = model_cooldown_remaining(model_id) {
