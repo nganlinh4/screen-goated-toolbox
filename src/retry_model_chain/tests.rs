@@ -225,6 +225,15 @@ fn a_reported_rate_limit_window_replaces_the_fixed_cooldown() {
         Some(Duration::from_secs_f64(32.814072061))
     );
 
+    // A real per-day exhaustion captured from the app on 2026-08-19. The old
+    // flat 300s would have re-probed a model that could not work for 19 minutes.
+    assert_eq!(
+        reported_cooldown(
+            "Groq vision API HTTP 429: Rate limit reached for model `qwen/qwen3.6-27b`              in organization `org_x` service tier `on_demand` on tokens per day (TPD):              Limit 200000, Used 199568, Requested 3048. Please try again in 18m50.112s.              Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing"
+        ),
+        Some(Duration::from_secs_f64(18.0 * 60.0 + 50.112))
+    );
+
     // An exhausted daily quota backs off far past the old five-minute constant.
     assert_eq!(
         reported_cooldown("429 rate limit, please try again in 2h15m"),
