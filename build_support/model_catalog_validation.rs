@@ -194,6 +194,7 @@ fn validate_reasoning_policy(
             "not-applicable",
             "gemini-disabled",
             "gemini-minimal",
+            "gemini-low",
             "openai-none",
             "openai-low",
             "provider-managed",
@@ -203,7 +204,7 @@ fn validate_reasoning_policy(
         "unsupported reasoning_policy for {id:?}: {policy:?}"
     );
     let compatible = match provider {
-        "google" => matches!(policy, "gemini-disabled" | "gemini-minimal"),
+        "google" => matches!(policy, "gemini-disabled" | "gemini-minimal" | "gemini-low"),
         "gemini-live" => policy == "live-profile",
         "groq" | "openrouter" => matches!(
             policy,

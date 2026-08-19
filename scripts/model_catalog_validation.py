@@ -304,6 +304,7 @@ def _validate_reasoning_policy(model_id: str, provider: str, profile: dict) -> N
         "not-applicable",
         "gemini-disabled",
         "gemini-minimal",
+        "gemini-low",
         "openai-none",
         "openai-low",
         "provider-managed",
@@ -314,7 +315,7 @@ def _validate_reasoning_policy(model_id: str, provider: str, profile: dict) -> N
             f"unsupported reasoning_policy for {model_id!r}: {policy!r}"
         )
     if provider == "google":
-        compatible = policy in {"gemini-disabled", "gemini-minimal"}
+        compatible = policy in {"gemini-disabled", "gemini-minimal", "gemini-low"}
     elif provider == "gemini-live":
         compatible = policy == "live-profile"
     elif provider in {"groq", "openrouter"}:

@@ -4,8 +4,35 @@
     "ocr_transport": "non-streaming",
     "cases": [
       {
+        "provider": "groq",
+        "api_model": "qwen/qwen3.6-27b",
+        "input_order": "text-first",
+        "media_resolution": "provider-default",
+        "sampling": "qwen3-groq-non-thinking",
+        "max_output_tokens": 512,
+        "structured_output": "json-object"
+      },
+      {
+        "provider": "google",
+        "api_model": "gemma-4-26b-a4b-it",
+        "input_order": "image-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": 512,
+        "structured_output": "strict-json-schema"
+      },
+      {
         "provider": "google",
         "api_model": "gemma-4-31b-it",
+        "input_order": "image-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": 512,
+        "structured_output": "strict-json-schema"
+      },
+      {
+        "provider": "google",
+        "api_model": "gemini-3.1-flash-lite",
         "input_order": "image-first",
         "media_resolution": "provider-default",
         "sampling": "provider-default",
@@ -22,22 +49,76 @@
         "structured_output": "strict-json-schema"
       },
       {
-        "provider": "groq",
-        "api_model": "qwen/qwen3.6-27b",
-        "input_order": "text-first",
+        "provider": "google",
+        "api_model": "gemini-robotics-er-1.6-preview",
+        "input_order": "image-first",
         "media_resolution": "provider-default",
-        "sampling": "qwen3-groq-non-thinking",
+        "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "json-object"
+        "structured_output": "strict-json-schema"
+      },
+      {
+        "provider": "google",
+        "api_model": "gemini-robotics-er-2-preview",
+        "input_order": "image-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": 512,
+        "structured_output": "strict-json-schema"
+      },
+      {
+        "provider": "google",
+        "api_model": "gemini-3-flash-preview",
+        "input_order": "image-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": 512,
+        "structured_output": "strict-json-schema"
+      },
+      {
+        "provider": "google",
+        "api_model": "gemini-3.5-flash",
+        "input_order": "image-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": 512,
+        "structured_output": "strict-json-schema"
+      },
+      {
+        "provider": "google",
+        "api_model": "gemini-3.6-flash",
+        "input_order": "image-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": 512,
+        "structured_output": "strict-json-schema"
       },
       {
         "provider": "openrouter",
-        "api_model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "api_model": "dots-studio/dots-3-note-preview:free",
         "input_order": "text-first",
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "prompt-only"
+        "structured_output": "strict-json-schema"
+      },
+      {
+        "provider": "google",
+        "api_model": "gemini-3.7-flash",
+        "input_order": "image-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": 512,
+        "structured_output": "strict-json-schema"
+      },
+      {
+        "provider": "openrouter",
+        "api_model": "google/gemma-4-26b-a4b-it:free",
+        "input_order": "text-first",
+        "media_resolution": "provider-default",
+        "sampling": "provider-default",
+        "max_output_tokens": 512,
+        "structured_output": "json-object"
       }
     ],
     "rules": [

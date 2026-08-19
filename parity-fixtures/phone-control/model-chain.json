@@ -24,8 +24,8 @@
   "grounding": {
     "catalog_chain": "computer_control_grounding",
     "models": [
-      "google-gemini-robotics-er-2-vision",
-      "google-gemini-3-5-flash-lite-vision"
+      "google-gemini-3-flash-vision",
+      "google-gemini-robotics-er-2-vision"
     ],
     "environment_override": "CC_VISION_MODEL",
     "override_replaces_default_chain": true,
@@ -43,16 +43,39 @@
       "coordinate_grid": 1000,
       "maximum_marks": 30,
       "named_point_object": {
-        "points": [{"id": "target", "x": 500, "y": 500, "label": "visible label"}],
+        "points": [
+          {
+            "id": "target",
+            "x": 500,
+            "y": 500,
+            "label": "visible label"
+          }
+        ],
         "missing": []
       },
       "open_marks_object": {
-        "points": [{"x": 500, "y": 500, "label": "visible label"}]
+        "points": [
+          {
+            "x": 500,
+            "y": 500,
+            "label": "visible label"
+          }
+        ]
       },
       "drag_endpoint_object": {
         "points": [
-          {"id": "from", "x": 250, "y": 500, "label": "source"},
-          {"id": "to", "x": 750, "y": 500, "label": "destination"}
+          {
+            "id": "from",
+            "x": 250,
+            "y": 500,
+            "label": "source"
+          },
+          {
+            "id": "to",
+            "x": 750,
+            "y": 500,
+            "label": "destination"
+          }
         ],
         "missing": []
       },

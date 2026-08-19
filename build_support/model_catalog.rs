@@ -148,6 +148,7 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
             "not-applicable" => "OrdinaryReasoningPolicy::NotApplicable".to_string(),
             "gemini-disabled" => "OrdinaryReasoningPolicy::GeminiBudget(0)".to_string(),
             "gemini-minimal" => "OrdinaryReasoningPolicy::GeminiLevel(\"MINIMAL\")".to_string(),
+            "gemini-low" => "OrdinaryReasoningPolicy::GeminiLevel(\"LOW\")".to_string(),
             "openai-none" => "OrdinaryReasoningPolicy::OpenAiEffort(\"none\")".to_string(),
             "openai-low" => "OrdinaryReasoningPolicy::OpenAiEffort(\"low\")".to_string(),
             "provider-managed" => "OrdinaryReasoningPolicy::ProviderManaged".to_string(),

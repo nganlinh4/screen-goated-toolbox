@@ -132,7 +132,7 @@ mod tests {
         let mut payload = serde_json::json!({});
         apply_ordinary_openrouter_reasoning_policy(
             &mut payload,
-            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            "nvidia/nemotron-3-super-120b-a12b:free",
         );
 
         assert_eq!(payload["reasoning"]["effort"], "none");

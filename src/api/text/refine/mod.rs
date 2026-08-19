@@ -336,7 +336,7 @@ mod tests {
             state
                 .preferred_text_model("groq", "gemini", "openrouter")
                 .map(|model| model.0),
-            Some("groq-gpt-oss-120b-text".to_string())
+            Some("groq-qwen-3-6-27b-text".to_string())
         );
 
         state.use_groq = false;
@@ -352,7 +352,7 @@ mod tests {
             state
                 .preferred_text_model("", "", "openrouter")
                 .map(|model| model.0),
-            Some("openrouter-nemotron-3-nano-omni-30b-a3b-text".to_string())
+            Some("openrouter-nemotron-3-super-120b-text".to_string())
         );
     }
 }

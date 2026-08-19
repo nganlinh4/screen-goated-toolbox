@@ -114,7 +114,7 @@ fn json_object_endpoints_wrap_plain_text_and_unwrap_the_reply() {
 fn openrouter_nemotron_uses_nested_reasoning_and_prompt_only_structure() {
     let schema = serde_json::json!({"type": "object"});
     let payload = openrouter_vision_payload(
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
         "prompt",
         "image/png",
         "AA==",
