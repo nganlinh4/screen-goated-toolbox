@@ -115,6 +115,34 @@ mod tests {
     }
 
     #[test]
+    fn model_badge_renders_immediately_left_of_the_opacity_control() {
+        let script = super::js::get_javascript();
+        let css = super::document_css();
+
+        let buttons = script
+            .split_once("function generateButtonsHTML")
+            .expect("button builder should exist")
+            .1;
+        let badge = buttons
+            .find("model-badge")
+            .expect("model badge should render");
+        let opacity = buttons
+            .find("opacity-btn-expandable")
+            .expect("opacity control should render");
+        assert!(
+            badge < opacity,
+            "the model badge must be emitted before the opacity control"
+        );
+
+        assert!(buttons.contains("state.modelLabel"));
+        assert!(buttons.contains("!state.groupActions && state.modelLabel"));
+        assert!(script.contains("function escapeText"));
+        assert!(buttons.contains("escapeText(state.modelLabel)"));
+        assert!(css.contains(".model-badge"));
+        assert!(css.contains("calc(9px * var(--control-scale))"));
+    }
+
+    #[test]
     fn anchored_controls_keep_canonical_proximity_and_support_scaled_buttons() {
         let script = super::document_script();
         let css = super::document_css();
@@ -124,7 +152,9 @@ mod tests {
         assert!(script.contains("placementRect.x + placementRect.w"));
         assert!(script.contains("e.button === 0 && groupActions"));
         assert!(script.contains("result_all_drag_start"));
-        assert!(script.contains("window.previewResultDrag"));
+        assert!(script.contains("function renderResultDragPreview"));
+        assert!(script.contains("requestAnimationFrame(renderResultDragPreview)"));
+        assert!(script.contains("action: 'result_drag_finish'"));
         assert!(script.contains("card.style.translate = offset"));
         assert!(script.contains("function contrastingControlSurface"));
         assert!(script.contains("local-control-surface-light"));
@@ -133,7 +163,7 @@ mod tests {
             .split_once("function handleResultDrag")
             .expect("drag handler should exist")
             .1
-            .split_once("window.previewResultDrag")
+            .split_once("function renderResultDragPreview")
             .expect("drag preview should follow the pointer handler")
             .0;
         assert!(!drag_handler.contains(".style.opacity"));
