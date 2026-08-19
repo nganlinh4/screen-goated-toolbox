@@ -16,17 +16,11 @@ fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
         model.performance_source.as_deref(),
         Some("benchmark-2026-08-18-protocol9:ocr-small-1024")
     );
-    // The accuracy-oriented presets deliberately stay on Gemini rather than
-    // tracking the general default: Qwen reserves only 512 output tokens.
-    assert_eq!(
-        PRESET_IMAGE_ACCURATE_MODEL_ID,
-        "google-gemini-3-5-flash-lite-vision"
-    );
+    assert_eq!(PRESET_IMAGE_ACCURATE_MODEL_ID, DEFAULT_IMAGE_MODEL_ID);
     assert_eq!(
         PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
-        "google-gemini-3-5-flash-lite-vision"
+        DEFAULT_IMAGE_MODEL_ID
     );
-    assert_ne!(PRESET_IMAGE_ACCURATE_MODEL_ID, DEFAULT_IMAGE_MODEL_ID);
 }
 
 #[test]

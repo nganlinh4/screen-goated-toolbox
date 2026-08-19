@@ -111,8 +111,8 @@
     }
   },
   "preset_defaults": {
-    "PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID": "google-gemini-3-5-flash-lite-vision",
-    "PRESET_IMAGE_ACCURATE_MODEL_ID": "google-gemini-3-5-flash-lite-vision",
+    "PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID": "groq-qwen-3-6-27b-vision",
+    "PRESET_IMAGE_ACCURATE_MODEL_ID": "groq-qwen-3-6-27b-vision",
     "PRESET_TRANSLATE_ARENA_GTX_MODEL_ID": "google-gtx-translate-text",
     "PRESET_TEXT_ARENA_FAST_MODEL_ID": "groq-gpt-oss-20b-text",
     "PRESET_TEXT_GAME_MODEL_ID": "google-gemini-3-5-flash-lite-text",
