@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail, ensure};
 use crate::model_config::{ModelConfig, ModelType, get_all_models, model_is_non_llm};
 
 pub struct Credentials {
-    pub groq: String,
+    groq: CredentialPool,
     gemini: CredentialPool,
     openrouter: CredentialPool,
 }
@@ -99,7 +99,7 @@ impl Credentials {
             .map(|app| app.config.clone())
             .unwrap_or_default();
         Self {
-            groq: crate::api::provider_credentials::resolve("GROQ_API_KEY", &config.api_key),
+            groq: CredentialPool::load("GROQ_API_KEY", &config.api_key),
             gemini: CredentialPool::load("GEMINI_API_KEY", &config.gemini_api_key),
             openrouter: CredentialPool::load("OPENROUTER_API_KEY", &config.openrouter_api_key),
         }
@@ -115,11 +115,23 @@ impl Credentials {
         }
     }
 
+    /// The Groq key for this attempt. Only a Groq model consumes one, and for
+    /// those the rotated value arrives through [`Self::with_provider_key`].
+    pub fn groq_key_for<'a>(provider: &str, provider_key: &'a str) -> &'a str {
+        if provider == "groq" { provider_key } else { "" }
+    }
+
     pub fn with_provider_key<T>(&self, provider: &str, operation: impl FnOnce(&str) -> T) -> T {
         match provider {
             "google" | "gemini-live" => {
                 let key = self.gemini.next();
                 crate::api::provider_credentials::with_override("GEMINI_API_KEY", key, || {
+                    operation(key)
+                })
+            }
+            "groq" => {
+                let key = self.groq.next();
+                crate::api::provider_credentials::with_override("GROQ_API_KEY", key, || {
                     operation(key)
                 })
             }
@@ -354,7 +366,7 @@ mod tests {
 
     fn empty_credentials() -> Credentials {
         Credentials {
-            groq: String::new(),
+            groq: CredentialPool::empty(),
             gemini: CredentialPool::empty(),
             openrouter: CredentialPool::empty(),
         }
@@ -370,6 +382,20 @@ mod tests {
 
         let vision_filter = HashSet::from(["qrserver-qr-scanner-vision".to_string()]);
         assert!(select_models(ModelType::Vision, Some(&vision_filter), &credentials).is_empty());
+    }
+
+    #[test]
+    fn groq_rotates_across_indexed_credentials_like_the_other_pools() {
+        // Groq was the only provider read as a single key, so a second slot in
+        // .env changed nothing. It now cycles like Gemini and OpenRouter.
+        let pool = CredentialPool::from_values(vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(pool.next(), "a");
+        assert_eq!(pool.next(), "b");
+        assert_eq!(pool.next(), "a");
+
+        // Only a Groq model consumes the rotated key.
+        assert_eq!(Credentials::groq_key_for("groq", "rotated"), "rotated");
+        assert_eq!(Credentials::groq_key_for("google", "rotated"), "");
     }
 
     #[test]

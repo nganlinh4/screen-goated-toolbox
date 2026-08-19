@@ -110,11 +110,11 @@ fn run_case(
         crate::overlay::screen_translate::stream_parser::TranslationStreamParser::new(&candidates);
     let mut first_chunk_ms = None;
     let mut first_region_ms = None;
-    let result = credentials.with_provider_key(&model.provider, |gemini_api_key| {
+    let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_text_streaming(
             TranslateTextRequest {
-                groq_api_key: &credentials.groq,
-                gemini_api_key,
+                groq_api_key: Credentials::groq_key_for(&model.provider, provider_key),
+                gemini_api_key: provider_key,
                 text: request_text.clone(),
                 instruction: "Return only the requested structured screen translation.".to_string(),
                 model: model.full_name.clone(),

@@ -29,8 +29,11 @@ Normal `cargo test` does not call providers. It validates the manifest, all imag
 
 At least one matching provider credential must be in the environment or saved app config. A live run requires an explicit opt-in:
 
-Gemini and OpenRouter benchmarks discover indexed credentials and rotate them
-once per provider call in stable numeric order. Keep the existing primary names
+Gemini, Groq and OpenRouter benchmarks discover indexed credentials and rotate
+them once per provider call in stable numeric order. A second Groq account was
+verified to carry its own allowance: draining one key's token balance left the
+other near full, with an independent request counter, so the pools multiply the
+free tier rather than sharing it. Keep the existing primary names
 for compatibility and add indexed names such as `GEMINI_API_KEY_2` or
 `OPENROUTER_API_KEY_2`. Blank, duplicate, and noncanonical indexed names are
 ignored. Rotation is benchmark-only; the installed application continues to

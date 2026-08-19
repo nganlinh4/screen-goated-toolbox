@@ -222,11 +222,11 @@ fn call_model(
     };
     let started = Instant::now();
     let mut events = Vec::new();
-    let result = credentials.with_provider_key(&model.provider, |gemini_api_key| {
+    let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_image_streaming(
             TranslateImageRequest {
-                groq_api_key: &credentials.groq,
-                gemini_api_key,
+                groq_api_key: Credentials::groq_key_for(&model.provider, provider_key),
+                gemini_api_key: provider_key,
                 prompt: request.prompt,
                 model: model.full_name.clone(),
                 provider: model.provider.clone(),
