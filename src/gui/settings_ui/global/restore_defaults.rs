@@ -130,7 +130,10 @@ pub(super) fn render_restore_defaults_modal(
             egui::Frame::new()
                 .fill(ui.visuals().faint_bg_color)
                 .corner_radius(8.0)
-                .inner_margin(egui::Margin::symmetric(10, 8))
+                .inner_margin(egui::Margin::symmetric(
+                    crate::gui::theme::space::EDGE,
+                    crate::gui::theme::space::GAP,
+                ))
                 .show(ui, |ui| {
                     ui.horizontal_top(|ui| {
                         draw_icon_static(ui, Icon::Key, Some(crate::gui::icons::ICON_SM));
@@ -259,7 +262,10 @@ fn category_row(
         .fill(fill)
         .stroke(egui::Stroke::new(1.0, stroke_color))
         .corner_radius(9.0)
-        .inner_margin(egui::Margin::symmetric(10, 6))
+        .inner_margin(egui::Margin::symmetric(
+            crate::gui::theme::space::EDGE,
+            crate::gui::theme::space::SNUG,
+        ))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.vertical(|ui| {

@@ -2,7 +2,7 @@ use crate::gui::locale::TtsPlaygroundLocaleText;
 
 pub(super) fn get() -> TtsPlaygroundLocaleText {
     TtsPlaygroundLocaleText {
-        tts_settings_button: "Voice Settings",
+        tts_settings_button: "Voice",
         tts_settings_title: "Voice Settings (for Presets, Live Translate, and Translation Gummy)",
         tts_playground_btn: "TTS Playground",
         tts_playground_title: "TTS Playground",

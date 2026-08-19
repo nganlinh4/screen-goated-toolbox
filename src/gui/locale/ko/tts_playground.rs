@@ -2,7 +2,7 @@ use crate::gui::locale::TtsPlaygroundLocaleText;
 
 pub(super) fn get() -> TtsPlaygroundLocaleText {
     TtsPlaygroundLocaleText {
-        tts_settings_button: "TTS 설정",
+        tts_settings_button: "음성",
         tts_settings_title: "TTS 설정 (프리셋, 실시간 음성 번역, 통역 곤약에서 사용)",
         tts_playground_btn: "TTS 플레이그라운드",
         tts_playground_title: "TTS 플레이그라운드",

@@ -2,8 +2,10 @@ use crate::gui::locale::ModelCatalogLocaleText;
 
 pub(super) fn get() -> ModelCatalogLocaleText {
     ModelCatalogLocaleText {
-        model_priority_button: "모델 우선순위",
-        model_priority_title: "모델 우선순위 체인",
+        models_hub_button: "모델",
+        models_hub_tab_priority: "우선순위",
+        models_hub_tab_usage: "사용 통계",
+        models_hub_tab_custom: "사용자 모델",
         model_priority_image_chain_title: "이미지 → 텍스트",
         model_priority_text_chain_title: "텍스트 → 텍스트",
         model_priority_chosen_model: "선택된 모델",
@@ -12,8 +14,6 @@ pub(super) fn get() -> ModelCatalogLocaleText {
         model_priority_auto: "자동",
         model_priority_auto_hint: "스마트 폴백 순서로 계속",
         model_priority_skip_hint: "비활성 공급자, 누락된 키, 잘못된 키, 지원되지 않는 모델은 재시도 시 즉시 건너뜁니다.",
-        custom_models_button: "사용자 모델",
-        custom_models_title: "사용자 모델",
         custom_models_desc: "직접 추가한 모델을 관리합니다. 기본 모델은 보기 전용입니다.",
         custom_models_builtin_locked: "기본 - 잠김",
         custom_models_discovered_models: "검색됨",

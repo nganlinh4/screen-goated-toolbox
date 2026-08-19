@@ -2,7 +2,7 @@ use crate::gui::locale::TtsPlaygroundLocaleText;
 
 pub(super) fn get() -> TtsPlaygroundLocaleText {
     TtsPlaygroundLocaleText {
-        tts_settings_button: "Cài đặt giọng đọc",
+        tts_settings_button: "Giọng đọc",
         tts_settings_title: "Thiết lập Giọng Đọc (dành cho Chức năng đọc trong các Preset, Dịch cabin và Bánh mỳ chuyển ngữ)",
         tts_playground_btn: "Sân chơi TTS",
         tts_playground_title: "Sân chơi TTS",

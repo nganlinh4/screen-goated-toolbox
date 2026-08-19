@@ -1,64 +1,72 @@
 use super::DOCUMENT;
+use std::sync::LazyLock;
+
+/// The document as the browser receives it: the shell with its scene runtime
+/// inlined. The runtime moved out to `scene_runtime.js` — matching the other
+/// runtimes in this directory — so assertions about runtime behaviour have to
+/// read the composed output, not the shell.
+static COMPOSED: LazyLock<String> =
+    LazyLock::new(|| DOCUMENT.replace("__SGT_SCENE_RUNTIME__", include_str!("scene_runtime.js")));
 
 #[test]
 fn ordinary_cards_use_one_shared_document_runtime() {
-    assert!(DOCUMENT.contains("attachShadow({ mode: 'open' })"));
-    assert!(DOCUMENT.contains("entry.mode = 'direct'"));
-    assert!(DOCUMENT.contains("applyDirectContent(entry, message)"));
-    assert!(!DOCUMENT.contains("frame.src = '/card.html'"));
+    assert!(COMPOSED.contains("attachShadow({ mode: 'open' })"));
+    assert!(COMPOSED.contains("entry.mode = 'direct'"));
+    assert!(COMPOSED.contains("applyDirectContent(entry, message)"));
+    assert!(!COMPOSED.contains("frame.src = '/card.html'"));
 }
 
 #[test]
 fn raw_html_and_navigation_keep_an_isolated_frame_boundary() {
-    assert!(DOCUMENT.contains("function loadIsolatedDocument"));
-    assert!(DOCUMENT.contains("isolatedOrigin + '/card/'"));
-    assert!(DOCUMENT.contains("frame.referrerPolicy = 'no-referrer'"));
-    assert!(!DOCUMENT.contains("setAttribute('sandbox'"));
-    assert!(DOCUMENT.contains("event.origin !== isolatedOrigin"));
-    assert!(DOCUMENT.contains("event.data.card_id"));
-    assert!(DOCUMENT.contains("event.data.document_revision"));
-    assert!(DOCUMENT.contains("entry.navigationDepth !== 0"));
-    assert!(DOCUMENT.contains("postMessage(message, '*')"));
-    assert!(!DOCUMENT.contains("sgtresult://localhost/card/"));
-    assert!(DOCUMENT.contains("function navigateTo(entry, url)"));
-    assert!(DOCUMENT.contains("entry.frame.src = url"));
+    assert!(COMPOSED.contains("function loadIsolatedDocument"));
+    assert!(COMPOSED.contains("isolatedOrigin + '/card/'"));
+    assert!(COMPOSED.contains("frame.referrerPolicy = 'no-referrer'"));
+    assert!(!COMPOSED.contains("setAttribute('sandbox'"));
+    assert!(COMPOSED.contains("event.origin !== isolatedOrigin"));
+    assert!(COMPOSED.contains("event.data.card_id"));
+    assert!(COMPOSED.contains("event.data.document_revision"));
+    assert!(COMPOSED.contains("entry.navigationDepth !== 0"));
+    assert!(COMPOSED.contains("postMessage(message, '*')"));
+    assert!(!COMPOSED.contains("sgtresult://localhost/card/"));
+    assert!(COMPOSED.contains("function navigateTo(entry, url)"));
+    assert!(COMPOSED.contains("entry.frame.src = url"));
 }
 
 #[test]
 fn isolated_bridge_handshake_flushes_content_before_iframe_load_fallback() {
-    assert!(DOCUMENT.contains("event.data.phase === 'bridge_ready'"));
-    assert!(DOCUMENT.contains("entry.activateIsolatedBridge = activateIsolatedBridge"));
-    assert!(DOCUMENT.contains("entry.activateIsolatedBridge()"));
-    assert!(DOCUMENT.contains("entry.commandPort = event.ports"));
-    assert!(DOCUMENT.contains("entry.commandPort.postMessage(message)"));
-    assert!(DOCUMENT.contains("event.data.type === 'frame_request'"));
-    assert!(DOCUMENT.contains("type: 'frame_tick'"));
-    assert!(DOCUMENT.contains("if (entry.ready || entry.navigationDepth !== 0) return"));
+    assert!(COMPOSED.contains("event.data.phase === 'bridge_ready'"));
+    assert!(COMPOSED.contains("entry.activateIsolatedBridge = activateIsolatedBridge"));
+    assert!(COMPOSED.contains("entry.activateIsolatedBridge()"));
+    assert!(COMPOSED.contains("entry.commandPort = event.ports"));
+    assert!(COMPOSED.contains("entry.commandPort.postMessage(message)"));
+    assert!(COMPOSED.contains("event.data.type === 'frame_request'"));
+    assert!(COMPOSED.contains("type: 'frame_tick'"));
+    assert!(COMPOSED.contains("if (entry.ready || entry.navigationDepth !== 0) return"));
 }
 
 #[test]
 fn content_revisions_reject_stale_paint_acknowledgements() {
-    assert!(DOCUMENT.contains("content_revision: ++entry.contentRevision"));
-    assert!(DOCUMENT.contains("contentRevision !== entry.contentRevision"));
-    assert!(DOCUMENT.contains("revision === entry.contentRevision"));
+    assert!(COMPOSED.contains("content_revision: ++entry.contentRevision"));
+    assert!(COMPOSED.contains("contentRevision !== entry.contentRevision"));
+    assert!(COMPOSED.contains("revision === entry.contentRevision"));
 }
 
 #[test]
 fn fits_are_serialized_and_pending_updates_are_coalesced_per_card() {
-    assert!(DOCUMENT.contains("const pendingFits = new Map()"));
-    assert!(DOCUMENT.contains("if (activeFit || pendingFits.size === 0) return"));
-    assert!(DOCUMENT.contains("pendingFits.set(key, next)"));
-    assert!(DOCUMENT.contains("window.__SGT_FIT_CONTEXT__"));
-    assert!(DOCUMENT.contains("fontReady: true"));
-    assert!(DOCUMENT.contains("'final_fit_completed'"));
-    assert!(DOCUMENT.contains("contentRevision: entry.contentRevision"));
+    assert!(COMPOSED.contains("const pendingFits = new Map()"));
+    assert!(COMPOSED.contains("if (activeFit || pendingFits.size === 0) return"));
+    assert!(COMPOSED.contains("pendingFits.set(key, next)"));
+    assert!(COMPOSED.contains("window.__SGT_FIT_CONTEXT__"));
+    assert!(COMPOSED.contains("fontReady: true"));
+    assert!(COMPOSED.contains("'final_fit_completed'"));
+    assert!(COMPOSED.contains("contentRevision: entry.contentRevision"));
 }
 
 #[test]
 fn finalized_cards_reject_late_stream_updates() {
-    assert!(DOCUMENT.contains("if (entry.contentPhase === 'finalized')"));
-    assert!(DOCUMENT.contains("'stale_stream_ignored'"));
-    assert!(DOCUMENT.contains("entry.contentPhase = 'finalized'"));
+    assert!(COMPOSED.contains("if (entry.contentPhase === 'finalized')"));
+    assert!(COMPOSED.contains("'stale_stream_ignored'"));
+    assert!(COMPOSED.contains("entry.contentPhase = 'finalized'"));
 }
 
 #[test]
@@ -73,15 +81,15 @@ fn renderer_readiness_is_gated_on_the_single_bundled_font() {
 
 #[test]
 fn moving_a_card_uses_only_a_compositor_transform() {
-    assert!(DOCUMENT.contains("entry.card.style.transform = 'translate3d('"));
-    assert!(!DOCUMENT.contains("entry.card.style.left ="));
-    assert!(!DOCUMENT.contains("entry.card.style.top ="));
+    assert!(COMPOSED.contains("entry.card.style.transform = 'translate3d('"));
+    assert!(!COMPOSED.contains("entry.card.style.left ="));
+    assert!(!COMPOSED.contains("entry.card.style.top ="));
 }
 
 #[test]
 fn result_card_outline_does_not_bleed_into_the_control_gap() {
-    assert!(DOCUMENT.contains("box-shadow:inset 0 0 0 1px var(--result-outline)"));
-    assert!(!DOCUMENT.contains("0 8px 28px rgba(0,0,0,.22)"));
+    assert!(COMPOSED.contains("box-shadow:inset 0 0 0 1px var(--result-outline)"));
+    assert!(!COMPOSED.contains("0 8px 28px rgba(0,0,0,.22)"));
 }
 
 #[test]
@@ -93,18 +101,18 @@ fn text_only_cards_keep_the_fitter_without_card_chrome() {
     assert!(shape_runtime.contains("Script=Han"));
     assert!(direct_runtime.contains("shapeLayout.prefersVerticalWriting(text)"));
     assert!(!direct_runtime.contains("overflowWrap = 'anywhere'"));
-    assert!(DOCUMENT.contains("data-presentation=\"text_only\""));
-    assert!(DOCUMENT.contains("background:transparent!important;box-shadow:none"));
-    assert!(DOCUMENT.contains("const backdrop = document.createElement('img')"));
-    assert!(DOCUMENT.contains("model.backdrop_data_url || ''"));
-    assert!(DOCUMENT.contains("entry.directHost.style.setProperty('--text-color'"));
-    assert!(DOCUMENT.contains("window.__SGT_RUN_FIT__"));
-    assert!(DOCUMENT.contains("border-radius:3px;pointer-events:auto;user-select:text"));
-    assert!(DOCUMENT.contains("user-select:text;cursor:text"));
-    assert!(DOCUMENT.contains("entry.sourceReplacement = model.source_replacement === true"));
-    assert!(DOCUMENT.contains("preferredFontSize: entry.preferredFontSize"));
-    assert!(DOCUMENT.contains("sourceReplacement: entry.sourceReplacement === true"));
-    assert!(DOCUMENT.contains("preferredFontSize / scale"));
+    assert!(COMPOSED.contains("data-presentation=\"text_only\""));
+    assert!(COMPOSED.contains("background:transparent!important;box-shadow:none"));
+    assert!(COMPOSED.contains("const backdrop = document.createElement('img')"));
+    assert!(COMPOSED.contains("model.backdrop_data_url || ''"));
+    assert!(COMPOSED.contains("entry.directHost.style.setProperty('--text-color'"));
+    assert!(COMPOSED.contains("window.__SGT_RUN_FIT__"));
+    assert!(COMPOSED.contains("border-radius:3px;pointer-events:auto;user-select:text"));
+    assert!(COMPOSED.contains("user-select:text;cursor:text"));
+    assert!(COMPOSED.contains("entry.sourceReplacement = model.source_replacement === true"));
+    assert!(COMPOSED.contains("preferredFontSize: entry.preferredFontSize"));
+    assert!(COMPOSED.contains("sourceReplacement: entry.sourceReplacement === true"));
+    assert!(COMPOSED.contains("preferredFontSize / scale"));
     assert!(direct_runtime.contains("isSourceReplacement ? '1.08' : '1.5'"));
     assert!(direct_runtime.contains("? 'center'"));
     assert!(direct_runtime.contains("[100, 90, 80, 70, 60, 50, 40, 30, 25]"));
@@ -122,8 +130,8 @@ fn text_only_cards_keep_the_fitter_without_card_chrome() {
 
 #[test]
 fn source_replacements_cannot_enter_the_ordinary_result_fitter() {
-    assert!(DOCUMENT.contains("if (entry.sourceReplacement === true)"));
-    assert!(DOCUMENT.contains("completeFit(entry);"));
+    assert!(COMPOSED.contains("if (entry.sourceReplacement === true)"));
+    assert!(COMPOSED.contains("completeFit(entry);"));
     let fit = crate::overlay::result::markdown_view::fit::runtime_fit_script();
     assert!(!fit.contains("isSourceReplacement"));
     assert!(!fit.contains("preferredFontSize"));
@@ -150,12 +158,12 @@ fn ordinary_results_retain_a_scroll_recovery_path_while_streaming() {
 
 #[test]
 fn streaming_dom_replacement_is_immediate() {
-    assert!(DOCUMENT.contains("if (flushPendingContent(entry)) return;"));
-    assert!(DOCUMENT.contains("activateCard(entry, becameVisible);"));
-    assert!(!DOCUMENT.contains("contentFrame"));
-    assert!(!DOCUMENT.contains("lastContentFlushAt"));
-    assert!(!DOCUMENT.contains("lastStreamingFitAt"));
-    assert!(!DOCUMENT.contains("streamingFitTimer"));
+    assert!(COMPOSED.contains("if (flushPendingContent(entry)) return;"));
+    assert!(COMPOSED.contains("activateCard(entry, becameVisible);"));
+    assert!(!COMPOSED.contains("contentFrame"));
+    assert!(!COMPOSED.contains("lastContentFlushAt"));
+    assert!(!COMPOSED.contains("lastStreamingFitAt"));
+    assert!(!COMPOSED.contains("streamingFitTimer"));
 }
 
 #[test]
@@ -166,7 +174,7 @@ fn ordinary_streaming_preserves_unchanged_dom_identity() {
     assert!(patch_runtime.contains("syncNode(existing, next)"));
     assert!(patch_runtime.contains("current.nodeValue = fresh.nodeValue"));
     assert!(!patch_runtime.contains("body.innerHTML = html"));
-    assert!(DOCUMENT.contains("requestRefinement: function()"));
+    assert!(COMPOSED.contains("requestRefinement: function()"));
 }
 
 #[test]
@@ -178,29 +186,29 @@ fn direct_card_destruction_stops_persistent_scale_motion() {
 
 #[test]
 fn resizing_debounces_fit_without_penalizing_position_only_dragging() {
-    assert!(DOCUMENT.contains("const resized = entry.card.clientWidth !== width"));
-    assert!(DOCUMENT.contains("setTimeout(function() { queueFit(entry, entry.streaming); }, 40)"));
+    assert!(COMPOSED.contains("const resized = entry.card.clientWidth !== width"));
+    assert!(COMPOSED.contains("setTimeout(function() { queueFit(entry, entry.streaming); }, 40)"));
 }
 
 #[test]
 fn theme_and_interaction_updates_stay_inside_the_shared_scene() {
     let document = super::super::card_document::compositor_document("http://127.0.0.1:32123");
 
-    assert!(DOCUMENT.contains("document.getElementById('sgt-theme-css').textContent"));
-    assert!(DOCUMENT.contains("card.addEventListener('pointerdown'"));
+    assert!(COMPOSED.contains("document.getElementById('sgt-theme-css').textContent"));
+    assert!(COMPOSED.contains("card.addEventListener('pointerdown'"));
     assert!(document.contains("command.type === 'raise'"));
 }
 
 #[test]
 fn result_text_is_selectable() {
-    assert!(DOCUMENT.contains("contain:layout paint style;user-select:text"));
-    assert!(DOCUMENT.contains("shadow.addEventListener('copy'"));
-    assert!(DOCUMENT.contains("action: 'copy_selection'"));
-    assert!(DOCUMENT.contains("event.data.type === 'copy_selection'"));
+    assert!(COMPOSED.contains("contain:layout paint style;user-select:text"));
+    assert!(COMPOSED.contains("shadow.addEventListener('copy'"));
+    assert!(COMPOSED.contains("action: 'copy_selection'"));
+    assert!(COMPOSED.contains("event.data.type === 'copy_selection'"));
 }
 
 #[test]
 fn stale_content_commands_cannot_undo_the_latest_interaction_order() {
-    assert!(DOCUMENT.contains("if (order >= current)"));
-    assert!(DOCUMENT.contains("raiseCard(entry)"));
+    assert!(COMPOSED.contains("if (order >= current)"));
+    assert!(COMPOSED.contains("raiseCard(entry)"));
 }

@@ -13,7 +13,7 @@ pub(super) fn get() -> DesktopSettingsLocaleText {
         usage_statistics_title: "Thống kê sử dụng",
         usage_statistics_tooltip: "Dùng mô hình ít nhất một lần để hiện chính xác",
         usage_check_link: "Xem lượng dùng",
-        usage_session_hint: "Header giới hạn gần nhất ghi nhận trong phiên này. Bảng điều khiển của nhà cung cấp vẫn là nguồn chính xác nhất.",
+        usage_session_hint: "Thông tin gần nhất ghi nhận được. Bảng điều khiển của nhà cung cấp vẫn chính xác nhất.",
         usage_no_live_data: "Chưa ghi nhận mức dùng thực tế. Dùng các model từ Groq hoặc OpenRouter để hiện.",
         usage_endpoint_count: "endpoint",
         usage_shared_quota: "Hạn mức dùng chung",

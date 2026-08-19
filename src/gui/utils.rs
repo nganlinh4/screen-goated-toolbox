@@ -76,6 +76,25 @@ pub fn is_system_in_dark_mode() -> bool {
 
 // --- Font Configuration (Existing Code) ---
 
+/// Downward nudge applied to the monospace face, as a fraction of font size.
+///
+/// eframe is built with `default-features = false`, so epaint's bundled fonts
+/// are absent and `FontDefinitions::default()` starts empty: the monospace
+/// family is Consolas alone. Consolas declares an hhea lineGap of 0.171 em,
+/// which epaint adds to the galley height *below* the baseline while leaving
+/// the baseline at the ascent. Centre-aligning that galley — what every
+/// `Layout::*(Align::Center)` row does — therefore lifts the glyphs by half
+/// the phantom gap, and monospace runs render ~2px above the proportional text
+/// beside them (measured across every row of the usage table).
+///
+/// The baseline sits this far below the galley centre, per em:
+///   Google Sans Flex: ascent 0.9660 - height 1.2520/2 = 0.3403
+///   Consolas:         ascent 0.7427 - height 1.1709/2 = 0.1573
+/// so shifting Consolas down by the 0.1830 em difference lands both families
+/// on one baseline. The shift is purely visual (it does not touch layout) and
+/// is absorbed by Consolas' own line gap, so descenders never clip.
+pub const MONO_BASELINE_TWEAK: f32 = 0.183;
+
 pub fn configure_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
@@ -100,6 +119,10 @@ pub fn configure_fonts(ctx: &egui::Context) {
 
     let mono_font_name = "consolas";
     let mono_data = std::fs::read(font_dir.join("consola.ttf"));
+    let mono_tweak = egui::FontTweak {
+        y_offset_factor: MONO_BASELINE_TWEAK,
+        ..Default::default()
+    };
     let emoji_font_name = "segoe_emoji";
     let emoji_data = std::fs::read(font_dir.join("seguiemj.ttf"));
 
@@ -134,7 +157,7 @@ pub fn configure_fonts(ctx: &egui::Context) {
     if let Ok(data) = mono_data {
         fonts.font_data.insert(
             mono_font_name.to_owned(),
-            std::sync::Arc::new(egui::FontData::from_owned(data)),
+            std::sync::Arc::new(egui::FontData::from_owned(data).tweak(mono_tweak)),
         );
         fonts
             .families

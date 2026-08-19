@@ -28,11 +28,40 @@ const W_HISTORY: f32 = 480.0;
 
 /// Empty gutter docked at the window's right edge so the outermost detail column
 /// isn't flush against it (the right side previously had no padding).
-const RIGHT_PAD: f32 = 18.0;
+/// Inset between the body's content and the window edge, on both sides.
+///
+/// The left came from the sidebar frame's own margin and the right from the
+/// width of an empty gutter panel, so they were written independently — 8px
+/// against 18px, which reads as the whole body sitting off-centre. One
+/// constant now feeds both.
+///
+/// Wider than [`crate::gui::theme::WINDOW_EDGE_INSET`], which the bars use: a
+/// bar is a band of controls that reads as part of the frame, while the body
+/// is content and wants air around it. It matches the gutter between the
+/// columns, so the body keeps one rhythm from edge to edge.
+const BODY_EDGE_INSET: i8 = crate::gui::theme::space::CARD;
+
+/// Width of the empty gutter docked at the right, keeping the outermost detail
+/// column off the window edge.
+const RIGHT_PAD: f32 = BODY_EDGE_INSET as f32;
 const SIDEBAR_GRID_TRAILING_PAD: f32 = 4.0;
+const SIDEBAR_MIN_WIDTH: f32 = 440.0;
+const SIDEBAR_MAX_WIDTH: f32 = 760.0;
 
 fn sidebar_width() -> f32 {
-    (cached_grid_width() + SIDEBAR_GRID_TRAILING_PAD).clamp(440.0, 760.0)
+    sidebar_width_for(cached_grid_width())
+}
+
+/// Panel width that leaves the preset grid its measured width.
+///
+/// `Panel::left::exact_size` sizes the whole panel, frame included, so the
+/// left inset comes out of the grid's room. It was not accounted for, which
+/// left the grid short by exactly the inset — invisible while that was small,
+/// but it clipped the favourite star off the last column as soon as the inset
+/// grew.
+fn sidebar_width_for(grid_width: f32) -> f32 {
+    (grid_width + SIDEBAR_GRID_TRAILING_PAD + f32::from(BODY_EDGE_INSET))
+        .clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH)
 }
 
 /// Fixed width for an aux (non-first) detail column.
@@ -91,9 +120,9 @@ impl SettingsApp {
                 egui::Frame::NONE
                     .fill(panel_fill)
                     .inner_margin(egui::Margin {
-                        left: 8,
+                        left: BODY_EDGE_INSET,
                         right: 0,
-                        top: 2,
+                        top: crate::gui::theme::space::HAIR,
                         bottom: 0,
                     }),
             )
@@ -136,7 +165,7 @@ impl SettingsApp {
                 .resizable(false)
                 .show_separator_line(false)
                 .exact_size(detail_pane_width(*pane))
-                .frame(col_frame(12))
+                .frame(col_frame(crate::gui::theme::space::CARD))
                 .show_inside(root_ui, |ui| {
                     let cb = san(ui.max_rect().bottom(), 600.0);
                     let cr = san(ui.max_rect().right(), 1200.0);
@@ -146,7 +175,7 @@ impl SettingsApp {
 
         // Central: the main / first pane (the editor, or the focused single pane).
         egui::CentralPanel::default()
-            .frame(col_frame(12))
+            .frame(col_frame(crate::gui::theme::space::CARD))
             .show_inside(root_ui, |ui| {
                 let cb = san(ui.max_rect().bottom(), 600.0);
                 let cr = san(ui.max_rect().right(), 1200.0);
@@ -155,7 +184,9 @@ impl SettingsApp {
                 }
             });
     }
+}
 
+impl SettingsApp {
     fn remap_preset_ui_indices(&mut self, index_move: PresetIndexMove) {
         if let Some(index) = &mut self.current_preset_idx {
             *index = index_move.remap(*index);
@@ -267,11 +298,10 @@ impl SettingsApp {
                     &self.auto_launcher,
                     self.current_admin_state,
                     text,
-                    &mut self.show_usage_modal,
+                    &mut self.show_models_modal,
+                    &mut self.models_tab,
                     &mut self.show_tts_modal,
                     &mut self.show_tools_modal,
-                    &mut self.show_model_priority_modal,
-                    &mut self.show_custom_models_modal,
                     &mut self.show_restore_defaults_modal,
                     &mut self.download_manager,
                     &self.cached_audio_devices,
@@ -351,5 +381,47 @@ impl SettingsApp {
             }
             self.save_and_sync();
         }
+    }
+}
+
+#[cfg(test)]
+mod body_inset_tests {
+    use super::{
+        BODY_EDGE_INSET, RIGHT_PAD, SIDEBAR_GRID_TRAILING_PAD, SIDEBAR_MAX_WIDTH,
+        SIDEBAR_MIN_WIDTH, sidebar_width_for,
+    };
+
+    /// The preset grid must fit inside the sidebar with its trailing pad
+    /// intact, whatever the body inset is — the star column lives in that pad.
+    #[test]
+    fn the_sidebar_leaves_its_grid_the_width_it_measured() {
+        let inset = f32::from(BODY_EDGE_INSET);
+        for grid in [440.0_f32, 500.0, 600.0, 700.0] {
+            let content = sidebar_width_for(grid) - inset;
+            assert!(
+                content >= grid + SIDEBAR_GRID_TRAILING_PAD,
+                "grid {grid} got {content} points of content"
+            );
+        }
+        // Past the cap the panel stops growing, by design.
+        assert_eq!(sidebar_width_for(SIDEBAR_MAX_WIDTH), SIDEBAR_MAX_WIDTH);
+        assert_eq!(sidebar_width_for(0.0), SIDEBAR_MIN_WIDTH);
+    }
+
+    /// The body must sit the same distance from both window edges.
+    ///
+    /// The left inset lives in the sidebar panel's frame and the right in the
+    /// width of a spacer panel — two unrelated places that drifted to 8px and
+    /// 18px. Anyone changing one has to change the constant, which moves both.
+    #[test]
+    fn the_body_is_inset_equally_from_both_window_edges() {
+        assert_eq!(f32::from(BODY_EDGE_INSET), RIGHT_PAD);
+        assert_eq!(
+            BODY_EDGE_INSET,
+            crate::gui::theme::space::CARD,
+            "the body inset must come from the spacing scale"
+        );
+        // Content sits wider from the frame than the bars do.
+        const _: () = assert!(BODY_EDGE_INSET > crate::gui::theme::WINDOW_EDGE_INSET);
     }
 }

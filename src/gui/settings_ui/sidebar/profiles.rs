@@ -3,7 +3,7 @@ use super::ViewMode;
 use crate::config::Config;
 use crate::gui::icons::{Icon, icon_button_sized};
 use crate::gui::locale::LocaleText;
-use crate::gui::theme::AppTheme;
+use crate::gui::theme::{AppTheme, space};
 use eframe::egui;
 
 enum ProfileAction {
@@ -41,40 +41,25 @@ pub fn render_profiles(
     // row (below), so it shares the pills' exact vertical layout and centers with
     // them. (In a separate outer cell it sat ~2px above the ScrollArea-placed
     // pills, since the scroll area positions its content independently.)
+    // Sized from the control height plus room for the scroll bar, so the row
+    // never crops a pill or leaves a band of dead space under one.
     let profiles_row_w = ui.available_width();
+    let profiles_row_h = crate::gui::theme::CONTROL_HEIGHT + f32::from(space::TIGHT);
     ui.allocate_ui_with_layout(
-        egui::vec2(profiles_row_w, 26.0),
+        egui::vec2(profiles_row_w, profiles_row_h),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
             let theme = AppTheme::from_ui(ui);
             egui::ScrollArea::horizontal()
                 .id_salt("preset_profiles_scroll")
-                .max_height(30.0)
+                .max_height(profiles_row_h + f32::from(space::TIGHT))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
-                        // Give the section label a pill-height (22px) cell so it
-                        // vertically centers ON the pills' line. A bare label here
-                        // top-aligns (it's shorter than the pills and added before them),
-                        // which pixel-measured 3.5px above the pills.
-                        {
-                            let lw = ui
-                                .painter()
-                                .layout_no_wrap(
-                                    text.preset_editor.profiles_label.to_string(),
-                                    egui::TextStyle::Body.resolve(ui.style()),
-                                    ui.visuals().text_color(),
-                                )
-                                .size()
-                                .x;
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(lw, 22.0),
-                                egui::Layout::left_to_right(egui::Align::Center),
-                                |ui| {
-                                    ui.label(text.preset_editor.profiles_label);
-                                },
-                            );
-                        }
+                        // The row starts out `interact_size.y` tall and the pills
+                        // are exactly that, so the label centres on their line
+                        // without a hand-sized cell around it.
+                        ui.label(text.preset_editor.profiles_label);
                         for idx in 0..config.preset_profiles.len() {
                             let is_active = idx == config.active_preset_profile_idx;
                             let profile_id = config.preset_profiles[idx].id.clone();
@@ -96,11 +81,15 @@ pub fn render_profiles(
                             egui::Frame::new()
                                 .fill(pill_fill)
                                 .corner_radius(egui::CornerRadius::same(9))
+                                // Horizontal padding only: the inner row already
+                                // stands at the control height, so vertical
+                                // padding would push the pill past every other
+                                // control and off the label's line.
                                 .inner_margin(egui::Margin {
-                                    left: 9,
-                                    right: 4,
-                                    top: 2,
-                                    bottom: 2,
+                                    left: space::GAP,
+                                    right: space::TIGHT,
+                                    top: 0,
+                                    bottom: 0,
                                 })
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {

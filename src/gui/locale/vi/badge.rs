@@ -48,6 +48,6 @@ pub(super) fn get() -> BadgeLocaleText {
         feature_text_input: "Lớp nhập văn bản",
         feature_screen_record: "Trình ghi màn hình",
         feature_markdown_view: "Chế độ xem Markdown",
-        install_webview2_hint: "Mở Công cụ đã tải, cài Microsoft Edge WebView2 Runtime rồi thử lại.",
+        install_webview2_hint: "Mở Công cụ, cài Microsoft Edge WebView2 Runtime rồi thử lại.",
     }
 }

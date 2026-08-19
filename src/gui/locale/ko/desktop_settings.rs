@@ -13,7 +13,7 @@ pub(super) fn get() -> DesktopSettingsLocaleText {
         usage_statistics_title: "사용 통계",
         usage_statistics_tooltip: "정확한 데이터를 보려면 모델을 최소 한 번 사용하세요",
         usage_check_link: "사용량 확인",
-        usage_session_hint: "이 앱 세션에서 관찰한 최신 사용량 제한 헤더입니다. 공급자 대시보드가 최종 기준입니다.",
+        usage_session_hint: "가장 최근에 확인된 정보입니다. 공급자 대시보드가 가장 정확합니다.",
         usage_no_live_data: "아직 실제 사용량이 기록되지 않았습니다. Groq 또는 OpenRouter 모델을 사용하면 표시됩니다.",
         usage_endpoint_count: "엔드포인트",
         usage_shared_quota: "공유 할당량",

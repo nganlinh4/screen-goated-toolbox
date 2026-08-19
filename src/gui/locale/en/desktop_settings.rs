@@ -13,7 +13,7 @@ pub(super) fn get() -> DesktopSettingsLocaleText {
         usage_statistics_title: "Usage Statistics",
         usage_statistics_tooltip: "Use a model at least once for accurate data",
         usage_check_link: "Check Usage",
-        usage_session_hint: "Latest rate-limit headers observed in this app session. Provider dashboards remain the source of truth.",
+        usage_session_hint: "Latest information observed. Provider dashboards remain the most accurate.",
         usage_no_live_data: "No actual usage recorded yet. Use a model from Groq or OpenRouter to show it.",
         usage_endpoint_count: "endpoints",
         usage_shared_quota: "Shared quota",

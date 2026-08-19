@@ -53,6 +53,93 @@ pub fn dialog_body(ui: &mut egui::Ui, theme: &AppTheme, body: &str) {
     );
 }
 
+/// Default hold before an item hands the slot over.
+pub const CROSSFADE_HOLD_SECONDS: f64 = 1.5;
+/// Crossfade length at each handover, inside the slot's own time.
+const CROSSFADE_FADE_SECONDS: f64 = 0.25;
+
+/// Which of `count` items a shared slot shows right now, and how opaque it is.
+///
+/// Use where several pieces of text compete for one line: each holds for
+/// `CROSSFADE_HOLD_SECONDS` then fades through transparent into the next.
+/// Every caller reads the same clock, so a table of rotating cells turns over
+/// on one beat instead of shimmering cell by cell. Repaints are scheduled —
+/// every frame while fading, then asleep until the next handover — so a static
+/// moment costs nothing.
+///
+/// Apply the opacity with [`egui::Color32::gamma_multiply`].
+pub fn crossfade_phase(ui: &egui::Ui, count: usize) -> (usize, f32) {
+    crossfade_phase_held(ui, count, CROSSFADE_HOLD_SECONDS)
+}
+
+/// [`crossfade_phase`] with an explicit hold, for slots that carry longer text
+/// and need more reading time than a table cell does.
+pub fn crossfade_phase_held(ui: &egui::Ui, count: usize, hold: f64) -> (usize, f32) {
+    if count < 2 {
+        return (0, 1.0);
+    }
+
+    let slot = ui.input(|input| input.time) / hold;
+    let index = (slot as usize) % count;
+    let elapsed = slot.fract() * hold;
+    let remaining = hold - elapsed;
+
+    let fade_in = (elapsed / CROSSFADE_FADE_SECONDS).min(1.0);
+    let fade_out = (remaining / CROSSFADE_FADE_SECONDS).min(1.0);
+
+    let next = if elapsed < CROSSFADE_FADE_SECONDS || remaining < CROSSFADE_FADE_SECONDS {
+        0.0
+    } else {
+        remaining - CROSSFADE_FADE_SECONDS
+    };
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_secs_f64(next));
+
+    (index, fade_in.min(fade_out) as f32)
+}
+
+/// Baseline fraction of Google Sans Flex: how far below a centred galley's
+/// centre its baseline sits, per em (ascent 0.9660 - height 1.2520 / 2).
+const PROPORTIONAL_BASELINE_FRACTION: f32 = 0.3403;
+
+/// Downward nudge that puts `size`-pt text on the same baseline as
+/// `reference`-pt text when both are centre-aligned in one row.
+fn baseline_nudge(reference: f32, size: f32) -> f32 {
+    ((reference - size) * PROPORTIONAL_BASELINE_FRACTION).max(0.0)
+}
+
+/// Runs `contents` shifted down onto `reference`-pt text's baseline.
+///
+/// egui centres widgets by their box, so small text beside large text rides
+/// high by the difference between their baseline-to-box-centre offsets — 2px
+/// for 11.5pt copy next to an 18pt dialog title. Wrap the smaller *text* in
+/// this; leave filled boxes (pills, chips, icon buttons) box-centred, which is
+/// how they are meant to read next to a heading.
+///
+/// The margin is doubled on purpose: padding the top also makes the box
+/// taller, and the row re-centres that taller box, handing half the padding
+/// straight back. That holds while the wrapped content is the shorter side of
+/// the row, which is the only situation this helper is for.
+pub fn baseline_aligned<R>(
+    ui: &mut egui::Ui,
+    reference: f32,
+    size: f32,
+    contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    egui::Frame::new()
+        .inner_margin(egui::Margin {
+            top: (2.0 * baseline_nudge(reference, size)).round() as i8,
+            ..Default::default()
+        })
+        .show(ui, contents)
+        .inner
+}
+
+/// Title size for every settings modal header.
+pub const DIALOG_TITLE_SIZE: f32 = 18.0;
+/// Supporting-copy size that sits inline beside a dialog title.
+pub const DIALOG_DESCRIPTION_SIZE: f32 = 11.5;
+
 /// Standard Material header for the settings modals.
 ///
 /// Lays out, on one row: a large bold `title`, then any inline `actions`
@@ -71,18 +158,21 @@ pub fn dialog_header(
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new(title)
-                .size(18.0)
+                .size(DIALOG_TITLE_SIZE)
                 .strong()
                 .color(theme.on_surface()),
         );
-        // Description sits inline on the same row, just after the title.
+        // Description sits inline on the same row, just after the title, and
+        // is nudged onto the title's baseline rather than its box centre.
         if let Some(desc) = description {
             ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(desc)
-                    .size(11.5)
-                    .color(theme.on_surface_variant()),
-            );
+            baseline_aligned(ui, DIALOG_TITLE_SIZE, DIALOG_DESCRIPTION_SIZE, |ui| {
+                ui.label(
+                    egui::RichText::new(desc)
+                        .size(DIALOG_DESCRIPTION_SIZE)
+                        .color(theme.on_surface_variant()),
+                );
+            });
         }
         ui.add_space(12.0);
         actions(ui);

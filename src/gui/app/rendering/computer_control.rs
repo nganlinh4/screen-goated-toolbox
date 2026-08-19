@@ -78,7 +78,7 @@ impl SettingsApp {
             .fill(theme.card_bg())
             .stroke(theme.card_stroke())
             .corner_radius(egui::CornerRadius::same(12))
-            .inner_margin(egui::Margin::same(12))
+            .inner_margin(egui::Margin::same(crate::gui::theme::space::CARD))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
@@ -168,7 +168,7 @@ fn render_intro(ui: &mut egui::Ui, theme: &AppTheme, text: &LocaleText) {
     egui::Frame::new()
         .fill(theme.neutral_fill())
         .corner_radius(egui::CornerRadius::same(12))
-        .inner_margin(egui::Margin::same(14))
+        .inner_margin(egui::Margin::same(crate::gui::theme::space::CARD))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 let icon_size = 34.0;
