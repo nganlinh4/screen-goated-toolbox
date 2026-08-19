@@ -9,7 +9,7 @@
         "input_order": "image-first",
         "media_resolution": "provider-default",
         "sampling": "provider-default",
-        "max_output_tokens": null,
+        "max_output_tokens": 512,
         "structured_output": "strict-json-schema"
       },
       {
@@ -18,7 +18,7 @@
         "input_order": "image-first",
         "media_resolution": "provider-default",
         "sampling": "provider-default",
-        "max_output_tokens": null,
+        "max_output_tokens": 512,
         "structured_output": "strict-json-schema"
       },
       {
@@ -36,7 +36,7 @@
         "input_order": "text-first",
         "media_resolution": "provider-default",
         "sampling": "provider-default",
-        "max_output_tokens": null,
+        "max_output_tokens": 512,
         "structured_output": "prompt-only"
       }
     ],
