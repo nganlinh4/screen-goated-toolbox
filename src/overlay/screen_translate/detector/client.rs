@@ -18,10 +18,45 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 const DETECT_TIMEOUT: Duration = Duration::from_secs(15);
 const WAIT_INTERVAL: Duration = Duration::from_millis(40);
 const STDERR_TAIL_LIMIT: usize = 8 * 1024;
+const WARMUP_PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
+const WARMUP_PROGRESS_CEILING: f32 = 90.0;
 
 enum ReaderEvent {
     Message(u64, ServerMessage),
     Failed(String),
+}
+
+struct WarmupProgress {
+    badge: Arc<crate::overlay::auto_copy_badge::DownloadProgressBadge>,
+    complete: Arc<AtomicBool>,
+    message: &'static str,
+}
+
+impl WarmupProgress {
+    fn start(title: &'static str, message: &'static str) -> Self {
+        let badge = Arc::new(
+            crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(title, message),
+        );
+        badge.set_phase(message, 0.0);
+        let complete = Arc::new(AtomicBool::new(false));
+        simulate_warmup_progress(Arc::clone(&badge), Arc::clone(&complete), message);
+        Self {
+            badge,
+            complete,
+            message,
+        }
+    }
+
+    fn finish(self) {
+        self.badge.set_phase(self.message, 100.0);
+    }
+}
+
+impl Drop for WarmupProgress {
+    fn drop(&mut self) {
+        self.complete.store(true, Ordering::Release);
+        self.badge.finish();
+    }
 }
 
 pub(super) struct DetectorClient {
@@ -39,6 +74,15 @@ pub(super) struct DetectorClient {
 impl DetectorClient {
     pub(super) fn start(cancelled: &AtomicBool) -> Result<Self> {
         let resources = LaunchResources::ensure(cancelled)?;
+        let language = crate::APP
+            .lock()
+            .map(|app| app.config.ui_language.clone())
+            .unwrap_or_else(|_| "en".to_string());
+        let locale = crate::gui::locale::LocaleText::get(&language).screen_translate;
+        let warmup_progress = WarmupProgress::start(
+            locale.screen_translate_title,
+            locale.screen_translate_preparing,
+        );
         let mut child = spawn_worker(&resources)?;
         let job = match create_kill_on_close_job(&child) {
             Ok(job) => job,
@@ -109,6 +153,7 @@ impl DetectorClient {
             resources,
         };
         client.handshake(cancelled)?;
+        warmup_progress.finish();
         Ok(client)
     }
 
@@ -245,6 +290,24 @@ impl DetectorClient {
             let _ = reader.join();
         }
     }
+}
+
+fn simulate_warmup_progress(
+    badge: Arc<crate::overlay::auto_copy_badge::DownloadProgressBadge>,
+    complete: Arc<AtomicBool>,
+    message: &'static str,
+) {
+    let _ = std::thread::Builder::new()
+        .name("sgt-screen-text-detector-warmup-progress".to_string())
+        .spawn(move || {
+            let started = Instant::now();
+            while !complete.load(Ordering::Acquire) {
+                std::thread::sleep(WARMUP_PROGRESS_INTERVAL);
+                let seconds = started.elapsed().as_secs_f32();
+                let estimated = WARMUP_PROGRESS_CEILING * (1.0 - (-seconds / 4.0).exp());
+                badge.set_phase(message, estimated.min(WARMUP_PROGRESS_CEILING));
+            }
+        });
 }
 
 impl Drop for DetectorClient {
