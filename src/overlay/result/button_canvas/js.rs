@@ -221,6 +221,14 @@ function calculateButtonPosition(winRect, controlScale) {
     }
 }
 
+function escapeText(value) {
+    return String(value).replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch]);
+}
+
+function escapeAttribute(value) {
+    return escapeText(value).replace(/"/g, '&quot;');
+}
+
 function generateButtonsHTML(hwnd, state, isVertical) {
     const canGoBack = state.navDepth > 0;
     const canGoForward = state.navDepth < state.maxNavDepth;
@@ -242,6 +250,12 @@ function generateButtonsHTML(hwnd, state, isVertical) {
         const forwardHideClass = canGoForward ? '' : 'hidden';
         buttons += `<div class="btn ${forwardHideClass}" onclick="action('${hwnd}', 'forward')" title="${window.L10N.forward}">
             ${window.iconSvgs.arrow_forward}
+        </div>`;
+    }
+
+    if (!state.groupActions && state.modelLabel) {
+        buttons += `<div class="btn model-badge ${hideClass}" title="${escapeAttribute(state.modelLabel)}">
+            <span class="model-badge-text">${escapeText(state.modelLabel)}</span>
         </div>`;
     }
 
@@ -292,7 +306,7 @@ function generateButtonsHTML(hwnd, state, isVertical) {
     </div>`;
 
     buttons += `<div class="btn result-handle"
-        onmousedown="handleResultDrag(event, '${hwnd}', ${Boolean(state.groupActions)})"
+        onpointerdown="handleResultDrag(event, '${hwnd}', ${Boolean(state.groupActions)})"
         oncontextmenu="return false;"
         title="${window.L10N.result_handle}">
         ${window.iconSvgs.cleaning_services}
@@ -303,6 +317,9 @@ function generateButtonsHTML(hwnd, state, isVertical) {
 
 function handleResultDrag(e, hwnd, groupActions) {
     if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
+    if (activeResultDragPreview) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
     setResultDraggingCursor(true);
     const root = window.registeredWindows[String(hwnd)];
     const groupIds = root?.state?.groupIds?.map(String) || [String(hwnd)];
@@ -310,7 +327,10 @@ function handleResultDrag(e, hwnd, groupActions) {
         model?.state?.groupIds?.map(String) || [id]))];
     const targets = e.button === 1 ? allIds
         : ((groupActions || e.button === 2) ? groupIds : [String(hwnd)]);
-    activeResultDragPreview = { hwnd: String(hwnd), targets: targets };
+    activeResultDragPreview = {
+        hwnd: String(hwnd), targets: targets, pointerId: e.pointerId,
+        startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, frame: 0
+    };
 
     let action = 'result_drag_start';
     if (e.button === 0 && groupActions) action = 'result_group_drag_start';
@@ -321,28 +341,56 @@ function handleResultDrag(e, hwnd, groupActions) {
         action: action,
         hwnd: hwnd
     }));
+    window.__SGT_BUTTON_SCENE__?.setDragActive(true);
 }
 
-window.previewResultDrag = function(dx, dy) {
+function renderResultDragPreview() {
     if (!activeResultDragPreview) return;
-    const scale = window.devicePixelRatio || 1;
-    const offset = (dx / scale) + 'px ' + (dy / scale) + 'px';
+    activeResultDragPreview.frame = 0;
+    const offset = activeResultDragPreview.dx + 'px ' + activeResultDragPreview.dy + 'px';
     for (const id of activeResultDragPreview.targets) {
         const card = document.querySelector('.result-card[data-id="' + id + '"]');
         if (card) card.style.translate = offset;
         const group = document.querySelector('.button-group[data-hwnd="' + id + '"]');
         if (group) group.style.translate = offset;
     }
-};
-window.finishResultDragPreview = function() { activeResultDragPreview = null; };
+}
+function queueResultDragPreview(event) {
+    const drag = activeResultDragPreview;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    drag.dx = event.clientX - drag.startX;
+    drag.dy = event.clientY - drag.startY;
+    if (!drag.frame) drag.frame = requestAnimationFrame(renderResultDragPreview);
+    event.preventDefault();
+}
+function finishLocalResultDrag(event) {
+    const drag = activeResultDragPreview;
+    if (!drag || (event && event.pointerId !== drag.pointerId)) return;
+    if (event) {
+        drag.dx = event.clientX - drag.startX;
+        drag.dy = event.clientY - drag.startY;
+    }
+    if (drag.frame) cancelAnimationFrame(drag.frame);
+    renderResultDragPreview();
+    const scale = window.devicePixelRatio || 1;
+    window.ipc.postMessage(JSON.stringify({
+        action: 'result_drag_finish', hwnd: drag.hwnd,
+        dx: Math.round(drag.dx * scale), dy: Math.round(drag.dy * scale)
+    }));
+    activeResultDragPreview = null;
+    setResultDraggingCursor(false);
+    window.__SGT_BUTTON_SCENE__?.setDragActive(false);
+}
+document.addEventListener('pointermove', queueResultDragPreview, true);
+document.addEventListener('pointerup', finishLocalResultDrag, true);
+document.addEventListener('pointercancel', finishLocalResultDrag, true);
 window.clearResultDragControlPreview = function() {
     document.querySelectorAll('.button-group').forEach(group => { group.style.translate = ''; });
 };
 
-window.addEventListener("mouseup", () => setResultDraggingCursor(false));
-window.addEventListener("blur", () => setResultDraggingCursor(false));
+window.addEventListener("blur", () => finishLocalResultDrag(null));
 document.addEventListener("visibilitychange", () => {
-    if (document.hidden) setResultDraggingCursor(false);
+    if (document.hidden) finishLocalResultDrag(null);
 });
 window.addEventListener("pointerup", () => setOpacityDraggingCursor(false));
 window.addEventListener("blur", () => setOpacityDraggingCursor(false));

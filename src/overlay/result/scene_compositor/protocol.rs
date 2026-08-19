@@ -68,6 +68,8 @@ pub struct SceneControls {
     pub is_editing: bool,
     pub input_text: String,
     pub opacity_percent: u8,
+    /// API model name that produced this result, shown beside the controls.
+    pub model_label: String,
     pub group_ids: Vec<isize>,
     pub onboarding_pulse_token: u8,
 }
@@ -92,6 +94,7 @@ impl Default for SceneControls {
             is_editing: false,
             input_text: String::new(),
             opacity_percent: 100,
+            model_label: String::new(),
             group_ids: Vec::new(),
             onboarding_pulse_token: 0,
         }

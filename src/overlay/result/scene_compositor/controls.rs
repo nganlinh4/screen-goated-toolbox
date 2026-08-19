@@ -183,9 +183,22 @@ fn from_state(
         is_editing: state.is_editing,
         input_text: state.input_text.clone(),
         opacity_percent: state.opacity_percent,
+        model_label: model_label(&state.model_id),
         group_ids: connected_ids(id, states),
         onboarding_pulse_token: state.onboarding_pulse_token,
     }
+}
+
+/// Resolves the API model name for display. Reads only the generated catalog, so
+/// it never takes a second lock while `WINDOW_STATES` is held. Unknown ids belong to
+/// custom or Ollama models, whose id is already the user-facing name.
+fn model_label(model_id: &str) -> String {
+    if model_id.trim().is_empty() {
+        return String::new();
+    }
+    crate::model_config::get_model_by_id(model_id)
+        .map(|model| model.full_name)
+        .unwrap_or_else(|| model_id.to_string())
 }
 
 fn connected_ids(root: isize, states: &HashMap<isize, WindowState>) -> Vec<isize> {

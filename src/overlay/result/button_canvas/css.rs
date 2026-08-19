@@ -190,6 +190,32 @@ html, body {
     color: var(--btn-active-color);
 }
 
+.model-badge {
+    width: auto;
+    max-width: calc(120px * var(--control-scale));
+    padding: 0 calc(7px * var(--control-scale));
+    cursor: default;
+    font-size: calc(9px * var(--control-scale));
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    opacity: 0.75;
+}
+.model-badge:hover {
+    background: var(--btn-bg);
+    opacity: 1;
+}
+.model-badge-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.button-group.vertical .model-badge {
+    width: calc(24px * var(--control-scale));
+    max-width: calc(24px * var(--control-scale));
+    padding: 0 calc(2px * var(--control-scale));
+    font-size: calc(7px * var(--control-scale));
+}
+
 .opacity-btn-expandable {
     width: calc(24px * var(--control-scale));
     height: calc(24px * var(--control-scale));
