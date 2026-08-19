@@ -91,7 +91,7 @@ fn model_option_label(model: &ModelConfig, ui_language: &str) -> String {
     )
 }
 
-fn model_short_label(model_id: &str, ui_language: &str) -> String {
+pub(crate) fn model_short_label(model_id: &str, ui_language: &str) -> String {
     get_model_by_id(model_id)
         .map(|model| model.localized_name(ui_language).to_string())
         .unwrap_or_else(|| model_id.to_string())

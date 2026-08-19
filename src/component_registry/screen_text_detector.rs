@@ -93,6 +93,18 @@ pub(crate) fn delivery_available() -> bool {
     delivery().is_ok()
 }
 
+pub(crate) fn localized_name() -> String {
+    let language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    crate::gui::locale::LocaleText::get(&language)
+        .auxiliary
+        .managed_tools
+        .tool_screen_translate_detector
+        .to_string()
+}
+
 pub(crate) fn installed_size() -> u64 {
     delivery()
         .ok()

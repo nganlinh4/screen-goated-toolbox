@@ -25,7 +25,7 @@ pub(super) struct LaunchResources {
 impl LaunchResources {
     pub(super) fn ensure(cancelled: &AtomicBool) -> Result<Self> {
         let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(
-            "Screen Translate text detector",
+            &crate::component_registry::screen_text_detector::localized_name(),
         );
         let vc = crate::component_registry::vc_runtime::ensure_component(|done, total| {
             badge.report(done.saturating_mul(10), total.saturating_mul(100));

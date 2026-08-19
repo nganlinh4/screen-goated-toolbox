@@ -459,9 +459,8 @@ fn lock_component_files(root: &Path, files: &[RecorderFile]) -> Result<Vec<std::
                 Ok(Ok(mut files)) => locked.append(&mut files),
                 Ok(Err(error)) => failure = failure.or(Some(error)),
                 Err(_) => {
-                    failure = failure.or_else(|| {
-                        Some(anyhow::anyhow!("recorder verification worker panicked"))
-                    })
+                    failure = failure
+                        .or_else(|| Some(anyhow::anyhow!("recorder verification worker panicked")))
                 }
             }
         }

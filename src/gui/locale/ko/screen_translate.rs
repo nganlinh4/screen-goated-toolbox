@@ -18,6 +18,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_hotkey_label: "단축키",
         screen_translate_hotkey_empty: "설정된 단축키 없음",
         screen_translate_locating: "텍스트를 찾고 번역하는 중…",
+        screen_translate_preparing: "첫 실행을 준비하는 중…",
         screen_translate_no_text: "번역할 텍스트를 찾지 못했습니다",
         screen_translate_error: "번역 실패",
     }

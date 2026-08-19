@@ -15,6 +15,7 @@ pub struct ScreenTranslateLocaleText {
     pub screen_translate_hotkey_label: &'static str,
     pub screen_translate_hotkey_empty: &'static str,
     pub screen_translate_locating: &'static str,
+    pub screen_translate_preparing: &'static str,
     pub screen_translate_no_text: &'static str,
     pub screen_translate_error: &'static str,
 }

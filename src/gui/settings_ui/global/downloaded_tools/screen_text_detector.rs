@@ -67,7 +67,7 @@ pub(super) fn render(ui: &mut egui::Ui, text: &LocaleText) {
                         std::thread::spawn(|| {
                             let cancelled = AtomicBool::new(false);
                             let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(
-                                "Screen Translate text detector",
+                                &crate::component_registry::screen_text_detector::localized_name(),
                             );
                             let result = (|| -> anyhow::Result<()> {
                                 let vc = crate::component_registry::vc_runtime::ensure_component(

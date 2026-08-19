@@ -92,7 +92,10 @@ impl SettingsApp {
             .fill(theme.card_bg())
             .stroke(theme.card_stroke())
             .corner_radius(egui::CornerRadius::same(10))
-            .inner_margin(egui::Margin::symmetric(10, 8))
+            .inner_margin(egui::Margin::symmetric(
+                crate::gui::theme::space::EDGE,
+                crate::gui::theme::space::GAP,
+            ))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(text.screen_translate.screen_translate_opacity_label);
@@ -136,7 +139,10 @@ impl SettingsApp {
             .fill(theme.card_bg())
             .stroke(theme.card_stroke())
             .corner_radius(egui::CornerRadius::same(10))
-            .inner_margin(egui::Margin::symmetric(10, 9))
+            .inner_margin(egui::Margin::symmetric(
+                crate::gui::theme::space::EDGE,
+                crate::gui::theme::space::GAP,
+            ))
             .show(ui, |ui| {
                 egui::Grid::new("screen_translate_model_pipeline")
                     .num_columns(3)
@@ -208,7 +214,10 @@ impl SettingsApp {
             .fill(theme.card_bg())
             .stroke(theme.card_stroke())
             .corner_radius(egui::CornerRadius::same(10))
-            .inner_margin(egui::Margin::symmetric(10, 8))
+            .inner_margin(egui::Margin::symmetric(
+                crate::gui::theme::space::EDGE,
+                crate::gui::theme::space::GAP,
+            ))
             .show(ui, |ui| {
                 changed = node_graph::utils::show_prompt_editor(
                     ui,
@@ -235,7 +244,10 @@ impl SettingsApp {
             .fill(theme.card_bg())
             .stroke(theme.card_stroke())
             .corner_radius(egui::CornerRadius::same(10))
-            .inner_margin(egui::Margin::symmetric(10, 8))
+            .inner_margin(egui::Margin::symmetric(
+                crate::gui::theme::space::EDGE,
+                crate::gui::theme::space::GAP,
+            ))
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
@@ -330,7 +342,10 @@ fn render_intro(ui: &mut egui::Ui, theme: &AppTheme, text: &LocaleText) {
     egui::Frame::new()
         .fill(theme.neutral_fill())
         .corner_radius(egui::CornerRadius::same(10))
-        .inner_margin(egui::Margin::symmetric(10, 8))
+        .inner_margin(egui::Margin::symmetric(
+            crate::gui::theme::space::EDGE,
+            crate::gui::theme::space::GAP,
+        ))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 let (rect, _) =

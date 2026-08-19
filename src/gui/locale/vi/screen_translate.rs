@@ -18,6 +18,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_hotkey_label: "Phím tắt",
         screen_translate_hotkey_empty: "Chưa đặt phím tắt",
         screen_translate_locating: "Đang tìm và dịch chữ…",
+        screen_translate_preparing: "Đang chuẩn bị cho lần đầu chạy…",
         screen_translate_no_text: "Không tìm thấy chữ cần dịch",
         screen_translate_error: "Dịch thất bại",
     }

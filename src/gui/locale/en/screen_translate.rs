@@ -18,6 +18,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_hotkey_label: "Shortcuts",
         screen_translate_hotkey_empty: "No shortcut set",
         screen_translate_locating: "Locating and translating text…",
+        screen_translate_preparing: "Preparing for the first run…",
         screen_translate_no_text: "No translatable text found",
         screen_translate_error: "Translation failed",
     }
