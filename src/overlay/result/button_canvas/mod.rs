@@ -139,7 +139,7 @@ mod tests {
         assert!(script.contains("function escapeText"));
         assert!(buttons.contains("escapeText(state.modelLabel)"));
 
-        // It is a label, not a control: no button chrome and no pointer affordance.
+        // Readable surface, but not a control: no hover and no pointer affordance.
         assert!(!buttons.contains("btn model-badge"));
         let badge_css = css
             .split_once(".model-badge {")
@@ -148,11 +148,15 @@ mod tests {
             .split_once('}')
             .expect("badge rule should close")
             .0;
-        assert!(badge_css.contains("background: none"));
-        assert!(badge_css.contains("border: none"));
+        assert!(badge_css.contains("background: var(--btn-bg)"));
+        assert!(badge_css.contains("border: 1px solid var(--btn-border)"));
         assert!(badge_css.contains("cursor: default"));
         assert!(badge_css.contains("pointer-events: none"));
         assert!(!css.contains(".model-badge:hover"));
+        // The label always shows in full: never clipped or ellipsised.
+        assert!(!badge_css.contains("text-overflow"));
+        assert!(!badge_css.contains("max-width"));
+        assert!(!badge_css.contains("overflow: hidden"));
     }
 
     #[test]

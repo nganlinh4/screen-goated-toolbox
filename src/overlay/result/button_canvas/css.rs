@@ -194,29 +194,28 @@ html, body {
     display: flex;
     align-items: center;
     height: calc(24px * var(--control-scale));
-    max-width: calc(120px * var(--control-scale));
-    padding: 0 calc(4px * var(--control-scale));
-    background: none;
-    border: none;
-    cursor: default;
-    pointer-events: none;
-    user-select: none;
+    padding: 0 calc(7px * var(--control-scale));
+    border-radius: calc(6px * var(--control-scale));
+    background: var(--btn-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--btn-border);
+    color: var(--chain-control-color, var(--btn-color));
     font-size: calc(9px * var(--control-scale));
     font-weight: 600;
     letter-spacing: 0.02em;
-    color: var(--chain-control-color, var(--btn-color));
-    opacity: 0.6;
-}
-.model-badge-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: default;
+    pointer-events: none;
+    user-select: none;
 }
 .button-group.vertical .model-badge {
-    max-width: calc(30px * var(--control-scale));
-    padding: calc(2px * var(--control-scale)) 0;
     height: auto;
+    padding: calc(3px * var(--control-scale)) calc(2px * var(--control-scale));
     justify-content: center;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
     font-size: calc(7px * var(--control-scale));
 }
 

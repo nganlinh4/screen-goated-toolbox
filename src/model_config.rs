@@ -212,21 +212,36 @@ pub fn get_all_models() -> &'static [ModelConfig] {
     &ALL_MODELS[..]
 }
 
-/// Short, user-facing provider name for compact surfaces.
+/// Canonical provider name for prose surfaces: the usage dashboard, API-key
+/// notifications, and provider-attributed error text. These exact strings are
+/// locked by the API-key notification parity fixture.
 ///
-/// Deliberately separate from the longer names the usage dashboard and API-key
-/// notifications use; those strings are locked by their own parity fixtures.
-pub fn provider_display_name(provider: &str) -> &str {
+/// `openai` and `anthropic` are not catalog providers, but they appear in
+/// upstream error payloads and need the same spelling everywhere.
+pub fn provider_full_name(provider: &str) -> &str {
     match provider {
         "google" | "gemini-live" => "Gemini",
         "google-gtx" => "Google Translate",
         "groq" => "Groq",
         "openrouter" => "OpenRouter",
         "ollama" => "Ollama",
+        "qrserver" => "QR",
+        "parakeet" => "Parakeet",
+        "qwen3" => "Qwen Local",
         "taalas" => "Taalas",
-        "qrserver" => "QR Server",
-        "parakeet" | "qwen3" => "Local",
+        "openai" => "OpenAI",
+        "anthropic" => "Anthropic",
         other => other,
+    }
+}
+
+/// Short provider name for compact surfaces such as the result badge and the
+/// custom-models dialog. Identical to [`provider_full_name`] except for the local
+/// runtimes, which collapse to a single label rather than naming each engine.
+pub fn provider_display_name(provider: &str) -> &str {
+    match provider {
+        "parakeet" | "qwen3" => "Local",
+        other => provider_full_name(other),
     }
 }
 

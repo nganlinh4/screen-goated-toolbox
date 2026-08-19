@@ -1,15 +1,18 @@
-fn api_key_provider_name(error: &str) -> &'static str {
-    if error.contains("groq") {
-        "Groq"
-    } else if error.contains("openrouter") {
-        "OpenRouter"
-    } else if error.contains("openai") {
-        "OpenAI"
-    } else if error.contains("google") || error.contains("gemini") {
-        "Google Gemini"
-    } else {
-        "API"
-    }
+/// Provider key named inside a credential error marker such as `NO_API_KEY:groq`.
+fn provider_key_from_error(error: &str) -> Option<&'static str> {
+    [
+        ("groq", "groq"),
+        ("openrouter", "openrouter"),
+        ("openai", "openai"),
+        ("google", "google"),
+        ("gemini", "google"),
+    ]
+    .into_iter()
+    .find_map(|(needle, key)| error.contains(needle).then_some(key))
+}
+
+fn api_key_provider_name(error: &str) -> &str {
+    provider_key_from_error(error).map_or("API", crate::model_config::provider_full_name)
 }
 
 fn api_key_notification_message(error: &str, lang: &str) -> Option<String> {
@@ -149,19 +152,23 @@ fn first_delimited_status_code(text: &str) -> Option<u16> {
     None
 }
 
-/// Extracts provider name from error URL
+/// Extracts the provider name from an error URL or host fragment.
 fn extract_provider_from_error(error: &str) -> String {
-    if error.contains("api.groq.com") {
-        "Groq".to_string()
-    } else if error.contains("generativelanguage.googleapis.com") || error.contains("gemini") {
-        "Google Gemini".to_string()
-    } else if error.contains("api.openai.com") {
-        "OpenAI".to_string()
-    } else if error.contains("api.anthropic.com") || error.contains("claude") {
-        "Anthropic".to_string()
-    } else {
-        "API".to_string()
-    }
+    [
+        ("api.groq.com", "groq"),
+        ("generativelanguage.googleapis.com", "google"),
+        ("gemini", "google"),
+        ("api.openai.com", "openai"),
+        ("openrouter.ai", "openrouter"),
+        ("api.anthropic.com", "anthropic"),
+        ("claude", "anthropic"),
+    ]
+    .into_iter()
+    .find_map(|(needle, key)| error.contains(needle).then_some(key))
+    .map_or_else(
+        || "API".to_string(),
+        |key| crate::model_config::provider_full_name(key).to_string(),
+    )
 }
 
 /// Formats HTTP error with localized message

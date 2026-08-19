@@ -10,7 +10,7 @@ internal fun apiKeyErrorToastText(error: String, uiLanguage: String): String? {
         normalized.contains("groq", ignoreCase = true) -> "Groq"
         normalized.contains("openrouter", ignoreCase = true) -> "OpenRouter"
         normalized.contains("openai", ignoreCase = true) -> "OpenAI"
-        normalized.contains("google", ignoreCase = true) || normalized.contains("gemini", ignoreCase = true) -> "Google Gemini"
+        normalized.contains("google", ignoreCase = true) || normalized.contains("gemini", ignoreCase = true) -> "Gemini"
         else -> "API"
     }
 
