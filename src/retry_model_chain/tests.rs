@@ -1,8 +1,11 @@
+use super::cooldown::{
+    MODEL_TIMEOUT_COOLDOWN, claim_model_attempt_at, model_cooldown_skip_reason_at,
+    rate_limit_error, record_model_failure_at, unavailable_model_error,
+};
 use super::{
-    MODEL_TIMEOUT_COOLDOWN, RetryChainKind, benchmark_derived_timeout, claim_model_attempt_at,
-    interactive_request_timeout, model_cooldown_skip_reason_at, preflight_skip_reason,
-    rate_limit_error, record_model_failure_at, record_model_success, release_model_probe,
-    resolve_next_configured_model, resolve_next_retry_model, unavailable_model_error,
+    RetryChainKind, benchmark_derived_timeout, interactive_request_timeout, preflight_skip_reason,
+    record_model_success, release_model_probe, resolve_next_configured_model,
+    resolve_next_retry_model,
 };
 use crate::config::Config;
 use std::collections::HashSet;
@@ -197,4 +200,46 @@ fn configured_retry_does_not_escape_the_priority_chain() {
     );
 
     assert!(next.is_none());
+}
+
+#[test]
+fn a_reported_rate_limit_window_replaces_the_fixed_cooldown() {
+    use crate::retry_model_chain::cooldown::{parse_duration_seconds, reported_cooldown};
+
+    // Groq's real 429 body and header shapes.
+    assert_eq!(
+        reported_cooldown(
+            "Groq vision API HTTP 429: Rate limit reached ... on tokens per minute (TPM):              Limit 8000, Used 7174, Requested 2452. Please try again in 22.012s"
+        ),
+        Some(Duration::from_secs_f64(22.012))
+    );
+    assert_eq!(
+        reported_cooldown("HTTP 429 retry-after: 22"),
+        Some(Duration::from_secs(22))
+    );
+    // An exhausted daily quota backs off far past the old five-minute constant.
+    assert_eq!(
+        reported_cooldown("429 rate limit, please try again in 2h15m"),
+        Some(Duration::from_secs(2 * 3600 + 15 * 60))
+    );
+
+    // Units, including the millisecond form that must not be read as minutes.
+    assert_eq!(parse_duration_seconds("1m30s"), Some(90.0));
+    assert_eq!(parse_duration_seconds("2m"), Some(120.0));
+    assert_eq!(parse_duration_seconds("22"), Some(22.0));
+    assert_eq!(parse_duration_seconds("500ms"), Some(0.5));
+    assert_eq!(parse_duration_seconds("1m500ms"), Some(60.5));
+
+    // No hint at all keeps today's behaviour.
+    assert_eq!(reported_cooldown("HTTP 429: rate limit reached"), None);
+
+    // Clamped so a malformed hint cannot bench a model for ever, or not at all.
+    assert_eq!(
+        reported_cooldown("429 try again in 0.2s"),
+        Some(Duration::from_secs(5))
+    );
+    assert_eq!(
+        reported_cooldown("429 try again in 99h"),
+        Some(Duration::from_secs(6 * 60 * 60))
+    );
 }

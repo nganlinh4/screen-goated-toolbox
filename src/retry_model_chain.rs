@@ -4,20 +4,11 @@ use crate::model_config::{
     model_is_non_llm, model_supports_search_by_id_with_custom,
     model_supports_search_by_provider_and_name,
 };
-use std::collections::{HashMap, HashSet};
-use std::sync::{LazyLock, Mutex};
-use std::time::{Duration, Instant};
+use std::collections::HashSet;
+use std::time::Duration;
 
-#[cfg(not(feature = "recorder-worker"))]
-const MODEL_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(300);
-#[cfg(not(feature = "recorder-worker"))]
-const MODEL_TIMEOUT_COOLDOWN: Duration = Duration::from_secs(30 * 60);
-#[cfg(not(feature = "recorder-worker"))]
-const MODEL_UNAVAILABLE_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
-#[cfg(not(feature = "recorder-worker"))]
-const MODEL_BILLING_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
-#[cfg(not(feature = "recorder-worker"))]
-const MODEL_TIMEOUT_FAILURE_THRESHOLD: u8 = 2;
+mod cooldown;
+
 #[cfg(not(feature = "recorder-worker"))]
 const INTERACTIVE_TIMEOUT_MULTIPLIER: u64 = 10;
 #[cfg(not(feature = "recorder-worker"))]
@@ -25,100 +16,13 @@ const MIN_INTERACTIVE_TIMEOUT_MS: u64 = 10_000;
 #[cfg(not(feature = "recorder-worker"))]
 const MAX_INTERACTIVE_TIMEOUT_MS: u64 = 30_000;
 
-#[cfg(not(feature = "recorder-worker"))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ModelCooldownKind {
-    RateLimit,
-    Timeout,
-    Unavailable,
-    Billing,
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-impl ModelCooldownKind {
-    fn duration(self) -> Duration {
-        match self {
-            Self::RateLimit => MODEL_RATE_LIMIT_COOLDOWN,
-            Self::Timeout => MODEL_TIMEOUT_COOLDOWN,
-            Self::Unavailable => MODEL_UNAVAILABLE_COOLDOWN,
-            Self::Billing => MODEL_BILLING_COOLDOWN,
-        }
-    }
-
-    fn reason(self) -> &'static str {
-        match self {
-            Self::RateLimit => "MODEL_RATE_LIMIT_COOLDOWN",
-            Self::Timeout => "MODEL_TIMEOUT_COOLDOWN",
-            Self::Unavailable => "MODEL_UNAVAILABLE_COOLDOWN",
-            Self::Billing => "MODEL_BILLING_COOLDOWN",
-        }
-    }
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-#[derive(Clone, Copy, Debug)]
-enum ModelCircuitState {
-    Monitoring {
-        timeout_failures: u8,
-    },
-    Open {
-        kind: ModelCooldownKind,
-        until: Instant,
-    },
-    HalfOpen {
-        kind: ModelCooldownKind,
-    },
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-static MODEL_CIRCUITS: LazyLock<Mutex<HashMap<String, ModelCircuitState>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
 #[cfg(feature = "recorder-worker")]
-static MODEL_COOLDOWNS: LazyLock<Mutex<HashMap<String, Instant>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
+use cooldown::model_cooldown_remaining;
 #[cfg(not(feature = "recorder-worker"))]
-fn rate_limit_error(error: &str) -> bool {
-    let lower = error.to_ascii_lowercase();
-    lower.contains("http 429")
-        || lower.contains("status code 429")
-        || lower.contains("rate limit")
-        || lower.contains("too many requests")
-        || lower.contains("quota exceeded")
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-fn timeout_error(error: &str) -> bool {
-    let lower = error.to_ascii_lowercase();
-    lower.contains("timeout") || lower.contains("timed out") || lower.contains("deadline exceeded")
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-fn billing_error(error: &str) -> bool {
-    crate::overlay::utils::is_billing_exhausted_error(error)
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-fn unavailable_model_error(error: &str) -> bool {
-    let lower = error.to_ascii_lowercase();
-    let is_404 = lower.contains("http 404")
-        || lower.contains("status code 404")
-        || lower.contains("error 404");
-    if !is_404 || !(lower.contains("model") || lower.contains("deployment")) {
-        return false;
-    }
-    lower.contains("unavailable")
-        || lower.contains("archived")
-        || lower.contains("not found")
-        || lower.contains("no such model")
-        || lower.contains("does not exist")
-        || lower.contains("doesn't exist")
-        || lower.contains("decommissioned")
-        || lower.contains("deprecated")
-        || lower.contains("has been removed")
-        || lower.contains("was removed")
-}
+use cooldown::model_cooldown_skip_reason;
+pub use cooldown::{
+    claim_model_attempt, record_model_failure, record_model_success, release_model_probe,
+};
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn interactive_request_timeout(
@@ -143,186 +47,6 @@ fn benchmark_derived_timeout(typical_latency_ms: Option<u32>) -> Duration {
         .unwrap_or(MAX_INTERACTIVE_TIMEOUT_MS)
         .clamp(MIN_INTERACTIVE_TIMEOUT_MS, MAX_INTERACTIVE_TIMEOUT_MS);
     Duration::from_millis(timeout_ms)
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-pub fn record_model_failure(model_id: &str, error: &str) {
-    record_model_failure_at(model_id, error, Instant::now());
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-fn record_model_failure_at(model_id: &str, error: &str, now: Instant) {
-    let is_rate_limit = rate_limit_error(error);
-    let is_timeout = timeout_error(error);
-    let is_unavailable = unavailable_model_error(error);
-    let is_billing = billing_error(error);
-    if !is_rate_limit && !is_timeout && !is_unavailable && !is_billing {
-        if let Ok(mut circuits) = MODEL_CIRCUITS.lock()
-            && let Some(ModelCircuitState::HalfOpen { kind }) = circuits.get(model_id).copied()
-        {
-            circuits.insert(
-                model_id.to_string(),
-                ModelCircuitState::Open {
-                    kind,
-                    until: now + kind.duration(),
-                },
-            );
-        }
-        return;
-    }
-
-    let Ok(mut circuits) = MODEL_CIRCUITS.lock() else {
-        return;
-    };
-    let state = circuits
-        .entry(model_id.to_string())
-        .or_insert(ModelCircuitState::Monitoring {
-            timeout_failures: 0,
-        });
-
-    if matches!(*state, ModelCircuitState::Open { until, .. } if until <= now) {
-        *state = ModelCircuitState::Monitoring {
-            timeout_failures: 0,
-        };
-    }
-
-    match *state {
-        ModelCircuitState::Open { until, .. } if until > now => {}
-        ModelCircuitState::HalfOpen { kind } => {
-            let kind = if is_billing {
-                ModelCooldownKind::Billing
-            } else if is_rate_limit {
-                ModelCooldownKind::RateLimit
-            } else if is_timeout {
-                ModelCooldownKind::Timeout
-            } else if is_unavailable {
-                ModelCooldownKind::Unavailable
-            } else {
-                kind
-            };
-            *state = ModelCircuitState::Open {
-                kind,
-                until: now + kind.duration(),
-            };
-        }
-        ModelCircuitState::Monitoring { .. } if is_billing => {
-            let kind = ModelCooldownKind::Billing;
-            *state = ModelCircuitState::Open {
-                kind,
-                until: now + kind.duration(),
-            };
-        }
-        ModelCircuitState::Monitoring { .. } if is_rate_limit => {
-            let kind = ModelCooldownKind::RateLimit;
-            *state = ModelCircuitState::Open {
-                kind,
-                until: now + kind.duration(),
-            };
-        }
-        ModelCircuitState::Monitoring { .. } if is_unavailable => {
-            let kind = ModelCooldownKind::Unavailable;
-            *state = ModelCircuitState::Open {
-                kind,
-                until: now + kind.duration(),
-            };
-        }
-        ModelCircuitState::Monitoring { timeout_failures } if is_timeout => {
-            let timeout_failures = timeout_failures.saturating_add(1);
-            if timeout_failures >= MODEL_TIMEOUT_FAILURE_THRESHOLD {
-                let kind = ModelCooldownKind::Timeout;
-                *state = ModelCircuitState::Open {
-                    kind,
-                    until: now + kind.duration(),
-                };
-            } else {
-                *state = ModelCircuitState::Monitoring { timeout_failures };
-            }
-        }
-        _ => {}
-    }
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-pub fn record_model_success(model_id: &str) {
-    if let Ok(mut circuits) = MODEL_CIRCUITS.lock() {
-        circuits.remove(model_id);
-    }
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-pub fn release_model_probe(model_id: &str) {
-    if let Ok(mut circuits) = MODEL_CIRCUITS.lock()
-        && let Some(ModelCircuitState::HalfOpen { kind }) = circuits.get(model_id).copied()
-    {
-        circuits.insert(
-            model_id.to_string(),
-            ModelCircuitState::Open {
-                kind,
-                until: Instant::now(),
-            },
-        );
-    }
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-pub fn claim_model_attempt(model_id: &str) -> Option<String> {
-    claim_model_attempt_at(model_id, Instant::now())
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-fn claim_model_attempt_at(model_id: &str, now: Instant) -> Option<String> {
-    let mut circuits = MODEL_CIRCUITS.lock().ok()?;
-    let state = circuits.get_mut(model_id)?;
-
-    match *state {
-        ModelCircuitState::Monitoring { .. } => None,
-        ModelCircuitState::Open { kind, until } if until > now => Some(format!(
-            "{}:{model_id}:{}s",
-            kind.reason(),
-            until.saturating_duration_since(now).as_secs().max(1)
-        )),
-        ModelCircuitState::Open { kind, .. } => {
-            *state = ModelCircuitState::HalfOpen { kind };
-            None
-        }
-        ModelCircuitState::HalfOpen { .. } => {
-            Some(format!("MODEL_COOLDOWN_PROBE_IN_FLIGHT:{model_id}"))
-        }
-    }
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-fn model_cooldown_skip_reason(model_id: &str) -> Option<String> {
-    model_cooldown_skip_reason_at(model_id, Instant::now())
-}
-
-#[cfg(feature = "recorder-worker")]
-fn model_cooldown_remaining(model_id: &str) -> Option<Duration> {
-    let now = Instant::now();
-    let mut cooldowns = MODEL_COOLDOWNS.lock().ok()?;
-    cooldowns.retain(|_, until| *until > now);
-    cooldowns
-        .get(model_id)
-        .map(|until| until.saturating_duration_since(now))
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-fn model_cooldown_skip_reason_at(model_id: &str, now: Instant) -> Option<String> {
-    let mut circuits = MODEL_CIRCUITS.lock().ok()?;
-    let state = circuits.get_mut(model_id)?;
-
-    match *state {
-        ModelCircuitState::Monitoring { .. } => None,
-        ModelCircuitState::Open { kind, until } if until > now => Some(format!(
-            "{}:{model_id}:{}s",
-            kind.reason(),
-            until.saturating_duration_since(now).as_secs().max(1)
-        )),
-        ModelCircuitState::Open { .. } => None,
-        ModelCircuitState::HalfOpen { .. } => {
-            Some(format!("MODEL_COOLDOWN_PROBE_IN_FLIGHT:{model_id}"))
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
