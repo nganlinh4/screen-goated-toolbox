@@ -1,5 +1,9 @@
 # Protocol 9 catalog decision — 2026-08-18
 
+> Superseded in part by [`RESULTS-2026-08-19-FOLLOWUP.md`](RESULTS-2026-08-19-FOLLOWUP.md).
+> The measurements below still stand; the chain order, default image model and OCR
+> request shape decided here have since changed.
+
 Two complete protocol-9 text/OCR runs plus one coordinate run, 770 attempts total.
 Cerebras was removed from the product before this benchmark day, so its rows are
 absent. The registered history selects text and OCR from the second text/OCR run
