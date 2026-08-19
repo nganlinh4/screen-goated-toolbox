@@ -20,6 +20,7 @@ const WAIT_INTERVAL: Duration = Duration::from_millis(40);
 const STDERR_TAIL_LIMIT: usize = 8 * 1024;
 const WARMUP_PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 const WARMUP_PROGRESS_CEILING: f32 = 90.0;
+const WARMUP_PROGRESS_TIME_CONSTANT_SECS: f32 = 0.45;
 
 enum ReaderEvent {
     Message(u64, ServerMessage),
@@ -303,11 +304,27 @@ fn simulate_warmup_progress(
             let started = Instant::now();
             while !complete.load(Ordering::Acquire) {
                 std::thread::sleep(WARMUP_PROGRESS_INTERVAL);
-                let seconds = started.elapsed().as_secs_f32();
-                let estimated = WARMUP_PROGRESS_CEILING * (1.0 - (-seconds / 4.0).exp());
-                badge.set_phase(message, estimated.min(WARMUP_PROGRESS_CEILING));
+                badge.set_phase(message, estimated_warmup_progress(started.elapsed()));
             }
         });
+}
+
+fn estimated_warmup_progress(elapsed: Duration) -> f32 {
+    let progress = WARMUP_PROGRESS_CEILING
+        * (1.0 - (-elapsed.as_secs_f32() / WARMUP_PROGRESS_TIME_CONSTANT_SECS).exp());
+    progress.min(WARMUP_PROGRESS_CEILING)
+}
+
+#[cfg(test)]
+mod warmup_progress_tests {
+    use super::*;
+
+    #[test]
+    fn estimate_matches_the_lazy_gpu_startup_without_finishing_early() {
+        assert_eq!(estimated_warmup_progress(Duration::ZERO), 0.0);
+        assert!(estimated_warmup_progress(Duration::from_millis(800)) > 70.0);
+        assert!(estimated_warmup_progress(Duration::from_secs(30)) <= 90.0);
+    }
 }
 
 impl Drop for DetectorClient {

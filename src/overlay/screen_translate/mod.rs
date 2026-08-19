@@ -14,6 +14,7 @@ mod diagnostics;
 mod evidence_capture;
 pub(crate) mod geometry;
 mod inference;
+mod inference_telemetry;
 mod render;
 mod render_scene;
 #[cfg(debug_assertions)]
