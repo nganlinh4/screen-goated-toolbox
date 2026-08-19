@@ -33,7 +33,7 @@ fn streaming_requests_do_not_receive_a_total_response_deadline() {
     let config = Config::default();
     assert_eq!(
         interactive_request_timeout("google-gemini-3-5-flash-lite-vision", &config, false),
-        Some(Duration::from_millis(12_340))
+        Some(Duration::from_millis(16_180))
     );
     assert_eq!(
         interactive_request_timeout("google-gemini-3-5-flash-lite-vision", &config, true),
@@ -178,7 +178,7 @@ fn search_capable_retry_skips_incompatible_priority_candidates() {
     )
     .expect("image chain should produce a next model");
 
-    assert_eq!(next.id, "google-gemini-3-flash-vision");
+    assert_eq!(next.id, "google-gemini-3-5-flash-vision");
     assert!(crate::model_config::model_supports_search_by_id_with_custom(&next.id, &[]));
     assert_ne!(next.id, "google-gemma-4-31b-vision");
 }

@@ -2,7 +2,7 @@
   "schema_version": 8,
   "constants": {
     "default_image_model_id": "groq-qwen-3-6-27b-vision",
-    "default_text_model_id": "groq-gpt-oss-120b-text",
+    "default_text_model_id": "groq-qwen-3-6-27b-text",
     "gemini_embedding_api_model": "gemini-embedding-2",
     "gemini_live_api_model_2_5": "gemini-2.5-flash-native-audio-preview-12-2025",
     "gemini_live_api_model_3_1": "gemini-3.1-flash-live-preview",
@@ -24,37 +24,37 @@
     "gemini-3.1-flash-lite": {
       "lifecycle": "stable",
       "replacement": null,
-      "verified_at": "2026-08-10"
+      "verified_at": "2026-08-19"
     },
     "gemini-3.5-flash": {
       "lifecycle": "stable",
       "replacement": null,
-      "verified_at": "2026-08-10"
+      "verified_at": "2026-08-19"
     },
     "gemini-3.5-flash-lite": {
       "lifecycle": "stable",
       "replacement": null,
-      "verified_at": "2026-08-10"
+      "verified_at": "2026-08-19"
     },
     "gemini-3.6-flash": {
       "lifecycle": "stable",
       "replacement": null,
-      "verified_at": "2026-08-10"
+      "verified_at": "2026-08-19"
     },
     "gemini-robotics-er-2-preview": {
       "lifecycle": "preview",
       "replacement": null,
-      "verified_at": "2026-08-10"
+      "verified_at": "2026-08-19"
     },
     "gemini-embedding-2": {
       "lifecycle": "stable",
       "replacement": null,
-      "verified_at": "2026-08-10"
+      "verified_at": "2026-08-19"
     },
     "gemini-2.5-flash-native-audio-preview-12-2025": {
       "lifecycle": "preview",
       "replacement": null,
-      "verified_at": "2026-08-10",
+      "verified_at": "2026-08-19",
       "live_thinking": {
         "kind": "budget",
         "value": 0
@@ -66,7 +66,7 @@
     "gemini-3.1-flash-live-preview": {
       "lifecycle": "preview",
       "replacement": null,
-      "verified_at": "2026-08-10",
+      "verified_at": "2026-08-19",
       "live_thinking": {
         "kind": "level",
         "value": "minimal"
@@ -78,23 +78,33 @@
     "gemini-3.5-live-translate-preview": {
       "lifecycle": "preview",
       "replacement": null,
-      "verified_at": "2026-08-10",
+      "verified_at": "2026-08-19",
       "live_protocol": "live-translate"
     },
     "qwen/qwen3.6-27b": {
       "lifecycle": "preview",
       "replacement": null,
-      "verified_at": "2026-08-10"
-    },
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
-      "lifecycle": "stable",
-      "replacement": null,
-      "verified_at": "2026-08-10"
+      "verified_at": "2026-08-19"
     },
     "dots-studio/dots-3-note-preview:free": {
       "lifecycle": "preview",
       "replacement": null,
-      "verified_at": "2026-08-18"
+      "verified_at": "2026-08-19"
+    },
+    "gemini-3.7-flash": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-08-19"
+    },
+    "google/gemma-4-26b-a4b-it:free": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-08-19"
+    },
+    "openai/gpt-oss-20b:free": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-08-19"
     }
   },
   "defaults": {
@@ -129,33 +139,39 @@
   "priority_chains": {
     "image_to_text": [
       "groq-qwen-3-6-27b-vision",
-      "google-gemini-3-flash-vision",
-      "google-gemini-3-1-flash-lite-vision",
       "google-gemini-3-5-flash-lite-vision",
+      "google-gemini-3-5-flash-vision",
+      "google-gemini-robotics-er-2-vision",
+      "google-gemini-3-flash-vision",
+      "google-gemini-3-7-flash-vision",
       "google-gemini-robotics-er-1-6-vision",
+      "google-gemma-4-26b-a4b-vision",
       "google-gemma-4-31b-vision",
       "openrouter-dots-3-note-vision",
-      "google-gemini-robotics-er-2-vision",
-      "google-gemma-4-26b-a4b-vision"
+      "google-gemini-3-1-flash-lite-vision",
+      "google-gemini-3-6-flash-vision"
     ],
     "text_to_text": [
+      "groq-qwen-3-6-27b-text",
       "groq-gpt-oss-120b-text",
       "google-gemini-3-5-flash-lite-text",
-      "groq-gpt-oss-20b-text",
-      "google-gemini-3-1-flash-lite-text",
-      "google-gemma-4-31b-text",
+      "google-gemini-robotics-er-2-text",
+      "openrouter-nemotron-3-super-120b-text",
+      "google-gemini-3-flash-text",
+      "google-gemini-3-7-flash-text",
       "google-gemma-4-26b-a4b-text",
-      "openrouter-nemotron-3-nano-omni-30b-a3b-text"
+      "groq-gpt-oss-20b-text",
+      "google-gemma-4-31b-text"
     ]
   },
   "feature_model_chains": {
     "help_assistant": [
       "google-gemini-3-5-flash-lite-vision",
-      "google-gemini-3-1-flash-lite-vision"
+      "google-gemini-3-5-flash-vision"
     ],
     "computer_control_grounding": [
-      "google-gemini-robotics-er-2-vision",
-      "google-gemini-3-5-flash-lite-vision"
+      "google-gemini-3-flash-vision",
+      "google-gemini-robotics-er-2-vision"
     ]
   },
   "non_llm_ids": [
@@ -370,19 +386,26 @@
       "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
     },
-    "openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
-      "input_order": "text-first",
-      "media_resolution": "provider-default",
-      "sampling": "provider-default",
-      "max_output_tokens": 512,
-      "structured_output": "prompt-only"
-    },
     "openrouter:dots-studio/dots-3-note-preview:free": {
       "input_order": "text-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
       "max_output_tokens": 512,
       "structured_output": "strict-json-schema"
+    },
+    "google:gemini-3.7-flash": {
+      "input_order": "image-first",
+      "media_resolution": "provider-default",
+      "sampling": "provider-default",
+      "max_output_tokens": 512,
+      "structured_output": "strict-json-schema"
+    },
+    "openrouter:google/gemma-4-26b-a4b-it:free": {
+      "input_order": "text-first",
+      "media_resolution": "provider-default",
+      "sampling": "provider-default",
+      "max_output_tokens": 512,
+      "structured_output": "json-object"
     }
   },
   "model_profiles": {
@@ -626,18 +649,6 @@
       "search_tool_enabled_by_default": true,
       "reasoning_policy": "provider-managed"
     },
-    "openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
-      "name_vi": "O Nhanh",
-      "name_ko": "O 빠름",
-      "name_en": "O Fast",
-      "quota_vi": "50 lượt/ngày",
-      "quota_ko": "50회/일",
-      "quota_en": "50 requests/day",
-      "intelligence_tier": 4,
-      "supports_search": false,
-      "search_tool_enabled_by_default": false,
-      "reasoning_policy": "openai-none"
-    },
     "groq:whisper-large-v3-turbo": {
       "name_vi": "G Chép nhanh",
       "name_ko": "G 빠른 받아쓰기",
@@ -721,6 +732,54 @@
       "supports_search": false,
       "search_tool_enabled_by_default": false,
       "reasoning_policy": "openai-none"
+    },
+    "google:gemini-3.7-flash": {
+      "name_vi": "GG Mới",
+      "name_ko": "GG 신형",
+      "name_en": "GG New",
+      "quota_vi": "20 lượt/ngày",
+      "quota_ko": "20회/일",
+      "quota_en": "20 requests/day",
+      "intelligence_tier": 6,
+      "supports_search": true,
+      "search_tool_enabled_by_default": false,
+      "reasoning_policy": "gemini-low"
+    },
+    "openrouter:nvidia/nemotron-3-super-120b-a12b:free": {
+      "name_vi": "O Mạnh",
+      "name_ko": "O 강함",
+      "name_en": "O Strong",
+      "quota_vi": "50 lượt/ngày",
+      "quota_ko": "50회/일",
+      "quota_en": "50 requests/day",
+      "intelligence_tier": 5,
+      "supports_search": false,
+      "search_tool_enabled_by_default": false,
+      "reasoning_policy": "openai-none"
+    },
+    "openrouter:google/gemma-4-26b-a4b-it:free": {
+      "name_vi": "O Gemma",
+      "name_ko": "O Gemma",
+      "name_en": "O Gemma",
+      "quota_vi": "50 lượt/ngày",
+      "quota_ko": "50회/일",
+      "quota_en": "50 requests/day",
+      "intelligence_tier": 4,
+      "supports_search": false,
+      "search_tool_enabled_by_default": false,
+      "reasoning_policy": "openai-none"
+    },
+    "openrouter:openai/gpt-oss-20b:free": {
+      "name_vi": "O GPT Nhỏ",
+      "name_ko": "O GPT 소형",
+      "name_en": "O GPT Small",
+      "quota_vi": "50 lượt/ngày",
+      "quota_ko": "50회/일",
+      "quota_en": "50 requests/day",
+      "intelligence_tier": 4,
+      "supports_search": false,
+      "search_tool_enabled_by_default": false,
+      "reasoning_policy": "provider-managed"
     }
   },
   "models": [
@@ -730,8 +789,8 @@
       "full_name": "translate.googleapis.com/gtx",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 554,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 280,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "qrserver-qr-scanner-vision",
@@ -748,8 +807,8 @@
       "full_name": "qwen/qwen3.6-27b",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 739,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 1053,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemini-2-5-live-vision",
@@ -757,8 +816,8 @@
       "full_name": "gemini-2.5-flash-native-audio-preview-12-2025",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 4615,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 3929,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemini-3-1-live-vision",
@@ -766,8 +825,8 @@
       "full_name": "gemini-3.1-flash-live-preview",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 4059,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 6736,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemma-4-26b-a4b-vision",
@@ -775,8 +834,8 @@
       "full_name": "gemma-4-26b-a4b-it",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 3021,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 3922,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemma-4-31b-vision",
@@ -784,8 +843,8 @@
       "full_name": "gemma-4-31b-it",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 2430,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 3181,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemini-2-5-flash-lite-vision",
@@ -802,8 +861,8 @@
       "full_name": "gemini-3.1-flash-lite",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 1432,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 5600,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemini-3-5-flash-lite-vision",
@@ -811,8 +870,8 @@
       "full_name": "gemini-3.5-flash-lite",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 1234,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 1618,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemini-robotics-er-1-6-vision",
@@ -820,8 +879,8 @@
       "full_name": "gemini-robotics-er-1.6-preview",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 2863,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 3344,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemini-robotics-er-2-vision",
@@ -829,8 +888,8 @@
       "full_name": "gemini-robotics-er-2-preview",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 2694,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 2440,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemini-3-flash-vision",
@@ -838,8 +897,8 @@
       "full_name": "gemini-3-flash-preview",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 1748,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 2266,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemini-3-5-flash-vision",
@@ -847,8 +906,8 @@
       "full_name": "gemini-3.5-flash",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 4512,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
+      "typical_latency_ms": 2082,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "google-gemini-3-6-flash-vision",
@@ -856,17 +915,8 @@
       "full_name": "gemini-3.6-flash",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 59878,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024"
-    },
-    {
-      "id": "openrouter-nemotron-3-nano-omni-30b-a3b-vision",
-      "provider": "openrouter",
-      "full_name": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      "model_type": "Vision",
-      "enabled": true,
-      "typical_latency_ms": 887,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024-merged"
+      "typical_latency_ms": 15551,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "openrouter-dots-3-note-vision",
@@ -874,8 +924,8 @@
       "full_name": "dots-studio/dots-3-note-preview:free",
       "model_type": "Vision",
       "enabled": true,
-      "typical_latency_ms": 2666,
-      "performance_source": "benchmark-2026-08-18-protocol9:ocr-small-1024-merged"
+      "typical_latency_ms": 2886,
+      "performance_source": "benchmark-2026-08-19-protocol10:ocr-small-1024"
     },
     {
       "id": "taalas-llama-3-1-8b-text",
@@ -883,17 +933,8 @@
       "full_name": "taalas/llama-3.1-8b",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 637,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
-    },
-    {
-      "id": "openrouter-nemotron-3-nano-omni-30b-a3b-text",
-      "provider": "openrouter",
-      "full_name": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      "model_type": "Text",
-      "enabled": true,
-      "typical_latency_ms": 883,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 648,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "openrouter-dots-3-note-text",
@@ -901,8 +942,8 @@
       "full_name": "dots-studio/dots-3-note-preview:free",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1120,
-      "performance_source": "screen-2026-08-19-text-capability"
+      "typical_latency_ms": 1410,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "groq-gpt-oss-120b-text",
@@ -910,8 +951,8 @@
       "full_name": "openai/gpt-oss-120b",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 557,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 619,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "groq-gpt-oss-20b-text",
@@ -919,8 +960,8 @@
       "full_name": "openai/gpt-oss-20b",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 503,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 527,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "groq-compound-mini-search",
@@ -928,8 +969,8 @@
       "full_name": "groq/compound-mini",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1140,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 1123,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "groq-compound-search",
@@ -937,8 +978,8 @@
       "full_name": "groq/compound",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 2067,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 1913,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "groq-qwen-3-6-27b-text",
@@ -946,8 +987,8 @@
       "full_name": "qwen/qwen3.6-27b",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 342,
-      "performance_source": "screen-2026-08-19-text-capability"
+      "typical_latency_ms": 266,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemini-2-5-live-text",
@@ -955,8 +996,8 @@
       "full_name": "gemini-2.5-flash-native-audio-preview-12-2025",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 3479,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 3654,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemini-3-1-live-text",
@@ -964,8 +1005,8 @@
       "full_name": "gemini-3.1-flash-live-preview",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 2772,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 3034,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemma-4-26b-a4b-text",
@@ -973,8 +1014,8 @@
       "full_name": "gemma-4-26b-a4b-it",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1495,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 1661,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemma-4-31b-text",
@@ -982,8 +1023,8 @@
       "full_name": "gemma-4-31b-it",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1992,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 10172,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemini-2-5-flash-lite-text",
@@ -1000,8 +1041,8 @@
       "full_name": "gemini-3.1-flash-lite",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1128,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 2251,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemini-3-5-flash-lite-text",
@@ -1009,8 +1050,8 @@
       "full_name": "gemini-3.5-flash-lite",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 956,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 904,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemini-robotics-er-1-6-text",
@@ -1018,8 +1059,8 @@
       "full_name": "gemini-robotics-er-1.6-preview",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1535,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 1250,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemini-3-flash-text",
@@ -1027,8 +1068,8 @@
       "full_name": "gemini-3-flash-preview",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1370,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 1360,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemini-3-5-flash-text",
@@ -1036,8 +1077,8 @@
       "full_name": "gemini-3.5-flash",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1574,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 3054,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemini-3-6-flash-text",
@@ -1045,8 +1086,8 @@
       "full_name": "gemini-3.6-flash",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 3847,
-      "performance_source": "benchmark-2026-08-18-protocol9:text"
+      "typical_latency_ms": 2118,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "google-gemini-robotics-er-2-text",
@@ -1054,8 +1095,8 @@
       "full_name": "gemini-robotics-er-2-preview",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 1388,
-      "performance_source": "screen-2026-08-19-text-capability"
+      "typical_latency_ms": 1100,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     },
     {
       "id": "groq-whisper-large-v3-turbo-audio",
@@ -1220,6 +1261,60 @@
       "enabled": true,
       "typical_latency_ms": 4500,
       "performance_source": "curated-2026-07-23:audio"
+    },
+    {
+      "id": "google-gemini-3-7-flash-text",
+      "provider": "google",
+      "full_name": "gemini-3.7-flash",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 2456,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
+    },
+    {
+      "id": "google-gemini-3-7-flash-vision",
+      "provider": "google",
+      "full_name": "gemini-3.7-flash",
+      "model_type": "Vision",
+      "enabled": true,
+      "typical_latency_ms": 8430,
+      "performance_source": "probe-2026-08-19:candidate"
+    },
+    {
+      "id": "openrouter-nemotron-3-super-120b-text",
+      "provider": "openrouter",
+      "full_name": "nvidia/nemotron-3-super-120b-a12b:free",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 912,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
+    },
+    {
+      "id": "openrouter-gemma-4-26b-a4b-text",
+      "provider": "openrouter",
+      "full_name": "google/gemma-4-26b-a4b-it:free",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 3464,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
+    },
+    {
+      "id": "openrouter-gemma-4-26b-a4b-vision",
+      "provider": "openrouter",
+      "full_name": "google/gemma-4-26b-a4b-it:free",
+      "model_type": "Vision",
+      "enabled": true,
+      "typical_latency_ms": 4500,
+      "performance_source": "unmeasured-2026-08-19:pending-benchmark"
+    },
+    {
+      "id": "openrouter-gpt-oss-20b-text",
+      "provider": "openrouter",
+      "full_name": "openai/gpt-oss-20b:free",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 13831,
+      "performance_source": "benchmark-2026-08-19-protocol10:text"
     }
   ]
 }

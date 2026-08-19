@@ -56,6 +56,11 @@ pub enum VisionSamplingPolicy {
 #[serde(rename_all = "kebab-case")]
 pub enum StructuredOutputPolicy {
     Unsupported,
+    // Constructed by the generated catalog rather than by hand, so it reads as
+    // dead whenever no enabled endpoint selects it. It stays because the value
+    // is part of the shared wire contract that Android, both validators, and
+    // catalog/README.md all define.
+    #[allow(dead_code)]
     PromptOnly,
     JsonObject,
     StrictJsonSchema,

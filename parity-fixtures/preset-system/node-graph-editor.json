@@ -1,7 +1,7 @@
 {
   "version": 2,
   "default_models": {
-    "text": "groq-gpt-oss-120b-text",
+    "text": "groq-qwen-3-6-27b-text",
     "image": "groq-qwen-3-6-27b-vision",
     "audio": "groq-whisper-large-v3-audio"
   },

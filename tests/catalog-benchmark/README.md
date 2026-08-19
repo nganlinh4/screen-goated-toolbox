@@ -1,9 +1,12 @@
 # Catalog benchmark
 
 Current catalog decision record:
-[`RESULTS-2026-08-19-FOLLOWUP.md`](RESULTS-2026-08-19-FOLLOWUP.md), which rests on the
-2026-08-18 run and supersedes it wherever the two disagree.
-The run it decides from is
+[`RESULTS-2026-08-19-PROTOCOL10.md`](RESULTS-2026-08-19-PROTOCOL10.md), the first
+complete run under protocol 10 and the current source of every chain order,
+default and latency.
+The interim decisions it absorbs remain in
+[`RESULTS-2026-08-19-FOLLOWUP.md`](RESULTS-2026-08-19-FOLLOWUP.md), and the run those
+rested on is
 [`RESULTS-2026-08-18-PROTOCOL9.md`](RESULTS-2026-08-18-PROTOCOL9.md).
 The preceding protocol-9 decision remains in
 [`RESULTS-2026-08-10-PROTOCOL9.md`](RESULTS-2026-08-10-PROTOCOL9.md).

@@ -1,3 +1,7 @@
+> Superseded by [`RESULTS-2026-08-19-PROTOCOL10.md`](RESULTS-2026-08-19-PROTOCOL10.md).
+> The OCR rerun this record required has since run; its chain orders, latencies and
+> the decision to keep Gemini 3.7 out have all been replaced by measurement.
+
 # Catalog decision follow-up — 2026-08-19
 
 No new suite ran on this date. Every change here rests on the registered

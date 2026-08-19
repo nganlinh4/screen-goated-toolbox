@@ -33,6 +33,7 @@ enum class PresetReasoningPolicy {
     NOT_APPLICABLE,
     GEMINI_DISABLED,
     GEMINI_MINIMAL,
+    GEMINI_LOW,
     OPENAI_NONE,
     OPENAI_LOW,
     PROVIDER_MANAGED,
@@ -197,6 +198,7 @@ object PresetModelCatalog {
         when (reasoningPolicy(provider, fullName)) {
             PresetReasoningPolicy.GEMINI_DISABLED -> mapOf("thinkingBudget" to 0)
             PresetReasoningPolicy.GEMINI_MINIMAL -> mapOf("thinkingLevel" to "MINIMAL")
+            PresetReasoningPolicy.GEMINI_LOW -> mapOf("thinkingLevel" to "LOW")
             else -> null
         }
 
@@ -204,7 +206,9 @@ object PresetModelCatalog {
         provider: PresetModelProvider,
         fullName: String,
     ): Map<String, Any>? =
-        if (reasoningPolicy(provider, fullName) == PresetReasoningPolicy.GEMINI_MINIMAL) {
+        if (reasoningPolicy(provider, fullName) in
+            setOf(PresetReasoningPolicy.GEMINI_MINIMAL, PresetReasoningPolicy.GEMINI_LOW)
+        ) {
             mapOf("thinkingLevel" to "LOW")
         } else {
             null

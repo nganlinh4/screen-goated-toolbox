@@ -24,7 +24,7 @@ Use `.claude/skills/gemini-api-dev/SKILL.md` for Gemini wire-contract changes an
 1. Run `scripts/openrouter_free_models.py` for the official API inventory.
 2. Define free as zero prompt and completion price. Treat missing or unparsable pricing as unknown, not free.
 3. Use OpenRouter's official model browser to inspect its current latency-low-to-high and throughput-high-to-low views. Capture the model IDs and ordering, not screenshots containing account data unless review needs them.
-4. Exclude endpoints requiring billing, unavailable to the active key, lacking the needed modality, or already represented by the same provider-qualified endpoint.
+4. Exclude endpoints requiring billing, unavailable to the active key, or lacking the needed modality.
 5. Shortlist several diverse candidates, then use production-path Rust tests. OpenRouter aggregate rankings do not substitute for SGT latency, reliability, OCR, coordinate, or translation evidence.
 
 The OpenRouter API key is optional for public inventory but required for live candidate tests. Inject `.env` values into the benchmark child explicitly; do not print them.
