@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Screen Translate threshold lab</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI", sans-serif;
+      --panel: #1d2025;
+      --line: #373c44;
+      --muted: #9ca4ae;
+      --number: #ffffff;
+      --locator: #5ed7ff;
+      --ocr: #ffcf66;
+      --accent: #ffb400;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #111316; color: #eef0f2; }
+    button, input, textarea { font: inherit; }
+    button { border: 1px solid #48505a; border-radius: 6px; background: #292d33; color: inherit; cursor: pointer; }
+    button:hover { border-color: #737d89; }
+    header { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
+    #cases { display: flex; gap: 5px; }
+    #cases button { padding: 5px 9px; }
+    #cases button.active { border-color: var(--accent); background: #493b18; }
+    #case-summary { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    #status { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .workspace { display: grid; grid-template-columns: 250px minmax(0, 1fr); height: calc(100% - 44px); }
+    aside { overflow-y: auto; padding: 10px; background: var(--panel); border-right: 1px solid var(--line); }
+    section + section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+    h2 { margin: 0 0 8px; color: #cbd1d8; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .control { margin-bottom: 10px; }
+    .control-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+    .control-head output { font: 11px Consolas, monospace; }
+    input[type="range"] { width: 100%; margin: 5px 0 2px; accent-color: var(--accent); }
+    .hint { color: var(--muted); font-size: 10px; line-height: 1.35; }
+    .locator-color { color: var(--locator); }
+    .ocr-color { color: var(--ocr); }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .stat { padding: 6px; border: 1px solid var(--line); border-radius: 5px; background: #17191d; }
+    .stat b { display: block; font: 12px Consolas, monospace; }
+    .stat span { color: var(--muted); font-size: 9px; }
+    label.toggle { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #cbd1d8; font-size: 11px; }
+    textarea { width: 100%; min-height: 54px; resize: vertical; padding: 6px; border: 1px solid #48505a; border-radius: 5px; background: #141619; color: inherit; }
+    .save-row { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+    .save-row button { padding: 5px 9px; }
+    .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .action-row button { min-width: 0; padding: 6px; }
+    .action-row #show-source { grid-column: 1 / -1; padding-block: 4px; }
+    .action-row .primary { border-color: #a77700; background: #493b18; }
+    button:disabled { cursor: wait; opacity: .55; }
+    .notes { margin-top: 6px; color: #d8dde3; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+    .note { padding: 4px 0; border-bottom: 1px solid #2c3036; }
+    #region-editor[hidden] { display: none; }
+    main { min-width: 0; min-height: 0; padding: 8px; }
+    #viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: #0b0d0f; border: 1px solid var(--line); cursor: grab; touch-action: none; }
+    #viewport.dragging { cursor: grabbing; }
+    #canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+    #source { display: block; width: 100%; height: 100%; }
+    .region { position: absolute; border: 1px solid var(--accent); cursor: pointer; }
+    .region.rejected { border-color: #ef6f72; opacity: .45; }
+    .region.pending { border-style: dashed; border-color: #b58cff; }
+    .region:hover, .region.selected { z-index: 1000; opacity: 1; }
+    .badge { position: absolute; left: -1px; top: -18px; height: 18px; padding: 1px 4px; white-space: nowrap; background: #111315; border: 1px solid currentColor; font: 10px/14px Consolas, monospace; }
+    .near-top .badge { top: 0; }
+    .number { color: var(--number); }
+    .locator { color: var(--locator); }
+    .ocr { color: var(--ocr); }
+    .details { display: none; position: absolute; z-index: 2; left: 0; top: 20px; width: max-content; max-width: min(360px, 70vw); padding: 8px; background: #0e1012; border: 1px solid var(--accent); box-shadow: 0 8px 28px #000c; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+    .region:hover .details { display: block; }
+    .details .meta { color: var(--muted); }
+    .details .comments { margin-top: 6px; padding-top: 5px; border-top: 1px solid #34383e; }
+    @media (max-width: 760px) {
+      .workspace { grid-template-columns: 200px minmax(0, 1fr); }
+      #case-summary { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <nav id="cases"></nav>
+    <div id="case-summary"></div>
+    <div id="status">Ready</div>
+  </header>
+  <div class="workspace">
+    <aside>
+      <section>
+        <h2>Thresholds</h2>
+        <div class="control">
+          <div class="control-head"><span>Text pixels</span><output id="pixel-value">15%</output></div>
+          <input id="pixel" type="range" min="5" max="90" value="15">
+          <div class="hint">Pixels below this text-likelihood are ignored.</div>
+        </div>
+        <div class="control">
+          <div class="control-head locator-color"><span>Locator box</span><output id="box-value">80%</output></div>
+          <input id="box" type="range" min="10" max="99" value="80">
+          <div class="hint">Candidate shapes below this average score are removed.</div>
+        </div>
+        <div class="control">
+          <div class="control-head ocr-color"><span>Host OCR</span><output id="ocr-value">50%</output></div>
+          <input id="ocr" type="range" min="0" max="99" value="50">
+          <div class="hint">Recognized text below this score is rejected by the host.</div>
+        </div>
+        <label class="toggle"><input id="show-rejected" type="checkbox"> Show rejected and pending</label>
+      </section>
+      <section>
+        <h2>Current result</h2>
+        <div class="stats">
+          <div class="stat"><b id="box-count">—</b><span>locator boxes</span></div>
+          <div class="stat"><b id="accepted-count">—</b><span>OCR accepted</span></div>
+          <div class="stat"><b id="pending-count">—</b><span>OCR pending</span></div>
+          <div class="stat"><b id="map-size">—</b><span>probability map</span></div>
+        </div>
+      </section>
+      <section>
+        <h2>Production preview</h2>
+        <div class="action-row">
+          <button id="run-production" class="primary">Run full</button>
+          <button id="rerender-production">Rerender</button>
+          <button id="show-source">Source</button>
+        </div>
+        <div id="preview-summary" class="hint" style="margin-top:6px">Uses SGT's saved language, prompt, model stack, and exact renderer.</div>
+      </section>
+      <section>
+        <h2>Image comment</h2>
+        <textarea id="image-comment" placeholder="Comment about the whole image"></textarea>
+        <div class="save-row"><button id="save-image-comment">Save</button></div>
+        <div id="image-notes" class="notes"></div>
+      </section>
+      <section id="region-editor" hidden>
+        <h2 id="region-title">Region comment</h2>
+        <textarea id="region-comment" placeholder="Comment about this region"></textarea>
+        <div class="save-row"><button id="save-region-comment">Save</button><button id="cancel-region-comment">Cancel</button></div>
+        <div id="region-notes" class="notes"></div>
+      </section>
+    </aside>
+    <main><div id="viewport"><div id="canvas"><img id="source" alt="Detector source"></div></div></main>
+  </div>
+  <script src="viewer-data.js"></script>
+  <script>
+    const cases = window.DETECTOR_CASES || [];
+    const operation = window.DETECTOR_OPERATION || {};
+    const ui = Object.fromEntries([...document.querySelectorAll('[id]')].map(node => [node.id, node]));
+    let activeCaseIndex = 0;
+    let activeComments = [];
+    let activeRegions = [];
+    let selectedRegion = null;
+    let scale = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+    let drag = null;
+    let requestSequence = 0;
+    let requestTimer = null;
+    let previewPoll = null;
+    const previewVersions = new Map();
+
+    function escapeHtml(value) {
+      const node = document.createElement('span');
+      node.textContent = value;
+      return node.innerHTML;
+    }
+
+    function regionKey(region, index) {
+      if (region.sourceRegion) return `raw-${region.sourceRegion}`;
+      return `box-${region.boxPx.join('-')}`;
+    }
+
+    function phaseTime(record, phase) {
+      return record?.timingsMs?.find(timing => timing.phase === phase)?.elapsedMs;
+    }
+
+    function duration(value) {
+      if (!Number.isFinite(value)) return '—';
+      return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
+    }
+
+    function productionSummary(record, elapsedMs) {
+      const timings = record?.timingsMs || [];
+      const pipelineMs = timings.reduce((latest, timing) => Math.max(latest, timing.elapsedMs || 0), 0);
+      const regions = record?.regions?.length ?? '—';
+      const rendered = record?.renderedRegionCount ?? '—';
+      const model = record?.configuredModel || 'unknown model';
+      const target = record?.targetLanguage || 'unknown target';
+      const total = Number.isFinite(elapsedMs) ? elapsedMs : pipelineMs;
+      return `Last production · ${duration(total)} total · ${duration(phaseTime(record, 'detector_complete'))} detect · ${duration(phaseTime(record, 'first_painted'))} first paint · ${duration(phaseTime(record, 'translation_complete'))} translate · ${rendered}/${regions} rendered · ${target} · ${model}`;
+    }
+
+    function applyTransform() {
+      ui.canvas.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+      const inverse = 1 / scale;
+      ui.canvas.querySelectorAll('.region').forEach(region => {
+        region.style.borderWidth = `${inverse}px`;
+        for (const child of region.querySelectorAll('.badge, .details')) {
+          child.style.transform = `scale(${inverse})`;
+          child.style.transformOrigin = 'left top';
+        }
+        region.querySelector('.badge').style.top = region.classList.contains('near-top') ? '0' : `${-18 * inverse}px`;
+        region.querySelector('.details').style.top = `${20 * inverse}px`;
+      });
+    }
+
+    function fitCanvas(width, height) {
+      scale = Math.min(1, ui.viewport.clientWidth / width, ui.viewport.clientHeight / height);
+      offsetX = (ui.viewport.clientWidth - width * scale) / 2;
+      offsetY = (ui.viewport.clientHeight - height * scale) / 2;
+      applyTransform();
+    }
+
+    async function loadComments(caseName) {
+      const response = await fetch(`/api/comments?case=${encodeURIComponent(caseName)}`);
+      activeComments = response.ok ? await response.json() : [];
+      const notes = activeComments.filter(comment => comment.scope === 'image');
+      ui['image-notes'].innerHTML = notes.map(comment => `<div class="note">${escapeHtml(comment.text)}</div>`).join('');
+    }
+
+    async function showCase(index) {
+      const item = cases[index];
+      if (!item) return;
+      activeCaseIndex = index;
+      selectedRegion = null;
+      activeRegions = item.regions;
+      ui['region-editor'].hidden = true;
+      [...ui.cases.children].forEach((button, buttonIndex) => button.classList.toggle('active', buttonIndex === index));
+      ui.source.src = item.source;
+      ui['show-source'].textContent = 'Source';
+      ui.canvas.style.width = `${item.size[0]}px`;
+      ui.canvas.style.height = `${item.size[1]}px`;
+      ui['case-summary'].textContent = `${item.name} · ${item.size[0]}×${item.size[1]}`;
+      renderRegions(item, activeRegions);
+      await loadComments(item.name);
+      await updateThresholds(true);
+      await loadLastPreview(item);
+      fitCanvas(item.size[0], item.size[1]);
+    }
+
+    async function loadLastPreview(item, synchronizeVisible = false) {
+      const wasShowingPreview = ui['show-source'].textContent === 'Back to source';
+      const response = await fetch(`/api/production-preview/last?case=${encodeURIComponent(item.name)}`);
+      const result = response.ok ? await response.json() : { available: false };
+      const previousVersion = previewVersions.get(item.name);
+      previewVersions.set(item.name, result.modifiedNs);
+      ui['show-source'].disabled = !result.available;
+      ui['rerender-production'].disabled = !result.available;
+      ui['show-source'].textContent = 'Show last';
+      ui['show-source'].dataset.preview = result.available ? `${result.resultUrl}?v=${result.modifiedNs}` : '';
+      if (result.available) {
+        ui['preview-summary'].textContent = productionSummary(result.record);
+        if (synchronizeVisible && previousVersion !== undefined && previousVersion !== result.modifiedNs
+            && wasShowingPreview) {
+          displayProductionResult(ui['show-source'].dataset.preview);
+        }
+      } else {
+        ui['preview-summary'].textContent = `Uses SGT's saved language, prompt, model stack, and exact renderer.`;
+      }
+    }
+
+    function displayProductionResult(url) {
+      const item = cases[activeCaseIndex];
+      requestSequence++;
+      ui.canvas.querySelectorAll('.region').forEach(node => node.remove());
+      ui.source.src = url;
+      ui['show-source'].textContent = 'Back to source';
+      fitCanvas(item.size[0], item.size[1]);
+    }
+
+    function displaySource() {
+      const item = cases[activeCaseIndex];
+      ui.source.src = item.source;
+      ui['show-source'].textContent = 'Show last';
+      renderRegions(item, activeRegions);
+      fitCanvas(item.size[0], item.size[1]);
+    }
+
+    async function runProductionPreview(action = 'full') {
+      const item = cases[activeCaseIndex];
+      if (!item) return;
+      clearInterval(previewPoll);
+      ui['run-production'].disabled = true;
+      ui['rerender-production'].disabled = true;
+      ui.status.textContent = action === 'rerender' ? 'Replaying production layout…' : 'Starting exact production pipeline…';
+      const response = await fetch('/api/production-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ case: item.name, action })
+      });
+      const started = await response.json();
+      if (!response.ok) {
+        ui['run-production'].disabled = false;
+        ui['rerender-production'].disabled = false;
+        ui.status.textContent = started.error || 'Could not start production preview';
+        return;
+      }
+      const startedAt = performance.now();
+      previewPoll = setInterval(async () => {
+        const check = await fetch(`/api/production-preview?case=${encodeURIComponent(item.name)}`);
+        const state = await check.json();
+        if (state.status === 'running') {
+          ui.status.textContent = `Production pipeline · ${((performance.now() - startedAt) / 1000).toFixed(1)} s`;
+          return;
+        }
+        clearInterval(previewPoll);
+        ui['run-production'].disabled = false;
+        if (state.status === 'complete') {
+          const url = `${state.resultUrl}?v=${Date.now()}`;
+          ui['show-source'].disabled = false;
+          ui['show-source'].dataset.preview = url;
+          ui['preview-summary'].textContent = productionSummary(state.record, state.elapsedMs);
+          ui.status.textContent = 'Production preview ready';
+          displayProductionResult(url);
+        } else {
+          ui.status.textContent = state.error || 'Production preview failed';
+        }
+      }, 250);
+    }
+
+    function scheduleThresholdUpdate() {
+      if (ui['show-source'].textContent === 'Back to source') displaySource();
+      clearTimeout(requestTimer);
+      requestTimer = setTimeout(() => updateThresholds(false), 45);
+    }
+
+    async function updateThresholds(initial, recognize = false) {
+      const item = cases[activeCaseIndex];
+      if (!item) return;
+      const sequence = ++requestSequence;
+      const pixel = Number(ui.pixel.value);
+      const box = Number(ui.box.value);
+      const ocr = Number(ui.ocr.value);
+      ui['pixel-value'].textContent = `${pixel}%`;
+      ui['box-value'].textContent = `${box}%`;
+      ui['ocr-value'].textContent = `${ocr}%`;
+      ui.status.textContent = initial ? 'Preparing probability map…' : 'Updating…';
+      const query = new URLSearchParams({ case: item.name, pixel: pixel / 100, box: box / 100, ocr: ocr / 100, recognize: recognize ? 1 : 0 });
+      try {
+        const response = await fetch(`/api/locator-boxes?${query}`);
+        const result = await response.json();
+        if (sequence !== requestSequence) return;
+        if (!response.ok) throw new Error(result.error || 'Threshold update failed');
+        activeRegions = result.regions;
+        renderRegions(item, result.regions);
+        ui['box-count'].textContent = result.regions.length;
+        ui['accepted-count'].textContent = result.acceptedCount;
+        ui['pending-count'].textContent = result.regions.length - result.recognizedCount;
+        ui['map-size'].textContent = result.mapSize.join('×');
+        ui.status.textContent = `${result.inferenceMs} ms cached inference`;
+      } catch (error) {
+        if (sequence === requestSequence) ui.status.textContent = error.message;
+      }
+    }
+
+    function renderRegions(item, regions) {
+      ui.canvas.querySelectorAll('.region').forEach(node => node.remove());
+      const showRejected = ui['show-rejected'].checked;
+      regions.forEach((region, index) => {
+        const candidates = [
+          [region.primaryText || '', Number(region.primaryConfidence) || 0],
+          ...(region.alternatives || []).map(value => [value.text || '', Number(value.confidence) || 0])
+        ];
+        const passesOcr = typeof region.passesOcr === 'boolean'
+          ? region.passesOcr
+          : candidates.some(([text, confidence]) =>
+              confidence >= Number(ui.ocr.value) / 100 && /\p{L}/u.test(text));
+        if (!showRejected && !passesOcr) return;
+        const [left, top, width, height] = region.boxPx;
+        const key = regionKey(region, index);
+        const comments = activeComments.filter(comment => comment.scope === 'region' && (comment.regionKey === key || (!comment.regionKey && comment.region === region.sourceRegion)));
+        const node = document.createElement('div');
+        node.className = `region${top < 20 ? ' near-top' : ''}${region.ocrStatus === 'pending' ? ' pending' : passesOcr ? '' : ' rejected'}`;
+        node.dataset.key = key;
+        node.tabIndex = 0;
+        node.setAttribute('role', 'button');
+        node.setAttribute('aria-label', `Region ${index + 1}, locator ${Math.round(region.locatorConfidence * 100)} percent, OCR ${region.ocrStatus === 'pending' ? 'pending' : `${Math.round(region.primaryConfidence * 100)} percent`}`);
+        node.style.left = `${left / item.size[0] * 100}%`;
+        node.style.top = `${top / item.size[1] * 100}%`;
+        node.style.width = `${width / item.size[0] * 100}%`;
+        node.style.height = `${height / item.size[1] * 100}%`;
+        const locator = Math.round(region.locatorConfidence * 100);
+        const ocr = region.ocrStatus === 'pending' ? '—' : `${Math.round(region.primaryConfidence * 100)}%`;
+        const alternatives = region.alternatives.length
+          ? region.alternatives.map(value => `${escapeHtml(value.text)} (${Math.round(value.confidence * 100)}%)`).join('<br>')
+          : '<span class="meta">None</span>';
+        const notes = comments.length
+          ? comments.map(comment => `<div>${escapeHtml(comment.text)}</div>`).join('')
+          : '<span class="meta">Click to comment.</span>';
+        node.innerHTML = `
+          <div class="badge"><span class="number">${index + 1}</span> <span class="locator">${locator}%</span> <span class="ocr">${ocr}</span></div>
+          <div class="details">
+            <strong>${escapeHtml(region.primaryText || (region.ocrStatus === 'pending' ? 'OCR not cached for this box' : 'No primary text'))}</strong>
+            <div class="meta">locator ${locator}% · OCR ${ocr}${region.ocrStatus === 'lab' ? ' · newly recognized' : ''}</div>
+            <div class="meta" style="margin-top:5px">Alternatives</div>${alternatives}
+            <div class="comments"><span class="meta">Comments</span>${notes}</div>
+          </div>`;
+        node.addEventListener('click', event => {
+          event.stopPropagation();
+          selectRegion(region, index, key, comments);
+        });
+        node.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            selectRegion(region, index, key, comments);
+          }
+        });
+        ui.canvas.appendChild(node);
+      });
+      applyTransform();
+    }
+
+    function selectRegion(region, index, key, comments) {
+      selectedRegion = { region, index, key };
+      ui.canvas.querySelectorAll('.region').forEach(node => node.classList.toggle('selected', node.dataset.key === key));
+      ui['region-title'].textContent = `Region ${index + 1}`;
+      ui['region-notes'].innerHTML = comments.map(comment => `<div class="note">${escapeHtml(comment.text)}</div>`).join('');
+      ui['region-comment'].value = '';
+      ui['region-editor'].hidden = false;
+      ui['region-comment'].focus();
+    }
+
+    async function saveComment(scope) {
+      const item = cases[activeCaseIndex];
+      const input = scope === 'image' ? ui['image-comment'] : ui['region-comment'];
+      const text = input.value.trim();
+      if (!text || !item || (scope === 'region' && !selectedRegion)) return;
+      const body = { case: item.name, scope, text };
+      if (scope === 'region') body.regionKey = selectedRegion.key;
+      const response = await fetch('/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!response.ok) {
+        ui.status.textContent = 'Comment could not be saved';
+        return;
+      }
+      input.value = '';
+      await loadComments(item.name);
+      renderRegions(item, activeRegions);
+      if (scope === 'region') ui['region-editor'].hidden = true;
+    }
+
+    cases.forEach((item, index) => {
+      const button = document.createElement('button');
+      button.textContent = item.name;
+      button.addEventListener('click', () => showCase(index));
+      ui.cases.appendChild(button);
+    });
+
+    for (const id of ['pixel', 'box', 'ocr']) {
+      ui[id].addEventListener('input', scheduleThresholdUpdate);
+      ui[id].addEventListener('change', () => updateThresholds(false, true));
+    }
+    ui['show-rejected'].addEventListener('change', () => renderRegions(cases[activeCaseIndex], activeRegions));
+    ui['save-image-comment'].addEventListener('click', () => saveComment('image'));
+    ui['save-region-comment'].addEventListener('click', () => saveComment('region'));
+    ui['cancel-region-comment'].addEventListener('click', () => { selectedRegion = null; ui['region-editor'].hidden = true; });
+    ui['run-production'].addEventListener('click', () => runProductionPreview('full'));
+    ui['rerender-production'].addEventListener('click', () => runProductionPreview('rerender'));
+    ui['show-source'].addEventListener('click', () => {
+      if (ui['show-source'].textContent === 'Back to source') displaySource();
+      else if (ui['show-source'].dataset.preview) displayProductionResult(ui['show-source'].dataset.preview);
+    });
+
+    ui.viewport.addEventListener('wheel', event => {
+      event.preventDefault();
+      const bounds = ui.viewport.getBoundingClientRect();
+      const x = event.clientX - bounds.left;
+      const y = event.clientY - bounds.top;
+      const worldX = (x - offsetX) / scale;
+      const worldY = (y - offsetY) / scale;
+      const next = Math.max(.1, Math.min(8, scale * Math.exp(-event.deltaY * .0015)));
+      offsetX = x - worldX * next;
+      offsetY = y - worldY * next;
+      scale = next;
+      applyTransform();
+    }, { passive: false });
+    ui.viewport.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || event.target.closest('.region')) return;
+      drag = { x: event.clientX, y: event.clientY, offsetX, offsetY };
+      ui.viewport.setPointerCapture(event.pointerId);
+      ui.viewport.classList.add('dragging');
+      event.preventDefault();
+    });
+    ui.viewport.addEventListener('pointermove', event => {
+      if (!drag) return;
+      offsetX = drag.offsetX + event.clientX - drag.x;
+      offsetY = drag.offsetY + event.clientY - drag.y;
+      applyTransform();
+    });
+    function endDrag(event) {
+      if (!drag) return;
+      drag = null;
+      ui.viewport.classList.remove('dragging');
+      if (ui.viewport.hasPointerCapture(event.pointerId)) ui.viewport.releasePointerCapture(event.pointerId);
+    }
+    ui.viewport.addEventListener('pointerup', endDrag);
+    ui.viewport.addEventListener('pointercancel', endDrag);
+    window.addEventListener('resize', () => {
+      const item = cases[activeCaseIndex];
+      if (item) fitCanvas(item.size[0], item.size[1]);
+    });
+    ui.pixel.value = 15;
+    ui.box.value = 80;
+    ui.ocr.value = 50;
+    showCase(0);
+    setInterval(() => {
+      if (previewPoll) return;
+      const item = cases[activeCaseIndex];
+      if (item) loadLastPreview(item, true).catch(() => {});
+    }, 1000);
+  </script>
+</body>
+</html>

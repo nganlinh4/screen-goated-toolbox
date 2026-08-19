@@ -1,0 +1,7 @@
+__pycache__/
+inputs/
+archived-runs/
+regression-*/
+worker/
+viewer-data.js
+*-result.json
