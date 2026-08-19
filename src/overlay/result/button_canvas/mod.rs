@@ -138,8 +138,21 @@ mod tests {
         assert!(buttons.contains("!state.groupActions && state.modelLabel"));
         assert!(script.contains("function escapeText"));
         assert!(buttons.contains("escapeText(state.modelLabel)"));
-        assert!(css.contains(".model-badge"));
-        assert!(css.contains("calc(9px * var(--control-scale))"));
+
+        // It is a label, not a control: no button chrome and no pointer affordance.
+        assert!(!buttons.contains("btn model-badge"));
+        let badge_css = css
+            .split_once(".model-badge {")
+            .expect("badge styling should exist")
+            .1
+            .split_once('}')
+            .expect("badge rule should close")
+            .0;
+        assert!(badge_css.contains("background: none"));
+        assert!(badge_css.contains("border: none"));
+        assert!(badge_css.contains("cursor: default"));
+        assert!(badge_css.contains("pointer-events: none"));
+        assert!(!css.contains(".model-badge:hover"));
     }
 
     #[test]

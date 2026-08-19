@@ -254,7 +254,7 @@ function generateButtonsHTML(hwnd, state, isVertical) {
     }
 
     if (!state.groupActions && state.modelLabel) {
-        buttons += `<div class="btn model-badge ${hideClass}" title="${escapeAttribute(state.modelLabel)}">
+        buttons += `<div class="model-badge ${hideClass}" title="${escapeAttribute(state.modelLabel)}">
             <span class="model-badge-text">${escapeText(state.modelLabel)}</span>
         </div>`;
     }
