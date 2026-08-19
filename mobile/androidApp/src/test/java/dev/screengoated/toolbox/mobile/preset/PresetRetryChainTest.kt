@@ -7,8 +7,6 @@ import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_CONTINUOUS_MOD
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_TRANSCRIBE_MODEL_ID
-import dev.screengoated.toolbox.mobile.shared.preset.PRESET_IMAGE_ACCURATE_MODEL_ID
-import dev.screengoated.toolbox.mobile.shared.preset.PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_SEARCH_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_TEXT_ARENA_FAST_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_TEXT_GAME_MODEL_ID
@@ -20,6 +18,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
@@ -130,14 +129,9 @@ class PresetRetryChainTest {
             recommendedModels.getValue("generic_image").jsonPrimitive.content,
             DEFAULT_IMAGE_MODEL_ID,
         )
-        assertEquals(
-            recommendedModels.getValue("accurate_image").jsonPrimitive.content,
-            PRESET_IMAGE_ACCURATE_MODEL_ID,
-        )
-        assertEquals(
-            recommendedModels.getValue("image_translate").jsonPrimitive.content,
-            PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
-        )
+        // Image presets all track the default; there is no separate pin.
+        assertNull(recommendedModels["accurate_image"])
+        assertNull(recommendedModels["image_translate"])
         assertEquals(
             recommendedModels.getValue("image_ask").jsonPrimitive.content,
             DEFAULT_IMAGE_MODEL_ID,
@@ -210,7 +204,7 @@ class PresetRetryChainTest {
             "preset_translate_retranslate",
         ).forEach { id ->
             assertEquals(
-                PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
+                DEFAULT_IMAGE_MODEL_ID,
                 byId.getValue(id).blocks.first().model,
             )
         }
@@ -230,7 +224,7 @@ class PresetRetryChainTest {
             "preset_fact_check",
             "preset_omniscient_god",
         ).forEach { id ->
-            assertEquals(PRESET_IMAGE_ACCURATE_MODEL_ID, byId.getValue(id).blocks.first().model)
+            assertEquals(DEFAULT_IMAGE_MODEL_ID, byId.getValue(id).blocks.first().model)
         }
     }
 

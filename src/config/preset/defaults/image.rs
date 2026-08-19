@@ -4,10 +4,7 @@ use super::OCR_EXTRACTION_PROMPT;
 use crate::config::preset::Preset;
 use crate::config::preset::{BlockBuilder, PresetBuilder};
 use crate::config::types::Hotkey;
-use crate::model_config::{
-    DEFAULT_IMAGE_MODEL_ID, DEFAULT_TEXT_MODEL_ID, PRESET_IMAGE_ACCURATE_MODEL_ID,
-    PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID, PRESET_SEARCH_MODEL_ID,
-};
+use crate::model_config::{DEFAULT_IMAGE_MODEL_ID, DEFAULT_TEXT_MODEL_ID, PRESET_SEARCH_MODEL_ID};
 
 /// Create all default image presets
 pub fn create_image_presets() -> Vec<Preset> {
@@ -21,7 +18,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             let mut preset = PresetBuilder::new("preset_translate", "Translate")
                 .image()
                 .blocks(vec![
-                    BlockBuilder::image(PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID)
+                    BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
                     .prompt("Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.")
                     .language("Vietnamese")
                     .markdown() // Pretty only
@@ -37,7 +34,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::image(PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID)
+                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
                     .prompt("Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.")
                     .language("Vietnamese")
                     .show_overlay(false)
@@ -51,7 +48,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_translate_retranslate", "Translate+Retranslate")
             .image()
             .blocks(vec![
-                BlockBuilder::image(PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID)
+                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
                     .prompt("Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.")
                     .language("Korean")
                     .markdown() // Đẹp
@@ -111,7 +108,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_extract_table", "Extract Table")
             .image()
             .blocks(vec![
-                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
+                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
                     .prompt("Extract all data from any tables, forms, or structured content in this image. Format the output as a markdown table. Output ONLY the table, no explanations.")
                     .language("Vietnamese")
                     .markdown()
@@ -195,7 +192,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_fact_check", "Kiểm chứng thông tin")
             .image()
             .blocks(vec![
-                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
+                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
                     .prompt("Extract and describe all text, claims, statements, and information visible in this image. Include any context that might be relevant for fact-checking. Output the content clearly.")
                     .language("Vietnamese")
                     .show_overlay(false)
@@ -213,7 +210,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             .image()
             .blocks(vec![
                 // Node 0: Extract from image
-                BlockBuilder::image(PRESET_IMAGE_ACCURATE_MODEL_ID)
+                BlockBuilder::image(DEFAULT_IMAGE_MODEL_ID)
                     .prompt("Analyze this image and extract all text, claims, and key information. Be detailed and comprehensive.")
                     .language("English")
                     .markdown()
@@ -263,10 +260,7 @@ pub fn create_image_presets() -> Vec<Preset> {
 mod tests {
     use super::create_image_presets;
     use crate::config::preset::Preset;
-    use crate::model_config::{
-        DEFAULT_IMAGE_MODEL_ID, PRESET_IMAGE_ACCURATE_MODEL_ID,
-        PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
-    };
+    use crate::model_config::DEFAULT_IMAGE_MODEL_ID;
 
     fn first_model<'a>(presets: &'a [Preset], id: &str) -> &'a str {
         presets
@@ -286,33 +280,25 @@ mod tests {
             "preset_translate_auto_paste",
             "preset_translate_retranslate",
         ] {
-            assert_eq!(
-                first_model(&presets, id),
-                PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
-                "{id}"
-            );
+            assert_eq!(first_model(&presets, id), DEFAULT_IMAGE_MODEL_ID, "{id}");
         }
 
+        // Every ordinary image preset shares the default model; only the QR
+        // scanner uses a dedicated non-LLM service.
         for id in [
             "preset_ocr",
             "preset_ocr_read",
             "preset_summarize",
             "preset_desc",
             "preset_ask_image",
-        ] {
-            assert_eq!(first_model(&presets, id), DEFAULT_IMAGE_MODEL_ID, "{id}");
-        }
-
-        for id in [
+            "preset_translate",
+            "preset_translate_auto_paste",
+            "preset_translate_retranslate",
             "preset_extract_table",
             "preset_fact_check",
             "preset_omniscient_god",
         ] {
-            assert_eq!(
-                first_model(&presets, id),
-                PRESET_IMAGE_ACCURATE_MODEL_ID,
-                "{id}"
-            );
+            assert_eq!(first_model(&presets, id), DEFAULT_IMAGE_MODEL_ID, "{id}");
         }
 
         let translate = presets

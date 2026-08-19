@@ -19,7 +19,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
         presetType = PresetType.IMAGE,
         blocks = listOf(
             imageBlock(
-                PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
+                DEFAULT_IMAGE_MODEL_ID,
                 "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.",
                 "language1" to "Vietnamese",
             ).copy(renderMode = "markdown"),
@@ -35,7 +35,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
         autoPaste = true,
         blocks = listOf(
             imageBlock(
-                PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
+                DEFAULT_IMAGE_MODEL_ID,
                 "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.",
                 "language1" to "Vietnamese",
             ).copy(showOverlay = false, autoCopy = true),
@@ -50,7 +50,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
         presetType = PresetType.IMAGE,
         blocks = listOf(
             imageBlock(
-                PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
+                DEFAULT_IMAGE_MODEL_ID,
                 "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.",
                 "language1" to "Korean",
             ).copy(renderMode = "markdown", autoCopy = true),
@@ -113,7 +113,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
         presetType = PresetType.IMAGE,
         blocks = listOf(
             imageBlock(
-                PRESET_IMAGE_ACCURATE_MODEL_ID,
+                DEFAULT_IMAGE_MODEL_ID,
                 "Extract all data from any tables, forms, or structured content in this image. Format the output as a markdown table. Output ONLY the table, no explanations.",
                 "language1" to "Vietnamese",
             ).copy(renderMode = "markdown", autoCopy = true),
@@ -204,7 +204,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
         presetType = PresetType.IMAGE,
         blocks = listOf(
             imageBlock(
-                PRESET_IMAGE_ACCURATE_MODEL_ID,
+                DEFAULT_IMAGE_MODEL_ID,
                 "Extract and describe all text, claims, statements, and information visible in this image. Include any context that might be relevant for fact-checking. Output the content clearly.",
                 "language1" to "Vietnamese",
             ).copy(showOverlay = false),
@@ -225,7 +225,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
         blocks = listOf(
             // Node 0: Extract from image
             imageBlock(
-                PRESET_IMAGE_ACCURATE_MODEL_ID,
+                DEFAULT_IMAGE_MODEL_ID,
                 "Analyze this image and extract all text, claims, and key information. Be detailed and comprehensive.",
                 "language1" to "English",
             ).copy(renderMode = "markdown"),

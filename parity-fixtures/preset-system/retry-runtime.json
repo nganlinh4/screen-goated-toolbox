@@ -7,8 +7,6 @@
   },
   "recommended_model_defaults": {
     "generic_image": "groq-qwen-3-6-27b-vision",
-    "accurate_image": "groq-qwen-3-6-27b-vision",
-    "image_translate": "groq-qwen-3-6-27b-vision",
     "image_ask": "groq-qwen-3-6-27b-vision",
     "generic_text": "groq-gpt-oss-120b-text",
     "text_arena_fast": "groq-gpt-oss-20b-text",

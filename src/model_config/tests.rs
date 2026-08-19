@@ -16,11 +16,6 @@ fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
         model.performance_source.as_deref(),
         Some("benchmark-2026-08-18-protocol9:ocr-small-1024")
     );
-    assert_eq!(PRESET_IMAGE_ACCURATE_MODEL_ID, DEFAULT_IMAGE_MODEL_ID);
-    assert_eq!(
-        PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID,
-        DEFAULT_IMAGE_MODEL_ID
-    );
 }
 
 #[test]
@@ -45,14 +40,9 @@ fn recommended_defaults_match_the_shared_retry_fixture() {
         models["generic_image"].as_str(),
         Some(DEFAULT_IMAGE_MODEL_ID)
     );
-    assert_eq!(
-        models["accurate_image"].as_str(),
-        Some(PRESET_IMAGE_ACCURATE_MODEL_ID)
-    );
-    assert_eq!(
-        models["image_translate"].as_str(),
-        Some(PRESET_IMAGE_TRANSLATE_VISION_MODEL_ID)
-    );
+    // Image presets all track the default; there is no separate pin to assert.
+    assert!(models.get("accurate_image").is_none());
+    assert!(models.get("image_translate").is_none());
     assert_eq!(models["image_ask"].as_str(), Some(DEFAULT_IMAGE_MODEL_ID));
     assert_eq!(models["generic_text"].as_str(), Some(DEFAULT_TEXT_MODEL_ID));
     assert_eq!(
