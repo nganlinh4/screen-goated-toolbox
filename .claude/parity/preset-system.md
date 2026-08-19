@@ -85,6 +85,10 @@
 - Live server events are decoded structurally. Setup completion must be a top-level field, all audio parts in a frame are retained, and finite responses complete on either `turnComplete` or `generationComplete`.
 - Blank, legacy, or unknown Gemini TTS model values normalize to the catalog-owned TTS default on both platforms; listed models remain unchanged.
 - Provider/auth failures and retryable model failures remain distinct. Retrying an open result updates its loading status.
+- A `json-object` vision endpoint serving a non-streaming plain-text caller wraps
+  the reply in a `{"text": ...}` envelope and unwraps it before returning, on both
+  platforms. Streaming and schema-bearing callers are unaffected, and the envelope
+  fails open: a reply that is not the expected object is returned unchanged.
 - Ordinary LLM vision request shape comes from
   `catalog/model_catalog.json#vision_request_profiles` on both platforms.
   Google vision endpoints send image before text; Groq Qwen sends text before

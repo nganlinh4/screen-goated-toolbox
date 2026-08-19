@@ -135,6 +135,14 @@ preserving their numeric-fidelity, idiom, and structured-constraint skills. It
 also adds two Vietnamese OCR fixtures covering a photographed sign and a dense
 web crop. Its fixture fingerprint and protocol version intentionally prevent
 earlier results from being selected for the revised suite.
+Protocol 10 changes plain-text OCR for endpoints the catalog marks
+`json-object`. Qwen 3.6 on Groq deterministically appends a re-tokenized
+repetition of the text it just emitted when asked for bare text, so those
+requests now carry a `{"text": ...}` envelope in JSON object mode and the reply
+is unwrapped before it leaves the vision path. Only Qwen matches that profile
+today. Text, coordinate, and every other OCR endpoint are unchanged, but OCR
+rows still need fresh runs because the request shape moved.
+
 Protocol 9 supersedes protocol 8 coordinate rows. The shared production
 grounding prompts now spell out the complete strict point-object contract so
 JSON-object, prompt-only, and Live transports receive the same semantics as

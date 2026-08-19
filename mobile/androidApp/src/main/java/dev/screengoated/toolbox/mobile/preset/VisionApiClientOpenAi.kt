@@ -29,16 +29,26 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:${providerName.lowercase()}")
 
+    val plainTextEnvelope = needsPlainTextEnvelope(model, streamingEnabled)
     val payload = openAiVisionPayload(
         model,
         prompt,
         imageBase64,
         mimeType,
         streamingEnabled,
+        plainTextEnvelope,
     )
 
     if (!streamingEnabled) {
-        return generateOpenAiVisionBlocking(endpoint, apiKey, providerName, model, payload, onChunk)
+        return generateOpenAiVisionBlocking(
+            endpoint,
+            apiKey,
+            providerName,
+            model,
+            payload,
+            plainTextEnvelope,
+            onChunk,
+        )
     }
 
     val request = Request.Builder()
@@ -90,6 +100,7 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
     providerName: String,
     model: PresetModelDescriptor,
     payload: JSONObject,
+    plainTextEnvelope: Boolean,
     onChunk: (String) -> Unit,
 ): String {
     val request = Request.Builder()
@@ -111,8 +122,9 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
             ""
         }
         if (content.isBlank()) throw IOException("$providerName vision returned blank content.")
-        onChunk(content)
-        return content
+        val text = if (plainTextEnvelope) unwrapPlainTextEnvelope(content) else content
+        onChunk(text)
+        return text
     }
 }
 
@@ -219,16 +231,51 @@ internal fun VisionApiClient.callQrServer(
     }
 }
 
+/**
+ * Instruction appended when plain text has to travel inside a JSON envelope.
+ */
+internal const val PLAIN_TEXT_ENVELOPE_PROMPT: String =
+    "\n\nRespond with a single JSON object of the form {\"text\": \"<all extracted text>\"} " +
+        "and nothing else."
+
+/**
+ * Whether a plain-text extraction must be wrapped in a JSON envelope.
+ *
+ * Qwen 3.6 on Groq deterministically appends a re-tokenized repetition of the text
+ * it just emitted when asked for bare text; constraining the reply to a JSON object
+ * terminates generation cleanly. Mirrors the Windows vision request policy.
+ */
+internal fun needsPlainTextEnvelope(
+    model: PresetModelDescriptor,
+    streaming: Boolean,
+): Boolean =
+    !streaming &&
+        model.structuredOutputPolicy == PresetStructuredOutputPolicy.JSON_OBJECT
+
+/**
+ * Recovers the text from a [PLAIN_TEXT_ENVELOPE_PROMPT] reply, failing open so a
+ * malformed envelope degrades to the raw body instead of losing text.
+ */
+internal fun unwrapPlainTextEnvelope(content: String): String =
+    try {
+        JSONObject(content.trim()).takeIf { it.has("text") }?.optString("text").orEmpty()
+            .ifEmpty { content }
+    } catch (_: JSONException) {
+        content
+    }
+
 internal fun openAiVisionPayload(
     model: PresetModelDescriptor,
     prompt: String,
     imageBase64: String,
     mimeType: String,
     stream: Boolean,
+    plainTextEnvelope: Boolean = false,
 ): JSONObject {
     val provider = model.provider
     val fullName = model.fullName
-    val textPart = JSONObject().put("type", "text").put("text", prompt)
+    val effectivePrompt = if (plainTextEnvelope) prompt + PLAIN_TEXT_ENVELOPE_PROMPT else prompt
+    val textPart = JSONObject().put("type", "text").put("text", effectivePrompt)
     val imagePart = JSONObject()
         .put("type", "image_url")
         .put(
@@ -260,5 +307,8 @@ internal fun openAiVisionPayload(
             .put("presence_penalty", 1.5)
     }
     model.visionMaxOutputTokens?.let { payload.put("max_completion_tokens", it) }
+    if (plainTextEnvelope) {
+        payload.put("response_format", JSONObject().put("type", "json_object"))
+    }
     return applyFastReasoningPolicy(payload, provider, fullName)
 }
