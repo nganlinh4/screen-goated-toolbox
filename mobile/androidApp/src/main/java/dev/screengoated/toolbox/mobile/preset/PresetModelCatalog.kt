@@ -202,16 +202,23 @@ object PresetModelCatalog {
             else -> null
         }
 
+    /**
+     * Never returns null for an endpoint that owns a thinking policy. Callers
+     * attach this config only when it is non-null, so null would send no
+     * thinkingConfig at all and let the provider apply its own default, which is
+     * the opposite of the catalog's intent. Budget-policy endpoints keep their
+     * floor rather than being raised to a level they do not express.
+     */
     fun geminiImportantTaskThinkingConfig(
         provider: PresetModelProvider,
         fullName: String,
     ): Map<String, Any>? =
-        if (reasoningPolicy(provider, fullName) in
-            setOf(PresetReasoningPolicy.GEMINI_MINIMAL, PresetReasoningPolicy.GEMINI_LOW)
-        ) {
-            mapOf("thinkingLevel" to "LOW")
-        } else {
-            null
+        when (reasoningPolicy(provider, fullName)) {
+            PresetReasoningPolicy.GEMINI_MINIMAL,
+            PresetReasoningPolicy.GEMINI_LOW,
+            -> mapOf("thinkingLevel" to "LOW")
+            PresetReasoningPolicy.GEMINI_DISABLED -> mapOf("thinkingBudget" to 0)
+            else -> null
         }
 
     fun openAiReasoningEffort(

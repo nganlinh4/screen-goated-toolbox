@@ -41,12 +41,22 @@ pub fn gemini_thinking_config(model: &str) -> Option<serde_json::Value> {
 }
 
 /// Deliberate low-thinking override for correctness-sensitive interactive tasks.
+///
+/// Never returns `None` for an endpoint that owns a thinking policy. Callers
+/// attach this config only when it is `Some`, so returning `None` would send no
+/// `thinkingConfig` at all and leave the provider free to apply its own default
+/// — the opposite of the catalog's intent. Budget-policy endpoints therefore
+/// keep their floor rather than being raised to a level they do not express.
 pub fn gemini_important_task_thinking_config(model: &str) -> Option<serde_json::Value> {
-    matches!(
-        crate::model_config::ordinary_reasoning_policy("google", model),
-        crate::model_config::OrdinaryReasoningPolicy::GeminiLevel(_)
-    )
-    .then(|| serde_json::json!({ "thinkingLevel": "LOW" }))
+    match crate::model_config::ordinary_reasoning_policy("google", model) {
+        crate::model_config::OrdinaryReasoningPolicy::GeminiLevel(_) => {
+            Some(serde_json::json!({ "thinkingLevel": "LOW" }))
+        }
+        crate::model_config::OrdinaryReasoningPolicy::GeminiBudget(budget) => {
+            Some(serde_json::json!({ "thinkingBudget": budget }))
+        }
+        _ => None,
+    }
 }
 
 /// Apply the catalog-owned lowest supported reasoning effort to ordinary
@@ -125,6 +135,17 @@ mod tests {
             apply_ordinary_openai_reasoning_policy(&mut payload, provider, model);
             assert_eq!(payload["reasoning_effort"], expected, "{model}");
         }
+    }
+
+    #[test]
+    fn budget_policy_models_keep_their_floor_on_important_tasks() {
+        // A budget-policy endpoint must still receive an explicit config here.
+        // Returning None would attach no thinkingConfig and hand the decision
+        // back to the provider default.
+        let config = super::gemini_important_task_thinking_config("gemini-robotics-er-2-preview")
+            .expect("budget-policy models must still get an explicit config");
+        assert_eq!(config["thinkingBudget"], 0);
+        assert!(config.get("thinkingLevel").is_none());
     }
 
     #[test]
