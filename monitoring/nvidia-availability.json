@@ -1,7 +1,7 @@
 {
  "schemaVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-08-20T07:33:26Z",
+ "generatedAt": "2026-08-20T08:58:46Z",
  "note": "Latency is measured from one datacenter and is a ranking hint only; clients should order by their own observed latency.",
  "models": []
 }
