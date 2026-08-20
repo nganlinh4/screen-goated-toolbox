@@ -2,7 +2,7 @@ use super::*;
 
 fn feed(models: Vec<FeedModel>) -> AvailabilityFeed {
     AvailabilityFeed {
-        schema_version: SUPPORTED_SCHEMA,
+        schema_version: 2,
         provider: "nvidia".to_string(),
         generated_at: "2026-08-20T07:33:26Z".to_string(),
         models,
@@ -13,6 +13,7 @@ fn model(id: &str, p50: Option<u32>, success: f32, runs: u32) -> FeedModel {
     FeedModel {
         id: id.to_string(),
         control: Some("effort-none".to_string()),
+        modality: Some("text".to_string()),
         p50_ms: p50,
         success_rate: success,
         runs,
@@ -37,9 +38,16 @@ fn a_feed_from_an_unexpected_provider_is_rejected_whole() {
 }
 
 #[test]
+fn a_schema_one_feed_is_still_read_during_a_rollout() {
+    let mut older = feed(Vec::new());
+    older.schema_version = 1;
+    assert!(validate(&older).is_ok());
+}
+
+#[test]
 fn a_future_schema_is_refused_rather_than_guessed_at() {
     let mut newer = feed(Vec::new());
-    newer.schema_version = SUPPORTED_SCHEMA + 1;
+    newer.schema_version = 99;
     assert!(validate(&newer).is_err());
 }
 
@@ -72,7 +80,7 @@ fn only_fully_successful_models_are_offered_and_they_sort_by_latency() {
 }
 
 #[test]
-fn the_chain_head_is_never_given_to_the_feed() {
+fn feed_models_sit_behind_every_local_member() {
     let chain: Vec<String> = ["local-leader", "local-second", "local-third"]
         .iter()
         .map(|s| s.to_string())
@@ -80,11 +88,13 @@ fn the_chain_head_is_never_given_to_the_feed() {
     let offered = vec!["nvidia/fast".to_string(), "nvidia/next".to_string()];
     let merged = merge_into_chain(&chain, &offered);
 
-    assert_eq!(merged[0], "local-leader", "position 0 must stay local");
-    assert_eq!(merged[1], "nvidia/fast");
-    assert_eq!(merged[2], "nvidia/next");
-    // Nothing local is lost, and relative order among locals is preserved.
-    assert_eq!(&merged[3..], &["local-second", "local-third"]);
+    // Every locally configured model keeps its position, head included.
+    assert_eq!(
+        &merged[..3],
+        &["local-leader", "local-second", "local-third"]
+    );
+    // The feed can only lengthen the tail.
+    assert_eq!(&merged[3..], &["nvidia/fast", "nvidia/next"]);
 }
 
 #[test]
@@ -114,6 +124,17 @@ fn a_single_entry_chain_keeps_its_only_member_first() {
 }
 
 #[test]
+fn a_feed_model_already_configured_locally_keeps_its_local_position() {
+    // The user put it at position 1 deliberately; the feed must not move it back.
+    let chain: Vec<String> = ["local-leader", "nvidia/fast", "local-third"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let merged = merge_into_chain(&chain, &["nvidia/fast".to_string()]);
+    assert_eq!(merged, chain);
+}
+
+#[test]
 fn an_empty_chain_is_left_alone_rather_than_seeded_remotely() {
     // With no local head to protect, accepting the feed would hand it position 0.
     assert!(merge_into_chain(&[], &["nvidia/fast".to_string()]).is_empty());
@@ -135,7 +156,7 @@ fn the_real_published_feed_verifies() {
     ));
     let feed = parse_verified(payload, signature).expect("published feed must verify");
     assert_eq!(feed.provider, "nvidia");
-    assert_eq!(feed.schema_version, SUPPORTED_SCHEMA);
+    assert!(SUPPORTED_SCHEMAS.contains(&feed.schema_version));
 }
 
 #[test]

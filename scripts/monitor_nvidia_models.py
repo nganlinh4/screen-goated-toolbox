@@ -24,6 +24,7 @@ consecutive failures.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import statistics
@@ -31,6 +32,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+import monitor_quality as quality
 
 BASE_URL = "https://integrate.api.nvidia.com/v1"
 REQUEST_TIMEOUT_SECONDS = "45"
@@ -45,8 +48,6 @@ TEXT_PROMPT = (
     "Translate to Vietnamese, output only the translation: "
     '"Settings > Display > Night light. Turn on automatically at sunset."'
 )
-TEXT_EXPECTED = ("cài đặt", "màn hình", "hiển thị", "đèn", "ánh sáng", "hoàng hôn", "mặt trời lặn")
-TEXT_MIN_MATCHES = 2
 
 # Ordered by preference: an endpoint that reaches zero reasoning tokens on an
 # earlier control never needs a later one.
@@ -121,11 +122,6 @@ def answer_of(payload: dict) -> tuple[str | None, int]:
     return (content or None), len(reasoning)
 
 
-def is_correct(text: str) -> bool:
-    lowered = text.lower()
-    return sum(1 for token in TEXT_EXPECTED if token in lowered) >= TEXT_MIN_MATCHES
-
-
 def discover_control(key: str, model: str) -> tuple[str | None, int]:
     """First control that produces an answer, preferring zero reasoning."""
     fallback: tuple[str, int] | None = None
@@ -155,32 +151,93 @@ def build_body(model: str, control: str) -> dict:
             "messages": [{"role": "user", "content": TEXT_PROMPT}]}
 
 
+def build_case_body(model: str, control: str, prompt: str) -> dict:
+    body = build_body(model, control)
+    body["messages"] = [m for m in body["messages"] if m["role"] != "user"]
+    body["messages"].append({"role": "user", "content": prompt})
+    return body
+
+
 def measure(key: str, model: str, control: str) -> dict:
+    """Runs the text quality suite once per case and records why it failed."""
     latencies: list[float] = []
-    correct = 0
-    for _ in range(SAMPLES_PER_MODEL):
-        _, payload, elapsed = post(key, build_body(model, control))
+    results: list[tuple[bool, str]] = []
+    for case in quality.CASES:
+        status, payload, elapsed = post(key, build_case_body(model, control, case["prompt"]))
         time.sleep(CALL_SPACING_SECONDS)
         content, _ = answer_of(payload)
-        if content:
-            latencies.append(elapsed)
-            correct += int(is_correct(content))
-    attempts = SAMPLES_PER_MODEL
+        if content is None:
+            results.append((False, f"no reply ({status})"))
+            continue
+        latencies.append(elapsed)
+        results.append(quality.judge(case, content))
+    p50 = int(statistics.median(latencies) * 1000) if latencies else None
+    passed, reason = quality.verdict(results, p50)
     return {
         "answered": len(latencies),
-        "attempts": attempts,
-        "correct": correct,
-        "p50_ms": int(statistics.median(latencies) * 1000) if latencies else None,
+        "attempts": len(quality.CASES),
+        "passed": passed,
+        "reason": reason,
+        "p50_ms": p50,
+        "p95_ms": int(max(latencies) * 1000) if latencies else None,
+    }
+
+
+def measure_vision(key: str, model: str, control: str) -> dict | None:
+    """Runs the OCR suite. Returns None when the model cannot take an image.
+
+    Vision capability is discovered rather than declared: the model list does not
+    say which endpoints accept images, and several that look multimodal reject one.
+    """
+    latencies: list[float] = []
+    results: list[tuple[bool, str]] = []
+    for index, case in enumerate(quality.VISION_CASES):
+        path = Path(case["image"])
+        if not path.exists():
+            return None
+        encoded = base64.b64encode(path.read_bytes()).decode()
+        body = build_body(model, control)
+        body["messages"] = [m for m in body["messages"] if m["role"] != "user"]
+        body["messages"].append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": case["instruction"]},
+                {"type": "image_url",
+                 "image_url": {"url": f"data:{case['mime']};base64,{encoded}"}},
+            ],
+        })
+        body["max_tokens"] = 300
+        status, payload, elapsed = post(key, body)
+        time.sleep(CALL_SPACING_SECONDS)
+        content, _ = answer_of(payload)
+        if content is None:
+            # A refusal on the first image means this is not a vision endpoint.
+            if index == 0:
+                return None
+            results.append((False, f"no reply ({status})"))
+            continue
+        latencies.append(elapsed)
+        results.append(quality.judge_vision(case, content))
+    p50 = int(statistics.median(latencies) * 1000) if latencies else None
+    passed, reason = quality.verdict(results, p50)
+    return {
+        "answered": len(latencies),
+        "attempts": len(quality.VISION_CASES),
+        "passed": passed,
+        "reason": reason,
+        "p50_ms": p50,
         "p95_ms": int(max(latencies) * 1000) if latencies else None,
     }
 
 
 def healthy(sample: dict) -> bool:
-    """Every sample answered, and a majority were correct."""
-    return (
-        sample["answered"] == sample["attempts"]
-        and sample["correct"] * 2 > sample["attempts"]
-    )
+    """Whether a run satisfied the quality gate outright.
+
+    There is no partial credit. A model that translates one sentence correctly and
+    answers the next in the wrong language is not usable, and an average would
+    hide exactly that.
+    """
+    return bool(sample.get("passed"))
 
 
 def run(history: dict, key: str, limit: int | None, only: list[str] | None = None) -> dict:
@@ -195,14 +252,21 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
         if not control:
             control, _ = discover_control(key, model)
         sample = measure(key, model, control) if control else {
-            "answered": 0, "attempts": SAMPLES_PER_MODEL, "correct": 0,
-            "p50_ms": None, "p95_ms": None,
+            "answered": 0, "attempts": len(quality.CASES), "passed": False,
+            "reason": "no working reasoning control", "p50_ms": None, "p95_ms": None,
         }
         if control and sample["answered"] == 0:
             # It may simply need a different control now; re-discover once.
             control, _ = discover_control(key, model)
             if control:
                 sample = measure(key, model, control)
+        # Vision capability is probed once and then trusted, since it is a
+        # property of the endpoint rather than of the run.
+        vision = known.get("vision")
+        if control and healthy(sample) and vision is None:
+            vision = measure_vision(key, model, control)
+            vision = vision if vision is not None else False
+
         streak_ok = known.get("healthy_streak", 0)
         streak_bad = known.get("failing_streak", 0)
         if healthy(sample):
@@ -217,39 +281,50 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
         recent = ([*known.get("recent", []), sample])[-RUNS_KEPT:]
         results[model] = {
             "control": control,
+            "vision": vision,
             "healthy_streak": streak_ok,
             "failing_streak": streak_bad,
             "eligible": eligible,
             "recent": recent,
         }
-        print(f"{model:<52}{str(control):<16}"
+        modality = "vision" if isinstance(vision, dict) and vision.get("passed") else "text"
+        note = "" if sample.get("passed") else f"  [{sample.get('reason')}]"
+        print(f"{model:<52}{str(control):<16}{modality:<7}"
               f"{sample['answered']}/{sample['attempts']} "
-              f"correct={sample['correct']} p50={sample['p50_ms']} eligible={eligible}",
+              f"p50={sample['p50_ms']} eligible={eligible}{note}",
               flush=True)
     return {"models": results}
 
 
 def published(history: dict, generated_at: str) -> dict:
-    """The client-facing view: eligible models only, with a ranking hint."""
+    """The client-facing view: models that passed the gate, with what a client
+    needs to use one without shipping a new build.
+
+    `modality` and `control` are carried because the client cannot infer them and
+    must not guess: the wrong modality routes an image to a text endpoint, and the
+    wrong control turns a healthy model into an error or a bill for reasoning
+    nobody reads.
+    """
     entries = []
     for model, state in history["models"].items():
         if not state.get("eligible"):
             continue
-        recent = [s for s in state["recent"] if s["p50_ms"] is not None]
+        recent = [s for s in state["recent"] if s.get("p50_ms") is not None]
         if not recent:
             continue
-        answered = sum(s["answered"] for s in state["recent"])
-        attempts = sum(s["attempts"] for s in state["recent"])
+        passes = sum(1 for s in state["recent"] if s.get("passed"))
+        vision = state.get("vision")
         entries.append({
             "id": model,
             "control": state["control"],
+            "modality": "vision" if isinstance(vision, dict) and vision.get("passed") else "text",
             "p50_ms": int(statistics.median(s["p50_ms"] for s in recent)),
-            "success_rate": round(answered / attempts, 3) if attempts else 0.0,
+            "success_rate": round(passes / len(state["recent"]), 3),
             "runs": len(state["recent"]),
         })
     entries.sort(key=lambda e: e["p50_ms"])
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "provider": "nvidia",
         "generatedAt": generated_at,
         "note": ("Latency is measured from one datacenter and is a ranking hint only; "

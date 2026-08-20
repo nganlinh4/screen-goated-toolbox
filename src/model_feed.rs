@@ -31,11 +31,15 @@ const PUBLIC_KEY_HEX: &str = include_str!(concat!(
 
 const LABEL: &str = "availability feed";
 
-/// Highest chain position the feed may influence. Position 0 is local.
-pub const FIRST_REMOTE_CHAIN_POSITION: usize = 1;
-
-/// Schema version this client understands.
-const SUPPORTED_SCHEMA: u32 = 1;
+/// Schema versions this client understands.
+///
+/// Both are accepted so a client update and a publisher update need not land
+/// together: a new build reading the last schema-1 feed keeps working until the
+/// next publish, rather than losing the feed for the length of a publish cycle.
+/// Schema 1 carries no modality, and a model without one is treated as text,
+/// which is the safe reading — routing an image at a text endpoint fails, while
+/// declining to route one merely forgoes a fallback.
+const SUPPORTED_SCHEMAS: &[u32] = &[1, 2];
 
 /// Providers the feed is allowed to describe. A feed naming anything else is
 /// rejected outright rather than filtered, because it means the publisher and
@@ -45,12 +49,19 @@ const ALLOWED_PROVIDERS: &[&str] = &["nvidia"];
 #[derive(Debug, Clone, Deserialize)]
 pub struct FeedModel {
     pub id: String,
-    /// Reasoning control the publisher found working. Carried so a diagnostic can
-    /// show why a model behaves as it does; the request shape itself comes from
-    /// the catalog, never from the feed.
+    /// Reasoning control the publisher found working.
+    ///
+    /// The catalog owns the policy actually sent, so this is not applied here;
+    /// it is carried so a diagnostic can explain why an endpoint behaves as it
+    /// does, and so a mismatch between publisher and catalog is visible.
     #[serde(default)]
     #[allow(dead_code)]
     pub control: Option<String>,
+    /// Whether the publisher verified this endpoint on images. Routing an image
+    /// to a text endpoint fails every time, so this is carried rather than
+    /// assumed.
+    #[serde(default)]
+    pub modality: Option<String>,
     #[serde(default)]
     pub p50_ms: Option<u32>,
     #[serde(default)]
@@ -83,7 +94,7 @@ pub fn parse_verified(payload: &[u8], signature: &[u8]) -> Result<AvailabilityFe
 }
 
 fn validate(feed: &AvailabilityFeed) -> Result<()> {
-    if feed.schema_version != SUPPORTED_SCHEMA {
+    if !SUPPORTED_SCHEMAS.contains(&feed.schema_version) {
         bail!(
             "{LABEL} schema {} is not supported by this build",
             feed.schema_version
@@ -120,23 +131,20 @@ pub fn ranked_models(feed: &AvailabilityFeed) -> Vec<&FeedModel> {
     usable
 }
 
-/// Places feed models into an existing chain without disturbing its head.
+/// Appends feed models behind the entire local chain.
 ///
-/// Existing members keep their relative order; feed models that are already in
-/// the chain are not duplicated. Anything the feed offers lands after the local
-/// head, so a remote decision can add a fallback but never take first contact.
+/// Feed members are deep fallback and nothing more. Locally configured models
+/// keep their order and their positions, and a remote decision can only lengthen
+/// the tail. That is deliberate given how these endpoints behave: they come and
+/// go, and a member that is momentarily dead costs one fast rejection and a
+/// cooldown when it sits at the back, against a visible stall when it sits near
+/// the front.
 pub fn merge_into_chain(chain: &[String], offered: &[String]) -> Vec<String> {
     if chain.is_empty() {
         return chain.to_vec();
     }
-    let head = FIRST_REMOTE_CHAIN_POSITION.min(chain.len());
-    let mut merged: Vec<String> = chain[..head].to_vec();
+    let mut merged: Vec<String> = chain.to_vec();
     for id in offered {
-        if !merged.iter().any(|existing| existing == id) {
-            merged.push(id.clone());
-        }
-    }
-    for id in &chain[head..] {
         if !merged.iter().any(|existing| existing == id) {
             merged.push(id.clone());
         }
