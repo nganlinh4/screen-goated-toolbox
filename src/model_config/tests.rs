@@ -11,10 +11,10 @@ fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.6-27b");
     assert_eq!(model.intelligence_tier, Some(4));
-    assert_eq!(model.typical_latency_ms, Some(642));
+    assert_eq!(model.typical_latency_ms, Some(846));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-08-20-protocol11:ocr-small-1024")
+        Some("benchmark-2026-08-20-protocol11-clean:ocr-small-1024")
     );
 }
 
@@ -218,10 +218,10 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
     assert_eq!(qwen.max_output_tokens, Some(512));
     assert_eq!(qwen.structured_output, StructuredOutputPolicy::JsonObject);
     let qwen_model = get_model_by_id("groq-qwen-3-6-27b-vision").expect("Qwen vision model exists");
-    assert_eq!(qwen_model.typical_latency_ms, Some(642));
+    assert_eq!(qwen_model.typical_latency_ms, Some(846));
     assert_eq!(
         qwen_model.performance_source.as_deref(),
-        Some("benchmark-2026-08-20-protocol11:ocr-small-1024")
+        Some("benchmark-2026-08-20-protocol11-clean:ocr-small-1024")
     );
 
     // The nemotron-omni row was removed after measuring 10% text and 0% vision
@@ -238,8 +238,8 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
             "groq-qwen-3-6-27b-vision",
             "google-gemini-3-5-flash-lite-vision",
             "google-gemini-3-5-flash-vision",
-            "google-gemini-robotics-er-2-vision",
             "google-gemini-3-flash-vision",
+            "google-gemini-3-1-flash-lite-vision",
         ]
     );
 
