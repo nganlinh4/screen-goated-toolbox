@@ -452,12 +452,12 @@
       "reference": "Slide 1 of 1\nEnglish (China)\nAccessibility: Good to go\n83%"
     },
     {
-      "id": "ocr-08-dense-issue-metadata",
+      "id": "ocr-13-railway-timetable",
       "difficulty": 7,
-      "image": "images/ocr/08-issue-list.png",
-      "input_mode": "screen-crop-png",
-      "instruction": "Transcribe the first five issue titles and their issue numbers. Output one line per issue as TITLE — #NUMBER, and nothing else.",
-      "reference": "primer/design Landing Page — #54\nGuidelines should document our take on link targets — #85\nAdd info about font usage in Figma — #44\nLinks w/ Octicons — #30\nFilters & Clearing Filters — #29"
+      "image": "images/ocr/13-railway-timetable.jpg",
+      "input_mode": "original-file",
+      "instruction": "Transcribe the place names in the centre STATIONS column, top to bottom, one per line. Ignore leading dots and ditto marks. Output ONLY the names.",
+      "reference": "ADELAIDE\nQuorn\nMARREE\nMarree\nCallanna\nWangianna\nAlberrie Creek\nBopeechee\nStuart's Creek\nCoward Springs\nBeresford\nStrangways Springs\nIrrapatana\nWilliam Creek\nAnna Creek\nBoorthanna\nEdward's Creek\nWattina\nAlgabuckina\nMount Dutton\nOODNADATTA"
     },
     {
       "id": "ocr-09-multicolumn-products",
