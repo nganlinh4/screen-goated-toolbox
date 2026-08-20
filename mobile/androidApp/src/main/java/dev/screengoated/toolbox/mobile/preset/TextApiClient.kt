@@ -9,6 +9,7 @@ data class ApiKeys(
     val geminiKey: String = "",
     val groqKey: String = "",
     val openRouterKey: String = "",
+    val nvidiaKey: String = "",
     val ollamaBaseUrl: String = "",
 )
 
@@ -68,6 +69,18 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     endpoint = OPENROUTER_ENDPOINT,
                     apiKey = apiKeys.openRouterKey,
                     providerName = "OpenRouter",
+                    model = model,
+                    prompt = prompt,
+                    inputText = inputText,
+                    uiLanguage = uiLanguage,
+                    onChunk = onChunk,
+                    streamingEnabled = streamingEnabled,
+                )
+
+                PresetModelProvider.NVIDIA -> streamOpenAiCompatible(
+                    endpoint = NVIDIA_ENDPOINT,
+                    apiKey = apiKeys.nvidiaKey,
+                    providerName = "NVIDIA",
                     model = model,
                     prompt = prompt,
                     inputText = inputText,

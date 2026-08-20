@@ -107,6 +107,48 @@ where
     )
 }
 
+/// NVIDIA NIM refine. OpenAI-compatible with the flat `reasoning_effort` field.
+pub(super) fn refine_nvidia<F>(
+    nvidia_api_key: &str,
+    final_prompt: &str,
+    p_model: &str,
+    streaming_enabled: bool,
+    ui_language: &str,
+    cancel_token: &Option<Arc<AtomicBool>>,
+    on_chunk: &mut F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+{
+    if nvidia_api_key.trim().is_empty() {
+        return Err(anyhow::anyhow!("NO_API_KEY:nvidia"));
+    }
+
+    let mut payload = serde_json::json!({
+        "model": p_model,
+        "messages": [{ "role": "user", "content": final_prompt }],
+        "stream": streaming_enabled
+    });
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "nvidia", p_model);
+
+    stream_openai_compat_payload(
+        crate::api::NVIDIA_CHAT_COMPLETIONS_URL,
+        nvidia_api_key,
+        payload,
+        streaming_enabled,
+        false,
+        ui_language,
+        cancel_token,
+        None,
+        "NVIDIA Refine Error",
+        false,
+        false,
+        |headers| crate::api::client::record_usage_headers("nvidia", p_model, headers),
+        |_| {},
+        on_chunk,
+    )
+}
+
 // --- GROQ REFINE ---
 pub(super) fn refine_groq<F>(
     groq_api_key: &str,

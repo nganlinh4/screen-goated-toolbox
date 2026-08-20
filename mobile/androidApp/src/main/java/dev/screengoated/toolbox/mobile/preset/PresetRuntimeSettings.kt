@@ -7,6 +7,7 @@ data class PresetProviderSettings(
     val useGroq: Boolean = GeneratedPresetModelCatalogData.providerSettings.useGroq,
     val useGemini: Boolean = GeneratedPresetModelCatalogData.providerSettings.useGemini,
     val useOpenRouter: Boolean = GeneratedPresetModelCatalogData.providerSettings.useOpenRouter,
+    val useNvidia: Boolean = GeneratedPresetModelCatalogData.providerSettings.useNvidia,
     val useOllama: Boolean = GeneratedPresetModelCatalogData.providerSettings.useOllama,
 )
 

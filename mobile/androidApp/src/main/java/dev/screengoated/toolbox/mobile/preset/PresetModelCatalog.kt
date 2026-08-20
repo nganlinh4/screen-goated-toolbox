@@ -8,6 +8,7 @@ enum class PresetModelProvider {
     GOOGLE,
     GROQ,
     OPENROUTER,
+    NVIDIA,
     GOOGLE_GTX,
     GEMINI_LIVE,
     OLLAMA,

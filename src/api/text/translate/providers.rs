@@ -98,6 +98,59 @@ where
     Ok(text)
 }
 
+// --- NVIDIA NIM API ---
+/// OpenAI-compatible, and it takes the flat `reasoning_effort` field rather than
+/// OpenRouter's nested shape, so it uses the shared OpenAI policy applier.
+pub(super) fn translate_nvidia<F>(
+    nvidia_api_key: &str,
+    model: &str,
+    prompt: &str,
+    response_schema: Option<&serde_json::Value>,
+    transport: TranslateTransportOptions<'_>,
+    on_chunk: &mut F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+{
+    if nvidia_api_key.trim().is_empty() {
+        return Err(anyhow::anyhow!("NO_API_KEY:nvidia"));
+    }
+
+    let mut payload = serde_json::json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": prompt }],
+        "stream": transport.streaming_enabled
+    });
+    if let Some(schema) = response_schema {
+        payload["response_format"] = serde_json::json!({
+            "type": "json_schema",
+            "json_schema": {
+                "name": "translation_result",
+                "strict": true,
+                "schema": schema
+            }
+        });
+    }
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "nvidia", model);
+
+    stream_openai_compat_payload(
+        crate::api::NVIDIA_CHAT_COMPLETIONS_URL,
+        nvidia_api_key,
+        payload,
+        transport.streaming_enabled,
+        false,
+        transport.ui_language,
+        transport.cancel_token,
+        transport.request_timeout,
+        "NVIDIA API Error",
+        true,
+        false,
+        |headers| crate::api::client::record_usage_headers("nvidia", model, headers),
+        |_| {},
+        on_chunk,
+    )
+}
+
 // --- OPENROUTER API ---
 pub(super) fn translate_openrouter<F>(
     openrouter_api_key: &str,

@@ -57,6 +57,19 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     streamingEnabled = streamingEnabled,
                 )
 
+                PresetModelProvider.NVIDIA -> streamOpenAiVision(
+                    endpoint = NVIDIA_ENDPOINT,
+                    apiKey = apiKeys.nvidiaKey,
+                    providerName = "NVIDIA",
+                    model = model,
+                    prompt = prompt,
+                    imageBase64 = prepared.base64,
+                    mimeType = prepared.mimeType,
+                    uiLanguage = uiLanguage,
+                    onChunk = onChunk,
+                    streamingEnabled = streamingEnabled,
+                )
+
                 PresetModelProvider.OPENROUTER -> streamOpenAiVision(
                     endpoint = OPENROUTER_ENDPOINT,
                     apiKey = apiKeys.openRouterKey,

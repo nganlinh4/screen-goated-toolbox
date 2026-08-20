@@ -25,6 +25,10 @@ pub use vision::{TranslateImageRequest, translate_image_streaming};
 
 /// Special prefix signal that tells callbacks to clear their accumulator before processing
 /// When a chunk starts with this, the callback should: 1) Clear acc 2) Add the content after this prefix
+/// NVIDIA NIM speaks the OpenAI chat-completions dialect at this endpoint.
+pub const NVIDIA_CHAT_COMPLETIONS_URL: &str =
+    "https://integrate.api.nvidia.com/v1/chat/completions";
+
 pub const WIPE_SIGNAL: &str = "\x00WIPE\x00";
 
 /// Lowest-latency thinking policy for ordinary model calls.
