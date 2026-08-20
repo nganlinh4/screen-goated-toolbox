@@ -31,6 +31,12 @@ from __future__ import annotations
 import re
 import unicodedata
 
+# Bumped whenever the checks below change. Scores only aggregate samples taken
+# under the same gate: mixing them reports a rate for a test that was never run
+# as a whole, which is how a tightened gate briefly published every model at a
+# quarter success.
+GATE_VERSION = 2
+
 # Latency above which a model is not worth offering even when it is correct.
 # muse-glimmer answers accurately at ~17s; a fallback that slow is not a fallback.
 MAX_ACCEPTABLE_P50_MS = 6_000
