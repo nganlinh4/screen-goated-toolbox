@@ -1,6 +1,12 @@
 # Catalog benchmark
 
-Current catalog decision record:
+Current catalog decision record for OCR:
+[`RESULTS-2026-08-20-PROTOCOL11-OCR.md`](RESULTS-2026-08-20-PROTOCOL11-OCR.md), which
+discharges the re-run the protocol-10 amendment required and owns every OCR latency
+and accuracy figure. It reordered no chain: that run hit a shared Gemini quota
+exhaustion, so its reliability column is an artifact.
+
+Chain orders, text and coordinate rows:
 [`RESULTS-2026-08-19-PROTOCOL10.md`](RESULTS-2026-08-19-PROTOCOL10.md), the source
 of every chain order, default and latency. Amended on 2026-08-20: its OCR accuracy
 figures were measured through a request shape the product no longer sends, so

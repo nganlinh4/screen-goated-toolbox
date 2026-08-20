@@ -33,7 +33,7 @@ fn streaming_requests_do_not_receive_a_total_response_deadline() {
     let config = Config::default();
     assert_eq!(
         interactive_request_timeout("google-gemini-3-5-flash-lite-vision", &config, false),
-        Some(Duration::from_millis(16_180))
+        Some(Duration::from_millis(12_800))
     );
     assert_eq!(
         interactive_request_timeout("google-gemini-3-5-flash-lite-vision", &config, true),

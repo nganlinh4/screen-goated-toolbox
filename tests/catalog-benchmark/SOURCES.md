@@ -19,7 +19,7 @@ The benchmark keeps the downloaded source image unchanged apart from source-prov
 | `ocr/03-multilingual-sign.jpg` | [Nakano Station sign](https://commons.wikimedia.org/wiki/File:A_station_sign_at_Nakano_Station_Tokyo.jpg) | CC0 | Wikimedia 960 px thumbnail |
 | `ocr/04-vietnamese-wikipedia.jpg` | [Vietnamese Wikipedia main page](https://commons.wikimedia.org/wiki/File:Screenshot_Vietnamese_Wikipedia_main_page_v1-vi-25.jpg) | CC BY-SA 4.0 | Original file; deterministic 760×270 crop |
 | `ocr/05-newspaper.jpg` | [The Sun, January 11, 1920](https://www.loc.gov/resource/sn83030431/1920-01-11/ed-1/?sp=1) | Public-domain historic newspaper via Library of Congress | IIIF 6.25% rendition |
-| `ocr/06-perspective-sign.jpg` | [Street sign 01](https://commons.wikimedia.org/wiki/File:Street_sign_01.JPG) | CC0 | Wikimedia 1200 px thumbnail |
+| `ocr/12-near-duplicate-filenames.png` | Screen capture supplied by the maintainer | Own work | Replaced the perspective-diacritics case at difficulty 2, which every endpoint passed at 0.996. Two file names differing only in their timestamp, and short enough for the model to finish, which is the condition under which the upstream Qwen3-VL repetition defect appears; reproduced on this image before it was adopted |
 | `ocr/07-status-bar.png` | [ScreenSpot test row 291](https://huggingface.co/datasets/bevaya/ScreenSpot) | Apache-2.0 dataset | Source-provided 2190×1706 image |
 | `ocr/08-issue-list.png` | [ScreenSpot test row 850](https://huggingface.co/datasets/bevaya/ScreenSpot) | Apache-2.0 dataset | Source-provided 2560×1440 image |
 | `ocr/09-product-grid.png` | [ScreenSpot test row 1250](https://huggingface.co/datasets/bevaya/ScreenSpot) | Apache-2.0 dataset | Source-provided 2560×1440 image |
