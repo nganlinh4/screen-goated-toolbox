@@ -7,15 +7,27 @@ every vision latency; text, coordinate and localization rows are unchanged.
 ## One case fails for the whole Gemini family, twice running
 
 Nine endpoints failed on the same case in the same round, `ocr-04-vietnamese-web-layout`,
-exactly as in the earlier run and despite the longer interval. It is the largest
-payload in the suite, and round-major scheduling puts every Google call on it inside
-one minute, which reads as a per-minute token exhaustion rather than a daily one. The
-image answers normally when called on its own.
+in both runs and despite a longer per-provider interval, each answering
+`429 RESOURCE_EXHAUSTED`.
 
-Because that outage is identical for every endpoint it cannot separate them, so the
-ordering below is computed with that case excluded. Failures that differ between
-endpoints are kept. This is a harness scheduling artifact rather than something a
-user would meet: nobody sends nine models at one image in a minute.
+**The cause is not known.** Three explanations were tested and all three failed:
+
+- *Payload size.* This case produces the smallest crop in the suite at 90KB.
+  `ocr-09` at 1316KB and `ocr-01` at 1079KB are an order larger and never fail.
+- *Key concentration.* The benchmark pool is round-robin per call, so a round uses
+  as many distinct keys as it has models, and the rotated key does reach the
+  request. Nine large images across nine keys, and nine on a single key, all
+  return 200.
+- *The case itself.* Reproducing the exact benchmark payload — same crop, same PNG
+  encoding, same instruction, nine models on nine keys concurrently — returns nine
+  successes.
+
+It reproduces only inside a full run, which suggests something cumulative across
+the run rather than anything about this case. That remains open.
+
+What can be said is narrower: the outage is identical for every endpoint, so it
+cannot separate them, and the ordering below excludes that case while keeping
+failures that differ between endpoints.
 
 ## Image chain
 
