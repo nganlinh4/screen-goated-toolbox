@@ -1,6 +1,9 @@
 # Catalog benchmark
 
-Current catalog decision record for OCR:
+Current catalog decision record for OCR and the image chain order:
+[`RESULTS-2026-08-20-PROTOCOL11-CLEAN.md`](RESULTS-2026-08-20-PROTOCOL11-CLEAN.md).
+
+Superseded OCR record:
 [`RESULTS-2026-08-20-PROTOCOL11-OCR.md`](RESULTS-2026-08-20-PROTOCOL11-OCR.md), which
 discharges the re-run the protocol-10 amendment required and owns every OCR latency
 and accuracy figure. It reordered no chain: that run hit a shared Gemini quota
