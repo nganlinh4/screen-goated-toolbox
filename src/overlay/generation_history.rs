@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod admission;
+mod companion;
 mod deletion;
 mod delivery;
 mod rename;
@@ -27,7 +28,8 @@ const MAX_HISTORY_INDEX_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_HISTORY_METADATA_BYTES: usize = 512 * 1024;
 const MAX_HISTORY_PATH_BYTES: usize = 8 * 1024;
 const MAX_DELIVERY_ID_BYTES: usize = 512;
-pub(crate) const THREE_D_RESULT_RESERVATION_BYTES: u64 = 100 * 1024 * 1024;
+pub(crate) const THREE_D_PREVIEW_MAX_BYTES: u64 = 100 * 1024 * 1024;
+pub(crate) const THREE_D_RESULT_RESERVATION_BYTES: u64 = 2 * THREE_D_PREVIEW_MAX_BYTES;
 pub(crate) const SVG_RESULT_RESERVATION_BYTES: u64 = 12 * 1024 * 1024;
 pub(crate) const IMAGE_RESULT_RESERVATION_BYTES: u64 = 64 * 1024 * 1024;
 pub(crate) const IMAGE_REFERENCE_RESERVATION_BYTES: u64 = 100 * 1024 * 1024;

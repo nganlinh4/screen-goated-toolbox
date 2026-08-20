@@ -99,6 +99,7 @@ const en = {
   referenceUnavailable: "The reference image is no longer available.",
   importLimit: "Add up to {count} images at a time.",
   modelStats: "{vertices} vertices · {faces} faces",
+  modelStatsQuads: "{vertices} vertices · {polygons} polygons ({quads} quads)",
 } as const;
 
 type Messages = { [K in keyof typeof en]: string };
@@ -141,6 +142,7 @@ const ko: Messages = {
   referenceImageAlt: "참조 이미지: {name}", referenceUnavailable: "참조 이미지를 더 이상 사용할 수 없습니다.",
   importLimit: "한 번에 최대 {count}개의 이미지를 추가하세요.",
   modelStats: "정점 {vertices}개 · 면 {faces}개",
+  modelStatsQuads: "정점 {vertices}개 · 폴리곤 {polygons}개 (쿼드 {quads}개)",
 };
 
 const vi: Messages = {
@@ -181,6 +183,7 @@ const vi: Messages = {
   referenceImageAlt: "Ảnh tham chiếu: {name}", referenceUnavailable: "Ảnh tham chiếu không còn khả dụng.",
   importLimit: "Mỗi lần thêm tối đa {count} ảnh.",
   modelStats: "{vertices} đỉnh · {faces} mặt",
+  modelStatsQuads: "{vertices} đỉnh · {polygons} đa giác ({quads} tứ giác)",
 };
 
 const dictionaries: Record<Locale, Messages> = { en, ko, vi };

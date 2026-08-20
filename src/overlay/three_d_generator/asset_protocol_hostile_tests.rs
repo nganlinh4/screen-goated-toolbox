@@ -169,6 +169,77 @@ fn basic_position_accessor() -> Value {
     }])
 }
 
+#[test]
+fn face_loop_lines_are_accepted_beside_the_surface_they_describe() {
+    // A quad mesh is delivered as a triangulated surface plus the original face
+    // loops, so a viewer can draw a quad as one face instead of two triangles.
+    let mut document = triangle_document(
+        json!([{"byteLength": 60}]),
+        json!([
+            {"buffer": 0, "byteLength": 36},
+            {"buffer": 0, "byteOffset": 36, "byteLength": 24}
+        ]),
+        json!([
+            {
+                "bufferView": 0,
+                "componentType": 5126,
+                "count": 3,
+                "type": "VEC3",
+                "min": [0.0, 0.0, 0.0],
+                "max": [1.0, 1.0, 1.0]
+            },
+            {"bufferView": 1, "componentType": 5125, "count": 6, "type": "SCALAR"}
+        ]),
+    );
+    document["meshes"][0]["primitives"] = json!([
+        {"attributes": {"POSITION": 0}, "mode": 4},
+        {"attributes": {"POSITION": 0}, "indices": 1, "mode": 1}
+    ]);
+    assert!(validate_gltf_semantics(&document, Some(&[0; 60])).is_ok());
+}
+
+#[test]
+fn line_geometry_must_still_pair_its_indices() {
+    let mut document = triangle_document(
+        json!([{"byteLength": 56}]),
+        json!([
+            {"buffer": 0, "byteLength": 36},
+            {"buffer": 0, "byteOffset": 36, "byteLength": 20}
+        ]),
+        json!([
+            {
+                "bufferView": 0,
+                "componentType": 5126,
+                "count": 3,
+                "type": "VEC3",
+                "min": [0.0, 0.0, 0.0],
+                "max": [1.0, 1.0, 1.0]
+            },
+            {"bufferView": 1, "componentType": 5125, "count": 5, "type": "SCALAR"}
+        ]),
+    );
+    document["meshes"][0]["primitives"] = json!([
+        {"attributes": {"POSITION": 0}, "indices": 1, "mode": 1}
+    ]);
+    assert!(validate_gltf_semantics(&document, Some(&[0; 56])).is_err());
+}
+
+#[test]
+fn every_mode_other_than_triangles_and_lines_stays_rejected() {
+    for mode in [0, 2, 3, 5, 6, 7, u64::MAX] {
+        let mut document = triangle_document(
+            json!([{"byteLength": 36}]),
+            json!([{"buffer": 0, "byteLength": 36}]),
+            basic_position_accessor(),
+        );
+        document["meshes"][0]["primitives"][0]["mode"] = json!(mode);
+        assert!(
+            validate_gltf_semantics(&document, Some(&[0; 36])).is_err(),
+            "mode {mode} must be rejected"
+        );
+    }
+}
+
 fn triangle_document(buffers: Value, buffer_views: Value, accessors: Value) -> Value {
     json!({
         "asset": {"version": "2.0"},

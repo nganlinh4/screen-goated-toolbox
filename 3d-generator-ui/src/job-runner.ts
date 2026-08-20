@@ -16,6 +16,8 @@ import {
   freshSubmissionSession,
   needsFreshSubmissionSession,
 } from "./submission-policy";
+import { shouldStartAutomaticSegmentation } from "./automatic-segmentation";
+import { retainPublishedDownload } from "./result-files";
 
 type NormalizedSettings = {
   mode: GenerationMode;
@@ -87,10 +89,14 @@ export class JobRunner {
   }
 
   async segmentSelected() {
+    const item = this.options.selectedItem();
+    if (item) await this.startSegmentation(item);
+  }
+
+  private async startSegmentation(item: QueueItem) {
     const {
-      state, selectedItem, beginProgress, invoke, updateUi,
+      state, beginProgress, invoke, updateUi,
     } = this.options;
-    const item = selectedItem();
     if (
       !item?.result?.jobId
       || item.result.isSegmented
@@ -101,6 +107,7 @@ export class JobRunner {
     item.state = "running";
     beginProgress(item, 120_000);
     updateUi();
+    const baseResult = item.result;
     try {
       const initial = await invoke<JobStatus>("segment_model", { continuationId });
       if (!initial.jobId) throw new Error("The model job did not return an ID.");
@@ -113,6 +120,7 @@ export class JobRunner {
     } catch {
       item.state = "failed";
       item.result = {
+        ...baseResult,
         stage: "failed",
         progressText: t("interrupted"),
         error: "interrupted",
@@ -185,6 +193,11 @@ export class JobRunner {
       }
       updateUi();
       await displayItem(latest);
+      for (const item of items) {
+        if (shouldStartAutomaticSegmentation(item.autoSegment, item.result)) {
+          await this.startSegmentation(item);
+        }
+      }
       this.startJobMonitor();
     } catch {
       updateUi();
@@ -193,6 +206,7 @@ export class JobRunner {
 
   private applyJobStatus(item: QueueItem, status: JobStatus) {
     const { state, busyStages, displayItem, updateUi } = this.options;
+    status = retainPublishedDownload(item.result, status);
     if (busyStages.has(status.stage)) {
       if (!item.operationStartedAt) {
         item.operationStartedAt = Date.now() - Math.max(0, status.elapsedMs || 0);
@@ -326,6 +340,11 @@ export class JobRunner {
 
   private async finishTrackedItem(item: QueueItem, status: JobStatus) {
     const { state, displayItem, refreshHistory, updateUi } = this.options;
+    status = retainPublishedDownload(item.result, status);
+    const startAutomaticSegmentation = shouldStartAutomaticSegmentation(
+      item.autoSegment,
+      status,
+    );
     item.result = status;
     item.state =
       status.stage === "done"
@@ -340,5 +359,6 @@ export class JobRunner {
       await refreshHistory();
     }
     updateUi();
+    if (startAutomaticSegmentation) await this.startSegmentation(item);
   }
 }

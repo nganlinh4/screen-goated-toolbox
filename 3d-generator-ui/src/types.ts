@@ -26,6 +26,8 @@ export type JobStatus = {
   timingSampleCount?: number | null;
   outputPath?: string | null;
   outputName?: string | null;
+  downloadPath?: string | null;
+  downloadName?: string | null;
   sourceImagePath?: string | null;
   outputDir?: string | null;
   generationMode?: GenerationMode | null;
@@ -67,6 +69,10 @@ export type HistoryEntry = {
     instruction?: string;
     outputDir?: string;
     isSegmented?: boolean;
+    download?: {
+      path: string;
+      name: string;
+    };
   };
 };
 

@@ -137,7 +137,31 @@ export function prepareSegmentedGeometry(root: THREE.Object3D, segmented: boolea
   }
 }
 
-export type GeometryStats = { vertices: number; faces: number };
+export type GeometryStats = {
+  vertices: number;
+  faces: number;
+  /// Present only for a quad model, where the file's own faces are polygons
+  /// and the triangle count is an artefact of rendering rather than the mesh.
+  polygons?: number;
+  quads?: number;
+};
+
+/// The runtime marks the primitive carrying the source file's face loops and
+/// records how many of those faces there are, because a triangle count says
+/// nothing true about a quad mesh.
+const QUAD_WIREFRAME_MARKER = "sgtQuadWireframe";
+
+function polygonStats(root: THREE.Object3D) {
+  let polygons: number | undefined;
+  let quads: number | undefined;
+  root.traverse((child) => {
+    const data = child.userData as Record<string, unknown> | undefined;
+    if (!data || data[QUAD_WIREFRAME_MARKER] !== true) return;
+    if (typeof data.polygonCount === "number") polygons = data.polygonCount;
+    if (typeof data.quadCount === "number") quads = data.quadCount;
+  });
+  return { polygons, quads };
+}
 
 export function modelGeometryStats(root: THREE.Object3D): GeometryStats {
   const stats: GeometryStats = { vertices: 0, faces: 0 };
@@ -177,5 +201,9 @@ export function modelGeometryStats(root: THREE.Object3D): GeometryStats {
     }
   });
 
+
+  const { polygons, quads } = polygonStats(root);
+  if (polygons !== undefined) stats.polygons = polygons;
+  if (quads !== undefined) stats.quads = quads;
   return stats;
 }

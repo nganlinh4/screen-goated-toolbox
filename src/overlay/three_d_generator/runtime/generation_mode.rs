@@ -5,6 +5,9 @@ use super::StartJobRequest;
 const FAST_MIN_POLYCOUNT: u32 = 100;
 const FAST_MAX_POLYCOUNT: u32 = 15_000;
 const QUALITY_MIN_POLYCOUNT: u32 = 500;
+// The workspace advertises 50 000 faces, but only a paid provider tier can
+// use the top of that range; 20 000 is the ceiling proven to complete on the
+// accounts this pipeline provisions.
 const QUALITY_MAX_POLYCOUNT: u32 = 20_000;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]

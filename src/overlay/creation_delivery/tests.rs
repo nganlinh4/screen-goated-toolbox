@@ -59,6 +59,7 @@ impl Fixture {
                 metadata: serde_json::json!({"operation": "create_image"}),
                 artifact_size_bytes: artifact.size_bytes,
                 artifact_sha256: artifact.sha256,
+                companion: None,
                 stage: DeliveryStage::Validated,
             },
         }

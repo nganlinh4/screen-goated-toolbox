@@ -205,6 +205,8 @@ mod tests {
             timing_sample_count: None,
             output_path: None,
             output_name: None,
+            download_path: None,
+            download_name: None,
             source_image_path: Some("source.png".to_string()),
             output_dir: Some("output".to_string()),
             generation_mode: None,

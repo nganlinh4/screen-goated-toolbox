@@ -113,6 +113,16 @@ fn validating_a_separation_does_not_consume_its_continuation() {
 }
 
 #[test]
+fn separation_reserves_the_retained_source_during_child_dispatch() {
+    let mut continuation = continuation();
+    continuation.source_descriptor.size_bytes = 8_326;
+    assert_eq!(
+        super::submission::retained_source_reservation(&continuation),
+        (8_326, 1)
+    );
+}
+
+#[test]
 fn queued_jobs_are_never_pruned_as_terminal_history() {
     let mut state = RuntimeState::default();
     for index in 0..MAX_QUEUED_JOBS {

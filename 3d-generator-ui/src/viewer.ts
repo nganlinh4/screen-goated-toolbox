@@ -9,13 +9,24 @@ import { LatestOnlyLane } from "./latest-only-lane";
 import { modelGeometryStats, prepareSegmentedGeometry } from "./segmented-geometry";
 
 export type ShadingMode = "original" | "toon" | "parts";
-export type ModelStats = { vertices: number; faces: number };
+export type ModelStats = {
+  vertices: number;
+  faces: number;
+  /// Set for a quad model, whose faces are polygons rather than triangles.
+  polygons?: number;
+  quads?: number;
+};
 
 type MaterialSet = {
   original: THREE.Material | THREE.Material[];
   toon: THREE.Material | THREE.Material[];
   parts: THREE.Material | THREE.Material[];
 };
+
+/// Set by the runtime on the primitive that carries the source file's
+/// original face loops. A quad model is delivered as a triangulated surface
+/// plus these loops, because glTF cannot express a quad face directly.
+const QUAD_WIREFRAME_MARKER = "sgtQuadWireframe";
 
 const PART_PALETTE = [0x23b99f, 0xf2bd55, 0x5f9fe8, 0xe77958, 0x9a7bd4, 0x66b878, 0xd16d9e, 0x4db2c8];
 const MAX_MODEL_ASSET_BYTES = 100 * 1024 * 1024;
@@ -93,6 +104,7 @@ export class ModelViewer {
   private shading: ShadingMode = "toon";
   private outline = true;
   private wireframe = false;
+  private quadEdges: THREE.LineSegments[] = [];
   private contentRevision = 0;
   private modelLoads = new LatestOnlyLane<THREE.Group>();
   private frameRequest = 0;
@@ -280,6 +292,8 @@ export class ModelViewer {
       object.scale.setScalar(1.55 / Math.max(size.x, size.y, size.z, 0.001));
       object.updateMatrixWorld(true);
 
+      this.adoptQuadEdges(object);
+
       let meshIndex = 0;
       object.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return;
@@ -428,18 +442,55 @@ export class ModelViewer {
       child.material = set[this.shading];
       const materials = Array.isArray(child.material) ? child.material : [child.material];
       materials.forEach((material) => {
-        if ("wireframe" in material) (material as THREE.MeshBasicMaterial).wireframe = this.wireframe;
+        // A quad model ships its own face loops. Drawing three.js' triangle
+        // wireframe on top of that would show a diagonal through every quad,
+        // which is not the mesh the file describes.
+        if ("wireframe" in material) {
+          (material as THREE.MeshBasicMaterial).wireframe = this.wireframe && !this.hasQuadEdges();
+        }
         material.transparent = true;
         material.opacity = this.modelBlend;
         material.needsUpdate = true;
       });
     });
+    this.quadEdges.forEach((edges) => {
+      edges.visible = this.wireframe;
+      const material = edges.material as THREE.LineBasicMaterial;
+      material.opacity = this.modelBlend;
+      material.needsUpdate = true;
+    });
     this.edgePass.uniforms.uStrength.value = this.outline ? 0.92 : 0;
+  }
+
+  hasQuadEdges() { return this.quadEdges.length > 0; }
+
+  /// The runtime marks the primitive holding the source file's face loops.
+  /// Rendering those instead of a triangle wireframe is what makes a quad read
+  /// as one face, matching the mesh the download actually contains.
+  private adoptQuadEdges(object: THREE.Group) {
+    this.quadEdges = [];
+    object.traverse((child) => {
+      if (!(child instanceof THREE.LineSegments)) return;
+      if (child.userData?.[QUAD_WIREFRAME_MARKER] !== true) return;
+      const replacement = new THREE.LineBasicMaterial({
+        color: 0x12161a,
+        transparent: true,
+        opacity: 0,
+        depthTest: true,
+      });
+      const previous = Array.isArray(child.material) ? child.material : [child.material];
+      previous.forEach((material) => material.dispose());
+      child.material = replacement;
+      child.renderOrder = 2;
+      child.visible = false;
+      this.quadEdges.push(child);
+    });
   }
 
   private clearResult() {
     this.disposeGroup(this.result);
     this.result = null;
+    this.quadEdges = [];
     this.hasSegmentedParts = false;
     this.grid.visible = false;
     this.modelBlend = 0;
@@ -453,7 +504,8 @@ export class ModelViewer {
     const disposedTextures = new Set<THREE.Texture>();
     const sharedGradient = this.scene.userData.toonGradient as THREE.Texture | undefined;
     group.traverse((child) => {
-      if (!(child instanceof THREE.Mesh || child instanceof THREE.Points)) return;
+      if (!(child instanceof THREE.Mesh || child instanceof THREE.Points
+        || child instanceof THREE.LineSegments)) return;
       child.geometry?.dispose();
       const set = child.userData.viewerMaterials as MaterialSet | undefined;
       const materials = set

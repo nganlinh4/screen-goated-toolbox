@@ -139,6 +139,8 @@ fn restore_generation(
         timing_sample_count: None,
         output_path: None,
         output_name: None,
+        download_path: None,
+        download_name: None,
         source_image_path: Some(display_path),
         output_dir: Some(final_output_dir.to_string_lossy().to_string()),
         generation_mode: Some(request.generation_mode),
@@ -265,6 +267,8 @@ fn restore_segment(
         output_name: previous_output_path
             .file_name()
             .map(|name| name.to_string_lossy().to_string()),
+        download_path: None,
+        download_name: None,
         source_image_path: Some(display_path),
         output_dir: Some(continuation.output_dir.to_string_lossy().to_string()),
         generation_mode: Some(generation_mode),

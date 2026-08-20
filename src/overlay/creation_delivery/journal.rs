@@ -64,6 +64,14 @@ fn validate_store(store: &DeliveryStore) -> Result<(), String> {
             output_name: entry.output_name.clone(),
             staging_path: entry.staging_path.clone(),
             output_path: entry.output_path.clone(),
+            companion: entry
+                .companion
+                .as_ref()
+                .map(|companion| super::PublishedCompanion {
+                    output_name: companion.output_name.clone(),
+                    staging_path: companion.staging_path.clone(),
+                    output_path: companion.output_path.clone(),
+                }),
             metadata: entry.metadata.clone(),
         })
         .is_err()
@@ -78,6 +86,11 @@ fn validate_store(store: &DeliveryStore) -> Result<(), String> {
             || super::publication::output_identity(Path::new(&entry.output_path))
                 .map(|identity| !output_paths.insert(identity))
                 .unwrap_or(true)
+            || entry.companion.as_ref().is_some_and(|companion| {
+                super::companion::validate_saved(companion)
+                    .map(|identity| !output_paths.insert(identity))
+                    .unwrap_or(true)
+            })
     }) {
         return Err("Creation delivery state is invalid.".to_string());
     }

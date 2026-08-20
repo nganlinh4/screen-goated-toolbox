@@ -52,6 +52,7 @@ pub fn show_three_d_generator() {
         crate::runtime_support::notify_capability_issue(&capability);
         return;
     }
+    let _ = runtime::prepare_runtime();
     crate::component_registry::web_assets::launch_when_ready(
         WebAssetComponent::Creation3d,
         window::show,

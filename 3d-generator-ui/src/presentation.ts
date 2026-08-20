@@ -1,6 +1,7 @@
 import { generationSettings } from "./generation-mode";
 import { locale, t, type MessageKey } from "./i18n";
 import { ICONS } from "./layout";
+import { savedResultFiles } from "./result-files";
 import type { AppNodes, AppState, QueueItem, Stage } from "./types";
 import type { ModelViewer, ModelStats, ShadingMode } from "./viewer";
 import { canSubmitItem } from "./submission-policy";
@@ -180,7 +181,8 @@ export class ModelPresentation {
     const hasModel = Boolean(item?.result?.outputPath && item.loadedModelPath);
     nodes.resultSummary.classList.toggle("visible", hasModel);
     nodes.resultName.textContent = item?.result?.isSegmented ? t("partsReady") : t("modelReady");
-    nodes.resultMeta.textContent = item?.result?.outputName || t("savedAutomatically");
+    nodes.resultMeta.textContent =
+      savedResultFiles(item?.result).join(" · ") || t("savedAutomatically");
     const showModelStats = hasModel && Boolean(item?.modelStats);
     nodes.modelStats.textContent = item?.modelStats ? this.formatModelStats(item.modelStats) : "";
     nodes.modelStats.classList.toggle("visible", showModelStats);
@@ -262,6 +264,15 @@ export class ModelPresentation {
 
   private formatModelStats(stats: ModelStats) {
     const number = new Intl.NumberFormat(locale());
+    // A quad model's faces are polygons; reporting its triangle count would
+    // describe the render, not the mesh the file contains.
+    if (stats.polygons !== undefined && stats.quads !== undefined) {
+      return t("modelStatsQuads", {
+        vertices: number.format(stats.vertices),
+        polygons: number.format(stats.polygons),
+        quads: number.format(stats.quads),
+      });
+    }
     return t("modelStats", {
       vertices: number.format(stats.vertices),
       faces: number.format(stats.faces),

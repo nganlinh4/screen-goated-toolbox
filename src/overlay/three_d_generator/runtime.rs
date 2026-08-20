@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod capabilities;
+mod companion;
 mod control;
 mod generation_mode;
 mod preparation;
@@ -66,6 +67,8 @@ pub(super) struct JobStatus {
     pub timing_sample_count: Option<u64>,
     pub output_path: Option<String>,
     pub output_name: Option<String>,
+    pub download_path: Option<String>,
+    pub download_name: Option<String>,
     pub source_image_path: Option<String>,
     pub output_dir: Option<String>,
     pub generation_mode: Option<GenerationMode>,
@@ -369,6 +372,8 @@ fn idle_status() -> JobStatus {
         timing_sample_count: None,
         output_path: None,
         output_name: None,
+        download_path: None,
+        download_name: None,
         source_image_path: None,
         output_dir: None,
         generation_mode: None,

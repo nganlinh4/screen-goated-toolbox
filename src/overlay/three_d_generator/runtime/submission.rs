@@ -223,11 +223,12 @@ pub(in crate::overlay::three_d_generator) fn start_segmentation(
     {
         return Err("This model can no longer be separated into parts.".to_string());
     }
+    let (source_bytes, source_count) = retained_source_reservation(&continuation);
     let recorded = crate::overlay::generation_history::admit_and_record(
         "3d",
         &continuation.output_dir,
-        0,
-        0,
+        source_bytes,
+        source_count,
         || {
             let recorded = crate::overlay::creation_intent_journal::record(
                 "3d",
@@ -273,6 +274,10 @@ pub(in crate::overlay::three_d_generator) fn start_segmentation(
     Ok(status)
 }
 
+pub(super) fn retained_source_reservation(continuation: &super::Continuation) -> (u64, usize) {
+    (continuation.source_descriptor.size_bytes, 1)
+}
+
 struct QueuedStatusFields {
     source_image_path: Option<String>,
     output_dir: Option<String>,
@@ -297,6 +302,8 @@ fn queued_status(job_id: &str, fields: QueuedStatusFields) -> JobStatus {
         timing_sample_count: None,
         output_path: fields.output_path,
         output_name: fields.output_name,
+        download_path: None,
+        download_name: None,
         source_image_path: fields.source_image_path,
         output_dir: fields.output_dir,
         generation_mode: fields.generation_mode,

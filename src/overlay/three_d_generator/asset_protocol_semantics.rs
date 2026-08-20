@@ -147,12 +147,18 @@ fn validate_meshes(
             .ok_or_else(invalid)?;
         for primitive in primitives {
             let primitive = primitive.as_object().ok_or_else(invalid)?;
-            if primitive
-                .get("mode")
-                .is_some_and(|mode| mode.as_u64() != Some(4))
-            {
-                return Err(invalid());
-            }
+            // Triangles carry the surface. Lines carry the original face loops
+            // of a quad mesh, which is the only way a viewer can show a quad as
+            // one face: glTF has no quad primitive. No other mode is produced.
+            let mode = match primitive.get("mode") {
+                Some(value) => value.as_u64().ok_or_else(invalid)?,
+                None => 4,
+            };
+            let vertices_per_element: u64 = match mode {
+                4 => 3,
+                1 => 2,
+                _ => return Err(invalid()),
+            };
             let attributes = primitive
                 .get("attributes")
                 .and_then(Value::as_object)
@@ -182,8 +188,8 @@ fn validate_meshes(
                 if indices.component_count != 1
                     || !matches!(indices.component_type, 5121 | 5123 | 5125)
                     || indices.byte_stride.is_some()
-                    || indices.count < 3
-                    || indices.count % 3 != 0
+                    || indices.count < vertices_per_element
+                    || indices.count % vertices_per_element != 0
                 {
                     return Err(invalid());
                 }
@@ -195,7 +201,9 @@ fn validate_meshes(
                     .indices
                     .checked_add(indices.count)
                     .ok_or_else(invalid)?;
-            } else if position.count < 3 || position.count % 3 != 0 {
+            } else if position.count < vertices_per_element
+                || position.count % vertices_per_element != 0
+            {
                 return Err(invalid());
             }
             if let Some(value) = primitive.get("material")

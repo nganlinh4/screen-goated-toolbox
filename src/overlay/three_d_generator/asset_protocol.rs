@@ -17,7 +17,7 @@ mod floats;
 #[path = "asset_protocol_semantics.rs"]
 mod semantics;
 
-const MAX_GLB_BYTES: u64 = crate::overlay::generation_history::THREE_D_RESULT_RESERVATION_BYTES;
+const MAX_GLB_BYTES: u64 = crate::overlay::generation_history::THREE_D_PREVIEW_MAX_BYTES;
 const MAX_GLB_JSON_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_EMBEDDED_URI_BYTES: usize = 2_800_000;
 const MAX_TOTAL_BUFFER_VIEW_BYTES: u64 = MAX_GLB_BYTES;

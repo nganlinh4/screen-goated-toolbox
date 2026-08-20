@@ -189,6 +189,7 @@ fn finish_with_intent(job_id: &str, result: Result<Value, String>, clear_intent:
             output_name,
             staging_path,
             output_path: output_path.to_string_lossy().to_string(),
+            companion: None,
             metadata: json!({
                 "operation": completed.operation,
                 "prompt": completed.prompt,

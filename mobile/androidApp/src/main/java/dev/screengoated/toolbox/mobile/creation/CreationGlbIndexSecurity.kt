@@ -4,8 +4,18 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+/// Triangles carry the surface. Lines carry the original face loops of a quad
+/// mesh, which is the only way a viewer can show a quad as one face, because
+/// glTF has no quad primitive. Every other mode stays rejected.
+internal fun creationGlbVerticesPerElement(mode: Int): Long = when (mode) {
+    GLB_MODE_TRIANGLES -> 3L
+    GLB_MODE_LINES -> 2L
+    else -> error("The model result contains unsupported geometry")
+}
+
 internal fun validateCreationGlbPrimitiveCount(count: Long, mode: Int) {
-    require(mode == 4 && count >= 3 && count % 3L == 0L) {
+    val perElement = creationGlbVerticesPerElement(mode)
+    require(count >= perElement && count % perElement == 0L) {
         "The model result has invalid triangle geometry"
     }
 }

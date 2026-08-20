@@ -350,14 +350,6 @@ fn finish_success(
         fail(job_id, operation, "The model result is invalid.");
         return;
     };
-    if job_cancelled(job_id) {
-        let _ = crate::overlay::creation_output::cleanup_staging(
-            operation.dispatch_id(),
-            operation.output_name(),
-            &staging_path,
-        );
-        return;
-    }
     let Ok(output_path) = crate::overlay::creation_output::assigned_path(
         operation.final_output_dir(),
         operation.output_name(),
@@ -365,6 +357,25 @@ fn finish_success(
         fail(job_id, operation, "The model destination is invalid.");
         return;
     };
+    let companion =
+        match super::companion::from_result(&result, operation, &staging_path, &output_path) {
+            Ok(companion) => companion,
+            Err(error) => {
+                fail(job_id, operation, &error);
+                return;
+            }
+        };
+    if job_cancelled(job_id) {
+        if let Some(companion) = &companion {
+            companion.cleanup_staging();
+        }
+        let _ = crate::overlay::creation_output::cleanup_staging(
+            operation.dispatch_id(),
+            operation.output_name(),
+            &staging_path,
+        );
+        return;
+    }
     let is_segmented = result
         .get("isSegmented")
         .and_then(Value::as_bool)
@@ -432,6 +443,12 @@ fn finish_success(
             .file_name()
             .map(|name| name.to_string_lossy().to_string()),
         output_path: Some(output_path.to_string_lossy().to_string()),
+        download_path: companion
+            .as_ref()
+            .map(|companion| companion.final_path.to_string_lossy().to_string()),
+        download_name: companion
+            .as_ref()
+            .map(|companion| companion.final_name.clone()),
         source_image_path: Some(presentation_source.clone()),
         output_dir: Some(operation.final_output_dir().to_string_lossy().to_string()),
         generation_mode: Some(operation.generation_mode()),
@@ -453,6 +470,7 @@ fn finish_success(
             output_name: operation.output_name().to_string(),
             staging_path: staging_path.to_string_lossy().to_string(),
             output_path: output_path.to_string_lossy().to_string(),
+            companion: companion.map(|companion| companion.delivery),
             metadata: json!({
                 "isSegmented": status.is_segmented,
                 "generationMode": status.generation_mode,
@@ -481,6 +499,7 @@ fn fail_retaining(job_id: &str, operation: &RuntimeOperation) {
 }
 
 fn finish_failed(job_id: &str, operation: &RuntimeOperation, retain_intent: bool) {
+    let (output_path, output_name) = failure_output(operation);
     let status = JobStatus {
         job_id: Some(job_id.to_string()),
         stage: "failed".to_string(),
@@ -490,8 +509,10 @@ fn finish_failed(job_id: &str, operation: &RuntimeOperation, retain_intent: bool
         estimated_total_ms: None,
         progress_ratio: None,
         timing_sample_count: None,
-        output_path: None,
-        output_name: None,
+        output_path,
+        output_name,
+        download_path: None,
+        download_name: None,
         source_image_path: Some(operation.source_image_path().to_string()),
         output_dir: Some(operation.final_output_dir().to_string_lossy().to_string()),
         generation_mode: Some(operation.generation_mode()),
@@ -510,75 +531,23 @@ fn finish_failed(job_id: &str, operation: &RuntimeOperation, retain_intent: bool
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{fresh_message, sources_unchanged};
-    use crate::overlay::three_d_generator::runtime::{
-        RuntimeOperation, StartJobRequest, generation_mode::GenerationMode,
-    };
-    use image::{ImageBuffer, Rgb};
-
-    #[test]
-    fn fresh_dispatch_uses_immutable_snapshot_when_original_changes() {
-        let root = std::env::temp_dir().join(format!(
-            "sgt-3d-source-freeze-{}-{}",
-            std::process::id(),
-            super::now_ms()
-        ));
-        std::fs::create_dir(&root).unwrap();
-        let image_path = root.join("source.png");
-        ImageBuffer::from_pixel(1, 1, Rgb([1_u8, 2, 3]))
-            .save(&image_path)
-            .unwrap();
-        let inspected = crate::overlay::creation_source::inspect_image(&image_path).unwrap();
-        let snapshot =
-            crate::overlay::creation_source_snapshot::prepare("3d", "dispatch-1", &[inspected])
-                .unwrap();
-        let descriptor = snapshot.descriptors()[0].clone();
-        snapshot.persist();
-        let operation = RuntimeOperation::Generate {
-            request: StartJobRequest {
-                image_path: descriptor.path.clone(),
-                source_descriptors: vec![descriptor.clone()],
-                output_dir: Some(root.to_string_lossy().to_string()),
-                final_output_dir: Some(root.to_string_lossy().to_string()),
-                polycount: 5_000,
-                mode: "topology_mesh".to_string(),
-                generation_mode: GenerationMode::Quality,
-                output_format: "glb_plain".to_string(),
-                auto_segment: false,
-                segmentation_mode: "none".to_string(),
-                instruction: None,
-                output_name: "result-dispatch-1.glb".to_string(),
-                dispatch_id: "dispatch-1".to_string(),
-            },
-            output_dir: root.clone(),
-            final_output_dir: root.clone(),
-        };
-        assert!(sources_unchanged(&operation));
-        ImageBuffer::from_pixel(2, 1, Rgb([4_u8, 5, 6]))
-            .save(&image_path)
-            .unwrap();
-        assert!(sources_unchanged(&operation));
-        let message = fresh_message("job-1", &operation, "fingerprint-1");
-        assert_eq!(
-            message["args"]["sourceDescriptors"][0]["sha256"],
-            descriptor.sha256
-        );
-        assert_eq!(message["args"]["requestFingerprint"], "fingerprint-1");
-        crate::overlay::creation_source_snapshot::release_for_cleared_intent(
-            &crate::overlay::creation_intent_journal::Intent {
-                product: "3d".to_string(),
-                job_id: "job-1".to_string(),
-                dispatch_id: "dispatch-1".to_string(),
-                created_at_ms: 1,
-                accepted_at_ms: 1,
-                deadline_at_ms: 1 + crate::overlay::creation_process_supervisor::MAX_WALL_TIME_MS,
-                expires_at_ms: 2,
-                arguments: serde_json::json!({"sourceDescriptors": [descriptor]}),
-                arguments_fingerprint: "0".repeat(64),
-            },
-        );
-        std::fs::remove_dir_all(root).unwrap();
+fn failure_output(operation: &RuntimeOperation) -> (Option<String>, Option<String>) {
+    match operation {
+        RuntimeOperation::Segment { continuation } => (
+            Some(
+                continuation
+                    .previous_output_path
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            continuation
+                .previous_output_path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string()),
+        ),
+        RuntimeOperation::Generate { .. } => (None, None),
     }
 }
+
+#[cfg(test)]
+mod tests;

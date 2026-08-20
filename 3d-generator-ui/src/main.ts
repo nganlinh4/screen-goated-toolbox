@@ -240,6 +240,8 @@ async function renameHistoryItem(item: QueueItem, newName: string) {
     if (item.result) {
       item.result.outputPath = entry.outputPath;
       item.result.outputName = entry.outputName;
+      item.result.downloadPath = entry.metadata?.download?.path;
+      item.result.downloadName = entry.metadata?.download?.name;
     }
   } catch {
     showToast(t("renameFailed"));
@@ -315,6 +317,8 @@ async function refreshHistory() {
         if (item.result) {
           item.result.outputPath = entry.outputPath;
           item.result.outputName = entry.outputName;
+          item.result.downloadPath = entry.metadata?.download?.path;
+          item.result.downloadName = entry.metadata?.download?.name;
           item.result.isSegmented = Boolean(entry.metadata?.isSegmented);
           item.result.outputDir = settings.outputDir;
           item.result.generationMode = settings.generationMode;
@@ -347,6 +351,8 @@ async function refreshHistory() {
           progressText: "",
           outputPath: entry.outputPath,
           outputName: entry.outputName,
+          downloadPath: entry.metadata?.download?.path,
+          downloadName: entry.metadata?.download?.name,
           sourceImagePath: sourcePath,
           outputDir: settings.outputDir,
           generationMode: settings.generationMode,
@@ -507,6 +513,12 @@ jobRunner = new JobRunner({
   beginProgress: (item, estimateMs) => presentation.beginProgress(item, estimateMs),
 });
 
+if (import.meta.env.DEV) {
+  // Development-only handle so a headless or backgrounded tab, where
+  // requestAnimationFrame never fires, can still be driven to draw a frame.
+  (window as unknown as Record<string, unknown>).__sgtViewer = viewer;
+}
+
 const devHarness = devParams
   ? new DevHarness({
     state,
@@ -574,10 +586,10 @@ if (devParams?.get("parallel") === "1") {
   void devHarness?.loadModelPreview(devModelUrl);
 } else if (window.invoke) {
   void (async () => {
+    void invoke("prepare_runtime").catch(() => undefined);
     await loadDefaultOutputDir();
     await jobRunner.restoreCurrentJobs();
     await refreshHistory();
-    void invoke("prepare_runtime").catch(() => undefined);
     void refreshGenerationCapabilities();
     window.setTimeout(() => void refreshGenerationCapabilities(), 1_000);
   })();

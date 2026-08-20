@@ -176,6 +176,7 @@ fn finish_with_intent(job_id: &str, result: Result<Value, String>, clear_intent:
             output_name: request.output_name.clone(),
             staging_path,
             output_path: output_path.to_string_lossy().to_string(),
+            companion: None,
             metadata: json!({
                 "model": completed.model,
                 "backgroundMode": completed.background_mode,

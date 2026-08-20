@@ -48,8 +48,8 @@ $manifestName = $null
 $trackedRelative = $null
 switch ($Component) {
     "web-assets" {
-        $arguments = @("-OutputDir", $output)
-        if ($SkipNpmInstall) { $arguments += "-SkipNpmInstall" }
+        $arguments = @{ OutputDir = $output }
+        if ($SkipNpmInstall) { $arguments.SkipNpmInstall = $true }
         & (Join-Path $PSScriptRoot "build-web-asset-packs.ps1") @arguments
         $manifestName = "sgt_web_assets.packages.json"
         $trackedRelative = "component-delivery/windows/web-assets-v1.json"

@@ -73,7 +73,9 @@ internal fun validateGlbMeshes(
             } else {
                 4
             }
-            require(mode == 4) { "The model result contains non-triangle geometry" }
+            require(mode == GLB_MODE_TRIANGLES || mode == GLB_MODE_LINES) {
+                "The model result contains non-triangle geometry"
+            }
             val indexCount = if (primitive.has("indices")) {
                 val accessor = accessors[primitive.requiredIndex("indices", accessors.size)]
                 require(

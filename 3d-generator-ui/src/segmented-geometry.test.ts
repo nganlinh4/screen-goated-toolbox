@@ -46,3 +46,31 @@ test("independent indexed and unindexed geometry remains additive", () => {
 
   assert.deepEqual(modelGeometryStats(root), { vertices: 10, faces: 4 });
 });
+
+test("a quad model reports its own polygons instead of its render triangles", () => {
+  const root = new THREE.Group();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(12), 3));
+  geometry.setIndex([0, 1, 2, 0, 2, 3]);
+  root.add(new THREE.Mesh(geometry));
+  const edges = new THREE.LineSegments(geometry);
+  edges.userData = { sgtQuadWireframe: true, polygonCount: 1, quadCount: 1 };
+  root.add(edges);
+
+  const stats = modelGeometryStats(root);
+  // Two triangles are what the GPU draws; one quad is what the file contains.
+  assert.equal(stats.faces, 2);
+  assert.equal(stats.polygons, 1);
+  assert.equal(stats.quads, 1);
+});
+
+test("a triangle model reports no polygon counts at all", () => {
+  const root = new THREE.Group();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  root.add(new THREE.Mesh(geometry));
+
+  const stats = modelGeometryStats(root);
+  assert.equal(stats.polygons, undefined);
+  assert.equal(stats.quads, undefined);
+});
