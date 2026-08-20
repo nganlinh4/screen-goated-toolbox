@@ -16,6 +16,23 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+/// Write raw bytes to `path` atomically (temp file + fsync + rename). Leaves the
+/// existing file untouched on failure, so a partial write never replaces a good
+/// file. Used for payloads that must stay byte-exact because a signature is
+/// computed over them.
+pub fn write_bytes_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+
+    {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(data)?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)
+}
+
 /// Serialize `value` as pretty JSON and write it to `path` atomically
 /// (temp file + fsync + rename). Leaves the existing file untouched on failure.
 pub fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> std::io::Result<()> {

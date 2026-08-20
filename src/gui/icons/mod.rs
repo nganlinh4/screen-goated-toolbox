@@ -347,6 +347,7 @@ pub fn provider_icon(provider: &str) -> Icon {
         "google-gtx" => Icon::Translate,
         "groq" => Icon::ElectricBolt,
         "openrouter" => Icon::Public,
+        "nvidia" => Icon::Rocket,
         "ollama" => Icon::Terminal,
         "qrserver" => Icon::QrCode,
         "parakeet" | "qwen3" => Icon::SpeechToText,
