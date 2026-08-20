@@ -1,5 +1,6 @@
 use std::io::Cursor;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use image::imageops::FilterType;
@@ -8,7 +9,8 @@ use ort::session::Session;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 use sgt_screen_text_detector_protocol::{
-    DetectedRegion, MAX_RECOGNITION_ALTERNATIVES, MAX_REGION_TEXT_BYTES, RecognitionAlternative,
+    DetectedRegion, DetectionTimings, MAX_RECOGNITION_ALTERNATIVES, MAX_REGION_TEXT_BYTES,
+    RecognitionAlternative,
 };
 
 use crate::postprocess;
@@ -23,6 +25,7 @@ const WARMUP_SIDE: usize = 320;
 pub(crate) struct DetectionResult {
     pub(crate) image_width: u32,
     pub(crate) image_height: u32,
+    pub(crate) timings: DetectionTimings,
     pub(crate) regions: Vec<DetectedRegion>,
 }
 
@@ -98,7 +101,11 @@ impl TextDetector {
     }
 
     pub(crate) fn detect_jpeg(&mut self, jpeg: &[u8]) -> Result<DetectionResult> {
+        let total_started = Instant::now();
+        let decode_started = Instant::now();
         let image = decode_bounded_jpeg(jpeg)?;
+        let decode_us = duration_us(decode_started.elapsed());
+        let locator_started = Instant::now();
         let located = match self.direct_ml_locator.as_mut() {
             Some(locator) => match locator.locate(&image) {
                 Ok(located) => located,
@@ -112,21 +119,45 @@ impl TextDetector {
             },
             None => self.cpu.locator()?.locate(&image)?,
         };
-        let recognized = if let Some(recognizer) = self.direct_ml_recognizer.as_mut() {
-            match recognizer.recognize_batch(&located.crops) {
+        let locator_us = duration_us(locator_started.elapsed());
+        let (recognized, primary_recognition_us, specialist_recognition_us) = if let Some(
+            recognizer,
+        ) =
+            self.direct_ml_recognizer.as_mut()
+        {
+            match recognize_staged(recognizer, &located.crops, &located.crop_region_indices) {
                 Ok(recognized) => recognized,
                 Err(error) => {
                     eprintln!(
                         "DirectML text recognizer failed; using CPU for later requests: {error:#}"
                     );
                     self.direct_ml_recognizer = None;
-                    recognize_cpu(self.cpu.recognizer()?, &located.crops)?
+                    recognize_staged(
+                        self.cpu.recognizer()?,
+                        &located.crops,
+                        &located.crop_region_indices,
+                    )?
                 }
             }
         } else {
-            recognize_cpu(self.cpu.recognizer()?, &located.crops)?
+            recognize_staged(
+                self.cpu.recognizer()?,
+                &located.crops,
+                &located.crop_region_indices,
+            )?
         };
-        Ok(located.complete(recognized))
+        let composition_started = Instant::now();
+        let mut result = located.complete(recognized);
+        let composition_us = duration_us(composition_started.elapsed());
+        result.timings = DetectionTimings {
+            decode_us,
+            locator_us,
+            primary_recognition_us,
+            specialist_recognition_us,
+            composition_us,
+            total_us: duration_us(total_started.elapsed()),
+        };
+        Ok(result)
     }
 }
 
@@ -140,12 +171,25 @@ fn optional_acceleration<T>(loaded: Result<T>, label: &str) -> Option<T> {
     }
 }
 
-fn recognize_cpu(
+fn recognize_staged(
     recognizer: &mut RecognizerCascade,
     crops: &[RgbImage],
-) -> Result<Vec<crate::recognizer_cascade::RecognitionSet>> {
+    region_indices: &[usize],
+) -> Result<(Vec<crate::recognizer_cascade::RecognitionSet>, u32, u32)> {
+    let primary_started = Instant::now();
     let primary = recognizer.recognize_primary(crops)?;
-    recognizer.recognize_alternatives(crops, primary)
+    let primary_us = duration_us(primary_started.elapsed());
+    let specialist_started = Instant::now();
+    let results = recognizer.recognize_alternatives(crops, primary, region_indices)?;
+    Ok((
+        results,
+        primary_us,
+        duration_us(specialist_started.elapsed()),
+    ))
+}
+
+fn duration_us(duration: Duration) -> u32 {
+    u32::try_from(duration.as_micros()).unwrap_or(u32::MAX)
 }
 
 impl CpuFallback {
@@ -201,7 +245,7 @@ impl TextLocator {
             .with_memory_pattern(false)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
         let mut builder = match acceleration {
-            Acceleration::Cpu => builder,
+            Acceleration::Cpu | Acceleration::CpuProbe => builder,
             Acceleration::DirectMl => builder
                 .with_optimization_level(GraphOptimizationLevel::Disable)
                 .map_err(|error| anyhow::anyhow!(error.to_string()))?
@@ -305,6 +349,7 @@ impl LocatedImage {
         DetectionResult {
             image_width: self.image_width,
             image_height: self.image_height,
+            timings: DetectionTimings::default(),
             regions: self.regions,
         }
     }
@@ -463,111 +508,5 @@ fn inference_size(width: u32, height: u32) -> (u32, u32) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::recognizer::Recognition;
-    use crate::recognizer_cascade::RecognitionSet;
-
-    #[test]
-    fn inference_dimensions_are_stride_aligned_and_bounded() {
-        assert_eq!(inference_size(651, 398), (640, 384));
-        let tall = inference_size(1_080, 1_920);
-        assert_eq!(tall.0 % 32, 0);
-        assert_eq!(tall.1, INFERENCE_LONG_SIDE);
-        let four_k = inference_size(3_840, 2_160);
-        assert_eq!(four_k.0 % 32, 0);
-        assert_eq!(four_k.1 % 32, 0);
-        assert_eq!(four_k.0.max(four_k.1), INFERENCE_LONG_SIDE);
-    }
-
-    #[test]
-    fn orientation_candidates_follow_crop_geometry_not_language() {
-        assert!(needs_orientation_candidates(40, 100));
-        assert!(!needs_orientation_candidates(100, 40));
-        assert!(!needs_orientation_candidates(100, 150));
-    }
-
-    #[test]
-    fn recognition_selection_balances_sequence_evidence_and_confidence() {
-        let fragment = RecognitionSet {
-            primary: Recognition {
-                text: "ab".to_string(),
-                confidence: 0.96,
-                script_evidence: Vec::new(),
-                token_count: 2,
-            },
-            alternatives: Vec::new(),
-        };
-        let complete = RecognitionSet {
-            primary: Recognition {
-                text: "complete text".to_string(),
-                confidence: 0.82,
-                script_evidence: Vec::new(),
-                token_count: 13,
-            },
-            alternatives: Vec::new(),
-        };
-        let selected = merge_recognition_sets(fragment, complete);
-        assert_eq!(selected.primary.text, "complete text");
-        assert_eq!(selected.alternatives.len(), 2);
-    }
-
-    #[test]
-    fn protocol_output_is_bounded_deduplicated_and_utf8_safe() {
-        let mut region = DetectedRegion {
-            left: 0,
-            top: 0,
-            right: 10,
-            bottom: 10,
-            confidence: 0.9,
-            text: String::new(),
-            text_confidence: 0.0,
-            alternatives: Vec::new(),
-        };
-        let primary = Recognition {
-            text: "한".repeat(MAX_REGION_TEXT_BYTES),
-            confidence: f32::NAN,
-            script_evidence: Vec::new(),
-            token_count: MAX_REGION_TEXT_BYTES,
-        };
-        let alternatives = std::iter::once(primary.clone())
-            .chain(
-                (0..MAX_RECOGNITION_ALTERNATIVES + 4).map(|index| Recognition {
-                    text: format!("candidate-{index}"),
-                    confidence: 1.5,
-                    script_evidence: Vec::new(),
-                    token_count: 11,
-                }),
-            )
-            .collect();
-
-        apply_recognition(
-            &mut region,
-            RecognitionSet {
-                primary,
-                alternatives,
-            },
-        );
-
-        assert!(region.text.len() <= MAX_REGION_TEXT_BYTES);
-        assert!(region.text.is_char_boundary(region.text.len()));
-        assert_eq!(region.text_confidence, 0.0);
-        assert_eq!(region.alternatives.len(), MAX_RECOGNITION_ALTERNATIVES);
-        assert!(
-            region
-                .alternatives
-                .iter()
-                .all(|candidate| candidate.confidence == 1.0 && candidate.text != region.text)
-        );
-        sgt_screen_text_detector_protocol::write_server(
-            &mut Vec::new(),
-            1,
-            &sgt_screen_text_detector_protocol::ServerMessage::Regions {
-                image_width: 10,
-                image_height: 10,
-                regions: vec![region],
-            },
-        )
-        .expect("normalized recognition output must satisfy the wire contract");
-    }
-}
+#[path = "detector_tests.rs"]
+mod tests;

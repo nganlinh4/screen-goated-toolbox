@@ -6,13 +6,14 @@ use serde_json::{Map, Value};
 
 const DEFAULT_MANIFEST: &str = "component-delivery/windows/screen-text-detector-v1.json";
 const COMPONENT_ID: &str = "screen-text-detector";
+const LEGACY_OPTIONAL_FILES: &[&str] =
+    &["models/pp-ocr-screen-text/recognizers/unified/model-cpu.ort"];
 const REQUIRED_FILES: &[&str] = &[
     "bin/x64/sgt-screen-text-detector-worker.exe",
     "models/pp-ocr-screen-text/detector.onnx",
     "models/pp-ocr-screen-text/detector.ort",
     "models/pp-ocr-screen-text/recognizers.json",
     "models/pp-ocr-screen-text/recognizers/unified/model.onnx",
-    "models/pp-ocr-screen-text/recognizers/unified/model-cpu.ort",
     "models/pp-ocr-screen-text/recognizers/unified/config.yml",
     "models/pp-ocr-screen-text/recognizers/hangul/model.onnx",
     "models/pp-ocr-screen-text/recognizers/hangul/config.yml",
@@ -90,7 +91,10 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
         .get("files")
         .and_then(Value::as_array)
         .unwrap_or_else(|| panic!("{} component has no files", path.display()));
-    assert_eq!(files.len(), REQUIRED_FILES.len());
+    assert!(
+        (REQUIRED_FILES.len()..=REQUIRED_FILES.len() + LEGACY_OPTIONAL_FILES.len())
+            .contains(&files.len())
+    );
     let mut seen = HashSet::new();
     let mut file_total = 0_u64;
     let mut file_source = String::new();
@@ -99,7 +103,10 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
             .as_object()
             .unwrap_or_else(|| panic!("{} contains an invalid file", path.display()));
         let relative = required_string(file, "path", path);
-        assert!(REQUIRED_FILES.contains(&relative) && seen.insert(relative));
+        assert!(
+            (REQUIRED_FILES.contains(&relative) || LEGACY_OPTIONAL_FILES.contains(&relative))
+                && seen.insert(relative)
+        );
         let file_size = required_u64(file, "sizeBytes", path);
         file_total = file_total
             .checked_add(file_size)
@@ -110,7 +117,11 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
             "        DetectorFile {{ path: {relative:?}, size_bytes: {file_size}, sha256: {file_sha:?} }},\n"
         ));
     }
-    assert_eq!(seen.len(), REQUIRED_FILES.len());
+    assert!(
+        REQUIRED_FILES
+            .iter()
+            .all(|relative| seen.contains(relative))
+    );
     assert_eq!(file_total, unpacked_size_bytes);
     format!(
         "const DETECTOR_DELIVERY: Option<DetectorDelivery> = Some(DetectorDelivery {{ version: {version:?}, asset: {asset:?}, download_url: {download_url:?}, size_bytes: {size_bytes}, sha256: {sha256:?}, unpacked_size_bytes: {unpacked_size_bytes}, files: &[\n{file_source}    ] }});\n"

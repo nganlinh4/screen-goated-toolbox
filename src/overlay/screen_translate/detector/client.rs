@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use sgt_screen_text_detector_protocol::{
-    ClientMessage, DetectedRegion, ServerMessage, WORKER_VERSION, read_server, write_client,
+    ClientMessage, DetectedRegion, DetectionTimings, ServerMessage, WORKER_VERSION, read_server,
+    write_client,
 };
 
 use super::process::{LaunchResources, create_kill_on_close_job, spawn_worker, terminate_job};
@@ -172,8 +173,12 @@ impl DetectorClient {
             ServerMessage::Regions {
                 image_width,
                 image_height,
+                timings,
                 regions,
-            } => Ok((image_width, image_height, regions)),
+            } => {
+                log_detector_timings(timings, regions.len());
+                Ok((image_width, image_height, regions))
+            }
             ServerMessage::Error(error) => Err(anyhow!(error)),
             _ => bail!("text detector returned an unexpected response"),
         }
@@ -291,6 +296,18 @@ impl DetectorClient {
             let _ = reader.join();
         }
     }
+}
+
+fn log_detector_timings(timings: DetectionTimings, region_count: usize) {
+    crate::log_info!(
+        "[Screen Translate] detector stages: total={:.1}ms decode={:.1}ms locator={:.1}ms primary={:.1}ms specialists={:.1}ms compose={:.1}ms regions={region_count}",
+        timings.total_us as f32 / 1_000.0,
+        timings.decode_us as f32 / 1_000.0,
+        timings.locator_us as f32 / 1_000.0,
+        timings.primary_recognition_us as f32 / 1_000.0,
+        timings.specialist_recognition_us as f32 / 1_000.0,
+        timings.composition_us as f32 / 1_000.0,
+    );
 }
 
 fn simulate_warmup_progress(

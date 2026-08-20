@@ -15,6 +15,16 @@ python tests/screen-translate-lab/viewer-server.py
 
 The server listens on `http://127.0.0.1:8765/viewer.html` and opens a browser.
 
+After building with `.\run-dev.ps1 -UseStagingDelivery`, validate that staged
+component in an isolated runtime state with:
+
+```
+python tests/screen-translate-lab/viewer-server.py --staging
+```
+
+Staging mode refuses to start without the staged delivery contract. It never
+shares installed component state with the ordinary development host.
+
 ## Layout
 
 Tracked here:
