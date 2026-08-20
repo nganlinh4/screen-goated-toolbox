@@ -137,17 +137,10 @@ impl RetryChainKind {
     #[cfg(not(feature = "recorder-worker"))]
     pub fn effective_chain(self, config: &Config) -> Vec<String> {
         let configured = self.configured_chain(config);
-        let offered = crate::model_feed::store::offered_ids(config);
+        let offered = crate::model_feed::store::offered_ids(config, self.target_model_type());
         if offered.is_empty() {
             return configured.to_vec();
         }
-        let offered: Vec<String> = offered
-            .into_iter()
-            .filter(|id| {
-                get_model_by_id_with_custom(id, &config.custom_models)
-                    .is_some_and(|model| model.model_type == self.target_model_type())
-            })
-            .collect();
         crate::model_feed::merge_into_chain(configured, &offered)
     }
 }

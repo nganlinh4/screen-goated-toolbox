@@ -12,6 +12,7 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 
 use super::{AvailabilityFeed, parse_verified};
+use crate::model_config::ModelType;
 
 const FEED_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/monitoring/nvidia-availability.json";
 const SIGNATURE_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/monitoring/nvidia-availability.json.sig";
@@ -124,7 +125,7 @@ pub fn refresh_in_background() {
 /// Only ids for a provider the user has enabled and holds a credential for are
 /// returned: an offer the user cannot use would only lengthen the chain with
 /// entries that must fail before anything else is tried.
-pub fn offered_ids(config: &crate::config::Config) -> Vec<String> {
+pub fn offered_ids(config: &crate::config::Config, wanted: ModelType) -> Vec<String> {
     let Some(feed) = cached() else {
         return Vec::new();
     };
@@ -133,8 +134,22 @@ pub fn offered_ids(config: &crate::config::Config) -> Vec<String> {
     }
     super::ranked_models(&feed)
         .into_iter()
+        .filter(|model| feed_modality(model) == wanted)
         .filter_map(|model| catalog_id_for(&feed.provider, &model.id))
         .collect()
+}
+
+/// What the publisher verified this endpoint on.
+///
+/// A feed without a modality — schema 1, or a publisher that could not confirm
+/// one — is read as text. Routing an image at a text endpoint fails every time,
+/// while declining to route one only forgoes a fallback, so the silence is
+/// resolved the cheap way.
+fn feed_modality(model: &super::FeedModel) -> ModelType {
+    match model.modality.as_deref() {
+        Some("vision") => ModelType::Vision,
+        _ => ModelType::Text,
+    }
 }
 
 /// Resolves a feed's provider-qualified name to a catalog row.
@@ -174,6 +189,6 @@ mod tests {
             use_nvidia: false,
             ..Default::default()
         };
-        assert!(offered_ids(&config).is_empty());
+        assert!(offered_ids(&config, ModelType::Text).is_empty());
     }
 }
