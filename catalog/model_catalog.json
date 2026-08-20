@@ -779,7 +779,7 @@
       "intelligence_tier": 4,
       "supports_search": false,
       "search_tool_enabled_by_default": false,
-      "reasoning_policy": "provider-managed"
+      "reasoning_policy": "openai-low"
     }
   },
   "models": [
@@ -1313,8 +1313,8 @@
       "full_name": "openai/gpt-oss-20b:free",
       "model_type": "Text",
       "enabled": true,
-      "typical_latency_ms": 13831,
-      "performance_source": "benchmark-2026-08-19-protocol10:text"
+      "typical_latency_ms": 5560,
+      "performance_source": "probe-2026-08-20:reasoning-control-audit"
     }
   ]
 }
