@@ -1,0 +1,1159 @@
+{
+ "models": {
+  "01-ai/yi-large": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "ai21labs/jamba-1.5-large-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "baai/bge-m3": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "bigcode/starcoder2-15b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "databricks/dbrx-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "deepseek-ai/deepseek-coder-6.7b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "deepseek-ai/deepseek-v4-flash-0731": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 3658,
+     "p95_ms": 5142
+    }
+   ]
+  },
+  "google/codegemma-1.1-7b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "google/codegemma-7b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "google/diffusiongemma-26b-a4b-it": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 449,
+     "p95_ms": 836
+    }
+   ]
+  },
+  "google/gemma-2b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "google/gemma-3-12b-it": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "google/gemma-3-4b-it": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "google/gemma-4-31b-it": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "google/recurrentgemma-2b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "ibm/granite-3.0-3b-a800m-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "ibm/granite-3.0-8b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "ibm/granite-34b-code-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "ibm/granite-8b-code-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "meta/codellama-70b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "meta/llama-3.1-70b-instruct": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 4514,
+     "p95_ms": 6479
+    }
+   ]
+  },
+  "meta/llama-3.1-8b-instruct": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 457,
+     "p95_ms": 494
+    }
+   ]
+  },
+  "meta/llama-3.2-11b-vision-instruct": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 1441,
+     "p95_ms": 12640
+    }
+   ]
+  },
+  "meta/llama-3.2-1b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "meta/llama-3.2-3b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "meta/llama-3.2-90b-vision-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "meta/llama-3.3-70b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "meta/llama2-70b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "meta/muse-glimmer-30b": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 17501,
+     "p95_ms": 17512
+    }
+   ]
+  },
+  "microsoft/phi-3-vision-128k-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "microsoft/phi-3.5-moe-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "minimaxai/minimax-m3": {
+   "control": "plain",
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 1,
+     "attempts": 3,
+     "correct": 1,
+     "p50_ms": 1187,
+     "p95_ms": 1187
+    }
+   ]
+  },
+  "mistralai/codestral-22b-instruct-v0.1": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "mistralai/mistral-7b-instruct-v0.3": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "mistralai/mistral-large": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "mistralai/mistral-large-2-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "mistralai/mistral-nemotron": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "mistralai/mixtral-8x22b-v0.1": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "moonshotai/kimi-k2.6": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nv-mistralai/mistral-nemo-12b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/cosmos-reason2-8b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/llama-3.1-nemotron-51b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/llama-3.1-nemotron-70b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/llama-3.1-nemotron-nano-8b-v1": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 984,
+     "p95_ms": 33177
+    }
+   ]
+  },
+  "nvidia/llama-3.1-nemotron-ultra-253b-v1": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/llama-3.3-nemotron-super-49b-v1": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 1453,
+     "p95_ms": 1454
+    }
+   ]
+  },
+  "nvidia/llama-3.3-nemotron-super-49b-v1.5": {
+   "control": "effort-none",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 20685,
+     "p95_ms": 42660
+    }
+   ]
+  },
+  "nvidia/llama3-chatqa-1.5-70b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/mistral-nemo-minitron-8b-8k-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/nemotron-3-nano-30b-a3b": {
+   "control": "effort-none",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 386,
+     "p95_ms": 869
+    }
+   ]
+  },
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {
+   "control": "effort-none",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 630,
+     "p95_ms": 786
+    }
+   ]
+  },
+  "nvidia/nemotron-3-super-120b-a12b": {
+   "control": "effort-none",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 447,
+     "p95_ms": 486
+    }
+   ]
+  },
+  "nvidia/nemotron-3-ultra-550b-a55b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/nemotron-3.5-lightning-30b-a3b": {
+   "control": "effort-none",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 422,
+     "p95_ms": 458
+    }
+   ]
+  },
+  "nvidia/nemotron-4-340b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/nemotron-mini-4b-instruct": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 479,
+     "p95_ms": 485
+    }
+   ]
+  },
+  "nvidia/nemotron-nano-12b-v2-vl": {
+   "control": "plain",
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 2,
+     "attempts": 3,
+     "correct": 2,
+     "p50_ms": 4565,
+     "p95_ms": 7303
+    }
+   ]
+  },
+  "nvidia/nemotron-nano-3-30b-a3b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/nemotron-parse": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/neva-22b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/nvidia-nemotron-nano-9b-v2": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/riva-translate-4b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "nvidia/riva-translate-4b-instruct-v1.1": {
+   "control": "plain",
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": 532,
+     "p95_ms": 576
+    }
+   ]
+  },
+  "nvidia/riva-translate-4b-instruct-v2": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 643,
+     "p95_ms": 665
+    }
+   ]
+  },
+  "nvidia/vila": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "openai/gpt-oss-120b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "openai/gpt-oss-20b": {
+   "control": "plain",
+   "healthy_streak": 1,
+   "failing_streak": 0,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 3,
+     "attempts": 3,
+     "correct": 3,
+     "p50_ms": 1930,
+     "p95_ms": 2262
+    }
+   ]
+  },
+  "poolside/laguna-xs-2.1": {
+   "control": "plain",
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 2,
+     "attempts": 3,
+     "correct": 2,
+     "p50_ms": 718,
+     "p95_ms": 855
+    }
+   ]
+  },
+  "stepfun-ai/step-3.7-flash": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "thinkingmachines/inkling": {
+   "control": "effort-none",
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 2,
+     "attempts": 3,
+     "correct": 2,
+     "p50_ms": 4588,
+     "p95_ms": 5301
+    }
+   ]
+  },
+  "writer/palmyra-creative-122b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "writer/palmyra-fin-70b-32k": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "writer/palmyra-med-70b": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "writer/palmyra-med-70b-32k": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "z-ai/glm-5.2": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  },
+  "zyphra/zamba2-7b-instruct": {
+   "control": null,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": false,
+   "recent": [
+    {
+     "answered": 0,
+     "attempts": 3,
+     "correct": 0,
+     "p50_ms": null,
+     "p95_ms": null
+    }
+   ]
+  }
+ }
+}
