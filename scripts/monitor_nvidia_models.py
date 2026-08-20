@@ -174,6 +174,7 @@ def measure(key: str, model: str, control: str) -> dict:
     p50 = int(statistics.median(latencies) * 1000) if latencies else None
     passed, reason = quality.verdict(results, p50)
     return {
+        "gate": quality.GATE_VERSION,
         "answered": len(latencies),
         "attempts": len(quality.CASES),
         "passed": passed,
@@ -221,6 +222,7 @@ def measure_vision(key: str, model: str, control: str) -> dict | None:
     p50 = int(statistics.median(latencies) * 1000) if latencies else None
     passed, reason = quality.verdict(results, p50)
     return {
+        "gate": quality.GATE_VERSION,
         "answered": len(latencies),
         "attempts": len(quality.VISION_CASES),
         "passed": passed,
@@ -252,6 +254,7 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
         if not control:
             control, _ = discover_control(key, model)
         sample = measure(key, model, control) if control else {
+            "gate": quality.GATE_VERSION,
             "answered": 0, "attempts": len(quality.CASES), "passed": False,
             "reason": "no working reasoning control", "p50_ms": None, "p95_ms": None,
         }
@@ -309,18 +312,28 @@ def published(history: dict, generated_at: str) -> dict:
     for model, state in history["models"].items():
         if not state.get("eligible"):
             continue
-        recent = [s for s in state["recent"] if s.get("p50_ms") is not None]
+        # Eligibility is deliberately sticky, so that a single bad run does not
+        # evict a good model. Publication is not: a model that failed its most
+        # recent run is not offered, even while it keeps its eligibility. Without
+        # this, a tightened gate publishes models at zero percent success until
+        # two consecutive failures demote them.
+        if not (state["recent"] and state["recent"][-1].get("passed")):
+            continue
+        comparable = [
+            s for s in state["recent"] if s.get("gate") == quality.GATE_VERSION
+        ]
+        recent = [s for s in comparable if s.get("p50_ms") is not None]
         if not recent:
             continue
-        passes = sum(1 for s in state["recent"] if s.get("passed"))
+        passes = sum(1 for s in comparable if s.get("passed"))
         vision = state.get("vision")
         entries.append({
             "id": model,
             "control": state["control"],
             "modality": "vision" if isinstance(vision, dict) and vision.get("passed") else "text",
             "p50_ms": int(statistics.median(s["p50_ms"] for s in recent)),
-            "success_rate": round(passes / len(state["recent"]), 3),
-            "runs": len(state["recent"]),
+            "success_rate": round(passes / len(comparable), 3),
+            "runs": len(comparable),
         })
     entries.sort(key=lambda e: e["p50_ms"])
     return {
