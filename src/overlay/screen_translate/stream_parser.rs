@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::contract::{DetectedTextRegion, TranslationRegion, parse_streamed_translation};
 
 pub(crate) struct TranslationStreamParser<'a> {
@@ -9,7 +11,7 @@ pub(crate) struct TranslationStreamParser<'a> {
     nested_depth: usize,
     in_string: bool,
     escaped: bool,
-    next_index: usize,
+    emitted: HashSet<u16>,
     rejected: usize,
 }
 
@@ -24,7 +26,7 @@ impl<'a> TranslationStreamParser<'a> {
             nested_depth: 0,
             in_string: false,
             escaped: false,
-            next_index: 0,
+            emitted: HashSet::new(),
             rejected: 0,
         }
     }
@@ -133,11 +135,11 @@ impl<'a> TranslationStreamParser<'a> {
         if value.is_empty() {
             return;
         }
-        match parse_streamed_translation(self.next_index, value, self.candidates) {
-            Ok(region) => completed.push(region),
+        match parse_streamed_translation(value, self.candidates) {
+            Ok((id, region)) if self.emitted.insert(id) => completed.push((id, region)),
             Err(_) => self.rejected += 1,
+            Ok(_) => self.rejected += 1,
         }
-        self.next_index += 1;
         self.nested_depth = 0;
         self.in_string = false;
         self.escaped = false;
@@ -151,7 +153,7 @@ impl<'a> TranslationStreamParser<'a> {
         self.nested_depth = 0;
         self.in_string = false;
         self.escaped = false;
-        self.next_index = 0;
+        self.emitted.clear();
         self.rejected = 0;
     }
 }
@@ -204,17 +206,19 @@ mod tests {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
         assert!(parser.push("{\"trans").is_empty());
-        let regions = parser.push("lations\":[\"first\"");
+        let regions = parser.push("lations\":[{\"slot\":0,\"translation\":\"first\"}");
         assert_eq!(regions.len(), 1);
         assert_eq!(regions[0].0, 7);
         assert_eq!(regions[0].1.translated_segments, ["first"]);
     }
 
     #[test]
-    fn malformed_slot_keeps_the_later_positional_mapping() {
+    fn malformed_slot_does_not_shift_a_later_translation() {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
-        let regions = parser.push(r#"{"translations":[3,"second"]}"#);
+        let regions = parser.push(
+            r#"{"translations":[{"slot":99,"translation":"bad"},{"slot":1,"translation":"second"}]}"#,
+        );
         assert_eq!(parser.rejected_count(), 1);
         assert_eq!(regions.len(), 1);
         assert_eq!(regions[0].0, 8);
@@ -225,7 +229,8 @@ mod tests {
     fn emits_translations_from_an_equivalent_top_level_array() {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
-        let emitted = parser.push(r#"["first","second"]"#);
+        let emitted =
+            parser.push(r#"[{"slot":0,"translation":"first"},{"slot":1,"translation":"second"}]"#);
         assert_eq!(
             emitted
                 .iter()

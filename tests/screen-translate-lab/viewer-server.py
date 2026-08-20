@@ -12,6 +12,31 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lab_paths
 
+
+def configure_runtime_state(arguments: list[str]) -> None:
+    if not arguments:
+        return
+    if arguments != ["--staging"]:
+        raise SystemExit("Usage: viewer-server.py [--staging]")
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        raise SystemExit("LOCALAPPDATA is required for staging mode")
+    development_cache = Path(local_app_data) / "SGT-Development" / "cache"
+    contract = (
+        development_cache
+        / "staging"
+        / "contracts"
+        / "component-delivery"
+        / "windows"
+        / "screen-text-detector-v1.json"
+    )
+    if not contract.is_file():
+        raise SystemExit(f"Staging delivery contract not found: {contract}")
+    os.environ["SGT_RUNTIME_STATE_ROOT"] = str(development_cache / "runtime" / "staging")
+
+
+configure_runtime_state(sys.argv[1:])
+
 ROOT = lab_paths.TOOLS
 ARTIFACTS = lab_paths.artifact_root()
 INPUTS = lab_paths.inputs_root()

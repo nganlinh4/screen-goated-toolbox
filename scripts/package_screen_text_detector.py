@@ -14,6 +14,9 @@ import sys
 import zipfile
 from pathlib import Path
 
+import onnx
+from onnx import TensorProto, helper
+
 
 FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 MACHINE_X64 = 0x8664
@@ -30,7 +33,6 @@ FIRST_PARTY = {
 DETECTOR_SHA256 = "39133f78eb2cac057bfd4d66ec08e94f8cf5e921da9075bcf2bd68cfbbb91b36"
 DETECTOR_ONNX_SHA256 = "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d"
 MODEL_README_SHA256 = "951c155673ac6c15feb85857c9024a62266e5956d15319ce578a8f508f399d66"
-CPU_PRIMARY_SHA256 = "5e30d865e91c61953e317e21a7d449c6ce429e5b97c2e5b9faa44c1981c764d3"
 RECOGNIZERS = (
     (
         "unified",
@@ -108,6 +110,11 @@ RECOGNIZER_COVERAGE = {
     "telugu": ((0x0C00, 0x0C7F),),
 }
 
+RECOGNIZER_ROUTING = {
+    "hangul": ((0x1100, 0x11FF), (0x3130, 0x318F), (0xA960, 0xA97F), (0xAC00, 0xD7FF)),
+    **{identifier: coverage for identifier, coverage in RECOGNIZER_COVERAGE.items() if identifier != "hangul"},
+}
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -160,6 +167,45 @@ def validate_model_readme(path: Path) -> None:
         raise RuntimeError("detector model README does not match the reviewed artifact")
 
 
+def compact_recognizer_model(source: Path, target: Path) -> str:
+    model = onnx.load(source, load_external_data=False)
+    if len(model.graph.output) != 1:
+        raise RuntimeError("recognizer model must expose exactly one probability output")
+    probabilities = model.graph.output[0].name
+    values = f"{probabilities}_top3_values"
+    indices = f"{probabilities}_top3_indices"
+    opset = next(
+        (entry.version for entry in model.opset_import if entry.domain in ("", "ai.onnx")),
+        None,
+    )
+    if opset is None:
+        raise RuntimeError("recognizer model has no default ONNX opset")
+    if opset >= 10:
+        k_name = f"{probabilities}_top3_k"
+        model.graph.initializer.append(
+            helper.make_tensor(k_name, TensorProto.INT64, [1], [3])
+        )
+        node = helper.make_node(
+            "TopK", [probabilities, k_name], [values, indices], axis=-1, largest=1, sorted=1
+        )
+    else:
+        node = helper.make_node(
+            "TopK", [probabilities], [values, indices], axis=-1, k=3
+        )
+    model.graph.node.append(node)
+    del model.graph.output[:]
+    model.graph.output.extend(
+        [
+            helper.make_tensor_value_info(values, TensorProto.FLOAT, [None, None, 3]),
+            helper.make_tensor_value_info(indices, TensorProto.INT64, [None, None, 3]),
+        ]
+    )
+    onnx.checker.check_model(model)
+    onnx.save_model(model, target)
+    onnx.checker.check_model(onnx.load(target, load_external_data=False))
+    return sha256(target)
+
+
 def recognizer_files(
     root: Path, output: Path
 ) -> tuple[list[tuple[str, Path]], Path, Path]:
@@ -173,7 +219,6 @@ def recognizer_files(
         if source.is_dir() and not source.is_symlink():
             model = source / "inference.onnx"
             config = source / "inference.yml"
-            cpu_model = source / "inference.ort"
         else:
             source = root / "recognizers" / identifier
             if not source.is_dir() or source.is_symlink():
@@ -182,13 +227,14 @@ def recognizer_files(
                 )
             model = source / "model.onnx"
             config = source / "config.yml"
-            cpu_model = source / "model-cpu.ort"
         validate_model(model, model_sha)
         validate_model(config, config_sha)
         relative_root = f"recognizers/{identifier}"
+        compact_model = output / f".{identifier}-compact.onnx"
+        compact_sha = compact_recognizer_model(model, compact_model)
         packaged.extend(
             [
-                (f"{relative_root}/model.onnx", model),
+                (f"{relative_root}/model.onnx", compact_model),
                 (f"{relative_root}/config.yml", config),
             ]
         )
@@ -196,23 +242,14 @@ def recognizer_files(
             "model": f"{relative_root}/model.onnx",
             "config": f"{relative_root}/config.yml",
         }
-        derived_files = []
-        if identifier == "unified":
-            validate_model(cpu_model, CPU_PRIMARY_SHA256)
-            packaged.append((f"{relative_root}/model-cpu.ort", cpu_model))
-            entry["cpuModel"] = f"{relative_root}/model-cpu.ort"
-            derived_files.append(
-                {
-                    "name": "model-cpu.ort",
-                    "sha256": CPU_PRIMARY_SHA256,
-                    "transformation": "ONNX Runtime basic graph optimization and ORT serialization",
-                }
-            )
         if reverse_output:
             entry["reverseOutput"] = True
         coverage = RECOGNIZER_COVERAGE.get(identifier)
         if coverage:
             entry["coverage"] = coverage
+        routing = RECOGNIZER_ROUTING.get(identifier)
+        if routing:
+            entry["routing"] = routing
         catalog_entries.append(entry)
         sources.append(
             {
@@ -221,8 +258,12 @@ def recognizer_files(
                 "files": [
                     {"name": "inference.onnx", "sha256": model_sha},
                     {"name": "inference.yml", "sha256": config_sha},
-                ]
-                + derived_files,
+                    {
+                        "name": "model.onnx",
+                        "sha256": compact_sha,
+                        "transformation": "append sorted TopK(3) outputs to the reviewed probability graph",
+                    },
+                ],
             }
         )
     catalog = output / ".screen-text-detector-recognizers.json"

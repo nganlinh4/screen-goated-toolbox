@@ -76,7 +76,9 @@ fn malformed_stream_member_cannot_erase_valid_regions_before_fallback() {
     let mut accepted = Vec::new();
     let mut covered = HashSet::new();
     let mut first_attempt = TranslationStreamParser::new(&candidates);
-    for (_, region) in first_attempt.push(r#"{"translations":["first",3]}"#) {
+    for (_, region) in first_attempt
+        .push(r#"{"translations":[{"slot":0,"translation":"first"},{"slot":1,"translation":3}]}"#)
+    {
         accept_region(&mut accepted, &mut covered, region, &candidates);
     }
 
@@ -91,7 +93,9 @@ fn malformed_stream_member_cannot_erase_valid_regions_before_fallback() {
     assert_eq!(accepted[0].translated_segments, ["first"]);
 
     let mut fallback = TranslationStreamParser::new(&pending);
-    for (_, region) in fallback.push(r#"{"translations":["second","third"]}"#) {
+    for (_, region) in fallback.push(
+        r#"{"translations":[{"slot":0,"translation":"second"},{"slot":1,"translation":"third"}]}"#,
+    ) {
         accept_region(&mut accepted, &mut covered, region, &candidates);
     }
 

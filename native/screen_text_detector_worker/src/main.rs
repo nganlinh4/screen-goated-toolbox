@@ -83,6 +83,7 @@ fn run() -> Result<()> {
                     .map(|result| ServerMessage::Regions {
                         image_width: result.image_width,
                         image_height: result.image_height,
+                        timings: result.timings,
                         regions: result.regions,
                     })
             }

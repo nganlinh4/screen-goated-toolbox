@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::windows::fs::MetadataExt as _;
 use std::path::{Component, Path, PathBuf};
@@ -7,7 +7,11 @@ use anyhow::{Context, Result, bail};
 use image::RgbImage;
 use serde::Deserialize;
 
-use crate::recognizer::{Acceleration, Recognition, TextRecognizer};
+use crate::recognizer::{
+    Acceleration, PRIMARY_INPUT_WIDTH, Recognition, TextRecognizer, UNKNOWN_PROBE_INPUT_WIDTH,
+};
+
+mod unknown_probe;
 
 const CATALOG_LIMIT_BYTES: u64 = 32 * 1024;
 const MODEL_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
@@ -22,6 +26,7 @@ pub(crate) struct RecognizerCascade {
     primary: TextRecognizer,
     fallbacks: Vec<FallbackRecognizer>,
     pending_fallbacks: Vec<ResolvedModel>,
+    acceleration: Acceleration,
 }
 
 pub(crate) struct RecognitionSet {
@@ -48,19 +53,24 @@ struct ModelSpec {
     reverse_output: bool,
     #[serde(default)]
     coverage: Vec<[u32; 2]>,
+    #[serde(default)]
+    routing: Vec<[u32; 2]>,
 }
 
+#[derive(Clone)]
 struct ResolvedModel {
     model: PathBuf,
     cpu_model: Option<PathBuf>,
     config: PathBuf,
     reverse_output: bool,
     coverage: Vec<[u32; 2]>,
+    routing: Vec<[u32; 2]>,
 }
 
 struct FallbackRecognizer {
     recognizer: TextRecognizer,
     coverage: Vec<[u32; 2]>,
+    routing: Vec<[u32; 2]>,
 }
 
 impl RecognizerCascade {
@@ -102,6 +112,7 @@ impl RecognizerCascade {
             &primary_model.config,
             primary_model.reverse_output,
             acceleration,
+            PRIMARY_INPUT_WIDTH,
         )?;
         let (fallbacks, pending_fallbacks) = if eager_fallbacks {
             (load_models_parallel(models, acceleration)?, Vec::new())
@@ -112,12 +123,8 @@ impl RecognizerCascade {
             primary,
             fallbacks,
             pending_fallbacks,
+            acceleration,
         })
-    }
-
-    pub(crate) fn recognize_batch(&mut self, sources: &[RgbImage]) -> Result<Vec<RecognitionSet>> {
-        let primary = self.recognize_primary(sources)?;
-        self.recognize_alternatives(sources, primary)
     }
 
     pub(crate) fn recognize_primary(&mut self, sources: &[RgbImage]) -> Result<Vec<Recognition>> {
@@ -144,7 +151,11 @@ impl RecognizerCascade {
         &mut self,
         sources: &[RgbImage],
         primary: Vec<Recognition>,
+        region_indices: &[usize],
     ) -> Result<Vec<RecognitionSet>> {
+        if primary.len() != sources.len() || region_indices.len() != sources.len() {
+            bail!("recognizer cascade input lengths differ");
+        }
         let mut results = primary_sets(primary);
         let mut unresolved = results
             .iter()
@@ -155,7 +166,8 @@ impl RecognizerCascade {
             .collect::<Vec<_>>();
         let mut known_specialist_applied = false;
         for fallback in &mut self.fallbacks {
-            let capture_evidence = fallback.matches_capture(&results);
+            let representatives = representative_indices(&results, region_indices);
+            let capture_evidence = fallback.matches_capture(&results, &representatives);
             known_specialist_applied |= capture_evidence && unresolved.iter().any(|value| *value);
             apply_fallback(
                 fallback,
@@ -163,21 +175,24 @@ impl RecognizerCascade {
                 &mut results,
                 &mut unresolved,
                 capture_evidence,
+                PRIMARY_INPUT_WIDTH,
             )?;
         }
         let mut matching = Vec::new();
         let mut remaining = Vec::new();
+        let representatives = representative_indices(&results, region_indices);
         for model in std::mem::take(&mut self.pending_fallbacks) {
-            if model.matches_capture(&results) {
+            if model.matches_capture(&results, &representatives) {
                 matching.push(model);
             } else {
                 remaining.push(model);
             }
         }
         self.pending_fallbacks = remaining;
-        let mut loaded = load_models_parallel(matching, Acceleration::Cpu)?;
+        let mut loaded = load_models_parallel(matching, self.acceleration)?;
         for fallback in &mut loaded {
-            let capture_evidence = fallback.matches_capture(&results);
+            let representatives = representative_indices(&results, region_indices);
+            let capture_evidence = fallback.matches_capture(&results, &representatives);
             known_specialist_applied |= capture_evidence && unresolved.iter().any(|value| *value);
             apply_fallback(
                 fallback,
@@ -185,114 +200,44 @@ impl RecognizerCascade {
                 &mut results,
                 &mut unresolved,
                 capture_evidence,
+                PRIMARY_INPUT_WIDTH,
             )?;
         }
         self.fallbacks.extend(loaded);
-        if !known_specialist_applied && unknown_probe_needed(&unresolved, &results) {
-            let pending = std::mem::take(&mut self.pending_fallbacks);
-            let loaded = load_models_parallel(pending, Acceleration::Cpu)?;
-            self.fallbacks.extend(loaded);
-            if let Some(index) =
-                select_unknown_fallback(&mut self.fallbacks, sources, &unresolved, &results)?
-            {
+        let representatives = representative_indices(&results, region_indices);
+        if !known_specialist_applied
+            && unknown_probe::needed(&unresolved, sources, &representatives)
+        {
+            let samples = unknown_probe::samples(sources, &unresolved, &results, &representatives);
+            let selected =
+                unknown_probe::select(&mut self.fallbacks, &self.pending_fallbacks, &samples)?;
+            let selected_index = match selected {
+                Some(unknown_probe::Selection::Loaded(index)) => Some(index),
+                Some(unknown_probe::Selection::Pending(index)) => {
+                    let model = self.pending_fallbacks.remove(index);
+                    let mut loaded = load_models(vec![model], self.acceleration)?;
+                    self.fallbacks.push(
+                        loaded
+                            .pop()
+                            .context("selected specialist recognizer did not load")?,
+                    );
+                    Some(self.fallbacks.len() - 1)
+                }
+                None => None,
+            };
+            if let Some(index) = selected_index {
                 apply_fallback(
                     &mut self.fallbacks[index],
                     sources,
                     &mut results,
                     &mut unresolved,
                     true,
+                    UNKNOWN_PROBE_INPUT_WIDTH,
                 )?;
             }
         }
         Ok(results)
     }
-}
-
-fn select_unknown_fallback(
-    fallbacks: &mut [FallbackRecognizer],
-    sources: &[RgbImage],
-    unresolved: &[bool],
-    results: &[RecognitionSet],
-) -> Result<Option<usize>> {
-    let all_unresolved = unresolved
-        .iter()
-        .enumerate()
-        .filter_map(|(index, unresolved)| unresolved.then_some(index))
-        .collect::<Vec<_>>();
-    let mut sample_indices = all_unresolved.clone();
-    sample_indices.sort_by(|left, right| {
-        results[*left]
-            .primary
-            .confidence
-            .total_cmp(&results[*right].primary.confidence)
-            .then_with(|| {
-                let area = |index: usize| {
-                    u64::from(sources[index].width()) * u64::from(sources[index].height())
-                };
-                area(*right).cmp(&area(*left))
-            })
-    });
-    let mut selected = sample_indices.iter().copied().take(3).collect::<Vec<_>>();
-    sample_indices.sort_by_key(|index| {
-        std::cmp::Reverse(u64::from(sources[*index].width()) * u64::from(sources[*index].height()))
-    });
-    for index in sample_indices.into_iter().take(6) {
-        if !selected.contains(&index) {
-            selected.push(index);
-        }
-        if selected.len() == 6 {
-            break;
-        }
-    }
-    if all_unresolved.len() > 1 {
-        for step in 0..4 {
-            let index = all_unresolved[step * (all_unresolved.len() - 1) / 3];
-            if !selected.contains(&index) {
-                selected.push(index);
-            }
-        }
-    }
-    let sample_indices = selected;
-    let samples = sample_indices
-        .iter()
-        .map(|index| sources[*index].clone())
-        .collect::<Vec<_>>();
-    let scores = std::thread::scope(|scope| {
-        let tasks = fallbacks
-            .iter_mut()
-            .enumerate()
-            .map(|(index, fallback)| {
-                let samples = &samples;
-                scope.spawn(move || {
-                    let candidates = fallback.recognizer.recognize_batch(samples)?;
-                    let score = candidates
-                        .iter()
-                        .filter(|candidate| coverage_matches(&fallback.coverage, &candidate.text))
-                        .map(|candidate| candidate.confidence)
-                        .max_by(f32::total_cmp)
-                        .unwrap_or(0.0);
-                    Ok::<_, anyhow::Error>((index, score))
-                })
-            })
-            .collect::<Vec<_>>();
-        tasks
-            .into_iter()
-            .map(|task| {
-                task.join()
-                    .map_err(|_| anyhow::anyhow!("specialist recognizer probe panicked"))?
-            })
-            .collect::<Result<Vec<_>>>()
-    })?;
-    let best = scores
-        .into_iter()
-        .filter(|(_, score)| *score >= 0.3)
-        .max_by(|left, right| left.1.total_cmp(&right.1));
-    Ok(best.map(|(index, _)| index))
-}
-
-fn unknown_probe_needed(unresolved: &[bool], _results: &[RecognitionSet]) -> bool {
-    let count = unresolved.iter().filter(|unresolved| **unresolved).count();
-    count >= 3 && count.saturating_mul(20) >= unresolved.len()
 }
 
 fn apply_fallback(
@@ -301,13 +246,15 @@ fn apply_fallback(
     results: &mut [RecognitionSet],
     unresolved: &mut [bool],
     probe_unresolved: bool,
+    input_width: u32,
 ) -> Result<()> {
     let active = results
         .iter()
         .enumerate()
         .filter_map(|(index, result)| {
-            (coverage_matches(&fallback.coverage, &result.primary.text)
-                || evidence_matches(&fallback.coverage, &result.primary)
+            (coverage_matches(&fallback.routing, &result.primary.text)
+                || (evidence_matches(&fallback.routing, &result.primary)
+                    && !has_conflicting_non_ascii_text(&fallback.routing, &result.primary.text))
                 || (probe_unresolved && unresolved[index]))
                 .then_some(index)
         })
@@ -319,9 +266,11 @@ fn apply_fallback(
         .iter()
         .map(|index| sources[*index].clone())
         .collect::<Vec<_>>();
-    let candidates = fallback.recognizer.recognize_batch(&active_sources)?;
+    let candidates = fallback
+        .recognizer
+        .recognize_batch_with_width(&active_sources, input_width)?;
     for (&index, candidate) in active.iter().zip(candidates) {
-        let primary_matches = coverage_matches(&fallback.coverage, &results[index].primary.text);
+        let primary_matches = coverage_matches(&fallback.routing, &results[index].primary.text);
         let script_consistent = candidate.confidence >= FAST_PATH_CONFIDENCE
             && coverage_matches(&fallback.coverage, &candidate.text);
         if specialist_alternative_is_usable(&fallback.coverage, &candidate)
@@ -368,6 +317,10 @@ fn load_models(
     models: Vec<ResolvedModel>,
     acceleration: Acceleration,
 ) -> Result<Vec<FallbackRecognizer>> {
+    let input_width = match acceleration {
+        Acceleration::CpuProbe => UNKNOWN_PROBE_INPUT_WIDTH,
+        Acceleration::Cpu | Acceleration::DirectMl => PRIMARY_INPUT_WIDTH,
+    };
     models
         .into_iter()
         .map(|model| {
@@ -376,10 +329,12 @@ fn load_models(
                 &model.config,
                 model.reverse_output,
                 acceleration,
+                input_width,
             )?;
             Ok(FallbackRecognizer {
                 recognizer,
                 coverage: model.coverage,
+                routing: model.routing,
             })
         })
         .collect()
@@ -413,7 +368,7 @@ fn load_models_parallel(
 }
 
 fn needs_alternatives(result: &Recognition) -> bool {
-    result.text.is_empty() || result.confidence < FAST_PATH_CONFIDENCE
+    result.confidence < FAST_PATH_CONFIDENCE || !result.text.chars().any(char::is_alphabetic)
 }
 
 fn resolve_model(
@@ -424,6 +379,11 @@ fn resolve_model(
     if spec.coverage.len() > MAX_COVERAGE_RANGES
         || spec
             .coverage
+            .iter()
+            .any(|[start, end]| start > end || *end > char::MAX as u32)
+        || spec.routing.len() > MAX_COVERAGE_RANGES
+        || spec
+            .routing
             .iter()
             .any(|[start, end]| start > end || *end > char::MAX as u32)
     {
@@ -450,53 +410,126 @@ fn resolve_model(
         config,
         reverse_output: spec.reverse_output,
         coverage: spec.coverage,
+        routing: spec.routing,
     })
 }
 
 impl ResolvedModel {
     fn path_for(&self, acceleration: Acceleration) -> &Path {
         match acceleration {
-            Acceleration::Cpu => self.cpu_model.as_deref().unwrap_or(&self.model),
+            Acceleration::Cpu | Acceleration::CpuProbe => {
+                self.cpu_model.as_deref().unwrap_or(&self.model)
+            }
             Acceleration::DirectMl => &self.model,
         }
     }
 
-    fn matches_capture(&self, results: &[RecognitionSet]) -> bool {
-        results.iter().any(|result| {
-            coverage_matches(&self.coverage, &result.primary.text)
-                || evidence_matches(&self.coverage, &result.primary)
-        })
+    fn matches_capture(&self, results: &[RecognitionSet], representatives: &[usize]) -> bool {
+        capture_routing_matches_at(&self.routing, results, representatives)
     }
 }
 
 impl FallbackRecognizer {
-    fn matches_capture(&self, results: &[RecognitionSet]) -> bool {
-        results.iter().any(|result| {
-            coverage_matches(&self.coverage, &result.primary.text)
-                || evidence_matches(&self.coverage, &result.primary)
-        })
+    fn matches_capture(&self, results: &[RecognitionSet], representatives: &[usize]) -> bool {
+        capture_routing_matches_at(&self.routing, results, representatives)
     }
+}
+
+#[cfg(test)]
+fn capture_routing_matches(routing: &[[u32; 2]], results: &[RecognitionSet]) -> bool {
+    capture_routing_matches_at(routing, results, &(0..results.len()).collect::<Vec<_>>())
+}
+
+fn capture_routing_matches_at(
+    routing: &[[u32; 2]],
+    results: &[RecognitionSet],
+    representatives: &[usize],
+) -> bool {
+    if routing.is_empty() {
+        return false;
+    }
+    let mut direct_score = 0.0_f32;
+    let mut matching_regions = 0_usize;
+    for result in representatives
+        .iter()
+        .filter_map(|index| results.get(*index))
+    {
+        let matching_characters = result
+            .primary
+            .text
+            .chars()
+            .filter(|character| codepoint_matches(routing, *character as u32))
+            .count();
+        if matching_characters > 0 && result.primary.confidence >= 0.5 {
+            matching_regions += 1;
+            direct_score += result.primary.confidence * matching_characters.min(4) as f32;
+        }
+        if evidence_matches(routing, &result.primary)
+            && !has_conflicting_non_ascii_text(routing, &result.primary.text)
+        {
+            direct_score += result.primary.confidence.max(0.5);
+        }
+    }
+    direct_score >= 1.4 || (matching_regions >= 2 && direct_score >= 1.0)
+}
+
+fn representative_indices(results: &[RecognitionSet], groups: &[usize]) -> Vec<usize> {
+    let mut positions: HashMap<usize, usize> = HashMap::new();
+    let mut selected: Vec<usize> = Vec::new();
+    for (index, (result, group)) in results.iter().zip(groups).enumerate() {
+        match positions.get(group).copied() {
+            Some(position)
+                if recognition_signal(&results[selected[position]].primary)
+                    < recognition_signal(&result.primary) =>
+            {
+                selected[position] = index;
+            }
+            Some(_) => {}
+            None => {
+                positions.insert(*group, selected.len());
+                selected.push(index);
+            }
+        }
+    }
+    selected
+}
+
+fn recognition_signal(recognition: &Recognition) -> f32 {
+    let useful = recognition
+        .text
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .count()
+        .max(1);
+    recognition.confidence.max(0.0) * (useful as f32).sqrt()
+}
+
+fn has_conflicting_non_ascii_text(routing: &[[u32; 2]], text: &str) -> bool {
+    text.chars().any(|character| {
+        character.is_alphabetic()
+            && !character.is_ascii()
+            && !codepoint_matches(routing, character as u32)
+    })
 }
 
 fn coverage_matches(coverage: &[[u32; 2]], text: &str) -> bool {
     !coverage.is_empty()
-        && text.chars().any(|character| {
-            let codepoint = character as u32;
-            coverage
-                .iter()
-                .any(|[start, end]| codepoint >= *start && codepoint <= *end)
-        })
+        && text
+            .chars()
+            .any(|character| codepoint_matches(coverage, character as u32))
+}
+
+fn codepoint_matches(coverage: &[[u32; 2]], codepoint: u32) -> bool {
+    coverage
+        .iter()
+        .any(|[start, end]| codepoint >= *start && codepoint <= *end)
 }
 
 fn evidence_matches(coverage: &[[u32; 2]], result: &Recognition) -> bool {
     let matches = result
         .script_evidence
         .iter()
-        .filter(|codepoint| {
-            coverage
-                .iter()
-                .any(|[start, end]| **codepoint >= *start && **codepoint <= *end)
-        })
+        .filter(|codepoint| codepoint_matches(coverage, **codepoint))
         .count();
     matches >= 2 && matches.saturating_mul(4) >= result.token_count
 }

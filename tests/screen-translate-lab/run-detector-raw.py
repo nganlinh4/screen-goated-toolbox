@@ -13,7 +13,7 @@ import lab_paths
 
 
 MAGIC = b"SGTD"
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 HEADER = struct.Struct("<4sHHQI")
 
 
@@ -91,10 +91,19 @@ def parse_error(payload: bytes) -> str:
     return message
 
 
-def parse_regions(payload: bytes) -> tuple[int, int, list[dict]]:
+def parse_regions(payload: bytes) -> tuple[int, int, dict, list[dict]]:
     cursor = Cursor(payload)
     width = cursor.u32()
     height = cursor.u32()
+    timing_names = (
+        "decodeUs",
+        "locatorUs",
+        "primaryRecognitionUs",
+        "specialistRecognitionUs",
+        "compositionUs",
+        "totalUs",
+    )
+    timings = {name: cursor.u32() for name in timing_names}
     regions = []
     for _ in range(cursor.u32()):
         left, top, right, bottom = [cursor.u32() for _ in range(4)]
@@ -115,7 +124,7 @@ def parse_regions(payload: bytes) -> tuple[int, int, list[dict]]:
             }
         )
     cursor.finish()
-    return width, height, regions
+    return width, height, timings, regions
 
 
 def save_preview(
@@ -237,11 +246,18 @@ def main() -> int:
 
     local_app_data = Path(os.environ["LOCALAPPDATA"])
     components = local_app_data / "screen-goated-toolbox" / "components"
-    detector = component_root(
-        components,
-        "screen-text-detector",
-        "bin/x64/sgt-screen-text-detector-worker.exe",
+    detector_override = os.environ.get("SGT_SCREEN_TEXT_DETECTOR_ROOT")
+    detector = (
+        Path(detector_override).resolve()
+        if detector_override
+        else component_root(
+            components,
+            "screen-text-detector",
+            "bin/x64/sgt-screen-text-detector-worker.exe",
+        )
     )
+    if not (detector / "bin/x64/sgt-screen-text-detector-worker.exe").is_file():
+        raise RuntimeError("The selected screen-text detector component is incomplete")
     runtime = component_root(components, "onnx-directml-runtime", "bin/x64/onnxruntime.dll")
     vc_runtime = component_root(components, "vc14-x64-runtime", "bin/x64/vcruntime140.dll")
     worker = detector / "bin/x64/sgt-screen-text-detector-worker.exe"
@@ -293,7 +309,7 @@ def main() -> int:
                 raise RuntimeError(f"{case.name}: {parse_error(payload)}")
             if kind != 102:
                 raise RuntimeError(f"{case.name}: unexpected detector response {kind}")
-            width, height, regions = parse_regions(payload)
+            width, height, timings, regions = parse_regions(payload)
             detection_ms = (time.perf_counter() - detected_at) * 1000
             (case / "detector-raw.json").write_text(
                 json.dumps(regions, ensure_ascii=False, indent=2),
@@ -314,6 +330,7 @@ def main() -> int:
                         "regionCount": len(regions),
                         "initializationMs": round(initialization_ms, 2),
                         "detectionMs": round(detection_ms, 2),
+                        "workerTimingsUs": timings,
                     },
                     indent=2,
                 ),

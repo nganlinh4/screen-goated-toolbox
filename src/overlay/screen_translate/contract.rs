@@ -1,5 +1,7 @@
 //! Translation-only model contract backed by locally owned visual cells.
 
+use std::collections::HashSet;
+
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
@@ -118,6 +120,13 @@ enum TranslationResponseEnvelope {
     Array(Vec<serde_json::Value>),
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TranslatedSlotResponse {
+    slot: usize,
+    translation: String,
+}
+
 pub(crate) fn response_schema(region_count: usize) -> serde_json::Value {
     super::schema::response_schema(region_count.clamp(1, MAX_CANDIDATES), MAX_TEXT_CHARS)
 }
@@ -130,27 +139,33 @@ pub(crate) fn prompt_with_instruction(
     if candidates.is_empty() || candidates.len() > MAX_CANDIDATES {
         bail!("detector candidate count is outside the translation contract");
     }
+    let members = candidates
+        .iter()
+        .enumerate()
+        .map(|(slot, candidate)| {
+            serde_json::json!({
+                "slot": slot,
+                "text": candidate.source_text,
+                "ocrReadings": candidate.source_alternatives.iter().skip(1).collect::<Vec<_>>()
+            })
+        })
+        .collect::<Vec<_>>();
     let cells = super::cell_proposals::propose(candidates)
         .into_iter()
         .map(|proposal| {
-            let members = proposal
+            let slots = proposal
                 .member_ids_in_reading_order
                 .iter()
                 .filter_map(|id| candidates.iter().find(|candidate| candidate.id == *id))
                 .map(|candidate| {
-                    let slot = candidates
+                    candidates
                         .iter()
                         .position(|item| item.id == candidate.id)
-                        .expect("proposal members come from the candidate set");
-                    serde_json::json!({
-                        "slot": slot,
-                        "text": candidate.source_text,
-                        "ocrReadings": candidate.source_alternatives.iter().skip(1).collect::<Vec<_>>()
-                    })
+                        .expect("proposal members come from the candidate set")
                 })
                 .collect::<Vec<_>>();
             serde_json::json!({
-                "members": members
+                "slots": slots
             })
         })
         .collect::<Vec<_>>();
@@ -160,10 +175,12 @@ pub(crate) fn prompt_with_instruction(
         .to_string();
     Ok(format!(
         "Translation preference:\n{instruction}\n\n\
-         Translate every supplied member completely into {target_language}. When ocrReadings differ, use the most complete coherent reading; they are alternate OCR observations of the same pixels, not additional text. Cells provide context only. Return one translations string per slot, in exact numeric slot order from 0 through {}. Each string must contain only its corresponding member translation; never move, merge, duplicate, or drop content between slots or cells. Preserve names, usernames, handles, codes, punctuation, tone, and mixed-language meaning. Do not summarize, abbreviate, or invent. Geometry and rendering are handled locally.\n\
-         Return exactly one JSON object shaped as {{\"translations\":[\"slot 0 translation\",\"slot 1 translation\"]}}, extended to every supplied slot.\n\
+         Translate every supplied member completely into {target_language}. Members are listed once in canonical numeric slot order. When ocrReadings differ, use the most complete coherent reading; they are alternate OCR observations of the same pixels, not additional text. Cells contain slot references for context only. Return exactly one translations entry for every slot from 0 through {}. Keep each translation attached to its supplied slot; never move, merge, duplicate, or drop content between slots or cells. Preserve names, usernames, handles, codes, punctuation, tone, and mixed-language meaning. Do not summarize, abbreviate, or invent. Geometry and rendering are handled locally.\n\
+         Return exactly one JSON object shaped as {{\"translations\":[{{\"slot\":0,\"translation\":\"...\"}},{{\"slot\":1,\"translation\":\"...\"}}]}}, extended to every supplied slot.\n\
+         Members:\n{}\n\
          Cells:\n{}",
         candidates.len() - 1,
+        serde_json::to_string(&members)?,
         serde_json::to_string(&cells)?
     ))
 }
@@ -178,12 +195,16 @@ pub(crate) fn parse_response(
         TranslationResponseEnvelope::Object(response) => response.translations,
         TranslationResponseEnvelope::Array(members) => members,
     };
+    let mut seen = HashSet::new();
     let mut regions = Vec::new();
-    for (index, value) in values.into_iter().take(candidates.len()).enumerate() {
-        let Ok(translation) = serde_json::from_value::<String>(value) else {
+    for value in values.into_iter().take(MAX_CANDIDATES) {
+        let Ok(response) = serde_json::from_value::<TranslatedSlotResponse>(value) else {
             continue;
         };
-        if let Ok(parsed) = validated_translation(index, &translation, candidates) {
+        if !seen.insert(response.slot) {
+            continue;
+        }
+        if let Ok(parsed) = validated_translation(response, candidates) {
             regions.push(parsed);
         }
     }
@@ -192,23 +213,21 @@ pub(crate) fn parse_response(
 }
 
 pub(crate) fn parse_streamed_translation(
-    index: usize,
     value: &str,
     candidates: &[DetectedTextRegion],
 ) -> Result<(u16, TranslationRegion)> {
-    let translation: String = serde_json::from_str(value)
+    let response: TranslatedSlotResponse = serde_json::from_str(value)
         .context("streamed translation did not match the translation schema")?;
-    let region = validated_translation(index, &translation, candidates)?;
+    let region = validated_translation(response, candidates)?;
     Ok((region.id, region))
 }
 
 fn validated_translation(
-    index: usize,
-    translation: &str,
+    response: TranslatedSlotResponse,
     candidates: &[DetectedTextRegion],
 ) -> Result<TranslationRegion> {
     let candidate = candidates
-        .get(index)
+        .get(response.slot)
         .context("translation references an unknown local slot")?;
     let selection = TranslationSelection {
         region_id: candidate.id,
@@ -216,8 +235,8 @@ fn validated_translation(
         source_text: candidate.source_text.clone(),
         bounds: candidate.bounds,
     };
-    let translation =
-        clean_text(translation, MAX_TEXT_CHARS).context("translation is empty or too long")?;
+    let translation = clean_text(&response.translation, MAX_TEXT_CHARS)
+        .context("translation is empty or too long")?;
     build_region(&[selection], &[], &[translation], candidates)
 }
 
@@ -321,14 +340,19 @@ mod tests {
         assert!(prompt.contains(r#""slot":1"#));
         assert!(prompt.contains(r#""text":"second line""#));
         assert!(prompt.contains(r#""ocrReadings":[]"#));
+        assert!(prompt.contains(r#""slots":[0,1]"#));
+        assert_eq!(prompt.matches(r#""text":"second line""#).count(), 1);
         assert!(!prompt.contains("candidateIds"));
         assert!(!prompt.contains("memberJoins"));
     }
 
     #[test]
     fn member_translations_preserve_exact_local_correspondence() {
-        let parsed =
-            parse_response(r#"{"translations":["dòng một","dòng hai"]}"#, &candidates()).unwrap();
+        let parsed = parse_response(
+            r#"{"translations":[{"slot":1,"translation":"dòng hai"},{"slot":0,"translation":"dòng một"}]}"#,
+            &candidates(),
+        )
+        .unwrap();
         assert_eq!(parsed.regions.len(), 2);
         assert_eq!(parsed.regions[0].member_ids, [1]);
         assert_eq!(parsed.regions[1].translated_segments, ["dòng hai"]);
@@ -348,7 +372,11 @@ mod tests {
 
     #[test]
     fn unknown_member_is_rejected_without_losing_valid_members() {
-        let parsed = parse_response(r#"{"translations":["dòng một",3]}"#, &candidates()).unwrap();
+        let parsed = parse_response(
+            r#"{"translations":[{"slot":0,"translation":"dòng một"},{"slot":99,"translation":"lạ"}]}"#,
+            &candidates(),
+        )
+        .unwrap();
         assert_eq!(parsed.regions.len(), 1);
     }
 }

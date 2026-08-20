@@ -2,8 +2,8 @@
 
 use std::io::{self, Read, Write};
 
-pub const PROTOCOL_VERSION: u16 = 3;
-pub const WORKER_VERSION: &str = "3.1.0";
+pub const PROTOCOL_VERSION: u16 = 4;
+pub const WORKER_VERSION: &str = "3.2.18";
 pub const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_REGIONS: usize = 2_000;
 pub const MAX_REGION_TEXT_BYTES: usize = 2_048;
@@ -41,6 +41,16 @@ pub struct RecognitionAlternative {
     pub confidence: f32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DetectionTimings {
+    pub decode_us: u32,
+    pub locator_us: u32,
+    pub primary_recognition_us: u32,
+    pub specialist_recognition_us: u32,
+    pub composition_us: u32,
+    pub total_us: u32,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClientMessage {
     Hello {
@@ -61,6 +71,7 @@ pub enum ServerMessage {
     Regions {
         image_width: u32,
         image_height: u32,
+        timings: DetectionTimings,
         regions: Vec<DetectedRegion>,
     },
     Ack,
@@ -156,6 +167,7 @@ fn encode_server(message: &ServerMessage) -> io::Result<(u16, Vec<u8>)> {
         ServerMessage::Regions {
             image_width,
             image_height,
+            timings,
             regions,
         } => {
             if *image_width == 0
@@ -169,6 +181,16 @@ fn encode_server(message: &ServerMessage) -> io::Result<(u16, Vec<u8>)> {
             }
             payload.extend_from_slice(&image_width.to_le_bytes());
             payload.extend_from_slice(&image_height.to_le_bytes());
+            for timing in [
+                timings.decode_us,
+                timings.locator_us,
+                timings.primary_recognition_us,
+                timings.specialist_recognition_us,
+                timings.composition_us,
+                timings.total_us,
+            ] {
+                payload.extend_from_slice(&timing.to_le_bytes());
+            }
             payload.extend_from_slice(&(regions.len() as u32).to_le_bytes());
             for region in regions {
                 payload.extend_from_slice(&region.left.to_le_bytes());
@@ -210,6 +232,14 @@ fn decode_server(kind: u16, payload: &[u8]) -> io::Result<ServerMessage> {
         REGIONS => {
             let image_width = cursor.u32()?;
             let image_height = cursor.u32()?;
+            let timings = DetectionTimings {
+                decode_us: cursor.u32()?,
+                locator_us: cursor.u32()?,
+                primary_recognition_us: cursor.u32()?,
+                specialist_recognition_us: cursor.u32()?,
+                composition_us: cursor.u32()?,
+                total_us: cursor.u32()?,
+            };
             let count = cursor.u32()? as usize;
             if image_width == 0 || image_height == 0 || count > MAX_REGIONS {
                 return Err(invalid("detector response exceeds the protocol contract"));
@@ -247,6 +277,7 @@ fn decode_server(kind: u16, payload: &[u8]) -> io::Result<ServerMessage> {
             ServerMessage::Regions {
                 image_width,
                 image_height,
+                timings,
                 regions,
             }
         }
@@ -439,6 +470,14 @@ mod tests {
         let response = ServerMessage::Regions {
             image_width: 100,
             image_height: 80,
+            timings: DetectionTimings {
+                decode_us: 1,
+                locator_us: 2,
+                primary_recognition_us: 3,
+                specialist_recognition_us: 4,
+                composition_us: 5,
+                total_us: 15,
+            },
             regions: vec![DetectedRegion {
                 left: 2,
                 top: 3,
@@ -463,6 +502,7 @@ mod tests {
         let invalid_region = ServerMessage::Regions {
             image_width: 20,
             image_height: 20,
+            timings: DetectionTimings::default(),
             regions: vec![DetectedRegion {
                 left: 10,
                 top: 0,

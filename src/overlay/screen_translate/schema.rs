@@ -9,9 +9,21 @@ pub(super) fn response_schema(member_count: usize, max_text_chars: usize) -> ser
                 "minItems": member_count,
                 "maxItems": member_count,
                 "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": max_text_chars
+                    "type": "object",
+                    "properties": {
+                        "slot": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": member_count - 1
+                        },
+                        "translation": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": max_text_chars
+                        }
+                    },
+                    "required": ["slot", "translation"],
+                    "additionalProperties": false
                 }
             }
         },
