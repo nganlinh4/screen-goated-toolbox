@@ -1,4 +1,4 @@
-use super::contract::{DetectedTextRegion, TranslationDocument};
+use super::super::contract::{DetectedTextRegion, TranslationDocument};
 use crate::overlay::selection::CapturedRegion;
 
 pub(crate) struct RunEvidence;

@@ -54,14 +54,12 @@ mod implementation {
 mod implementation {
     use super::ModelAttemptRecord;
 
-    pub(crate) fn begin_trace(_trace_id: &str) {}
     pub(crate) fn record(_trace_id: &str, _attempt: ModelAttemptRecord) {}
-    pub(crate) fn take(_trace_id: &str) -> Vec<ModelAttemptRecord> {
-        Vec::new()
-    }
 }
 
-pub(super) use implementation::{begin_trace, record, take};
+pub(super) use implementation::record;
+#[cfg(debug_assertions)]
+pub(super) use implementation::{begin_trace, take};
 
 #[cfg(all(test, debug_assertions))]
 mod tests {
