@@ -360,10 +360,23 @@ fn is_retry_candidate_compatible(
         && !model_is_non_llm(&model.id)
         && !blocked_providers.contains(&model.provider)
         && provider_is_available(&model.provider, config)
+        && (must_support_search || !model_requires_search_tool(model))
         && (!must_support_search
             || model.supports_search_override.unwrap_or_else(|| {
                 model_supports_search_by_provider_and_name(&model.provider, &model.full_name)
             }))
+}
+
+fn model_requires_search_tool(model: &ModelConfig) -> bool {
+    #[cfg(not(feature = "recorder-worker"))]
+    {
+        model.search_tool_enabled_by_default
+    }
+    #[cfg(feature = "recorder-worker")]
+    {
+        let _ = model;
+        false
+    }
 }
 
 #[cfg(all(test, not(feature = "recorder-worker")))]

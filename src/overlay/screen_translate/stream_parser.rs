@@ -1,17 +1,15 @@
-use std::collections::HashSet;
-
-use super::contract::{DetectedTextRegion, TranslationRegion, parse_streamed_region};
+use super::contract::{DetectedTextRegion, TranslationRegion, parse_streamed_translation};
 
 pub(crate) struct TranslationStreamParser<'a> {
     candidates: &'a [DetectedTextRegion],
     buffer: String,
     scan: usize,
     array_started: bool,
-    object_start: Option<usize>,
-    depth: usize,
+    element_start: Option<usize>,
+    nested_depth: usize,
     in_string: bool,
     escaped: bool,
-    emitted: HashSet<u16>,
+    next_index: usize,
     rejected: usize,
 }
 
@@ -22,11 +20,11 @@ impl<'a> TranslationStreamParser<'a> {
             buffer: String::new(),
             scan: 0,
             array_started: false,
-            object_start: None,
-            depth: 0,
+            element_start: None,
+            nested_depth: 0,
             in_string: false,
             escaped: false,
-            emitted: HashSet::new(),
+            next_index: 0,
             rejected: 0,
         }
     }
@@ -38,47 +36,34 @@ impl<'a> TranslationStreamParser<'a> {
         } else {
             self.buffer.push_str(chunk);
         }
-        if !self.array_started {
-            if let Some(marker) = self.buffer.find("\"members\"") {
-                let key_end = marker + "\"members\"".len();
-                let Some(offset) = self.buffer[key_end..].find('[') else {
-                    return Vec::new();
-                };
-                self.scan = key_end + offset + 1;
-            } else {
-                let Some(start) = self
-                    .buffer
-                    .char_indices()
-                    .find_map(|(index, character)| (!character.is_whitespace()).then_some(index))
-                else {
-                    return Vec::new();
-                };
-                let remaining = &self.buffer[start..];
-                let array = remaining
-                    .strip_prefix("```")
-                    .map(|fenced| {
-                        let fenced = fenced
-                            .strip_prefix("json")
-                            .or_else(|| fenced.strip_prefix("JSON"))
-                            .unwrap_or(fenced);
-                        self.buffer.len() - fenced.trim_start().len()
-                    })
-                    .or_else(|| remaining.starts_with('[').then_some(start));
-                let Some(array_start) = array else {
-                    return Vec::new();
-                };
-                let Some(offset) = self.buffer[array_start..].find('[') else {
-                    return Vec::new();
-                };
-                self.scan = array_start + offset + 1;
-            }
-            self.array_started = true;
+        if !self.locate_array() {
+            return Vec::new();
         }
 
         let mut completed = Vec::new();
-        let bytes = self.buffer.as_bytes();
-        while self.scan < bytes.len() {
-            let byte = bytes[self.scan];
+        while self.scan < self.buffer.len() {
+            let byte = self.buffer.as_bytes()[self.scan];
+            if self.element_start.is_none() {
+                match byte {
+                    b' ' | b'\t' | b'\r' | b'\n' | b',' => {
+                        self.scan += 1;
+                        continue;
+                    }
+                    b']' => break,
+                    b'"' => {
+                        self.element_start = Some(self.scan);
+                        self.in_string = true;
+                    }
+                    b'{' | b'[' => {
+                        self.element_start = Some(self.scan);
+                        self.nested_depth = 1;
+                    }
+                    _ => self.element_start = Some(self.scan),
+                }
+                self.scan += 1;
+                continue;
+            }
+
             if self.in_string {
                 if self.escaped {
                     self.escaped = false;
@@ -86,42 +71,30 @@ impl<'a> TranslationStreamParser<'a> {
                     self.escaped = true;
                 } else if byte == b'"' {
                     self.in_string = false;
-                }
-            } else {
-                match byte {
-                    b'"' => self.in_string = true,
-                    b'{' => {
-                        if self.depth == 0 {
-                            self.object_start = Some(self.scan);
-                        }
-                        self.depth += 1;
+                    if self.nested_depth == 0 {
+                        self.emit_element(self.scan + 1, &mut completed);
                     }
-                    b'}' if self.depth > 0 => {
-                        self.depth -= 1;
-                        if self.depth == 0 {
-                            let start = self.object_start.take().expect("object start is tracked");
-                            let object = &self.buffer[start..=self.scan];
-                            match parse_streamed_region(object, self.candidates) {
-                                Ok(regions) => {
-                                    for (id, region) in regions {
-                                        if region
-                                            .member_ids
-                                            .iter()
-                                            .all(|member| !self.emitted.contains(member))
-                                        {
-                                            self.emitted.extend(region.member_ids.iter().copied());
-                                            completed.push((id, region));
-                                        } else {
-                                            self.rejected += 1;
-                                        }
-                                    }
-                                }
-                                Err(_) => self.rejected += 1,
-                            }
-                        }
-                    }
-                    _ => {}
                 }
+                self.scan += 1;
+                continue;
+            }
+
+            match byte {
+                b'"' => self.in_string = true,
+                b'{' | b'[' => self.nested_depth += 1,
+                b'}' | b']' if self.nested_depth > 0 => {
+                    self.nested_depth -= 1;
+                    if self.nested_depth == 0 {
+                        self.emit_element(self.scan + 1, &mut completed);
+                    }
+                }
+                b',' | b']' if self.nested_depth == 0 => {
+                    self.emit_element(self.scan, &mut completed);
+                    if byte == b']' {
+                        break;
+                    }
+                }
+                _ => {}
             }
             self.scan += 1;
         }
@@ -132,17 +105,75 @@ impl<'a> TranslationStreamParser<'a> {
         self.rejected
     }
 
+    fn locate_array(&mut self) -> bool {
+        if self.array_started {
+            return true;
+        }
+        let array_start = if let Some(marker) = self.buffer.find("\"translations\"") {
+            let key_end = marker + "\"translations\"".len();
+            self.buffer[key_end..]
+                .find('[')
+                .map(|offset| key_end + offset)
+        } else {
+            first_top_level_array(&self.buffer)
+        };
+        let Some(array_start) = array_start else {
+            return false;
+        };
+        self.scan = array_start + 1;
+        self.array_started = true;
+        true
+    }
+
+    fn emit_element(&mut self, end: usize, completed: &mut Vec<(u16, TranslationRegion)>) {
+        let Some(start) = self.element_start.take() else {
+            return;
+        };
+        let value = self.buffer[start..end].trim();
+        if value.is_empty() {
+            return;
+        }
+        match parse_streamed_translation(self.next_index, value, self.candidates) {
+            Ok(region) => completed.push(region),
+            Err(_) => self.rejected += 1,
+        }
+        self.next_index += 1;
+        self.nested_depth = 0;
+        self.in_string = false;
+        self.escaped = false;
+    }
+
     fn reset(&mut self) {
         self.buffer.clear();
         self.scan = 0;
         self.array_started = false;
-        self.object_start = None;
-        self.depth = 0;
+        self.element_start = None;
+        self.nested_depth = 0;
         self.in_string = false;
         self.escaped = false;
-        self.emitted.clear();
+        self.next_index = 0;
         self.rejected = 0;
     }
+}
+
+fn first_top_level_array(buffer: &str) -> Option<usize> {
+    let start = buffer
+        .char_indices()
+        .find_map(|(index, character)| (!character.is_whitespace()).then_some(index))?;
+    let remaining = &buffer[start..];
+    if remaining.starts_with('[') {
+        return Some(start);
+    }
+    let fenced = remaining.strip_prefix("```")?;
+    let fenced = fenced
+        .strip_prefix("json")
+        .or_else(|| fenced.strip_prefix("JSON"))
+        .unwrap_or(fenced);
+    let leading = fenced.len() - fenced.trim_start().len();
+    let array = fenced.trim_start();
+    array
+        .starts_with('[')
+        .then_some(buffer.len() - fenced.len() + leading)
 }
 
 #[cfg(test)]
@@ -151,56 +182,50 @@ mod tests {
     use crate::overlay::screen_translate::contract::NormalizedBounds;
 
     fn candidates() -> Vec<DetectedTextRegion> {
-        vec![DetectedTextRegion {
-            id: 7,
-            bounds: NormalizedBounds {
-                left: 1,
-                top: 2,
-                right: 3,
-                bottom: 4,
-            },
-            source_text: "clear text".to_string(),
-            source_alternatives: vec!["clear text".to_string(), "alternate".to_string()],
-            recognition: Default::default(),
-            appearance: None,
-        }]
+        (7..=8)
+            .map(|id| DetectedTextRegion {
+                id,
+                bounds: NormalizedBounds {
+                    left: 1,
+                    top: id * 10,
+                    right: 30,
+                    bottom: id * 10 + 4,
+                },
+                source_text: format!("source {id}"),
+                source_alternatives: vec![format!("source {id}")],
+                recognition: Default::default(),
+                appearance: None,
+            })
+            .collect()
     }
 
     #[test]
-    fn emits_a_region_as_soon_as_its_object_closes() {
+    fn emits_a_translation_as_soon_as_its_string_closes() {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
-        assert!(parser.push("{\"mem").is_empty());
-        let regions = parser.push("bers\":[{\"memberId\":7,\"translation\":\"done\"},");
+        assert!(parser.push("{\"trans").is_empty());
+        let regions = parser.push("lations\":[\"first\"");
         assert_eq!(regions.len(), 1);
-        assert_eq!(regions[0].1.source_text, "clear text");
-        assert!(parser.push("]}").is_empty());
+        assert_eq!(regions[0].0, 7);
+        assert_eq!(regions[0].1.translated_segments, ["first"]);
     }
 
     #[test]
-    fn malformed_region_is_skipped_without_blocking_later_regions() {
+    fn malformed_slot_keeps_the_later_positional_mapping() {
         let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
-        let regions = parser.push(
-            "{\"members\":[{\"memberId\":7,\"translation\":3},{\"memberId\":7,\"translation\":\"good\"}]}",
-        );
-
+        let regions = parser.push(r#"{"translations":[3,"second"]}"#);
         assert_eq!(parser.rejected_count(), 1);
         assert_eq!(regions.len(), 1);
-        assert_eq!(regions[0].1.translated_segments, ["good"]);
+        assert_eq!(regions[0].0, 8);
+        assert_eq!(regions[0].1.translated_segments, ["second"]);
     }
 
     #[test]
-    fn emits_regions_from_an_equivalent_top_level_array() {
-        let mut candidates = candidates();
-        let mut second = candidates[0].clone();
-        second.id = 8;
-        second.bounds = [100, 100, 120, 200].into();
-        candidates.push(second);
+    fn emits_translations_from_an_equivalent_top_level_array() {
+        let candidates = candidates();
         let mut parser = TranslationStreamParser::new(&candidates);
-        let emitted = parser.push(
-            r#"[{"memberId":7,"translation":"first"},{"memberId":8,"translation":"second"}]"#,
-        );
+        let emitted = parser.push(r#"["first","second"]"#);
         assert_eq!(
             emitted
                 .iter()

@@ -72,6 +72,13 @@
     .region:hover .details { display: block; }
     .details .meta { color: var(--muted); }
     .details .comments { margin-top: 6px; padding-top: 5px; border-top: 1px solid #34383e; }
+    .point-comment { position: absolute; z-index: 900; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 2px solid #111316; border-radius: 50%; background: var(--accent); box-shadow: 0 1px 5px #000b; cursor: help; }
+    .point-comment:hover, .point-comment:focus { z-index: 1100; }
+    .point-comment span { display: none; position: absolute; left: 22px; top: -5px; width: max-content; max-width: min(360px, 70vw); padding: 7px 9px; border: 1px solid var(--accent); border-radius: 5px; background: #0e1012; box-shadow: 0 8px 28px #000c; color: #eef0f2; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+    .point-comment:hover span, .point-comment:focus span { display: block; }
+    dialog { width: min(390px, calc(100vw - 32px)); padding: 14px; border: 1px solid #555d67; border-radius: 8px; background: var(--panel); color: #eef0f2; box-shadow: 0 18px 55px #000c; }
+    dialog::backdrop { background: #0008; }
+    dialog h2 { margin-bottom: 10px; }
     @media (max-width: 760px) {
       .workspace { grid-template-columns: 200px minmax(0, 1fr); }
       #case-summary { display: none; }
@@ -138,6 +145,13 @@
     </aside>
     <main><div id="viewport"><div id="canvas"><img id="source" alt="Detector source"></div></div></main>
   </div>
+  <dialog id="point-dialog">
+    <form method="dialog">
+      <h2>Comment at this point</h2>
+      <textarea id="point-comment" placeholder="What should be checked here?"></textarea>
+      <div class="save-row"><button id="save-point-comment" value="save">Save</button><button value="cancel">Cancel</button></div>
+    </form>
+  </dialog>
   <script src="viewer-data.js"></script>
   <script>
     const cases = window.DETECTOR_CASES || [];
@@ -147,6 +161,7 @@
     let activeComments = [];
     let activeRegions = [];
     let selectedRegion = null;
+    let selectedPoint = null;
     let scale = 1;
     let offsetX = 0;
     let offsetY = 0;
@@ -181,10 +196,16 @@
       const pipelineMs = timings.reduce((latest, timing) => Math.max(latest, timing.elapsedMs || 0), 0);
       const regions = record?.regions?.length ?? '—';
       const rendered = record?.renderedRegionCount ?? '—';
-      const model = record?.configuredModel || 'unknown model';
+      const attempts = record?.modelAttempts || [];
+      const model = attempts.length
+        ? attempts.map(attempt => {
+            const contribution = attempt.acceptedRegionCount > 0 ? ` +${attempt.acceptedRegionCount}` : '';
+            return `${attempt.provider}/${attempt.apiModel}${contribution}`;
+          }).join(' → ')
+        : `${record?.configuredModel || 'unknown model'} (legacy record)`;
       const target = record?.targetLanguage || 'unknown target';
       const total = Number.isFinite(elapsedMs) ? elapsedMs : pipelineMs;
-      return `Last production · ${duration(total)} total · ${duration(phaseTime(record, 'detector_complete'))} detect · ${duration(phaseTime(record, 'first_painted'))} first paint · ${duration(phaseTime(record, 'translation_complete'))} translate · ${rendered}/${regions} rendered · ${target} · ${model}`;
+      return `Last production · ${duration(total)} total · ${duration(phaseTime(record, 'detector_complete'))} detect · ${duration(phaseTime(record, 'first_painted'))} first paint · ${duration(phaseTime(record, 'translation_complete'))} translate · ${rendered}/${regions} rendered · ${target} · ran: ${model}`;
     }
 
     function applyTransform() {
@@ -196,8 +217,14 @@
           child.style.transform = `scale(${inverse})`;
           child.style.transformOrigin = 'left top';
         }
-        region.querySelector('.badge').style.top = region.classList.contains('near-top') ? '0' : `${-18 * inverse}px`;
-        region.querySelector('.details').style.top = `${20 * inverse}px`;
+        const badge = region.querySelector('.badge');
+        const details = region.querySelector('.details');
+        if (badge) badge.style.top = region.classList.contains('near-top') ? '0' : `${-18 * inverse}px`;
+        if (details) details.style.top = `${20 * inverse}px`;
+      });
+      ui.canvas.querySelectorAll('.point-comment').forEach(point => {
+        point.style.transform = `scale(${inverse})`;
+        point.style.transformOrigin = 'center';
       });
     }
 
@@ -213,6 +240,23 @@
       activeComments = response.ok ? await response.json() : [];
       const notes = activeComments.filter(comment => comment.scope === 'image');
       ui['image-notes'].innerHTML = notes.map(comment => `<div class="note">${escapeHtml(comment.text)}</div>`).join('');
+      renderPointComments();
+    }
+
+    function renderPointComments() {
+      ui.canvas.querySelectorAll('.point-comment').forEach(node => node.remove());
+      activeComments.filter(comment => comment.scope === 'point').forEach((comment, index) => {
+        const node = document.createElement('div');
+        node.className = 'point-comment';
+        node.tabIndex = 0;
+        node.setAttribute('aria-label', `Point comment ${index + 1}: ${comment.text}`);
+        node.style.left = `${comment.x * 100}%`;
+        node.style.top = `${comment.y * 100}%`;
+        node.innerHTML = `<span>${escapeHtml(comment.text)}</span>`;
+        node.addEventListener('pointerdown', event => event.stopPropagation());
+        ui.canvas.appendChild(node);
+      });
+      applyTransform();
     }
 
     async function showCase(index) {
@@ -419,20 +463,36 @@
 
     async function saveComment(scope) {
       const item = cases[activeCaseIndex];
-      const input = scope === 'image' ? ui['image-comment'] : ui['region-comment'];
+      const input = scope === 'image'
+        ? ui['image-comment']
+        : scope === 'point' ? ui['point-comment'] : ui['region-comment'];
       const text = input.value.trim();
       if (!text || !item || (scope === 'region' && !selectedRegion)) return;
       const body = { case: item.name, scope, text };
       if (scope === 'region') body.regionKey = selectedRegion.key;
+      if (scope === 'point') Object.assign(body, selectedPoint);
       const response = await fetch('/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!response.ok) {
         ui.status.textContent = 'Comment could not be saved';
-        return;
+        return false;
       }
       input.value = '';
       await loadComments(item.name);
       renderRegions(item, activeRegions);
       if (scope === 'region') ui['region-editor'].hidden = true;
+      if (scope === 'point') selectedPoint = null;
+      return true;
+    }
+
+    function openPointComment(event) {
+      const bounds = ui.canvas.getBoundingClientRect();
+      const x = (event.clientX - bounds.left) / bounds.width;
+      const y = (event.clientY - bounds.top) / bounds.height;
+      if (x < 0 || x > 1 || y < 0 || y > 1) return;
+      selectedPoint = { x, y };
+      ui['point-comment'].value = '';
+      ui['point-dialog'].showModal();
+      ui['point-comment'].focus();
     }
 
     cases.forEach((item, index) => {
@@ -449,6 +509,11 @@
     ui['show-rejected'].addEventListener('change', () => renderRegions(cases[activeCaseIndex], activeRegions));
     ui['save-image-comment'].addEventListener('click', () => saveComment('image'));
     ui['save-region-comment'].addEventListener('click', () => saveComment('region'));
+    ui['save-point-comment'].addEventListener('click', event => {
+      event.preventDefault();
+      saveComment('point').then(saved => { if (saved) ui['point-dialog'].close(); });
+    });
+    ui['point-dialog'].addEventListener('close', () => { selectedPoint = null; });
     ui['cancel-region-comment'].addEventListener('click', () => { selectedRegion = null; ui['region-editor'].hidden = true; });
     ui['run-production'].addEventListener('click', () => runProductionPreview('full'));
     ui['rerender-production'].addEventListener('click', () => runProductionPreview('rerender'));
@@ -472,22 +537,25 @@
     }, { passive: false });
     ui.viewport.addEventListener('pointerdown', event => {
       if (event.button !== 0 || event.target.closest('.region')) return;
-      drag = { x: event.clientX, y: event.clientY, offsetX, offsetY };
+      drag = { x: event.clientX, y: event.clientY, offsetX, offsetY, moved: false };
       ui.viewport.setPointerCapture(event.pointerId);
       ui.viewport.classList.add('dragging');
       event.preventDefault();
     });
     ui.viewport.addEventListener('pointermove', event => {
       if (!drag) return;
+      if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 4) drag.moved = true;
       offsetX = drag.offsetX + event.clientX - drag.x;
       offsetY = drag.offsetY + event.clientY - drag.y;
       applyTransform();
     });
     function endDrag(event) {
       if (!drag) return;
+      const completed = drag;
       drag = null;
       ui.viewport.classList.remove('dragging');
       if (ui.viewport.hasPointerCapture(event.pointerId)) ui.viewport.releasePointerCapture(event.pointerId);
+      if (event.type === 'pointerup' && !completed.moved) openPointComment(event);
     }
     ui.viewport.addEventListener('pointerup', endDrag);
     ui.viewport.addEventListener('pointercancel', endDrag);

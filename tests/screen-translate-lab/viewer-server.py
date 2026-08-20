@@ -257,13 +257,26 @@ class ViewerHandler(SimpleHTTPRequestHandler):
             region = request.get("region")
             region_key = request.get("regionKey")
             text = request.get("text", "").strip()
-            if scope not in ("image", "region") or not text or len(text) > 4000:
-                raise ValueError("Invalid comment")
+            if scope not in ("image", "region", "point"):
+                raise ValueError("Invalid comment scope")
+            if not text or len(text) > 4000:
+                raise ValueError("Invalid comment text")
             if scope == "region":
                 valid_region = isinstance(region, int) and region >= 1
                 valid_key = isinstance(region_key, str) and re.fullmatch(r"[A-Za-z0-9-]{1,80}", region_key)
                 if not valid_region and not valid_key:
                     raise ValueError("Invalid region comment")
+            point_x = request.get("x")
+            point_y = request.get("y")
+            if scope == "point" and not (
+                isinstance(point_x, (int, float))
+                and not isinstance(point_x, bool)
+                and isinstance(point_y, (int, float))
+                and not isinstance(point_y, bool)
+                and 0 <= point_x <= 1
+                and 0 <= point_y <= 1
+            ):
+                raise ValueError("Invalid point comment")
             directory = case_directory(name)
             if scope == "region" and region_key is None:
                 regions = json.loads((directory / "detector-raw.json").read_text(encoding="utf-8"))
@@ -279,6 +292,9 @@ class ViewerHandler(SimpleHTTPRequestHandler):
                         comment["regionKey"] = region_key
                     else:
                         comment["region"] = region
+                elif scope == "point":
+                    comment["x"] = point_x
+                    comment["y"] = point_y
                 comments.append(comment)
                 temporary.write_text(
                     json.dumps(comments, ensure_ascii=False, indent=2),
