@@ -2,7 +2,9 @@
 > since been removed as ineffective, and the OCR rows below were measured through
 > a request shape that no longer exists. Latency, reliability, the text and
 > coordinate suites and every chain order still stand; the OCR accuracy figures do
-> not. See "Amendment" at the end.
+> not; they were re-measured in
+> [`RESULTS-2026-08-20-PROTOCOL11-OCR.md`](RESULTS-2026-08-20-PROTOCOL11-OCR.md).
+> See "Amendment" at the end.
 
 # Catalog benchmark — 2026-08-19 (protocol 10)
 

@@ -436,12 +436,12 @@
       "reference": "The Sun.\nSTATE COMMITTEE AVOIDS ACTING ON THE SOCIALISTS, SWEET DEFENDS ASSEMBLY\nGERMAN PEACE IS RATIFIED; ENTENTE POWERS ALL SIGN, ONLY U. S. \"NOW AT WAR\""
     },
     {
-      "id": "ocr-06-perspective-diacritics",
+      "id": "ocr-12-near-duplicate-filenames",
       "difficulty": 2,
-      "image": "images/ocr/06-perspective-sign.jpg",
-      "input_mode": "original-file",
-      "instruction": "Transcribe the two white text lines on the red sign, preserving Czech diacritics. Output ONLY those two lines.",
-      "reference": "DOBŘÍŠSKÁ\nPŘÍBRAM II"
+      "image": "images/ocr/12-near-duplicate-filenames.png",
+      "input_mode": "screen-crop-png",
+      "instruction": "Transcribe both file names exactly as they appear, left to right, one per line. Output ONLY the text.",
+      "reference": "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png"
     },
     {
       "id": "ocr-07-tiny-status-bar",
@@ -471,7 +471,7 @@
       "id": "ocr-11-directory-listing",
       "difficulty": 10,
       "image": "images/ocr/11-directory-listing.png",
-      "input_mode": "screen-crop-png",
+      "input_mode": "original-file",
       "instruction": "Transcribe every line of this terminal output exactly as it appears, in order. Output ONLY the text.",
       "reference": "C:\\Temp> dir\n Volume in drive C is C\n Volume Serial Number is 74F5-B93C\n\n Directory of C:\\Temp\n\n2009-08-25  11:59    <DIR>          .\n2009-08-25  11:59    <DIR>          ..\n2007-03-01  11:37         2,321,600 AdobeUpdater12345.exe\n2009-04-03  10:01            27,988 dd_depcheckdotnetfx30.txt\n2009-04-03  10:01               764 dd_dotnetfx3error.txt\n2009-04-03  10:01            32,572 dd_dotnetfx3install.txt\n2009-06-09  13:46            35,145 GenProfile.log\n2009-08-05  12:11               155 KB969856.log\n2009-04-20  08:37               402 MSI29e0b.LOG\n2009-04-09  16:34            38,895 offcln11.log\n2009-04-03  16:02    <DIR>          OfficePatches\n2009-07-14  14:30    <DIR>          OHotfix\n2009-08-25  10:52            16,384 Perflib_Perfdata_c30.dat\n2009-04-03  10:01             1,744 uxeventlog.txt\n2009-08-25  11:42        50,245,632 WFV2F.tmp\n2009-04-20  10:07             1,397 {AC76BA86-7AD7-1033-7B44-A81200000003}.ini\n2009-04-20  10:13               617 {AC76BA86-7AD7-1033-7B44-A81300000003}.ini\n              13 File(s)     52,723,295 bytes\n               4 Dir(s)  83,570,208,768 bytes free"
     }
