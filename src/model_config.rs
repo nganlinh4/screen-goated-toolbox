@@ -229,6 +229,7 @@ pub fn provider_full_name(provider: &str) -> &str {
         "google-gtx" => "Google Translate",
         "groq" => "Groq",
         "openrouter" => "OpenRouter",
+        "nvidia" => "NVIDIA",
         "ollama" => "Ollama",
         "qrserver" => "QR",
         "parakeet" => "Parakeet",

@@ -15,6 +15,9 @@ pub enum Provider {
     GoogleGtx,
     OpenRouter,
     Groq,
+    /// NVIDIA NIM. OpenAI-compatible, and it takes the flat `reasoning_effort`
+    /// field rather than OpenRouter's nested shape.
+    Nvidia,
     Taalas,
     Ollama,
     /// Free QR-code rendering service used by the vision image payload path.
@@ -31,6 +34,7 @@ impl Provider {
             "google-gtx" => Self::GoogleGtx,
             "openrouter" => Self::OpenRouter,
             "groq" => Self::Groq,
+            "nvidia" => Self::Nvidia,
             "taalas" => Self::Taalas,
             "ollama" => Self::Ollama,
             "qrserver" => Self::Qrserver,

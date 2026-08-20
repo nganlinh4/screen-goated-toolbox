@@ -9,6 +9,7 @@ PROVIDER_NAME_PREFIXES = {
     "gemini-live": "GG",
     "groq": "G",
     "openrouter": "O",
+    "nvidia": "N",
     "taalas": "T",
     "parakeet": "L",
     "qwen3": "L",
@@ -21,6 +22,7 @@ PROVIDER_ID_PREFIXES = {
     "gemini-live": "google-",
     "groq": "groq-",
     "openrouter": "openrouter-",
+    "nvidia": "nvidia-",
     "taalas": "taalas-",
     "parakeet": "local-",
     "qwen3": "local-",
@@ -72,7 +74,7 @@ def _validate_vision_request_profiles(manifest: dict) -> None:
         if (
             model["enabled"]
             and model["model_type"] == "Vision"
-            and model["provider"] in {"google", "groq", "openrouter"}
+            and model["provider"] in {"google", "groq", "openrouter", "nvidia"}
         )
     }
     request_profiles = manifest.get("vision_request_profiles")
@@ -246,7 +248,7 @@ def _validate_model_id(model: dict) -> None:
     if (
         re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", model_id) is None
         or segments[0] not in {
-            "google", "groq", "openrouter", "taalas", "qrserver", "local",
+            "google", "groq", "openrouter", "nvidia", "taalas", "qrserver", "local",
         }
         or segments[-1] not in {"text", "vision", "audio", "search"}
         or lifecycle_words.intersection(segments)
@@ -318,7 +320,7 @@ def _validate_reasoning_policy(model_id: str, provider: str, profile: dict) -> N
         compatible = policy in {"gemini-disabled", "gemini-minimal", "gemini-low"}
     elif provider == "gemini-live":
         compatible = policy == "live-profile"
-    elif provider in {"groq", "openrouter"}:
+    elif provider in {"groq", "openrouter", "nvidia"}:
         compatible = policy in {
             "not-applicable",
             "openai-none",

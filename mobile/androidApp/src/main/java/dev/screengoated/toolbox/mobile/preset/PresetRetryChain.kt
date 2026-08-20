@@ -67,6 +67,8 @@ internal fun providerIsAvailable(
     -> settings.providerSettings.useGemini && apiKeys.geminiKey.isNotBlank()
     PresetModelProvider.OPENROUTER ->
         settings.providerSettings.useOpenRouter && apiKeys.openRouterKey.isNotBlank()
+    PresetModelProvider.NVIDIA ->
+        settings.providerSettings.useNvidia && apiKeys.nvidiaKey.isNotBlank()
     PresetModelProvider.OLLAMA ->
         settings.providerSettings.useOllama && apiKeys.ollamaBaseUrl.isNotBlank()
     PresetModelProvider.GOOGLE_GTX,
@@ -106,6 +108,8 @@ internal fun preflightSkipReason(
             }
             PresetModelProvider.OPENROUTER ->
                 if (!settings.providerSettings.useOpenRouter) "PROVIDER_DISABLED:openrouter" else "NO_API_KEY:openrouter"
+            PresetModelProvider.NVIDIA ->
+                if (!settings.providerSettings.useNvidia) "PROVIDER_DISABLED:nvidia" else "NO_API_KEY:nvidia"
             PresetModelProvider.OLLAMA ->
                 if (!settings.providerSettings.useOllama) "PROVIDER_DISABLED:ollama" else "OLLAMA_URL_MISSING"
             else -> null

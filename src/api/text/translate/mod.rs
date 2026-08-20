@@ -6,7 +6,7 @@ mod providers;
 
 use crate::api::providers::Provider;
 use anyhow::Result;
-use providers::{translate_gemini, translate_openrouter, translate_taalas};
+use providers::{translate_gemini, translate_nvidia, translate_openrouter, translate_taalas};
 use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Duration;
 
@@ -75,6 +75,21 @@ where
         .unwrap_or_default();
     let openrouter_api_key =
         crate::api::provider_credentials::resolve("OPENROUTER_API_KEY", &saved_openrouter_api_key);
+
+    let saved_nvidia_api_key = crate::APP
+        .lock()
+        .ok()
+        .and_then(|app| {
+            let config = app.config.clone();
+            if config.nvidia_api_key.is_empty() {
+                None
+            } else {
+                Some(config.nvidia_api_key.clone())
+            }
+        })
+        .unwrap_or_default();
+    let nvidia_api_key =
+        crate::api::provider_credentials::resolve("NVIDIA_API_KEY", &saved_nvidia_api_key);
 
     let full_content;
     let prompt = format!("{}\n\n{}", instruction, text);
@@ -182,6 +197,17 @@ where
             // --- GEMINI TEXT API ---
             full_content = translate_gemini(
                 gemini_api_key,
+                &model,
+                &prompt,
+                response_schema,
+                transport,
+                &mut on_chunk,
+            )?;
+        }
+        Some(Provider::Nvidia) => {
+            // --- NVIDIA NIM API ---
+            full_content = translate_nvidia(
+                &nvidia_api_key,
                 &model,
                 &prompt,
                 response_schema,

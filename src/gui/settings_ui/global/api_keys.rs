@@ -65,6 +65,7 @@ pub(super) struct ApiKeyVisibility<'a> {
     pub(super) groq: &'a mut bool,
     pub(super) gemini: &'a mut bool,
     pub(super) openrouter: &'a mut bool,
+    pub(super) nvidia: &'a mut bool,
 }
 
 pub(super) struct ApiKeyCardStyle {
@@ -83,6 +84,7 @@ pub(super) fn render_api_keys_card(
         groq,
         gemini,
         openrouter,
+        nvidia,
     } = visibility;
     let mut changed = false;
     egui::Frame::new()
@@ -122,6 +124,15 @@ pub(super) fn render_api_keys_card(
                     .checkbox(
                         &mut config.use_openrouter,
                         text.preset_basics.use_openrouter_checkbox,
+                    )
+                    .changed()
+                {
+                    changed = true;
+                }
+                if ui
+                    .checkbox(
+                        &mut config.use_nvidia,
+                        text.preset_basics.use_nvidia_checkbox,
                     )
                     .changed()
                 {
@@ -177,6 +188,23 @@ pub(super) fn render_api_keys_card(
                     "settings_api_key_openrouter",
                     &mut config.openrouter_api_key,
                     openrouter,
+                ) {
+                    changed = true;
+                }
+            }
+
+            if config.use_nvidia {
+                ui.horizontal(|ui| {
+                    ui.label(text.preset_basics.nvidia_api_key_label);
+                    if ui.link(text.preset_basics.nvidia_get_key_link).clicked() {
+                        let _ = open::that("https://build.nvidia.com/settings/api-keys");
+                    }
+                });
+                if secret_row(
+                    ui,
+                    "settings_api_key_nvidia",
+                    &mut config.nvidia_api_key,
+                    nvidia,
                 ) {
                     changed = true;
                 }

@@ -36,6 +36,7 @@ pub fn render_global_settings(
     show_api_key: &mut bool,
     show_gemini_api_key: &mut bool,
     show_openrouter_api_key: &mut bool,
+    show_nvidia_api_key: &mut bool,
     usage_stats: &crate::usage_stats::UsageStore,
     updater: &Option<Updater>,
     update_status: &UpdateStatus,
@@ -68,6 +69,7 @@ pub fn render_global_settings(
             groq: show_api_key,
             gemini: show_gemini_api_key,
             openrouter: show_openrouter_api_key,
+            nvidia: show_nvidia_api_key,
         },
         text,
         ApiKeyCardStyle {

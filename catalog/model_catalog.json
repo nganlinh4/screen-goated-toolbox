@@ -105,6 +105,31 @@
       "lifecycle": "stable",
       "replacement": null,
       "verified_at": "2026-08-19"
+    },
+    "nvidia/nemotron-3.5-lightning-30b-a3b": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-08-20"
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-08-20"
+    },
+    "nvidia/nemotron-3-super-120b-a12b": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-08-20"
+    },
+    "openai/gpt-oss-120b": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-08-20"
+    },
+    "openai/gpt-oss-20b": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-08-20"
     }
   },
   "defaults": {
@@ -134,6 +159,7 @@
     "use_groq": true,
     "use_gemini": true,
     "use_openrouter": true,
+    "use_nvidia": true,
     "use_ollama": false
   },
   "priority_chains": {
@@ -780,6 +806,66 @@
       "supports_search": false,
       "search_tool_enabled_by_default": false,
       "reasoning_policy": "openai-low"
+    },
+    "nvidia:nvidia/nemotron-3.5-lightning-30b-a3b": {
+      "name_vi": "N Nhanh",
+      "name_ko": "N 빠름",
+      "name_en": "N Fast",
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited",
+      "intelligence_tier": 4,
+      "supports_search": false,
+      "search_tool_enabled_by_default": false,
+      "reasoning_policy": "openai-none"
+    },
+    "nvidia:nvidia/nemotron-3-nano-30b-a3b": {
+      "name_vi": "N Gọn",
+      "name_ko": "N 소형",
+      "name_en": "N Compact",
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited",
+      "intelligence_tier": 4,
+      "supports_search": false,
+      "search_tool_enabled_by_default": false,
+      "reasoning_policy": "openai-none"
+    },
+    "nvidia:nvidia/nemotron-3-super-120b-a12b": {
+      "name_vi": "N Mạnh",
+      "name_ko": "N 강함",
+      "name_en": "N Strong",
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited",
+      "intelligence_tier": 5,
+      "supports_search": false,
+      "search_tool_enabled_by_default": false,
+      "reasoning_policy": "openai-none"
+    },
+    "nvidia:openai/gpt-oss-120b": {
+      "name_vi": "N GPT Lớn",
+      "name_ko": "N GPT 대형",
+      "name_en": "N GPT Large",
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited",
+      "intelligence_tier": 5,
+      "supports_search": false,
+      "search_tool_enabled_by_default": false,
+      "reasoning_policy": "openai-low"
+    },
+    "nvidia:openai/gpt-oss-20b": {
+      "name_vi": "N GPT Nhỏ",
+      "name_ko": "N GPT 소형",
+      "name_en": "N GPT Small",
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited",
+      "intelligence_tier": 4,
+      "supports_search": false,
+      "search_tool_enabled_by_default": false,
+      "reasoning_policy": "openai-low"
     }
   },
   "models": [
@@ -1315,6 +1401,51 @@
       "enabled": true,
       "typical_latency_ms": 5560,
       "performance_source": "probe-2026-08-20:reasoning-control-audit"
+    },
+    {
+      "id": "nvidia-nemotron-3-5-lightning-text",
+      "provider": "nvidia",
+      "full_name": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 520,
+      "performance_source": "probe-2026-08-20:nvidia-corpus"
+    },
+    {
+      "id": "nvidia-nemotron-3-nano-30b-text",
+      "provider": "nvidia",
+      "full_name": "nvidia/nemotron-3-nano-30b-a3b",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 480,
+      "performance_source": "probe-2026-08-20:nvidia-corpus"
+    },
+    {
+      "id": "nvidia-nemotron-3-super-120b-text",
+      "provider": "nvidia",
+      "full_name": "nvidia/nemotron-3-super-120b-a12b",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 560,
+      "performance_source": "probe-2026-08-20:nvidia-corpus"
+    },
+    {
+      "id": "nvidia-gpt-oss-120b-text",
+      "provider": "nvidia",
+      "full_name": "openai/gpt-oss-120b",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 840,
+      "performance_source": "probe-2026-08-20:nvidia-corpus"
+    },
+    {
+      "id": "nvidia-gpt-oss-20b-text",
+      "provider": "nvidia",
+      "full_name": "openai/gpt-oss-20b",
+      "model_type": "Text",
+      "enabled": true,
+      "typical_latency_ms": 750,
+      "performance_source": "probe-2026-08-20:nvidia-corpus"
     }
   ]
 }

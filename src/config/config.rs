@@ -33,6 +33,10 @@ fn default_use_openrouter() -> bool {
     crate::model_config::DEFAULT_USE_OPENROUTER
 }
 
+fn default_use_nvidia() -> bool {
+    crate::model_config::DEFAULT_USE_NVIDIA
+}
+
 fn default_use_ollama() -> bool {
     crate::model_config::DEFAULT_USE_OLLAMA
 }
@@ -175,6 +179,8 @@ pub struct Config {
     /// OpenRouter API key
     #[serde(default)]
     pub openrouter_api_key: String,
+    #[serde(default)]
+    pub nvidia_api_key: String,
 
     // -------------------------------------------------------------------------
     // Presets
@@ -278,6 +284,10 @@ pub struct Config {
     /// Enable OpenRouter models
     #[serde(default = "default_use_openrouter")]
     pub use_openrouter: bool,
+
+    /// Enable NVIDIA NIM models
+    #[serde(default = "default_use_nvidia")]
+    pub use_nvidia: bool,
 
     /// Enable local Ollama models
     #[serde(default = "default_use_ollama")]
@@ -479,6 +489,7 @@ impl Default for Config {
             api_key: String::new(),
             gemini_api_key: String::new(),
             openrouter_api_key: String::new(),
+            nvidia_api_key: String::new(),
 
             // Presets - use the centralized ordered list
             presets: get_default_presets(),
@@ -510,6 +521,7 @@ impl Default for Config {
             use_groq: crate::model_config::DEFAULT_USE_GROQ,
             use_gemini: crate::model_config::DEFAULT_USE_GEMINI,
             use_openrouter: crate::model_config::DEFAULT_USE_OPENROUTER,
+            use_nvidia: crate::model_config::DEFAULT_USE_NVIDIA,
             use_ollama: crate::model_config::DEFAULT_USE_OLLAMA,
             model_priority_chains: ModelPriorityChains::default(),
 

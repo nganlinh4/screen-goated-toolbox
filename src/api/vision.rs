@@ -75,6 +75,49 @@ fn groq_vision_payload(
     payload
 }
 
+/// NVIDIA NIM vision payload. OpenAI-compatible like OpenRouter, but it takes the
+/// flat `reasoning_effort` field rather than the nested `reasoning` object.
+fn nvidia_vision_payload(
+    model: &str,
+    prompt: &str,
+    mime_type: &str,
+    b64_image: &str,
+    streaming: bool,
+    response_schema: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let profile = crate::model_config::vision_request_profile("nvidia", model);
+    let content = request_policy::openai_content(profile, prompt, mime_type, b64_image);
+    let mut payload = serde_json::json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": content }],
+        "stream": streaming
+    });
+    if let Some(limit) = profile.max_output_tokens {
+        payload["max_completion_tokens"] = limit.into();
+    }
+    if let Some(schema) = response_schema {
+        match profile.structured_output {
+            crate::model_config::StructuredOutputPolicy::JsonObject => {
+                payload["response_format"] = serde_json::json!({ "type": "json_object" });
+            }
+            crate::model_config::StructuredOutputPolicy::StrictJsonSchema => {
+                payload["response_format"] = serde_json::json!({
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "image_result",
+                        "strict": true,
+                        "schema": schema
+                    }
+                });
+            }
+            crate::model_config::StructuredOutputPolicy::Unsupported
+            | crate::model_config::StructuredOutputPolicy::PromptOnly => {}
+        }
+    }
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "nvidia", model);
+    payload
+}
+
 fn openrouter_vision_payload(
     model: &str,
     prompt: &str,
@@ -232,6 +275,13 @@ where
         .unwrap_or_default();
     let openrouter_api_key =
         super::provider_credentials::resolve("OPENROUTER_API_KEY", &saved_openrouter_key);
+
+    let saved_nvidia_key = crate::APP
+        .lock()
+        .ok()
+        .map(|app| app.config.nvidia_api_key.clone())
+        .unwrap_or_default();
+    let nvidia_api_key = super::provider_credentials::resolve("NVIDIA_API_KEY", &saved_nvidia_key);
 
     let prepare_started = Instant::now();
     let prepared_image = prepare_image_payload(
@@ -405,6 +455,44 @@ where
                 media_resolution: request_policy::media_resolution(profile),
                 retry_observer: Some(&mut retry_observer),
             },
+            on_chunk,
+        )?;
+    } else if Provider::from_wire(&provider) == Some(Provider::Nvidia) {
+        // --- NVIDIA NIM API ---
+        if nvidia_api_key.trim().is_empty() {
+            return Err(anyhow::anyhow!("NO_API_KEY:nvidia"));
+        }
+
+        let ui_language = crate::APP
+            .lock()
+            .ok()
+            .map(|app| app.config.ui_language.clone())
+            .unwrap_or_else(|| "en".to_string());
+
+        let payload = nvidia_vision_payload(
+            &model,
+            &prompt,
+            &mime_type,
+            &b64_image,
+            streaming_enabled,
+            response_schema.as_ref(),
+        );
+
+        trace.mark_provider_started();
+        full_content = stream_openai_compat_payload(
+            crate::api::NVIDIA_CHAT_COMPLETIONS_URL,
+            &nvidia_api_key,
+            payload,
+            streaming_enabled,
+            false,
+            &ui_language,
+            &cancel_token,
+            request_timeout,
+            "NVIDIA API Error",
+            true,
+            false,
+            |headers| record_usage_headers("nvidia", &model, headers),
+            |_| {},
             on_chunk,
         )?;
     } else if Provider::from_wire(&provider) == Some(Provider::OpenRouter) {

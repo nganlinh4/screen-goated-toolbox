@@ -28,9 +28,11 @@ struct RefineCatalogState {
     text_priority: Vec<String>,
     custom_models: Vec<CustomModelDefinition>,
     saved_openrouter_api_key: String,
+    saved_nvidia_api_key: String,
     use_groq: bool,
     use_gemini: bool,
     use_openrouter: bool,
+    use_nvidia: bool,
 }
 
 impl Default for RefineCatalogState {
@@ -42,9 +44,11 @@ impl Default for RefineCatalogState {
                 .collect(),
             custom_models: Vec::new(),
             saved_openrouter_api_key: String::new(),
+            saved_nvidia_api_key: String::new(),
             use_groq: crate::model_config::DEFAULT_USE_GROQ,
             use_gemini: crate::model_config::DEFAULT_USE_GEMINI,
             use_openrouter: crate::model_config::DEFAULT_USE_OPENROUTER,
+            use_nvidia: crate::model_config::DEFAULT_USE_NVIDIA,
         }
     }
 }
@@ -58,9 +62,11 @@ impl RefineCatalogState {
                 text_priority: app.config.model_priority_chains.text_to_text.clone(),
                 custom_models: app.config.custom_models.clone(),
                 saved_openrouter_api_key: app.config.openrouter_api_key.clone(),
+                saved_nvidia_api_key: app.config.nvidia_api_key.clone(),
                 use_groq: app.config.use_groq,
                 use_gemini: app.config.use_gemini,
                 use_openrouter: app.config.use_openrouter,
+                use_nvidia: app.config.use_nvidia,
             })
             .unwrap_or_default()
     }
@@ -70,6 +76,7 @@ impl RefineCatalogState {
         groq_api_key: &str,
         gemini_api_key: &str,
         openrouter_api_key: &str,
+        nvidia_api_key: &str,
     ) -> Option<(String, String)> {
         self.text_priority
             .iter()
@@ -84,6 +91,7 @@ impl RefineCatalogState {
                         groq_api_key,
                         gemini_api_key,
                         openrouter_api_key,
+                        nvidia_api_key,
                     )
             })
             .map(|model| (model.id, model.provider))
@@ -95,6 +103,7 @@ impl RefineCatalogState {
         groq_api_key: &str,
         gemini_api_key: &str,
         openrouter_api_key: &str,
+        nvidia_api_key: &str,
     ) -> bool {
         match Provider::from_wire(&model.provider) {
             Some(Provider::Google | Provider::GeminiLive) => {
@@ -103,6 +112,7 @@ impl RefineCatalogState {
             Some(Provider::OpenRouter) => {
                 self.use_openrouter && !openrouter_api_key.trim().is_empty()
             }
+            Some(Provider::Nvidia) => self.use_nvidia && !nvidia_api_key.trim().is_empty(),
             Some(Provider::Groq) => self.use_groq && !groq_api_key.trim().is_empty(),
             Some(Provider::Taalas) => true,
             _ => false,
@@ -128,6 +138,10 @@ where
     } = request;
 
     let catalog_state = RefineCatalogState::load();
+    let nvidia_api_key = crate::api::provider_credentials::resolve(
+        "NVIDIA_API_KEY",
+        &catalog_state.saved_nvidia_api_key,
+    );
     let openrouter_api_key = crate::api::provider_credentials::resolve(
         "OPENROUTER_API_KEY",
         &catalog_state.saved_openrouter_api_key,
@@ -149,6 +163,7 @@ where
                 groq_api_key,
                 gemini_api_key,
                 &openrouter_api_key,
+                &nvidia_api_key,
             ) {
                 model
             } else {
@@ -170,6 +185,7 @@ where
             groq_api_key,
             gemini_api_key,
             openrouter_api_key: &openrouter_api_key,
+            nvidia_api_key: &nvidia_api_key,
             final_prompt: &final_prompt,
             model: p_model,
             provider: p_provider,
@@ -249,6 +265,7 @@ struct RefineTextOnlyRequest<'a, F> {
     groq_api_key: &'a str,
     gemini_api_key: &'a str,
     openrouter_api_key: &'a str,
+    nvidia_api_key: &'a str,
     final_prompt: &'a str,
     model: String,
     provider: String,
@@ -266,6 +283,7 @@ where
         groq_api_key,
         gemini_api_key,
         openrouter_api_key,
+        nvidia_api_key,
         final_prompt,
         model,
         provider,
@@ -302,6 +320,16 @@ where
         )
     } else if Provider::from_wire(&provider) == Some(Provider::Taalas) {
         providers::refine_taalas(final_prompt, cancel_token, on_chunk)
+    } else if Provider::from_wire(&provider) == Some(Provider::Nvidia) {
+        providers::refine_nvidia(
+            nvidia_api_key,
+            final_prompt,
+            &model,
+            streaming_enabled,
+            ui_language,
+            cancel_token,
+            on_chunk,
+        )
     } else if Provider::from_wire(&provider) == Some(Provider::OpenRouter) {
         providers::refine_openrouter(
             openrouter_api_key,
@@ -334,7 +362,7 @@ mod tests {
         let mut state = RefineCatalogState::default();
         assert_eq!(
             state
-                .preferred_text_model("groq", "gemini", "openrouter")
+                .preferred_text_model("groq", "gemini", "openrouter", "")
                 .map(|model| model.0),
             Some("groq-qwen-3-6-27b-text".to_string())
         );
@@ -342,7 +370,7 @@ mod tests {
         state.use_groq = false;
         assert_eq!(
             state
-                .preferred_text_model("", "gemini", "openrouter")
+                .preferred_text_model("", "gemini", "openrouter", "")
                 .map(|model| model.0),
             Some("google-gemini-3-5-flash-lite-text".to_string())
         );
@@ -350,7 +378,7 @@ mod tests {
         state.use_gemini = false;
         assert_eq!(
             state
-                .preferred_text_model("", "", "openrouter")
+                .preferred_text_model("", "", "openrouter", "")
                 .map(|model| model.0),
             Some("openrouter-nemotron-3-super-120b-text".to_string())
         );
