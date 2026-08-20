@@ -11,6 +11,7 @@ pub struct Credentials {
     groq: CredentialPool,
     gemini: CredentialPool,
     openrouter: CredentialPool,
+    nvidia: CredentialPool,
 }
 
 struct CredentialPool {
@@ -102,6 +103,7 @@ impl Credentials {
             groq: CredentialPool::load("GROQ_API_KEY", &config.api_key),
             gemini: CredentialPool::load("GEMINI_API_KEY", &config.gemini_api_key),
             openrouter: CredentialPool::load("OPENROUTER_API_KEY", &config.openrouter_api_key),
+            nvidia: CredentialPool::load("NVIDIA_API_KEY", &config.nvidia_api_key),
         }
     }
 
@@ -110,6 +112,7 @@ impl Credentials {
             "google" | "gemini-live" => !self.gemini.is_empty(),
             "groq" => !self.groq.is_empty(),
             "openrouter" => !self.openrouter.is_empty(),
+            "nvidia" => !self.nvidia.is_empty(),
             "google-gtx" | "taalas" | "ollama" => true,
             _ => false,
         }
@@ -139,6 +142,12 @@ impl Credentials {
                 let key = self.openrouter.next();
                 crate::api::provider_credentials::with_override("OPENROUTER_API_KEY", key, || {
                     operation("")
+                })
+            }
+            "nvidia" => {
+                let key = self.nvidia.next();
+                crate::api::provider_credentials::with_override("NVIDIA_API_KEY", key, || {
+                    operation(key)
                 })
             }
             _ => operation(self.gemini.first()),
@@ -369,6 +378,7 @@ mod tests {
             groq: CredentialPool::empty(),
             gemini: CredentialPool::empty(),
             openrouter: CredentialPool::empty(),
+            nvidia: CredentialPool::empty(),
         }
     }
 

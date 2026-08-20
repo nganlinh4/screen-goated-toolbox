@@ -126,6 +126,30 @@ impl RetryChainKind {
             Self::TextToText => &config.model_priority_chains.text_to_text,
         }
     }
+
+    /// The chain to actually walk, with any models the availability feed offers
+    /// merged in behind the local head.
+    ///
+    /// The feed can lengthen the fallback but never take first contact: position
+    /// 0 is tied to the configured default and stays local. With no feed, no
+    /// credential, or the provider disabled, this is the configured chain
+    /// unchanged.
+    #[cfg(not(feature = "recorder-worker"))]
+    pub fn effective_chain(self, config: &Config) -> Vec<String> {
+        let configured = self.configured_chain(config);
+        let offered = crate::model_feed::store::offered_ids(config);
+        if offered.is_empty() {
+            return configured.to_vec();
+        }
+        let offered: Vec<String> = offered
+            .into_iter()
+            .filter(|id| {
+                get_model_by_id_with_custom(id, &config.custom_models)
+                    .is_some_and(|model| model.model_type == self.target_model_type())
+            })
+            .collect();
+        crate::model_feed::merge_into_chain(configured, &offered)
+    }
 }
 
 pub fn provider_is_available(provider: &str, config: &Config) -> bool {
@@ -137,6 +161,9 @@ pub fn provider_is_available(provider: &str, config: &Config) -> bool {
         "openrouter" => {
             config.use_openrouter
                 && credential_present("OPENROUTER_API_KEY", &config.openrouter_api_key)
+        }
+        "nvidia" => {
+            config.use_nvidia && credential_present("NVIDIA_API_KEY", &config.nvidia_api_key)
         }
         "ollama" => config.use_ollama,
         "google-gtx" | "qrserver" | "parakeet" | "taalas" => true,
@@ -169,6 +196,15 @@ fn provider_preflight_skip_reason(provider: &str, config: &Config) -> Option<Str
                 Some("PROVIDER_DISABLED:openrouter".to_string())
             } else if !credential_present("OPENROUTER_API_KEY", &config.openrouter_api_key) {
                 Some("NO_API_KEY:openrouter".to_string())
+            } else {
+                None
+            }
+        }
+        "nvidia" => {
+            if !config.use_nvidia {
+                Some("PROVIDER_DISABLED:nvidia".to_string())
+            } else if !credential_present("NVIDIA_API_KEY", &config.nvidia_api_key) {
+                Some("NO_API_KEY:nvidia".to_string())
             } else {
                 None
             }
@@ -266,7 +302,8 @@ pub fn resolve_next_configured_model(
     let must_support_search =
         model_supports_search_by_id_with_custom(current_model_id, &config.custom_models);
 
-    for candidate_id in chain_kind.configured_chain(config) {
+    let chain = chain_kind.effective_chain(config);
+    for candidate_id in &chain {
         if failed_model_ids
             .iter()
             .any(|failed_id| failed_id == candidate_id)
