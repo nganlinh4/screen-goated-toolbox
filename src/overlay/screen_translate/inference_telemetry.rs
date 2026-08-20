@@ -3,7 +3,8 @@ use std::time::Instant;
 pub(super) struct AttemptTrace<'a> {
     trace_id: &'a str,
     sequence: usize,
-    model: &'a str,
+    model_id: &'a str,
+    api_model: &'a str,
     provider: &'a str,
     pending: usize,
     started: Instant,
@@ -16,14 +17,16 @@ impl<'a> AttemptTrace<'a> {
     pub(super) fn new(
         trace_id: &'a str,
         sequence: usize,
-        model: &'a str,
+        model_id: &'a str,
+        api_model: &'a str,
         provider: &'a str,
         pending: usize,
     ) -> Self {
         Self {
             trace_id,
             sequence,
-            model,
+            model_id,
+            api_model,
             provider,
             pending,
             started: Instant::now(),
@@ -50,11 +53,13 @@ impl<'a> AttemptTrace<'a> {
     }
 
     pub(super) fn finish(self, outcome: &str, accepted: usize, unresolved: usize, rejected: usize) {
+        let total_ms = self.elapsed_ms();
         crate::log_info!(
-            "[ScreenTranslateModelPerf] trace={} attempt={} model={} provider={} outcome={} pending={} accepted={} unresolved={} rejected={} first_chunk_ms={} first_validated_ms={} transport_ms={} total_ms={:.1}",
+            "[ScreenTranslateModelPerf] trace={} attempt={} model_id={} api_model={} provider={} outcome={} pending={} accepted={} unresolved={} rejected={} first_chunk_ms={} first_validated_ms={} transport_ms={} total_ms={:.1}",
             self.trace_id,
             self.sequence,
-            self.model,
+            self.model_id,
+            self.api_model,
             self.provider,
             outcome,
             self.pending,
@@ -64,7 +69,25 @@ impl<'a> AttemptTrace<'a> {
             optional_ms(self.first_chunk_ms),
             optional_ms(self.first_validated_ms),
             optional_ms(self.transport_ms),
-            self.elapsed_ms(),
+            total_ms,
+        );
+        super::diagnostics_model_attempts::record(
+            self.trace_id,
+            super::diagnostics_model_attempts::ModelAttemptRecord {
+                sequence: self.sequence,
+                model_id: self.model_id.to_string(),
+                api_model: self.api_model.to_string(),
+                provider: self.provider.to_string(),
+                outcome: outcome.to_string(),
+                pending_region_count: self.pending,
+                accepted_region_count: accepted,
+                unresolved_region_count: unresolved,
+                rejected_region_count: rejected,
+                first_chunk_ms: self.first_chunk_ms,
+                first_validated_ms: self.first_validated_ms,
+                transport_ms: self.transport_ms,
+                total_ms,
+            },
         );
     }
 
@@ -83,7 +106,7 @@ mod tests {
 
     #[test]
     fn empty_transport_chunks_do_not_claim_first_output() {
-        let mut trace = AttemptTrace::new("trace", 1, "model", "provider", 2);
+        let mut trace = AttemptTrace::new("trace", 1, "model-id", "api-model", "provider", 2);
         trace.observe_chunk("  ");
         assert!(trace.first_chunk_ms.is_none());
         trace.observe_chunk("{");

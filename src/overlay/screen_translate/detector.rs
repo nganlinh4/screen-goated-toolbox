@@ -161,16 +161,28 @@ fn recognition_candidates(region: &DetectedRegion) -> Vec<(String, f32)> {
         })
         .collect::<Vec<_>>();
     ranked.sort_by(|left, right| {
-        recognition_quality(right.0, right.1).total_cmp(&recognition_quality(left.0, left.1))
+        recognition_quality(right.0, right.1)
+            .total_cmp(&recognition_quality(left.0, left.1))
+            .then_with(|| right.1.total_cmp(&left.1))
     });
     let mut candidates: Vec<(String, f32)> = Vec::with_capacity(MAX_SOURCE_CANDIDATES);
-    for (text, confidence) in ranked {
-        if !candidates.iter().any(|known| known.0 == text) {
-            candidates.push((text.to_string(), confidence));
-            if candidates.len() == MAX_SOURCE_CANDIDATES {
-                break;
-            }
-        }
+    let Some((primary_text, primary_confidence)) = ranked.first().copied() else {
+        return candidates;
+    };
+    candidates.push((primary_text.to_string(), primary_confidence));
+    let alternative = ranked
+        .into_iter()
+        .skip(1)
+        .filter(|(text, _)| *text != primary_text)
+        .max_by(|left, right| {
+            alternative_quality(primary_text, left.0, left.1).total_cmp(&alternative_quality(
+                primary_text,
+                right.0,
+                right.1,
+            ))
+        });
+    if let Some((text, confidence)) = alternative {
+        candidates.push((text.to_string(), confidence));
     }
     candidates
 }
@@ -180,8 +192,23 @@ fn recognition_quality(text: &str, confidence: f32) -> f32 {
         .chars()
         .filter(|character| character.is_alphanumeric())
         .count()
-        .clamp(1, 64) as f32;
-    confidence.max(0.0) * useful_characters.sqrt()
+        .clamp(1, 2_000) as f32;
+    useful_characters + confidence.clamp(0.0, 1.0)
+}
+
+fn alternative_quality(primary: &str, alternative: &str, confidence: f32) -> f32 {
+    let primary_buckets = alphabetic_buckets(primary);
+    let complementary_buckets = alphabetic_buckets(alternative)
+        .difference(&primary_buckets)
+        .count() as f32;
+    complementary_buckets * 4_000.0 + recognition_quality(alternative, confidence)
+}
+
+fn alphabetic_buckets(text: &str) -> std::collections::HashSet<u32> {
+    text.chars()
+        .filter(|character| character.is_alphabetic())
+        .map(|character| u32::from(character) >> 8)
+        .collect()
 }
 
 pub(super) fn stop() {
@@ -253,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn recognition_candidates_are_confidence_ranked_deduplicated_and_bounded() {
+    fn recognition_candidates_are_complete_deduplicated_and_bounded() {
         let region = DetectedRegion {
             left: 0,
             top: 0,
@@ -286,7 +313,7 @@ mod tests {
                 .into_iter()
                 .map(|item| item.0)
                 .collect::<Vec<_>>(),
-            vec!["correct", "second", "fourth"]
+            vec!["correct", "second"]
         );
     }
 
@@ -306,6 +333,30 @@ mod tests {
             }],
         };
         assert_eq!(recognition_candidates(&region)[0].0, "complete text");
+    }
+
+    #[test]
+    fn one_complementary_reading_wins_the_bounded_alternative_slot() {
+        let region = DetectedRegion {
+            left: 0,
+            top: 0,
+            right: 100,
+            bottom: 20,
+            confidence: 0.9,
+            text: "alpha beta".to_string(),
+            text_confidence: 0.9,
+            alternatives: vec![
+                sgt_screen_text_detector_protocol::RecognitionAlternative {
+                    text: "alpha beto".to_string(),
+                    confidence: 0.95,
+                },
+                sgt_screen_text_detector_protocol::RecognitionAlternative {
+                    text: "alpha βeta".to_string(),
+                    confidence: 0.8,
+                },
+            ],
+        };
+        assert_eq!(recognition_candidates(&region)[1].0, "alpha βeta");
     }
 
     #[test]

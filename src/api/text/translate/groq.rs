@@ -229,44 +229,31 @@ pub(super) fn translate_groq_standard<F>(
 where
     F: FnMut(&str),
 {
-    let mut payload = if transport.streaming_enabled {
-        serde_json::json!({
-            "model": model,
-            "messages": [
-                { "role": "user", "content": prompt }
-            ],
-            "stream": true
-        })
-    } else {
-        let mut payload_obj = serde_json::json!({
-            "model": model,
-            "messages": [
-                { "role": "user", "content": prompt }
-            ],
-            "stream": false
-        });
-
-        if let Some(schema) = response_schema {
-            payload_obj["response_format"] = crate::api::groq::structured_response_format(
-                model,
-                "translation_result",
-                schema.clone(),
-            );
-        } else if use_json_format {
-            payload_obj["response_format"] = crate::api::groq::structured_response_format(
-                model,
-                "translation_result",
-                serde_json::json!({
-                    "type": "object",
-                    "properties": { "translation": { "type": "string" } },
-                    "required": ["translation"],
-                    "additionalProperties": false
-                }),
-            );
-        }
-
-        payload_obj
-    };
+    let mut payload = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "user", "content": prompt }
+        ],
+        "stream": transport.streaming_enabled
+    });
+    if let Some(schema) = response_schema {
+        payload["response_format"] = crate::api::groq::structured_response_format(
+            model,
+            "translation_result",
+            schema.clone(),
+        );
+    } else if use_json_format {
+        payload["response_format"] = crate::api::groq::structured_response_format(
+            model,
+            "translation_result",
+            serde_json::json!({
+                "type": "object",
+                "properties": { "translation": { "type": "string" } },
+                "required": ["translation"],
+                "additionalProperties": false
+            }),
+        );
+    }
     crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", model);
 
     let request = UREQ_RESPONSE_AGENT

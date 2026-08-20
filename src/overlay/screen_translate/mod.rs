@@ -10,6 +10,7 @@ mod detector;
 #[cfg(debug_assertions)]
 mod diagnostic_raw;
 mod diagnostics;
+mod diagnostics_model_attempts;
 #[cfg(debug_assertions)]
 mod evidence_capture;
 pub(crate) mod geometry;
@@ -24,7 +25,6 @@ mod schema;
 pub(crate) mod stream_parser;
 mod text_metrics;
 mod translation_validation;
-mod vision_fallback;
 
 static CAPTURE_HANDLER: crate::overlay::image_capture_target::ImageCaptureHandler =
     crate::overlay::image_capture_target::ImageCaptureHandler {

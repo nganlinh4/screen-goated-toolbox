@@ -55,6 +55,7 @@ mod debug {
         selection: Selection,
         target_language: String,
         configured_model: String,
+        model_attempts: Vec<super::super::diagnostics_model_attempts::ModelAttemptRecord>,
         translation_prompt: String,
         rendered_region_count: usize,
         result_capture: String,
@@ -111,6 +112,7 @@ mod debug {
                 width: capture.width,
                 height: capture.height,
             };
+            super::super::diagnostics_model_attempts::begin_trace(trace_id);
             let source_jpeg = source_jpeg.to_vec();
             spawn_write(directory.join("source.jpg"), source_jpeg.clone());
             crate::log_info!(
@@ -323,6 +325,7 @@ mod debug {
             selection: state.selection,
             target_language: state.target_language.clone(),
             configured_model: state.configured_model.clone(),
+            model_attempts: super::super::diagnostics_model_attempts::take(&state.trace_id),
             translation_prompt: state.translation_prompt.clone(),
             rendered_region_count: rendered_count,
             result_capture,

@@ -158,7 +158,6 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         return Ok(());
     }
 
-    let inference_image = region.image.clone();
     let (mut overlay, first_visible) = match super::render::start(
         job_id,
         region,
@@ -193,7 +192,6 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
             translation_model: &translation_model,
             translation_prompt: &translation_prompt,
             candidates: &candidates,
-            image: &inference_image,
         },
         Arc::clone(&cancel),
         |region| {

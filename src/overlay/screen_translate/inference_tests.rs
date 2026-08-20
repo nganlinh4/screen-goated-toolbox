@@ -57,6 +57,7 @@ fn retry_requests_only_missing_regions_and_keeps_committed_output() {
         &mut accepted,
         &mut covered,
         translated(&candidates[1]),
+        &candidates,
     ));
     let completed = completed_document(&candidates, &accepted, &covered).unwrap();
     assert_eq!(
@@ -75,10 +76,8 @@ fn malformed_stream_member_cannot_erase_valid_regions_before_fallback() {
     let mut accepted = Vec::new();
     let mut covered = HashSet::new();
     let mut first_attempt = TranslationStreamParser::new(&candidates);
-    for (_, region) in first_attempt.push(
-        r#"{"members":[{"memberId":1,"translation":"first"},{"memberId":2,"translation":3}]}"#,
-    ) {
-        accept_region(&mut accepted, &mut covered, region);
+    for (_, region) in first_attempt.push(r#"{"translations":["first",3]}"#) {
+        accept_region(&mut accepted, &mut covered, region, &candidates);
     }
 
     let pending = pending_candidates(&candidates, &covered);
@@ -92,10 +91,8 @@ fn malformed_stream_member_cannot_erase_valid_regions_before_fallback() {
     assert_eq!(accepted[0].translated_segments, ["first"]);
 
     let mut fallback = TranslationStreamParser::new(&pending);
-    for (_, region) in fallback.push(
-        r#"{"members":[{"memberId":2,"translation":"second"},{"memberId":3,"translation":"third"}]}"#,
-    ) {
-        accept_region(&mut accepted, &mut covered, region);
+    for (_, region) in fallback.push(r#"{"translations":["second","third"]}"#) {
+        accept_region(&mut accepted, &mut covered, region, &candidates);
     }
 
     let completed = completed_document(&candidates, &accepted, &covered).unwrap();
@@ -104,23 +101,29 @@ fn malformed_stream_member_cannot_erase_valid_regions_before_fallback() {
 }
 
 #[test]
-fn partial_completion_is_reserved_for_a_small_high_coverage_tail() {
+fn completion_requires_every_detected_member() {
     let candidates = (1..=19)
         .map(|id| candidate(id, id.saturating_mul(10)))
         .collect::<Vec<_>>();
+    let accepted = candidates[..18].iter().map(translated).collect::<Vec<_>>();
     let covered = (1..=18).collect::<HashSet<_>>();
-    assert!(can_finish_partial(&candidates, &covered));
+    assert!(completed_document(&candidates, &accepted, &covered).is_none());
+}
 
-    let insufficient = (1..=15).collect::<HashSet<_>>();
-    assert!(!can_finish_partial(&candidates, &insufficient));
-    assert!(!can_finish_partial(&candidates[..2], &HashSet::from([1])));
+#[test]
+fn bounded_fallback_preserves_only_the_unresolved_source_regions() {
+    let candidates = vec![candidate(1, 20), candidate(2, 40)];
+    let mut accepted = vec![translated(&candidates[0])];
+    let mut covered = HashSet::from([1]);
+    let mut streamed = Vec::new();
 
-    let mut salient = candidates.clone();
-    salient[18].bounds = NormalizedBounds {
-        left: 0,
-        top: 0,
-        right: 500,
-        bottom: 250,
-    };
-    assert!(!can_finish_partial(&salient, &covered));
+    let preserved =
+        preserve_unresolved_candidates(&candidates, &mut accepted, &mut covered, &mut |region| {
+            streamed.push(region)
+        });
+
+    assert_eq!(preserved, 1);
+    assert_eq!(streamed[0].id, 2);
+    assert_eq!(streamed[0].translated_segments, ["source-2"]);
+    assert!(completed_document(&candidates, &accepted, &covered).is_some());
 }

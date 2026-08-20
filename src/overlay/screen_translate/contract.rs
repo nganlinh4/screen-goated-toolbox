@@ -1,12 +1,10 @@
 //! Translation-only model contract backed by locally owned visual cells.
 
-use std::collections::HashSet;
-
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const MAX_CANDIDATES: usize = 240;
-pub(crate) const MAX_SOURCE_CANDIDATES: usize = 3;
+pub(crate) const MAX_SOURCE_CANDIDATES: usize = 2;
 const MAX_TEXT_CHARS: usize = 2_000;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -110,7 +108,7 @@ impl From<NormalizedBounds> for [u16; 4] {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TranslationResponse {
-    members: Vec<serde_json::Value>,
+    translations: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -118,13 +116,6 @@ struct TranslationResponse {
 enum TranslationResponseEnvelope {
     Object(TranslationResponse),
     Array(Vec<serde_json::Value>),
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TranslatedMemberResponse {
-    member_id: u16,
-    translation: String,
 }
 
 pub(crate) fn response_schema(region_count: usize) -> serde_json::Value {
@@ -147,15 +138,18 @@ pub(crate) fn prompt_with_instruction(
                 .iter()
                 .filter_map(|id| candidates.iter().find(|candidate| candidate.id == *id))
                 .map(|candidate| {
+                    let slot = candidates
+                        .iter()
+                        .position(|item| item.id == candidate.id)
+                        .expect("proposal members come from the candidate set");
                     serde_json::json!({
-                        "memberId": candidate.id,
+                        "slot": slot,
                         "text": candidate.source_text,
-                        "ocrReadings": candidate.source_alternatives
+                        "ocrReadings": candidate.source_alternatives.iter().skip(1).collect::<Vec<_>>()
                     })
                 })
                 .collect::<Vec<_>>();
             serde_json::json!({
-                "cellId": proposal.member_ids_in_reading_order[0],
                 "members": members
             })
         })
@@ -166,9 +160,10 @@ pub(crate) fn prompt_with_instruction(
         .to_string();
     Ok(format!(
         "Translation preference:\n{instruction}\n\n\
-         Translate every supplied member completely into {target_language}. When ocrReadings differ, use the most complete coherent reading; they are alternate OCR observations of the same pixels, not additional text. Cells and member order provide context only. Return exactly one members entry for every memberId. Each translation must belong only to that memberId; never move, merge, duplicate, or drop content between members or cells. Preserve names, usernames, handles, codes, punctuation, tone, and mixed-language meaning in the corresponding translation. Do not summarize, abbreviate, or invent. Geometry and rendering are handled locally.\n\
-         Return only JSON matching the supplied schema.\n\
+         Translate every supplied member completely into {target_language}. When ocrReadings differ, use the most complete coherent reading; they are alternate OCR observations of the same pixels, not additional text. Cells provide context only. Return one translations string per slot, in exact numeric slot order from 0 through {}. Each string must contain only its corresponding member translation; never move, merge, duplicate, or drop content between slots or cells. Preserve names, usernames, handles, codes, punctuation, tone, and mixed-language meaning. Do not summarize, abbreviate, or invent. Geometry and rendering are handled locally.\n\
+         Return exactly one JSON object shaped as {{\"translations\":[\"slot 0 translation\",\"slot 1 translation\"]}}, extended to every supplied slot.\n\
          Cells:\n{}",
+        candidates.len() - 1,
         serde_json::to_string(&cells)?
     ))
 }
@@ -180,19 +175,15 @@ pub(crate) fn parse_response(
     let envelope: TranslationResponseEnvelope = serde_json::from_str(unwrap_json(response))
         .context("response did not match the translation schema")?;
     let values = match envelope {
-        TranslationResponseEnvelope::Object(response) => response.members,
+        TranslationResponseEnvelope::Object(response) => response.translations,
         TranslationResponseEnvelope::Array(members) => members,
     };
-    let mut seen = HashSet::new();
     let mut regions = Vec::new();
-    for value in values.into_iter().take(MAX_CANDIDATES) {
-        let Ok(response) = serde_json::from_value::<TranslatedMemberResponse>(value) else {
+    for (index, value) in values.into_iter().take(candidates.len()).enumerate() {
+        let Ok(translation) = serde_json::from_value::<String>(value) else {
             continue;
         };
-        if !seen.insert(response.member_id) {
-            continue;
-        }
-        if let Ok(parsed) = validated_member(response, candidates) {
+        if let Ok(parsed) = validated_translation(index, &translation, candidates) {
             regions.push(parsed);
         }
     }
@@ -200,32 +191,33 @@ pub(crate) fn parse_response(
     Ok(TranslationDocument { regions })
 }
 
-pub(crate) fn parse_streamed_region(
+pub(crate) fn parse_streamed_translation(
+    index: usize,
     value: &str,
     candidates: &[DetectedTextRegion],
-) -> Result<Vec<(u16, TranslationRegion)>> {
-    let response: TranslatedMemberResponse = serde_json::from_str(value)
-        .context("streamed member did not match the translation schema")?;
-    let region = validated_member(response, candidates)?;
-    Ok(vec![(region.id, region)])
+) -> Result<(u16, TranslationRegion)> {
+    let translation: String = serde_json::from_str(value)
+        .context("streamed translation did not match the translation schema")?;
+    let region = validated_translation(index, &translation, candidates)?;
+    Ok((region.id, region))
 }
 
-fn validated_member(
-    response: TranslatedMemberResponse,
+fn validated_translation(
+    index: usize,
+    translation: &str,
     candidates: &[DetectedTextRegion],
 ) -> Result<TranslationRegion> {
     let candidate = candidates
-        .iter()
-        .find(|candidate| candidate.id == response.member_id)
-        .context("translation references an unknown local member")?;
+        .get(index)
+        .context("translation references an unknown local slot")?;
     let selection = TranslationSelection {
         region_id: candidate.id,
         candidate_id: format!("r{}c0", candidate.id),
         source_text: candidate.source_text.clone(),
         bounds: candidate.bounds,
     };
-    let translation = clean_text(&response.translation, MAX_TEXT_CHARS)
-        .context("translation is empty or too long")?;
+    let translation =
+        clean_text(translation, MAX_TEXT_CHARS).context("translation is empty or too long")?;
     build_region(&[selection], &[], &[translation], candidates)
 }
 
@@ -325,21 +317,18 @@ mod tests {
             &candidates(),
         )
         .unwrap();
-        assert!(prompt.contains(r#""cellId":1"#));
-        assert!(prompt.contains(r#""memberId":2"#));
+        assert!(prompt.contains(r#""slot":0"#));
+        assert!(prompt.contains(r#""slot":1"#));
         assert!(prompt.contains(r#""text":"second line""#));
-        assert!(prompt.contains(r#""ocrReadings":["second line"]"#));
+        assert!(prompt.contains(r#""ocrReadings":[]"#));
         assert!(!prompt.contains("candidateIds"));
         assert!(!prompt.contains("memberJoins"));
     }
 
     #[test]
     fn member_translations_preserve_exact_local_correspondence() {
-        let parsed = parse_response(
-            r#"{"members":[{"memberId":1,"translation":"dòng một"},{"memberId":2,"translation":"dòng hai"}]}"#,
-            &candidates(),
-        )
-        .unwrap();
+        let parsed =
+            parse_response(r#"{"translations":["dòng một","dòng hai"]}"#, &candidates()).unwrap();
         assert_eq!(parsed.regions.len(), 2);
         assert_eq!(parsed.regions[0].member_ids, [1]);
         assert_eq!(parsed.regions[1].translated_segments, ["dòng hai"]);
@@ -359,11 +348,7 @@ mod tests {
 
     #[test]
     fn unknown_member_is_rejected_without_losing_valid_members() {
-        let parsed = parse_response(
-            r#"{"members":[{"memberId":1,"translation":"dòng một"},{"memberId":99,"translation":"lạ"}]}"#,
-            &candidates(),
-        )
-        .unwrap();
+        let parsed = parse_response(r#"{"translations":["dòng một",3]}"#, &candidates()).unwrap();
         assert_eq!(parsed.regions.len(), 1);
     }
 }

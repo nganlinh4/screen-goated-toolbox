@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use crate::api::{TranslateTextRequest, translate_text_streaming};
 use crate::retry_model_chain::{
     RetryChainKind, claim_model_attempt, preflight_skip_reason, record_model_failure,
-    record_model_success, release_model_probe, resolve_next_retry_model,
+    record_model_success, release_model_probe, resolve_next_configured_model,
 };
 
 use super::contract::{
@@ -17,14 +17,9 @@ use super::contract::{
 };
 use super::stream_parser::TranslationStreamParser;
 
-const MAX_UNRESOLVED_TAIL: usize = 3;
-const MIN_PARTIAL_COVERAGE_PERCENT: usize = 80;
-const MAX_OMITTED_REGION_AREA: u32 = 4_000;
-const MAX_TOTAL_OMITTED_AREA: u32 = 8_000;
-const MAX_TAIL_FAILURES: usize = 2;
 const MAX_CONTENT_ATTEMPTS: usize = 2;
-const MAX_TOTAL_ATTEMPTS: usize = 3;
-const TAIL_REPAIR_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_TOTAL_ATTEMPTS: usize = 4;
+const TRANSLATION_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub(super) struct TranslateInput<'a> {
     pub trace_id: &'a str,
@@ -32,13 +27,12 @@ pub(super) struct TranslateInput<'a> {
     pub translation_model: &'a str,
     pub translation_prompt: &'a str,
     pub candidates: &'a [DetectedTextRegion],
-    pub image: &'a image::RgbaImage,
 }
 
 pub(super) fn translate<F>(
     input: TranslateInput<'_>,
     cancel: Arc<AtomicBool>,
-    mut on_event: F,
+    on_event: F,
 ) -> Result<TranslationDocument>
 where
     F: FnMut(TranslationRegion),
@@ -49,125 +43,16 @@ where
         translation_model,
         translation_prompt,
         candidates,
-        image,
     } = input;
-    let uncertain = super::vision_fallback::uncertain_members(candidates);
-    if uncertain.is_empty() {
-        return translate_text(
-            trace_id,
-            target_language,
-            translation_model,
-            translation_prompt,
-            candidates,
-            cancel,
-            on_event,
-        );
-    }
-    let vision_candidates = candidates.to_vec();
-    let vision_uncertain = uncertain.clone();
-    let vision_image = image.clone();
-    let vision_target = target_language.to_string();
-    let vision_trace = trace_id.to_string();
-    let vision_cancel = Arc::clone(&cancel);
-    let vision = std::thread::spawn(move || {
-        super::vision_fallback::translate(
-            &vision_trace,
-            &vision_image,
-            &vision_target,
-            &vision_candidates,
-            &vision_uncertain,
-            vision_cancel,
-        )
-    });
-    let reliable_candidates = candidates
-        .iter()
-        .filter(|candidate| !uncertain.contains(&candidate.id))
-        .cloned()
-        .collect::<Vec<_>>();
-    let text_result = if reliable_candidates.is_empty() {
-        Ok(TranslationDocument {
-            regions: Vec::new(),
-        })
-    } else {
-        translate_text(
-            trace_id,
-            target_language,
-            translation_model,
-            translation_prompt,
-            &reliable_candidates,
-            Arc::clone(&cancel),
-            &mut on_event,
-        )
-    };
-    let vision_document = vision
-        .join()
-        .map_err(|_| anyhow::anyhow!("batched vision fallback panicked"));
-    let mut vision_regions = match vision_document {
-        Ok(Ok(document)) => document.regions,
-        Ok(Err(error)) | Err(error) => {
-            crate::log_info!(
-                "[Screen Translate] trace={trace_id} batched vision fallback unavailable: {error:#}"
-            );
-            Vec::new()
-        }
-    };
-    let vision_covered = vision_regions
-        .iter()
-        .flat_map(|region| region.member_ids.iter().copied())
-        .collect::<HashSet<_>>();
-    let (text_document, text_error) = match text_result {
-        Ok(document) => (document, None),
-        Err(error) => {
-            crate::log_info!(
-                "[Screen Translate] trace={trace_id} text branch unavailable; preserving batched vision output: {error:#}"
-            );
-            (
-                TranslationDocument {
-                    regions: Vec::new(),
-                },
-                Some(error),
-            )
-        }
-    };
-    for region in &vision_regions {
-        on_event(region.clone());
-    }
-    let missing_vision = candidates
-        .iter()
-        .filter(|candidate| {
-            uncertain.contains(&candidate.id) && !vision_covered.contains(&candidate.id)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let fallback_document = if missing_vision.is_empty() || text_error.is_some() {
-        TranslationDocument {
-            regions: Vec::new(),
-        }
-    } else {
-        crate::log_info!(
-            "[Screen Translate] trace={trace_id} vision left {} member(s) unresolved; routing only those members to text",
-            missing_vision.len()
-        );
-        translate_text(
-            trace_id,
-            target_language,
-            translation_model,
-            translation_prompt,
-            &missing_vision,
-            cancel,
-            &mut on_event,
-        )?
-    };
-    let mut regions = text_document.regions;
-    regions.append(&mut vision_regions);
-    regions.extend(fallback_document.regions);
-    regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
-    if regions.is_empty()
-        && let Some(error) = text_error
-    {
-        return Err(error);
-    }
-    Ok(TranslationDocument { regions })
+    translate_text(
+        trace_id,
+        target_language,
+        translation_model,
+        translation_prompt,
+        candidates,
+        cancel,
+        on_event,
+    )
 }
 
 fn translate_text<F>(
@@ -190,14 +75,13 @@ where
     let mut blocked_providers = HashSet::new();
     let mut accepted = Vec::new();
     let mut covered = HashSet::new();
-    let mut tail_failures = 0;
     let mut content_attempts = 0;
     let mut total_attempts = 0;
     let mut attempt_sequence = 0_usize;
     let mut current =
         crate::model_config::get_model_by_id_with_custom(translation_model, &config.custom_models)
             .or_else(|| {
-                resolve_next_retry_model(
+                resolve_next_configured_model(
                     translation_model,
                     &failed,
                     &blocked_providers,
@@ -217,11 +101,7 @@ where
         }
         let schema = response_schema(pending.len());
         let request_text = prompt_with_instruction(target_language, translation_prompt, &pending)?;
-        let request_timeout = if can_finish_partial(candidates, &covered) {
-            TAIL_REPAIR_TIMEOUT
-        } else {
-            Duration::from_secs(20)
-        };
+        let request_timeout = TRANSLATION_TIMEOUT;
         if let Some(reason) =
             preflight_skip_reason(&current.id, &current.provider, &config, &blocked_providers)
                 .or_else(|| claim_model_attempt(&current.id))
@@ -237,9 +117,7 @@ where
         } else {
             // Only a dispatched request spends the fallback budget; a model skipped
             // for cooldown costs nothing and must leave the budget for a live one.
-            if request_timeout != TAIL_REPAIR_TIMEOUT {
-                total_attempts += 1;
-            }
+            total_attempts += 1;
             attempt_sequence += 1;
             crate::log_info!(
                 "[Screen Translate] trace={trace_id} model attempt model={} provider={}",
@@ -250,27 +128,13 @@ where
                 trace_id,
                 attempt_sequence,
                 &current.id,
+                &current.full_name,
                 &current.provider,
                 pending.len(),
             );
             let mut parser = TranslationStreamParser::new(&pending);
             let covered_before_attempt = covered.len();
-            let attempt_cancel = if request_timeout == TAIL_REPAIR_TIMEOUT {
-                let tail_cancel = Arc::new(AtomicBool::new(false));
-                let timeout_cancel = Arc::clone(&tail_cancel);
-                let job_cancel = Arc::clone(&cancel);
-                std::thread::spawn(move || {
-                    let deadline = std::time::Instant::now() + TAIL_REPAIR_TIMEOUT;
-                    while std::time::Instant::now() < deadline && !job_cancel.load(Ordering::SeqCst)
-                    {
-                        std::thread::sleep(Duration::from_millis(25));
-                    }
-                    timeout_cancel.store(true, Ordering::SeqCst);
-                });
-                tail_cancel
-            } else {
-                Arc::clone(&cancel)
-            };
+            let attempt_cancel = Arc::clone(&cancel);
             let transport = translate_text_streaming(
                 TranslateTextRequest {
                     groq_api_key: &config.api_key,
@@ -292,7 +156,7 @@ where
                 |chunk| {
                     attempt_trace.observe_chunk(chunk);
                     for (_, region) in parser.push(chunk) {
-                        if accept_region(&mut accepted, &mut covered, region.clone()) {
+                        if accept_region(&mut accepted, &mut covered, region.clone(), candidates) {
                             attempt_trace.observe_validated_region();
                             on_event(region);
                         }
@@ -308,7 +172,7 @@ where
             let error = match response {
                 Ok(document) => {
                     for region in document.regions {
-                        if accept_region(&mut accepted, &mut covered, region.clone()) {
+                        if accept_region(&mut accepted, &mut covered, region.clone(), candidates) {
                             attempt_trace.observe_validated_region();
                             on_event(region);
                         }
@@ -328,9 +192,14 @@ where
                         );
                         return Ok(document);
                     } else {
+                        let unresolved = pending_candidates(candidates, &covered);
                         anyhow::anyhow!(
-                            "translation response left {} region(s) unresolved; rejected {} malformed streamed region(s)",
-                            pending_candidates(candidates, &covered).len(),
+                            "translation response left {} region(s) unresolved {:?}; rejected {} malformed streamed region(s)",
+                            unresolved.len(),
+                            unresolved
+                                .iter()
+                                .map(|candidate| candidate.id)
+                                .collect::<Vec<_>>(),
                             parser.rejected_count()
                         )
                     }
@@ -365,37 +234,9 @@ where
                 release_model_probe(&current.id);
                 bail!("screen translation was cancelled");
             }
-            if can_finish_partial(candidates, &covered) {
-                tail_failures += 1;
-                if tail_failures >= MAX_TAIL_FAILURES {
-                    let document = assembled_document(&accepted);
-                    record_model_success(&current.id);
-                    crate::log_info!(
-                        "[Screen Translate] trace={trace_id} completed with validated partial output regions={} omitted={}",
-                        document.regions.len(),
-                        candidates.len().saturating_sub(covered.len())
-                    );
-                    attempt_trace.finish(
-                        "partial",
-                        covered.len().saturating_sub(covered_before_attempt),
-                        candidates.len().saturating_sub(covered.len()),
-                        parser.rejected_count(),
-                    );
-                    return Ok(document);
-                }
-            } else if covered.len() > covered_before_attempt {
-                tail_failures = 0;
-            }
             record_model_failure(&current.id, &error.to_string());
             if crate::overlay::utils::should_block_retry_provider(&error.to_string()) {
                 blocked_providers.insert(current.provider.clone());
-            }
-            if received_content && content_attempts == 1 {
-                blocked_providers.insert(current.provider.clone());
-                crate::log_info!(
-                    "[Screen Translate] trace={trace_id} backup requires provider diversity after model={}",
-                    current.id
-                );
             }
             failed.push(current.id.clone());
             crate::log_info!(
@@ -408,19 +249,27 @@ where
                 pending_candidates(candidates, &covered).len(),
                 parser.rejected_count(),
             );
-            if content_attempts >= MAX_CONTENT_ATTEMPTS || total_attempts >= MAX_TOTAL_ATTEMPTS {
-                if accepted.is_empty() {
-                    return Err(error).context("translation models returned no validated output");
-                }
-                crate::log_info!(
-                    "[Screen Translate] trace={trace_id} stopped at bounded fallback budget regions={} omitted={}",
-                    accepted.len(),
-                    candidates.len().saturating_sub(covered.len())
+            if content_attempts >= MAX_CONTENT_ATTEMPTS {
+                let preserved = preserve_unresolved_candidates(
+                    candidates,
+                    &mut accepted,
+                    &mut covered,
+                    &mut on_event,
                 );
-                return Ok(assembled_document(&accepted));
+                if let Some(document) = completed_document(candidates, &accepted, &covered) {
+                    crate::log_info!(
+                        "[Screen Translate] trace={trace_id} bounded fallback preserved {} unresolved source region(s)",
+                        preserved
+                    );
+                    return Ok(document);
+                }
+                return Err(error).context("translation models did not resolve every text region");
+            }
+            if total_attempts >= MAX_TOTAL_ATTEMPTS {
+                return Err(error).context("translation models did not resolve every text region");
             }
         }
-        current = resolve_next_retry_model(
+        current = resolve_next_configured_model(
             &current.id,
             &failed,
             &blocked_providers,
@@ -462,34 +311,67 @@ fn assembled_document(accepted: &[TranslationRegion]) -> TranslationDocument {
     TranslationDocument { regions }
 }
 
-fn can_finish_partial(candidates: &[DetectedTextRegion], covered: &HashSet<u16>) -> bool {
-    let pending = candidates
-        .iter()
-        .filter(|candidate| !covered.contains(&candidate.id))
-        .collect::<Vec<_>>();
-    let unresolved = pending.len();
-    let omitted_areas = pending.iter().map(|candidate| {
-        u32::from(candidate.bounds.right.saturating_sub(candidate.bounds.left))
-            * u32::from(candidate.bounds.bottom.saturating_sub(candidate.bounds.top))
-    });
-    let total_omitted_area = omitted_areas.clone().sum::<u32>();
-    !covered.is_empty()
-        && unresolved > 0
-        && unresolved <= MAX_UNRESOLVED_TAIL
-        && covered.len() * 100 >= candidates.len() * MIN_PARTIAL_COVERAGE_PERCENT
-        && omitted_areas.max().unwrap_or(0) <= MAX_OMITTED_REGION_AREA
-        && total_omitted_area <= MAX_TOTAL_OMITTED_AREA
+fn preserve_unresolved_candidates<F>(
+    candidates: &[DetectedTextRegion],
+    accepted: &mut Vec<TranslationRegion>,
+    covered: &mut HashSet<u16>,
+    on_event: &mut F,
+) -> usize
+where
+    F: FnMut(TranslationRegion),
+{
+    let unresolved = pending_candidates(candidates, covered);
+    for candidate in &unresolved {
+        let region = TranslationRegion {
+            id: candidate.id,
+            member_ids: vec![candidate.id],
+            member_joins: Vec::new(),
+            selections: vec![super::contract::TranslationSelection {
+                region_id: candidate.id,
+                candidate_id: format!("r{}c0", candidate.id),
+                source_text: candidate.source_text.clone(),
+                bounds: candidate.bounds,
+            }],
+            semantic_role: super::contract::SemanticRole::Standalone,
+            source_text: candidate.source_text.clone(),
+            translated_segments: vec![candidate.source_text.clone()],
+            bounds: candidate.bounds,
+            background_color: None,
+            text_color: None,
+        };
+        covered.insert(candidate.id);
+        accepted.push(region.clone());
+        on_event(region);
+    }
+    unresolved.len()
 }
 
 fn accept_region(
     accepted: &mut Vec<TranslationRegion>,
     covered: &mut HashSet<u16>,
     region: TranslationRegion,
+    candidates: &[DetectedTextRegion],
 ) -> bool {
     if region.member_ids.iter().any(|id| covered.contains(id)) {
         return false;
     }
-    if super::translation_validation::is_suspiciously_unchanged(&region) {
+    let recognition = candidates
+        .iter()
+        .find(|candidate| candidate.id == region.id)
+        .map(|candidate| candidate.recognition)
+        .unwrap_or_default();
+    if super::translation_validation::is_suspiciously_unchanged(&region, recognition) {
+        crate::log_info!(
+            "[Screen Translate] member validation rejected member={} reason=unchanged_prose",
+            region.id
+        );
+        return false;
+    }
+    if super::translation_validation::retains_source_fragment(&region) {
+        crate::log_info!(
+            "[Screen Translate] member validation rejected member={} reason=source_fragment",
+            region.id
+        );
         return false;
     }
     covered.extend(region.member_ids.iter().copied());

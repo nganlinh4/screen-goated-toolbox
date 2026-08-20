@@ -203,6 +203,34 @@ fn configured_retry_does_not_escape_the_priority_chain() {
 }
 
 #[test]
+fn ordinary_text_auto_retry_excludes_search_tool_endpoints() {
+    let mut config = Config {
+        api_key: "test-groq-key".to_string(),
+        ..Default::default()
+    };
+    config.model_priority_chains.text_to_text.clear();
+    let failed = crate::model_config::get_all_models_with_custom(&[])
+        .into_iter()
+        .filter(|model| {
+            model.model_type == crate::model_config::ModelType::Text
+                && !model.search_tool_enabled_by_default
+                && model.id != "groq-qwen-3-6-27b-text"
+        })
+        .map(|model| model.id)
+        .collect::<Vec<_>>();
+
+    let next = resolve_next_retry_model(
+        "groq-qwen-3-6-27b-text",
+        &failed,
+        &HashSet::new(),
+        RetryChainKind::TextToText,
+        &config,
+    );
+
+    assert!(next.is_none());
+}
+
+#[test]
 fn a_reported_rate_limit_window_replaces_the_fixed_cooldown() {
     use crate::retry_model_chain::cooldown::{parse_duration_seconds, reported_cooldown};
 
