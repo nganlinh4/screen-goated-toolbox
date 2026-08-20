@@ -73,6 +73,18 @@ pub(crate) fn assert_owned_asset_url(
     );
 }
 
+pub(crate) fn assert_candidate_asset_url(
+    channel: DeliveryChannel,
+    asset: &str,
+    url: &str,
+    label: &str,
+) {
+    if channel == DeliveryChannel::Staging && url == format!("{PRODUCTION_PREFIX}{asset}") {
+        return;
+    }
+    assert_owned_asset_url(channel, asset, url, label);
+}
+
 pub(crate) fn copy_selected_manifest(manifest_dir: &Path, default_relative: &str, output: &Path) {
     let selected = select(manifest_dir, default_relative);
     std::fs::copy(&selected.path, output).unwrap_or_else(|error| {
@@ -95,7 +107,7 @@ fn requested_channel() -> DeliveryChannel {
 
 #[cfg(test)]
 mod tests {
-    use super::{DeliveryChannel, PRODUCTION_PREFIX, STAGING_PREFIX};
+    use super::{DeliveryChannel, PRODUCTION_PREFIX, STAGING_PREFIX, assert_candidate_asset_url};
 
     #[test]
     fn release_channels_have_distinct_fixed_tags() {
@@ -103,5 +115,32 @@ mod tests {
         assert!(PRODUCTION_PREFIX.ends_with("/sgt-runtime-bundles/"));
         assert!(STAGING_PREFIX.ends_with("/sgt-runtime-staging/"));
         assert_ne!(DeliveryChannel::Production, DeliveryChannel::Staging);
+    }
+
+    #[test]
+    fn partial_staging_contracts_keep_unselected_production_assets() {
+        assert_candidate_asset_url(
+            DeliveryChannel::Staging,
+            "unchanged.zip",
+            &format!("{PRODUCTION_PREFIX}unchanged.zip"),
+            "candidate",
+        );
+        assert_candidate_asset_url(
+            DeliveryChannel::Staging,
+            "selected.zip",
+            &format!("{STAGING_PREFIX}selected.zip"),
+            "candidate",
+        );
+        assert!(
+            std::panic::catch_unwind(|| {
+                assert_candidate_asset_url(
+                    DeliveryChannel::Production,
+                    "candidate.zip",
+                    &format!("{STAGING_PREFIX}candidate.zip"),
+                    "candidate",
+                );
+            })
+            .is_err()
+        );
     }
 }

@@ -88,7 +88,12 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
             "{} component asset must be versioned and content-addressed",
             path.display()
         );
-        crate::delivery_channel::assert_owned_asset_url(channel, asset, url, "web component URL");
+        crate::delivery_channel::assert_candidate_asset_url(
+            channel,
+            asset,
+            url,
+            "web component URL",
+        );
         let size_bytes = required_positive_u64(component, "sizeBytes", path);
         let unpacked_size_bytes = required_positive_u64(component, "unpackedSizeBytes", path);
         let files = component

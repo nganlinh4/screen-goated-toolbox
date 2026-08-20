@@ -438,6 +438,14 @@ pub(super) fn queue_managed_cleanup(
     {
         return false;
     }
+    if let Some(cleanup) = companion::pending_cleanup(&entry)
+        && !store.pending_cleanup.iter().any(|pending| {
+            same_path(&pending.output_path, &cleanup.output_path)
+                && pending.artifact_file_identity == cleanup.artifact_file_identity
+        })
+    {
+        store.pending_cleanup.push(cleanup);
+    }
     let artifact_file_identity = store
         .delivery_identities
         .iter()

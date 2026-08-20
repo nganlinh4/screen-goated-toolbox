@@ -9,6 +9,7 @@ pub(super) fn delete_at(path: &Path, tool: &str, id: &str) -> Result<(), String>
         .position(|entry| entry.tool == tool && entry.id == id)
         .ok_or_else(|| "Result is no longer in history.".to_string())?;
     let output = PathBuf::from(&store.entries[index].output_path);
+    companion::delete_for_entry(&store.entries[index])?;
     if output.exists() {
         let owned = crate::overlay::creation_delivery::publication::lock_owned_path(
             &output, None, false, true,
