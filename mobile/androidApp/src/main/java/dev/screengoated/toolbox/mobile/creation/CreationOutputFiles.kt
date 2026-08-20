@@ -84,6 +84,35 @@ internal fun uniqueCreationDeliveryName(
     return candidate
 }
 
+internal fun creationHistoryRenameNames(
+    requestedName: String,
+    companionName: String?,
+    primaryOccupied: Set<String>,
+    companionOccupied: Set<String>,
+    transactionId: String,
+): Pair<String, String?> {
+    if (companionName == null) {
+        return uniqueCreationDeliveryName(
+            requestedName,
+            primaryOccupied,
+            transactionId,
+        ) to null
+    }
+    val companionExtension = companionName.substringAfterLast('.', "")
+    val rejected = mutableSetOf<String>()
+    while (true) {
+        val primary = uniqueCreationDeliveryName(
+            requestedName,
+            primaryOccupied + rejected,
+            transactionId,
+        )
+        val stem = primary.substringBeforeLast('.', primary)
+        val companion = if (companionExtension.isBlank()) stem else "$stem.$companionExtension"
+        if (companion !in companionOccupied) return primary to companion
+        rejected += primary
+    }
+}
+
 internal fun safeCreationOutputName(value: String): String = value
     .substringAfterLast('/')
     .substringAfterLast('\\')

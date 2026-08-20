@@ -76,10 +76,10 @@
       "reasoning_effort": "low"
     },
     {
-      "name": "openrouter_nemotron_disables_reasoning_with_nested_policy",
-      "model_id": "openrouter-nemotron-3-nano-omni-30b-a3b-text",
+      "name": "openrouter_gemma_disables_reasoning_with_nested_policy",
+      "model_id": "openrouter-gemma-4-26b-a4b-text",
       "provider": "OPENROUTER",
-      "api_model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "api_model": "google/gemma-4-26b-a4b-it:free",
       "supports_search": false,
       "reasoning": {
         "effort": "none"

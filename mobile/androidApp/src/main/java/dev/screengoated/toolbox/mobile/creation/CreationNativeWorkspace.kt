@@ -29,7 +29,9 @@ import dev.screengoated.toolbox.mobile.ui.i18n.CreationCommonLocale
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -270,6 +272,10 @@ private fun CreationResultSummary(
     var rename by remember(history?.id) { mutableStateOf(false) }
     val faces = item?.status?.faces ?: history.longMetadata("faces")
     val vertices = item?.status?.vertices ?: history.longMetadata("vertices")
+    val polygons = item?.status?.polygons ?: history.longMetadata("polygons")
+    val quads = item?.status?.quads ?: history.longMetadata("quads")
+    val downloadPath = item?.status?.downloadPath ?: history.downloadMetadata("path")
+    val downloadName = item?.status?.downloadName ?: history.downloadMetadata("name")
     val width = item?.status?.width ?: history.intMetadata("width")
     val height = item?.status?.height ?: history.intMetadata("height")
     val segmented = item?.status?.isSegmented
@@ -282,8 +288,27 @@ private fun CreationResultSummary(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                Text(
+                    listOfNotNull(name.takeIf(String::isNotBlank), downloadName)
+                        .distinct()
+                        .joinToString(" · "),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                )
                 when {
+                    tool == CreationTool.IMAGE_TO_3D &&
+                        polygons != null && quads != null -> {
+                        Text(
+                            quadGeometryStatsText(
+                                locale.creationApps.model3d.quadGeometryStats,
+                                vertices,
+                                polygons,
+                                quads,
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     tool == CreationTool.IMAGE_TO_3D && (faces != null || vertices != null) -> {
                         Text(
                             geometryStatsText(
@@ -319,6 +344,9 @@ private fun CreationResultSummary(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val path = history?.outputPath ?: item?.status?.outputPath
             TextButton(onClick = { path?.let(viewModel::openOutput) }) { Text(common.open) }
+            if (downloadPath != null) {
+                TextButton(onClick = { viewModel.openOutput(downloadPath) }) { Text("FBX") }
+            }
             if (history != null) {
                 TextButton(onClick = { rename = true }) { Text(common.rename) }
                 TextButton(onClick = { viewModel.deleteHistory(history.id) }) {
@@ -346,9 +374,21 @@ private fun CreationHistoryEntry?.longMetadata(key: String): Long? =
 private fun CreationHistoryEntry?.intMetadata(key: String): Int? =
     this?.metadata?.get(key)?.jsonPrimitive?.intOrNull
 
+private fun CreationHistoryEntry?.downloadMetadata(key: String): String? =
+    this?.metadata?.get("download")?.jsonObject?.get(key)?.jsonPrimitive?.contentOrNull
+
 private fun geometryStatsText(template: String, vertices: Long?, faces: Long?): String =
     template.replaceFirst("{}", vertices?.toString() ?: "-")
         .replaceFirst("{}", faces?.toString() ?: "-")
+
+private fun quadGeometryStatsText(
+    template: String,
+    vertices: Long?,
+    polygons: Long,
+    quads: Long,
+): String = template.replaceFirst("{}", vertices?.toString() ?: "-")
+    .replaceFirst("{}", polygons.toString())
+    .replaceFirst("{}", quads.toString())
 
 @Composable
 private fun RenameResultDialog(

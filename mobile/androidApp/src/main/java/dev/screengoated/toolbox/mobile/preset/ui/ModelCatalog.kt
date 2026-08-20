@@ -9,6 +9,7 @@ import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 enum class ModelProvider(val displayName: String, val icon: String) {
     GEMINI("Gemini", "\u2728"),
     GROQ("Groq", "\uD83D\uDD25"),
+    NVIDIA("NVIDIA", "\u26A1"),
     GOOGLE_GTX("Google Translate", "\uD83C\uDF0D"),
     MOONSHINE("Moonshine-ASR", "\uD83C\uDF10"),
     QR_SCANNER("QR Scanner", "\uD83D\uDD33"),
@@ -77,6 +78,7 @@ private fun PresetModelDescriptor.toUiEntry(): ModelEntry {
 private fun PresetModelProvider.toUiProvider(): ModelProvider = when (this) {
     PresetModelProvider.GOOGLE -> ModelProvider.GEMINI
     PresetModelProvider.GROQ -> ModelProvider.GROQ
+    PresetModelProvider.NVIDIA -> ModelProvider.NVIDIA
     PresetModelProvider.OPENROUTER -> ModelProvider.OPENROUTER
     PresetModelProvider.GOOGLE_GTX -> ModelProvider.GOOGLE_GTX
     PresetModelProvider.GEMINI_LIVE -> ModelProvider.GEMINI_LIVE

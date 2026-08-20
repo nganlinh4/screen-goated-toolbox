@@ -67,7 +67,8 @@ internal fun validCreationDeliveryRecord(
             !record.historyCommitted
         "publication_prepared" -> record.publicationPrepared &&
             record.pendingHandle != null &&
-            record.publishedPath == null &&
+            (record.publishedPath == null ||
+                record.companion?.publishedPath == null) &&
             !record.historyCommitted
         "published" -> record.publicationPrepared &&
             record.pendingHandle != null &&
@@ -79,6 +80,69 @@ internal fun validCreationDeliveryRecord(
             record.historyCommitted
         else -> false
     }
+    val companionValid = record.companion?.let { companion ->
+        val primary = File(record.sealedPath).absoluteFile.normalize()
+        val sealed = File(companion.sealedPath).absoluteFile.normalize()
+        val companionToken = companion.intent.reservationToken
+        val assignmentValid = sealed.parentFile == primary.parentFile &&
+            sealed.nameWithoutExtension == primary.nameWithoutExtension &&
+            sealed.extension.equals("fbx", ignoreCase = true) &&
+            companion.outputName == sealed.name &&
+            record.event.downloadPath == companion.sealedPath &&
+            record.event.downloadName == companion.outputName
+        val companionIntentValid = companionToken != null &&
+            companionToken.length == 32 &&
+            companionToken.all(Char::isCreationHexDigit) &&
+            companion.intent.mimeType == "application/octet-stream" &&
+            companion.intent.finalName == companion.outputName &&
+            companion.intent.kind == record.intent.kind &&
+            companion.intent.destination == record.intent.destination &&
+            when (companion.intent.kind) {
+                "managed" -> {
+                    val target = companion.intent.targetPath?.let(::File)?.toPath()
+                        ?.toAbsolutePath()?.normalize()
+                    val pending = companion.intent.pendingPath?.let(::File)?.toPath()
+                        ?.toAbsolutePath()?.normalize()
+                    companion.intent.pendingName == null &&
+                        target?.parent == library &&
+                        target.fileName.toString() == companion.outputName &&
+                        pending?.parent == library &&
+                        pending.fileName.toString() == ".sgt-$companionToken.delivery"
+                }
+                "saf" -> companion.intent.targetPath == null &&
+                    companion.intent.pendingPath == null &&
+                    companion.intent.pendingName == ".sgt-$companionToken.pending"
+                else -> false
+            }
+        val pendingCompanionValid = if (companion.pendingHandle == null) {
+            companion.pendingIdentity == null && !companion.publicationPrepared &&
+                companion.publishedPath == null
+        } else {
+            !companion.pendingIdentity.isNullOrBlank() &&
+                companion.pendingIdentity.length <= 2_048 &&
+                (record.transactionStage !in setOf("published", "history_committed") ||
+                    companion.publicationPrepared) &&
+                if (companion.intent.kind == "managed") {
+                    companion.pendingHandle == companion.intent.pendingPath
+                } else {
+                    companion.pendingHandle.startsWith("content://")
+                }
+        }
+        val publishedCompanionValid = companion.publishedPath == null ||
+            if (companion.intent.kind == "managed") {
+                companion.publishedPath == companion.intent.targetPath
+            } else {
+                companion.publishedPath.startsWith("content://")
+            }
+        assignmentValid && companionIntentValid && pendingCompanionValid &&
+            publishedCompanionValid &&
+            companion.artifactSize in 21..maximumBytes &&
+            companion.artifactSha256.length == 64 &&
+            companion.artifactSha256.all(Char::isCreationHexDigit) &&
+            (record.transactionStage != "published" &&
+                record.transactionStage != "history_committed" ||
+                companion.publishedPath != null)
+    } ?: (record.event.downloadPath == null && record.event.downloadName == null)
     return record.dispatchId.length in 1..256 &&
         record.dispatchId == record.request.dispatchId &&
         creationRequestHasValidDeliveryIdentity(record.request) &&
@@ -97,14 +161,17 @@ internal fun validCreationDeliveryRecord(
         intentValid &&
         pendingValid &&
         publishedValid &&
-        stageValid
+        stageValid &&
+        companionValid
 }
 
 internal fun retainCreationDeliveryRecords(
     records: List<CreationDeliveryRecord>,
     sealedExists: (String) -> Boolean,
 ): List<CreationDeliveryRecord> = records.filterNot {
-    it.historyCommitted && !sealedExists(it.sealedPath)
+    it.historyCommitted &&
+        !sealedExists(it.sealedPath) &&
+        (it.companion == null || !sealedExists(it.companion.sealedPath))
 }
 
 private fun Char.isCreationHexDigit(): Boolean =

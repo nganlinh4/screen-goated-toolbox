@@ -548,6 +548,29 @@ class CreationFileStoreContractTest {
         assertTrue(collision.endsWith(".svg"))
     }
 
+    @Test
+    fun `paired history rename preserves one basename across provider collisions`() {
+        assertEquals(
+            "model.glb" to "model.fbx",
+            creationHistoryRenameNames(
+                "model.glb",
+                "old.fbx",
+                emptySet(),
+                emptySet(),
+                "rename-a",
+            ),
+        )
+        val renamed = creationHistoryRenameNames(
+            "model.glb",
+            "old.fbx",
+            emptySet(),
+            setOf("model.fbx"),
+            "rename-a",
+        )
+        assertTrue(renamed.first != "model.glb")
+        assertEquals(renamed.first.substringBeforeLast('.'), renamed.second?.substringBeforeLast('.'))
+    }
+
     private fun retentionItem(
         id: String,
         createdAtMs: Long,

@@ -299,6 +299,27 @@ internal class CreationFileStore(internal val context: Context) {
         return jobInputs.materialize(jobId, sourceHandles, tool)
     }
 
+    fun materializeContinuationInput(
+        jobId: String,
+        sourcePath: String,
+        destination: String?,
+    ): List<String> {
+        require(creationAcceptedInputCanLink(context.filesDir, sourcePath)) {
+            "The retained creation input is unavailable"
+        }
+        val sourceBytes = File(sourcePath).length()
+        ensureCreationStorageAvailable(
+            CreationTool.IMAGE_TO_3D,
+            sourceBytes.coerceAtMost(CreationContract.MAXIMUM_SOURCE_IMAGE_BYTES),
+            destination,
+        )
+        return jobInputs.materialize(
+            jobId,
+            listOf(sourcePath),
+            CreationTool.IMAGE_TO_3D,
+        )
+    }
+
     fun releaseJobInputs(paths: List<String>): Boolean = jobInputs.release(paths)
     fun queueJobInputCleanup(paths: Collection<String>) = jobInputCleanup.record(paths)
     fun drainJobInputCleanup() = jobInputCleanup.drain()

@@ -22,7 +22,7 @@ class HelpAssistantClientTest {
     @Test
     fun constantsMatchAndroidHelpIndexContract() {
         assertEquals("google-gemini-3-5-flash-lite-vision", PRIMARY_MODEL)
-        assertEquals("google-gemini-3-1-flash-lite-vision", FALLBACK_MODEL)
+        assertEquals("google-gemini-3-5-flash-vision", FALLBACK_MODEL)
         assertEquals(4096, MAX_OUTPUT_TOKENS)
         assertEquals(
             "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/help-index.json",

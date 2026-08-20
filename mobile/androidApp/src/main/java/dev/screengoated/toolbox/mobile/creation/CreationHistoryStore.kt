@@ -52,6 +52,9 @@ internal class CreationHistoryStore(
     ): CreationHistoryEntry = synchronized(lock) {
         recoverCleanupOwnership()
         val ownedOutput = files.managedPathIdentity(outputPath)
+        val companionPath = (metadata["download"] as? JsonObject)
+            ?.get("path")?.let { it as? JsonPrimitive }?.content
+        val ownedCompanion = companionPath?.let(files::managedPathIdentity)
         val entry = CreationHistoryEntry(
             id = UUID.randomUUID().toString(),
             dispatchId = dispatchId,
@@ -66,6 +69,11 @@ internal class CreationHistoryStore(
                 runCatching { files.sha256(it) }.getOrNull()
             },
             committedIdentity = files.artifactIdentity(outputPath),
+            companionCommittedSize = ownedCompanion?.let(files::size)?.takeIf { it >= 0L },
+            companionCommittedSha256 = ownedCompanion?.let {
+                runCatching { files.sha256(it) }.getOrNull()
+            },
+            companionCommittedIdentity = companionPath?.let(files::artifactIdentity),
         )
         val retained = read().filter {
             isUserOwnedCreationOutputPath(it.outputPath) || files.exists(it.outputPath)
@@ -123,10 +131,9 @@ internal class CreationHistoryStore(
         val index = entries.indexOfFirst { it.id == id }
         require(index >= 0) { "Saved result is unavailable" }
         val removed = entries.removeAt(index)
-        val deleted = if (isUserOwnedCreationOutputPath(removed.outputPath)) {
-            files.delete(removed.outputPath)
-        } else {
-            !files.exists(removed.outputPath) || files.delete(removed.outputPath)
+        val deleted = listOfNotNull(removed.outputPath, removed.companionOutputPath()).all { path ->
+            if (isUserOwnedCreationOutputPath(path)) files.delete(path)
+            else !files.exists(path) || files.delete(path)
         }
         check(deleted) {
             "Could not delete result"
@@ -232,18 +239,43 @@ internal class CreationHistoryStore(
         removed: List<CreationHistoryEntry>,
         livePaths: Set<String>,
     ): List<CreationCleanupCandidate> {
-        val outputs = removed.mapNotNull { entry ->
-            if (entry.committedSize == null || entry.committedSha256 == null) {
-                return@mapNotNull null
+        val outputs = removed.flatMap { entry ->
+            buildList {
+                if (entry.committedSize != null && entry.committedSha256 != null) {
+                    files.managedPathIdentity(entry.outputPath)?.let { path ->
+                        entry.committedIdentity?.let { identity ->
+                            add(
+                                CreationCleanupCandidate(
+                                    path = path,
+                                    expectedSize = entry.committedSize,
+                                    expectedSha256 = entry.committedSha256,
+                                    expectedIdentity = identity,
+                                    retainedHistoryEntry = entry,
+                                ),
+                            )
+                        }
+                    }
+                }
+                val companionPath = entry.companionOutputPath()
+                if (companionPath != null &&
+                    entry.companionCommittedSize != null &&
+                    entry.companionCommittedSha256 != null
+                ) {
+                    files.managedPathIdentity(companionPath)?.let { path ->
+                        entry.companionCommittedIdentity?.let { identity ->
+                            add(
+                                CreationCleanupCandidate(
+                                    path = path,
+                                    expectedSize = entry.companionCommittedSize,
+                                    expectedSha256 = entry.companionCommittedSha256,
+                                    expectedIdentity = identity,
+                                    retainedHistoryEntry = entry,
+                                ),
+                            )
+                        }
+                    }
+                }
             }
-            val path = files.managedPathIdentity(entry.outputPath) ?: return@mapNotNull null
-            CreationCleanupCandidate(
-                path = path,
-                expectedSize = entry.committedSize,
-                expectedSha256 = entry.committedSha256,
-                expectedIdentity = entry.committedIdentity ?: return@mapNotNull null,
-                retainedHistoryEntry = entry,
-            )
         }
         return outputs
             .filter { it.path !in livePaths }

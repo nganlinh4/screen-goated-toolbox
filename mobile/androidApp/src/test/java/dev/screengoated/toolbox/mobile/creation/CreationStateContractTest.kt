@@ -32,6 +32,7 @@ class CreationStateContractTest {
         val submission = fixture.objectAt("submission")
         val presentation = fixture.objectAt("presentation")
         val segmentation = fixture.objectAt("segmentation")
+        val quadCompanion = fixture.objectAt("quadCompanion")
         val history = fixture.objectAt("history")
         val modelSafety = fixture.objectAt("modelSafety")
         val runtimeCapabilities = fixture.objectAt("runtimeCapabilities")
@@ -93,6 +94,10 @@ class CreationStateContractTest {
         assertEquals(24, segmentation.intAt("continuationWindowHours"))
         assertTrue(segmentation.booleanAt("newGenerationMayInvalidatePriorContinuation"))
         assertTrue(segmentation.booleanAt("fastResultIsSegmented"))
+        assertTrue(segmentation.booleanAt("automaticSeparationRunsAfterBaseCommit"))
+        assertTrue(segmentation.booleanAt("automaticSeparationPreservesBaseWhileRunning"))
+        assertTrue(segmentation.booleanAt("automaticSeparationFailurePreservesBase"))
+        assertTrue(segmentation.booleanAt("automaticSeparationIsAtMostOncePerContinuation"))
         assertEquals(
             "validated_artifact",
             generationPrerequisite.stringAt("unsegmentedResult"),
@@ -105,6 +110,12 @@ class CreationStateContractTest {
             "validated_artifact_and_terminal_success",
             generationPrerequisite.stringAt("continuation"),
         )
+        assertEquals("glb", quadCompanion.stringAt("previewFormat"))
+        assertEquals("fbx", quadCompanion.stringAt("sourceFormat"))
+        assertTrue(quadCompanion.booleanAt("publishedBesidePreview"))
+        assertTrue(quadCompanion.booleanAt("savedResultNamesBothArtifacts"))
+        assertTrue(quadCompanion.booleanAt("renameAndDeleteAreTransactionalForBothArtifacts"))
+        assertTrue(quadCompanion.booleanAt("missingCompanionFailsPublication"))
         assertTrue(history.booleanAt("retainCurrentSessionResultUntilHistoryPersists"))
         assertTrue(history.booleanAt("doneStatusTransitionsDirectlyToModel"))
         assertTrue(history.booleanAt("freezeGenerationMode"))

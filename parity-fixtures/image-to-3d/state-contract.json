@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 57,
+  "schemaVersion": 58,
   "tool": "image-to-3d",
   "runtimeDelivery": {
     "authority": "tracked-immutable-contract",
@@ -270,6 +270,9 @@
         "autoSegment": true,
         "effectiveAutoSegment": true,
         "showAutoSegment": true,
+        "baseResultSegmented": false,
+        "basePublishedBeforeAutomaticSegmentation": true,
+        "automaticSegmentationRunsAsChildJob": true,
         "resultSegmented": true,
         "canSegmentAfterGeneration": false
       },
@@ -342,12 +345,24 @@
       "continuation": "validated_artifact_and_terminal_success"
     },
     "allowContinuationAfterGeneration": true,
+    "automaticSeparationRunsAfterBaseCommit": true,
+    "automaticSeparationPreservesBaseWhileRunning": true,
+    "automaticSeparationFailurePreservesBase": true,
+    "automaticSeparationIsAtMostOncePerContinuation": true,
     "continuationWindowHours": 24,
     "newGenerationMayInvalidatePriorContinuation": true,
     "fastResultIsSegmented": true,
     "requireRenderableNormals": true,
     "expandDisconnectedComponentsForSingleMesh": true,
     "preserveExistingPartNodes": true
+  },
+  "quadCompanion": {
+    "previewFormat": "glb",
+    "sourceFormat": "fbx",
+    "publishedBesidePreview": true,
+    "savedResultNamesBothArtifacts": true,
+    "renameAndDeleteAreTransactionalForBothArtifacts": true,
+    "missingCompanionFailsPublication": true
   },
   "history": {
     "presentationOrder": "newest_session_first",

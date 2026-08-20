@@ -282,7 +282,7 @@ class CreationDispatchQueueTest {
     }
 
     @Test
-    fun `product segmentation state cannot be weakened by a private event`() {
+    fun `only inherently segmented jobs require segmented terminal artifacts`() {
         val fast = request("fast", "generate").copy(
             generationMode = CreationGenerationMode.FAST.wireName,
         )
@@ -296,13 +296,46 @@ class CreationDispatchQueueTest {
 
         assertTrue(validatedCreationSegmentation(fast, event(isSegmented = null)))
         assertTrue(validatedCreationSegmentation(automatic, event(isSegmented = true)))
+        assertFalse(validatedCreationSegmentation(automatic, event(isSegmented = false)))
         assertTrue(validatedCreationSegmentation(continuation, event(isSegmented = null)))
         assertThrows(IllegalArgumentException::class.java) {
             validatedCreationSegmentation(fast, event(isSegmented = false))
         }
-        assertThrows(IllegalArgumentException::class.java) {
-            validatedCreationSegmentation(automatic, event(isSegmented = false))
-        }
+    }
+
+    @Test
+    fun `automatic separation starts only from a committed eligible base`() {
+        val base = CreationNativeItem(
+            id = "base",
+            batchId = "batch",
+            sourcePath = "source.png",
+            sourceName = "source.png",
+            autoSegment = true,
+            submitted = true,
+            stage = CreationNativeStage.DONE,
+            status = CreationJobStatus(
+                jobId = "parent",
+                stage = "done",
+                progressText = "Model ready",
+                outputPath = "base.glb",
+                outputName = "base.glb",
+                canSegment = true,
+            ),
+        )
+
+        assertTrue(creationNeedsAutomaticSegmentation(base))
+        assertFalse(creationNeedsAutomaticSegmentation(base.copy(autoSegment = false)))
+        assertFalse(creationNeedsAutomaticSegmentation(base.copy(stage = CreationNativeStage.RUNNING)))
+        assertFalse(
+            creationNeedsAutomaticSegmentation(
+                base.copy(status = base.status?.copy(canSegment = false)),
+            ),
+        )
+        assertFalse(
+            creationNeedsAutomaticSegmentation(
+                base.copy(status = base.status?.copy(isSegmented = true)),
+            ),
+        )
     }
 
     @Test

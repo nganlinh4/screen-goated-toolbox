@@ -185,9 +185,17 @@
   Windows custom-protocol response validates and serves one in-memory snapshot;
   Android loads only the revalidated app-owned result or bounded preview-cache
   materialization.
-- Fast results and quality results completed with automatic separation are
-  already segmented. An eligible unsegmented quality result may expose a
-  separate continuation for 24 hours.
+- Fast results are already segmented. Quality generation always validates,
+  publishes, records, and displays its base model before optional separation.
+  When automatic separation is selected, it consumes that committed result's
+  continuation in one child job; the base remains visible and saved while the
+  child runs and remains usable if separation fails. Recovery starts that child
+  at most once. An eligible quality result may expose a separate continuation
+  for 24 hours when automatic separation was not requested.
+- A quality quad result publishes its previewable GLB and quad-source FBX as one
+  delivery transaction. Saved-result presentation names both files. Rename,
+  delete, recovery, and ownership validation cover both artifacts together;
+  publication fails rather than silently losing an expected companion.
 - Segmented output preserves existing meaningful part nodes. A single-mesh
   result may be expanded by disconnected components when that produces useful
   parts.

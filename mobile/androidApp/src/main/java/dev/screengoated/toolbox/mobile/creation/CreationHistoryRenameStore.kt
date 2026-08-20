@@ -6,6 +6,20 @@ import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
+@Serializable
+internal data class CreationHistoryCompanionRenameReceipt(
+    val oldPath: String,
+    val oldName: String,
+    val targetName: String,
+    val expectedSize: Long,
+    val expectedSha256: String,
+    val oldIdentity: String,
+    val newPath: String? = null,
+    val newIdentity: String? = null,
+)
 
 @Serializable
 internal data class CreationHistoryRenameReceipt(
@@ -19,6 +33,7 @@ internal data class CreationHistoryRenameReceipt(
     val oldIdentity: String = "",
     val newPath: String? = null,
     val newIdentity: String? = null,
+    val companion: CreationHistoryCompanionRenameReceipt? = null,
     val committed: Boolean = false,
 )
 
@@ -42,20 +57,39 @@ internal class CreationHistoryRenameStore(
             "Saved result identity is unavailable"
         }
         val transactionId = UUID.randomUUID().toString()
-        val targetName = files.outputs.planHistoryRenameName(
+        val companionPath = entry.companionOutputPath()
+        val companionName = entry.companionOutputName()
+        val targetNames = files.outputs.planHistoryRenameNames(
             entry.outputPath,
+            companionPath,
+            companionName,
             requestedName,
             transactionId,
         )
+        val companion = companionPath?.let { path ->
+            val companionSize = files.size(path)
+            require(companionSize >= 0L) { "Saved companion result is unavailable" }
+            CreationHistoryCompanionRenameReceipt(
+                oldPath = path,
+                oldName = requireNotNull(companionName),
+                targetName = requireNotNull(targetNames.second),
+                expectedSize = companionSize,
+                expectedSha256 = files.sha256(path),
+                oldIdentity = requireNotNull(files.artifactIdentity(path)) {
+                    "Saved companion result identity is unavailable"
+                },
+            )
+        }
         var receipt = CreationHistoryRenameReceipt(
             transactionId,
             entry.id,
             entry.outputPath,
             entry.outputName,
-            targetName,
+            targetNames.first,
             size,
             digest,
             oldIdentity,
+            companion = companion,
         )
         val records = read().toMutableList()
         require(records.none { it.entryId == entry.id }) { "A rename is already pending" }
@@ -74,11 +108,24 @@ internal class CreationHistoryRenameStore(
         )
         replace(records, receipt)
         write(records)
-        val updated = entry.copy(
-            outputPath = renamed.first,
-            outputName = renamed.second,
-            committedIdentity = receipt.newIdentity,
-        )
+        receipt.companion?.takeIf { it.newPath == null }?.let { pending ->
+            val renamedCompanion = files.outputs.renameForHistory(
+                pending.oldPath,
+                pending.targetName,
+                pending.oldIdentity,
+                pending.expectedSize,
+                pending.expectedSha256,
+            )
+            receipt = receipt.copy(
+                companion = pending.copy(
+                    newPath = renamedCompanion.first,
+                    newIdentity = requireNotNull(files.artifactIdentity(renamedCompanion.first)),
+                ),
+            )
+            replace(records, receipt)
+            write(records)
+        }
+        val updated = creationEntryWithCompletedRename(entry, receipt)
         commit(updated)
         receipt = receipt.copy(committed = true)
         replace(records, receipt)
@@ -114,6 +161,23 @@ internal class CreationHistoryRenameStore(
                     replace(records, receipt)
                     write(records)
                 }
+                receipt.companion?.takeIf { it.newPath == null }?.let { pending ->
+                    val renamed = files.outputs.renameForHistory(
+                        pending.oldPath,
+                        pending.targetName,
+                        pending.oldIdentity,
+                        pending.expectedSize,
+                        pending.expectedSha256,
+                    )
+                    receipt = receipt.copy(
+                        companion = pending.copy(
+                            newPath = renamed.first,
+                            newIdentity = requireNotNull(files.artifactIdentity(renamed.first)),
+                        ),
+                    )
+                    replace(records, receipt)
+                    write(records)
+                }
                 val newPath = requireNotNull(receipt.newPath)
                 require(
                     creationRenameArtifactIsVerified(
@@ -123,12 +187,11 @@ internal class CreationHistoryRenameStore(
                         files.sha256(newPath),
                     ),
                 ) { "Renamed result verification failed" }
+                require(creationRenameCompanionIsVerified(receipt.companion, files)) {
+                    "Renamed companion result verification failed"
+                }
                 if (creationRenameRecoveryMustCommitHistory(receipt, entry)) {
-                    entry = entry.copy(
-                        outputPath = newPath,
-                        outputName = receipt.targetName,
-                        committedIdentity = receipt.newIdentity,
-                    )
+                    entry = creationEntryWithCompletedRename(entry, receipt)
                     updated = updated.map { if (it.id == entry.id) entry else it }
                     commitAll(updated)
                 }
@@ -155,20 +218,37 @@ internal class CreationHistoryRenameStore(
             write(records)
             return
         }
-        val oldExists = files.exists(receipt.oldPath)
+        val primaryRemoved = finishOldArtifact(
+            receipt.oldPath,
+            receipt.oldIdentity,
+            receipt.expectedSize,
+            receipt.expectedSha256,
+        )
+        val companionRemoved = receipt.companion?.let {
+            finishOldArtifact(it.oldPath, it.oldIdentity, it.expectedSize, it.expectedSha256)
+        } ?: true
+        if (!primaryRemoved || !companionRemoved) return
+        records.removeAll { it.transactionId == receipt.transactionId }
+        write(records)
+    }
+
+    private fun finishOldArtifact(
+        oldPath: String,
+        oldIdentity: String,
+        expectedSize: Long,
+        expectedSha256: String,
+    ): Boolean {
+        val oldExists = files.exists(oldPath)
         val stillExact = oldExists &&
-            files.artifactIdentity(receipt.oldPath) == receipt.oldIdentity &&
-            files.size(receipt.oldPath) == receipt.expectedSize &&
+            files.artifactIdentity(oldPath) == oldIdentity &&
+            files.size(oldPath) == expectedSize &&
             runCatching {
-                files.sha256(receipt.oldPath).equals(
-                    receipt.expectedSha256,
+                files.sha256(oldPath).equals(
+                    expectedSha256,
                     ignoreCase = true,
                 )
             }.getOrDefault(false)
-        val removed = !oldExists || !stillExact || files.delete(receipt.oldPath)
-        if (!removed) return
-        records.removeAll { it.transactionId == receipt.transactionId }
-        write(records)
+        return !oldExists || !stillExact || files.delete(oldPath)
     }
 
     private fun read(): List<CreationHistoryRenameReceipt> {
@@ -208,8 +288,13 @@ private const val CREATION_RENAME_MAXIMUM_RECORDS = 384
 internal fun creationRenameRecoveryMustCommitHistory(
     receipt: CreationHistoryRenameReceipt,
     entry: CreationHistoryEntry,
-): Boolean = receipt.newPath != null &&
-    (entry.outputPath != receipt.newPath || entry.outputName != receipt.targetName)
+): Boolean = receipt.newPath != null && (
+    entry.outputPath != receipt.newPath || entry.outputName != receipt.targetName ||
+        receipt.companion?.let {
+            entry.companionOutputPath() != it.newPath ||
+                (entry.metadata["download"] as? JsonObject)?.get("name") != JsonPrimitive(it.targetName)
+        } == true
+    )
 
 internal fun creationRenameArtifactIsVerified(
     receipt: CreationHistoryRenameReceipt,
@@ -220,3 +305,37 @@ internal fun creationRenameArtifactIsVerified(
     actualIdentity == receipt.newIdentity &&
     actualSize == receipt.expectedSize &&
     actualSha256?.equals(receipt.expectedSha256, ignoreCase = true) == true
+
+internal fun creationEntryWithCompletedRename(
+    entry: CreationHistoryEntry,
+    receipt: CreationHistoryRenameReceipt,
+): CreationHistoryEntry {
+    val renamedCompanion = receipt.companion
+    val renamedMetadata = renamedCompanion?.let { companion ->
+        val download = ((entry.metadata["download"] as? JsonObject)?.toMutableMap() ?: mutableMapOf())
+            .apply {
+                put("path", JsonPrimitive(requireNotNull(companion.newPath)))
+                put("name", JsonPrimitive(companion.targetName))
+            }
+        JsonObject(entry.metadata.toMutableMap().apply { put("download", JsonObject(download)) })
+    } ?: entry.metadata
+    return entry.copy(
+        outputPath = requireNotNull(receipt.newPath),
+        outputName = receipt.targetName,
+        committedIdentity = receipt.newIdentity,
+        metadata = renamedMetadata,
+        companionCommittedIdentity = renamedCompanion?.newIdentity
+            ?: entry.companionCommittedIdentity,
+    )
+}
+
+private fun creationRenameCompanionIsVerified(
+    receipt: CreationHistoryCompanionRenameReceipt?,
+    files: CreationFileStore,
+): Boolean = receipt == null || receipt.newPath?.let { path ->
+    receipt.newIdentity != null &&
+        files.artifactIdentity(path) == receipt.newIdentity &&
+        files.size(path) == receipt.expectedSize &&
+        runCatching { files.sha256(path) }
+            .getOrNull()?.equals(receipt.expectedSha256, ignoreCase = true) == true
+} == true

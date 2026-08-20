@@ -104,6 +104,7 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 modelReady = "모델 준비 완료",
                 partsReady = "파트 준비 완료",
                 geometryStats = "정점 {}개 · 면 {}개",
+                quadGeometryStats = "정점 {}개 · 폴리곤 {}개 (쿼드 {}개)",
                 grid = "그리드",
                 wireframe = "와이어프레임",
                 outline = "윤곽선",

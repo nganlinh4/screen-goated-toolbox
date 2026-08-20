@@ -6,6 +6,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -311,6 +313,44 @@ class CreationDeliveryContractTest {
                 actualSha256 = "b".repeat(64),
             ),
         )
+        val paired = receipt.copy(
+            companion = CreationHistoryCompanionRenameReceipt(
+                oldPath = "creation/library/old.fbx",
+                oldName = "old.fbx",
+                targetName = "new.fbx",
+                expectedSize = 8,
+                expectedSha256 = "c".repeat(64),
+                oldIdentity = "fbx-old",
+                newPath = "creation/library/new.fbx",
+                newIdentity = "fbx-new",
+            ),
+        )
+        assertTrue(creationRenameRecoveryMustCommitHistory(paired, entry))
+        val primaryOnly = entry.copy(
+            outputPath = requireNotNull(paired.newPath),
+            outputName = paired.targetName,
+        )
+        assertTrue(creationRenameRecoveryMustCommitHistory(paired, primaryOnly))
+        val fullyRenamed = primaryOnly.copy(
+            metadata = JsonObject(
+                mapOf(
+                    "download" to JsonObject(
+                        mapOf(
+                            "path" to JsonPrimitive("creation/library/new.fbx"),
+                            "name" to JsonPrimitive("new.fbx"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertFalse(creationRenameRecoveryMustCommitHistory(paired, fullyRenamed))
+        val committed = creationEntryWithCompletedRename(entry, paired)
+        assertEquals("creation/library/new.glb", committed.outputPath)
+        assertEquals("new.glb", committed.outputName)
+        assertEquals("creation/library/new.fbx", committed.companionOutputPath())
+        assertEquals("new.fbx", committed.companionOutputName())
+        assertEquals("inode-new", committed.committedIdentity)
+        assertEquals("fbx-new", committed.companionCommittedIdentity)
     }
 
     @Test

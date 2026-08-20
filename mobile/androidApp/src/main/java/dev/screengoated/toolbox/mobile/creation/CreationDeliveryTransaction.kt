@@ -19,6 +19,19 @@ internal data class CreationPublishIntent(
 )
 
 @Serializable
+internal data class CreationCompanionDelivery(
+    val sealedPath: String,
+    val outputName: String,
+    val artifactSize: Long,
+    val artifactSha256: String,
+    val intent: CreationPublishIntent,
+    val pendingHandle: String? = null,
+    val pendingIdentity: String? = null,
+    val publicationPrepared: Boolean = false,
+    val publishedPath: String? = null,
+)
+
+@Serializable
 internal data class CreationDeliveryRecord(
     val dispatchId: String,
     val engineId: String,
@@ -37,6 +50,7 @@ internal data class CreationDeliveryRecord(
     val artifactSize: Long,
     val artifactSha256: String,
     val intent: CreationPublishIntent,
+    val companion: CreationCompanionDelivery? = null,
     val transactionStage: String = "validated",
     val pendingHandle: String? = null,
     val pendingIdentity: String? = null,
@@ -70,8 +84,23 @@ internal class CreationDeliveryStore(
             val size = files.size(prepared.stagingPath)
             require(size > 0L) { "Creation result is unavailable" }
             val digest = files.sha256(prepared.stagingPath)
+            val companionArtifact = prepared.companionStagingPath?.let { path ->
+                Triple(
+                    path,
+                    files.size(path).also { require(it > 0L) },
+                    files.sha256(path),
+                )
+            }
             records.firstOrNull { it.dispatchId == prepared.request.dispatchId }?.let { saved ->
-                require(creationDeliveryMatchesPrepared(saved, prepared, size, digest)) {
+                require(
+                    creationDeliveryMatchesPrepared(
+                        saved,
+                        prepared,
+                        size,
+                        digest,
+                        companionArtifact,
+                    ),
+                ) {
                     "Creation delivery identity conflicts with saved state"
                 }
                 return@synchronized saved
@@ -86,6 +115,23 @@ internal class CreationDeliveryStore(
                 destination,
                 records.map(CreationDeliveryRecord::intent),
             )
+            val companion = prepared.companionStagingPath?.let { path ->
+                val name = requireNotNull(prepared.companionName)
+                val companionIntent = files.planPublishIntent(
+                    prepared.request.dispatchId,
+                    name,
+                    "application/octet-stream",
+                    destination,
+                    records.map(CreationDeliveryRecord::intent) + intent,
+                )
+                CreationCompanionDelivery(
+                    sealedPath = path,
+                    outputName = name,
+                    artifactSize = requireNotNull(companionArtifact).second,
+                    artifactSha256 = requireNotNull(companionArtifact).third,
+                    intent = companionIntent,
+                )
+            }
             val record = CreationDeliveryRecord(
                 dispatchId = prepared.request.dispatchId,
                 engineId = prepared.engineId,
@@ -104,6 +150,7 @@ internal class CreationDeliveryStore(
                 artifactSize = size,
                 artifactSha256 = digest,
                 intent = intent,
+                companion = companion,
             )
             records += record
             write(records)
@@ -130,7 +177,19 @@ internal class CreationDeliveryStore(
                     current.artifactSha256,
                 ),
             ) { "Published creation result changed" }
-            return@synchronized current
+            current.companion?.publishedPath?.let { companionPublished ->
+                require(
+                    files.publishedArtifactMatches(
+                        companionPublished,
+                        requireNotNull(current.companion.pendingIdentity),
+                        current.companion.artifactSize,
+                        current.companion.artifactSha256,
+                    ),
+                ) { "Published creation companion changed" }
+            }
+            if (current.companion == null || current.companion.publishedPath != null) {
+                return@synchronized current
+            }
         }
         val action = {
             if (current.pendingHandle == null) {
@@ -138,6 +197,19 @@ internal class CreationDeliveryStore(
                 current = current.copy(
                     pendingHandle = reservation.handle,
                     pendingIdentity = reservation.identity,
+                )
+                replace(records, current)
+                write(records)
+            }
+            val unreservedCompanion = current.companion?.takeIf { it.pendingHandle == null }
+            if (unreservedCompanion != null) {
+                val companion = unreservedCompanion
+                val reservation = files.reservePublishIntent(companion.intent)
+                current = current.copy(
+                    companion = companion.copy(
+                        pendingHandle = reservation.handle,
+                        pendingIdentity = reservation.identity,
+                    ),
                 )
                 replace(records, current)
                 write(records)
@@ -160,17 +232,44 @@ internal class CreationDeliveryStore(
                 replace(records, current)
                 write(records)
             }
-            val published = files.commitPublishIntent(
-                current.intent,
-                pending,
-                identity,
-                current.artifactSize,
-                current.artifactSha256,
-            )
-            current = current.copy(
-                publishedPath = published,
-                transactionStage = "published",
-            )
+            current.companion?.takeIf { !it.publicationPrepared }?.let { companion ->
+                files.populatePublishIntent(
+                    companion.intent,
+                    requireNotNull(companion.pendingHandle),
+                    requireNotNull(companion.pendingIdentity),
+                    File(companion.sealedPath),
+                    companion.artifactSize,
+                    companion.artifactSha256,
+                )
+                current = current.copy(companion = companion.copy(publicationPrepared = true))
+                replace(records, current)
+                write(records)
+            }
+            if (current.publishedPath == null) {
+                val published = files.commitPublishIntent(
+                    current.intent,
+                    pending,
+                    identity,
+                    current.artifactSize,
+                    current.artifactSha256,
+                )
+                current = current.copy(publishedPath = published)
+                replace(records, current)
+                write(records)
+            }
+            current.companion?.takeIf { it.publishedPath == null }?.let { companion ->
+                val published = files.commitPublishIntent(
+                    companion.intent,
+                    requireNotNull(companion.pendingHandle),
+                    requireNotNull(companion.pendingIdentity),
+                    companion.artifactSize,
+                    companion.artifactSha256,
+                )
+                current = current.copy(companion = companion.copy(publishedPath = published))
+                replace(records, current)
+                write(records)
+            }
+            current = current.copy(transactionStage = "published")
             replace(records, current)
             write(records)
             current
@@ -200,8 +299,12 @@ internal class CreationDeliveryStore(
         val record = records.firstOrNull { it.dispatchId == dispatchId }
             ?: return@synchronized true
         require(record.historyCommitted) { "Creation history is not committed" }
-        val removed = !files.exists(record.sealedPath) ||
+        val primaryRemoved = !files.exists(record.sealedPath) ||
             files.deleteManagedPath(record.sealedPath)
+        val companionRemoved = record.companion?.sealedPath?.let { path ->
+            !files.exists(path) || files.deleteManagedPath(path)
+        } ?: true
+        val removed = primaryRemoved && companionRemoved
         if (removed) {
             records.removeAll { it.dispatchId == dispatchId }
         } else {
@@ -242,6 +345,8 @@ internal class CreationDeliveryStore(
                             published.prepared(),
                             requireNotNull(published.publishedPath),
                             published.intent.finalName,
+                            published.companion?.publishedPath,
+                            published.companion?.outputName,
                         )
                         finisher.recordHistory(completed, published.event, protectedPaths)
                         markHistoryCommitted(published.dispatchId)
@@ -255,6 +360,8 @@ internal class CreationDeliveryStore(
                             saved.prepared(),
                             requireNotNull(saved.publishedPath),
                             saved.intent.finalName,
+                            saved.companion?.publishedPath,
+                            saved.companion?.outputName,
                         )
                         CreationReconciledTerminal(
                             completed.request,
@@ -322,6 +429,40 @@ internal class CreationDeliveryStore(
                 )
             }
         }
+        record.companion?.let { companion ->
+            val cleanedCompanion = companion.pendingHandle?.let { pending ->
+                if (companion.publicationPrepared) {
+                    files.abortPreparedPublishIntent(
+                        companion.intent,
+                        pending,
+                        requireNotNull(companion.pendingIdentity),
+                        companion.artifactSize,
+                        companion.artifactSha256,
+                    )
+                } else {
+                    files.abortPublishIntent(
+                        companion.intent,
+                        pending,
+                        requireNotNull(companion.pendingIdentity),
+                    )
+                }
+            } ?: true
+            require(cleanedCompanion) { "Creation companion cancellation cleanup is pending" }
+            companion.publishedPath?.let { published ->
+                files.managedPathIdentity(published)?.let { managed ->
+                    files.pendingCleanupStore().isolateAndEnqueue(
+                        listOf(
+                            CreationCleanupCandidate(
+                                path = managed,
+                                expectedSize = companion.artifactSize,
+                                expectedSha256 = companion.artifactSha256,
+                                expectedIdentity = companion.pendingIdentity,
+                            ),
+                        ),
+                    )
+                }
+            }
+        }
         markHistoryCommitted(record.dispatchId)
     }
 
@@ -342,6 +483,10 @@ internal class CreationDeliveryStore(
         canSegment,
         faces,
         vertices,
+        companion?.sealedPath,
+        companion?.outputName,
+        event.polygons,
+        event.quads,
     )
 
     private fun read(): List<CreationDeliveryRecord> {
@@ -404,6 +549,8 @@ internal class CreationDeliveryCoordinator(
             prepared,
             requireNotNull(receipt.publishedPath),
             receipt.intent.finalName,
+            receipt.companion?.publishedPath,
+            receipt.companion?.outputName,
         )
     }
 
@@ -455,6 +602,7 @@ internal fun creationDeliveryMatchesPrepared(
     prepared: PreparedCreation,
     artifactSize: Long,
     artifactSha256: String,
+    companionArtifact: Triple<String, Long, String>? = null,
 ): Boolean =
     saved.dispatchId == prepared.request.dispatchId &&
         saved.engineId == prepared.engineId &&
@@ -463,7 +611,18 @@ internal fun creationDeliveryMatchesPrepared(
         saved.sealedPath == prepared.stagingPath &&
         saved.mimeType == prepared.mimeType &&
         saved.artifactSize == artifactSize &&
-        saved.artifactSha256.equals(artifactSha256, ignoreCase = true)
+        saved.artifactSha256.equals(artifactSha256, ignoreCase = true) &&
+        if (companionArtifact == null) {
+            saved.companion == null
+        } else {
+            saved.companion?.sealedPath == companionArtifact.first &&
+                saved.companion.outputName == prepared.companionName &&
+                saved.companion.artifactSize == companionArtifact.second &&
+                saved.companion.artifactSha256.equals(
+                    companionArtifact.third,
+                    ignoreCase = true,
+                )
+        }
 
 internal fun creationDeliveryIdentityMatches(
     saved: CreationDeliveryRecord,
@@ -477,7 +636,8 @@ internal fun creationDeliveryIdentityMatches(
         saved.mimeType == candidate.mimeType &&
         saved.artifactSize == candidate.artifactSize &&
         saved.artifactSha256.equals(candidate.artifactSha256, ignoreCase = true) &&
-        saved.intent == candidate.intent
+        saved.intent == candidate.intent &&
+        saved.companion == candidate.companion
 
 internal enum class CreationDeliveryRecoveryAction {
     PUBLISH_SEALED,

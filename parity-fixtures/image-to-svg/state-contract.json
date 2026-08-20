@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 41,
+  "schemaVersion": 42,
   "tool": "image-to-svg",
   "releaseAvailability": {
     "enabled": true,
@@ -57,6 +57,14 @@
     "toolCapacityIsIsolated": true,
     "unresponsivePreparationIsRetiredBeforeRetry": true,
     "executionContextMatchesPresentationSurface": true
+  },
+  "authenticatedWorkspace": {
+    "postSignInOnboardingRequired": false,
+    "hiddenWorkspaceControlInteractionRequired": false,
+    "acceptedSourceAndSettingsAreUsedDirectly": true,
+    "completionUsesTheAcceptedJobResult": true,
+    "statusObservationReloadsWorkspace": false,
+    "behaviorIdenticalAcrossPlatforms": true
   },
   "mailboxPreparation": {
     "desktopAutomationPresentationIdentity": true,

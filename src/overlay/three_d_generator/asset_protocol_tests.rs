@@ -405,7 +405,7 @@ fn model_safety_fixture_matches_windows_limits() {
         "../../../parity-fixtures/image-to-3d/state-contract.json"
     ))
     .unwrap();
-    assert_eq!(fixture["schemaVersion"].as_u64(), Some(57));
+    assert_eq!(fixture["schemaVersion"].as_u64(), Some(58));
     assert_eq!(
         fixture["readiness"]["unrelatedDialogsDoNotBecomeFirstUseGuidance"].as_bool(),
         Some(true)

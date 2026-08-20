@@ -37,6 +37,10 @@ internal data class PreparedCreation(
     val canSegment: Boolean,
     val faces: Long?,
     val vertices: Long?,
+    val companionStagingPath: String? = null,
+    val companionName: String? = null,
+    val polygons: Long? = null,
+    val quads: Long? = null,
 )
 
 internal class CreationJobFinisher(
@@ -82,10 +86,10 @@ internal class CreationJobFinisher(
                 }
             }
             val segmented = validatedCreationSegmentation(request, event)
+            val companion = validatedCreationCompanion(request, event)
             val canSegment = tool == CreationTool.IMAGE_TO_3D &&
                 request.operation == "generate" &&
                 request.generationMode == CreationGenerationMode.QUALITY.wireName &&
-                !request.autoSegment &&
                 CreationContract.canContinueSegmentation(segmented, event.canSegment == true) &&
                 !event.continuationToken.isNullOrBlank()
             PreparedCreation(
@@ -101,6 +105,10 @@ internal class CreationJobFinisher(
                 canSegment,
                 event.faces.boundedCreationGeometryCount(tool),
                 event.vertices.boundedCreationGeometryCount(tool),
+                companion?.absolutePath,
+                event.downloadName,
+                event.polygons.boundedCreationGeometryCount(tool),
+                event.quads.boundedCreationGeometryCount(tool),
             )
         } catch (failure: Throwable) {
             files.deleteManagedPath(staging.absolutePath)
@@ -112,6 +120,8 @@ internal class CreationJobFinisher(
         prepared: PreparedCreation,
         published: String,
         outputName: String,
+        downloadPath: String? = null,
+        downloadName: String? = null,
     ): FinishedCreation {
         val request = prepared.request
         val event = prepared.event
@@ -131,6 +141,8 @@ internal class CreationJobFinisher(
             progressRatio = 1.0,
             outputPath = published,
             outputName = outputName,
+            downloadPath = downloadPath,
+            downloadName = downloadName,
             mimeType = mime,
             width = imageDimensions?.width,
             height = imageDimensions?.height,
@@ -139,6 +151,8 @@ internal class CreationJobFinisher(
             canSegment = canSegment,
             faces = prepared.faces,
             vertices = prepared.vertices,
+            polygons = prepared.polygons,
+            quads = prepared.quads,
             error = null,
         )
         val continuation = event.continuationToken?.takeIf { canSegment }?.let { token ->
@@ -195,6 +209,17 @@ internal fun creationHistoryMetadata(
             request.instruction?.let { put("instruction", it) }
             completed.status.faces?.let { put("faces", it) }
             completed.status.vertices?.let { put("vertices", it) }
+            completed.status.polygons?.let { put("polygons", it) }
+            completed.status.quads?.let { put("quads", it) }
+            if (completed.status.downloadPath != null && completed.status.downloadName != null) {
+                put(
+                    "download",
+                    buildJsonObject {
+                        put("path", completed.status.downloadPath)
+                        put("name", completed.status.downloadName)
+                    },
+                )
+            }
         }
         CreationTool.IMAGE_TO_SVG -> {
             put("model", request.model)
@@ -229,8 +254,7 @@ internal fun validatedCreationSegmentation(
 ): Boolean {
     if (request.tool != CreationTool.IMAGE_TO_3D.wireName) return false
     val productRequiresSegmented = request.operation == "segment" ||
-        request.generationMode == CreationGenerationMode.FAST.wireName ||
-        request.autoSegment
+        request.generationMode == CreationGenerationMode.FAST.wireName
     require(!productRequiresSegmented || event.isSegmented != false) {
         "Creation returned conflicting model-part state"
     }
@@ -243,3 +267,29 @@ private fun Long?.boundedCreationGeometryCount(tool: CreationTool): Long? =
             it != null &&
             it in 0..CreationContract.MAXIMUM_GLB_ARTIFACT_BYTES
     }
+
+private fun validatedCreationCompanion(
+    request: CreationWorkerRequest,
+    event: CreationWorkerEvent,
+): File? {
+    if (event.downloadPath == null && event.downloadName == null) return null
+    require(request.tool == CreationTool.IMAGE_TO_3D.wireName && request.operation == "generate") {
+        "Creation returned an unexpected companion artifact"
+    }
+    val expected = File(request.outputPath).absoluteFile.normalize().let { primary ->
+        File(primary.parentFile, "${primary.nameWithoutExtension}.fbx")
+    }
+    val companion = File(requireNotNull(event.downloadPath)).absoluteFile.normalize()
+    require(
+        companion == expected &&
+            event.downloadName == companion.name &&
+            companion.isFile &&
+            companion.length() in 21..CreationContract.MAXIMUM_GLB_ARTIFACT_BYTES
+    ) { "Creation returned an invalid companion artifact" }
+    val header = ByteArray(21)
+    companion.inputStream().use { require(it.read(header) == header.size) }
+    require(header.contentEquals("Kaydara FBX Binary  \u0000".toByteArray(Charsets.US_ASCII))) {
+        "Creation returned an invalid companion artifact"
+    }
+    return companion
+}

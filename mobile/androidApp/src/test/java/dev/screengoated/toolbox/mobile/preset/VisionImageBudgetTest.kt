@@ -83,11 +83,11 @@ class VisionImageBudgetTest {
     }
 
     @Test
-    fun openRouterNemotronUsesNestedReasoningAndTextFirstInput() {
+    fun openRouterGemmaUsesNestedReasoningAndTextFirstInput() {
         val payload = openAiVisionPayload(
             model = requireNotNull(
                 PresetModelCatalog.getById(
-                    "openrouter-nemotron-3-nano-omni-30b-a3b-vision",
+                    "openrouter-gemma-4-26b-a4b-vision",
                 ),
             ),
             prompt = "Read this image",

@@ -114,6 +114,7 @@ data class Creation3dLocale(
     val modelReady: String,
     val partsReady: String,
     val geometryStats: String,
+    val quadGeometryStats: String,
     val grid: String,
     val wireframe: String,
     val outline: String,

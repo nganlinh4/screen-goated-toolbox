@@ -30,6 +30,14 @@ internal class CreationNativeViewModel(
     private val schedulerMutex = Mutex()
     private val surfaceAcquired = AtomicBoolean()
     private val statusMonitorLock = Any()
+    private val segmentations = CreationNativeSegmentationLauncher(
+        manager,
+        ownerId,
+        viewModelScope,
+        ::updateItem,
+        ::ensureStatusMonitor,
+        ::showError,
+    )
     private var statusMonitor: Job? = null
     private val mutableState = MutableStateFlow(
         CreationNativeUiState(outputDirectory = manager.files.defaultOutputDirectoryLabel()),
@@ -235,25 +243,7 @@ internal class CreationNativeViewModel(
     }
 
     fun segmentSelected() {
-        val selected = mutableState.value.selectedItem ?: return
-        val continuationId = selected.status?.jobId ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching { manager.startSegmentation(ownerId, continuationId) }
-                .onSuccess { status ->
-                    updateItem(selected.id) {
-                        it.copy(
-                            stage = CreationNativeStage.RUNNING,
-                            status = status,
-                            submitted = true,
-                            generationMode = status.generationMode ?: it.generationMode,
-                            polycount = status.polycount ?: it.polycount,
-                            autoSegment = status.autoSegment ?: it.autoSegment,
-                        )
-                    }
-                    ensureStatusMonitor()
-                }
-                .onFailure(::showError)
-        }
+        mutableState.value.selectedItem?.let(segmentations::startManual)
     }
 
     fun rememberOutputDirectory(uri: Uri) {
@@ -484,6 +474,7 @@ internal class CreationNativeViewModel(
             }.state
         }
         if (reachedTerminal) refreshHistoryNow()
+        segmentations.startPending(mutableState.value.items)
         syncSourceHandles()
         return byJob.values.any { it.toNativeStage() == CreationNativeStage.RUNNING }
     }
@@ -536,6 +527,7 @@ internal class CreationNativeViewModel(
                 )
             }
             syncSourceHandles()
+            segmentations.startPending(mutableState.value.items)
             ensureStatusMonitor()
         }
     }

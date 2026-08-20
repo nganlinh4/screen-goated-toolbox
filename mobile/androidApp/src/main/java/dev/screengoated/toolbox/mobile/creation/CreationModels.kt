@@ -34,6 +34,8 @@ internal data class CreationJobStatus(
     val timingSampleCount: Long? = null,
     val outputPath: String? = null,
     val outputName: String? = null,
+    val downloadPath: String? = null,
+    val downloadName: String? = null,
     val previewPath: String? = null,
     val sourceImagePath: String? = null,
     val sourceImagePaths: List<String> = emptyList(),
@@ -50,6 +52,8 @@ internal data class CreationJobStatus(
     val backgroundMode: String? = null,
     val faces: Long? = null,
     val vertices: Long? = null,
+    val polygons: Long? = null,
+    val quads: Long? = null,
 )
 
 @Serializable
@@ -65,6 +69,9 @@ internal data class CreationHistoryEntry(
     val committedSize: Long? = null,
     val committedSha256: String? = null,
     val committedIdentity: String? = null,
+    val companionCommittedSize: Long? = null,
+    val companionCommittedSha256: String? = null,
+    val companionCommittedIdentity: String? = null,
 )
 
 @Serializable
@@ -112,6 +119,8 @@ internal data class CreationWorkerEvent(
     val continuationToken: String? = null,
     val outputPath: String? = null,
     val outputName: String? = null,
+    val downloadPath: String? = null,
+    val downloadName: String? = null,
     val mimeType: String? = null,
     val width: Int? = null,
     val height: Int? = null,
@@ -119,5 +128,7 @@ internal data class CreationWorkerEvent(
     val canSegment: Boolean? = null,
     val faces: Long? = null,
     val vertices: Long? = null,
+    val polygons: Long? = null,
+    val quads: Long? = null,
     val ready: Boolean? = null,
 )

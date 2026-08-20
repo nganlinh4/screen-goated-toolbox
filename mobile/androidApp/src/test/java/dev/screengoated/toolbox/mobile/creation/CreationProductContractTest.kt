@@ -59,8 +59,8 @@ class CreationProductContractTest {
             "integrityValidatedBeforeUse",
         )
         val fixtures = listOf(
-            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 57),
-            Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 41),
+            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 58),
+            Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 42),
             Triple(
                 "parity-fixtures/image-creation-editing/state-contract.json",
                 "fixtureVersion",
@@ -78,6 +78,18 @@ class CreationProductContractTest {
             assertFalse(publicBoundary.booleanAt("implementationDetailsVisible"))
             assertEquals(version, fixture.intAt(versionField))
         }
+    }
+
+    @Test
+    fun `svg authenticated workspace needs no post sign in UI setup`() {
+        val workspace = loadFixture("parity-fixtures/image-to-svg/state-contract.json")
+            .objectAt("authenticatedWorkspace")
+        assertFalse(workspace.booleanAt("postSignInOnboardingRequired"))
+        assertFalse(workspace.booleanAt("hiddenWorkspaceControlInteractionRequired"))
+        assertTrue(workspace.booleanAt("acceptedSourceAndSettingsAreUsedDirectly"))
+        assertTrue(workspace.booleanAt("completionUsesTheAcceptedJobResult"))
+        assertFalse(workspace.booleanAt("statusObservationReloadsWorkspace"))
+        assertTrue(workspace.booleanAt("behaviorIdenticalAcrossPlatforms"))
     }
 
     @Test

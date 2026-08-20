@@ -155,6 +155,7 @@ internal fun Creation3dSettings(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .testTag("creation-auto-separate")
                         .clickable(enabled = enabled) { onAutoSegment(!item.autoSegment) }
                         .semantics { role = Role.Switch }
                         .padding(vertical = 2.dp),

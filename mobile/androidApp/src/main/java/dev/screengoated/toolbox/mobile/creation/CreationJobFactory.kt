@@ -171,11 +171,9 @@ internal object CreationJobFactory {
         dispatchId: String,
         destination: String?,
     ): CreationJobDraft {
-        val runtimeSources = files.materializeJobInputs(
-            ownerId,
+        val runtimeSources = files.materializeContinuationInput(
             jobId,
-            listOf(continuation.sourcePath),
-            CreationTool.IMAGE_TO_3D,
+            continuation.sourcePath,
             destination,
         )
         return try {

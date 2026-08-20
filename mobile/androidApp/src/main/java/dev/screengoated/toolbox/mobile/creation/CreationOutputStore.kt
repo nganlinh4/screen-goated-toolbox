@@ -243,16 +243,25 @@ internal class CreationOutputStore(
 
     fun identity(path: String): String? = artifactIdentity(path)
 
-    fun planHistoryRenameName(path: String, requestedName: String, transactionId: String): String {
-        val clean = safeCreationOutputName(requestedName)
-        val uri = path.creationContentUri()
-        val occupied = if (uri == null) {
-            File(path).parentFile?.listFiles().orEmpty().map(File::getName).toSet()
-        } else {
-            safTrees.names(treeForDocument(uri))
-        }
-        return uniqueCreationDeliveryName(clean, occupied - File(path).name, transactionId)
-    }
+    fun planHistoryRenameNames(
+        path: String,
+        companionPath: String?,
+        companionName: String?,
+        requestedName: String,
+        transactionId: String,
+    ): Pair<String, String?> = creationHistoryRenameNames(
+        requestedName = safeCreationOutputName(requestedName),
+        companionName = companionName,
+        primaryOccupied = historyOccupiedNames(path) - File(path).name,
+        companionOccupied = companionPath?.let {
+            historyOccupiedNames(it) - requireNotNull(companionName)
+        }.orEmpty(),
+        transactionId = transactionId,
+    )
+
+    private fun historyOccupiedNames(path: String): Set<String> =
+        path.creationContentUri()?.let { safTrees.names(treeForDocument(it)) }
+            ?: File(path).parentFile?.listFiles().orEmpty().map(File::getName).toSet()
 
     fun renameForHistory(
         path: String,

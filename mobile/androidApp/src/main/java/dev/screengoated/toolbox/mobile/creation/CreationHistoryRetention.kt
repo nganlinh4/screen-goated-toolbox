@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.creation
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 internal data class CreationHistoryRetentionItem(
@@ -94,4 +95,19 @@ internal fun CreationHistoryEntry.inputPaths(): Set<String> = buildSet {
         ?.let(::add)
 }
 
-internal fun CreationHistoryEntry.allPaths(): Set<String> = inputPaths() + outputPath
+internal fun CreationHistoryEntry.companionOutputPath(): String? =
+    (metadata["download"] as? JsonObject)
+        ?.get("path")
+        ?.let { it as? JsonPrimitive }
+        ?.content
+        ?.takeIf(String::isNotBlank)
+
+internal fun CreationHistoryEntry.companionOutputName(): String? =
+    (metadata["download"] as? JsonObject)
+        ?.get("name")
+        ?.let { it as? JsonPrimitive }
+        ?.content
+        ?.takeIf(String::isNotBlank)
+
+internal fun CreationHistoryEntry.allPaths(): Set<String> =
+    inputPaths() + outputPath + listOfNotNull(companionOutputPath())

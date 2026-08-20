@@ -85,6 +85,11 @@
   and Android. Android derives the browser product version from its installed
   WebView while preserving the canonical desktop presentation identity; it
   does not expose a mobile layout identity or add provider-specific branches.
+- Once sign-in succeeds, preparation and generation require no onboarding or
+  hidden workspace-control interaction. The accepted source, frozen settings,
+  and completed SVG move through the authenticated workspace capability
+  directly on Windows and Android. Status observation retains the signed-in
+  document and never reloads it.
 - Opening the surface paints the product UI before requesting readiness work.
   Idle surfaces do not poll jobs, history, or readiness. Job status and
   estimated-progress refreshes run only while accepted or recovered work is
