@@ -3,6 +3,7 @@
     "use_groq": true,
     "use_gemini": true,
     "use_openrouter": true,
+    "use_nvidia": true,
     "use_ollama": false
   },
   "recommended_model_defaults": {
@@ -29,15 +30,15 @@
       "groq-qwen-3-6-27b-vision",
       "google-gemini-3-5-flash-lite-vision",
       "google-gemini-3-5-flash-vision",
-      "google-gemini-robotics-er-2-vision",
       "google-gemini-3-flash-vision",
-      "google-gemini-3-7-flash-vision",
+      "google-gemini-3-1-flash-lite-vision",
+      "openrouter-dots-3-note-vision",
       "google-gemini-robotics-er-1-6-vision",
+      "google-gemini-robotics-er-2-vision",
       "google-gemma-4-26b-a4b-vision",
       "google-gemma-4-31b-vision",
-      "openrouter-dots-3-note-vision",
-      "google-gemini-3-1-flash-lite-vision",
-      "google-gemini-3-6-flash-vision"
+      "google-gemini-3-6-flash-vision",
+      "google-gemini-3-7-flash-vision"
     ],
     "text_to_text": [
       "groq-qwen-3-6-27b-text",

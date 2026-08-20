@@ -42,6 +42,10 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @RunWith(AndroidJUnit4::class)
 class CreationRealUiAcceptanceTest {
@@ -127,6 +131,7 @@ class CreationRealUiAcceptanceTest {
             CreationTool.IMAGE_TO_3D,
             "creation-mode-quality",
             CreationGenerationMode.QUALITY,
+            expectedAutoSegment = true,
         ) {
             CreationArtifactValidator.validateGlb(it)
         }
@@ -205,6 +210,7 @@ class CreationRealUiAcceptanceTest {
         tool: CreationTool,
         settingTag: String,
         expectedGenerationMode: CreationGenerationMode?,
+        expectedAutoSegment: Boolean = false,
         validate: (File) -> Unit,
     ) {
         sourceUri = createInputImage()
@@ -227,6 +233,14 @@ class CreationRealUiAcceptanceTest {
                 .assertIsEnabled()
             setting.performClick()
             if (expectedGenerationMode != null) setting.assertIsOn()
+            if (expectedAutoSegment) {
+                compose.onNodeWithTag("creation-auto-separate")
+                    .assertExists()
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                    .performClick()
+            }
             compose.onNodeWithTag("creation-primary-action").assertIsEnabled()
             submitAndValidate(
                 caseName,
@@ -235,6 +249,7 @@ class CreationRealUiAcceptanceTest {
                 startedAt,
                 expectedGenerationMode,
                 listOf(sha256(requireNotNull(sourceUri))),
+                expectedAutoSegment,
                 validate,
             )
         }
@@ -263,10 +278,16 @@ class CreationRealUiAcceptanceTest {
         startedAt: Long,
         expectedGenerationMode: CreationGenerationMode?,
         expectedReferenceSha256: List<String>,
+        expectedAutoSegment: Boolean = false,
         validate: (File) -> Unit,
     ) {
         compose.onNodeWithTag("creation-primary-action").assertExists().performClick()
         val acceptedCase = awaitWorkerAssignment(ownerId, tool)
+        assertEquals(
+            "Accepted automatic separation setting changed",
+            expectedAutoSegment,
+            acceptedCase.request.autoSegment,
+        )
         val requestEvidence = CreationAcceptanceAttestation.acceptedRequest(
             context,
             acceptedCase,
@@ -286,6 +307,12 @@ class CreationRealUiAcceptanceTest {
         val artifactSha256 = sha256(output)
         assertEquals("Committed artifact SHA-256 changed", history.committedSha256, artifactSha256)
         assertEquals("Committed artifact size changed", history.committedSize, output.length())
+        val segmented = if (expectedAutoSegment) {
+            validateBaseQuadCompanion(history, output, artifactSha256)
+            awaitAutomaticSegmentation(ownerId, acceptedCase, history, output, artifactSha256)
+        } else {
+            null
+        }
         val delivery = CreationAcceptanceAttestation.selectedRuntime(context)
         val arguments = InstrumentationRegistry.getArguments()
         assertEquals(
@@ -316,6 +343,8 @@ class CreationRealUiAcceptanceTest {
                     .put("artifactSize", output.length())
                     .put("artifactSha256", artifactSha256)
                     .put("artifactValidator", "project-structural-v1")
+                    .put("basePublishedBeforeAutomaticSegmentation", segmented != null)
+                    .put("segmentedArtifactSha256", segmented?.let(::sha256) ?: JSONObject.NULL)
                     .put("deliveryChannel", delivery.channel)
                     .put("contractSha256", delivery.contractSha256)
                     .put("runtimeArtifactSha256", delivery.runtimeArtifactSha256)
@@ -326,6 +355,59 @@ class CreationRealUiAcceptanceTest {
                     .put("mailboxPollIntervalMs", delivery.mailboxPollIntervalMs)
                     .toString(),
         )
+    }
+
+    private fun validateBaseQuadCompanion(
+        history: CreationHistoryEntry,
+        base: File,
+        baseSha256: String,
+    ) {
+        assertEquals(false, history.metadata["isSegmented"]?.jsonPrimitive?.booleanOrNull)
+        val download = requireNotNull(history.metadata["download"]?.jsonObject)
+        val companion = File(requireNotNull(download["path"]?.jsonPrimitive?.contentOrNull))
+        assertTrue("Committed FBX companion does not exist", companion.isFile)
+        assertEquals(base.nameWithoutExtension, companion.nameWithoutExtension)
+        assertTrue(companion.readBytes().take(FBX_MAGIC.size).toByteArray().contentEquals(FBX_MAGIC))
+        assertEquals(history.companionCommittedSize, companion.length())
+        assertEquals(history.companionCommittedSha256, sha256(companion))
+        assertTrue("Base GLB disappeared while validating its companion", base.isFile)
+        assertEquals(baseSha256, sha256(base))
+    }
+
+    private fun awaitAutomaticSegmentation(
+        ownerId: String,
+        baseRecord: CreationJournalRecord,
+        baseHistory: CreationHistoryEntry,
+        base: File,
+        baseSha256: String,
+    ): File {
+        val deadline = SystemClock.elapsedRealtime() + MAXIMUM_CASE_RUNTIME_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val child = CreationJobJournal(context).load().firstOrNull { record ->
+                record.ownerId == ownerId &&
+                    record.request.operation == "segment" &&
+                    record.request.previousOutputPath == baseHistory.outputPath
+            }
+            if (child != null) {
+                check(child.request.dispatchId != baseRecord.request.dispatchId)
+                check(child.status.stage !in TERMINAL_FAILURE_STAGES) {
+                    "Automatic separation reached a failed terminal state"
+                }
+                CreationJobManager.get(context).history.list(CreationTool.IMAGE_TO_3D)
+                    .firstOrNull { it.dispatchId == child.request.dispatchId }
+                    ?.let { history ->
+                        assertEquals(true, history.metadata["isSegmented"]?.jsonPrimitive?.booleanOrNull)
+                        val result = File(history.outputPath)
+                        assertTrue("Segmented result does not exist", result.isFile)
+                        CreationArtifactValidator.validateGlb(result)
+                        assertTrue("Base result was removed by automatic separation", base.isFile)
+                        assertEquals(baseSha256, sha256(base))
+                        return result
+                    }
+            }
+            SystemClock.sleep(ACCEPTANCE_POLL_INTERVAL_MS)
+        }
+        error("Automatic separation did not commit before its whole-job deadline")
     }
 
     private fun awaitWorkerAssignment(
@@ -522,6 +604,7 @@ class CreationRealUiAcceptanceTest {
         const val WORKER_WEBVIEW_DIRECTORY_PREFIX = "app_webview_sgt_creation_"
         const val ACCEPTANCE_POLL_INTERVAL_MS = 500L
         const val MAXIMUM_CASE_RUNTIME_MS = 2L * 60 * 60 * 1_000
+        val FBX_MAGIC = "Kaydara FBX Binary  \u0000".toByteArray(Charsets.US_ASCII)
         val TERMINAL_FAILURE_STAGES = setOf("failed", "cancelled")
     }
 

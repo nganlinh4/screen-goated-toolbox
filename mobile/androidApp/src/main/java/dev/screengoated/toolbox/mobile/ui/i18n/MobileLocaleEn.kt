@@ -104,6 +104,7 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 modelReady = "Model ready",
                 partsReady = "Parts ready",
                 geometryStats = "{} vertices · {} faces",
+                quadGeometryStats = "{} vertices · {} polygons ({} quads)",
                 grid = "Grid",
                 wireframe = "Wireframe",
                 outline = "Outline",

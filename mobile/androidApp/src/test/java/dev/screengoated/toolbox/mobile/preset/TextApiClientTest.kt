@@ -147,16 +147,16 @@ class TextApiClientTest {
     }
 
     @Test
-    fun openRouterNemotronUsesNestedReasoningPolicy() {
+    fun openRouterGemmaUsesNestedReasoningPolicy() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
-                modelId = "openrouter-nemotron-3-nano-omni-30b-a3b-text",
+                modelId = "openrouter-gemma-4-26b-a4b-text",
                 prompt = "Translate.",
                 inputText = "Hello",
             ),
         ).jsonObject
         assertEquals(
-            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            "google/gemma-4-26b-a4b-it:free",
             payload.getValue("model").jsonPrimitive.content,
         )
         assertEquals(

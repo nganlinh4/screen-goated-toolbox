@@ -104,6 +104,7 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 modelReady = "Mô hình đã sẵn sàng",
                 partsReady = "Các bộ phận đã sẵn sàng",
                 geometryStats = "{} đỉnh · {} mặt",
+                quadGeometryStats = "{} đỉnh · {} đa giác ({} tứ giác)",
                 grid = "Lưới",
                 wireframe = "Khung dây",
                 outline = "Đường viền",

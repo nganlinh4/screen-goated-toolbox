@@ -222,6 +222,7 @@ private fun isRetryCandidateCompatible(
 private fun providerKey(provider: PresetModelProvider): String = when (provider) {
     PresetModelProvider.GOOGLE -> "google"
     PresetModelProvider.GROQ -> "groq"
+    PresetModelProvider.NVIDIA -> "nvidia"
     PresetModelProvider.OPENROUTER -> "openrouter"
     PresetModelProvider.GOOGLE_GTX -> "google-gtx"
     PresetModelProvider.GEMINI_LIVE -> "gemini-live"
