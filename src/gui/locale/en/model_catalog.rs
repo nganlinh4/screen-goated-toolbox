@@ -13,6 +13,7 @@ pub(super) fn get() -> ModelCatalogLocaleText {
         model_priority_add_model: "+ Add model",
         model_priority_auto: "Auto",
         model_priority_auto_hint: "continue with smart fallback order",
+        model_priority_from_feed_hint: "added automatically while it stays healthy",
         model_priority_skip_hint: "Unavailable providers, missing keys, invalid keys, and unsupported models are skipped immediately during retry.",
         custom_models_desc: "Manage user-added models. Built-in models are visible but locked.",
         custom_models_builtin_locked: "Built-in - locked",

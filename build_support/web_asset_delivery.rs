@@ -81,13 +81,18 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
         let url = required_object_string(component, "downloadUrl", path);
         let sha256 = required_object_string(component, "sha256", path);
         validate_sha256(sha256, "component sha256", path);
-        let expected_asset = format!("{id}-{version}-{}.zip", &sha256[..16]);
-        assert_eq!(
-            asset,
-            expected_asset,
-            "{} component asset must be versioned and content-addressed",
-            path.display()
-        );
+        let asset_prefix = format!("{id}-");
+        let asset_suffix = format!("-{}.zip", &sha256[..16]);
+        let asset_version = asset
+            .strip_prefix(&asset_prefix)
+            .and_then(|value| value.strip_suffix(&asset_suffix))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} component asset must identify its component and content hash",
+                    path.display()
+                )
+            });
+        validate_identifier(asset_version, "component asset version", path);
         crate::delivery_channel::assert_candidate_asset_url(
             channel,
             asset,

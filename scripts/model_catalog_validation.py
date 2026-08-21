@@ -358,10 +358,20 @@ def _validate_quota(model_id: str, profile: dict) -> None:
         raise ValueError(f"quota counts disagree for {model_id}")
 
 
+# A chain is a list a person reads. Image chains are shorter because every
+# vision attempt uploads the image again, so a long tail is expensive to walk.
+CHAIN_LIMITS = {"image_to_text": 10, "text_to_text": 12}
+
+
 def _validate_chains(manifest: dict, enabled_ids: set[str]) -> None:
     priority_chains = manifest["priority_chains"]
     for key in ("image_to_text", "text_to_text"):
         _validate_chain(priority_chains.get(key), key, enabled_ids)
+        limit = CHAIN_LIMITS[key]
+        if len(priority_chains[key]) > limit:
+            raise ValueError(
+                f"{key} has {len(priority_chains[key])} models; the limit is {limit}"
+            )
     constants = manifest["constants"]
     if constants["default_image_model_id"] != priority_chains["image_to_text"][0]:
         raise ValueError("default image model must lead image_to_text")

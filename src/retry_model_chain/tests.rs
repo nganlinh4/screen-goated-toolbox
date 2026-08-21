@@ -313,3 +313,20 @@ fn real_groq_rate_headers_populate_the_token_budget() {
         None
     );
 }
+
+#[test]
+fn the_shipped_chains_stay_within_their_length_cap() {
+    // The cap exists so the priority list stays readable, and it is enforced in
+    // three places that can drift apart: the catalog validators and
+    // `effective_chain`. This pins the shipped data to the same number.
+    let config = Config::default();
+    for kind in [RetryChainKind::ImageToText, RetryChainKind::TextToText] {
+        let configured = kind.configured_chain(&config);
+        assert!(
+            configured.len() <= kind.max_chain_len(),
+            "{kind:?} ships {} models, above its cap of {}",
+            configured.len(),
+            kind.max_chain_len()
+        );
+    }
+}

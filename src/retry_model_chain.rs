@@ -5,9 +5,13 @@ use crate::model_config::{
     model_supports_search_by_provider_and_name,
 };
 use std::collections::HashSet;
+#[cfg(not(feature = "recorder-worker"))]
 use std::time::Duration;
 
+#[cfg(not(feature = "recorder-worker"))]
+#[path = "retry_model_chain/budget.rs"]
 mod budget;
+#[path = "retry_model_chain/cooldown.rs"]
 mod cooldown;
 
 #[cfg(not(feature = "recorder-worker"))]
@@ -21,6 +25,7 @@ const MAX_INTERACTIVE_TIMEOUT_MS: u64 = 30_000;
 use cooldown::model_cooldown_remaining;
 #[cfg(not(feature = "recorder-worker"))]
 use cooldown::model_cooldown_skip_reason;
+#[cfg(not(feature = "recorder-worker"))]
 pub use cooldown::{
     claim_model_attempt, record_model_failure, record_model_success, release_model_probe,
 };
@@ -134,14 +139,32 @@ impl RetryChainKind {
     /// 0 is tied to the configured default and stays local. With no feed, no
     /// credential, or the provider disabled, this is the configured chain
     /// unchanged.
-    #[cfg(not(feature = "recorder-worker"))]
     pub fn effective_chain(self, config: &Config) -> Vec<String> {
         let configured = self.configured_chain(config);
         let offered = crate::model_feed::store::offered_ids(config, self.target_model_type());
-        if offered.is_empty() {
-            return configured.to_vec();
+        let mut chain = if offered.is_empty() {
+            configured.to_vec()
+        } else {
+            crate::model_feed::merge_into_chain(configured, &offered)
+        };
+        // A chain is a list a person has to read. Past a certain length the tail
+        // is never reached in practice anyway, since anything that far down is
+        // slower or less reliable than everything above it, and the feed would
+        // otherwise grow it without bound.
+        chain.truncate(self.max_chain_len());
+        chain
+    }
+
+    /// Longest chain worth keeping for this modality.
+    ///
+    /// Image chains are shorter because a vision fallback costs an image upload
+    /// per attempt, so a long tail is expensive to walk.
+    pub fn max_chain_len(self) -> usize {
+        match self {
+            #[cfg(not(feature = "recorder-worker"))]
+            Self::ImageToText => 10,
+            Self::TextToText => 12,
         }
-        crate::model_feed::merge_into_chain(configured, &offered)
     }
 }
 

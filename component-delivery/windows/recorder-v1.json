@@ -1030,16 +1030,16 @@
       "sha256": "65aa70505ed541fe453c202e12a6f7d300da4d2685fd9b259da8d792ec9062b2",
       "sizeBytes": 903244,
       "unpackedSizeBytes": 2672654,
-      "version": "5.4.3"
+      "version": "5.5.0"
     },
     {
-      "asset": "recorder-worker-5.4.3-98b5cdd3117eb4f8.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.4.3-98b5cdd3117eb4f8.zip",
+      "asset": "recorder-worker-5.5.0-4d03819376e1cfbf.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.5.0-4d03819376e1cfbf.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "0aef229fd58e8497c97a03427420784df643eae72478ead1b10a5713ff582581",
-          "sizeBytes": 9852928
+          "sha256": "3b8b1eb9382fae8ecec046b2df848890012893cf2a3156bd66d7d49e51743ac6",
+          "sizeBytes": 9877504
         },
         {
           "path": "licenses/THIRD-PARTY-LICENSES.json",
@@ -1053,10 +1053,10 @@
         }
       ],
       "id": "recorder-worker",
-      "sha256": "98b5cdd3117eb4f8a079f7ae5794d799d5a9eb5a8c8d7df893c685bbc4e5ef69",
-      "sizeBytes": 4976192,
-      "unpackedSizeBytes": 13809014,
-      "version": "5.4.3"
+      "sha256": "4d03819376e1cfbf0c9056b8dc1f27352b1151d76dae50f6bda91a8a72f1e4fb",
+      "sizeBytes": 4986694,
+      "unpackedSizeBytes": 13833590,
+      "version": "5.5.0"
     }
   ],
   "schemaVersion": 1

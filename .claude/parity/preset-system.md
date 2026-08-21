@@ -123,7 +123,10 @@
 - The canonical general image retry order comes only from the catalog priority
   chain. Availability is a hard gate: a provider failure that blocks fallback
   for tens of seconds outweighs a fast successful-call median when ordering the
-  chain. Do not duplicate a prose or platform-specific model list.
+  chain. The shipped image chain is bounded to ten entries and the shipped text
+  chain to twelve entries on both platforms; generated defaults and the shared
+  retry fixture must preserve those bounds. Do not duplicate a prose or
+  platform-specific model list.
 - Computer-control pixel grounding has a separate catalog-owned fail-closed primary/fallback chain, locked by the Phone Control model-chain fixture. `CC_VISION_MODEL` explicitly replaces that default chain with one diagnostic model. General OCR/description fallbacks never inherit authority to click. A transport error, empty response, or malformed structured response may advance to the next grounding model; a valid not-visible or verification rejection is terminal. Coordinate clicks require a fresh marked-crop verification at 70% confidence; `CC_VERIFY_LOCATE=0` is a diagnostic escape hatch, not a preset default.
 - A vision model that returns a rate-limit/quota error enters a five-minute in-process cooldown, preventing later chain steps from repeatedly paying for the same known failure. Small provider `retry-after` recovery remains bounded inside the request.
 - OpenRouter ordinary text, refine, vision, and recorder-subtitle requests

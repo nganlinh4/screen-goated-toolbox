@@ -3832,7 +3832,7 @@ dependencies = [
 
 [[package]]
 name = "sgt-recorder-worker"
-version = "5.4.3"
+version = "5.5.0"
 dependencies = [
  "anyhow",
  "auto-launch",

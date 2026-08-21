@@ -35,6 +35,31 @@ class RecorderPackageContractTests(unittest.TestCase):
             self.assertEqual(first["sha256"], second["sha256"])
             self.assertTrue((output / str(first["asset"])).is_file())
 
+    def test_unchanged_payload_reuses_verified_asset_name(self) -> None:
+        current = {
+            "id": "recorder-web",
+            "version": "5.5.0",
+            "asset": "recorder-web-5.5.0-aaaaaaaaaaaaaaaa.zip",
+            "assetPath": "generated.zip",
+            "sizeBytes": 12,
+            "sha256": "a" * 64,
+            "unpackedSizeBytes": 34,
+            "files": [{"path": "index.html", "sizeBytes": 34, "sha256": "b" * 64}],
+        }
+        verified = dict(current)
+        verified.update(
+            version="5.4.3",
+            asset="recorder-web-5.4.3-aaaaaaaaaaaaaaaa.zip",
+            downloadUrl="https://example.invalid/recorder.zip",
+        )
+
+        MODULE.reuse_verified_asset_names(
+            {"components": [current]}, {"components": [verified]}
+        )
+
+        self.assertEqual(verified["asset"], current["asset"])
+        self.assertEqual("5.5.0", current["version"])
+
     def test_package_rejects_unsafe_inventory_paths(self) -> None:
         with tempfile.TemporaryDirectory() as raw_temp:
             temp = Path(raw_temp)

@@ -169,6 +169,25 @@ pub(crate) fn validate_runtime_bundle_asset(
     Ok(())
 }
 
+pub(crate) fn validate_versioned_runtime_bundle_asset(
+    component_id: &str,
+    asset: &str,
+    download_url: &str,
+    sha256: &str,
+    extension: &str,
+) -> Result<()> {
+    validate_runtime_bundle_asset(asset, download_url, sha256, extension)?;
+    let prefix = format!("{component_id}-");
+    let suffix = format!("-{}.{}", &sha256[..16], extension);
+    let asset_version = asset
+        .strip_prefix(&prefix)
+        .and_then(|value| value.strip_suffix(&suffix))
+        .ok_or_else(|| {
+            anyhow::anyhow!("runtime-bundles asset has an invalid component identity")
+        })?;
+    super::validate_identifier(asset_version)
+}
+
 pub(crate) fn contract(name: &str) -> Option<(u64, Value)> {
     if cfg!(sgt_staging_delivery) {
         return None;
