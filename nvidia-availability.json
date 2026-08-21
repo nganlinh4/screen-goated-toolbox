@@ -1,72 +1,72 @@
 {
  "schemaVersion": 2,
  "provider": "nvidia",
- "generatedAt": "2026-08-21T10:50:36Z",
+ "generatedAt": "2026-08-21T13:13:45Z",
  "note": "Latency is measured from one datacenter and is a ranking hint only; clients should order by their own observed latency.",
  "models": [
   {
    "id": "meta/llama-3.1-8b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 293,
+   "p50_ms": 321,
    "success_rate": 1.0,
-   "runs": 1
+   "runs": 2
   },
   {
    "id": "nvidia/nemotron-mini-4b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 436,
+   "p50_ms": 411,
    "success_rate": 1.0,
-   "runs": 1
+   "runs": 2
   },
   {
    "id": "nvidia/riva-translate-4b-instruct-v2",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 618,
+   "p50_ms": 508,
    "success_rate": 1.0,
-   "runs": 1
-  },
-  {
-   "id": "google/diffusiongemma-26b-a4b-it",
-   "control": "plain",
-   "modality": "vision",
-   "p50_ms": 661,
-   "success_rate": 1.0,
-   "runs": 1
+   "runs": 2
   },
   {
    "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 706,
+   "p50_ms": 652,
    "success_rate": 1.0,
-   "runs": 1
+   "runs": 2
   },
   {
    "id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 755,
+   "p50_ms": 681,
    "success_rate": 1.0,
-   "runs": 1
+   "runs": 2
   },
   {
-   "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
+   "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1647,
+   "p50_ms": 921,
    "success_rate": 1.0,
-   "runs": 1
+   "runs": 2
   },
   {
    "id": "thinkingmachines/inkling",
    "control": "effort-none",
    "modality": "vision",
-   "p50_ms": 1944,
+   "p50_ms": 2626,
    "success_rate": 1.0,
-   "runs": 1
+   "runs": 2
+  },
+  {
+   "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 2668,
+   "success_rate": 1.0,
+   "runs": 2
   }
  ]
 }
