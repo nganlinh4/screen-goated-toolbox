@@ -116,16 +116,22 @@ fn validate(feed: &AvailabilityFeed) -> Result<()> {
     Ok(())
 }
 
-/// The feed's models in the order the client should consider them, best first.
+/// Success rate below which a published model is not worth appending.
 ///
-/// Only endpoints the feed reports as fully successful are offered. The feed
-/// already applies hysteresis before publishing; this is the client refusing to
-/// take a marginal row even if one is published.
+/// The publisher already applies hysteresis and withholds anything that failed
+/// its latest run, so this is a second opinion rather than the only one. Demanding
+/// a perfect record rejected models that pass five runs in six, which are useful
+/// at the back of a chain: reaching them at all means everything local has already
+/// failed, and one rejection there costs a retry. A rate near a coin flip is
+/// excluded, because a fallback that usually fails is not a fallback.
+const MINIMUM_SUCCESS_RATE: f32 = 0.8;
+
+/// The feed's models in the order the client should consider them, best first.
 pub fn ranked_models(feed: &AvailabilityFeed) -> Vec<&FeedModel> {
     let mut usable: Vec<&FeedModel> = feed
         .models
         .iter()
-        .filter(|model| model.success_rate >= 1.0 && model.runs > 0)
+        .filter(|model| model.success_rate >= MINIMUM_SUCCESS_RATE && model.runs > 0)
         .collect();
     usable.sort_by_key(|model| model.p50_ms.unwrap_or(u32::MAX));
     usable

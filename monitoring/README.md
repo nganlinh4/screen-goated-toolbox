@@ -6,6 +6,32 @@ expensive to discover from a user's machine — seventy-five models times three
 samples every two hours — and because they change: three NVIDIA endpoints
 changed state within a single day during evaluation.
 
+## Where correctness is actually decided
+
+Not here. The monitor answers "is this endpoint usable at all", periodically and
+provider-wide. Whether a *particular answer* is correct is decided at runtime, in
+`src/api/text/translate/fidelity.rs`, where the source and the reply are both in
+hand.
+
+That split exists because probe cases cannot keep up. There will be far more
+models and far more real inputs than anyone can enumerate, and a case written
+against yesterday's failure does not catch tomorrow's. Two failures made the point:
+a reply that mixed Portuguese, Italian, Spanish and Tamil into a Vietnamese
+translation, and one that fused a lone Hangul character onto a Vietnamese word.
+Both passed a suite of short probes and both were caught structurally at runtime,
+by a rule derived from the request rather than from a list.
+
+The division is worth stating plainly:
+
+- a **dead** endpoint is cheap, and the retry chain already handles it;
+- a **wrong** endpoint is expensive, and only the runtime sees enough to judge it;
+- a model that keeps producing wrong answers therefore stops being used without
+  anyone configuring which models those are.
+
+The probe cases that remain are coarse sanity, not a failure catalogue. They exist
+to avoid publishing an endpoint that cannot translate at all, and they should stay
+small.
+
 ## What the feed is and is not
 
 `nvidia-availability.json` carries availability, correctness and the working
