@@ -288,7 +288,8 @@ pub(crate) fn schedule_periodic_updates() {
 }
 
 pub(crate) fn remove(tool: ExternalTool) -> Result<RemovalOutcome> {
-    super::request_remove(tool.id())
+    let _tool = lock_tool_mutation(tool);
+    super::request_remove_and_wait(tool.id())
 }
 
 pub(crate) fn recoveries(tool: ExternalTool) -> Result<Vec<ExternalToolRecovery>> {
@@ -304,12 +305,11 @@ pub(crate) fn clean_recovery(
     recovery::clean(tool, recovery)
 }
 
-pub(crate) fn clean_all_recoveries() -> Result<Vec<RecoveryCleanupOutcome>> {
+pub(crate) fn purge_all_recorded_recoveries() -> Result<Vec<RecoveryCleanupOutcome>> {
     let _yt_dlp = lock_tool_mutation(ExternalTool::YtDlp);
     let _ffmpeg = lock_tool_mutation(ExternalTool::Ffmpeg);
     let _deno = lock_tool_mutation(ExternalTool::Deno);
-    let _global = super::acquire_mutation_guard()?;
-    recovery::clean_all()
+    recovery::purge_all_recorded()
 }
 
 pub(crate) fn reconcile_interrupted_installs() -> Result<()> {

@@ -145,15 +145,15 @@ pub fn start_download_all_missing() -> usize {
 }
 
 #[cfg(not(feature = "recorder-worker"))]
-pub fn delete_all_downloaded() -> usize {
+pub fn delete_all_downloaded() -> Result<usize, String> {
     let mut deleted = 0usize;
     for bg in downloadable_backgrounds() {
         if download_info(&bg.id).is_some() {
-            let _ = delete_downloaded(&bg.id);
+            delete_downloaded(&bg.id)?;
             deleted += 1;
         }
     }
-    deleted
+    Ok(deleted)
 }
 
 pub fn get_download_status(id: &str) -> BgDownloadStatus {

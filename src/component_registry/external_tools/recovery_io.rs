@@ -192,6 +192,17 @@ fn open_cleanup_file(path: &Path) -> std::io::Result<std::fs::File> {
     options.open(path)
 }
 
+pub(super) fn is_windows_reserved_name(value: &str) -> bool {
+    let stem = value.split('.').next().unwrap_or(value);
+    matches!(
+        stem.to_ascii_uppercase().as_str(),
+        "CON" | "PRN" | "AUX" | "NUL"
+    ) || (stem.len() == 4
+        && matches!(stem[..3].to_ascii_uppercase().as_str(), "COM" | "LPT")
+        && stem.as_bytes()[3].is_ascii_digit()
+        && stem.as_bytes()[3] != b'0')
+}
+
 #[cfg(windows)]
 fn delete_open_file(file: &std::fs::File, _path: &Path) -> Result<()> {
     use std::os::windows::io::AsRawHandle as _;

@@ -1,8 +1,9 @@
 // --- TEXT TRANSLATION ---
 // Streaming text translation with multiple LLM providers.
 
-mod fidelity;
 mod groq;
+#[cfg(test)]
+mod live_tests;
 mod providers;
 
 use crate::api::providers::Provider;
@@ -259,20 +260,16 @@ where
         }
     }
 
-    // Judged once, after every provider branch. A model that answers in scripts
-    // its input never contained has not translated the input, and no downstream
-    // step can tell: the reply is fluent, the status is 200, and nothing else
-    // will notice. Rejecting advances the chain, which is also the honest
-    // outcome for a model that cannot follow the request.
-    if let Some(introduced) = fidelity::introduced_script(&text, &full_content) {
-        crate::log_info!(
-            "[translate] discarding {model}: reply introduced {introduced:?}, absent from the source"
-        );
-        return Err(anyhow::anyhow!(
-            "{}: {model} answered with script absent from the source",
-            crate::overlay::utils::MODEL_OUTPUT_UNFAITHFUL
-        ));
-    }
-
+    // Deliberately unjudged. This function runs every text block of every
+    // preset -- summarize, rewrite, answer, and whatever a user writes -- so the
+    // instruction is arbitrary and the shape of a correct reply is unknowable
+    // from here. A check that assumed translation once rejected a correct reply
+    // that named a Japanese title for an English article, and there is no
+    // shortage of further intents nobody has thought of yet.
+    //
+    // Correctness is judged where the request is controlled instead: the monitor
+    // sends prompts it wrote and can hold replies to them, provider-wide and
+    // offline, where a mistake costs a model an eligibility streak rather than
+    // costing a user their answer.
     Ok(full_content)
 }

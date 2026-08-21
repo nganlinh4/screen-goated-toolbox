@@ -299,7 +299,8 @@ fn localized_component_name(kind: ComponentKind) -> String {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn remove(kind: ComponentKind) -> Result<()> {
-    match super::request_remove(kind.id())? {
+    let _owners = crate::overlay::component_removal::stop_audio_owners()?;
+    match super::request_remove_and_wait(kind.id())? {
         RemovalOutcome::Missing | RemovalOutcome::Removed | RemovalOutcome::Pending => {
             clear_notice(kind);
             Ok(())
@@ -310,7 +311,7 @@ pub(crate) fn remove(kind: ComponentKind) -> Result<()> {
             dependents.join(", ")
         ),
         RemovalOutcome::PreservedModified(paths) => bail!(
-            "{} contains {} modified managed file(s); they were preserved",
+            "{} contains {} unrecorded or unsafe path(s); they were preserved",
             kind.id(),
             paths.len()
         ),

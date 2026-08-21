@@ -228,32 +228,18 @@ fn remove_owned_model_files(
     if !metadata.is_dir() || is_reparse_point(&metadata) {
         bail!("local ASR model root is unsafe; files were preserved");
     }
-    remove_verified_files(root, contracts)
+    remove_recorded_files(root, contracts)
 }
 
-fn remove_verified_files(
+fn remove_recorded_files(
     root: &Path,
     contracts: &[super::super::model_loader::FileContract],
 ) -> Result<()> {
     let paths = contracts
         .iter()
-        .map(|contract| (root.join(contract.name), *contract))
+        .map(|contract| root.join(contract.name))
         .collect::<Vec<_>>();
-    for (path, contract) in &paths {
-        match std::fs::symlink_metadata(path) {
-            Ok(metadata)
-                if metadata.is_file()
-                    && !is_reparse_point(&metadata)
-                    && super::super::model_loader::verified_file_present(path, *contract) => {}
-            Ok(metadata) if metadata.is_file() && !is_reparse_point(&metadata) => {
-                bail!("modified model file '{}' was preserved", path.display())
-            }
-            Ok(_) => bail!("unsafe model entry '{}' was preserved", path.display()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    for (path, _) in paths {
+    for path in paths {
         match std::fs::symlink_metadata(&path) {
             Ok(metadata) if metadata.is_file() && !is_reparse_point(&metadata) => {
                 std::fs::remove_file(path)?;
@@ -311,7 +297,7 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         std::fs::write(root.join("managed.bin"), b"expected").unwrap();
         std::fs::write(root.join("user-note.txt"), b"preserve").unwrap();
-        remove_verified_files(&root, TEST_CONTRACTS).unwrap();
+        remove_recorded_files(&root, TEST_CONTRACTS).unwrap();
         assert!(!root.join("managed.bin").exists());
         assert_eq!(
             std::fs::read(root.join("user-note.txt")).unwrap(),
@@ -322,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn managed_cleanup_preserves_modified_model_file() {
+    fn managed_cleanup_deletes_modified_recorded_model_file() {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -333,13 +319,8 @@ mod tests {
         ));
         std::fs::create_dir(&root).unwrap();
         std::fs::write(root.join("managed.bin"), b"modified").unwrap();
-        assert!(remove_verified_files(&root, TEST_CONTRACTS).is_err());
-        assert_eq!(
-            std::fs::read(root.join("managed.bin")).unwrap(),
-            b"modified"
-        );
-        std::fs::remove_file(root.join("managed.bin")).unwrap();
-        std::fs::remove_dir(root).unwrap();
+        remove_recorded_files(&root, TEST_CONTRACTS).unwrap();
+        assert!(!root.exists());
     }
 
     #[test]

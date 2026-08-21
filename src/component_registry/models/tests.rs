@@ -200,7 +200,7 @@ fn active_use_locks_files_and_defers_managed_removal() {
 }
 
 #[test]
-fn managed_removal_preserves_modified_and_unknown_content() {
+fn managed_removal_deletes_recorded_content_and_preserves_unknown_content() {
     let _serial = serial_test();
     let exact = b"exact";
     let changed = b"owned";
@@ -218,7 +218,7 @@ fn managed_removal_preserves_modified_and_unknown_content() {
     let outcome = super::super::request_remove(&model.id).unwrap();
     assert!(matches!(outcome, RemovalOutcome::PreservedModified(_)));
     assert!(!root.join("exact.bin").exists());
-    assert_eq!(std::fs::read(root.join("changed.bin")).unwrap(), b"user!");
+    assert!(!root.join("changed.bin").exists());
     assert_eq!(std::fs::read(root.join("notes.txt")).unwrap(), b"keep");
     remove_known_install(&root, &model, &["notes.txt"]);
 }

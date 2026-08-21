@@ -134,6 +134,16 @@ fn u64_cache() -> &'static Mutex<std::collections::HashMap<&'static str, U64Cach
     U64_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
+fn request_gui_repaint() {
+    let context = crate::gui::GUI_CONTEXT
+        .lock()
+        .ok()
+        .and_then(|context| context.clone());
+    if let Some(context) = context {
+        context.request_repaint();
+    }
+}
+
 pub(super) fn cached_probe(
     key: &'static str,
     compute: impl FnOnce() -> bool + Send + 'static,
@@ -172,6 +182,7 @@ pub(super) fn cached_probe(
                 },
             );
         }
+        request_gui_repaint();
     });
 
     probe_cache()
@@ -188,6 +199,7 @@ pub(super) fn invalidate_probe_cache(_key: &'static str) {
     } else {
         PROBE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
     }
+    request_gui_repaint();
 }
 
 pub(super) fn cached_u64(key: &'static str, compute: impl FnOnce() -> u64 + Send + 'static) -> u64 {
@@ -225,6 +237,7 @@ pub(super) fn cached_u64(key: &'static str, compute: impl FnOnce() -> u64 + Send
                 },
             );
         }
+        request_gui_repaint();
     });
 
     u64_cache()
@@ -241,6 +254,7 @@ pub(super) fn invalidate_u64_cache(_key: &'static str) {
     } else {
         U64_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
     }
+    request_gui_repaint();
 }
 
 pub(super) fn clear_downloaded_tools_caches() {
@@ -262,6 +276,7 @@ pub(super) fn clear_downloaded_tools_caches() {
     } else {
         U64_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
     }
+    request_gui_repaint();
 }
 
 pub(super) fn get_dir_size(path: &Path) -> u64 {
@@ -283,6 +298,7 @@ pub(super) fn invalidate_size_cache(_path: &Path) {
     } else {
         SIZE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
     }
+    request_gui_repaint();
 }
 
 fn cached_size(path: &Path, recursive: bool) -> u64 {
@@ -328,6 +344,7 @@ fn cached_size(path: &Path, recursive: bool) -> u64 {
                 },
             );
         }
+        request_gui_repaint();
     });
 
     size_cache()
@@ -356,4 +373,34 @@ fn compute_dir_size(path: &Path) -> u64 {
 pub(super) fn format_size(bytes: u64) -> String {
     let mb = bytes as f64 / 1024.0 / 1024.0;
     format!("{:.1} MB", mb)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn completed_background_probe_wakes_ui_with_new_value() {
+        const KEY: &str = "downloaded-tools:test-background-probe-repaint";
+
+        invalidate_probe_cache(KEY);
+        let context = egui::Context::default();
+        let (sender, receiver) = mpsc::channel();
+        context.set_request_repaint_callback(move |_| {
+            let _ = sender.send(());
+        });
+        *crate::gui::GUI_CONTEXT.lock().unwrap() = Some(context);
+
+        let initial = cached_probe(KEY, || true);
+        let repainted = receiver.recv_timeout(Duration::from_secs(1)).is_ok();
+        let updated = cached_probe(KEY, || false);
+
+        *crate::gui::GUI_CONTEXT.lock().unwrap() = None;
+        invalidate_probe_cache(KEY);
+
+        assert!(!initial);
+        assert!(repainted);
+        assert!(updated);
+    }
 }

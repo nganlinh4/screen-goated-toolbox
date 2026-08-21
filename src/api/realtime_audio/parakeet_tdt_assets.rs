@@ -97,6 +97,7 @@ pub fn is_parakeet_tdt_model_downloaded() -> bool {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn remove_parakeet_tdt_model() -> Result<()> {
+    let _owners = crate::overlay::component_removal::stop_audio_owners()?;
     let dir = get_parakeet_tdt_model_dir();
     clear_parakeet_tdt_action_error();
     super::local_asr_worker::request_model_remove(

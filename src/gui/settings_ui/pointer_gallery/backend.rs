@@ -130,13 +130,15 @@ pub(crate) fn start_download_all_missing() -> usize {
     started
 }
 
-pub(crate) fn delete_all_downloaded_collections() -> usize {
+pub(crate) fn delete_all_downloaded_collections() -> Result<usize, String> {
     let root = cache_root();
     let mut deleted = 0usize;
 
     for spec in catalog_collections().iter().copied() {
         let dir = spec.local_dir(&root);
-        if dir.exists() && fs::remove_dir_all(&dir).is_ok() {
+        if dir.exists() {
+            fs::remove_dir_all(&dir)
+                .map_err(|error| format!("Failed to delete '{}': {error}", dir.display()))?;
             deleted += 1;
         }
     }
@@ -145,7 +147,20 @@ pub(crate) fn delete_all_downloaded_collections() -> usize {
         invalidate_summary_cache();
     }
 
-    deleted
+    Ok(deleted)
+}
+
+pub(crate) fn delete_original_cursor_backup() -> Result<(), String> {
+    let path = backup_path();
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("Original cursor backup path is unsafe".to_string());
+    }
+    fs::remove_file(path).map_err(|error| error.to_string())
 }
 
 pub(crate) fn has_original_cursor_backup() -> bool {

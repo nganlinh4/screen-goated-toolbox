@@ -43,7 +43,6 @@ pub(crate) use mcp::{ui_install, ui_installing, ui_list, ui_remove, ui_remove_al
 pub use overlay::{is_active, show_overlay, stop_overlay};
 
 pub(crate) fn remove_downloaded_engine() -> anyhow::Result<()> {
-    crate::component_registry::computer_control::remove()?;
     stop_overlay();
     engine::stop_for_component_removal();
     crate::component_registry::computer_control::remove()

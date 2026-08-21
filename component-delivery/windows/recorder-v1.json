@@ -2,8 +2,8 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "recorder-web-5.4.3-65aa70505ed541fe.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.4.3-65aa70505ed541fe.zip",
+      "asset": "recorder-web-5.5.0-65aa70505ed541fe.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-web-5.5.0-65aa70505ed541fe.zip",
       "files": [
         {
           "path": "assets/AudioPanel.js",
@@ -1033,13 +1033,13 @@
       "version": "5.5.0"
     },
     {
-      "asset": "recorder-worker-5.5.0-4d03819376e1cfbf.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.5.0-4d03819376e1cfbf.zip",
+      "asset": "recorder-worker-5.5.0-0a70ab3db20edc8d.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/recorder-worker-5.5.0-0a70ab3db20edc8d.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "3b8b1eb9382fae8ecec046b2df848890012893cf2a3156bd66d7d49e51743ac6",
-          "sizeBytes": 9877504
+          "sha256": "9524ea614d3fa7301a05b0f3f43044c472fcb1a09bcac6818bc42e9ff76f4183",
+          "sizeBytes": 9876992
         },
         {
           "path": "licenses/THIRD-PARTY-LICENSES.json",
@@ -1053,9 +1053,9 @@
         }
       ],
       "id": "recorder-worker",
-      "sha256": "4d03819376e1cfbf0c9056b8dc1f27352b1151d76dae50f6bda91a8a72f1e4fb",
-      "sizeBytes": 4986694,
-      "unpackedSizeBytes": 13833590,
+      "sha256": "0a70ab3db20edc8dbc02089ef2dc51f8c84bdff50bbb7c14a6b6be2383d76f1c",
+      "sizeBytes": 4986409,
+      "unpackedSizeBytes": 13833078,
       "version": "5.5.0"
     }
   ],

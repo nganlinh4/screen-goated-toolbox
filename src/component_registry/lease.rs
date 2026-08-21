@@ -110,6 +110,11 @@ pub(super) fn finish_removal(id: &str, clear_pending: bool) {
     }
 }
 
+pub(super) fn removal_pending(id: &str) -> bool {
+    let state = LEASES.lock().unwrap_or_else(|value| value.into_inner());
+    state.pending_removals.contains(id) || state.removals_in_progress.contains(id)
+}
+
 #[cfg(all(test, not(feature = "recorder-worker")))]
 pub(super) fn pending(id: &str) -> bool {
     LEASES

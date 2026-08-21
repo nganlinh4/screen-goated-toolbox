@@ -5,7 +5,7 @@ mod reasoning;
 mod report;
 mod runner;
 mod scoring;
-mod setup;
+pub(crate) mod setup;
 mod transport_probe;
 
 #[test]

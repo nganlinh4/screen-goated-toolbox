@@ -167,14 +167,15 @@ pub(crate) fn installed_size_for_display() -> u64 {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn remove() -> Result<()> {
-    match super::request_remove(COMPONENT_ID)? {
+    let _owners = crate::overlay::component_removal::stop_audio_owners()?;
+    match super::request_remove_and_wait(COMPONENT_ID)? {
         RemovalOutcome::Missing | RemovalOutcome::Removed | RemovalOutcome::Pending => Ok(()),
         RemovalOutcome::RequiredBy(dependents) => bail!(
             "{DISPLAY_NAME} is required by installed components: {}",
             dependents.join(", ")
         ),
         RemovalOutcome::PreservedModified(paths) => bail!(
-            "{DISPLAY_NAME} contains {} modified managed file(s); they were preserved",
+            "{DISPLAY_NAME} contains {} unrecorded or unsafe path(s); they were preserved",
             paths.len()
         ),
     }

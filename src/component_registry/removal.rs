@@ -1,17 +1,18 @@
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
 use super::catalog::validate_identifier;
 use super::lease::reserve_removal;
-use super::receipt::{
-    ComponentReceipt, RECEIPT_NAME, file_matches, is_reparse_point, resolve_owned_path,
-};
+use super::receipt::{ComponentReceipt, RECEIPT_NAME, is_reparse_point, resolve_owned_path};
 
 static REMOVAL_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 const MAX_EMPTY_DIRECTORY_SCAN: usize = 4_096;
 const MAX_EMPTY_DIRECTORY_DEPTH: usize = 32;
+const REMOVAL_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+const REMOVAL_WAIT_INTERVAL: Duration = Duration::from_millis(20);
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum RemovalOutcome {
@@ -26,6 +27,21 @@ pub(crate) fn request_remove(id: &str) -> Result<RemovalOutcome> {
     request_remove_inner(id, true)
 }
 
+pub(crate) fn request_remove_and_wait(id: &str) -> Result<RemovalOutcome> {
+    let outcome = request_remove(id)?;
+    if !matches!(outcome, RemovalOutcome::Pending) {
+        return Ok(outcome);
+    }
+    let deadline = Instant::now() + REMOVAL_WAIT_TIMEOUT;
+    while super::lease::removal_pending(id) {
+        if Instant::now() >= deadline {
+            bail!("component {id} did not release its active use before removal timed out");
+        }
+        std::thread::sleep(REMOVAL_WAIT_INTERVAL);
+    }
+    request_remove_inner(id, false)
+}
+
 fn request_remove_inner(id: &str, resume_after_removal: bool) -> Result<RemovalOutcome> {
     let _mutation = super::acquire_mutation_guard()?;
     validate_identifier(id)?;
@@ -37,6 +53,7 @@ fn request_remove_inner(id: &str, resume_after_removal: bool) -> Result<RemovalO
         return Ok(RemovalOutcome::Pending);
     }
     let outcome = run_reserved_removal(id)?;
+    drop(_mutation);
     if resume_after_removal && matches!(outcome, RemovalOutcome::Missing | RemovalOutcome::Removed)
     {
         let _ = resume_pending();
@@ -97,7 +114,7 @@ pub(super) fn resume_pending() -> Result<Vec<(String, RemovalOutcome)>> {
         let mut blocked = Vec::new();
         let mut progress = false;
         for id in remaining {
-            let outcome = request_remove_inner(&id, false)?;
+            let outcome = request_remove_and_wait(&id)?;
             if matches!(outcome, RemovalOutcome::RequiredBy(_)) {
                 blocked.push(id);
             } else {
@@ -107,7 +124,7 @@ pub(super) fn resume_pending() -> Result<Vec<(String, RemovalOutcome)>> {
         }
         if !progress {
             for id in blocked {
-                outcomes.push((id.clone(), request_remove_inner(&id, false)?));
+                outcomes.push((id.clone(), request_remove_and_wait(&id)?));
             }
             break;
         }
@@ -167,7 +184,19 @@ pub(crate) fn clean_all() -> Result<Vec<(String, RemovalOutcome)>> {
         let mut blocked = Vec::new();
         let mut progress = false;
         for id in remaining {
-            let outcome = request_remove_inner(&id, false)?;
+            let outcome = match request_remove_inner(&id, false) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    let path = root.join(&id);
+                    crate::log_info!(
+                        "[Components] could not remove {} during Clean All: {error:#}",
+                        id
+                    );
+                    outcomes.push((id, RemovalOutcome::PreservedModified(vec![path])));
+                    progress = true;
+                    continue;
+                }
+            };
             if matches!(outcome, RemovalOutcome::RequiredBy(_)) {
                 blocked.push(id);
             } else {
@@ -177,7 +206,14 @@ pub(crate) fn clean_all() -> Result<Vec<(String, RemovalOutcome)>> {
         }
         if !progress {
             for id in blocked {
-                outcomes.push((id.clone(), request_remove_inner(&id, false)?));
+                let outcome = request_remove_inner(&id, false).unwrap_or_else(|error| {
+                    crate::log_info!(
+                        "[Components] could not remove {} during Clean All: {error:#}",
+                        id
+                    );
+                    RemovalOutcome::PreservedModified(vec![root.join(&id)])
+                });
+                outcomes.push((id, outcome));
             }
             break;
         }
@@ -246,14 +282,14 @@ fn remove_version(
     let preserved_before = preserved.len();
     for owned in &receipt.files {
         let path = resolve_owned_path(version_root, &owned.path)?;
-        if !path.exists() {
-            continue;
-        }
-        if file_matches(&path, owned)? {
-            std::fs::remove_file(&path)?;
-            remove_empty_parents(path.parent(), version_root)?;
-        } else {
-            preserved.push(path);
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_file() && !is_reparse_point(&metadata) => {
+                std::fs::remove_file(&path)?;
+                remove_empty_parents(path.parent(), version_root)?;
+            }
+            Ok(_) => preserved.push(path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
     }
     prune_empty_directories(version_root, version_root, 0, &mut 0)?;
@@ -470,7 +506,7 @@ mod tests {
 
     #[test]
     #[ignore = "mutates the isolated process component test root"]
-    fn isolated_pending_replay_and_clean_all_preserve_user_content() {
+    fn isolated_pending_replay_and_clean_all_delete_recorded_bytes_and_preserve_unknowns() {
         let pending_id = "test-pending-replay";
         let owned_id = "test-clean-all-owned";
         let preserved_id = "test-clean-all-preserved";
@@ -520,10 +556,9 @@ mod tests {
         }));
         assert!(!owned_root.exists());
         assert!(preserved_root.exists());
-        assert_eq!(std::fs::read(&modified).unwrap(), b"user-modified");
+        assert!(!modified.exists());
         assert_eq!(std::fs::read(&unknown).unwrap(), b"user-owned");
 
-        std::fs::remove_file(modified).unwrap();
         std::fs::remove_file(unknown).unwrap();
         assert_eq!(
             request_remove(preserved_id).unwrap(),

@@ -181,7 +181,7 @@ Get-ChildItem -LiteralPath $releaseRoot -Directory -Force -ErrorAction SilentlyC
         $candidates.Add([pscustomobject]@{
             Path = $_.FullName
             LastWriteUtc = Get-NewestWriteTime $_.FullName
-            Protected = $false
+            Protected = $ProtectLane -eq "package"
         })
     }
 

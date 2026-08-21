@@ -100,7 +100,11 @@ pub(crate) fn start_download_all_collections() -> usize {
     start_download_all_missing()
 }
 
-pub(crate) fn delete_downloaded_collections() -> usize {
+pub(crate) fn delete_downloaded_collections() -> Result<usize, String> {
+    if has_original_cursor_backup() {
+        restore_original_cursor_backup()?;
+        backend::delete_original_cursor_backup()?;
+    }
     delete_all_downloaded_collections()
 }
 

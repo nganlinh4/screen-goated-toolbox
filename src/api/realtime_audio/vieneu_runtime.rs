@@ -159,6 +159,7 @@ pub fn read_installed_manifest() -> Result<VieneuRuntimeManifest> {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn remove_vieneu_runtime() -> Result<()> {
+    let _owners = crate::overlay::component_removal::stop_audio_owners()?;
     let dir = get_vieneu_runtime_dir();
     if dir.exists() {
         fs::remove_dir_all(&dir)

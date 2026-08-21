@@ -210,9 +210,9 @@ pub(crate) fn remove_all() -> Result<()> {
     remove_one(WEB_ID)
 }
 
-pub(crate) fn clean_all_recoveries() -> Result<Vec<recovery::CleanupOutcome>> {
+pub(crate) fn purge_all_recorded_recoveries() -> Result<Vec<recovery::CleanupOutcome>> {
     let _mutation = super::acquire_mutation_guard()?;
-    recovery::clean_all()
+    recovery::purge_all_recorded()
 }
 
 pub(crate) fn remove_from_manager() -> Result<()> {
@@ -320,11 +320,11 @@ fn current_locale() -> crate::gui::locale::LocaleText {
 }
 
 fn remove_one(id: &str) -> Result<()> {
-    match super::request_remove(id)? {
+    match super::request_remove_and_wait(id)? {
         RemovalOutcome::Missing | RemovalOutcome::Removed => Ok(()),
-        RemovalOutcome::Pending => bail!("{id} is still in use after recorder shutdown"),
+        RemovalOutcome::Pending => unreachable!("waited removal cannot remain pending"),
         RemovalOutcome::PreservedModified(paths) => bail!(
-            "{id} contains {} modified managed file(s); they were preserved",
+            "{id} contains {} unrecorded or unsafe path(s); they were preserved",
             paths.len()
         ),
         RemovalOutcome::RequiredBy(dependents) => {

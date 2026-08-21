@@ -322,6 +322,7 @@ fn start_install(download_manager: &DownloadManager, tool: ExternalTool) {
 }
 
 fn request_removal(download_manager: &DownloadManager, tool: ExternalTool) {
+    download_manager.cancel_download();
     let status = tool_status_slot(download_manager, tool);
     let logs = download_manager.install_logs.clone();
     if let Ok(mut current) = status.lock() {
@@ -331,6 +332,7 @@ fn request_removal(download_manager: &DownloadManager, tool: ExternalTool) {
         tool_removal_key(tool),
         tool.id().to_string(),
         move || {
+            let _recorder = crate::overlay::screen_record::stop_for_component_removal()?;
             let result = remove_external_tool(tool);
             let next = match &result {
                 Ok(()) => InstallStatus::Missing,
@@ -359,7 +361,7 @@ fn remove_external_tool(tool: ExternalTool) -> anyhow::Result<()> {
             dependents.join(", ")
         ),
         RemovalOutcome::PreservedModified(paths) => anyhow::bail!(
-            "{} contains {} modified or unknown file(s); they were preserved",
+            "{} contains {} unrecorded or unsafe path(s); they were preserved",
             tool.id(),
             paths.len()
         ),
