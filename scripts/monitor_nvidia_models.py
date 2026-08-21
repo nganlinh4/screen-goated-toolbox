@@ -44,7 +44,9 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 BASE_URL = "https://integrate.api.nvidia.com/v1"
-REQUEST_TIMEOUT_SECONDS = "45"
+# Twice the usable-latency ceiling leaves room for transport jitter and one
+# silence retry without spending ninety seconds proving an unusable call slow.
+REQUEST_TIMEOUT_SECONDS = "12"
 SAMPLES_PER_MODEL = 3
 CALL_SPACING_SECONDS = 1.6  # stays under the 40 requests-per-minute allowance
 
