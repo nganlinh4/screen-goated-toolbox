@@ -119,7 +119,13 @@ where
     let mut payload = serde_json::json!({
         "model": model,
         "messages": [{ "role": "user", "content": prompt }],
-        "stream": transport.streaming_enabled
+        "stream": transport.streaming_enabled,
+        // Without this NVIDIA applies its own default, which is high enough to
+        // corrupt long mixed-script input: unset, roughly one reply in six leaked
+        // Korean into the Vietnamese or drifted into other languages entirely.
+        // Greedy is also what NVIDIA documents for these endpoints with reasoning
+        // disabled, which is how this product calls them.
+        "temperature": 0
     });
     if let Some(schema) = response_schema {
         payload["response_format"] = serde_json::json!({

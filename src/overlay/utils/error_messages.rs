@@ -427,8 +427,18 @@ pub fn is_billing_exhausted_error(error: &str) -> bool {
         || lower.contains("credit balance is too low")
 }
 
+/// Marks a reply discarded for not being a translation of its input.
+///
+/// The endpoint is healthy and the credential is valid, so this advances the
+/// chain without blocking the provider: another model may well answer correctly.
+pub const MODEL_OUTPUT_UNFAITHFUL: &str = "MODEL_OUTPUT_UNFAITHFUL";
+
 pub fn should_advance_retry_chain(error: &str) -> bool {
     if error.contains("NO_API_KEY") || error.contains("INVALID_API_KEY") {
+        return true;
+    }
+
+    if error.contains(MODEL_OUTPUT_UNFAITHFUL) {
         return true;
     }
 
@@ -490,8 +500,19 @@ pub fn should_block_retry_provider(error: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_http_status_code, should_advance_retry_chain, should_block_retry_provider,
+        MODEL_OUTPUT_UNFAITHFUL, extract_http_status_code, should_advance_retry_chain,
+        should_block_retry_provider,
     };
+
+    #[test]
+    fn an_unfaithful_reply_advances_the_chain_without_blocking_the_provider() {
+        let error =
+            format!("{MODEL_OUTPUT_UNFAITHFUL}: model answered with script absent from the source");
+        assert!(should_advance_retry_chain(&error));
+        // The endpoint answered and the credential worked, so the provider's
+        // other models must stay reachable.
+        assert!(!should_block_retry_provider(&error));
+    }
 
     #[test]
     fn extracts_status_codes_from_provider_phrasings() {
