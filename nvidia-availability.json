@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "qualityGateVersion": 5,
  "provider": "nvidia",
- "generatedAt": "2026-08-21T18:59:24Z",
+ "generatedAt": "2026-08-21T20:43:10Z",
  "note": "Latency is measured from one datacenter and is a ranking hint only; clients should order by their own observed latency.",
  "models": []
 }
