@@ -3,16 +3,7 @@
  "controlVersion": 1,
  "qualityGateVersion": 5,
  "provider": "nvidia",
- "generatedAt": "2026-08-21T17:24:28Z",
+ "generatedAt": "2026-08-21T17:33:08Z",
  "note": "Latency is measured from one datacenter and is a ranking hint only; clients should order by their own observed latency.",
- "models": [
-  {
-   "id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 1962,
-   "success_rate": 1.0,
-   "runs": 1
-  }
- ]
+ "models": []
 }
