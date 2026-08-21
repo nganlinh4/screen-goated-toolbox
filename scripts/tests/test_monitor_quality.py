@@ -17,6 +17,7 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 NOTE_CASE = next(case for case in MODULE.CASES if case["id"] == "ko-vi-note")
+STRUCTURED_CASE = next(case for case in MODULE.CASES if case["id"] == "ko-vi-structured")
 SOURCE = NOTE_CASE["prompt"].split(chr(10) + chr(10), 1)[1]
 
 
@@ -78,12 +79,52 @@ class JudgeTest(unittest.TestCase):
         ok, why = MODULE.judge(NOTE_CASE, SOURCE)
         self.assertFalse(ok)
 
+    def test_a_complete_structured_translation_passes(self) -> None:
+        reply = (
+            "@atlas_notes\n3 năm trước (đã chỉnh sửa)\n"
+            "Cảnh này thật tuyệt vời và thể hiện rõ nỗ lực của mọi người.\n\n"
+            "1.4K\n\nTrả lời\n\n3 phản hồi\n\n"
+            "@river_team\n3 năm trước\nCảnh thứ hai cũng rất ấn tượng.\n\n"
+            "1.8K\n\nTrả lời"
+        )
+        ok, why = MODULE.judge(STRUCTURED_CASE, reply)
+        self.assertTrue(ok, why)
+
+    def test_losing_an_opaque_identifier_fails(self) -> None:
+        reply = (
+            "@atlas_notes\n3 năm trước\nCảnh này rất tuyệt vời.\n\n1.4K\n\n"
+            "Trả lời\n\n3 phản hồi\n\n3 năm trước\nCảnh sau cũng ấn tượng.\n\n"
+            "1.8K\n\nTrả lời"
+        )
+        ok, why = MODULE.judge(STRUCTURED_CASE, reply)
+        self.assertFalse(ok)
+        self.assertIn("opaque", why)
+
+    def test_flattening_a_multiblock_document_fails(self) -> None:
+        reply = (
+            "@atlas_notes 3 năm trước Cảnh này rất tuyệt vời 1.4K Trả lời "
+            "@river_team 3 năm trước Cảnh sau cũng ấn tượng 1.8K Trả lời"
+        )
+        ok, why = MODULE.judge(STRUCTURED_CASE, reply)
+        self.assertFalse(ok)
+        self.assertIn("structure", why)
+
+    def test_leaving_source_prose_inside_a_translation_fails(self) -> None:
+        reply = (
+            "@atlas_notes\n3 năm trước\n이 장면은 Cảnh này rất tuyệt vời.\n\n"
+            "1.4K\n\nTrả lời\n\n3 phản hồi\n\n@river_team\n3 năm trước\n"
+            "Cảnh sau cũng rất ấn tượng.\n\n1.8K\n\nTrả lời"
+        )
+        ok, why = MODULE.judge(STRUCTURED_CASE, reply)
+        self.assertFalse(ok)
+        self.assertIn("Korean", why)
+
 
 class GateVersionTest(unittest.TestCase):
     def test_the_gate_was_bumped_for_these_checks(self) -> None:
         # Scores only aggregate across samples taken under the same gate; adding
         # checks without bumping this reports a rate for a test never run whole.
-        self.assertGreaterEqual(MODULE.GATE_VERSION, 4)
+        self.assertGreaterEqual(MODULE.GATE_VERSION, 5)
 
 
 if __name__ == "__main__":
