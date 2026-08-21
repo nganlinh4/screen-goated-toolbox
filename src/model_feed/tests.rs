@@ -65,18 +65,21 @@ fn an_out_of_range_success_rate_is_rejected() {
 }
 
 #[test]
-fn only_fully_successful_models_are_offered_and_they_sort_by_latency() {
+fn mostly_reliable_models_are_offered_and_they_sort_by_latency() {
     let published = feed(vec![
         model("nvidia/slow", Some(900), 1.0, 12),
-        model("nvidia/flaky", Some(50), 0.8, 12),
+        model("nvidia/coinflip", Some(50), 0.5, 12),
         model("nvidia/fast", Some(300), 1.0, 12),
+        model("nvidia/mostly", Some(400), 0.833, 12),
         model("nvidia/unmeasured", None, 1.0, 0),
     ]);
     let ranked: Vec<&str> = ranked_models(&published)
         .iter()
         .map(|m| m.id.as_str())
         .collect();
-    assert_eq!(ranked, vec!["nvidia/fast", "nvidia/slow"]);
+    // Five runs in six is useful at the back of a chain; a coin flip is not, and
+    // a model with no measured run cannot be ordered at all.
+    assert_eq!(ranked, vec!["nvidia/fast", "nvidia/mostly", "nvidia/slow"]);
 }
 
 #[test]
