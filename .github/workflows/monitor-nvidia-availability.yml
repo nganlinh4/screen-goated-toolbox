@@ -5,6 +5,11 @@ name: Monitor NVIDIA availability
 # runner measures from one datacenter, while clients sit on the user's network
 # and already record their own per-call latency.
 #
+# Data is published to the `monitoring-feed` branch, never to `main`. A job that
+# commits every two hours and a human pushing to the same branch collide
+# constantly: in one day this produced eleven of twenty-nine commits on `main` and
+# forced a merge on every push.
+#
 # The signing key here is deliberately NOT the update-catalog key. That one signs
 # runtime bundles, and this job runs unattended every two hours; a feed that only
 # influences model routing must not share a key with something that delivers
@@ -29,6 +34,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The data branch is checked out beside the code, so the run reads scripts
+      # and fixtures from main while writing only into the feed branch.
+      - uses: actions/checkout@v5
+        with:
+          ref: monitoring-feed
+          path: feed
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -41,8 +53,8 @@ jobs:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           python scripts/monitor_nvidia_models.py \
-            --history monitoring/nvidia-history.json \
-            --output monitoring/nvidia-availability.json \
+            --history feed/nvidia-history.json \
+            --output feed/nvidia-availability.json \
             --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
       - name: Sign the published feed
@@ -50,24 +62,23 @@ jobs:
           SGT_MONITORING_P256_PRIVATE_KEY_PEM_BASE64: ${{ secrets.SGT_MONITORING_P256_PRIVATE_KEY_PEM_BASE64 }}
         run: |
           python scripts/sign_monitoring_feed.py \
-            --input monitoring/nvidia-availability.json \
+            --input feed/nvidia-availability.json \
             --public-key monitoring/monitoring-p256-public-key.hex
 
-      - name: Commit only when the published feed changed
+      - name: Publish to the data branch
+        working-directory: feed
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "sgt-monitoring"
           git config user.email "sgt-monitoring@users.noreply.github.com"
-          git add monitoring/
-          # The history file changes every run by design; publishing on that
-          # alone would rewrite the feed hourly with no new information.
-          if git diff --cached --quiet -- monitoring/nvidia-availability.json; then
-            echo "eligibility unchanged; recording history only"
-          fi
+          git add -A
           if git diff --cached --quiet; then
-            echo "nothing to commit"
+            echo "nothing to publish"
             exit 0
           fi
           git commit -m "chore(monitoring): refresh NVIDIA availability feed"
-          git push
+          # A single writer owns this branch, so a rebase only ever replays onto
+          # a run that raced this one.
+          git pull --rebase --quiet origin monitoring-feed || true
+          git push origin HEAD:monitoring-feed

@@ -35,6 +35,15 @@ A single run never promotes or demotes anything. A model becomes eligible after
 consecutive failures. Without that, a provider whose endpoints flap would rewrite
 the catalog every two hours.
 
+## Where the data lives
+
+The published feed and its rolling history are on the `monitoring-feed` branch,
+not here. A job that commits every two hours and a human pushing to the same
+branch collide constantly: in one day the feed produced eleven of twenty-nine
+commits on `main` and forced a merge on every push. This directory keeps only the
+public key and this document, both of which change rarely and belong with the
+code that reads them.
+
 ## One-time setup
 
 The workflow needs two repository secrets. Generate a signing key that is **not**
