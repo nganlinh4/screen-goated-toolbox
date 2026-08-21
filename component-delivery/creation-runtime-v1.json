@@ -39,9 +39,9 @@
   "schemaVersion": 1,
   "version": "0.9.0",
   "windows": {
-    "asset": "sgt-creation-runtime-windows-x64-758f069fb1772129.exe",
-    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64-758f069fb1772129.exe",
-    "sha256": "758f069fb1772129e004915db03f233d3031d4663e5ccb747d0e500502675258",
-    "sizeBytes": 2498560
+    "asset": "sgt-creation-runtime-windows-x64-026d4051d082a70b.exe",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64-026d4051d082a70b.exe",
+    "sha256": "026d4051d082a70b3db9c2a28f66745b23a9eb57530f63674a557013c62f361c",
+    "sizeBytes": 2501632
   }
 }
