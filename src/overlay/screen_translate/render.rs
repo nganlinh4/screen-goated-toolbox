@@ -332,21 +332,26 @@ fn component_translation(
         return None;
     }
     let segments = block
-        .member_ids
+        .source_lane_member_ids
         .iter()
-        .map(|member_id| {
-            translations
-                .get(member_id)
-                .map(|translation| translation.translated_text.as_str())
-                .or_else(|| {
-                    scene
-                        .sources
+        .map(|member_ids| {
+            member_ids
+                .iter()
+                .map(|member_id| {
+                    translations
                         .get(member_id)
-                        .map(|source| source.source_text.as_str())
+                        .map(|translation| translation.translated_text.as_str())
+                        .or_else(|| {
+                            scene
+                                .sources
+                                .get(member_id)
+                                .map(|source| source.source_text.as_str())
+                        })
+                        .unwrap_or_default()
                 })
-                .unwrap_or_default()
+                .collect::<Vec<_>>()
+                .join(" ")
         })
-        .map(str::to_string)
         .collect::<Vec<_>>();
     (!segments.iter().all(|text| text.trim().is_empty())).then_some(segments)
 }
