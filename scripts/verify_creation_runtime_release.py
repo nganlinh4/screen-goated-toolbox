@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import sys
 import urllib.request
+import zipfile
 from pathlib import Path
 
 
@@ -20,6 +22,7 @@ RUNTIME_BUNDLES = (
 )
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_ARTIFACT_BYTES = 8 * 1024 * 1024 * 1024
+MAX_ANDROID_ARTIFACT_BYTES = 256 * 1024 * 1024
 EXPECTED_FEATURES = frozenset(
     ("image_to_3d", "image_to_svg", "image_creator")
 )
@@ -86,6 +89,44 @@ def delivery_record(value: object, label: str) -> tuple[str, str, int, str]:
     return asset, url, size, digest
 
 
+def android_entries(android: dict) -> list[tuple[str, str, int, str]]:
+    raw_entries = android.get("entries")
+    if not isinstance(raw_entries, list) or not raw_entries:
+        raise RuntimeError("combined creation-runtime Android entries are invalid")
+    entries: list[tuple[str, str, int, str]] = []
+    seen_paths: set[str] = set()
+    for value in raw_entries:
+        if not isinstance(value, dict):
+            raise RuntimeError("combined creation-runtime Android entry is invalid")
+        archive_path = exact_string(value, "archivePath", "android entry")
+        install_path = exact_string(value, "installPath", "android entry")
+        role = exact_string(value, "role", "android entry")
+        digest = exact_string(value, "sha256", "android entry")
+        size = value.get("sizeBytes")
+        paths = (archive_path, install_path)
+        if (
+            role not in {"factory_dex", "native_library"}
+            or any(
+                "\\" in path
+                or path.startswith("/")
+                or any(part in {"", ".", ".."} for part in path.split("/"))
+                for path in paths
+            )
+            or archive_path in seen_paths
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size <= 0
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise RuntimeError("combined creation-runtime Android entry is invalid")
+        seen_paths.add(archive_path)
+        entries.append((role, archive_path, size, digest))
+    if {entry[0] for entry in entries} != {"factory_dex", "native_library"}:
+        raise RuntimeError("combined creation-runtime Android entry roles are incomplete")
+    return entries
+
+
 def validate_manifest(manifest: object) -> list[tuple[str, str, str, int, str]]:
     if not isinstance(manifest, dict):
         raise RuntimeError("combined creation-runtime delivery header is invalid")
@@ -103,6 +144,7 @@ def validate_manifest(manifest: object) -> list[tuple[str, str, str, int, str]]:
     android = manifest.get("android")
     if not isinstance(android, dict):
         raise RuntimeError("combined creation-runtime Android delivery is missing")
+    android_entries(android)
     values = [
         ("windows", manifest.get("windows")),
         ("android.full", android.get("full")),
@@ -119,7 +161,11 @@ def validate_manifest(manifest: object) -> list[tuple[str, str, str, int, str]]:
     return records
 
 
-def read_back(url: str, size: int, digest: str, label: str) -> None:
+def read_back(url: str, size: int, digest: str, label: str) -> bytes | None:
+    capture = label.startswith("android.")
+    if capture and size > MAX_ANDROID_ARTIFACT_BYTES:
+        raise RuntimeError(f"{label} exceeds the archive inspection boundary")
+    captured = io.BytesIO() if capture else None
     request = urllib.request.Request(
         url,
         headers={"User-Agent": "SGT-creation-runtime-release-verifier"},
@@ -137,8 +183,43 @@ def read_back(url: str, size: int, digest: str, label: str) -> None:
             if received > size:
                 raise RuntimeError(f"{label} exceeds its exact size")
             hasher.update(chunk)
+            if captured is not None:
+                captured.write(chunk)
     if received != size or hasher.hexdigest() != digest:
         raise RuntimeError(f"{label} remote bytes do not match the manifest")
+    return captured.getvalue() if captured is not None else None
+
+
+def verify_android_archive(
+    label: str,
+    payload: bytes,
+    entries: list[tuple[str, str, int, str]],
+) -> None:
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            selected = entries if label == "android.full" else [
+                entry for entry in entries if entry[0] == "native_library"
+            ]
+            for role, archive_path, size, digest in selected:
+                member = (
+                    archive_path
+                    if label == "android.full"
+                    else "jni/" + archive_path.removeprefix("lib/")
+                )
+                try:
+                    info = archive.getinfo(member)
+                except KeyError as error:
+                    raise RuntimeError(f"{label} is missing {member}") from error
+                if info.file_size != size:
+                    raise RuntimeError(f"{label} member size changed: {member}")
+                with archive.open(info) as source:
+                    actual = hashlib.file_digest(source, "sha256").hexdigest()
+                if actual != digest:
+                    raise RuntimeError(f"{label} member bytes changed: {member}")
+                if role == "native_library" and not member.endswith(".so"):
+                    raise RuntimeError(f"{label} native member is invalid: {member}")
+    except zipfile.BadZipFile as error:
+        raise RuntimeError(f"{label} is not a valid archive") from error
 
 
 def main() -> int:
@@ -152,10 +233,13 @@ def main() -> int:
         raise RuntimeError("combined creation-runtime delivery manifest is missing or unsafe")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     records = validate_manifest(manifest)
+    entries = android_entries(manifest["android"])
     failures: list[str] = []
     for label, asset, url, size, digest in records:
         try:
-            read_back(url, size, digest, label)
+            payload = read_back(url, size, digest, label)
+            if payload is not None:
+                verify_android_archive(label, payload, entries)
             print(f"verified {label}: {asset} ({size} bytes, {digest})")
         except (OSError, RuntimeError, ValueError) as error:
             failures.append(str(error))

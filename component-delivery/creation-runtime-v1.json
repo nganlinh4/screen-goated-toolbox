@@ -12,8 +12,8 @@
         "archivePath": "lib/arm64-v8a/libsgt_creation_glb.so",
         "installPath": "lib/arm64-v8a/libsgt_creation_glb.so",
         "role": "native_library",
-        "sha256": "917951ba90c54b8e57faad5d379ad1e3cbf8eae0df13956671e44f2e69abda76",
-        "sizeBytes": 334768
+        "sha256": "9cecbb123cfd2be0c87d65a54381866386b7dda0cd232df7d629466f236bd745",
+        "sizeBytes": 669624
       }
     ],
     "factoryClass": "dev.screengoated.toolbox.creation.runtime.AndroidCreationRuntimeFactory",

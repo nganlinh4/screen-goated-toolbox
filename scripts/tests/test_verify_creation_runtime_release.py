@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import copy
+import io
 import importlib.util
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -43,6 +45,22 @@ def valid_manifest() -> dict[str, object]:
         "android": {
             "full": delivery("android.full"),
             "play": delivery("android.play"),
+            "entries": [
+                {
+                    "archivePath": "runtime/runtime.dex.jar",
+                    "installPath": "runtime/runtime.dex.jar",
+                    "role": "factory_dex",
+                    "sizeBytes": 4,
+                    "sha256": "054edec1d0211f624fed0cbca9d4f9400b0e491c43742af2c5b0abebf0c990d8",
+                },
+                {
+                    "archivePath": "lib/arm64-v8a/runtime.so",
+                    "installPath": "lib/arm64-v8a/runtime.so",
+                    "role": "native_library",
+                    "sizeBytes": 4,
+                    "sha256": "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a",
+                },
+            ],
         },
     }
 
@@ -145,6 +163,25 @@ class CreationRuntimeReleaseVerifierTests(unittest.TestCase):
         verifier.validate_manifest(manifest)
 
         self.assertEqual(manifest, original)
+
+    def test_android_archives_must_match_the_shared_member_identities(self) -> None:
+        entries = verifier.android_entries(valid_manifest()["android"])
+        full = io.BytesIO()
+        with zipfile.ZipFile(full, "w") as archive:
+            archive.writestr("runtime/runtime.dex.jar", bytes((0, 1, 2, 3)))
+            archive.writestr("lib/arm64-v8a/runtime.so", bytes((1, 2, 3, 4)))
+        play = io.BytesIO()
+        with zipfile.ZipFile(play, "w") as archive:
+            archive.writestr("jni/arm64-v8a/runtime.so", bytes((1, 2, 3, 4)))
+
+        verifier.verify_android_archive("android.full", full.getvalue(), entries)
+        verifier.verify_android_archive("android.play", play.getvalue(), entries)
+
+        stale = io.BytesIO()
+        with zipfile.ZipFile(stale, "w") as archive:
+            archive.writestr("jni/arm64-v8a/runtime.so", b"stale")
+        with self.assertRaisesRegex(RuntimeError, "member size changed"):
+            verifier.verify_android_archive("android.play", stale.getvalue(), entries)
 
 
 if __name__ == "__main__":
