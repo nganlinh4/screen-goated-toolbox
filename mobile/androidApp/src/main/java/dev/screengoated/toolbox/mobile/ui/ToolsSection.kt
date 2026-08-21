@@ -64,7 +64,7 @@ internal data class ToolPresetItem(
     val nameEn: String,
     val nameVi: String,
     val nameKo: String,
-    @DrawableRes val icon: Int,
+    @param:DrawableRes val icon: Int,
     /** If true, `id` is the full preset ID. If false, needs "preset_" prefix. */
     val isFullId: Boolean = false,
 ) {
@@ -329,7 +329,7 @@ internal fun ToolsSection(
                 // Each button: icon only when inactive, icon + label when active
                 data class ToolAction(
                     val mode: ToolbarMode,
-                    @DrawableRes val icon: Int,
+                    @param:DrawableRes val icon: Int,
                     val label: String,
                     val activeContainer: Color,
                     val activeContent: Color,
@@ -365,7 +365,7 @@ internal fun ToolsSection(
         )
 
         if (fabMenuExpanded) androidx.activity.compose.BackHandler { fabMenuExpanded = false }
-        data class CreateOption(val type: dev.screengoated.toolbox.mobile.shared.preset.PresetType, @DrawableRes val icon: Int, val label: String, val accentColor: Color)
+        data class CreateOption(val type: dev.screengoated.toolbox.mobile.shared.preset.PresetType, @param:DrawableRes val icon: Int, val label: String, val accentColor: Color)
         val createOptions = listOf(
             CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE, R.drawable.ms_image, locale.toolsCategoryImage, sgtColors.statusProcessing),
             CreateOption(dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_SELECT, R.drawable.ms_format_italic, locale.toolsCategoryTextSelect, sgtColors.statusSuccess),

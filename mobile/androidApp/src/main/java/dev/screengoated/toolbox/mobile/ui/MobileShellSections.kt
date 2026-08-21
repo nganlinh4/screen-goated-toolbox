@@ -99,7 +99,7 @@ import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 
-internal enum class MobileShellSection(@DrawableRes val icon: Int) { APPS(R.drawable.ms_grid_view), TOOLS(R.drawable.ms_apps), SETTINGS(R.drawable.ms_settings), HISTORY(R.drawable.ms_history);
+internal enum class MobileShellSection(@param:DrawableRes val icon: Int) { APPS(R.drawable.ms_grid_view), TOOLS(R.drawable.ms_apps), SETTINGS(R.drawable.ms_settings), HISTORY(R.drawable.ms_history);
     fun label(locale: MobileLocaleText): String = when (this) {
         APPS -> locale.shellAppsLabel
         TOOLS -> locale.shellToolsLabel

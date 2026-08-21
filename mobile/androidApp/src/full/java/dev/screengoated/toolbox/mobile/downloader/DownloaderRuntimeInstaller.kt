@@ -84,6 +84,7 @@ internal class DownloaderRuntimeInstaller(
                             val target = when (artifact.role) {
                                 DownloaderArtifactRole.PYTHON -> File(staging, "packages/python")
                                 DownloaderArtifactRole.FFMPEG -> File(staging, "packages/ffmpeg")
+                                DownloaderArtifactRole.YT_DLP -> error("yt-dlp is not an archive")
                             }
                             extractArchive(partial, target, artifact)
                         }
