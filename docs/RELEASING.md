@@ -430,6 +430,12 @@ py -3 .\scripts\verify_tracked_delivery.py `
 
 The verifier hashes the uploaded bytes before emitting host delivery data.
 Never replace either split libtorch pack, even when a newer host stops using it.
+The canonical host build always rebuilds the small runtime/notices pack and
+compares it with this reviewed contract. When the pinned libtorch source archive
+is present, it also reproduces both split packs; when it is absent, it validates
+the exact tracked asset and file inventory instead of downloading gigabytes of
+unchanged release inputs. Run the full command above whenever the selected
+libtorch version or inventory changes.
 
 ### Mandatory local ASR checkpoint
 

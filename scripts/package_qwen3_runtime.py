@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import re
@@ -301,6 +302,100 @@ def require_matching_delivery(output: Path, descriptor: dict) -> None:
         raise RuntimeError("verified Qwen3 delivery does not match the pinned packs")
 
 
+def require_delivery_without_libtorch_rebuild(
+    output: Path,
+    version: str,
+    runtime: dict,
+    runtime_files: list[dict],
+) -> Path:
+    delivery_path = output / "sgt_qwen3_runtime.delivery.json"
+    if not delivery_path.is_file():
+        raise RuntimeError("verified Qwen3 delivery is missing")
+    delivery = json.loads(delivery_path.read_text(encoding="utf-8"))
+    if delivery.get("schemaVersion") != 1 or delivery.get("version") != version:
+        raise RuntimeError("verified Qwen3 delivery version is invalid")
+    windows = delivery.get("windows")
+    if not isinstance(windows, dict) or windows.get("architecture") != "x64":
+        raise RuntimeError("verified Qwen3 delivery architecture is invalid")
+    components = windows.get("components")
+    if not isinstance(components, list) or len(components) != 1:
+        raise RuntimeError("verified Qwen3 delivery component set is invalid")
+    component = components[0]
+    if component.get("id") != COMPONENT_ID or component.get("dependencies") != [
+        VC_COMPONENT_ID
+    ]:
+        raise RuntimeError("verified Qwen3 delivery dependencies are invalid")
+
+    assets = component.get("assets")
+    if not isinstance(assets, list) or len(assets) != LIBTORCH_PARTS + 1:
+        raise RuntimeError("verified Qwen3 delivery asset set is invalid")
+    expected_runtime = copy.deepcopy(runtime)
+    expected_runtime.pop("assetPath", None)
+    if assets[0] != {
+        **expected_runtime,
+        "downloadUrl": f"{RELEASE_DOWNLOAD_ROOT}/{expected_runtime['asset']}",
+    }:
+        raise RuntimeError("verified Qwen3 runtime pack does not match local bytes")
+    for part_number, asset in enumerate(assets[1:], start=1):
+        sha256 = asset.get("sha256")
+        prefix = f"qwen3-cuda-libtorch-{version}-part{part_number}-"
+        if (
+            not isinstance(sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", sha256)
+            or asset.get("asset") != f"{prefix}{sha256[:16]}.zip"
+            or not isinstance(asset.get("sizeBytes"), int)
+            or not 0 < asset["sizeBytes"] < MAX_RELEASE_ASSET_BYTES
+            or asset.get("downloadUrl")
+            != f"{RELEASE_DOWNLOAD_ROOT}/{asset['asset']}"
+        ):
+            raise RuntimeError(f"verified Qwen3 libtorch part {part_number} is invalid")
+
+    files = component.get("files")
+    if not isinstance(files, list):
+        raise RuntimeError("verified Qwen3 delivery file inventory is invalid")
+    delivered_runtime = sorted(
+        (file for file in files if file.get("archiveIndex") == 0),
+        key=lambda item: item["path"],
+    )
+    if delivered_runtime != sorted(runtime_files, key=lambda item: item["path"]):
+        raise RuntimeError("verified Qwen3 runtime inventory does not match local bytes")
+
+    expected_libtorch_paths = {
+        *(f"bin/x64/{name}" for name in SELECTED_DLLS),
+        *(f"metadata/{name}" for name in MARKERS),
+    }
+    delivered_libtorch_paths = set()
+    delivered_libtorch_count = 0
+    for file in files:
+        archive_index = file.get("archiveIndex")
+        if archive_index == 0:
+            continue
+        path = file.get("path")
+        sha256 = file.get("sha256")
+        if (
+            archive_index not in range(1, LIBTORCH_PARTS + 1)
+            or not isinstance(path, str)
+            or file.get("archivePath") != path
+            or not isinstance(file.get("sizeBytes"), int)
+            or file["sizeBytes"] <= 0
+            or not isinstance(sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", sha256)
+        ):
+            raise RuntimeError("verified Qwen3 libtorch inventory is invalid")
+        delivered_libtorch_paths.add(path)
+        delivered_libtorch_count += 1
+    if (
+        delivered_libtorch_paths != expected_libtorch_paths
+        or delivered_libtorch_count != len(expected_libtorch_paths)
+    ):
+        raise RuntimeError("verified Qwen3 libtorch selection policy changed")
+    if component.get("unpackedSizeBytes") != sum(
+        file["sizeBytes"] for file in files
+    ):
+        raise RuntimeError("verified Qwen3 unpacked size is invalid")
+    return delivery_path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", default=DEFAULT_VERSION)
@@ -324,6 +419,12 @@ def main() -> int:
         repo, archive_path, "libtorch archive"
     )
     runtime, runtime_files = runtime_asset(repo, output, args.version)
+    if args.require_delivery and not args.libtorch_archive and not archive_path.is_file():
+        delivery_path = require_delivery_without_libtorch_rebuild(
+            output, args.version, runtime, runtime_files
+        )
+        print(delivery_path)
+        return 0
     entries = inspect_libtorch(archive_path)
     libtorch, libtorch_files = libtorch_assets(
         repo, output, args.version, archive_path, entries
