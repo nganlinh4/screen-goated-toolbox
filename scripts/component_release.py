@@ -506,6 +506,10 @@ def promote(args: argparse.Namespace) -> int:
 
 def verify(args: argparse.Namespace) -> int:
     index = load_staging_index(args.repository)
+    staging_assets = set(release_assets(args.repository, STAGING_TAG))
+    unindexed = staging_assets - referenced_assets(index) - {INDEX_ASSET}
+    if unindexed:
+        raise RuntimeError(f"staging release has unindexed assets: {', '.join(sorted(unindexed))}")
     for contract in index["contracts"].values():
         for asset in contract.get("assets", []):
             verify_remote(
