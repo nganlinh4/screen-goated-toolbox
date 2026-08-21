@@ -90,6 +90,21 @@ def cargo_version(repo: Path) -> str:
     return match.group(1)
 
 
+def reuse_verified_asset_names(descriptor: dict, delivery: dict) -> None:
+    """Keep an older immutable asset name when its packaged bytes are unchanged."""
+    delivered_by_id = {
+        entry.get("id"): entry
+        for entry in delivery.get("windows", {}).get("components", [])
+    }
+    payload_fields = ("sizeBytes", "sha256", "unpackedSizeBytes", "files")
+    for component in descriptor["windows"]["components"]:
+        delivered = delivered_by_id.get(component["id"])
+        if delivered is None or not delivered.get("asset"):
+            continue
+        if all(component[field] == delivered.get(field) for field in payload_fields):
+            component["asset"] = delivered["asset"]
+
+
 def require_matching_delivery(output: Path, descriptor: dict) -> None:
     delivery_path = output / "sgt_web_assets.delivery.json"
     if not delivery_path.is_file():
@@ -134,6 +149,10 @@ def main() -> int:
         "version": version,
         "windows": {"architecture": "x64", "components": entries},
     }
+    delivery_path = output / "sgt_web_assets.delivery.json"
+    if delivery_path.is_file():
+        delivery = json.loads(delivery_path.read_text(encoding="utf-8"))
+        reuse_verified_asset_names(descriptor, delivery)
     descriptor_path = output / "sgt_web_assets.packages.json"
     descriptor_path.write_text(
         json.dumps(descriptor, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

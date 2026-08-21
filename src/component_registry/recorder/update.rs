@@ -79,16 +79,8 @@ fn parse(value: serde_json::Value) -> Result<Vec<RecorderDelivery>> {
         }
         super::super::validate_identifier(&delivery.version)?;
         validate_sha(&delivery.sha256)?;
-        let expected_asset = format!(
-            "{}-{}-{}.zip",
-            delivery.id,
-            delivery.version,
-            &delivery.sha256[..16]
-        );
-        if delivery.asset != expected_asset {
-            bail!("signed recorder asset is not content-addressed");
-        }
-        super::super::update_catalog::validate_runtime_bundle_asset(
+        super::super::update_catalog::validate_versioned_runtime_bundle_asset(
+            &delivery.id,
             &delivery.asset,
             &delivery.download_url,
             &delivery.sha256,

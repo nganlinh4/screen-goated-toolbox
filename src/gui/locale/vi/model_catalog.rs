@@ -13,6 +13,7 @@ pub(super) fn get() -> ModelCatalogLocaleText {
         model_priority_add_model: "+ Thêm mô hình",
         model_priority_auto: "Tự động",
         model_priority_auto_hint: "tiếp tục theo thứ tự fallback thông minh",
+        model_priority_from_feed_hint: "tự động thêm khi còn hoạt động tốt",
         model_priority_skip_hint: "Nhà cung cấp tắt, thiếu khóa, khóa sai, hoặc mô hình không hỗ trợ sẽ bị bỏ qua ngay khi thử lại.",
         custom_models_desc: "Quản lý mô hình tự thêm. Mô hình mặc định chỉ xem, không chỉnh sửa.",
         custom_models_builtin_locked: "Mặc định - đã khóa",

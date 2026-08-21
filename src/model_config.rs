@@ -223,6 +223,7 @@ pub fn get_all_models() -> &'static [ModelConfig] {
 ///
 /// `openai` and `anthropic` are not catalog providers, but they appear in
 /// upstream error payloads and need the same spelling everywhere.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn provider_full_name(provider: &str) -> &str {
     match provider {
         "google" | "gemini-live" => "Gemini",
@@ -244,6 +245,7 @@ pub fn provider_full_name(provider: &str) -> &str {
 /// Short provider name for compact surfaces such as the result badge and the
 /// custom-models dialog. Identical to [`provider_full_name`] except for the local
 /// runtimes, which collapse to a single label rather than naming each engine.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn provider_display_name(provider: &str) -> &str {
     match provider {
         "parakeet" | "qwen3" => "Local",

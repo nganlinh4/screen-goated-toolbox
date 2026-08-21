@@ -105,7 +105,9 @@ fn resolve_initial_translation_model(
     config: &Config,
     blocked_providers: &HashSet<String>,
 ) -> Option<ModelConfig> {
-    for candidate_id in RetryChainKind::TextToText.configured_chain(config) {
+    // The effective chain, so this path sees feed-offered fallbacks like every
+    // other caller. Reading the configured chain here silently excluded them.
+    for candidate_id in RetryChainKind::TextToText.effective_chain(config).iter() {
         let Some(model) = get_model_by_id_with_custom(candidate_id, &config.custom_models) else {
             continue;
         };

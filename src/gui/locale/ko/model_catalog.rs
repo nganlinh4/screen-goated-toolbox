@@ -13,6 +13,7 @@ pub(super) fn get() -> ModelCatalogLocaleText {
         model_priority_add_model: "+ 모델 추가",
         model_priority_auto: "자동",
         model_priority_auto_hint: "스마트 폴백 순서로 계속",
+        model_priority_from_feed_hint: "정상 동작하는 동안 자동 추가됨",
         model_priority_skip_hint: "비활성 공급자, 누락된 키, 잘못된 키, 지원되지 않는 모델은 재시도 시 즉시 건너뜁니다.",
         custom_models_desc: "직접 추가한 모델을 관리합니다. 기본 모델은 보기 전용입니다.",
         custom_models_builtin_locked: "기본 - 잠김",

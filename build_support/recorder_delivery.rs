@@ -71,12 +71,18 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
         let digest = required_string(component, "sha256", path);
         validate_sha256(digest, path);
         let asset = required_string(component, "asset", path);
-        assert_eq!(
-            asset,
-            format!("{id}-{version}-{}.zip", &digest[..16]),
-            "{} has a non-content-addressed recorder asset",
-            path.display()
-        );
+        let asset_prefix = format!("{id}-");
+        let asset_suffix = format!("-{}.zip", &digest[..16]);
+        let asset_version = asset
+            .strip_prefix(&asset_prefix)
+            .and_then(|value| value.strip_suffix(&asset_suffix))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} recorder asset must identify its component and content hash",
+                    path.display()
+                )
+            });
+        validate_identifier(asset_version, path);
         let download_url = required_string(component, "downloadUrl", path);
         crate::delivery_channel::assert_owned_asset_url(
             channel,

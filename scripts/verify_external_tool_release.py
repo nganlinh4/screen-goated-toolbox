@@ -12,6 +12,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from dev_cache_paths import require_repo_or_managed_cache
 from package_external_tools import authenticode
 
 
@@ -145,10 +146,12 @@ def main() -> int:
     )
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    packages_path = (repo / args.packages).resolve()
-    output_path = (repo / args.output).resolve()
-    packages_path.relative_to(repo)
-    output_path.relative_to(repo)
+    packages_path = require_repo_or_managed_cache(
+        repo, repo / args.packages, "external-tool package manifest"
+    )
+    output_path = require_repo_or_managed_cache(
+        repo, repo / args.output, "external-tool delivery manifest"
+    )
     packages = json.loads(packages_path.read_text(encoding="utf-8"))
     release = request_json(API_URL)
     assets = {asset["name"]: asset for asset in release.get("assets", [])}

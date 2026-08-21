@@ -10,6 +10,7 @@ pub struct ModelCatalogLocaleText {
     pub model_priority_add_model: &'static str,
     pub model_priority_auto: &'static str,
     pub model_priority_auto_hint: &'static str,
+    pub model_priority_from_feed_hint: &'static str,
     pub model_priority_skip_hint: &'static str,
     pub custom_models_desc: &'static str,
     pub custom_models_builtin_locked: &'static str,

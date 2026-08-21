@@ -86,11 +86,8 @@ fn parse(value: serde_json::Value) -> Result<Vec<WebAssetDelivery>> {
             bail!("signed web-asset delivery is invalid");
         }
         validate_sha(&delivery.sha256)?;
-        let expected_asset = format!("{}-{version}-{}.zip", delivery.id, &delivery.sha256[..16]);
-        if delivery.asset != expected_asset {
-            bail!("signed web-asset name is not content-addressed");
-        }
-        super::super::update_catalog::validate_runtime_bundle_asset(
+        super::super::update_catalog::validate_versioned_runtime_bundle_asset(
+            &delivery.id,
             &delivery.asset,
             &delivery.download_url,
             &delivery.sha256,

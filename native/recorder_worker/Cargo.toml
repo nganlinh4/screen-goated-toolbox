@@ -1,8 +1,11 @@
 [package]
 name = "sgt-recorder-worker"
-version = "5.4.3"
+version = "5.5.0"
 edition = "2024"
 build = "build.rs"
+
+[package.metadata.sgt]
+host-version-bound = true
 
 [features]
 default = ["recorder-worker"]
@@ -82,6 +85,7 @@ features = [
     "Win32_System_WinRT_Direct3D11",
     "Win32_System_WinRT_Graphics_Capture",
     "Win32_Security",
+    "Win32_Security_Cryptography",
     "Win32_System_Com",
     "Win32_System_Console",
     "Win32_System_DataExchange",

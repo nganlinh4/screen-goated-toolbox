@@ -295,8 +295,17 @@ fn quota_count(label: &str, suffix: &str) -> Option<u64> {
 
 fn validate_chains(manifest: &serde_json::Value, enabled_ids: &HashSet<&str>) {
     let priority = object(manifest, "priority_chains");
-    for key in ["image_to_text", "text_to_text"] {
-        validate_chain(array_from(priority, key), key, enabled_ids, None);
+    // A chain is a list a person reads. Image chains are capped lower because
+    // every vision attempt re-uploads the image, so a long tail is expensive to
+    // walk. Mirrored by `RetryChainKind::max_chain_len`.
+    for (key, limit) in [("image_to_text", 10usize), ("text_to_text", 12usize)] {
+        let chain = array_from(priority, key);
+        validate_chain(chain, key, enabled_ids, None);
+        assert!(
+            chain.len() <= limit,
+            "{key} lists {} models; the limit is {limit}",
+            chain.len()
+        );
     }
 
     let features = object(manifest, "feature_model_chains");

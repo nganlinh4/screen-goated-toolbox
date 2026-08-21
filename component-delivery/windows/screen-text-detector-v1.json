@@ -1,13 +1,13 @@
 {
   "architecture": "x64",
   "component": {
-    "asset": "screen-text-detector-3.2.16-a84da6a66a88a2e8.zip",
-    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.16-a84da6a66a88a2e8.zip",
+    "asset": "screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
     "files": [
       {
         "path": "bin/x64/sgt-screen-text-detector-worker.exe",
-        "sha256": "2563531d03eb93646b5d02d28b727bae7953cea9d274f54a07a7948986c8ae00",
-        "sizeBytes": 794624
+        "sha256": "b491ad4dcb2ab34dc6d2c5603b5805d7ff6d79fe1acafa405f7c469df115f277",
+        "sizeBytes": 815616
       },
       {
         "path": "licenses/PP-OCRv5-mobile-det-README.md",
@@ -21,8 +21,8 @@
       },
       {
         "path": "licenses/PaddleOCR-MODELS.json",
-        "sha256": "844d8fb665c4ae3efe1e3171a2e76ffd77dc234d237020db40965531ae7dfd5b",
-        "sizeBytes": 2969
+        "sha256": "1fa70744f827310f6e3f225ab897d5c142f02c9c3cf97298127edc2dfe3d70ab",
+        "sizeBytes": 4418
       },
       {
         "path": "licenses/THIRD-PARTY-LICENSES.json",
@@ -46,8 +46,8 @@
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers.json",
-        "sha256": "619c5761aeea4890dc467783be876ed4dc7a4e69e493690e61c05ac5fb72145e",
-        "sizeBytes": 1241
+        "sha256": "1ade1ee8cb60dd759e0707ea320b0ccf200773547b75fd529da863a352592a77",
+        "sizeBytes": 1533
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/arabic/config.yml",
@@ -56,8 +56,8 @@
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/arabic/model.onnx",
-        "sha256": "799113ebf267fbe742deb99eb36e8d42c9ddc5291ceacf92add41b4d52a59110",
-        "sizeBytes": 7998947
+        "sha256": "1dceceeb4344300c599b44f48d558c39c49707fe492903e4a2f54d07cf847485",
+        "sizeBytes": 7999070
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/cyrillic/config.yml",
@@ -66,8 +66,8 @@
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/cyrillic/model.onnx",
-        "sha256": "5371ee1ddaa7983cc62d0818d99e982b6804638c85e4f960d59a574094e172e5",
-        "sizeBytes": 8048799
+        "sha256": "998909f2dec798d8bd8794812151dcd2e66f4066f95b23b6353dc60ce5a2270a",
+        "sizeBytes": 8048922
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/devanagari/config.yml",
@@ -76,8 +76,8 @@
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/devanagari/model.onnx",
-        "sha256": "cb789212ce96c69d3e74728ae4309d179281d68cb3945d0616b67cafab41c986",
-        "sizeBytes": 7912311
+        "sha256": "d4e56d03944fd1bed4559f13bd450f60eb64d8fb55df43d5f473f497bb6d429b",
+        "sizeBytes": 7912434
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/greek/config.yml",
@@ -86,8 +86,8 @@
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/greek/model.onnx",
-        "sha256": "2acf17fcaea2bc81b878e311e6263b8885f48bb03796f75f9f30ed3242bbaa6d",
-        "sizeBytes": 7808735
+        "sha256": "94aefd4b153acf6da1dcadfba77cfd51a505f3f366d99e85b744c1a5fb266d31",
+        "sizeBytes": 7808858
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/hangul/config.yml",
@@ -96,8 +96,8 @@
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/hangul/model.onnx",
-        "sha256": "92f0b7785e64fc9090106a241cf4c1eb97472824558272751b88a2a4476d3a08",
-        "sizeBytes": 13418787
+        "sha256": "29dd410bcc12bd72e913313890897f93d12196d4d4cfa3e73ae41c7ef38b59e5",
+        "sizeBytes": 13418910
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/tamil/config.yml",
@@ -106,8 +106,8 @@
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/tamil/model.onnx",
-        "sha256": "c6d2b682d2a0ea4cb1fccdba295976f93fd439964d16cdc666cadef531accbee",
-        "sizeBytes": 7885691
+        "sha256": "e01a3764b34f5c3d470b1bcbf4d02338c190d4560e855009cd5bda9f2bfc6abe",
+        "sizeBytes": 7885814
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/telugu/config.yml",
@@ -116,8 +116,8 @@
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/telugu/model.onnx",
-        "sha256": "8238bfc46d4cffe720ed6706e3842802467343497428693ff2bfb4e6b3caa36b",
-        "sizeBytes": 7898759
+        "sha256": "70b9414d447ca27ab0ee385321cc5c2591b52a048f7edde35e20db1ca3eb95e3",
+        "sizeBytes": 7898882
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/thai/config.yml",
@@ -126,8 +126,8 @@
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/thai/model.onnx",
-        "sha256": "27618be66018f8598ac0a526a593f9f1cebf794e7eded93428e8fb016e537f5f",
-        "sizeBytes": 7891015
+        "sha256": "8b0d8ad437b0a1bab1ae9197e10aad9fedf8ac60311aa5ae3a7083b692452daa",
+        "sizeBytes": 7891138
       },
       {
         "path": "models/pp-ocr-screen-text/recognizers/unified/config.yml",
@@ -135,21 +135,16 @@
         "sizeBytes": 150579
       },
       {
-        "path": "models/pp-ocr-screen-text/recognizers/unified/model-cpu.ort",
-        "sha256": "5e30d865e91c61953e317e21a7d449c6ce429e5b97c2e5b9faa44c1981c764d3",
-        "sizeBytes": 21310216
-      },
-      {
         "path": "models/pp-ocr-screen-text/recognizers/unified/model.onnx",
-        "sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634",
-        "sizeBytes": 21159378
+        "sha256": "2460d987e954dda0121cab771eb3ce74d1b1e410be4cf2f00dd15a3d669989db",
+        "sizeBytes": 21159573
       }
     ],
     "id": "screen-text-detector",
-    "sha256": "a84da6a66a88a2e8bfe314a4787b4042e5ae4a4bd1e6a8fecff6b2e2fd41d99f",
-    "sizeBytes": 105974098,
-    "unpackedSizeBytes": 123222689,
-    "version": "3.2.16"
+    "sha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+    "sizeBytes": 87443475,
+    "unpackedSizeBytes": 101936385,
+    "version": "3.2.18"
   },
   "schemaVersion": 1
 }

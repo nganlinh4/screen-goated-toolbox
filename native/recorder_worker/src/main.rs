@@ -8,12 +8,16 @@ mod atomic_json;
 mod component_registry;
 #[path = "../../../src/config/mod.rs"]
 mod config;
+#[path = "../../../src/crypto.rs"]
+mod crypto;
 #[path = "../../../src/debug_log.rs"]
 mod debug_log;
 mod gui;
 mod initialization;
 #[path = "../../../src/lang_detect.rs"]
 mod lang_detect;
+#[path = "../../../src/model_feed.rs"]
+mod model_feed;
 #[path = "../../../src/model_config.rs"]
 mod model_config;
 mod overlay;

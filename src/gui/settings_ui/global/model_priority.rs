@@ -199,12 +199,30 @@ fn render_chain_section(
             ui.data_mut(|data| data.insert_temp(keys_id, keys));
             reorder.store(ui);
 
+            // Models the availability feed currently offers, shown in the order
+            // they would actually be tried. They sit behind every configured step
+            // and are not reorderable, because the feed owns them: it adds and
+            // drops them on its own, and a position edited here would be
+            // overwritten by the next refresh.
+            let offered = feed_steps(chain_kind, chain);
+            for (offset, label) in offered.iter().enumerate() {
+                let position = chain.len() + offset;
+                step_row(ui, &theme, position + 2, position.is_multiple_of(2), |ui| {
+                    fixed_step_label(
+                        ui,
+                        &theme,
+                        label,
+                        text.model_catalog.model_priority_from_feed_hint,
+                    );
+                });
+            }
+
             // Tail step: everything else, in smart fallback order.
             step_row(
                 ui,
                 &theme,
-                chain.len() + 2,
-                chain.len().is_multiple_of(2),
+                chain.len() + offered.len() + 2,
+                (chain.len() + offered.len()).is_multiple_of(2),
                 |ui| {
                     fixed_step_label(
                         ui,
@@ -282,6 +300,26 @@ fn step_row(
 /// The two non-editable steps (pinned pick, auto tail) share this treatment: a
 /// strong name and muted supporting copy, deliberately icon-free so the ladder
 /// has one visual anchor per row instead of two.
+/// Display names for the feed's current offers for this chain, in try order.
+///
+/// Anything already configured by hand is omitted, since it is drawn above as an
+/// editable step and would otherwise appear twice.
+fn feed_steps(chain_kind: RetryChainKind, chain: &[String]) -> Vec<String> {
+    let Ok(app) = crate::APP.lock() else {
+        return Vec::new();
+    };
+    let config = app.config.clone();
+    drop(app);
+    crate::model_feed::store::offered_ids(&config, chain_kind.target_model_type())
+        .into_iter()
+        .filter(|id| !chain.iter().any(|configured| configured == id))
+        .filter_map(|id| {
+            crate::model_config::get_model_by_id_with_custom(&id, &config.custom_models)
+                .map(|model| model.localized_name(&config.ui_language).to_string())
+        })
+        .collect()
+}
+
 fn fixed_step_label(ui: &mut egui::Ui, theme: &AppTheme, label: &str, hint: &str) {
     ui.label(
         egui::RichText::new(label)

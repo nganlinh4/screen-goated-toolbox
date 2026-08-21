@@ -9,6 +9,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from dev_cache_paths import require_repo_or_managed_cache
 
 API_URL = (
     "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/"
@@ -47,10 +48,12 @@ def main() -> int:
     )
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    packages_path = (repo / args.packages).resolve()
-    output_path = (repo / args.output).resolve()
-    packages_path.relative_to(repo)
-    output_path.relative_to(repo)
+    packages_path = require_repo_or_managed_cache(
+        repo, repo / args.packages, "Qwen package manifest"
+    )
+    output_path = require_repo_or_managed_cache(
+        repo, repo / args.output, "Qwen delivery manifest"
+    )
     descriptor = json.loads(packages_path.read_text(encoding="utf-8"))
     component = descriptor["windows"]["components"][0]
     release = json.loads(request_bytes(API_URL))

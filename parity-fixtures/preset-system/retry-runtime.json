@@ -36,9 +36,7 @@
       "google-gemini-robotics-er-1-6-vision",
       "google-gemini-robotics-er-2-vision",
       "google-gemma-4-26b-a4b-vision",
-      "google-gemma-4-31b-vision",
-      "google-gemini-3-6-flash-vision",
-      "google-gemini-3-7-flash-vision"
+      "google-gemma-4-31b-vision"
     ],
     "text_to_text": [
       "groq-qwen-3-6-27b-text",

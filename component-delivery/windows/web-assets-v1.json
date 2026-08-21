@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "5.4.3",
+  "version": "5.5.0",
   "windows": {
     "architecture": "x64",
     "components": [

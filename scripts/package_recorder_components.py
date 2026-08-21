@@ -350,6 +350,22 @@ def require_matching_delivery(output: Path, descriptor: dict[str, object]) -> No
         raise RuntimeError("verified recorder delivery does not match current packages")
 
 
+def reuse_verified_asset_names(
+    descriptor: dict[str, object], delivery: dict[str, object]
+) -> None:
+    """Keep immutable recorder asset names when their packaged bytes are unchanged."""
+    delivered_by_id = {
+        item.get("id"): item for item in delivery.get("components", [])
+    }
+    payload_fields = ("sizeBytes", "sha256", "unpackedSizeBytes", "files")
+    for component in descriptor["components"]:
+        delivered = delivered_by_id.get(component["id"])
+        if delivered is None or not delivered.get("asset"):
+            continue
+        if all(component[field] == delivered.get(field) for field in payload_fields):
+            component["asset"] = delivered["asset"]
+
+
 def main() -> int:
     cache_root = managed_cache_root()
     parser = argparse.ArgumentParser()
@@ -441,6 +457,12 @@ def main() -> int:
         "architecture": "x64",
         "components": components,
     }
+    delivery_path = output / "sgt_recorder.delivery.json"
+    if delivery_path.is_file():
+        reuse_verified_asset_names(
+            descriptor,
+            json.loads(delivery_path.read_text(encoding="utf-8")),
+        )
     path = output / "sgt_recorder.packages.json"
     path.write_text(
         json.dumps(descriptor, indent=2, ensure_ascii=False, sort_keys=True) + "\n",

@@ -12,6 +12,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import urllib.request
 import zipfile
 
 from dev_cache_paths import require_repo_or_managed_cache
@@ -221,6 +222,79 @@ def ffmpeg_component(audit: Path, output: Path) -> dict:
     }
 
 
+def expected_ffmpeg_component() -> dict:
+    files = [
+        {
+            "path": "bin/x64/ffmpeg.exe",
+            "archivePath": "bin/x64/ffmpeg.exe",
+            "sizeBytes": FFMPEG_EXE_SIZE,
+            "sha256": FFMPEG_EXE_SHA256,
+        },
+        {
+            "path": "bin/x64/ffprobe.exe",
+            "archivePath": "bin/x64/ffprobe.exe",
+            "sizeBytes": FFPROBE_EXE_SIZE,
+            "sha256": FFPROBE_EXE_SHA256,
+        },
+        {
+            "path": "licenses/LICENSE.txt",
+            "archivePath": "licenses/LICENSE.txt",
+            "sizeBytes": FFMPEG_LICENSE_SIZE,
+            "sha256": FFMPEG_LICENSE_SHA256,
+        },
+        {
+            "path": "licenses/SOURCE.txt",
+            "archivePath": "licenses/SOURCE.txt",
+            "sizeBytes": FFMPEG_NOTICE_SIZE,
+            "sha256": FFMPEG_NOTICE_SHA256,
+        },
+    ]
+    return {
+        "id": "ffmpeg-x64",
+        "version": FFMPEG_VERSION,
+        "asset": f"ffmpeg-x64-{FFMPEG_VERSION}-{FFMPEG_PACK_SHA256[:16]}.zip",
+        "archiveFormat": "zip",
+        "sizeBytes": FFMPEG_PACK_SIZE,
+        "sha256": FFMPEG_PACK_SHA256,
+        "unpackedSizeBytes": sum(item["sizeBytes"] for item in files),
+        "files": files,
+    }
+
+
+def verified_published_ffmpeg(output: Path, delivery: dict) -> dict:
+    expected = expected_ffmpeg_component()
+    delivered = next(
+        (item for item in delivery.get("components", []) if item.get("id") == "ffmpeg-x64"),
+        None,
+    )
+    if delivered is None or comparable(delivered) != expected:
+        raise RuntimeError("verified FFmpeg delivery does not match the reviewed identity")
+    expected_url = RUNTIME_BUNDLES + expected["asset"]
+    if delivered.get("downloadUrl") != expected_url:
+        raise RuntimeError("verified FFmpeg delivery URL is not immutable")
+    request = urllib.request.Request(
+        expected_url,
+        headers={"User-Agent": "SGT-release-packager"},
+    )
+    with urllib.request.urlopen(request, timeout=180) as response:
+        data = response.read(FFMPEG_PACK_SIZE + 1)
+    if len(data) != FFMPEG_PACK_SIZE or sha256(data) != FFMPEG_PACK_SHA256:
+        raise RuntimeError("published FFmpeg package identity changed")
+    target = output / expected["asset"]
+    if target.exists() and target.read_bytes() != data:
+        raise RuntimeError(f"refusing to replace immutable asset {target}")
+    if not target.exists():
+        target.write_bytes(data)
+    with zipfile.ZipFile(target) as archive:
+        if archive.namelist() != [item["archivePath"] for item in expected["files"]]:
+            raise RuntimeError("published FFmpeg package inventory changed")
+        for item in expected["files"]:
+            payload = archive.read(item["archivePath"])
+            if len(payload) != item["sizeBytes"] or sha256(payload) != item["sha256"]:
+                raise RuntimeError(f"published FFmpeg {item['path']} identity changed")
+    return expected
+
+
 def authenticode(path: Path) -> dict:
     script = (
         "$s=Get-AuthenticodeSignature -LiteralPath $env:SGT_SIGNATURE_FILE;"
@@ -312,13 +386,25 @@ def main() -> int:
         repo, repo / args.output_dir, "external-tool output"
     )
     output.mkdir(parents=True, exist_ok=True)
+    delivery_path = output / "sgt_external_tools.delivery.json"
+    delivery = (
+        json.loads(delivery_path.read_text(encoding="utf-8"))
+        if args.require_delivery and delivery_path.is_file()
+        else None
+    )
+    try:
+        ffmpeg = ffmpeg_component(audit, output)
+    except RuntimeError:
+        if delivery is None:
+            raise
+        ffmpeg = verified_published_ffmpeg(output, delivery)
     descriptor = {
         "schemaVersion": 1,
         "hostVersion": host_version(repo),
         "architecture": "x64",
         "components": [
             ytdlp_component(audit),
-            ffmpeg_component(audit, output),
+            ffmpeg,
             deno_component(audit),
         ],
         "webview2Bootstrapper": webview_package(audit, output),

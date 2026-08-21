@@ -15,13 +15,40 @@ git log <PREVIOUS_TAG>..HEAD --oneline
 
 ## 2. Bump version
 
-Set `[package].version` in `Cargo.toml`. Desktop and Android derive their public version from this value.
+`[package].version` in `Cargo.toml` is the source of truth. Desktop and Android
+derive their public version from it, but three surfaces repeat it and do not
+follow automatically:
 
-Confirm generated/versioned surfaces before continuing:
+| Surface | Field |
+| --- | --- |
+| `app.rc` | `FILEVERSION`, `PRODUCTVERSION`, `FileVersion`, `ProductVersion` |
+| `component-delivery/creation-runtime-v1.json` | `hostVersion` |
+| `component-delivery/windows/external-tools-v1.json` | `hostVersion` |
+| Host-bound Cargo packages such as `native/recorder_worker/Cargo.toml` | `[package].version` |
+
+One command bumps all of them and reports what it changed:
 
 ```powershell
-rg -n 'version\s*=|FILEVERSION|ProductVersion' Cargo.toml app.rc mobile
+py -3 scripts/check_version_pins.py --write
 ```
+
+Review that diff, then rerun without `--write` to confirm it exits clean.
+
+Do not skip this in favour of building and seeing what breaks. Each `hostVersion`
+is asserted by a *different* build script, so a build reports one stale pin and
+halts; the next is only discovered after fixing the last. The Android build
+asserts `creation-runtime-v1.json` too, so a pin missed here can fail after the
+desktop build has already passed.
+
+This is a script rather than a test for a concrete reason: the build scripts
+panic during compilation, so `cargo test` cannot reach a test that would report
+these — the build dies first. The script needs no compilation, and it finds the
+manifests by scanning `component-delivery/`, so one added later is covered
+without editing the table above.
+
+`hostVersion` is only a host pin: bumping it does not invalidate the asset name,
+`sha256`, or component `version` beside it, so a version bump never requires
+republishing a runtime bundle.
 
 ## 3. Draft release notes
 

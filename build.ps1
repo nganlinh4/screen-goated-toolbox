@@ -303,6 +303,9 @@ if ($LASTEXITCODE -ne 0) {
 # This prevents a signed host from referencing an asset that has not reached the immutable release.
 Write-Host "Packaging optional frontend bundles..." -ForegroundColor Cyan
 $webAssetOutput = Join-Path $releasePackageRoot "sgt_web_assets"
+Initialize-DeliveryOutput $webAssetOutput `
+    (Join-Path $trackedDeliveryRoot "web-assets-v1.json") `
+    "sgt_web_assets.delivery.json"
 & py -3 (Join-Path $PSScriptRoot "scripts\package_web_assets.py") `
     --output-dir $webAssetOutput --require-delivery
 if ($LASTEXITCODE -ne 0) {

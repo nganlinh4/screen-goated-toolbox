@@ -5,10 +5,13 @@
 //! not verify, or a schema this build does not understand all resolve to "no
 //! offered models", never to a partial application.
 
+#[cfg(not(feature = "recorder-worker"))]
 use std::io::Read;
 use std::path::PathBuf;
+#[cfg(not(feature = "recorder-worker"))]
 use std::time::Duration;
 
+#[cfg(not(feature = "recorder-worker"))]
 use anyhow::{Result, bail};
 
 use super::{AvailabilityFeed, parse_verified};
@@ -16,13 +19,17 @@ use crate::model_config::ModelType;
 
 /// Published on a data-only branch rather than `main`, so a two-hourly bot commit
 /// never collides with development history.
+#[cfg(not(feature = "recorder-worker"))]
 const FEED_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/monitoring-feed/nvidia-availability.json";
+#[cfg(not(feature = "recorder-worker"))]
 const SIGNATURE_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/monitoring-feed/nvidia-availability.json.sig";
 
 /// The publisher regenerates every two hours; refreshing faster only spends the
 /// user's network for a file that has not changed.
+#[cfg(not(feature = "recorder-worker"))]
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2 * 60 * 60);
 
+#[cfg(not(feature = "recorder-worker"))]
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A feed is small. Anything larger is not our file and is refused before parsing.
@@ -55,6 +62,7 @@ pub fn cached() -> Option<AvailabilityFeed> {
 }
 
 /// Whether the cache is old enough to be worth refetching.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn is_stale() -> bool {
     let Ok(metadata) = std::fs::metadata(feed_path()) else {
         return true;
@@ -66,6 +74,7 @@ pub fn is_stale() -> bool {
         .is_none_or(|age| age >= REFRESH_INTERVAL)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 fn get(url: &str, limit: usize) -> Result<Vec<u8>> {
     let response = crate::api::client::UREQ_AGENT
         .get(url)
@@ -89,6 +98,7 @@ fn get(url: &str, limit: usize) -> Result<Vec<u8>> {
 ///
 /// An unverifiable download is discarded without touching the cache, so a bad
 /// publish cannot evict a good feed that is already trusted.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn refresh() -> Result<AvailabilityFeed> {
     let payload = get(FEED_URL, MAX_FEED_BYTES)?;
     let signature = get(SIGNATURE_URL, SIGNATURE_BYTES)?;
@@ -108,6 +118,7 @@ pub fn refresh() -> Result<AvailabilityFeed> {
 ///
 /// Startup never waits on this and a failure is only logged: the feed is an
 /// optimisation, and the configured chain works without it.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn refresh_in_background() {
     if !is_stale() {
         return;

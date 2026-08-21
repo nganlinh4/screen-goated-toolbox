@@ -24,9 +24,15 @@
 use anyhow::{Result, bail};
 use serde::Deserialize;
 
+#[cfg(not(feature = "recorder-worker"))]
 const PUBLIC_KEY_HEX: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/monitoring/monitoring-p256-public-key.hex"
+));
+#[cfg(feature = "recorder-worker")]
+const PUBLIC_KEY_HEX: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../monitoring/monitoring-p256-public-key.hex"
 ));
 
 const LABEL: &str = "availability feed";
@@ -158,6 +164,7 @@ pub fn merge_into_chain(chain: &[String], offered: &[String]) -> Vec<String> {
     merged
 }
 
+#[path = "model_feed/store.rs"]
 pub mod store;
 
 #[cfg(test)]

@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 /// existing file untouched on failure, so a partial write never replaces a good
 /// file. Used for payloads that must stay byte-exact because a signature is
 /// computed over them.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn write_bytes_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
