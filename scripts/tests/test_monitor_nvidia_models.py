@@ -38,7 +38,7 @@ class NvidiaModelCapabilityTests(unittest.TestCase):
             "2026-08-22T00:00:00Z",
         )
         self.assertEqual(feed["models"], [])
-        self.assertEqual(feed["schemaVersion"], 3)
+        self.assertEqual(feed["schemaVersion"], 2)
         self.assertEqual(feed["qualityGateVersion"], MONITOR.quality.GATE_VERSION)
 
     def test_general_and_vision_models_keep_their_generic_modalities(self) -> None:
