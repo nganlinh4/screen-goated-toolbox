@@ -139,6 +139,14 @@ cargo clippy --all-targets -- -D warnings
 
 Run relevant frontend/mobile tests for changed subsystems. Do not waive failures to cut a release.
 
+Keep release gates distinct from development diagnostics. A focused test need
+not be repeated after an encompassing required suite has passed. Interactive UI
+harnesses, live-provider probes, restart smokes, labs, and evidence-capture
+tools are development workflows unless this checklist or the changed
+subsystem's release instructions explicitly name them as a release gate. Use
+them to diagnose a failed gate or to perform acceptance that has not already
+been completed; do not add them to every release merely because they exist.
+
 ### Promote optional-component candidates
 
 Development candidates live on `sgt-runtime-staging`; a release host may not

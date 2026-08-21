@@ -474,6 +474,10 @@
         function apply(options) {
             var previousWords = state.wordCount;
             var firstRender = state.renderCount === 0;
+            // Source replacement cards are revealed by one compositor-owned batch.
+            // Stop the inherited per-body filter animation before changing the DOM;
+            // otherwise every hidden card still allocates its own blur surface.
+            if (options.sourceReplacement) finishBodyPresentation();
             if (firstRender) body.style.opacity = '0';
             if (options.sourceReplacement || firstRender) body.innerHTML = options.html;
             else window.__SGT_PATCH_BODY__(body, options.html);
