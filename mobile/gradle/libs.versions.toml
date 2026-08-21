@@ -3,9 +3,9 @@
 # ../../youtubedl-android (C:\WORK\youtubedl-android), whose buildscript
 # hardcodes com.android.tools.build:gradle:8.10.0. AGP enforces an exact
 # AGP version across a composite build, and that included build is outside
-# mobile/ (must not be modified), so 8.13.2 is not reachable here.
+# mobile/ (must not be modified). Standalone lint is pinned separately.
 agp = "8.10.0"
-kotlin = "2.4.0"
+kotlin = "2.2.21"
 compose-bom = "2026.04.01"
 compose-material3 = "1.5.0-alpha18"
 activity-compose = "1.13.0"
@@ -14,8 +14,8 @@ navigation = "2.9.8"
 core-ktx = "1.18.0"
 core-splashscreen = "1.2.0"
 browser = "1.10.0"
-coroutines = "1.11.0"
-serialization = "1.10.0"
+coroutines = "1.10.2"
+serialization = "1.9.0"
 okhttp = "5.4.0"
 jsoup = "1.22.2"
 security-crypto = "1.1.0"

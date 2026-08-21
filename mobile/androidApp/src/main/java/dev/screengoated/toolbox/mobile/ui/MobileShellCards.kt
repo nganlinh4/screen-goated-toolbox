@@ -45,7 +45,7 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 private data class ProviderDef(
     val label: String,
-    @DrawableRes val icon: Int,
+    @param:DrawableRes val icon: Int,
     val keyLabel: String,
     val getKeyUrl: String? = null,
     val getKeyLabel: String? = null,
