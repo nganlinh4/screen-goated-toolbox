@@ -263,12 +263,17 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
             control, _ = discover_control(key, model)
             if control:
                 sample = measure(key, model, control)
-        # Vision capability is probed once and then trusted, since it is a
-        # property of the endpoint rather than of the run.
+        # Whether an endpoint accepts images at all is a property of the endpoint
+        # and stays cached; whether its transcription is good enough is a property
+        # of the gate, and must be re-judged when the gate changes. Conflating the
+        # two published two endpoints as verified vision on a verdict taken before
+        # the diacritic check existed.
         vision = known.get("vision")
-        if control and healthy(sample) and vision is None:
-            vision = measure_vision(key, model, control)
-            vision = vision if vision is not None else False
+        stale = isinstance(vision, dict) and vision.get("gate") != quality.GATE_VERSION
+        if control and healthy(sample) and (vision is None or stale):
+            measured = measure_vision(key, model, control)
+            # None means it refused an image, which is capability, not quality.
+            vision = measured if measured is not None else False
 
         streak_ok = known.get("healthy_streak", 0)
         streak_bad = known.get("failing_streak", 0)
