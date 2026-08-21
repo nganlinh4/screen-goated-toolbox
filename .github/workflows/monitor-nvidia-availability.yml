@@ -19,6 +19,11 @@ on:
   schedule:
     - cron: "17 */2 * * *" # off the hour, so it does not pile onto the :00 rush
   workflow_dispatch:
+    inputs:
+      models:
+        description: Optional comma-separated endpoint ids for a focused signed probe
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -51,11 +56,17 @@ jobs:
       - name: Probe every model and update the rolling history
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          SELECTED_MODELS: ${{ inputs.models }}
         run: |
+          args=()
+          if [[ -n "$SELECTED_MODELS" ]]; then
+            args+=(--models "$SELECTED_MODELS")
+          fi
           python scripts/monitor_nvidia_models.py \
             --history feed/nvidia-history.json \
             --output feed/nvidia-availability.json \
-            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "${args[@]}"
 
       - name: Sign the published feed
         env:
