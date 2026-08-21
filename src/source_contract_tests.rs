@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 const MAX_SOURCE_LINES: usize = 600;
 
@@ -94,4 +95,22 @@ fn egui_modals_use_the_shared_material_surface() {
             path.display()
         );
     }
+}
+
+#[test]
+fn ignored_egui_checkouts_exactly_match_tracked_patches() {
+    let validator = manifest_path("scripts/validate-egui-patches.ps1");
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&validator)
+        .output()
+        .unwrap_or_else(|error| panic!("failed to run {}: {error}", validator.display()));
+
+    assert!(
+        output.status.success(),
+        "{} failed:\n{}{}",
+        validator.display(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
