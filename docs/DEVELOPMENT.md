@@ -42,6 +42,19 @@ source checkout, user output, or the lane used by the current command.
 Set `SGT_DEV_CACHE_ROOT` to relocate the cache. Use `-DevCacheLimitGiB` on
 `run-dev.ps1` only when the machine deliberately needs a different bound.
 
+`libs/egui-snarl` and `libs/egui-scale` are disposable checkouts reconstructed
+from the pinned revisions and patch list in `scripts/egui-patch-contract.ps1`.
+Never make a product change directly in those ignored directories. Edit the
+tracked `.patch` file under `scripts/`, then run:
+
+```powershell
+.\scripts\setup-egui-snarl.ps1
+.\scripts\validate-egui-patches.ps1
+```
+
+The development and release wrappers enforce an exact patched-tree match; a
+marker string or matching Cargo dependency line is not sufficient.
+
 `-BuildLocalCreationRuntime` remains a source diagnostic for maintainers of the
 separate checkout; the app never loads that local executable. Normal debug and
 release behavior uses only an exact external delivery contract.

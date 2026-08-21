@@ -17,6 +17,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = $PSScriptRoot
+$eguiDependencySetup = Join-Path $repoRoot "scripts\ensure-egui-dependencies.ps1"
+& $eguiDependencySetup
+
 $cacheScript = Join-Path $repoRoot "scripts\dev-cache.ps1"
 $cacheArguments = @{ Action = "Path"; Lane = "dev" }
 if (-not [string]::IsNullOrWhiteSpace($DevCacheRoot)) {

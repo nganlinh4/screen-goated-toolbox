@@ -24,6 +24,9 @@
 - Public creation code, docs, fixtures, and tests contain only product behavior,
   stable public contracts, and delivery invariants. Do not document non-public
   implementation details, compatibility evidence, or real-run artifacts.
+- `libs/egui-snarl` and `libs/egui-scale` are disposable ignored checkouts. Never
+  edit them as source of truth; update their tracked patch files under `scripts/`,
+  then recreate and validate them with `scripts/setup-egui-snarl.ps1`.
 - Use `rg`. Use `apply_patch`. Keep git operations non-destructive.
 
 ## Verify

@@ -3,30 +3,9 @@ if ($env:SGT_COMPONENT_DELIVERY_CHANNEL -eq "staging" -or
     throw "Release builds cannot use mutable staging component delivery. Start a clean shell."
 }
 
-# Re-patch egui-snarl to ensure custom scroll-to-zoom is applied
-Write-Host "Setting up patched egui-snarl..." -ForegroundColor Cyan
-$snarlDir = Join-Path $PSScriptRoot "libs\egui-snarl"
-$scaleDir = Join-Path $PSScriptRoot "libs\egui-scale"
-$snarlRevision = "5bdc34e4ebdb9d7a0968f21564dce51a1a027ee8"
-$scaleRevision = "abb9b647cf9478c6de876a980e4355cdc2d141c8"
-$snarlReady = (Test-Path (Join-Path $snarlDir "src\ui.rs") -PathType Leaf) -and
-    (Test-Path (Join-Path $snarlDir "Cargo.toml") -PathType Leaf) -and
-    ((git -C $snarlDir rev-parse HEAD 2>$null) -eq $snarlRevision) -and
-    (Select-String -Path (Join-Path $snarlDir "src\ui.rs") -Pattern "CUSTOM SCROLL-TO-ZOOM" -Quiet) -and
-    (Select-String -Path (Join-Path $snarlDir "Cargo.toml") -Pattern 'egui = \{ version = "0.34", default-features = false \}' -Quiet)
-$scaleReady = (Test-Path (Join-Path $scaleDir "Cargo.toml") -PathType Leaf) -and
-    ((git -C $scaleDir rev-parse HEAD 2>$null) -eq $scaleRevision) -and
-    (Select-String -Path (Join-Path $scaleDir "Cargo.toml") -Pattern 'egui = \{ version = "0.34", default-features = false \}' -Quiet)
-if ($snarlReady -and $scaleReady) {
-    Write-Host "Pinned egui patches are already valid." -ForegroundColor Green
-}
-else {
-    & (Join-Path $PSScriptRoot "scripts\setup-egui-snarl.ps1")
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "FAILED: patched egui dependencies are not ready." -ForegroundColor Red
-        exit $LASTEXITCODE
-    }
-}
+# Validate the full dependency trees, not just marker lines. Invalid disposable checkouts are
+# recreated exclusively from the pinned revisions and tracked patches.
+& (Join-Path $PSScriptRoot "scripts\ensure-egui-dependencies.ps1")
 
 # --- Build PromptDJ Frontend ---
 Write-Host "Building PromptDJ Frontend..." -ForegroundColor Cyan
