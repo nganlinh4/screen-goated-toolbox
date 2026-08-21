@@ -40,6 +40,14 @@ fn get_clipboard_text() -> Option<String> {
     }
 }
 
+/// The shell only owns paste when an editor does not.
+///
+/// This is intentionally based on egui's text-edit state instead of widget IDs so every current
+/// and future `TextEdit` keeps native paste behavior without joining an exclusion list.
+fn shell_owns_paste(ctx: &egui::Context) -> bool {
+    !ctx.text_edit_focused()
+}
+
 /// Handle Ctrl+V paste - uses Windows API for keyboard detection.
 pub fn handle_paste(ctx: &egui::Context) -> bool {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -54,17 +62,8 @@ pub fn handle_paste(ctx: &egui::Context) -> bool {
         return false;
     }
 
-    let focused_id = ctx.memory(|mem| mem.focused());
-    if let Some(id) = focused_id {
-        let api_key_ids = [
-            egui::Id::new("settings_api_key_groq"),
-            egui::Id::new("settings_api_key_gemini"),
-            egui::Id::new("settings_api_key_openrouter"),
-            egui::Id::new("settings_api_key_ollama_url"),
-        ];
-        if api_key_ids.contains(&id) {
-            return false;
-        }
+    if !shell_owns_paste(ctx) {
+        return false;
     }
 
     static LAST_V_STATE: AtomicBool = AtomicBool::new(false);
@@ -106,4 +105,30 @@ pub fn handle_paste(ctx: &egui::Context) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_native_text_edit_keeps_paste_ownership() {
+        let ctx = egui::Context::default();
+        let mut value = String::new();
+
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.add(egui::TextEdit::singleline(&mut value))
+                .request_focus();
+        });
+
+        assert!(ctx.text_edit_focused());
+        assert!(!shell_owns_paste(&ctx));
+    }
+
+    #[test]
+    fn shell_keeps_paste_ownership_without_a_text_editor() {
+        let ctx = egui::Context::default();
+
+        assert!(shell_owns_paste(&ctx));
+    }
 }
