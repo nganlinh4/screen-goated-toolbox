@@ -14,8 +14,10 @@ use anyhow::{Result, bail};
 use super::{AvailabilityFeed, parse_verified};
 use crate::model_config::ModelType;
 
-const FEED_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/monitoring/nvidia-availability.json";
-const SIGNATURE_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/monitoring/nvidia-availability.json.sig";
+/// Published on a data-only branch rather than `main`, so a two-hourly bot commit
+/// never collides with development history.
+const FEED_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/monitoring-feed/nvidia-availability.json";
+const SIGNATURE_URL: &str = "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/monitoring-feed/nvidia-availability.json.sig";
 
 /// The publisher regenerates every two hours; refreshing faster only spends the
 /// user's network for a file that has not changed.

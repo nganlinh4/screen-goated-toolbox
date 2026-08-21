@@ -35,7 +35,7 @@ import unicodedata
 # under the same gate: mixing them reports a rate for a test that was never run
 # as a whole, which is how a tightened gate briefly published every model at a
 # quarter success.
-GATE_VERSION = 2
+GATE_VERSION = 3
 
 # Latency above which a model is not worth offering even when it is correct.
 # muse-glimmer answers accurately at ~17s; a fallback that slow is not a fallback.
@@ -175,11 +175,16 @@ VISION_CASES = (
         "require_marks": None,
     },
     {
+        # The exact diacritical forms, not merely "some diacritic somewhere".
+        # Stripping is partial in practice: one model returned `PHO` beside a
+        # correct `NHÀ CHUNG`, another returned `HANOI` beside a correct `PHỐ`.
+        # Both satisfy a presence test while losing the characters that carry
+        # meaning, so the words themselves are asserted.
         "id": "ocr-vietnamese",
         "image": "tests/catalog-benchmark/images/ocr/01-vietnamese-street-sign.jpg",
         "mime": "image/jpeg",
         "instruction": "Extract all text from this image exactly as it appears. Output ONLY the text.",
-        "expect_all": (),
+        "expect_all": ("hà nội", "phố", "nhà chung"),
         "require_marks": "vi",
     },
 )
