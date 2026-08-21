@@ -358,6 +358,7 @@ pub(crate) fn parakeet_model_contracts() -> &'static [FileContract] {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn remove_parakeet_model() -> Result<()> {
+    let _owners = crate::overlay::component_removal::stop_audio_owners()?;
     let dir = get_parakeet_model_dir();
     clear_parakeet_action_error();
     super::local_asr_worker::request_model_remove(

@@ -64,13 +64,14 @@ pub(super) fn installed_size(kind: ModelKind) -> u64 {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(super) fn remove_model(kind: ModelKind) -> Result<()> {
+    let _owners = crate::overlay::component_removal::stop_audio_owners()?;
     match crate::component_registry::models::remove(kind)? {
         RemovalOutcome::Missing | RemovalOutcome::Removed | RemovalOutcome::Pending => Ok(()),
         RemovalOutcome::RequiredBy(dependents) => {
             bail!("model is required by {}", dependents.join(", "))
         }
         RemovalOutcome::PreservedModified(paths) => bail!(
-            "modified or unknown model content was preserved: {}",
+            "unrecorded or unsafe model content was preserved: {}",
             paths
                 .iter()
                 .map(|path| path.display().to_string())

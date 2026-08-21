@@ -153,21 +153,34 @@ Removal rejects new leases, cancels or drains installation, and becomes pending
 until active leases end. A native library that cannot unload remains pending
 until process restart.
 
-Removal deletes only files listed in a valid ownership receipt whose current
-size and digest still match. Missing files are harmless. Modified or unexpected
-files are preserved and reported. Clean All enumerates the same registry; it
-must not delete broad application-data roots or rely on a hard-coded component
-list.
+Removal first stops or cancels the owning feature and waits for its processes
+and leases to finish. It then deletes regular, non-reparse files listed in a
+valid ownership receipt, even if a recorded file changed after installation.
+Missing files are harmless; unrecorded and unsafe entries are preserved and
+reported. Clean All uses the same owner-shutdown and receipt-bounded removal
+contract; it must not delete broad application-data roots or rely on a
+hard-coded component list.
 
 Repair atomically moves an invalid managed version into a visible recovery
 directory and records its exact inventory. Downloaded Tools reports the reason
-and recovery path. Recovery cleanup removes only record-declared regular files
-whose size and digest still match; modified, reparse, and unknown bytes remain
-visible and preserved.
+and recovery path. Routine recovery cleanup removes only record-declared
+regular files whose size and digest still match. An explicit, confirmed Clean
+All removes changed record-declared regular files too; reparse and unknown
+bytes remain visible and preserved.
 
 Shared dependencies are removed only when no installed component or active
 lease references them. Interrupted installs and pending removals are reconciled
 on startup without triggering a download.
+
+Each registry mutation releases the cross-process mutation guard before
+resuming unrelated pending removals. Waiting for one component's active lease
+must not monopolize the registry or make another component report that the
+registry is busy.
+
+Downloaded Tools status is live state, not dialog-open state. Completion of a
+background install, repair, or removal must invalidate the affected presence
+and size caches and wake the UI. Acceptance must observe the correct status and
+installed size without closing or reopening the dialog.
 
 ## Release gate
 

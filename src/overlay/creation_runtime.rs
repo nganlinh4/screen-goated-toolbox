@@ -266,7 +266,7 @@ pub(crate) fn is_runtime_installed() -> bool {
 
 pub(crate) fn remove_runtime() -> Result<()> {
     invalidate_verified_runtime();
-    match crate::component_registry::request_remove(COMPONENT_ID)? {
+    match crate::component_registry::request_remove_and_wait(COMPONENT_ID)? {
         crate::component_registry::RemovalOutcome::Missing => cleanup_runtime_files(true)?,
         crate::component_registry::RemovalOutcome::Removed
         | crate::component_registry::RemovalOutcome::Pending => {}

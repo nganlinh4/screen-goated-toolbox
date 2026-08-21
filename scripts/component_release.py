@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import copy
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -345,7 +346,11 @@ def upload_missing(repository: str, tag: str, asset: dict[str, Any]) -> None:
             asset["sha256"],
         )
         return
-    gh("release", "upload", tag, asset["path"], "--repo", repository)
+    source = Path(asset["path"])
+    with tempfile.TemporaryDirectory(prefix="sgt-release-upload-") as directory:
+        upload = Path(directory, asset["asset"])
+        shutil.copyfile(source, upload)
+        gh("release", "upload", tag, str(upload), "--repo", repository)
     verify_remote(
         repository,
         tag,

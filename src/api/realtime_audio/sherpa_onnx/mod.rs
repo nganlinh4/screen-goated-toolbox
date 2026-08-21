@@ -55,6 +55,7 @@ pub fn is_model_payload_present(lang: ZipformerLanguage) -> bool {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn remove_model(lang: ZipformerLanguage) -> Result<()> {
+    let _owners = crate::overlay::component_removal::stop_audio_owners()?;
     let dir = model_dir(lang);
     let Ok(metadata) = std::fs::symlink_metadata(&dir) else {
         return Ok(());
@@ -66,15 +67,13 @@ pub fn remove_model(lang: ZipformerLanguage) -> Result<()> {
     let mut preserved = Vec::new();
     for file in lang.model_files() {
         let target = dir.join(file.name);
-        if target.exists() {
-            if crate::api::realtime_audio::model_loader::verified_file_present(
-                &target,
-                file.contract(),
-            ) {
+        match std::fs::symlink_metadata(&target) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
                 std::fs::remove_file(&target)?;
-            } else {
-                preserved.push(target);
             }
+            Ok(_) => preserved.push(target),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
         for extension in ["tmp", "verified-download", "unverified-backup"] {
             let temporary = dir.join(file.name).with_extension(extension);

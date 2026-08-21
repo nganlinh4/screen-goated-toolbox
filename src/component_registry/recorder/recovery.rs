@@ -96,7 +96,16 @@ pub(super) fn quarantine_invalid(
     Ok(Some(target))
 }
 
+#[cfg(test)]
 pub(crate) fn clean_all() -> Result<Vec<CleanupOutcome>> {
+    clean_all_with(false)
+}
+
+pub(crate) fn purge_all_recorded() -> Result<Vec<CleanupOutcome>> {
+    clean_all_with(true)
+}
+
+fn clean_all_with(delete_recorded: bool) -> Result<Vec<CleanupOutcome>> {
     let mut outcomes = Vec::new();
     for id in [super::WEB_ID, super::WORKER_ID] {
         let parent = recovery_root().join(id);
@@ -104,7 +113,11 @@ pub(crate) fn clean_all() -> Result<Vec<CleanupOutcome>> {
             continue;
         };
         if !metadata.is_dir() || is_reparse_point(&metadata) {
-            bail!("recorder recovery directory is unsafe");
+            outcomes.push(CleanupOutcome {
+                path: parent.clone(),
+                preserved_paths: vec![parent],
+            });
+            continue;
         }
         let mut records = Vec::new();
         let mut scanned = 0_usize;
@@ -124,13 +137,30 @@ pub(crate) fn clean_all() -> Result<Vec<CleanupOutcome>> {
             }
         }
         for record_path in records {
-            outcomes.push(clean_record(id, &parent, &record_path)?);
+            match clean_record(id, &parent, &record_path, delete_recorded) {
+                Ok(outcome) => outcomes.push(outcome),
+                Err(error) => {
+                    crate::log_info!(
+                        "[Components] could not clean recorder recovery {}: {error:#}",
+                        record_path.display()
+                    );
+                    outcomes.push(CleanupOutcome {
+                        path: record_path.clone(),
+                        preserved_paths: vec![record_path],
+                    });
+                }
+            }
         }
     }
     Ok(outcomes)
 }
 
-fn clean_record(id: &str, parent: &Path, record_path: &Path) -> Result<CleanupOutcome> {
+fn clean_record(
+    id: &str,
+    parent: &Path,
+    record_path: &Path,
+    delete_recorded: bool,
+) -> Result<CleanupOutcome> {
     let record = read_record(record_path)?;
     validate_record(&record, id)?;
     let expected_record_name = format!("{}{RECORD_SUFFIX}", record.directory_name);
@@ -146,7 +176,7 @@ fn clean_record(id: &str, parent: &Path, record_path: &Path) -> Result<CleanupOu
     let mut preserved = Vec::new();
     for file in &record.files {
         let path = target.join(&file.path);
-        if !path.exists() || (file.cleanable && snapshot_matches(&path, file)?) {
+        if !path.exists() || delete_recorded || (file.cleanable && snapshot_matches(&path, file)?) {
             removable.push(file.path.clone());
         } else {
             preserved.push(path);
@@ -382,6 +412,25 @@ mod tests {
                 .iter()
                 .any(|outcome| outcome.path == recovery)
         );
+        assert!(!recovery.exists());
+    }
+
+    #[test]
+    #[ignore = "mutates the isolated process recorder recovery root"]
+    fn explicit_purge_removes_changed_recorded_component_bytes() {
+        let source =
+            crate::component_registry::ensure_version_root(DELIVERY.id, DELIVERY.version).unwrap();
+        std::fs::create_dir(source.join("assets")).unwrap();
+        std::fs::write(source.join("assets/app.js"), b"changed").unwrap();
+        crate::component_registry::write_receipt(&source, &super::super::receipt(&DELIVERY))
+            .unwrap();
+        let recovery = quarantine_invalid(&DELIVERY, "integrity mismatch")
+            .unwrap()
+            .unwrap();
+
+        assert!(recovery.exists());
+        let outcomes = purge_all_recorded().unwrap();
+        assert!(outcomes.iter().any(|outcome| outcome.path == recovery));
         assert!(!recovery.exists());
     }
 }

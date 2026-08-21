@@ -129,8 +129,10 @@ pub(crate) fn download_web_assets(
 
 pub(crate) fn remove_web_assets() -> anyhow::Result<()> {
     REMOVAL_REQUESTED.store(true, Ordering::Release);
-    crate::component_registry::web_assets::remove(WebAssetComponent::PromptDj)?;
-    stop_for_component_removal()
+    let result = stop_for_component_removal()
+        .and_then(|()| crate::component_registry::web_assets::remove(WebAssetComponent::PromptDj));
+    REMOVAL_REQUESTED.store(false, Ordering::Release);
+    result
 }
 
 fn stop_for_component_removal() -> anyhow::Result<()> {
@@ -147,7 +149,6 @@ fn stop_for_component_removal() -> anyhow::Result<()> {
                 let _ = PostMessageW(Some(hwnd.0), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
         } else if !initializing {
-            REMOVAL_REQUESTED.store(false, Ordering::Release);
             return Ok(());
         }
         if Instant::now() >= deadline {

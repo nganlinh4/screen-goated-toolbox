@@ -5,9 +5,10 @@ use eframe::egui;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use super::utils::{format_size, tool_card};
+use super::utils::{format_size, removal_in_progress, start_removal, tool_card};
 
 static BADGE_MONITOR_ACTIVE: AtomicBool = AtomicBool::new(false);
+const REMOVE_BACKGROUNDS: &str = "downloaded-tools:remove-backgrounds";
 
 pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &LocaleText) {
     let summary = bg_download::downloadable_background_summary();
@@ -24,6 +25,11 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                     .tool_desc_downloadable_backgrounds,
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if removal_in_progress(REMOVE_BACKGROUNDS) {
+                    ui.spinner();
+                    ui.label(text.auxiliary.managed_tools.tool_status_removing);
+                    return;
+                }
                 if summary.total_count == 0 {
                     ui.label(
                         egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
@@ -68,7 +74,7 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                         )
                         .clicked()
                     {
-                        let _ = bg_download::delete_all_downloaded();
+                        start_background_removal(text);
                     }
                 } else if ui
                     .button(
@@ -77,7 +83,7 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                     )
                     .clicked()
                 {
-                    let _ = bg_download::delete_all_downloaded();
+                    start_background_removal(text);
                 }
             });
         });
@@ -104,6 +110,24 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
             });
         });
     });
+}
+
+fn start_background_removal(text: &LocaleText) {
+    start_removal(
+        REMOVE_BACKGROUNDS,
+        text.auxiliary
+            .managed_tools
+            .tool_downloadable_backgrounds
+            .to_string(),
+        || {
+            let _recorder = crate::overlay::screen_record::stop_for_component_removal()?;
+            bg_download::delete_all_downloaded()
+                .map(drop)
+                .map_err(anyhow::Error::msg)?;
+            Ok(())
+        },
+        || {},
+    );
 }
 
 fn start_missing_with_badge(text: &LocaleText) {

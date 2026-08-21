@@ -37,6 +37,8 @@ pub(crate) use receipt::write_receipt;
 pub(crate) use receipt::{ComponentReceipt, OwnedComponentFile};
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) use removal::clean_all;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use removal::request_remove_and_wait;
 pub(crate) use removal::{RemovalOutcome, request_remove};
 
 #[cfg(not(feature = "recorder-worker"))]

@@ -259,6 +259,39 @@ fn corrupted_install_is_quarantined_then_reinstalled_without_data_loss() {
 }
 
 #[test]
+fn explicit_recovery_purge_deletes_changed_recorded_bytes_but_not_unknown_files() {
+    let bytes = x64_pe();
+    let mut delivery = test_delivery(&bytes);
+    delivery.id = "test-external-explicit-purge";
+    delivery.version = "purge-test";
+    let root = version_root(&delivery).unwrap();
+    if root.exists() {
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    std::fs::create_dir_all(root.join("bin/x64")).unwrap();
+    std::fs::write(root.join("bin/x64/yt-dlp.exe"), &bytes).unwrap();
+    std::fs::write(root.join("user-note.txt"), b"preserve me").unwrap();
+    crate::component_registry::write_receipt(&root, &receipt(&delivery)).unwrap();
+
+    let recovery = install::quarantine_invalid_for_test(&delivery).unwrap();
+    let entries = recovery::list_for_test(&delivery).unwrap();
+    std::fs::write(recovery.join("bin/x64/yt-dlp.exe"), vec![7_u8; bytes.len()]).unwrap();
+    let outcome = recovery::purge_for_test(&delivery, &entries[0]).unwrap();
+
+    assert!(!recovery.join("bin/x64/yt-dlp.exe").exists());
+    assert_eq!(
+        std::fs::read(recovery.join("user-note.txt")).unwrap(),
+        b"preserve me"
+    );
+    assert!(
+        outcome
+            .preserved_paths
+            .contains(&recovery.join("user-note.txt"))
+    );
+    std::fs::remove_dir_all(recovery.parent().unwrap()).unwrap();
+}
+
+#[test]
 fn recovery_sidecar_is_durable_before_move_and_rolled_back_on_failure() {
     let bytes = x64_pe();
     let mut delivery = test_delivery(&bytes);

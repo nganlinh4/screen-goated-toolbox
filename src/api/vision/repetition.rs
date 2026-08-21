@@ -28,6 +28,11 @@
 //! The cost of that strictness is that a repetition carrying no damage is kept,
 //! because it cannot be told apart from a correct reading of an image that
 //! really does show the same text twice. That is the right way to be wrong.
+//!
+//! Every threshold here is an absolute character count, so each one is also a
+//! blind spot for replies shorter than it. OCR replies are routinely a single
+//! filename or label, so the floors are kept at the smallest value the scan can
+//! actually work with rather than at a comfortable-looking round number.
 
 /// Shortest span treated as a repeat. Ordinary prose repeats shorter runs.
 const MIN_REPEAT_SPAN: usize = 8;
@@ -41,8 +46,19 @@ const LOCAL_COVERAGE: f32 = 0.92;
 /// Repetition share required across everything after the cut.
 const TAIL_COVERAGE: f32 = 0.80;
 
-/// Replies shorter than this are never judged.
-const MIN_JUDGED_CHARS: usize = 32;
+/// Shortest reply that can be judged at all.
+///
+/// Derived, not tuned: a cut needs one repeat span before the onset and one
+/// after it, so below twice [`MIN_REPEAT_SPAN`] the scan cannot produce a
+/// candidate no matter what the text says. Anything higher would be an extra
+/// precision rule, and precision is already carried by [`is_fragmented`].
+///
+/// It was previously 32, from when length *was* the precision defence. That
+/// floor silently disabled the whole guard for short replies -- `DJI_0872.JPG`
+/// re-emitted as `DJI` / `_087` / `2.JPG` is 24 characters and was returned
+/// untouched -- which is backwards: the shorter the reply, the less room there
+/// is for a repetition to be a legitimate reading of the image.
+const MIN_JUDGED_CHARS: usize = MIN_REPEAT_SPAN * 2;
 
 /// Bound on characters examined. Vision replies are capped at 512 output tokens,
 /// so this covers them while keeping the scan's cost bounded.
@@ -316,6 +332,11 @@ mod tests {
             "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png\nScreenshot\not 2026-08-19 21\n13759.png\nScreensh\not 2026-08-19 2\n213630.png",
             "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png",
         ),
+        // Captured live on 2026-08-21 from the OCR preset. Twenty-four
+        // non-whitespace characters: the whole reply sat under the old length
+        // floor, so the guard returned it untouched even though the fragments
+        // are unmistakable.
+        ("DJI_0872.JPG\nDJI\n_087\n2.JPG", "DJI_0872.JPG"),
     ];
 
     /// Correct extractions that must survive untouched, taken from the product's
@@ -327,6 +348,13 @@ mod tests {
         "Товарный чек №\n«        »                         20     г.\nНаименование\nКол-во\nЦена\nСумма\nИтого\nПодпись продавца",
         "Four score and seven years ago our fathers brought forth, upon this continent, a new nation, conceived in liberty.",
         "WIKIPEDIA TIẾNG VIỆT\nBạn chính là tác giả của Wikipedia\nBài viết: Tra cứu · Bài mới · Hỏi đáp · Thỉnh cầu · Thư viện",
+        // Short replies, now that they are judged at all. Each repeats without
+        // damage, which is what an image that really does show its text twice
+        // looks like.
+        "DJI_0872.JPG\nDJI_0872.JPG",
+        "IMG_20260821_162425.jpg\nIMG_20260821_162430.jpg",
+        "EXIT\nEXIT",
+        "STOP STOP STOP",
     ];
 
     #[test]
@@ -380,9 +408,19 @@ mod tests {
     }
 
     #[test]
-    fn short_replies_are_never_judged() {
+    fn a_short_reply_is_judged_but_still_needs_damage_to_be_cut() {
+        // Short replies are judged now: an OCR reply is routinely one
+        // filename, and a floor above that length disabled the guard exactly
+        // where a repetition is least likely to be a real reading of the image.
+        assert!(looks_like_repetition_defect(
+            "DJI_0872.JPG\nDJI\n_087\n2.JPG"
+        ));
+
+        // Being judged is not being cut. None of these carry a broken word.
         assert!(!looks_like_repetition_defect("HÀ NỘI\nPHỐ\nNHÀ CHUNG"));
         assert!(!looks_like_repetition_defect(""));
+        // Exactly at the floor and almost entirely self-repeating, but it is
+        // one whole token: repetition alone never justifies a cut.
         assert!(!looks_like_repetition_defect("aaaaaaaaaaaaaaaa"));
     }
 

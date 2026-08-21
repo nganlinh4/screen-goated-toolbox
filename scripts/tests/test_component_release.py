@@ -79,6 +79,31 @@ def creation_package(
 
 
 class ComponentReleaseTests(unittest.TestCase):
+    def test_upload_uses_the_declared_asset_name_when_local_name_differs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory, "local-build-name.bin")
+            source.write_bytes(b"candidate")
+            asset = {
+                "asset": "immutable-declared-name.bin",
+                "path": str(source),
+                "sizeBytes": len(b"candidate"),
+                "sha256": hashlib.sha256(b"candidate").hexdigest(),
+            }
+            uploaded = []
+
+            def capture_upload(*arguments):
+                path = Path(arguments[3])
+                uploaded.append((path.name, path.read_bytes()))
+
+            with (
+                mock.patch.object(MODULE, "release_assets", return_value={}),
+                mock.patch.object(MODULE, "gh", side_effect=capture_upload),
+                mock.patch.object(MODULE, "verify_remote"),
+            ):
+                MODULE.upload_missing(MODULE.REPOSITORY, MODULE.STAGING_TAG, asset)
+
+            self.assertEqual(uploaded, [(asset["asset"], b"candidate")])
+
     def test_selected_component_merges_without_changing_sibling(self):
         base = {
             "components": [

@@ -51,10 +51,16 @@ fn desktop_startup_phases_remain_in_dependency_order() {
 #[test]
 fn desktop_startup_prewarms_the_shared_overlay_compositors_only() {
     let source = read_source("src/app_entry.rs");
+    let gui_startup = read_source("src/gui/app/logic.rs");
+    let screen_translate = read_source("src/overlay/screen_translate/mod.rs");
+    let footer = read_source("src/gui/app/rendering/footer.rs");
     assert!(!source.contains("spawn_warmup_thread"));
     assert!(!source.contains("warm_up_orb"));
     assert!(source.contains("result::scene_compositor::warmup"));
     assert!(source.contains("status_compositor::warmup"));
+    assert!(!gui_startup.contains("screen_translate::prepare"));
+    assert!(screen_translate.contains("prepare: prepare_detector"));
+    assert!(footer.contains("screen_translate::prepare_detector"));
 }
 
 #[test]

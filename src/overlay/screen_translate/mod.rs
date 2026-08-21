@@ -43,24 +43,6 @@ pub(crate) fn prepare_detector() {
     )));
 }
 
-pub(crate) fn prepare_installed_detector() {
-    if !crate::component_registry::screen_text_detector::is_installed()
-        || !matches!(
-            crate::component_registry::local_asr::current_status(
-                crate::component_registry::local_asr::ComponentKind::Runtime
-            ),
-            crate::component_registry::local_asr::ComponentStatus::Installed { .. }
-        )
-        || !matches!(
-            crate::component_registry::vc_runtime::current_status(),
-            crate::component_registry::vc_runtime::VcRuntimeStatus::Installed { .. }
-        )
-    {
-        return;
-    }
-    prepare_detector();
-}
-
 pub(crate) fn process_captured_region(
     image: image::RgbaImage,
     rect: windows::Win32::Foundation::RECT,

@@ -100,6 +100,7 @@ fn require_sherpa_runtime_ready() -> Result<()> {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn remove_sherpa_dlls() -> Result<()> {
+    let _owners = crate::overlay::component_removal::stop_audio_owners()?;
     let _package_guard = lock_sherpa_package();
     let dir = sherpa_bin_dir();
     if !dir.exists() {

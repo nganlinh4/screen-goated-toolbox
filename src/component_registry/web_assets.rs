@@ -166,10 +166,10 @@ pub(crate) fn component_dir(component: WebAssetComponent) -> PathBuf {
 }
 
 pub(crate) fn remove(component: WebAssetComponent) -> Result<()> {
-    match super::request_remove(component.id())? {
+    match super::request_remove_and_wait(component.id())? {
         RemovalOutcome::Missing | RemovalOutcome::Removed | RemovalOutcome::Pending => Ok(()),
         RemovalOutcome::PreservedModified(paths) => bail!(
-            "{} contains {} modified managed file(s); they were preserved",
+            "{} contains {} unrecorded or unsafe path(s); they were preserved",
             component.display_name(),
             paths.len()
         ),
@@ -273,7 +273,7 @@ fn clear_invalid_install(component: WebAssetComponent) -> Result<()> {
         RemovalOutcome::Missing | RemovalOutcome::Removed => Ok(()),
         RemovalOutcome::Pending => bail!("{} is currently in use", component.display_name()),
         RemovalOutcome::PreservedModified(paths) => bail!(
-            "{} cannot be repaired because {} modified managed file(s) were preserved",
+            "{} cannot be repaired because {} unrecorded or unsafe path(s) were preserved",
             component.display_name(),
             paths.len()
         ),

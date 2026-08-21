@@ -90,6 +90,14 @@
       "removable": true
     },
     {
+      "id": "screen-translate-web",
+      "displayName": "Legacy Screen Translate interface",
+      "kind": "web-assets",
+      "capabilities": [],
+      "dependencies": [],
+      "removable": true
+    },
+    {
       "id": "computer-control-engine",
       "displayName": "Computer Control engine",
       "kind": "sidecar",

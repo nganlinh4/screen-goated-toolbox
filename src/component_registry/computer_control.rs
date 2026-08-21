@@ -108,10 +108,10 @@ pub(crate) fn installed_size() -> u64 {
 }
 
 pub(crate) fn remove() -> Result<()> {
-    match super::request_remove(ID)? {
+    match super::request_remove_and_wait(ID)? {
         RemovalOutcome::Missing | RemovalOutcome::Removed | RemovalOutcome::Pending => Ok(()),
         RemovalOutcome::PreservedModified(paths) => bail!(
-            "{ID} contains {} modified managed file(s); they were preserved",
+            "{ID} contains {} unrecorded or unsafe path(s); they were preserved",
             paths.len()
         ),
         RemovalOutcome::RequiredBy(dependents) => {

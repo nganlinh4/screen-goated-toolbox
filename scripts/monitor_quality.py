@@ -35,7 +35,7 @@ import unicodedata
 # under the same gate: mixing them reports a rate for a test that was never run
 # as a whole, which is how a tightened gate briefly published every model at a
 # quarter success.
-GATE_VERSION = 3
+GATE_VERSION = 4
 
 # Latency above which a model is not worth offering even when it is correct.
 # muse-glimmer answers accurately at ~17s; a fallback that slow is not a fallback.
@@ -63,6 +63,39 @@ def looks_like_english(text: str) -> bool:
         return False
     ascii_share = sum(1 for c in letters if c.isascii()) / len(letters)
     return ascii_share > 0.95
+
+
+def invented_placeholder(source: str, reply: str) -> str | None:
+    """A bracketed placeholder the reply invented, if any.
+
+    Structural on purpose. A model that decides it is drafting an email finishes
+    the template it imagined -- `[Your Name]`, `[Chuc vu]`, `[Contact]` -- and no
+    list of phrases can keep up with the ways it phrases that. What every case
+    shares is the shape: bracketed text in the reply that the source never
+    contained cannot be a translation of anything.
+    """
+    for match in re.finditer(r"[\[［]([^\]］]{1,40})[\]］]", reply):
+        if match.group(0) not in source and match.group(1).strip():
+            return match.group(0)
+    return None
+
+
+def echoes_the_source(source: str, reply: str, run: int = 20) -> bool:
+    """Whether the reply hands back a long verbatim run of the source.
+
+    A model that returns its input untranslated passes any check that only asks
+    what the reply contains. Short runs are legitimate -- a proper noun or a
+    technical term carries through -- so only a run no translation would preserve
+    counts.
+    """
+    compact_source = "".join(source.split())
+    compact_reply = "".join(reply.split())
+    if len(compact_source) < run:
+        return False
+    return any(
+        compact_source[index : index + run] in compact_reply
+        for index in range(len(compact_source) - run + 1)
+    )
 
 
 # Each case states what a correct reply must look like, so a wrong-language reply
@@ -101,6 +134,22 @@ CASES = (
         "require_marks": "vi",
     },
     {
+        # The shape that exposed instruction drift in production: a real business
+        # note, long enough that a model can decide it is drafting a document
+        # rather than translating one. Short probes never provoke that.
+        "id": "ko-vi-note",
+        "prompt": (
+            "Translate the following text to Vietnamese. Output ONLY the translation.\n\n"
+            "대표님, 요청하신 검체별 결과 요약에 "
+            "수검자명과 점수 컴럼을 추가했습니다. "
+            "첨부 화면은 제 개인 테스트 환경에서 "
+            "캡처한 것으로, 표시된 수치는 실제 "
+            "값과 다릅니다. 확인 부탁드립니다."
+        ),
+        "expect_any": (),
+        "require_marks": "vi",
+    },
+    {
         "id": "en-ko",
         "prompt": (
             "Translate to Korean, output only the translation: "
@@ -134,6 +183,16 @@ def judge(case: dict, reply: str) -> tuple[bool, str]:
 
     if case["expect_any"] and not any(token in lowered for token in case["expect_any"]):
         return False, "no expected term"
+
+    # Structural checks, applied to every case rather than stated per case: they
+    # describe how a reply relates to its request, so they hold for inputs
+    # nobody wrote a case for.
+    source = case["prompt"]
+    invented = invented_placeholder(source, reply)
+    if invented is not None:
+        return False, f"invented placeholder {invented}"
+    if echoes_the_source(source, reply):
+        return False, "returned the source untranslated"
     return True, ""
 
 

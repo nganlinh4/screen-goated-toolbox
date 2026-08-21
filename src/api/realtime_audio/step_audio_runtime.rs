@@ -157,6 +157,7 @@ pub fn is_step_audio_runtime_installed() -> bool {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn remove_step_audio_runtime() -> Result<()> {
+    let _owners = crate::overlay::component_removal::stop_audio_owners()?;
     let dir = get_step_audio_runtime_dir();
     if dir.exists() {
         fs::remove_dir_all(&dir)

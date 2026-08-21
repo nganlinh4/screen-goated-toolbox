@@ -198,14 +198,93 @@ fn clean_for(
     clean_loaded(&recovery.path, record_path, loaded)
 }
 
-pub(crate) fn clean_all() -> Result<Vec<RecoveryCleanupOutcome>> {
+pub(crate) fn purge_all_recorded() -> Result<Vec<RecoveryCleanupOutcome>> {
     let mut outcomes = Vec::new();
     for tool in ExternalTool::ALL {
-        for recovery in list(tool)? {
-            outcomes.push(clean(tool, &recovery)?);
+        let recoveries = match list(tool) {
+            Ok(recoveries) => recoveries,
+            Err(error) => {
+                let path = recovery_parent(tool.id());
+                crate::log_info!(
+                    "[Components] could not list {} recoveries during Clean All: {error:#}",
+                    tool.id()
+                );
+                outcomes.push(preserved_outcome(path));
+                continue;
+            }
+        };
+        for recovery in recoveries {
+            let Some(delivery) = delivery_optional(tool) else {
+                outcomes.push(preserved_outcome(recovery.path));
+                continue;
+            };
+            let Some(record_path) = recovery.record_path.as_deref() else {
+                outcomes.push(preserved_outcome(recovery.path));
+                continue;
+            };
+            let result = read_record(record_path, delivery)
+                .and_then(|loaded| purge_loaded(&recovery.path, record_path, loaded));
+            match result {
+                Ok(outcome) => outcomes.push(outcome),
+                Err(error) => {
+                    crate::log_info!(
+                        "[Components] could not clean {} recovery {}: {error:#}",
+                        tool.id(),
+                        recovery.path.display()
+                    );
+                    outcomes.push(preserved_outcome(recovery.path));
+                }
+            }
         }
     }
     Ok(outcomes)
+}
+
+fn purge_loaded(
+    target: &Path,
+    record_path: &Path,
+    loaded: LoadedRecord,
+) -> Result<RecoveryCleanupOutcome> {
+    let mut removed_files = 0;
+    let mut preserved = Vec::new();
+    match std::fs::symlink_metadata(target) {
+        Ok(metadata) if metadata.is_dir() && !is_reparse_point(&metadata) => {
+            for snapshot in &loaded.value.files {
+                let path = resolve_owned_path(target, &snapshot.path)?;
+                match std::fs::symlink_metadata(&path) {
+                    Ok(metadata) if metadata.is_file() && !is_reparse_point(&metadata) => {
+                        std::fs::remove_file(&path)?;
+                        removed_files += 1;
+                        recovery_io::remove_empty_parents(path.parent(), target);
+                    }
+                    Ok(_) => push_preserved(&mut preserved, path),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            recovery_io::collect_remaining(target, &mut preserved, MAX_PRESERVED_PATHS, 32);
+            if preserved.is_empty() {
+                let _ = std::fs::remove_dir(target);
+            }
+        }
+        Ok(_) => push_preserved(&mut preserved, target.to_path_buf()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    if preserved.is_empty()
+        && !recovery_io::delete_if_exact(
+            record_path,
+            loaded.record_file.size_bytes,
+            &loaded.record_file.sha256,
+        )?
+    {
+        push_preserved(&mut preserved, record_path.to_path_buf());
+    }
+    Ok(RecoveryCleanupOutcome {
+        path: target.to_path_buf(),
+        removed_files,
+        preserved_paths: preserved,
+    })
 }
 
 fn clean_loaded(
@@ -445,7 +524,7 @@ fn sidecar_target(path: &Path) -> Option<PathBuf> {
         || base.starts_with('.')
         || base.ends_with(['.', ' '])
         || base.contains("..")
-        || is_windows_reserved_name(base)
+        || recovery_io::is_windows_reserved_name(base)
     {
         return None;
     }
@@ -454,17 +533,6 @@ fn sidecar_target(path: &Path) -> Option<PathBuf> {
         return None;
     }
     Some(path.parent()?.join(base))
-}
-
-fn is_windows_reserved_name(value: &str) -> bool {
-    let stem = value.split('.').next().unwrap_or(value);
-    matches!(
-        stem.to_ascii_uppercase().as_str(),
-        "CON" | "PRN" | "AUX" | "NUL"
-    ) || (stem.len() == 4
-        && matches!(stem[..3].to_ascii_uppercase().as_str(), "COM" | "LPT")
-        && stem.as_bytes()[3].is_ascii_digit()
-        && stem.as_bytes()[3] != b'0')
 }
 
 fn bounded_reason(reason: &str) -> String {
@@ -509,4 +577,17 @@ pub(super) fn clean_for_test(
     recovery: &ExternalToolRecovery,
 ) -> Result<RecoveryCleanupOutcome> {
     clean_for(delivery, recovery)
+}
+
+#[cfg(test)]
+pub(super) fn purge_for_test(
+    delivery: &ExternalToolDelivery,
+    recovery: &ExternalToolRecovery,
+) -> Result<RecoveryCleanupOutcome> {
+    let record_path = recovery
+        .record_path
+        .as_deref()
+        .ok_or_else(|| anyhow!("test recovery has no valid record"))?;
+    let loaded = read_record(record_path, delivery)?;
+    purge_loaded(&recovery.path, record_path, loaded)
 }

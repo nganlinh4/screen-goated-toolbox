@@ -35,6 +35,14 @@ from pathlib import Path
 
 import monitor_quality as quality
 
+# A failure reason quotes the model's own text, which is routinely not ASCII: a
+# rejected reply may carry Vietnamese or Korean. On a console with a legacy code
+# page that kills the run mid-probe and loses the streak counters, so the stream
+# is made explicitly UTF-8 rather than left to the environment.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 BASE_URL = "https://integrate.api.nvidia.com/v1"
 REQUEST_TIMEOUT_SECONDS = "45"
 SAMPLES_PER_MODEL = 3
@@ -159,13 +167,25 @@ def build_case_body(model: str, control: str, prompt: str) -> dict:
 
 
 def measure(key: str, model: str, control: str) -> dict:
-    """Runs the text quality suite once per case and records why it failed."""
+    """Runs the text quality suite once per case and records why it failed.
+
+    An empty reply is retried once before it is recorded. Not answering is an
+    availability event, and a provider drops one occasionally; the quality gate
+    demands every case pass, so without this a single transient blank rejects a
+    model that is entirely correct. Being wrong still fails on the first
+    occurrence -- only silence gets the second chance.
+    """
     latencies: list[float] = []
     results: list[tuple[bool, str]] = []
     for case in quality.CASES:
-        status, payload, elapsed = post(key, build_case_body(model, control, case["prompt"]))
+        body = build_case_body(model, control, case["prompt"])
+        status, payload, elapsed = post(key, body)
         time.sleep(CALL_SPACING_SECONDS)
         content, _ = answer_of(payload)
+        if content is None:
+            status, payload, elapsed = post(key, body)
+            time.sleep(CALL_SPACING_SECONDS)
+            content, _ = answer_of(payload)
         if content is None:
             results.append((False, f"no reply ({status})"))
             continue

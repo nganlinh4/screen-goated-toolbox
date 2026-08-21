@@ -12,6 +12,8 @@ use crate::gui::theme::AppTheme;
 
 use super::utils::clear_downloaded_tools_caches;
 
+mod process;
+
 const CLEANUP_STEP_COUNT: usize = 6;
 
 #[derive(Clone, Copy)]
@@ -159,6 +161,7 @@ fn render_confirmation(ctx: &egui::Context, text: &LocaleText, download_manager:
     .show_ctx(ctx, &theme)
     {
         ConfirmResult::Confirmed => {
+            download_manager.cancel_download();
             start_cleanup(ctx.clone(), StatusTargets::capture(download_manager));
         }
         ConfirmResult::Cancelled => set_state(CleanupDialogState::Idle),
@@ -263,11 +266,44 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
     let mut attention_count = 0;
     run_step(ctx, 0, CleanupStep::Interfaces, || {
         record_result(
+            "PromptDJ interface",
+            crate::overlay::prompt_dj::remove_web_assets(),
+            &mut attention_count,
+        );
+        record_result(
+            "TTS Playground interface",
+            crate::overlay::tts_playground::remove_web_assets(),
+            &mut attention_count,
+        );
+        record_result(
+            "Creation runtime",
+            crate::overlay::three_d_generator::remove_runtime(),
+            &mut attention_count,
+        );
+        record_result(
+            "3D Creation interface",
+            crate::overlay::three_d_generator::remove_web_assets(),
+            &mut attention_count,
+        );
+        record_result(
             "recorder",
             crate::component_registry::recorder::remove_all(),
             &mut attention_count,
         );
         crate::overlay::computer_control::ui_remove_all();
+        record_result(
+            "Computer Control",
+            crate::overlay::computer_control::remove_downloaded_engine(),
+            &mut attention_count,
+        );
+        record_result(
+            "Screen Translate detector",
+            crate::component_registry::screen_text_detector::remove(),
+            &mut attention_count,
+        );
+        crate::overlay::stop_realtime_overlay();
+        crate::overlay::recording::compositor_cancel();
+        crate::api::tts::TTS_MANAGER.stop();
     });
     run_step(
         ctx,
@@ -291,7 +327,7 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
         },
     );
     run_step(ctx, 2, CleanupStep::Recoveries, || {
-        match crate::component_registry::recorder::clean_all_recoveries() {
+        match crate::component_registry::recorder::purge_all_recorded_recoveries() {
             Ok(outcomes) => {
                 for outcome in outcomes {
                     if !outcome.preserved_paths.is_empty() {
@@ -306,7 +342,7 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
             }
             Err(error) => record_error("recorder recovery files", error, &mut attention_count),
         }
-        match crate::component_registry::external_tools::clean_all_recoveries() {
+        match crate::component_registry::external_tools::purge_all_recorded_recoveries() {
             Ok(outcomes) => {
                 for outcome in outcomes {
                     if !outcome.preserved_paths.is_empty() {
@@ -414,8 +450,20 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
         );
     });
     run_step(ctx, 5, CleanupStep::Media, || {
-        let _ = crate::overlay::screen_record::bg_download::delete_all_downloaded();
-        let _ = crate::gui::settings_ui::pointer_gallery::delete_downloaded_collections();
+        record_result(
+            "downloaded recorder backgrounds",
+            crate::overlay::screen_record::bg_download::delete_all_downloaded()
+                .map(drop)
+                .map_err(anyhow::Error::msg),
+            &mut attention_count,
+        );
+        record_result(
+            "downloaded pointer collections",
+            crate::gui::settings_ui::pointer_gallery::delete_downloaded_collections()
+                .map(drop)
+                .map_err(anyhow::Error::msg),
+            &mut attention_count,
+        );
     });
     attention_count
 }
@@ -529,6 +577,7 @@ fn remove_archived_qwen_server() -> Result<()> {
         .join("qwen3_asr_reference");
     let executable = directory.join("asr-server.exe");
     if executable.exists() {
+        process::stop_exact_executable(&executable)?;
         std::fs::remove_file(executable)?;
     }
     if directory.exists() {
@@ -548,27 +597,4 @@ fn set_state(next: CleanupDialogState) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        CLEANUP_STATE, CLEANUP_STEP_COUNT, CleanupDialogState, cleanup_fraction,
-        request_confirmation, set_state,
-    };
-
-    #[test]
-    fn clean_all_first_opens_confirmation_without_starting_work() {
-        set_state(CleanupDialogState::Idle);
-        request_confirmation();
-        assert!(matches!(
-            *CLEANUP_STATE.lock().expect("cleanup state"),
-            CleanupDialogState::Confirming
-        ));
-        set_state(CleanupDialogState::Idle);
-    }
-
-    #[test]
-    fn cleanup_progress_is_bounded_and_finishes_at_one() {
-        assert_eq!(cleanup_fraction(0), 0.0);
-        assert_eq!(cleanup_fraction(CLEANUP_STEP_COUNT), 1.0);
-        assert_eq!(cleanup_fraction(usize::MAX), 1.0);
-    }
-}
+mod tests;

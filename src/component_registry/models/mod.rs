@@ -195,7 +195,7 @@ pub(crate) fn acquire_for_path(path: &Path) -> Result<ModelUse> {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn remove(kind: ModelKind) -> Result<RemovalOutcome> {
-    let outcome = super::request_remove(kind.id())?;
+    let outcome = super::request_remove_and_wait(kind.id())?;
     invalidate_status(kind.id());
     Ok(outcome)
 }

@@ -6,31 +6,38 @@ expensive to discover from a user's machine — seventy-five models times three
 samples every two hours — and because they change: three NVIDIA endpoints
 changed state within a single day during evaluation.
 
-## Where correctness is actually decided
+## Where correctness is decided, and why it is decided here
 
-Not here. The monitor answers "is this endpoint usable at all", periodically and
-provider-wide. Whether a *particular answer* is correct is decided at runtime, in
-`src/api/text/translate/fidelity.rs`, where the source and the reply are both in
-hand.
+Here, and only here. Nothing at runtime judges whether a model's answer is
+correct.
 
-That split exists because probe cases cannot keep up. There will be far more
-models and far more real inputs than anyone can enumerate, and a case written
-against yesterday's failure does not catch tomorrow's. Two failures made the point:
-a reply that mixed Portuguese, Italian, Spanish and Tamil into a Vietnamese
-translation, and one that fused a lone Hangul character onto a Vietnamese word.
-Both passed a suite of short probes and both were caught structurally at runtime,
-by a rule derived from the request rather than from a list.
+The reason is that the two places do not know the same things. The monitor sends
+prompts **it wrote**, so it knows what a correct reply looks like and can hold a
+model to it. Runtime does not: `translate_text_streaming` runs every text block
+of every preset -- summarize, rewrite, answer, and whatever a user writes -- so
+the instruction is arbitrary and the shape of a correct reply is unknowable from
+inside. A runtime check that assumes the request is a translation can reject a
+correct reply that preserves technical terms from another script. The next
+unanticipated intent could cost a user their answer the same way.
 
-The division is worth stating plainly:
+So the rule is: **judge only where you control the request.**
+
+The consequences of being wrong are not symmetric either, which settles where the
+risk belongs:
 
 - a **dead** endpoint is cheap, and the retry chain already handles it;
-- a **wrong** endpoint is expensive, and only the runtime sees enough to judge it;
-- a model that keeps producing wrong answers therefore stops being used without
-  anyone configuring which models those are.
+- a **wrong** endpoint is expensive, so it is caught provider-wide and offline,
+  where a mistaken verdict costs a model an eligibility streak rather than
+  costing a user the answer in front of them;
+- a model that keeps failing here stops being offered, without anyone configuring
+  which models those are.
 
-The probe cases that remain are coarse sanity, not a failure catalogue. They exist
-to avoid publishing an endpoint that cannot translate at all, and they should stay
-small.
+The probe cases are coarse sanity, not a failure catalogue, and should stay
+small. What keeps them from becoming a catalogue is that the checks are
+structural: `invented_placeholder` rejects bracketed text the source never
+contained, and `echoes_the_source` rejects a reply that hands its input back.
+Neither names a model or a phrase, so both apply to inputs nobody wrote a case
+for.
 
 ## What the feed is and is not
 
