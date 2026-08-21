@@ -377,7 +377,7 @@ def published(history: dict, generated_at: str) -> dict:
         })
     entries.sort(key=lambda e: e["p50_ms"])
     return {
-        "schemaVersion": 3,
+        "schemaVersion": 2,
         "controlVersion": 1,
         "qualityGateVersion": quality.GATE_VERSION,
         "provider": "nvidia",
