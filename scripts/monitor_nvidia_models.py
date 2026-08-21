@@ -77,6 +77,18 @@ SKIP_SUBSTRINGS = (
     "retriever", "reward", "deplot", "kosmos", "fuyu", "ising",
 )
 
+DEDICATED_TRANSLATION_TOKENS = {"translate", "translation", "translator"}
+
+
+def published_modality(model: str, vision: object) -> str | None:
+    """Generic capability advertised to clients, or None when it is dedicated."""
+    tokens = set("".join(c if c.isalnum() else " " for c in model.lower()).split())
+    if tokens & DEDICATED_TRANSLATION_TOKENS:
+        return None
+    if isinstance(vision, dict) and vision.get("passed"):
+        return "vision"
+    return "text"
+
 
 def api_key() -> str:
     key = os.environ.get("NVIDIA_API_KEY", "").strip()
@@ -315,7 +327,7 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
             "eligible": eligible,
             "recent": recent,
         }
-        modality = "vision" if isinstance(vision, dict) and vision.get("passed") else "text"
+        modality = published_modality(model, vision) or "dedicated"
         note = "" if sample.get("passed") else f"  [{sample.get('reason')}]"
         print(f"{model:<52}{str(control):<16}{modality:<7}"
               f"{sample['answered']}/{sample['attempts']} "
@@ -352,17 +364,22 @@ def published(history: dict, generated_at: str) -> dict:
             continue
         passes = sum(1 for s in comparable if s.get("passed"))
         vision = state.get("vision")
+        modality = published_modality(model, vision)
+        if modality is None:
+            continue
         entries.append({
             "id": model,
             "control": state["control"],
-            "modality": "vision" if isinstance(vision, dict) and vision.get("passed") else "text",
+            "modality": modality,
             "p50_ms": int(statistics.median(s["p50_ms"] for s in recent)),
             "success_rate": round(passes / len(comparable), 3),
             "runs": len(comparable),
         })
     entries.sort(key=lambda e: e["p50_ms"])
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
+        "controlVersion": 1,
+        "qualityGateVersion": quality.GATE_VERSION,
         "provider": "nvidia",
         "generatedAt": generated_at,
         "note": ("Latency is measured from one datacenter and is a ranking hint only; "

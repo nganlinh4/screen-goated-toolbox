@@ -18,12 +18,12 @@ Two such failures were observed and are gated here:
 - `muse-glimmer-30b` answers correctly after seventeen seconds, which is accurate
   and useless as a fallback.
 
-A third was suspected and did not survive checking. `riva-translate-4b-instruct-v2`
-answers in English when driven through its documented language-pair system prompt
-(`{"role": "system", "content": "ja-vi"}`), but that is not the shape this product
-sends. Given an ordinary instruction it translates Japanese to Vietnamese
-correctly. The non-English-source case below stays regardless, because that is the
-direction the product actually uses and an English-source suite never exercises it.
+A dedicated translation endpoint can correctly pass this translation suite, but
+that evidence qualifies it only as a translator. The generic availability
+publisher omits dedicated capabilities; passing this suite never makes a
+translation-only endpoint a generic text model. The non-English-source case
+remains because it exercises a product direction that an English-source suite
+never reaches.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ import unicodedata
 # under the same gate: mixing them reports a rate for a test that was never run
 # as a whole, which is how a tightened gate briefly published every model at a
 # quarter success.
-GATE_VERSION = 4
+GATE_VERSION = 5
 
 # Latency above which a model is not worth offering even when it is correct.
 # muse-glimmer answers accurately at ~17s; a fallback that slow is not a fallback.
@@ -111,6 +111,37 @@ CASES = (
         "require_marks": "vi",
     },
     {
+        # A translation preset receives copied documents, not isolated sentences.
+        # Opaque identifiers and distinct blocks must survive while prose changes
+        # language; otherwise a fluent-looking fragment can hide lost content.
+        "id": "ko-vi-structured",
+        "prompt": (
+            "Translate the following text to Vietnamese. Output ONLY the translation.\n\n"
+            "@atlas_notes\n"
+            "3 years ago (edited)\n"
+            "와 말도 안 된다, 정말 멋있다. 나만 울컥한 건가? "
+            "모두 고생했고 누구 하나 빠지지 않고 등장했다. "
+            "주인공이 스포트라이트를 받아야 하지만 멋지게 양보했고, "
+            "이 영상에 모든 노력이 담긴 것 같아 다시 울컥한다. "
+            "그런데 여기에는 한국 사람이 없나?\n\n"
+            "1.4K\n\n"
+            "Reply\n\n"
+            "3 replies\n\n"
+            "@river_team\n"
+            "3 years ago\n"
+            "영상이 여러 팀을 중심으로 구성된 것도 새롭고 모든 팀이 "
+            "함께 등장한 것도 정말 잘한 것 같다. 솔직히 전부 나올 줄 "
+            "몰랐는데 놀랍다.\n\n"
+            "1.8K\n\n"
+            "Reply"
+        ),
+        "expect_any": (),
+        "require_marks": "vi",
+        "forbid_source_script": "ko",
+        "preserve_all": ("@atlas_notes", "@river_team", "1.4K", "1.8K"),
+        "minimum_nonempty_lines": 8,
+    },
+    {
         "id": "en-vi-sentence",
         "prompt": (
             "Translate to Vietnamese, output only the translation: "
@@ -120,11 +151,10 @@ CASES = (
         "require_marks": "vi",
     },
     {
-        # The failure this exists for: an any-to-English model asked for a
-        # non-English target. riva-translate answers such a request in fluent
-        # English, which every English-source case scores as a pass. The product
+        # A translation endpoint can silently choose the wrong target language,
+        # which every English-source case may score as a pass. The product
         # translates arbitrary source into the user's language, so this is the
-        # shape that matters, not en->vi.
+        # shape that matters, not only en->vi.
         "id": "ja-vi",
         "prompt": (
             "Translate to Vietnamese, output only the translation: "
@@ -183,6 +213,21 @@ def judge(case: dict, reply: str) -> tuple[bool, str]:
 
     if case["expect_any"] and not any(token in lowered for token in case["expect_any"]):
         return False, "no expected term"
+
+    for literal in case.get("preserve_all", ()):
+        if literal not in reply:
+            return False, f"lost opaque content {literal}"
+
+    if case.get("minimum_nonempty_lines") is not None:
+        lines = sum(1 for line in reply.splitlines() if line.strip())
+        if lines < case["minimum_nonempty_lines"]:
+            return False, f"collapsed document structure ({lines} lines)"
+
+    residue = reply
+    for literal in case.get("preserve_all", ()):
+        residue = residue.replace(literal, "")
+    if case.get("forbid_source_script") == "ko" and _HANGUL.search(residue):
+        return False, "left Korean prose untranslated"
 
     # Structural checks, applied to every case rather than stated per case: they
     # describe how a reply relates to its request, so they hold for inputs
