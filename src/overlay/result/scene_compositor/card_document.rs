@@ -172,6 +172,10 @@ mod tests {
         assert!(document.contains("settle_before_reveal: settleBeforeReveal"));
         assert!(document.contains("settleBeforeReveal: Boolean(message.settle_before_reveal)"));
         assert!(document.contains("finishBodyPresentation()"));
+        assert!(document.contains("sourceReplacementReveal.enqueue(entry, reportPendingPaint)"));
+        assert!(document.contains("source-replacement-reveal-batch"));
+        assert!(document.contains("filter: 'blur(8px)'"));
+        assert!(document.contains("if (options.sourceReplacement) finishBodyPresentation()"));
         assert!(document.contains("body.style.setProperty('animation', 'none', 'important')"));
         assert!(document.contains("body.style.setProperty('opacity', '1', 'important')"));
         assert!(
