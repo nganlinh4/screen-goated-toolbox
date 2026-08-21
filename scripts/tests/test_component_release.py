@@ -388,11 +388,33 @@ class ComponentReleaseTests(unittest.TestCase):
 
         with (
             mock.patch.object(MODULE, "load_staging_index", return_value=index),
+            mock.patch.object(
+                MODULE,
+                "release_assets",
+                return_value={MODULE.INDEX_ASSET: {}, name: {}},
+            ),
             mock.patch.object(MODULE, "verify_remote", side_effect=transport) as remote,
         ):
             MODULE.verify(args)
 
         remote.assert_called_once()
+
+    def test_verify_staging_rejects_unindexed_release_assets(self):
+        args = SimpleNamespace(repository=MODULE.REPOSITORY)
+        with (
+            mock.patch.object(
+                MODULE,
+                "load_staging_index",
+                return_value=MODULE.empty_index(MODULE.REPOSITORY),
+            ),
+            mock.patch.object(
+                MODULE,
+                "release_assets",
+                return_value={MODULE.INDEX_ASSET: {}, "orphan.bin": {}},
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "unindexed assets: orphan.bin"):
+                MODULE.verify(args)
 
     def test_contract_relative_rejects_absolute_traversal_and_drive_paths(self):
         for value in ["/component.json", "../component.json", "C:/component.json"]:

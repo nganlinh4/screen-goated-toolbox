@@ -50,6 +50,13 @@ without editing the table above.
 `sha256`, or component `version` beside it, so a version bump never requires
 republishing a runtime bundle.
 
+An opted-in staging debug build reads its contract from the managed local cache
+before the tracked production contract. After a host-version bump, restage each
+active candidate against the new tracked contract or discard it with
+`component_release.py discard-staging --contract-relative <path>`. Never edit a
+cached staging contract in place: a stale `hostVersion` must fail before
+compilation instead of silently changing the candidate that was tested.
+
 ## 3. Draft release notes
 
 One release is one gitignored file: `tmp-release-notes-<VERSION>.md`. Every
@@ -162,6 +169,20 @@ platform manifests are reviewed. It removes the promoted candidate from the
 mutable staging release but never removes production bytes. If no remote test
 was needed, upload the deterministic content-addressed package directly through
 the existing component checkpoint; do not create a fake staging record.
+
+End every candidate lifecycle before the host release: promote and clean the
+candidate that became production, or use `discard-staging` for a superseded
+candidate. `verify-staging` validates the indexed bytes and also fails when the
+mutable release contains payload assets that are absent from its index. Do not
+treat its verified-asset count as an inventory-cleanliness result from an older
+tool version. Remove an unindexed staging copy only after reading back both it
+and the same-named production asset and matching the reviewed size and SHA-256;
+this never authorizes deleting the append-only production copy.
+
+Ignored build output can retain generated staging URLs from an earlier opted-in
+debug build. Such a grep match is not release evidence. Unset the staging
+channel, perform a fresh release-profile build, and validate the regenerated
+release artifact against the tracked production contract.
 
 Canonical package workspaces are under
 `%LOCALAPPDATA%/SGT-Development/cache/packages/release`; `build.ps1` selects that
