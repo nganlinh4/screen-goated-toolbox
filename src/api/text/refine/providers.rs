@@ -127,7 +127,10 @@ where
     let mut payload = serde_json::json!({
         "model": p_model,
         "messages": [{ "role": "user", "content": final_prompt }],
-        "stream": streaming_enabled
+        "stream": streaming_enabled,
+        // See translate_nvidia: the provider default is unstable on long
+        // mixed-script input, and greedy is documented for reasoning-off.
+        "temperature": 0
     });
     crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "nvidia", p_model);
 

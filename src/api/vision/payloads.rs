@@ -62,7 +62,10 @@ pub(super) fn nvidia_vision_payload(
     let mut payload = serde_json::json!({
         "model": model,
         "messages": [{ "role": "user", "content": content }],
-        "stream": streaming
+        "stream": streaming,
+        // See translate_nvidia: the provider default is unstable, and greedy is
+        // what NVIDIA documents for these endpoints with reasoning disabled.
+        "temperature": 0
     });
     if let Some(limit) = profile.max_output_tokens {
         payload["max_completion_tokens"] = limit.into();

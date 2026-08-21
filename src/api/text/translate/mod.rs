@@ -1,6 +1,7 @@
 // --- TEXT TRANSLATION ---
 // Streaming text translation with multiple LLM providers.
 
+mod fidelity;
 mod groq;
 mod providers;
 
@@ -256,6 +257,21 @@ where
                 );
             }
         }
+    }
+
+    // Judged once, after every provider branch. A model that answers in scripts
+    // its input never contained has not translated the input, and no downstream
+    // step can tell: the reply is fluent, the status is 200, and nothing else
+    // will notice. Rejecting advances the chain, which is also the honest
+    // outcome for a model that cannot follow the request.
+    if let Some(introduced) = fidelity::introduced_script(&text, &full_content) {
+        crate::log_info!(
+            "[translate] discarding {model}: reply introduced {introduced:?}, absent from the source"
+        );
+        return Err(anyhow::anyhow!(
+            "{}: {model} answered with script absent from the source",
+            crate::overlay::utils::MODEL_OUTPUT_UNFAITHFUL
+        ));
     }
 
     Ok(full_content)
