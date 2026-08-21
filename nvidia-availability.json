@@ -1,80 +1,72 @@
 {
  "schemaVersion": 2,
  "provider": "nvidia",
- "generatedAt": "2026-08-21T09:01:01Z",
+ "generatedAt": "2026-08-21T10:50:36Z",
  "note": "Latency is measured from one datacenter and is a ranking hint only; clients should order by their own observed latency.",
  "models": [
   {
    "id": "meta/llama-3.1-8b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 304,
+   "p50_ms": 293,
    "success_rate": 1.0,
-   "runs": 7
+   "runs": 1
   },
   {
    "id": "nvidia/nemotron-mini-4b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 386,
+   "p50_ms": 436,
    "success_rate": 1.0,
-   "runs": 7
-  },
-  {
-   "id": "nvidia/nemotron-3-nano-30b-a3b",
-   "control": "effort-none",
-   "modality": "text",
-   "p50_ms": 446,
-   "success_rate": 1.0,
-   "runs": 7
+   "runs": 1
   },
   {
    "id": "nvidia/riva-translate-4b-instruct-v2",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 497,
-   "success_rate": 0.857,
-   "runs": 7
-  },
-  {
-   "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-   "control": "effort-none",
-   "modality": "text",
-   "p50_ms": 560,
+   "p50_ms": 618,
    "success_rate": 1.0,
-   "runs": 7
-  },
-  {
-   "id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 687,
-   "success_rate": 1.0,
-   "runs": 7
-  },
-  {
-   "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 1101,
-   "success_rate": 1.0,
-   "runs": 7
+   "runs": 1
   },
   {
    "id": "google/diffusiongemma-26b-a4b-it",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 1502,
-   "success_rate": 0.857,
-   "runs": 7
+   "p50_ms": 661,
+   "success_rate": 1.0,
+   "runs": 1
   },
   {
-   "id": "openai/gpt-oss-20b",
+   "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 706,
+   "success_rate": 1.0,
+   "runs": 1
+  },
+  {
+   "id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2508,
+   "p50_ms": 755,
    "success_rate": 1.0,
-   "runs": 7
+   "runs": 1
+  },
+  {
+   "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 1647,
+   "success_rate": 1.0,
+   "runs": 1
+  },
+  {
+   "id": "thinkingmachines/inkling",
+   "control": "effort-none",
+   "modality": "vision",
+   "p50_ms": 1944,
+   "success_rate": 1.0,
+   "runs": 1
   }
  ]
 }
