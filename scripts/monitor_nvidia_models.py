@@ -276,6 +276,30 @@ def healthy(sample: dict) -> bool:
     return bool(sample.get("passed"))
 
 
+def updated_eligibility(known: dict, sample: dict) -> tuple[int, int, bool]:
+    """Streak state after one sample, scoped to the current quality gate.
+
+    Eligibility earned under a weaker suite is not evidence under a stronger
+    one. The explicit gate marker also repairs old history whose persisted
+    counters crossed a gate revision before this invariant was recorded.
+    """
+    if known.get("eligibility_gate") != quality.GATE_VERSION:
+        streak_ok, streak_bad, eligible = 0, 0, False
+    else:
+        streak_ok = known.get("healthy_streak", 0)
+        streak_bad = known.get("failing_streak", 0)
+        eligible = known.get("eligible", False)
+    if healthy(sample):
+        streak_ok, streak_bad = streak_ok + 1, 0
+    else:
+        streak_ok, streak_bad = 0, streak_bad + 1
+    if streak_ok >= RUNS_TO_PROMOTE:
+        eligible = True
+    if streak_bad >= RUNS_TO_DEMOTE:
+        eligible = False
+    return streak_ok, streak_bad, eligible
+
+
 def run(history: dict, key: str, limit: int | None, only: list[str] | None = None) -> dict:
     models = only or list_models(key)
     if limit:
@@ -309,21 +333,12 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
             # None means it refused an image, which is capability, not quality.
             vision = measured if measured is not None else False
 
-        streak_ok = known.get("healthy_streak", 0)
-        streak_bad = known.get("failing_streak", 0)
-        if healthy(sample):
-            streak_ok, streak_bad = streak_ok + 1, 0
-        else:
-            streak_ok, streak_bad = 0, streak_bad + 1
-        eligible = known.get("eligible", False)
-        if streak_ok >= RUNS_TO_PROMOTE:
-            eligible = True
-        if streak_bad >= RUNS_TO_DEMOTE:
-            eligible = False
+        streak_ok, streak_bad, eligible = updated_eligibility(known, sample)
         recent = ([*known.get("recent", []), sample])[-RUNS_KEPT:]
         results[model] = {
             "control": control,
             "vision": vision,
+            "eligibility_gate": quality.GATE_VERSION,
             "healthy_streak": streak_ok,
             "failing_streak": streak_bad,
             "eligible": eligible,

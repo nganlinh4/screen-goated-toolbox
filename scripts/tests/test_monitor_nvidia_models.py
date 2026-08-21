@@ -49,5 +49,31 @@ class NvidiaModelCapabilityTests(unittest.TestCase):
         )
 
 
+class EligibilityGateTests(unittest.TestCase):
+    def test_a_pass_under_a_new_gate_cannot_inherit_old_eligibility(self) -> None:
+        known = {
+            "eligibility_gate": MONITOR.quality.GATE_VERSION - 1,
+            "healthy_streak": 20,
+            "failing_streak": 0,
+            "eligible": True,
+        }
+        self.assertEqual(
+            MONITOR.updated_eligibility(known, {"passed": True}),
+            (1, 0, False),
+        )
+
+    def test_three_passes_under_the_same_gate_promote(self) -> None:
+        known = {
+            "eligibility_gate": MONITOR.quality.GATE_VERSION,
+            "healthy_streak": 2,
+            "failing_streak": 0,
+            "eligible": False,
+        }
+        self.assertEqual(
+            MONITOR.updated_eligibility(known, {"passed": True}),
+            (3, 0, True),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
