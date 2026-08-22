@@ -579,18 +579,18 @@
   "google/diffusiongemma-26b-a4b-it": {
    "control": "plain",
    "vision": {
-    "gate": 5,
-    "answered": 2,
-    "attempts": 2,
+    "gate": 1,
+    "answered": 1,
+    "attempts": 1,
     "passed": true,
     "reason": "",
-    "p50_ms": 880,
-    "p95_ms": 1167
+    "p50_ms": 4701,
+    "p95_ms": 4701
    },
-   "eligibility_gate": 5,
-   "healthy_streak": 2,
+   "eligibility_gate": 1,
+   "healthy_streak": 3,
    "failing_streak": 0,
-   "eligible": false,
+   "eligible": true,
    "recent": [
     {
      "gate": 5,
@@ -645,6 +645,15 @@
      "reason": "",
      "p50_ms": 904,
      "p95_ms": 2389
+    },
+    {
+     "gate": 1,
+     "answered": 2,
+     "attempts": 3,
+     "p50_ms": 1331,
+     "p95_ms": 1426,
+     "passed": true,
+     "reason": "no reply (200)"
     }
    ]
   },
@@ -1290,11 +1299,11 @@
   },
   "meta/llama-3.1-70b-instruct": {
    "control": "plain",
-   "vision": null,
-   "eligibility_gate": 5,
-   "healthy_streak": 0,
-   "failing_streak": 6,
-   "eligible": false,
+   "vision": false,
+   "eligibility_gate": 1,
+   "healthy_streak": 7,
+   "failing_streak": 0,
+   "eligible": true,
    "recent": [
     {
      "gate": 5,
@@ -1349,16 +1358,25 @@
      "reason": "lost opaque content 1.4K",
      "p50_ms": 3554,
      "p95_ms": 11537
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 679,
+     "p95_ms": 824,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
   "meta/llama-3.1-8b-instruct": {
    "control": "plain",
-   "vision": null,
-   "eligibility_gate": 5,
-   "healthy_streak": 0,
-   "failing_streak": 6,
-   "eligible": false,
+   "vision": false,
+   "eligibility_gate": 1,
+   "healthy_streak": 7,
+   "failing_streak": 0,
+   "eligible": true,
    "recent": [
     {
      "gate": 5,
@@ -1413,16 +1431,33 @@
      "reason": "left Korean prose untranslated",
      "p50_ms": 286,
      "p95_ms": 1302
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 341,
+     "p95_ms": 899,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
   "meta/llama-3.2-11b-vision-instruct": {
    "control": "plain",
-   "vision": null,
-   "eligibility_gate": 5,
-   "healthy_streak": 0,
-   "failing_streak": 6,
-   "eligible": false,
+   "vision": {
+    "gate": 1,
+    "answered": 1,
+    "attempts": 1,
+    "passed": true,
+    "reason": "",
+    "p50_ms": 11881,
+    "p95_ms": 11881
+   },
+   "eligibility_gate": 1,
+   "healthy_streak": 7,
+   "failing_streak": 0,
+   "eligible": true,
    "recent": [
     {
      "gate": 5,
@@ -1477,15 +1512,24 @@
      "reason": "collapsed document structure (1 lines)",
      "p50_ms": 1310,
      "p95_ms": 4304
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 607,
+     "p95_ms": 1947,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
   "meta/llama-3.2-1b-instruct": {
-   "control": "plain",
+   "control": null,
    "vision": null,
-   "eligibility_gate": 5,
+   "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 6,
+   "failing_streak": 1,
    "eligible": false,
    "recent": [
     {
@@ -1541,6 +1585,15 @@
      "reason": "lost opaque content @river_team",
      "p50_ms": 364,
      "p95_ms": 713
+    },
+    {
+     "gate": 1,
+     "answered": 0,
+     "attempts": 3,
+     "p50_ms": null,
+     "p95_ms": null,
+     "passed": false,
+     "reason": "insufficient replies (0/3)"
     }
    ]
   },
@@ -2315,8 +2368,8 @@
   "mistralai/mistral-nemotron": {
    "control": "plain",
    "vision": false,
-   "eligibility_gate": 5,
-   "healthy_streak": 1,
+   "eligibility_gate": 1,
+   "healthy_streak": 2,
    "failing_streak": 0,
    "eligible": false,
    "recent": [
@@ -2373,6 +2426,15 @@
      "reason": "",
      "p50_ms": 610,
      "p95_ms": 4356
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 517,
+     "p95_ms": 577,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
@@ -2891,27 +2953,19 @@
   "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": {
    "control": "plain",
    "vision": {
-    "gate": 5,
+    "gate": 1,
     "answered": 1,
-    "attempts": 2,
-    "passed": false,
-    "reason": "no reply (500)",
-    "p50_ms": 10164,
-    "p95_ms": 10164
+    "attempts": 1,
+    "passed": true,
+    "reason": "",
+    "p50_ms": 2664,
+    "p95_ms": 2664
    },
-   "eligibility_gate": 5,
-   "healthy_streak": 3,
+   "eligibility_gate": 1,
+   "healthy_streak": 25,
    "failing_streak": 0,
    "eligible": true,
    "recent": [
-    {
-     "answered": 4,
-     "attempts": 4,
-     "passed": true,
-     "reason": "",
-     "p50_ms": 2760,
-     "p95_ms": 7909
-    },
     {
      "gate": 2,
      "answered": 3,
@@ -3118,6 +3172,15 @@
      "reason": "",
      "p50_ms": 796,
      "p95_ms": 4542
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 499,
+     "p95_ms": 679,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
@@ -3443,11 +3506,11 @@
   },
   "nvidia/nemotron-3-nano-30b-a3b": {
    "control": "effort-none",
-   "vision": null,
-   "eligibility_gate": 5,
-   "healthy_streak": 0,
-   "failing_streak": 6,
-   "eligible": false,
+   "vision": false,
+   "eligibility_gate": 1,
+   "healthy_streak": 7,
+   "failing_streak": 0,
+   "eligible": true,
    "recent": [
     {
      "gate": 5,
@@ -3502,16 +3565,33 @@
      "reason": "no Vietnamese diacritics",
      "p50_ms": 625,
      "p95_ms": 1334
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 632,
+     "p95_ms": 1168,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
   "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {
    "control": "effort-none",
-   "vision": null,
-   "eligibility_gate": 5,
-   "healthy_streak": 0,
-   "failing_streak": 6,
-   "eligible": false,
+   "vision": {
+    "gate": 1,
+    "answered": 1,
+    "attempts": 1,
+    "passed": true,
+    "reason": "",
+    "p50_ms": 7700,
+    "p95_ms": 7700
+   },
+   "eligibility_gate": 1,
+   "healthy_streak": 6,
+   "failing_streak": 0,
+   "eligible": true,
    "recent": [
     {
      "gate": 5,
@@ -3566,14 +3646,23 @@
      "reason": "no Vietnamese diacritics",
      "p50_ms": 614,
      "p95_ms": 1257
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 410,
+     "p95_ms": 427,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
   "nvidia/nemotron-3-super-120b-a12b": {
    "control": "effort-none",
    "vision": false,
-   "eligibility_gate": 5,
-   "healthy_streak": 6,
+   "eligibility_gate": 1,
+   "healthy_streak": 7,
    "failing_streak": 0,
    "eligible": true,
    "recent": [
@@ -3630,16 +3719,25 @@
      "reason": "",
      "p50_ms": 794,
      "p95_ms": 6205
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 547,
+     "p95_ms": 778,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
   "nvidia/nemotron-3-ultra-550b-a55b": {
    "control": "effort-none",
    "vision": false,
-   "eligibility_gate": 5,
-   "healthy_streak": 1,
+   "eligibility_gate": 1,
+   "healthy_streak": 5,
    "failing_streak": 0,
-   "eligible": false,
+   "eligible": true,
    "recent": [
     {
      "gate": 5,
@@ -3694,16 +3792,25 @@
      "reason": "",
      "p50_ms": 729,
      "p95_ms": 6146
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 1068,
+     "p95_ms": 1444,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
   "nvidia/nemotron-3.5-lightning-30b-a3b": {
    "control": "effort-none",
-   "vision": null,
-   "eligibility_gate": 5,
-   "healthy_streak": 0,
-   "failing_streak": 6,
-   "eligible": false,
+   "vision": false,
+   "eligibility_gate": 1,
+   "healthy_streak": 7,
+   "failing_streak": 0,
+   "eligible": true,
    "recent": [
     {
      "gate": 5,
@@ -3758,6 +3865,15 @@
      "reason": "no Vietnamese diacritics",
      "p50_ms": 744,
      "p95_ms": 6419
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 561,
+     "p95_ms": 3507,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
@@ -3827,11 +3943,11 @@
   },
   "nvidia/nemotron-mini-4b-instruct": {
    "control": "plain",
-   "vision": null,
-   "eligibility_gate": 5,
-   "healthy_streak": 0,
-   "failing_streak": 6,
-   "eligible": false,
+   "vision": false,
+   "eligibility_gate": 1,
+   "healthy_streak": 3,
+   "failing_streak": 0,
+   "eligible": true,
    "recent": [
     {
      "gate": 5,
@@ -3886,16 +4002,25 @@
      "reason": "lost opaque content @atlas_notes",
      "p50_ms": 462,
      "p95_ms": 1223
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 461,
+     "p95_ms": 863,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
   "nvidia/nemotron-nano-12b-v2-vl": {
    "control": "plain",
-   "vision": null,
-   "eligibility_gate": 5,
-   "healthy_streak": 0,
-   "failing_streak": 6,
-   "eligible": false,
+   "vision": false,
+   "eligibility_gate": 1,
+   "healthy_streak": 4,
+   "failing_streak": 0,
+   "eligible": true,
    "recent": [
     {
      "gate": 5,
@@ -3950,6 +4075,15 @@
      "reason": "collapsed document structure (4 lines)",
      "p50_ms": 2098,
      "p95_ms": 7512
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 5905,
+     "p95_ms": 10816,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
@@ -4596,8 +4730,8 @@
   "poolside/laguna-xs-2.1": {
    "control": "plain",
    "vision": false,
-   "eligibility_gate": 5,
-   "healthy_streak": 1,
+   "eligibility_gate": 1,
+   "healthy_streak": 2,
    "failing_streak": 0,
    "eligible": false,
    "recent": [
@@ -4654,6 +4788,15 @@
      "reason": "",
      "p50_ms": 583,
      "p95_ms": 6542
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 372,
+     "p95_ms": 959,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
