@@ -50,7 +50,7 @@ pub(super) fn run() -> Result<()> {
     let output = localization_output_dir();
     let mut recorder = Recorder::new(&output)?;
     let mut review_entries = Vec::new();
-    let mut pacer = Pacer::from_env()?;
+    let mut pacer = Pacer::from_env(&credentials)?;
     let timeout = super::setup::request_timeout()?.or(Some(Duration::from_secs(35)));
 
     for case in selected_cases {

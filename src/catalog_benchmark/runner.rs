@@ -51,7 +51,7 @@ pub fn run() -> Result<()> {
     let mut recorder =
         super::history::live_recorder(&manifest, suites, &text_models, &vision_models)?;
     let completed = super::report::successful_attempt_keys(&super::setup::resume_inputs())?;
-    let mut pacer = Pacer::from_env()?;
+    let mut pacer = Pacer::from_env(&credentials)?;
     let timeout = super::setup::request_timeout()?;
 
     for round in 1..=manifest.rounds {

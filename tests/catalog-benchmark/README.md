@@ -205,9 +205,9 @@ an ambiguous lifecycle/capability, or an authenticated project-limit check.
 Set the workflow's optional `resume_run_id` to a prior benchmark-day run to reuse
 its successful cells and rerun only incomplete work. The merge job includes that
 base run before recovery fragments, so the final artifact remains one complete
-logical run. Groq vision shards reserve their documented free-tier token capacity
-with a longer interval; this avoids misclassifying predictable quota admission as
-model failure while independent credentials still rotate.
+logical run. Groq vision pacing reserves one rolling token window per independent
+credential and divides the request interval across the rotating pool. This keeps
+one-key runs safe without discarding the combined capacity of multiple projects.
 
 For the selected latest row:
 

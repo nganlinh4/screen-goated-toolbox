@@ -364,19 +364,22 @@ impl Suites {
 
 pub struct Pacer {
     min_interval: Duration,
+    groq_credential_count: usize,
     last_call: HashMap<String, Instant>,
 }
 
 const OPENROUTER_FREE_MIN_INTERVAL: Duration = Duration::from_millis(3_100);
+const GROQ_VISION_PER_CREDENTIAL_INTERVAL: Duration = Duration::from_secs(31);
 
 impl Pacer {
-    pub fn from_env() -> Result<Self> {
+    pub fn from_env(credentials: &Credentials) -> Result<Self> {
         let milliseconds = std::env::var("CATALOG_BENCH_MIN_INTERVAL_MS")
             .unwrap_or_else(|_| "2500".to_string())
             .parse::<u64>()
             .context("parse CATALOG_BENCH_MIN_INTERVAL_MS")?;
         Ok(Self {
             min_interval: Duration::from_millis(milliseconds),
+            groq_credential_count: credentials.groq_pool_size(),
             last_call: HashMap::new(),
         })
     }
@@ -384,10 +387,7 @@ impl Pacer {
     pub fn wait(&mut self, model: &ModelConfig) {
         let scope = self.scope(model);
         if let Some(previous) = self.last_call.get(&scope) {
-            std::thread::sleep(
-                self.interval_for(&model.provider)
-                    .saturating_sub(previous.elapsed()),
-            );
+            std::thread::sleep(self.interval_for(model).saturating_sub(previous.elapsed()));
         }
         self.last_call.insert(scope, Instant::now());
     }
@@ -400,9 +400,13 @@ impl Pacer {
         }
     }
 
-    fn interval_for(&self, provider: &str) -> Duration {
-        match provider {
-            "openrouter" => self.min_interval.max(OPENROUTER_FREE_MIN_INTERVAL),
+    fn interval_for(&self, model: &ModelConfig) -> Duration {
+        match (model.provider.as_str(), model.model_type) {
+            ("openrouter", _) => self.min_interval.max(OPENROUTER_FREE_MIN_INTERVAL),
+            ("groq", ModelType::Vision) => self.min_interval.max(
+                GROQ_VISION_PER_CREDENTIAL_INTERVAL
+                    / u32::try_from(self.groq_credential_count.max(1)).unwrap_or(u32::MAX),
+            ),
             _ => self.min_interval,
         }
     }
@@ -489,28 +493,55 @@ mod tests {
 
     #[test]
     fn pacer_respects_provider_free_tier_rates() {
+        let openrouter = get_all_models()
+            .iter()
+            .find(|model| model.provider == "openrouter")
+            .unwrap();
         let default = Pacer {
             min_interval: Duration::from_millis(2_500),
+            groq_credential_count: 1,
             last_call: Default::default(),
         };
         assert_eq!(
-            default.interval_for("openrouter"),
+            default.interval_for(openrouter),
             Duration::from_millis(3_100)
         );
         let slower_override = Pacer {
             min_interval: Duration::from_millis(5_000),
+            groq_credential_count: 1,
             last_call: Default::default(),
         };
         assert_eq!(
-            slower_override.interval_for("openrouter"),
+            slower_override.interval_for(openrouter),
             Duration::from_millis(5_000)
         );
+    }
+
+    #[test]
+    fn groq_vision_pacing_uses_independent_credential_capacity() {
+        let vision = get_all_models()
+            .iter()
+            .find(|model| model.provider == "groq" && model.model_type == ModelType::Vision)
+            .unwrap();
+        let one_key = Pacer {
+            min_interval: Duration::from_millis(2_500),
+            groq_credential_count: 1,
+            last_call: Default::default(),
+        };
+        assert_eq!(one_key.interval_for(vision), Duration::from_secs(31));
+        let two_keys = Pacer {
+            min_interval: Duration::from_millis(2_500),
+            groq_credential_count: 2,
+            last_call: Default::default(),
+        };
+        assert_eq!(two_keys.interval_for(vision), Duration::from_millis(15_500));
     }
 
     #[test]
     fn pacer_shares_only_provider_wide_quota_scopes() {
         let pacer = Pacer {
             min_interval: Duration::ZERO,
+            groq_credential_count: 1,
             last_call: Default::default(),
         };
         let mut openrouter = get_all_models()
