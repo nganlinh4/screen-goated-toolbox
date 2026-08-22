@@ -35,8 +35,12 @@ pub struct LocalizationRegion {
 pub struct TextCase {
     pub id: String,
     pub difficulty: u8,
-    pub source_language: String,
-    pub target_language: String,
+    pub task: TextTask,
+    pub instruction: String,
+    #[serde(default)]
+    pub source_language: Option<String>,
+    #[serde(default)]
+    pub target_language: Option<String>,
     pub input: String,
     pub reference: String,
     pub required_terms: Vec<String>,
@@ -49,6 +53,52 @@ pub struct TextCase {
     #[serde(default)]
     pub expected_line_count: Option<usize>,
     pub rubric: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextTask {
+    Classification,
+    Extraction,
+    Translation,
+    Rewrite,
+    Summarization,
+    StructuredExtraction,
+    Reasoning,
+    Synthesis,
+}
+
+impl TextTask {
+    const ALL: [Self; 8] = [
+        Self::Classification,
+        Self::Extraction,
+        Self::Translation,
+        Self::Rewrite,
+        Self::Summarization,
+        Self::StructuredExtraction,
+        Self::Reasoning,
+        Self::Synthesis,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Classification => "classification",
+            Self::Extraction => "extraction",
+            Self::Translation => "translation",
+            Self::Rewrite => "rewrite",
+            Self::Summarization => "summarization",
+            Self::StructuredExtraction => "structured-extraction",
+            Self::Reasoning => "reasoning",
+            Self::Synthesis => "synthesis",
+        }
+    }
+
+    pub fn reference_similarity_weight(self) -> f64 {
+        match self {
+            Self::Rewrite | Self::Summarization | Self::Synthesis => 0.35,
+            _ => 0.65,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -110,7 +160,7 @@ impl Manifest {
     pub fn validate(&self) -> Result<()> {
         let latency_policy = super::history::vision_latency_policy()?;
         ensure!(
-            self.version == 3,
+            self.version == 4,
             "unsupported manifest version {}",
             self.version
         );
@@ -144,6 +194,11 @@ impl Manifest {
 
         for case in &self.text_cases {
             ensure!(
+                !case.instruction.trim().is_empty(),
+                "{} has no task instruction",
+                case.id
+            );
+            ensure!(
                 !case.input.trim().is_empty(),
                 "{} has no text input",
                 case.id
@@ -163,7 +218,73 @@ impl Manifest {
                 "{} has an empty exact-alternative group",
                 case.id
             );
+            match case.task {
+                TextTask::Translation => ensure!(
+                    case.source_language
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty())
+                        && case
+                            .target_language
+                            .as_deref()
+                            .is_some_and(|value| !value.trim().is_empty()),
+                    "{} translation needs source and target languages",
+                    case.id
+                ),
+                _ => ensure!(
+                    case.source_language.is_none() && case.target_language.is_none(),
+                    "{} non-translation task cannot claim a translation language pair",
+                    case.id
+                ),
+            }
         }
+
+        let task_kinds = self
+            .text_cases
+            .iter()
+            .map(|case| case.task)
+            .collect::<HashSet<_>>();
+        ensure!(
+            TextTask::ALL.iter().all(|task| task_kinds.contains(task)),
+            "text suite must cover every declared task family"
+        );
+        ensure!(
+            self.text_cases
+                .iter()
+                .filter(|case| case.task == TextTask::Translation)
+                .count()
+                >= 2,
+            "text suite must retain multiple translation cases"
+        );
+        ensure!(
+            has_translation_pair(&self.text_cases, "Korean", "Vietnamese"),
+            "text suite must retain Korean-to-Vietnamese coverage"
+        );
+        ensure!(
+            has_translation_pair(&self.text_cases, "Simplified Chinese", "Vietnamese"),
+            "text suite must retain Chinese-to-Vietnamese coverage"
+        );
+        let easiest = self
+            .text_cases
+            .iter()
+            .find(|case| case.difficulty == 1)
+            .expect("validated difficulty");
+        ensure!(
+            easiest.task == TextTask::Classification
+                && easiest.input.split_whitespace().count() <= 8,
+            "difficulty-one text case must stay a several-word task"
+        );
+        let hardest = self
+            .text_cases
+            .iter()
+            .find(|case| case.difficulty == self.rounds)
+            .expect("validated difficulty");
+        ensure!(
+            hardest.task == TextTask::Synthesis
+                && hardest.input.chars().count() >= 500
+                && hardest.rubric.len() >= 5
+                && hardest.expected_line_count.is_some(),
+            "final text case must remain long, multi-constraint, and structured"
+        );
 
         let mut representative_coordinate_cases = 0;
         for case in &self.coordinate_cases {
@@ -302,6 +423,14 @@ impl Manifest {
         );
         Ok(())
     }
+}
+
+fn has_translation_pair(cases: &[TextCase], source: &str, target: &str) -> bool {
+    cases.iter().any(|case| {
+        case.task == TextTask::Translation
+            && case.source_language.as_deref() == Some(source)
+            && case.target_language.as_deref() == Some(target)
+    })
 }
 
 fn validate_difficulties<'a>(

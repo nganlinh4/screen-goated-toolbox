@@ -20,6 +20,8 @@ const INTERACTIVE_TIMEOUT_MULTIPLIER: u64 = 10;
 const MIN_INTERACTIVE_TIMEOUT_MS: u64 = 10_000;
 #[cfg(not(feature = "recorder-worker"))]
 const MAX_INTERACTIVE_TIMEOUT_MS: u64 = 30_000;
+#[cfg(not(feature = "recorder-worker"))]
+const UNBENCHMARKED_FEED_QUALITY_TIER: u8 = 4;
 
 #[cfg(feature = "recorder-worker")]
 use cooldown::model_cooldown_remaining;
@@ -132,8 +134,24 @@ impl RetryChainKind {
         }
     }
 
-    /// The chain to actually walk, with any models the availability feed offers
-    /// merged in behind the local head.
+    pub fn adaptive_enabled(self, config: &Config) -> bool {
+        match self {
+            #[cfg(not(feature = "recorder-worker"))]
+            Self::ImageToText => config.adaptive_model_priority.image_to_text,
+            Self::TextToText => config.adaptive_model_priority.text_to_text,
+        }
+    }
+
+    pub fn live_overrides(self, config: &Config) -> &crate::config::types::LiveModelOverrides {
+        match self {
+            #[cfg(not(feature = "recorder-worker"))]
+            Self::ImageToText => &config.adaptive_model_priority.image_to_text_overrides,
+            Self::TextToText => &config.adaptive_model_priority.text_to_text_overrides,
+        }
+    }
+
+    /// The chain to actually walk, with eligible availability-feed models
+    /// interleaved below the local head by quality-adjusted latency.
     ///
     /// The feed can lengthen the fallback but never take first contact: position
     /// 0 is tied to the configured default and stays local. With no feed, no
@@ -141,29 +159,41 @@ impl RetryChainKind {
     /// unchanged.
     pub fn effective_chain(self, config: &Config) -> Vec<String> {
         let configured = self.configured_chain(config);
-        let offered = crate::model_feed::store::offered_ids(config, self.target_model_type());
-        let mut chain = if offered.is_empty() {
+        if !self.adaptive_enabled(config) {
+            return configured.to_vec();
+        }
+        let offered = crate::model_feed::store::offered_models(config, self.target_model_type());
+        let offered_ids: Vec<String> = offered.iter().map(|(id, _)| id.clone()).collect();
+        let overrides = self.live_overrides(config);
+        if offered_ids.is_empty() {
             configured.to_vec()
         } else {
-            crate::model_feed::merge_into_chain(configured, &offered)
-        };
-        // A chain is a list a person has to read. Past a certain length the tail
-        // is never reached in practice anyway, since anything that far down is
-        // slower or less reliable than everything above it, and the feed would
-        // otherwise grow it without bound.
-        chain.truncate(self.max_chain_len());
-        chain
-    }
-
-    /// Longest chain worth keeping for this modality.
-    ///
-    /// Image chains are shorter because a vision fallback costs an image upload
-    /// per attempt, so a long tail is expensive to walk.
-    pub fn max_chain_len(self) -> usize {
-        match self {
-            #[cfg(not(feature = "recorder-worker"))]
-            Self::ImageToText => 10,
-            Self::TextToText => 12,
+            crate::model_feed::merge_into_chain_with_overrides(
+                configured,
+                &offered_ids,
+                &overrides.pinned,
+                &overrides.excluded,
+                |id| {
+                    let model =
+                        crate::model_config::get_model_by_id_with_custom(id, &config.custom_models);
+                    crate::model_feed::CandidateRank {
+                        // A live-only model has operational evidence but no durable
+                        // cross-provider catalog benchmark yet. Tier 4 keeps it
+                        // useful without inventing premium quality evidence.
+                        quality_tier: model
+                            .as_ref()
+                            .and_then(|model| model.intelligence_tier)
+                            .unwrap_or(UNBENCHMARKED_FEED_QUALITY_TIER),
+                        latency_ms: offered
+                            .iter()
+                            .find_map(|(offered_id, latency)| {
+                                (offered_id == id).then_some(*latency)
+                            })
+                            .or_else(|| model.and_then(|model| model.typical_latency_ms))
+                            .unwrap_or(u32::MAX),
+                    }
+                },
+            )
         }
     }
 }
@@ -306,6 +336,25 @@ pub fn resolve_next_retry_model(
             config,
         )
     })
+}
+
+/// Selects the first usable fallback when a preset's pinned model no longer
+/// resolves. The preset remains unchanged; execution silently enters the same
+/// priority and compatibility machinery used after an ordinary model failure.
+#[cfg(not(feature = "recorder-worker"))]
+pub fn resolve_unavailable_pinned_model(
+    block_type: &str,
+    unavailable_model_id: &str,
+    config: &Config,
+) -> Option<ModelConfig> {
+    let chain_kind = RetryChainKind::from_block_type(block_type)?;
+    resolve_next_retry_model(
+        unavailable_model_id,
+        &[unavailable_model_id.to_string()],
+        &HashSet::new(),
+        chain_kind,
+        config,
+    )
 }
 
 pub fn resolve_next_configured_model(

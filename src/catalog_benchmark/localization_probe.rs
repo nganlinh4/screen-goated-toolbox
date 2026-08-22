@@ -20,9 +20,10 @@ mod scoring;
 pub(super) fn run() -> Result<()> {
     let manifest = Manifest::load()?;
     manifest.validate()?;
-    let credentials = Credentials::load();
+    let credentials = Credentials::load()?;
     let filter = model_filter()?;
-    let mut models = super::setup::select_models(ModelType::Text, Some(&filter), &credentials);
+    let mut models =
+        super::setup::select_models(ModelType::Text, Some(&filter), None, &credentials);
     ensure!(
         !models.is_empty(),
         "no selected structured screen-translation model has credentials"
@@ -54,7 +55,7 @@ pub(super) fn run() -> Result<()> {
 
     for case in selected_cases {
         for model in &models {
-            pacer.wait(&model.provider);
+            pacer.wait(model);
             let (attempt, review) =
                 run_case(&manifest, case, model, &credentials, timeout, &output);
             recorder.push(attempt)?;
@@ -108,8 +109,6 @@ fn run_case(
     let started = Instant::now();
     let mut parser =
         crate::overlay::screen_translate::stream_parser::TranslationStreamParser::new(&candidates);
-    let mut first_chunk_ms = None;
-    let mut first_region_ms = None;
     let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_text_streaming(
             TranslateTextRequest {
@@ -129,13 +128,7 @@ fn run_case(
                 target_language: Some(case.target_language.clone()),
             },
             |chunk| {
-                if first_chunk_ms.is_none() && !chunk.trim().is_empty() {
-                    first_chunk_ms = Some(started.elapsed().as_millis());
-                }
-                let parsed = parser.push(chunk);
-                if first_region_ms.is_none() && !parsed.is_empty() {
-                    first_region_ms = Some(started.elapsed().as_millis());
-                }
+                parser.push(chunk);
             },
         )
     });
@@ -186,7 +179,6 @@ fn run_case(
         }
     };
     let response_chars = response.chars().count();
-    let time_to_first_output_ms = first_region_ms.or(first_chunk_ms).unwrap_or(latency_ms);
     let attempt = Attempt {
         suite: "screen-translate-structured-text".to_string(),
         round: case.difficulty,
@@ -198,11 +190,8 @@ fn run_case(
         reasoning_policy: reasoning_policy_label(model),
         status: "success".to_string(),
         latency_ms,
-        time_to_first_output_ms: Some(time_to_first_output_ms),
-        generation_duration_ms: Some(latency_ms.saturating_sub(time_to_first_output_ms)),
         output_chars: Some(response_chars),
         end_to_end_chars_per_second: rate(response_chars, latency_ms),
-        generation_chars_per_second: None,
         score: Some(score),
         strict_pass: Some(strict_pass),
         response: Some(response),
@@ -212,8 +201,6 @@ fn run_case(
             "changed_translation_ratio": changed_ratio,
             "returned_regions": document.regions.len(),
             "input_regions": candidates.len(),
-            "first_chunk_ms": first_chunk_ms,
-            "first_usable_region_ms": first_region_ms,
             "stream_rejected_regions": parser.rejected_count(),
             "metrics": evaluation.metrics,
             "matches": evaluation.matches,
@@ -256,11 +243,8 @@ fn failed_attempt(
         reasoning_policy: reasoning_policy_label(model),
         status: status.to_string(),
         latency_ms,
-        time_to_first_output_ms: None,
-        generation_duration_ms: None,
         output_chars: None,
         end_to_end_chars_per_second: None,
-        generation_chars_per_second: None,
         score: None,
         strict_pass: Some(false),
         response: None,

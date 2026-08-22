@@ -22,19 +22,10 @@ pub struct Attempt {
     pub status: String,
     /// End-to-end request time through the final response.
     pub latency_ms: u128,
-    /// Request start through the first callback that contributes to the final
-    /// user-visible response. Thinking placeholders are excluded.
-    #[serde(default)]
-    pub time_to_first_output_ms: Option<u128>,
-    /// First user-visible output through request completion.
-    #[serde(default)]
-    pub generation_duration_ms: Option<u128>,
     #[serde(default)]
     pub output_chars: Option<usize>,
     #[serde(default)]
     pub end_to_end_chars_per_second: Option<f64>,
-    #[serde(default)]
-    pub generation_chars_per_second: Option<f64>,
     pub score: Option<f64>,
     pub strict_pass: Option<bool>,
     pub response: Option<String>,
@@ -132,14 +123,9 @@ struct ModelSummary {
     catalog_latency_attempts: usize,
     catalog_median_latency_ms: Option<f64>,
     catalog_p95_latency_ms: Option<f64>,
-    catalog_median_time_to_first_output_ms: Option<f64>,
-    catalog_median_generation_duration_ms: Option<f64>,
     median_latency_ms: Option<f64>,
     warm_median_latency_ms: Option<f64>,
-    median_time_to_first_output_ms: Option<f64>,
-    median_generation_duration_ms: Option<f64>,
     median_end_to_end_chars_per_second: Option<f64>,
-    median_generation_chars_per_second: Option<f64>,
     p95_latency_ms: Option<f64>,
     latency_cv: Option<f64>,
     errors: BTreeMap<String, usize>,
@@ -202,6 +188,7 @@ impl Recorder {
             serde_json::to_vec_pretty(&summary)?,
         )?;
         std::fs::write(self.output_dir.join("summary.md"), markdown(&summary))?;
+        super::review::write_template(&self.output_dir, &self.attempts)?;
         if let Some(pending_run) = self.pending_run.take() {
             super::history::complete_live_run(&self.output_dir, pending_run)?;
         }
@@ -290,45 +277,16 @@ fn summarize_group(
         .iter()
         .map(|attempt| attempt.latency_ms as f64)
         .collect::<Vec<_>>();
-    let mut catalog_first_output = catalog_attempts
-        .iter()
-        .filter_map(|attempt| attempt.time_to_first_output_ms.map(|value| value as f64))
-        .collect::<Vec<_>>();
-    let mut catalog_generation_duration = catalog_attempts
-        .iter()
-        .filter_map(|attempt| attempt.generation_duration_ms.map(|value| value as f64))
-        .collect::<Vec<_>>();
-    for values in [
-        &mut catalog_latencies,
-        &mut catalog_first_output,
-        &mut catalog_generation_duration,
-    ] {
-        values.sort_by(f64::total_cmp);
-    }
+    catalog_latencies.sort_by(f64::total_cmp);
     let mut warm_latencies: Vec<f64> = attempts
         .iter()
         .filter(|attempt| attempt.status == "success" && attempt.round > 1)
         .map(|attempt| attempt.latency_ms as f64)
         .collect();
     warm_latencies.sort_by(f64::total_cmp);
-    let mut first_output: Vec<f64> = successful_values(attempts, |attempt| {
-        attempt.time_to_first_output_ms.map(|value| value as f64)
-    });
-    let mut generation_duration: Vec<f64> = successful_values(attempts, |attempt| {
-        attempt.generation_duration_ms.map(|value| value as f64)
-    });
     let mut end_to_end_rate =
         successful_values(attempts, |attempt| attempt.end_to_end_chars_per_second);
-    let mut generation_rate =
-        successful_values(attempts, |attempt| attempt.generation_chars_per_second);
-    for values in [
-        &mut first_output,
-        &mut generation_duration,
-        &mut end_to_end_rate,
-        &mut generation_rate,
-    ] {
-        values.sort_by(f64::total_cmp);
-    }
+    end_to_end_rate.sort_by(f64::total_cmp);
     let mut errors = BTreeMap::new();
     for attempt in attempts
         .iter()
@@ -353,14 +311,9 @@ fn summarize_group(
         catalog_latency_attempts: catalog_latencies.len(),
         catalog_median_latency_ms: percentile(&catalog_latencies, 0.5),
         catalog_p95_latency_ms: percentile(&catalog_latencies, 0.95),
-        catalog_median_time_to_first_output_ms: percentile(&catalog_first_output, 0.5),
-        catalog_median_generation_duration_ms: percentile(&catalog_generation_duration, 0.5),
         median_latency_ms: percentile(&latencies, 0.5),
         warm_median_latency_ms: percentile(&warm_latencies, 0.5),
-        median_time_to_first_output_ms: percentile(&first_output, 0.5),
-        median_generation_duration_ms: percentile(&generation_duration, 0.5),
         median_end_to_end_chars_per_second: percentile(&end_to_end_rate, 0.5),
-        median_generation_chars_per_second: percentile(&generation_rate, 0.5),
         p95_latency_ms: percentile(&latencies, 0.95),
         latency_cv: match (mean_latency, stddev(&latencies)) {
             (Some(mean), Some(deviation)) if mean > 0.0 => Some(deviation / mean),
@@ -410,11 +363,11 @@ fn markdown(summary: &Summary) -> String {
         "# Catalog benchmark report\n\nGenerated: {}  \nAttempts: {}  \nRepresentative vision latency: effective longest edge <= {} px\n\n",
         summary.generated_at, summary.attempts, summary.vision_representative_max_edge_px
     );
-    output.push_str("| Suite | Model | Provider | Reasoning policy | Success | Mean accuracy | Strict pass | Catalog n | Catalog TTFO ms | Catalog total ms | Catalog generation ms | Catalog P95 ms | All-case total ms | All-case P95 ms | Warm total ms | E2E char/s | Post-first char/s | All-case latency CV |\n");
-    output.push_str("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+    output.push_str("| Suite | Model | Provider | Reasoning policy | Success | Automatic aid | Strict pass | Catalog n | Catalog full-result ms | Catalog P95 ms | All-case full-result ms | All-case P95 ms | Warm full-result ms | E2E char/s | All-case latency CV |\n");
+    output.push_str("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
     for model in &summary.models {
         output.push_str(&format!(
-            "| {} | {} | {} | {} | {}/{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {}/{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
             model.suite,
             model.model_id,
             model.provider,
@@ -424,19 +377,16 @@ fn markdown(summary: &Summary) -> String {
             format_optional(model.mean_score),
             format_optional(model.strict_pass_rate),
             model.catalog_latency_attempts,
-            format_optional(model.catalog_median_time_to_first_output_ms),
             format_optional(model.catalog_median_latency_ms),
-            format_optional(model.catalog_median_generation_duration_ms),
             format_optional(model.catalog_p95_latency_ms),
             format_optional(model.median_latency_ms),
             format_optional(model.p95_latency_ms),
             format_optional(model.warm_median_latency_ms),
             format_optional(model.median_end_to_end_chars_per_second),
-            format_optional(model.median_generation_chars_per_second),
             format_optional(model.latency_cv),
         ));
     }
-    output.push_str("\nCatalog vision latency uses only the representative small-image cohort. Every selected case still contributes to accuracy, reliability, and all-case stress diagnostics. Translation accuracy is an automatic reference-similarity aid; inspect `attempts.jsonl` against each rubric before ranking models.\n");
+    output.push_str("\nEvery latency is measured from request start until the complete result returns. Catalog vision latency uses only the representative small-image cohort. Automatic scores are triage aids; human-review suites are never decision-ready until every successful response has a completed review.\n");
     output
 }
 

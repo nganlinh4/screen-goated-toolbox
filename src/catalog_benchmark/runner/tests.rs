@@ -140,28 +140,12 @@ fn visual_review_uses_the_manifest_boxes_crops_and_input_modes() {
 }
 
 #[test]
-fn response_timing_ignores_thinking_and_accepts_the_wipe_transition() {
-    let events = vec![
-        (9, "Thinking…".to_string()),
-        (30, format!("{}Hello", crate::api::WIPE_SIGNAL)),
-        (55, " world".to_string()),
-    ];
-    let timing = TimingMetrics::for_response(100, &events, "Hello world");
+fn response_timing_uses_only_full_result_completion() {
+    let timing = TimingMetrics::for_response(100, "Hello world");
 
-    assert_eq!(timing.time_to_first_output_ms, Some(30));
-    assert_eq!(timing.generation_duration_ms, Some(70));
+    assert_eq!(timing.total_ms, 100);
     assert_eq!(timing.output_chars, Some(11));
     assert_eq!(timing.end_to_end_chars_per_second, Some(110.0));
-    assert!((timing.generation_chars_per_second.unwrap() - (6.0 / 0.07)).abs() < f64::EPSILON);
-}
-
-#[test]
-fn non_streaming_response_reports_completion_as_first_output() {
-    let timing = TimingMetrics::for_response(750, &[], "done");
-
-    assert_eq!(timing.time_to_first_output_ms, Some(750));
-    assert_eq!(timing.generation_duration_ms, Some(0));
-    assert_eq!(timing.generation_chars_per_second, None);
 }
 
 #[test]

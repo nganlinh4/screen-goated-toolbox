@@ -77,7 +77,42 @@ pub(super) fn validate(manifest: &serde_json::Value) {
         .map(|model| string(model, "id"))
         .collect();
     validate_chains(manifest, &enabled_ids);
+    validate_withdrawals(manifest, models);
     validate_endpoints(manifest, models);
+}
+
+fn validate_withdrawals(manifest: &serde_json::Value, models: &[serde_json::Value]) {
+    let withdrawn = object(manifest, "withdrawn_models");
+    let shipped: HashSet<String> = models
+        .iter()
+        .map(|item| {
+            let model = item.as_object().expect("model entries must be objects");
+            format!(
+                "{}:{}",
+                string(model, "provider"),
+                string(model, "full_name")
+            )
+        })
+        .collect();
+    for (endpoint, reason) in withdrawn {
+        let (provider, full_name) = endpoint.split_once(':').unwrap_or_else(|| {
+            panic!("withdrawn endpoint {endpoint:?} must be provider:full_name")
+        });
+        assert!(
+            !provider.is_empty() && !full_name.is_empty(),
+            "withdrawn endpoint {endpoint:?} must name both provider and model"
+        );
+        assert!(
+            reason
+                .as_str()
+                .is_some_and(|reason| reason.trim().len() >= 20),
+            "withdrawn endpoint {endpoint:?} needs a reviewable reason"
+        );
+        assert!(
+            !shipped.contains(endpoint),
+            "{endpoint} is both shipped and withdrawn"
+        );
+    }
 }
 
 fn validate_model_id(id: &str) {
@@ -295,9 +330,8 @@ fn quota_count(label: &str, suffix: &str) -> Option<u64> {
 
 fn validate_chains(manifest: &serde_json::Value, enabled_ids: &HashSet<&str>) {
     let priority = object(manifest, "priority_chains");
-    // A chain is a list a person reads. Image chains are capped lower because
-    // every vision attempt re-uploads the image, so a long tail is expensive to
-    // walk. Mirrored by `RetryChainKind::max_chain_len`.
+    // Keep shipped defaults concise. This validates authored catalog preparation,
+    // not user configuration; the editor, persistence, and runtime are unbounded.
     for (key, limit) in [("image_to_text", 10usize), ("text_to_text", 12usize)] {
         let chain = array_from(priority, key);
         validate_chain(chain, key, enabled_ids, None);

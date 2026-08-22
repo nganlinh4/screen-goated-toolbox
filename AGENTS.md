@@ -69,7 +69,8 @@
 
 ## Catalog Work
 
-- Models: `.claude/commands/manage-model-catalog.md`.
+- Models: use `.claude/skills/update-model-catalog/SKILL.md` for the unified
+  discovery/benchmark day, then `.claude/commands/manage-model-catalog.md` for edits.
 - Recorder backgrounds: `.claude/commands/manage-background-presets.md`.
 
 ## Optional Component Delivery

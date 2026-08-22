@@ -1,57 +1,97 @@
 ---
-name: update-model-catalog
-description: Discover, verify, benchmark, add, remove, rename, or reprioritize built-in AI models in Screen Goated Toolbox. Use for provider catalog refreshes, AI Studio quota audits, Groq model/rate-limit checks, OpenRouter free-model discovery, live production-path model comparisons, catalog latency/intelligence updates, preset/default changes, or retry-chain maintenance.
+name: benchmark-model-catalog
+description: Run one unified model-discovery and production-path benchmark day, human-review model quality, and apply verified catalog decisions for Screen Goated Toolbox.
 ---
 
-# Update Model Catalog
+# Benchmark Model Catalog
 
-Maintain the shared catalog from current provider evidence through verified product behavior.
+Discovery is the first phase of a benchmark day, never a separate workflow. The
+same session verifies current provider state, benchmarks every runnable general
+model, performs human quality review, audits production request parity, and only
+then changes the shared catalog when authorized.
 
 ## Start
 
 1. From the repository root, read `.claude/commands/manage-model-catalog.md`, `catalog/README.md`, `tests/catalog-benchmark/README.md`, and `tests/catalog-benchmark/history-policy.json` completely.
 2. Inspect `git status --short`; preserve unrelated work.
-3. Decide whether the request is discovery-only, benchmark-only, or authorizes catalog mutation. Discovery and benchmarking do not imply edits.
+3. Treat discovery and benchmarking as read-only evidence unless catalog mutation is explicitly authorized.
 4. For cross-platform catalog changes, read `.claude/skills/enforce-mobile-parity/SKILL.md`, `.claude/parity/model-catalog.md`, and the affected feature parity spec before editing.
 
-## Discover Current Provider State
+## Unified discovery phase
 
-Read [provider-discovery.md](references/provider-discovery.md) for the exact provider routes and evidence rules.
+- Use only current first-party documentation, provider list-model APIs, and
+  authenticated consoles. Record the observation date and exact endpoint ID.
+- Google: inspect the signed-in AI Studio project limits and official
+  [rate-limit](https://ai.google.dev/gemini-api/docs/rate-limits), model,
+  lifecycle, API-version, and capability pages. Rate limits are project- and
+  model-specific.
+- Groq: inspect official
+  [supported-model](https://console.groq.com/docs/models) and
+  [rate-limit](https://console.groq.com/docs/rate-limits) pages plus account-visible
+  list-models and structural response headers. Limits are enforced at organization
+  and project/model scopes; adding keys in one project does not invent quota.
+- OpenRouter: define free only from parseable zero prompt and completion pricing;
+  confirm the current [shared free allowance](https://openrouter.ai/docs/faq).
+  Its free request allowance is account-wide, so keep one provider-wide shard.
+- NVIDIA: verify the current
+  [hosted LLM API](https://docs.api.nvidia.com/nim/reference/llm-apis), then refresh
+  the signed availability feed before selection. Benchmark every
+  currently offered curated or discovered general endpoint with the feed's verified
+  reasoning control. Do not turn a narrow preset sample into catalog-wide quality.
+- Treat missing access, quota exhaustion, lifecycle removal, and malformed request
+  policy as different findings. Never expose credentials or authenticated URLs.
 
-- Prefer official provider documentation and authenticated provider consoles over search results.
-- Use Chrome control for signed-in AI Studio state. Use the in-app browser or normal web access for public official documentation.
-- Record exact API model ID, lifecycle, modalities, free availability, request quotas, tool support, reasoning controls, and structured-output support.
-- Treat console quota values as project/account-specific. Never generalize them to another key or billing tier.
-- Never expose keys, project IDs, full provider errors containing secrets, or authenticated-page URLs with sensitive query data.
-
-For OpenRouter discovery, run:
+Generate the current OpenRouter inventory with:
 
 ```powershell
 py -3 .claude/skills/update-model-catalog/scripts/openrouter_free_models.py
 ```
 
-This produces a current free-model inventory from the official API. Use OpenRouter's official model UI for its live latency/throughput ordering, then benchmark shortlisted endpoints locally; rankings from the site are candidate-selection evidence, not product performance metadata.
+Provider rankings shortlist candidates; only the production-path benchmark owns
+SGT performance evidence.
 
-## Verify Candidates Before Cataloging
+## Verify request parity before judging output
 
-1. Compare discovery results with `catalog/model_catalog.json` by provider plus exact `full_name`.
-2. Confirm the endpoint through the provider's list-models API when available.
-3. Verify the real request contract: modality, endpoint URL, part ordering, MIME handling, reasoning disable/minimum, structured output, search-tool behavior, and output ceiling.
-4. Exclude paid-only providers or endpoints. Do not retain placeholders for providers that violate the product's no-billing requirement.
-5. Add a provisional catalog row only when needed to exercise the production dispatcher. Remove rejected candidates completely after evaluation.
+1. Compare discovery with `catalog/model_catalog.json` by provider plus exact `full_name`.
+2. Check endpoint URL, modality, input part order, MIME handling, streaming mode,
+   output ceiling, schema mode, sampling, search tools, and the provider's lowest
+   supported reasoning control against current first-party docs.
+3. Trace the benchmark call through the same Rust `translate_text_streaming` or
+   `translate_image_streaming` entry point as the application. The benchmark must
+   inherit production retries, feed/catalog reasoning controls, vision profiles,
+   parsing, and repetition protection; never reproduce the payload separately.
+4. If current best practice changes, repair the shared production adapter/profile
+   first so operation and benchmark change together, then bump the protocol.
+5. Exclude paid-only, dedicated non-LLM, and search-by-default services from the
+   general suite; test dedicated capabilities only through their own contract.
 
 Do not infer sibling capabilities from a family name. Capability and default behavior are separate catalog facts.
 
-## Benchmark Through the Product Path
+## Run the benchmark day
 
 1. Use the ignored Rust benchmark in `tests/catalog-benchmark`; do not replace it with ad hoc HTTP timing.
 2. Ensure child processes receive the intended `.env` values explicitly. A saved app key can otherwise mask an edited `.env`. Compare only non-secret fingerprints when diagnosing key selection.
-3. Run all ten round-major levels for every applicable suite. Use focused model filters only for candidate screening or recovery.
+3. Run all ten round-major levels for every runnable general model, including
+   NVIDIA feed candidates. Use focused filters only for screening or recovery.
 4. Preserve request errors, malformed responses, overloads, retries, and quota failures. They are reliability evidence, not latency samples.
 5. Use resume inputs to skip successful cells. Merge recovery reports left-to-right into one logical run; never register a recovery fragment independently.
 6. Use only the latest complete protocol-compatible run. Do not average older runs.
-7. Judge translation against its rubric manually. Use OCR automatic scores as aids. Treat coordinate results as control evidence, never general OCR latency.
-8. Diagnose surprising latency using preparation time, provider time, first output, completion time, output length, image dimensions, retry wait, P95, and CV.
+7. Measure latency only from request start until the complete result returns.
+   Never rank with time-to-first-token or post-first-token throughput.
+8. Automatic similarity and constraint metrics only triage review. Complete every
+   text verdict, 1–5 rating, and rubric check in `reviews.json`; an unreviewed row
+   is not decision-ready. Use OCR scores as aids and coordinate strict success as
+   control evidence.
+9. Keep ordinary reasoning disabled or at the endpoint's documented minimum.
+10. Maximize legitimate quota: rotate independent credential arrays, shard
+    model-scoped providers, keep account-wide providers serialized, retain
+    structural retry/quota failures, and use resume/merge instead of wasting
+    successful cells.
+
+For shortest wall time, dispatch `.github/workflows/catalog-benchmark-day.yml`.
+It compiles one Windows test binary, distributes quota-safe shards across hosted
+runners, merges fragments, and uploads one human-review queue. Local runs remain
+the fallback for credentials or runtimes that are intentionally not hosted.
 
 Do not update vision latency without the catalog policy's minimum representative successful small-image cohort.
 
@@ -65,7 +105,9 @@ Edit `catalog/model_catalog.json` as the sole owner. Update all affected section
 - constants, provider defaults, presets, and retry chains;
 - lifecycle data and aliases where permitted.
 
-Base retry order on availability and consistency first, then latency-weighted quality, provider diversity, quota, and lifecycle. Keep authority-bearing Computer/Phone Control on its separate validated chain.
+Base retry order on reviewed quality and reliability first, then full-result
+latency, provider diversity, quota, and lifecycle. Keep authority-bearing
+Computer/Phone Control on its separate validated chain.
 
 Update parity specs, fixtures, focused assertions, and post-update recommendation expectations with the same decision. Never create a second platform model registry.
 

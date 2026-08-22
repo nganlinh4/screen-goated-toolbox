@@ -1,54 +1,50 @@
 # Provider availability monitoring
 
-A scheduled probe that publishes which provider endpoints answer, answer
-correctly, and with which reasoning control. It exists because those facts are
+A scheduled probe that publishes which provider endpoints answer, which general
+modality they accept, and with which reasoning control. It exists because those facts are
 expensive to discover from a user's machine — seventy-five models times three
 samples every two hours — and because they change: three NVIDIA endpoints
 changed state within a single day during evaluation.
 
-## Where correctness is decided, and why it is decided here
+## Why preset output never gates a whole catalog
 
-Here, and only here. Nothing at runtime judges whether a model's answer is
-correct.
+The monitor owns operational evidence only: replies, latency, accepted modality,
+and request control. It does not turn one preset's expected output into a verdict
+on a general Text-to-Text or Image-to-Text model.
 
-The reason is that the two places do not know the same things. The monitor sends
-prompts **it wrote**, so it knows what a correct reply looks like and can hold a
-model to it. Runtime does not: `translate_text_streaming` runs every text block
-of every preset -- summarize, rewrite, answer, and whatever a user writes -- so
-the instruction is arbitrary and the shape of a correct reply is unknowable from
-inside. A runtime check that assumes the request is a translation can reject a
-correct reply that preserves technical terms from another script. The next
-unanticipated intent could cost a user their answer the same way.
+One controlled sample can establish whether an endpoint answers. It cannot
+establish universal quality: translation, extraction, rewriting, summarization,
+reasoning, and custom instructions fail in different ways. The same applies to
+images: accepting an image is live capability evidence, while OCR accuracy is
+only one use case.
 
-So the rule is: **judge only where you control the request.**
+So the rule is: **live monitoring gates operational health; broad, reviewed
+catalog benchmarks own durable quality.** Samples reported from a real preset may
+be added to that broad evaluation, but never become a preset-specific live ban.
 
 The consequences of being wrong are not symmetric either, which settles where the
 risk belongs:
 
 - a **dead** endpoint is cheap, and the retry chain already handles it;
-- a **wrong** endpoint is expensive, so it is caught provider-wide and offline,
-  where a mistaken verdict costs a model an eligibility streak rather than
-  costing a user the answer in front of them;
-- a model that keeps failing here stops being offered, without anyone configuring
-  which models those are.
+- a **wrong** endpoint is expensive, but a narrow automatic check can be wrong
+  about the endpoint's other uses; quality changes therefore require broad
+  benchmark evidence and review;
+- a model that repeatedly stops answering or exceeds the usable latency ceiling
+  stops being offered automatically.
 
-The probe cases are coarse sanity, not a failure catalogue, and should stay
-small. What keeps them from becoming a catalogue is that the checks are
-structural: `invented_placeholder` rejects bracketed text the source never
-contained, and `echoes_the_source` rejects a reply that hands its input back.
-Neither names a model or a phrase, so both apply to inputs nobody wrote a case
-for.
+Probe prompts stay small and varied only to avoid measuring one request shape.
+Their content is not scored by the availability publisher.
 
 ## What the feed is and is not
 
-`nvidia-availability.json` carries availability, correctness and the working
-reasoning control. Those are properties of the endpoint and travel anywhere.
+`nvidia-availability.json` carries availability, accepted general modality and
+the working reasoning control. Those are live properties of the endpoint.
 
 It also carries `p50_ms`, and that number is **a ranking hint only**. A GitHub
 runner measures from one datacenter; the user is on their own network, often in
-another region. The client already records real per-call latency through
-`VisionCallTrace` and `latency::mark_window`, and should order by that. The feed
-answers "is this endpoint usable", never "is it fastest for you".
+another region. The client combines durable catalog quality and latency evidence
+with the feed's fresh measurements. The feed answers "is this endpoint usable",
+not "is it universally fastest".
 
 ## Why the reasoning control is per model
 
@@ -113,12 +109,67 @@ NVIDIA_API_KEY=... python scripts/monitor_nvidia_models.py \
 `--models` probes a named subset and `--limit` takes the first N, both intended
 for checking a change without spending a full cycle.
 
+## What the catalog owns, and what the feed owns
+
+The two are not competing registries. They answer different questions, and the
+split follows from which one can still be true a month after a build is cut.
+
+The **catalog** owns *curated product decisions*: which models lead a chain, what
+they are called in each language, quotas, modality, and the defaults. These are
+judgements someone made, they change when a human changes them, and compiling
+them into the binary is correct.
+
+The **feed** owns *live operational facts*: whether an endpoint answers, how fast,
+which reasoning control it currently accepts, and whether it is eligible at all.
+Every one of these can change without anybody editing anything, so freezing them
+at build time guarantees they eventually lie. Two consequences:
+
+- The published reasoning control **overrides** the catalog policy. Both describe
+  how to ask an endpoint to stop thinking; only one is re-measured every two
+  hours, and sending a control an endpoint no longer accepts turns a healthy
+  model into HTTP 500.
+- A model the feed offers but the catalog has never heard of is **routable
+  anyway**, as `ModelSource::Discovered` with an id derived from its endpoint
+  name. This is what stops the product's freshness being tied to its release
+  cadence: a model the monitor finds on Tuesday is usable on Tuesday.
+
+Discovery adds and never redefines identity or presentation. Manual priority
+order remains exact while Live is off. Turning Live on is an explicit opt-in to
+re-rank every currently offered row below the protected head from fresh feed
+signals while preserving the relative order of non-live authored rows.
+
+Reasoning controls use the versioned `controlVersion` contract. Labels are a
+closed enum in each client version; changing a label's wire meaning requires a
+new contract version. System-message controls are merged into an existing system
+instruction instead of creating competing system roles.
+
+Eligibility also carries `availabilityGateVersion`. A client rejects feeds
+produced by obsolete operational semantics even when their signature is valid.
+Changing a benchmark task never resets endpoint availability.
+
 ## Client contract
 
-Not yet implemented. When it is, the agreed shape is:
+The implemented contract is:
 
 - the feed may **offer** models, inserted as `ModelSource::Discovered`;
-- it may influence priority-chain order from **position 1 downward**;
+- dedicated capabilities are omitted from this generic availability feed and
+  never enter a text or vision chain merely because the endpoint is implemented
+  as an LLM. A translation-only endpoint is governed like any other dedicated
+  translator, not like a general text model;
+- eligible offers are interleaved by speed-forward quality-adjusted latency: one
+  higher catalog quality tier may justify up to roughly 1.5x the latency, while
+  non-live configured fallbacks retain their relative order;
+- at most five adaptive offers enter one chain, preserving provider diversity
+  and limiting the blast radius of one live provider outage;
+- adaptive offers render as normal editable rows. Non-live edits preserve Live;
+  moving one pins only that row, removing one records a chain-local exclusion,
+  and changing one excludes its old identity while pinning a live replacement.
+  These row-level overrides preserve Live, so later successful refreshes may
+  update every other live row from the newest measured latency. Restoring chain
+  defaults clears the pins and exclusions. A manual edit that leaves no live-feed
+  row in the chain turns Live off;
+- image `10` and text `12` are shipped-default preparation targets only; user
+  chains are never truncated by the editor, config migration, or runtime;
 - **position 0 is never remote-controlled**, because it is tied to
   `default_text_model_id` and `default_image_model_id` and carries every request
   before any fallback exists;

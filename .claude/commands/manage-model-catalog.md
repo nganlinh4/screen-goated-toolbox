@@ -41,7 +41,7 @@ rg -n '<internal-id>|<api-model>|supports_thinking|supports_search|model_is_non_
    all-case median and P95 retain large-image stress evidence.
    Focused recovery reports may be merged into the same logical run before that
    complete report is registered; never register recovery fragments
-   independently. Translation accuracy still needs rubric-based review. Increment
+   independently. Every manual-review suite needs complete structured human review. Increment
    `benchmark_protocol_version` before collecting results when benchmark
    scoring or request semantics change.
 5. Edit the manifest and every relevant manifest section: endpoint profile,

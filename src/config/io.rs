@@ -113,6 +113,15 @@ fn migrate_config(config: &mut Config) {
 
     let custom_models = config.custom_models.clone();
 
+    config
+        .adaptive_model_priority
+        .image_to_text_overrides
+        .normalize();
+    config
+        .adaptive_model_priority
+        .text_to_text_overrides
+        .normalize();
+
     normalize_model_priority_chain(
         &mut config.model_priority_chains.image_to_text,
         ModelType::Vision,
@@ -403,6 +412,10 @@ pub fn get_all_languages() -> &'static Vec<String> {
 #[cfg(all(test, not(feature = "recorder-worker")))]
 #[path = "io_tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(feature = "recorder-worker")))]
+#[path = "io_priority_preservation_tests.rs"]
+mod priority_limit_tests;
 
 #[cfg(all(test, not(feature = "recorder-worker")))]
 #[path = "io_tts_migration_tests.rs"]

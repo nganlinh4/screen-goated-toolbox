@@ -30,7 +30,7 @@ pub use enums::{DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, ThemeMode, get_sy
 
 pub use hotkey::Hotkey;
 
-pub use model_priority::ModelPriorityChains;
+pub use model_priority::{AdaptiveModelPriority, LiveModelOverrides, ModelPriorityChains};
 
 pub(crate) use preset_model_update::PresetModelDefaults;
 pub use preset_model_update::{PendingPresetModelUpdate, RecommendedProviderDefaults};

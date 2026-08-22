@@ -1,249 +1,176 @@
 {
-  "version": 3,
+  "version": 4,
   "rounds": 10,
   "text_cases": [
     {
-      "id": "text-01-direct",
+      "id": "text-01-classify",
       "difficulty": 1,
+      "task": "classification",
+      "instruction": "Classify the message as billing, delivery, or technical. Output one lowercase label only.",
+      "input": "My package has not arrived.",
+      "reference": "delivery",
+      "required_terms": ["delivery"],
+      "forbidden_terms": ["billing", "technical"],
+      "expected_line_count": 1,
+      "rubric": [
+        "Chooses the delivery category",
+        "Outputs only the requested label"
+      ]
+    },
+    {
+      "id": "text-02-extract",
+      "difficulty": 2,
+      "task": "extraction",
+      "instruction": "Extract the return tracking code. Output the code only.",
+      "input": "Your return was received at the depot. Tracking code: RT-2048-K.",
+      "reference": "RT-2048-K",
+      "required_terms": [],
+      "required_exact": ["RT-2048-K"],
+      "expected_line_count": 1,
+      "rubric": [
+        "Extracts the tracking code rather than the surrounding message",
+        "Preserves every letter, digit, and hyphen"
+      ]
+    },
+    {
+      "id": "text-03-translate-direct",
+      "difficulty": 3,
+      "task": "translation",
+      "instruction": "Task: English-to-Vietnamese translation. Translate the complete text into Vietnamese while preserving the time. Output only the translation.",
       "source_language": "English",
       "target_language": "Vietnamese",
       "input": "The meeting starts at nine tomorrow morning.",
       "reference": "Cuộc họp bắt đầu lúc chín giờ sáng mai.",
-      "required_terms": [
-        "giờ",
-        "sáng mai"
-      ],
+      "required_terms": ["cuộc họp", "sáng mai"],
       "rubric": [
         "Preserves the meeting as the subject",
-        "Preserves the time as 9:00 tomorrow morning"
+        "Preserves the time as nine tomorrow morning"
       ]
     },
     {
-      "id": "text-02-register",
-      "difficulty": 2,
-      "source_language": "Vietnamese",
-      "target_language": "English",
-      "input": "Phiền bạn gửi lại hóa đơn trước cuối ngày hôm nay nhé.",
-      "reference": "Could you please resend the invoice by the end of today?",
-      "required_terms": [
-        "invoice",
-        "today"
-      ],
-      "rubric": [
-        "Keeps the polite register",
-        "Expresses a deadline no later than the end of today"
-      ]
-    },
-    {
-      "id": "text-03-numeric-fidelity",
-      "difficulty": 3,
-      "source_language": "English",
-      "target_language": "Vietnamese",
-      "input": "The sensor reported 1.05 °C, not 1.5 °C; the threshold remains at −2 °C.",
-      "reference": "Cảm biến ghi nhận 1,05 °C, không phải 1,5 °C; ngưỡng vẫn là −2 °C.",
-      "required_terms": [
-        "cảm biến",
-        "ngưỡng"
-      ],
-      "required_exact": [
-        "°C"
-      ],
-      "required_exact_any": [
-        [
-          "1,05",
-          "1.05"
-        ],
-        [
-          "1,5",
-          "1.5"
-        ],
-        [
-          "−2",
-          "-2"
-        ]
-      ],
-      "rubric": [
-        "Keeps 1.05 distinct from 1.5",
-        "Preserves the negative two-degree threshold",
-        "Does not convert or drop the unit"
-      ]
-    },
-    {
-      "id": "text-04-ui-format",
+      "id": "text-04-rewrite",
       "difficulty": 4,
-      "source_language": "Japanese",
-      "target_language": "English",
-      "input": "注意：更新中は電源を切らないでください。\n完了後、［設定］→［同期］を開きます。",
-      "reference": "Caution: Do not turn off the power during the update.\nWhen it is complete, open ［Settings］ → ［Sync］.",
-      "required_terms": [
-        "update",
-        "power",
-        "Settings",
-        "Sync"
-      ],
-      "required_exact": [
-        "→"
-      ],
-      "required_exact_any": [
-        [
-          "［Settings］",
-          "[Settings]"
-        ],
-        [
-          "［Sync］",
-          "[Sync]"
-        ]
-      ],
-      "expected_line_count": 2,
+      "task": "rewrite",
+      "instruction": "Rewrite the message as one concise, polite, professional sentence. Keep the deadline and quantity constraint unchanged. Output only the rewritten sentence.",
+      "input": "send me the revised quote by 3 PM. don't change the quantities.",
+      "reference": "Please send me the revised quote by 3 PM without changing the quantities.",
+      "required_terms": ["please", "revised quote", "quantities"],
+      "required_exact": ["3 PM"],
+      "expected_line_count": 1,
       "rubric": [
-        "Preserves the warning",
-        "Preserves the two-line structure",
-        "Preserves the menu navigation order and exact bracketed labels"
+        "Uses a professional and polite register",
+        "Retains the 3 PM deadline",
+        "Does not permit quantity changes"
       ]
     },
     {
-      "id": "text-05-idiom",
+      "id": "text-05-summarize",
       "difficulty": 5,
+      "task": "summarization",
+      "instruction": "Summarize the update in exactly one sentence for the customer. Include the cause, the new delivery date, and whether the customer needs to act. Output only the summary.",
+      "input": "The parcel was scheduled for Tuesday. A regional rail closure delayed the transfer to the local depot. Delivery is now expected on Thursday. The customer does not need to reschedule or contact support.",
+      "reference": "A regional rail closure delayed the parcel until Thursday, and the customer does not need to take any action.",
+      "required_terms": ["rail closure", "Thursday", "does not need"],
+      "expected_line_count": 1,
+      "rubric": [
+        "States the rail closure as the cause",
+        "States Thursday as the new delivery date",
+        "Makes clear that no customer action is required",
+        "Does not retain obsolete Tuesday as the expected date"
+      ]
+    },
+    {
+      "id": "text-06-korean-mixed-translate",
+      "difficulty": 6,
+      "task": "translation",
+      "instruction": "Task: Korean-to-Vietnamese translation. Translate every Korean sentence into Vietnamese. Preserve identifiers, Latin technical terms, numbers, units, and line structure exactly where applicable. Output only the complete translation.",
       "source_language": "Korean",
       "target_language": "Vietnamese",
-      "input": "그 제안은 겉보기에는 좋아도 막상 뚜껑을 열어 보면 문제가 한두 가지가 아니다.",
-      "reference": "Đề xuất đó nhìn bề ngoài có vẻ tốt, nhưng khi xem xét kỹ thì vấn đề không chỉ có một hai chuyện.",
-      "required_terms": [
-        "đề xuất",
-        "vấn đề"
-      ],
-      "forbidden_terms": [
-        "nắp"
-      ],
+      "input": "검토 결과, batch_id={{batch_id}}의 재처리 성공률은 98.7%였습니다.\n단, retry_count=3인 항목은 삭제하지 말고 QA queue로 이동해 주세요.",
+      "reference": "Theo kết quả kiểm tra, tỷ lệ xử lý lại thành công của batch_id={{batch_id}} là 98,7%.\nTuy nhiên, đừng xóa các mục có retry_count=3 mà hãy chuyển chúng sang QA queue.",
+      "required_terms": ["kết quả", "thành công", "đừng xóa", "chuyển"],
+      "required_exact": ["batch_id={{batch_id}}", "retry_count=3", "QA queue"],
+      "required_exact_any": [["98,7%", "98.7%"]],
+      "expected_line_count": 2,
       "rubric": [
-        "Renders the idiom naturally rather than mentioning a literal lid",
-        "Preserves the contrast between appearance and closer inspection",
-        "Conveys that there are many problems"
+        "Translates all Korean prose into Vietnamese",
+        "Preserves the placeholder and technical identifiers byte-for-byte",
+        "Preserves the success rate",
+        "Moves matching items instead of deleting them"
       ]
     },
     {
-      "id": "text-06-placeholders",
-      "difficulty": 6,
-      "source_language": "French",
-      "target_language": "Vietnamese",
-      "input": "Si {{user_name}} n'a pas confirmé avant le 03/04/2026, n'effacez ni <draft_id> ni le dossier « À revoir ».",
-      "reference": "Nếu {{user_name}} chưa xác nhận trước ngày 03/04/2026, đừng xóa <draft_id> hoặc thư mục « Cần xem lại ».",
-      "required_terms": [
-        "xác nhận",
-        "đừng xóa",
-        "thư mục"
-      ],
-      "required_exact": [
-        "{{user_name}}",
-        "<draft_id>",
-        "03/04/2026"
-      ],
-      "rubric": [
-        "Preserves both placeholders byte-for-byte",
-        "Preserves the date without guessing month/day order",
-        "Prohibits deleting either protected item"
-      ]
-    },
-    {
-      "id": "text-07-legal-scope",
+      "id": "text-07-structured-extract",
       "difficulty": 7,
-      "source_language": "Simplified Chinese",
-      "target_language": "English",
-      "input": "除非甲方在收到通知后的两个工作日内书面反对，否则不得视为其放弃任何权利。",
-      "reference": "Unless Party A objects in writing within two business days after receiving notice, this must not be deemed a waiver of any rights.",
-      "required_terms": [
-        "Party A",
-        "in writing",
-        "two business days",
-        "must not",
-        "any rights"
-      ],
-      "rubric": [
-        "Keeps the unless-condition scoped to a written objection",
-        "Does not reverse the prohibition on treating silence as waiver",
-        "Preserves the two-business-day window"
-      ]
-    },
-    {
-      "id": "text-08-gender-neutral",
-      "difficulty": 8,
-      "source_language": "Turkish",
-      "target_language": "English",
-      "input": "Deniz, Ekin'e yedeğin bozulduğunu söyledikten sonra ondan yalnızca 23.40'tan sonra değiştirilen dosyaları geri yüklemesini istedi.",
-      "reference": "After Deniz told Ekin that the backup had failed, they asked them to restore only the files modified after 23:40.",
-      "required_terms": [
-        "Deniz",
-        "Ekin",
-        "backup",
-        "only",
-        "files"
-      ],
-      "required_exact": [
-        "23:40"
-      ],
-      "forbidden_terms": [
-        "he",
-        "she",
-        "his",
-        "her"
-      ],
-      "rubric": [
-        "Does not invent a gender for Deniz or Ekin",
-        "Restores only files modified after 23:40",
-        "Keeps the request directed from Deniz to Ekin"
-      ]
-    },
-    {
-      "id": "text-09-counterfactual",
-      "difficulty": 9,
-      "source_language": "Spanish",
-      "target_language": "English",
-      "input": "No fue hasta que dejó de llover que Marta se dio cuenta de que, si Luis no hubiera cerrado la ventana, los documentos se habrían mojado.",
-      "reference": "It was not until it stopped raining that Marta realized that, if Luis had not closed the window, the documents would have gotten wet.",
-      "required_terms": [
-        "Marta",
-        "Luis",
-        "not until",
-        "had not closed",
-        "would have"
-      ],
-      "rubric": [
-        "Preserves the not-until timing",
-        "Preserves the unreal past condition",
-        "Does not imply that the documents actually became wet"
-      ]
-    },
-    {
-      "id": "text-10-structured-constraints",
-      "difficulty": 10,
-      "source_language": "Simplified Chinese",
-      "target_language": "Vietnamese",
-      "input": "状态：**禁止部署**\n- 保持 ${BUILD_ID} 不变。\n- 仅恢复 UTC+9 23:40 之后修改的文件；不要恢复归档。\n- “可以”表示许可，不表示可能性。",
-      "reference": "Trạng thái: **KHÔNG ĐƯỢC TRIỂN KHAI**\n- Giữ nguyên ${BUILD_ID}.\n- Chỉ khôi phục các tệp được sửa sau 23:40 UTC+9; không khôi phục tệp lưu trữ.\n- “Có thể” biểu thị sự cho phép, không phải khả năng.",
-      "required_terms": [
-        "KHÔNG ĐƯỢC TRIỂN KHAI",
-        "Chỉ",
-        "lưu trữ",
-        "cho phép"
-      ],
-      "required_exact": [
-        "**",
-        "${BUILD_ID}",
-        "23:40",
-        "UTC+9"
-      ],
-      "required_exact_any": [
-        [
-          "“Có thể”",
-          "\"Có thể\""
-        ]
-      ],
+      "task": "structured-extraction",
+      "instruction": "Extract the request into exactly four lines using these labels and order: Order, Items, Deadline, Constraint. Do not add commentary.",
+      "input": "For order PO-731, prepare 12 blue desk lamps and 8 replacement cables. The warehouse must receive everything by 16:30 on 7 October 2026. Do not substitute black lamps if blue units are unavailable.",
+      "reference": "Order: PO-731\nItems: 12 blue desk lamps; 8 replacement cables\nDeadline: 16:30 on 7 October 2026\nConstraint: Do not substitute black lamps",
+      "required_terms": ["Order", "Items", "Deadline", "Constraint"],
+      "required_exact": ["PO-731", "12", "8", "16:30", "7 October 2026"],
       "expected_line_count": 4,
       "rubric": [
-        "Preserves the Markdown structure and placeholder",
-        "Keeps the deployment prohibition emphatic",
-        "Restores only post-23:40 files and explicitly excludes the archive",
-        "Explains 可以 as permission rather than probability"
+        "Uses exactly the requested four labels and order",
+        "Associates each quantity with the correct item",
+        "Preserves the complete deadline",
+        "Preserves the prohibition on black-lamp substitution"
+      ]
+    },
+    {
+      "id": "text-08-policy-reasoning",
+      "difficulty": 8,
+      "task": "reasoning",
+      "instruction": "Apply the stated refund rule. Answer in exactly two lines: first 'Decision: approve' or 'Decision: deny'; second 'Reason:' followed by one concise explanation. Do not invent policy exceptions.",
+      "input": "Rule: A class booking receives a full refund only when cancellation occurs at least 24 hours before the class starts. Booking: the class starts Friday at 18:00. The cancellation was submitted Thursday at 12:00.",
+      "reference": "Decision: approve\nReason: The cancellation was submitted 30 hours before the class, which is at least 24 hours in advance.",
+      "required_terms": ["Decision", "approve", "Reason", "30 hours", "24 hours"],
+      "expected_line_count": 2,
+      "rubric": [
+        "Calculates the interval as 30 hours",
+        "Applies the at-least-24-hours condition correctly",
+        "Does not invent an exception or fee"
+      ]
+    },
+    {
+      "id": "text-09-chinese-translate",
+      "difficulty": 9,
+      "task": "translation",
+      "instruction": "Task: Simplified-Chinese-to-Vietnamese translation. Translate all prose into natural Vietnamese while preserving the heading, three bullet lines, quoted UI labels, identifier, date, and prohibition. Output only the complete translation.",
+      "source_language": "Simplified Chinese",
+      "target_language": "Vietnamese",
+      "input": "交接说明\n- 请在2026年10月12日前核对记录 A-17，但不要修改原始文件。\n- 如果“自动同步”仍显示为灰色，请记录当前时间并通知值班人员。\n- 未经书面确认，不得把临时结果标记为“已完成”。",
+      "reference": "Hướng dẫn bàn giao\n- Vui lòng kiểm tra bản ghi A-17 trước ngày 12 tháng 10 năm 2026, nhưng không sửa đổi tệp gốc.\n- Nếu “Tự động đồng bộ” vẫn hiển thị màu xám, hãy ghi lại thời gian hiện tại và thông báo cho nhân viên trực.\n- Không được đánh dấu kết quả tạm thời là “Đã hoàn thành” nếu chưa có xác nhận bằng văn bản.",
+      "required_terms": ["bàn giao", "kiểm tra", "không sửa đổi", "xác nhận bằng văn bản"],
+      "required_exact": ["A-17"],
+      "required_exact_any": [["12 tháng 10 năm 2026", "12/10/2026", "2026-10-12"]],
+      "expected_line_count": 4,
+      "rubric": [
+        "Translates every Chinese prose segment into Vietnamese",
+        "Preserves the heading and three-item structure",
+        "Preserves the record identifier and deadline",
+        "Keeps notification conditional on the disabled synchronization state",
+        "Preserves the written-confirmation prohibition"
+      ]
+    },
+    {
+      "id": "text-10-policy-synthesis",
+      "difficulty": 10,
+      "task": "synthesis",
+      "instruction": "Evaluate the purchase request against the policy and produce exactly six lines in this order: Decision, Total, Cheaper quote, Justification, Blocker, Next. Use only facts present in the request. Decision must be APPROVE, DENY, or CONDITIONAL. Calculate the selected total yourself. Output no introduction or closing.",
+      "input": "Procurement policy:\n1. A software purchase may be approved only when the selected total does not exceed $12,000 and at least two comparable quotes are recorded.\n2. A team may select a more expensive supplier only when a concrete business justification is documented.\n3. A cloud service that processes customer data cannot start until the data-processing agreement (DPA) is signed. A planned date or verbal promise is not a signed DPA.\n\nPurchase request:\n- Requested service: hosted design-review workspace for 24 staff members.\n- Selected supplier: North Cloud at $420 per seat for the full term. North Cloud includes required single sign-on integration.\n- Second quote: East Systems at $410 per seat for the same term. East Systems does not include the required single sign-on integration.\n- The team documented single sign-on as the reason for selecting North Cloud.\n- The DPA is still pending legal review; nobody has reported it signed.\n- Desired service start: 2026-10-01.\n- Budget owner confirmed that taxes are handled under a separate existing agreement and must not be added to this comparison.",
+      "reference": "Decision: CONDITIONAL\nTotal: $10,080\nCheaper quote: East Systems — $9,840\nJustification: North Cloud includes required single sign-on integration\nBlocker: DPA is not signed\nNext: Sign the DPA before service starts on 2026-10-01",
+      "required_terms": ["Decision", "CONDITIONAL", "Total", "Cheaper quote", "Justification", "Blocker", "Next", "DPA"],
+      "required_exact": ["$10,080", "$9,840", "2026-10-01"],
+      "forbidden_terms": ["APPROVE", "DENY"],
+      "expected_line_count": 6,
+      "rubric": [
+        "Calculates 24 × $420 as the selected $10,080 total",
+        "Calculates East Systems' 24 × $410 quote as $9,840",
+        "Recognizes that two quotes and the price-difference justification are present",
+        "Treats the unsigned DPA as a blocker rather than assuming approval",
+        "Keeps the desired start date conditional on signing the DPA first",
+        "Does not add taxes, legal approval, dates, or exceptions absent from the request",
+        "Produces exactly the six requested labeled lines"
       ]
     }
   ],

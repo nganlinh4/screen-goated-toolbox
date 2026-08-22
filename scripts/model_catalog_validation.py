@@ -64,6 +64,7 @@ def validate_manifest(manifest: dict) -> None:
     _validate_vision_request_profiles(manifest)
     enabled_ids = {model["id"] for model in models if model["enabled"]}
     _validate_chains(manifest, enabled_ids)
+    _validate_withdrawals(manifest)
     _validate_endpoints(manifest, models)
 
 
@@ -89,16 +90,28 @@ def _validate_vision_request_profiles(manifest: dict) -> None:
             raise ValueError(
                 f"vision request profile has no model profile: {profile_key}"
             )
-        if set(request_profile) != {
+        required = {
             "input_order",
             "media_resolution",
             "sampling",
             "max_output_tokens",
             "structured_output",
-        }:
+        }
+        # Optional because it records a fault measured on one endpoint. Requiring
+        # it everywhere would declare every other endpoint sound unchecked.
+        optional = {"restates_output"}
+        missing = required - set(request_profile)
+        if missing:
             raise ValueError(
-                f"vision request profile fields drifted for {profile_key}"
+                f"vision request profile is missing {sorted(missing)} for {profile_key}"
             )
+        unknown = set(request_profile) - required - optional
+        if unknown:
+            raise ValueError(
+                f"vision request profile has unknown fields {sorted(unknown)} for {profile_key}"
+            )
+        if not isinstance(request_profile.get("restates_output", False), bool):
+            raise ValueError(f"restates_output must be a boolean for {profile_key}")
         if request_profile.get("input_order") not in {"text-first", "image-first"}:
             raise ValueError(f"unsupported input_order for {profile_key}")
         if request_profile.get("media_resolution") != "provider-default":
@@ -358,9 +371,32 @@ def _validate_quota(model_id: str, profile: dict) -> None:
         raise ValueError(f"quota counts disagree for {model_id}")
 
 
-# A chain is a list a person reads. Image chains are shorter because every
-# vision attempt uploads the image again, so a long tail is expensive to walk.
+# Shipped-default preparation targets only. User-authored chains are unbounded.
 CHAIN_LIMITS = {"image_to_text": 10, "text_to_text": 12}
+
+
+def _validate_withdrawals(manifest: dict) -> None:
+    """A withdrawal must name a real endpoint, state why, and stand alone.
+
+    Leaving the row in place as well would be contradictory: the row says "ship
+    this", the withdrawal says "never". Only one of them can be acted on, so the
+    manifest is not allowed to say both.
+    """
+    withdrawn = manifest.get("withdrawn_models", {})
+    if not isinstance(withdrawn, dict):
+        raise ValueError("withdrawn_models must be an object of endpoint -> reason")
+    shipped = {f"{m['provider']}:{m['full_name']}" for m in manifest["models"]}
+    for endpoint, reason in withdrawn.items():
+        if ":" not in endpoint:
+            raise ValueError(f"withdrawn endpoint {endpoint!r} must be provider:full_name")
+        if not isinstance(reason, str) or len(reason.strip()) < 20:
+            raise ValueError(
+                f"withdrawn endpoint {endpoint!r} needs a reason someone can re-examine"
+            )
+        if endpoint in shipped:
+            raise ValueError(
+                f"{endpoint} is both shipped and withdrawn; remove its model row"
+            )
 
 
 def _validate_chains(manifest: dict, enabled_ids: set[str]) -> None:

@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 15,
   "id_rule": {
     "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-(?:text|vision|audio|search)$",
     "forbidden_lifecycle_segments": [
@@ -96,6 +96,35 @@
     "typical_latency_ms",
     "id"
   ],
+  "adaptive_priority": {
+    "default_enabled": true,
+    "per_chain_toggle": true,
+    "live_rows_editable": true,
+    "live_row_reorder_creates_pin": true,
+    "live_row_delete_creates_exclusion": true,
+    "non_live_edits_preserve_enabled": true,
+    "row_overrides_preserve_enabled": true,
+    "manual_edit_without_live_rows_disables_live": true,
+    "dedicated_capabilities_excluded_from_generic_chains": true,
+    "reset_clears_row_overrides": true,
+    "refresh_reorders_only_while_enabled": true,
+    "maximum_offers_per_chain": 5,
+    "quality_latency_multiplier_per_tier": 1.5,
+    "windows_live_feed": true,
+    "android_live_feed": false,
+    "signed_feed_schema": 3,
+    "availability_gate_version": 1
+  },
+  "priority_chain_size": {
+    "user_limit": null,
+    "prepared_image_default_target": 10,
+    "prepared_text_default_target": 12
+  },
+  "priority_numbering": {
+    "chosen_model": 0,
+    "first_editable_model": 1,
+    "automatic_fallback": "next"
+  },
   "performance_columns": {
     "intelligence_width": 15,
     "inter_column_gap": 2,

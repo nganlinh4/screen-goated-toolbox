@@ -97,12 +97,24 @@ where
 {
     let mut trace = telemetry::VisionCallTrace::start(&request);
     let mut output_observer = trace.output_observer();
-    // Provider-agnostic, and the outermost layer, so every vision endpoint is
-    // covered by one guard rather than each transport growing its own.
+    // Applied only to endpoints the catalog records as restating their output.
+    //
+    // The salvage edits a reply, and every edit is a chance to remove correct
+    // text. Running it against an endpoint that does not have the fault buys
+    // nothing and risks exactly that, so the scope follows the measurement: one
+    // endpoint has been shown to do this, in a matrix where the alternative was
+    // clean on the same images, and the flag lives beside it in the catalog.
+    let salvage_restatements =
+        crate::model_config::vision_request_profile(&request.provider, &request.model)
+            .restates_output;
     let mut guard = repetition::RepetitionGuard::default();
     let result = {
         let mut observed_chunk = |chunk: &str| {
             output_observer.observe(chunk);
+            if !salvage_restatements {
+                on_chunk(chunk);
+                return;
+            }
             // A transport may already be replacing what it painted, in which
             // case the reply restarts and so must the guard.
             if let Some(replacement) = chunk.strip_prefix(crate::api::WIPE_SIGNAL) {
@@ -120,7 +132,13 @@ where
         };
         translate_image_streaming_inner(request, &mut trace, &mut observed_chunk)
     };
-    let result = result.map(|content| guard.finish(content));
+    let result = result.map(|content| {
+        if salvage_restatements {
+            guard.finish(content)
+        } else {
+            content
+        }
+    });
     trace.finish(&result, &output_observer);
     result
 }

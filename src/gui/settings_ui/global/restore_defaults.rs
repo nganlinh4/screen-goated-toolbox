@@ -371,6 +371,7 @@ fn apply_selected_config_defaults_from(
 
     if selection.model_settings {
         config.model_priority_chains = defaults.model_priority_chains.clone();
+        config.adaptive_model_priority = defaults.adaptive_model_priority.clone();
         config.ollama_vision_model = defaults.ollama_vision_model.clone();
         config.ollama_text_model = defaults.ollama_text_model.clone();
     }

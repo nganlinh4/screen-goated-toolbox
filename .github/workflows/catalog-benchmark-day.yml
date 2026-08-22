@@ -1,0 +1,188 @@
+name: Catalog benchmark day
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: Optional comma-separated internal IDs or exact API model IDs
+        required: false
+        type: string
+      suites:
+        description: Comma-separated text, coordinate, and/or ocr suites
+        required: true
+        default: text,coordinate,ocr
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalog-benchmark-day
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: matrix
+        shell: bash
+        env:
+          REQUESTED_MODELS: ${{ inputs.models }}
+          REQUESTED_SUITES: ${{ inputs.suites }}
+        run: |
+          set -euo pipefail
+          matrix="$(python scripts/catalog_benchmark_shards.py \
+            --models "$REQUESTED_MODELS" \
+            --suites "$REQUESTED_SUITES")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - name: Reconstruct pinned patched egui dependencies
+        shell: pwsh
+        run: ./scripts/setup-egui-snarl.ps1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: translation-gummy-ui/package-lock.json
+      - name: Build compile-time translation overlay assets
+        shell: pwsh
+        run: |
+          Push-Location translation-gummy-ui
+          try {
+            npm ci
+            if ($LASTEXITCODE -ne 0) { throw 'translation overlay npm install failed' }
+            npm run build
+            if ($LASTEXITCODE -ne 0) { throw 'translation overlay build failed' }
+          } finally {
+            Pop-Location
+          }
+          New-Item -ItemType Directory -Force src/overlay/translation_gummy/dist | Out-Null
+          Copy-Item -Recurse -Force translation-gummy-ui/dist/* src/overlay/translation_gummy/dist/
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: catalog-benchmark-build-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs', 'build_support/**', 'catalog/model_catalog.json', 'scripts/egui-patch-contract.ps1', 'scripts/egui-*.patch') }}
+      - name: Compile the benchmark test binary once
+        shell: pwsh
+        run: |
+          $messages = cargo test --no-run --message-format=json
+          $candidate = $messages |
+            ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.profile.test -and $_.target.name -eq 'screen-goated-toolbox' -and $_.executable } |
+            Select-Object -Last 1
+          if (-not $candidate) { throw 'benchmark test executable was not emitted' }
+          Copy-Item -LiteralPath $candidate.executable -Destination catalog-benchmark-tests.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-benchmark-test-binary
+          path: catalog-benchmark-tests.exe
+          if-no-files-found: error
+
+  benchmark:
+    needs: [plan, build]
+    runs-on: windows-2025
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: catalog-benchmark-test-binary
+      - id: availability
+        name: Resolve credential-backed availability without exposing secrets
+        shell: pwsh
+        env:
+          BENCH_PROVIDER: ${{ matrix.provider }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEYS_JSON: ${{ secrets.GEMINI_API_KEYS_JSON }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEYS_JSON: ${{ secrets.GROQ_API_KEYS_JSON }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEYS_JSON: ${{ secrets.OPENROUTER_API_KEYS_JSON }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_API_KEYS_JSON: ${{ secrets.NVIDIA_API_KEYS_JSON }}
+        run: |
+          $available = switch ($env:BENCH_PROVIDER) {
+            'google' { $env:GEMINI_API_KEY -or $env:GEMINI_API_KEYS_JSON }
+            'gemini-live' { $env:GEMINI_API_KEY -or $env:GEMINI_API_KEYS_JSON }
+            'groq' { $env:GROQ_API_KEY -or $env:GROQ_API_KEYS_JSON }
+            'openrouter' { $env:OPENROUTER_API_KEY -or $env:OPENROUTER_API_KEYS_JSON }
+            'nvidia' { $env:NVIDIA_API_KEY -or $env:NVIDIA_API_KEYS_JSON }
+            'taalas' { $true }
+            default { $false }
+          }
+          "available=$($available.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - name: Run production-path shard
+        if: steps.availability.outputs.available == 'true'
+        shell: pwsh
+        env:
+          CATALOG_BENCH_LIVE: "1"
+          CATALOG_BENCH_FRAGMENT: "1"
+          CATALOG_BENCH_PROVIDERS: ${{ matrix.provider }}
+          CATALOG_BENCH_MODELS: ${{ matrix.models }}
+          CATALOG_BENCH_SUITES: ${{ matrix.suites }}
+          CATALOG_BENCH_SHARD_INDEX: ${{ matrix.index }}
+          CATALOG_BENCH_OUTPUT: benchmark-output
+          CATALOG_BENCH_REQUEST_TIMEOUT_SECS: "120"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEYS_JSON: ${{ secrets.GEMINI_API_KEYS_JSON }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEYS_JSON: ${{ secrets.GROQ_API_KEYS_JSON }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEYS_JSON: ${{ secrets.OPENROUTER_API_KEYS_JSON }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_API_KEYS_JSON: ${{ secrets.NVIDIA_API_KEYS_JSON }}
+        run: .\catalog-benchmark-tests.exe catalog_benchmark_live --ignored --nocapture
+      - uses: actions/upload-artifact@v4
+        if: steps.availability.outputs.available == 'true' && always()
+        with:
+          name: catalog-benchmark-fragment-${{ matrix.id }}
+          path: benchmark-output
+          if-no-files-found: error
+
+  merge:
+    if: ${{ always() && needs.build.result == 'success' }}
+    needs: [build, benchmark]
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: catalog-benchmark-test-binary
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: catalog-benchmark-fragment-*
+          path: fragments
+      - name: Merge fragments and generate the human-review queue
+        shell: pwsh
+        run: |
+          $inputs = Get-ChildItem -Path fragments -Filter attempts.jsonl -Recurse |
+            ForEach-Object { $_.FullName }
+          if (-not $inputs) { throw 'no benchmark fragments were produced' }
+          $env:CATALOG_BENCH_MERGE_INPUTS = $inputs -join ';'
+          $env:CATALOG_BENCH_OUTPUT = 'complete-benchmark'
+          .\catalog-benchmark-tests.exe catalog_benchmark_merge_reports --ignored --nocapture
+          $env:CATALOG_BENCH_REGISTER_OUTPUT = (Resolve-Path complete-benchmark).Path
+          $env:CATALOG_BENCH_HISTORY_ROOT = (Join-Path $PWD 'benchmark-history')
+          .\catalog-benchmark-tests.exe catalog_benchmark_register_history_run --ignored --nocapture
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-benchmark-complete-human-review
+          path: |
+            complete-benchmark
+            benchmark-history/latest.json
+            benchmark-history/latest.md
+          if-no-files-found: error

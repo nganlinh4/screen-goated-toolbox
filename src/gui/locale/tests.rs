@@ -130,7 +130,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         ("preset_editor", include_str!("preset_editor.rs"), 40),
         ("global_settings", include_str!("global_settings.rs"), 34),
         ("tts_playground", include_str!("tts_playground.rs"), 29),
-        ("model_catalog", include_str!("model_catalog.rs"), 27),
+        ("model_catalog", include_str!("model_catalog.rs"), 28),
         ("tts_settings", include_str!("tts_settings.rs"), 29),
         ("tts_advanced", include_str!("tts_advanced.rs"), 35),
         ("realtime", include_str!("realtime.rs"), 32),
@@ -158,7 +158,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 544);
+    assert_eq!(owners.len(), 545);
     assert_eq!(owners["cancel_label"], "preset_basics");
     assert_eq!(owners["favorites_keep_open"], "shell");
     assert_eq!(owners["image_creator_btn"], "shell");

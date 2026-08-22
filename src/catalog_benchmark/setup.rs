@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 
-use crate::model_config::{ModelConfig, ModelType, get_all_models, model_is_non_llm};
+use crate::model_config::{ModelConfig, ModelType, get_all_models_with_ollama, model_is_non_llm};
 
 pub struct Credentials {
     groq: CredentialPool,
@@ -27,15 +27,22 @@ pub struct Suites {
 }
 
 pub fn model_filter() -> Option<HashSet<String>> {
-    let values = std::env::var("CATALOG_BENCH_MODELS").ok()?;
-    Some(
-        values
-            .split(',')
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .collect(),
-    )
+    comma_filter("CATALOG_BENCH_MODELS")
+}
+
+pub fn provider_filter() -> Option<HashSet<String>> {
+    comma_filter("CATALOG_BENCH_PROVIDERS")
+}
+
+fn comma_filter(name: &str) -> Option<HashSet<String>> {
+    let values = std::env::var(name).ok()?;
+    let values = values
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    (!values.is_empty()).then_some(values)
 }
 
 pub fn resume_inputs() -> Vec<PathBuf> {
@@ -55,12 +62,34 @@ pub fn resume_inputs() -> Vec<PathBuf> {
 pub fn select_models(
     model_type: ModelType,
     filter: Option<&HashSet<String>>,
+    providers: Option<&HashSet<String>>,
     credentials: &Credentials,
 ) -> Vec<ModelConfig> {
-    get_all_models()
-        .iter()
+    let nvidia_offered = crate::model_feed::store::cached().map(|feed| {
+        crate::model_feed::ranked_models(&feed)
+            .into_iter()
+            .map(|model| model.id.clone())
+            .collect::<HashSet<_>>()
+    });
+    get_all_models_with_ollama()
+        .into_iter()
         .filter(|model| model.enabled && model.model_type == model_type)
-        .filter(|model| model_type != ModelType::Vision || !model_is_non_llm(&model.id))
+        .filter(|model| !model_is_non_llm(&model.id))
+        .filter(|model| !model.search_tool_enabled_by_default)
+        .filter(|model| {
+            let runnable = model.provider != "nvidia"
+                || nvidia_offered
+                    .as_ref()
+                    .is_none_or(|offered| offered.contains(&model.full_name));
+            if !runnable {
+                println!(
+                    "BENCH_SKIP model={} provider={} reason=verified_feed_withheld",
+                    model.id, model.provider
+                );
+            }
+            runnable
+        })
+        .filter(|model| providers.is_none_or(|values| values.contains(&model.provider)))
         .filter(|model| {
             filter.is_none_or(|ids| ids.contains(&model.id) || ids.contains(&model.full_name))
         })
@@ -74,7 +103,6 @@ pub fn select_models(
             }
             available
         })
-        .cloned()
         .collect()
 }
 
@@ -93,18 +121,18 @@ pub fn ensure_selection(
 }
 
 impl Credentials {
-    pub fn load() -> Self {
+    pub fn load() -> Result<Self> {
         let config = crate::APP
             .lock()
             .ok()
             .map(|app| app.config.clone())
             .unwrap_or_default();
-        Self {
-            groq: CredentialPool::load("GROQ_API_KEY", &config.api_key),
-            gemini: CredentialPool::load("GEMINI_API_KEY", &config.gemini_api_key),
-            openrouter: CredentialPool::load("OPENROUTER_API_KEY", &config.openrouter_api_key),
-            nvidia: CredentialPool::load("NVIDIA_API_KEY", &config.nvidia_api_key),
-        }
+        Ok(Self {
+            groq: CredentialPool::load("GROQ_API_KEY", &config.api_key)?,
+            gemini: CredentialPool::load("GEMINI_API_KEY", &config.gemini_api_key)?,
+            openrouter: CredentialPool::load("OPENROUTER_API_KEY", &config.openrouter_api_key)?,
+            nvidia: CredentialPool::load("NVIDIA_API_KEY", &config.nvidia_api_key)?,
+        })
     }
 
     pub fn supports(&self, provider: &str) -> bool {
@@ -122,6 +150,11 @@ impl Credentials {
     /// those the rotated value arrives through [`Self::with_provider_key`].
     pub fn groq_key_for<'a>(provider: &str, provider_key: &'a str) -> &'a str {
         if provider == "groq" { provider_key } else { "" }
+    }
+
+    /// How many Groq credentials are in rotation, for probes that report it.
+    pub fn groq_pool_size(&self) -> usize {
+        self.groq.values.len()
     }
 
     pub fn with_provider_key<T>(&self, provider: &str, operation: impl FnOnce(&str) -> T) -> T {
@@ -156,7 +189,7 @@ impl Credentials {
 }
 
 impl CredentialPool {
-    fn load(primary_name: &str, saved: &str) -> Self {
+    fn load(primary_name: &str, saved: &str) -> Result<Self> {
         let mut values = Vec::new();
         let primary =
             environment_or_dotenv(primary_name).unwrap_or_else(|| saved.trim().to_string());
@@ -171,7 +204,17 @@ impl CredentialPool {
                 values.push(value);
             }
         }
-        Self::from_values(values)
+        values.extend(json_credential_values(primary_name)?);
+        let mut unique = Vec::new();
+        for value in values {
+            if !unique.contains(&value) {
+                unique.push(value);
+            }
+        }
+        Ok(Self::from_values_with_offset(
+            unique,
+            benchmark_shard_index(),
+        ))
     }
 
     fn empty() -> Self {
@@ -179,9 +222,13 @@ impl CredentialPool {
     }
 
     fn from_values(values: Vec<String>) -> Self {
+        Self::from_values_with_offset(values, 0)
+    }
+
+    fn from_values_with_offset(values: Vec<String>, offset: usize) -> Self {
         Self {
             values,
-            next: AtomicUsize::new(0),
+            next: AtomicUsize::new(offset),
         }
     }
 
@@ -197,6 +244,27 @@ impl CredentialPool {
         let index = self.next.fetch_add(1, Ordering::Relaxed);
         &self.values[index % self.values.len()]
     }
+}
+
+fn json_credential_values(primary_name: &str) -> Result<Vec<String>> {
+    let name = format!("{primary_name}S_JSON");
+    let Some(raw) = environment_or_dotenv(&name) else {
+        return Ok(Vec::new());
+    };
+    let values: Vec<String> = serde_json::from_str(&raw)
+        .with_context(|| format!("parse {name} as a JSON string array"))?;
+    ensure!(
+        values.iter().all(|value| !value.trim().is_empty()),
+        "{name} contains a blank credential"
+    );
+    Ok(values)
+}
+
+fn benchmark_shard_index() -> usize {
+    std::env::var("CATALOG_BENCH_SHARD_INDEX")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
 }
 
 fn credential_slots(primary_name: &str) -> BTreeSet<usize> {
@@ -313,14 +381,23 @@ impl Pacer {
         })
     }
 
-    pub fn wait(&mut self, provider: &str) {
-        if let Some(previous) = self.last_call.get(provider) {
+    pub fn wait(&mut self, model: &ModelConfig) {
+        let scope = self.scope(model);
+        if let Some(previous) = self.last_call.get(&scope) {
             std::thread::sleep(
-                self.interval_for(provider)
+                self.interval_for(&model.provider)
                     .saturating_sub(previous.elapsed()),
             );
         }
-        self.last_call.insert(provider.to_string(), Instant::now());
+        self.last_call.insert(scope, Instant::now());
+    }
+
+    fn scope(&self, model: &ModelConfig) -> String {
+        if model.provider == "openrouter" {
+            model.provider.clone()
+        } else {
+            format!("{}:{}", model.provider, model.full_name)
+        }
     }
 
     fn interval_for(&self, provider: &str) -> Duration {
@@ -372,6 +449,7 @@ mod tests {
         CredentialPool, Credentials, Pacer, dotenv_credential_slots, dotenv_value, select_models,
     };
     use crate::model_config::ModelType;
+    use crate::model_config::get_all_models;
 
     fn empty_credentials() -> Credentials {
         Credentials {
@@ -383,15 +461,16 @@ mod tests {
     }
 
     #[test]
-    fn selection_keeps_translation_service_but_excludes_non_llm_vision() {
+    fn selection_excludes_dedicated_non_llm_services_from_general_suites() {
         let credentials = empty_credentials();
         let text_filter = HashSet::from(["google-gtx-translate-text".to_string()]);
-        let text = select_models(ModelType::Text, Some(&text_filter), &credentials);
-        assert_eq!(text.len(), 1);
-        assert_eq!(text[0].id, "google-gtx-translate-text");
+        let text = select_models(ModelType::Text, Some(&text_filter), None, &credentials);
+        assert!(text.is_empty());
 
         let vision_filter = HashSet::from(["qrserver-qr-scanner-vision".to_string()]);
-        assert!(select_models(ModelType::Vision, Some(&vision_filter), &credentials).is_empty());
+        assert!(
+            select_models(ModelType::Vision, Some(&vision_filter), None, &credentials).is_empty()
+        );
     }
 
     #[test]
@@ -426,6 +505,27 @@ mod tests {
             slower_override.interval_for("openrouter"),
             Duration::from_millis(5_000)
         );
+    }
+
+    #[test]
+    fn pacer_shares_only_provider_wide_quota_scopes() {
+        let pacer = Pacer {
+            min_interval: Duration::ZERO,
+            last_call: Default::default(),
+        };
+        let mut openrouter = get_all_models()
+            .iter()
+            .filter(|model| model.provider == "openrouter");
+        let openrouter_text = openrouter.next().unwrap();
+        let openrouter_vision = openrouter.next().unwrap();
+        assert_eq!(pacer.scope(openrouter_text), pacer.scope(openrouter_vision));
+
+        let mut google = get_all_models()
+            .iter()
+            .filter(|model| model.provider == "google");
+        let google_fast = google.next().unwrap();
+        let google_quality = google.next().unwrap();
+        assert_ne!(pacer.scope(google_fast), pacer.scope(google_quality));
     }
 
     #[test]

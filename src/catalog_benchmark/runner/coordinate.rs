@@ -52,7 +52,7 @@ pub(super) fn run(
     };
     if grounding_reports_not_visible(&locate_response, &["target"]) {
         return attempt(model, case, round, locate.timing).success(
-            0.0,
+            Some(0.0),
             Some(false),
             locate_response,
             details(
@@ -91,7 +91,7 @@ pub(super) fn run(
     // A coordinate attempt has two production calls. Pace both calls so free
     // provider limits are not distorted; artificial pacing is excluded from
     // the latency value used for catalog decisions.
-    pacer.wait(&model.provider);
+    pacer.wait(model);
     let verification = call_model(
         model,
         credentials,
@@ -144,7 +144,7 @@ pub(super) fn run(
         "verification_image_bytes": verification_image.len(),
     });
     attempt(model, case, round, timing).success(
-        f64::from(strict_pass),
+        Some(f64::from(strict_pass)),
         Some(strict_pass),
         combined_response(&locate_response, &verification_response),
         details(model, &prepared, case, Some(score.hit), result_details),
@@ -221,7 +221,6 @@ fn call_model(
         }
     };
     let started = Instant::now();
-    let mut events = Vec::new();
     let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_image_streaming(
             TranslateImageRequest {
@@ -237,12 +236,12 @@ fn call_model(
                 cancel_token: None,
                 request_timeout: timeout,
             },
-            |chunk| events.push((started.elapsed().as_millis(), chunk.to_string())),
+            |_| {},
         )
     });
     let elapsed = started.elapsed().as_millis();
     let timing = match &result {
-        Ok(response) => TimingMetrics::for_response(elapsed, &events, response),
+        Ok(response) => TimingMetrics::for_response(elapsed, response),
         Err(_) => TimingMetrics::failure(elapsed),
     };
     VisionCall { result, timing }

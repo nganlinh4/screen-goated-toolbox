@@ -10,6 +10,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModelPerformancePrefixTest {
@@ -76,6 +78,41 @@ class ModelPerformancePrefixTest {
             models.map { it.typicalLatencyMs ?: Int.MAX_VALUE }.sorted(),
             models.map { it.typicalLatencyMs ?: Int.MAX_VALUE },
         )
+    }
+
+    @Test
+    fun adaptivePriorityRecordsTheLiveFeedPlatformBoundary() {
+        val adaptive = fixture().getValue("adaptive_priority").jsonObject
+        assertTrue(adaptive.getValue("windows_live_feed").jsonPrimitive.content.toBoolean())
+        assertFalse(adaptive.getValue("android_live_feed").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("live_rows_editable").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("live_row_reorder_creates_pin").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("live_row_delete_creates_exclusion").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("non_live_edits_preserve_enabled").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("row_overrides_preserve_enabled").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("manual_edit_without_live_rows_disables_live").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("dedicated_capabilities_excluded_from_generic_chains").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("reset_clears_row_overrides").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("refresh_reorders_only_while_enabled").jsonPrimitive.content.toBoolean())
+        assertEquals(5, adaptive.getValue("maximum_offers_per_chain").jsonPrimitive.int)
+        assertEquals(3, adaptive.getValue("signed_feed_schema").jsonPrimitive.int)
+        assertEquals(1, adaptive.getValue("availability_gate_version").jsonPrimitive.int)
+    }
+
+    @Test
+    fun priorityChainTargetsDoNotLimitUserRows() {
+        val size = fixture().getValue("priority_chain_size").jsonObject
+        assertTrue(size.getValue("user_limit").toString() == "null")
+        assertEquals(10, size.getValue("prepared_image_default_target").jsonPrimitive.int)
+        assertEquals(12, size.getValue("prepared_text_default_target").jsonPrimitive.int)
+    }
+
+    @Test
+    fun priorityNumberingKeepsSentinelsOutsideTheEditableSequence() {
+        val numbering = fixture().getValue("priority_numbering").jsonObject
+        assertEquals(0, numbering.getValue("chosen_model").jsonPrimitive.int)
+        assertEquals(1, numbering.getValue("first_editable_model").jsonPrimitive.int)
+        assertEquals("next", numbering.getValue("automatic_fallback").jsonPrimitive.content)
     }
 
     private fun fixturePath(): Path {

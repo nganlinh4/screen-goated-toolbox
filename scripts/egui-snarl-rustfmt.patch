@@ -1,0 +1,60 @@
+diff --git a/src/ui.rs b/src/ui.rs
+--- a/src/ui.rs
++++ b/src/ui.rs
+@@ -4,8 +4,7 @@ use std::{collections::HashMap, hash::Hash};
+ 
+ use egui::{
+     Align, Color32, CornerRadius, Frame, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
+-    Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
+-    Vec2,
++    Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo, Vec2,
+     emath::{GuiRounding, TSTransform},
+     epaint::Shadow,
+     pos2,
+@@ -1013,8 +1012,8 @@ where
+             let new_scale = (to_global.scaling * zoom_factor).clamp(min_scale, max_scale);
+             if new_scale != to_global.scaling {
+                 let scale_ratio = new_scale / to_global.scaling;
+-                to_global.translation =
+-                    pointer_pos.to_vec2() + (to_global.translation - pointer_pos.to_vec2()) * scale_ratio;
++                to_global.translation = pointer_pos.to_vec2()
++                    + (to_global.translation - pointer_pos.to_vec2()) * scale_ratio;
+                 to_global.scaling = new_scale;
+                 snarl_resp.mark_changed();
+             }
+@@ -1029,8 +1028,8 @@ where
+             let new_scale = (to_global.scaling * zoom_delta).clamp(min_scale, max_scale);
+             if new_scale != to_global.scaling {
+                 let scale_ratio = new_scale / to_global.scaling;
+-                to_global.translation =
+-                    pointer_pos.to_vec2() + (to_global.translation - pointer_pos.to_vec2()) * scale_ratio;
++                to_global.translation = pointer_pos.to_vec2()
++                    + (to_global.translation - pointer_pos.to_vec2()) * scale_ratio;
+                 to_global.scaling = new_scale;
+                 snarl_resp.mark_changed();
+             }
+diff --git a/src/ui/background_pattern.rs b/src/ui/background_pattern.rs
+--- a/src/ui/background_pattern.rs
++++ b/src/ui/background_pattern.rs
+@@ -1,4 +1,4 @@
+-use egui::{emath::Rot2, vec2, Painter, Rect, Style, Vec2};
++use egui::{Painter, Rect, Style, Vec2, emath::Rot2, vec2};
+ 
+ use super::SnarlStyle;
+ 
+diff --git a/src/ui/viewer.rs b/src/ui/viewer.rs
+--- a/src/ui/viewer.rs
++++ b/src/ui/viewer.rs
+@@ -1,10 +1,10 @@
+-use egui::{emath::TSTransform, Painter, Pos2, Rect, Style, Ui};
++use egui::{Painter, Pos2, Rect, Style, Ui, emath::TSTransform};
+ 
+ use crate::{InPin, InPinId, NodeId, OutPin, OutPinId, Snarl};
+ 
+ use super::{
+-    pin::{AnyPins, SnarlPin},
+     BackgroundPattern, NodeLayout, SnarlStyle,
++    pin::{AnyPins, SnarlPin},
+ };
+ 
+ /// `SnarlViewer` is a trait for viewing a Snarl.
