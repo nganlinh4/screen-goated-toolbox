@@ -52,31 +52,6 @@ class CatalogBenchmarkShardTests(unittest.TestCase):
         nvidia = next(shard for shard in shards if shard["provider"] == "nvidia")
         self.assertEqual(nvidia["models"], "")
 
-    def test_groq_vision_reserves_free_tier_token_capacity(self):
-        shards = MODULE.build_shards(
-            self.catalog, set(), {"text", "coordinate", "ocr"}
-        )
-        groq_vision = [
-            shard
-            for shard in shards
-            if shard["provider"] == "groq"
-            and any(suite in shard["suites"] for suite in ("coordinate", "ocr"))
-        ]
-        self.assertTrue(groq_vision)
-        self.assertTrue(
-            all(
-                shard["min_interval_ms"] == MODULE.GROQ_VISION_MIN_INTERVAL_MS
-                for shard in groq_vision
-            )
-        )
-        self.assertTrue(
-            all(
-                shard["min_interval_ms"] == MODULE.DEFAULT_MIN_INTERVAL_MS
-                for shard in shards
-                if shard not in groq_vision
-            )
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

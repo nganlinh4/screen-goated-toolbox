@@ -14,8 +14,6 @@ from pathlib import Path
 HOSTED_PROVIDERS = {"google", "gemini-live", "groq", "openrouter", "nvidia", "taalas"}
 PROVIDER_WIDE_SHARDS = {"openrouter", "nvidia"}
 SUITE_ORDER = ("text", "coordinate", "ocr")
-DEFAULT_MIN_INTERVAL_MS = 2_500
-GROQ_VISION_MIN_INTERVAL_MS = 12_000
 
 
 def csv_values(value: str) -> set[str]:
@@ -67,14 +65,6 @@ def build_shards(catalog: dict, requested_models: set[str], requested_suites: se
                 "models": benchmark_models,
                 "catalog_models": model_ids,
                 "suites": ",".join(suite for suite in SUITE_ORDER if suite in suites),
-                # Vision requests consume substantially more tokens than text.
-                # Pace the shared free-tier token budget instead of turning
-                # predictable admission waits into false quality failures.
-                "min_interval_ms": (
-                    GROQ_VISION_MIN_INTERVAL_MS
-                    if provider == "groq" and suites.intersection({"coordinate", "ocr"})
-                    else DEFAULT_MIN_INTERVAL_MS
-                ),
             }
         )
     return shards

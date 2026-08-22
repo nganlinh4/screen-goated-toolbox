@@ -163,7 +163,6 @@ jobs:
           CATALOG_BENCH_SHARD_INDEX: ${{ matrix.index }}
           CATALOG_BENCH_OUTPUT: benchmark-output
           CATALOG_BENCH_REQUEST_TIMEOUT_SECS: "120"
-          CATALOG_BENCH_MIN_INTERVAL_MS: ${{ matrix.min_interval_ms }}
           CATALOG_BENCH_RESUME_INPUTS: ${{ inputs.resume_run_id != '' && 'resume/complete-benchmark/attempts.jsonl' || '' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEYS_JSON: ${{ secrets.GEMINI_API_KEYS_JSON }}

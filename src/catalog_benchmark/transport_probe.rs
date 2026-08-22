@@ -70,7 +70,7 @@ pub fn run() -> Result<()> {
     let mut writer = BufWriter::new(
         File::create(&output).with_context(|| format!("create {}", output.display()))?,
     );
-    let mut pacer = Pacer::from_env()?;
+    let mut pacer = Pacer::from_env(&credentials)?;
 
     for case in cases {
         let image_path = manifest.image_path(&case.image);
