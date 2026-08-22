@@ -3,24 +3,24 @@
  "controlVersion": 1,
  "qualityGateVersion": 5,
  "provider": "nvidia",
- "generatedAt": "2026-08-22T03:09:56Z",
+ "generatedAt": "2026-08-22T04:52:50Z",
  "note": "Latency is measured from one datacenter and is a ranking hint only; clients should order by their own observed latency.",
  "models": [
-  {
-   "id": "thinkingmachines/inkling",
-   "control": "effort-none",
-   "modality": "text",
-   "p50_ms": 805,
-   "success_rate": 1.0,
-   "runs": 5
-  },
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 1008,
+   "p50_ms": 901,
    "success_rate": 1.0,
-   "runs": 5
+   "runs": 6
+  },
+  {
+   "id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 1726,
+   "success_rate": 0.625,
+   "runs": 8
   }
  ]
 }
