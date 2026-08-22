@@ -101,11 +101,6 @@
       "replacement": null,
       "verified_at": "2026-08-19"
     },
-    "openai/gpt-oss-20b:free": {
-      "lifecycle": "stable",
-      "replacement": null,
-      "verified_at": "2026-08-19"
-    },
     "nvidia/nemotron-3.5-lightning-30b-a3b": {
       "lifecycle": "stable",
       "replacement": null,
@@ -794,18 +789,6 @@
       "search_tool_enabled_by_default": false,
       "reasoning_policy": "openai-none"
     },
-    "openrouter:openai/gpt-oss-20b:free": {
-      "name_vi": "O GPT Nhỏ",
-      "name_ko": "O GPT 소형",
-      "name_en": "O GPT Small",
-      "quota_vi": "50 lượt/ngày",
-      "quota_ko": "50회/일",
-      "quota_en": "50 requests/day",
-      "intelligence_tier": 4,
-      "supports_search": false,
-      "search_tool_enabled_by_default": false,
-      "reasoning_policy": "openai-low"
-    },
     "nvidia:nvidia/nemotron-3.5-lightning-30b-a3b": {
       "name_vi": "N n35l3a",
       "name_ko": "N n35l3a",
@@ -1379,15 +1362,6 @@
       "enabled": true,
       "typical_latency_ms": 10116,
       "performance_source": "benchmark-2026-08-20-protocol11-clean:ocr-small-1024"
-    },
-    {
-      "id": "openrouter-gpt-oss-20b-text",
-      "provider": "openrouter",
-      "full_name": "openai/gpt-oss-20b:free",
-      "model_type": "Text",
-      "enabled": true,
-      "typical_latency_ms": 5560,
-      "performance_source": "probe-2026-08-20:reasoning-control-audit"
     },
     {
       "id": "nvidia-nemotron-3-5-lightning-text",
