@@ -473,6 +473,7 @@ fn translate_with_gemini_live(
     };
     gemini_live_generate(
         GeminiLiveGenerateRequest {
+            api_key: config.gemini_api_key.clone(),
             model: model.full_name.clone(),
             text: prompt,
             instruction: build_system_instruction(target_language, instructions),

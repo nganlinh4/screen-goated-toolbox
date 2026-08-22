@@ -15,7 +15,36 @@ use super::ready_session::{ConnectedLiveSocket, LivePoll, OpenOptions, ReadyLive
 use super::server_frame::LiveServerFrame;
 use super::types::LiveEvent;
 use super::websocket::{build_live_setup, send_live_content};
-use crate::APP;
+
+type WarmLiveSession = (ReadyLiveSession, String, String, String);
+
+fn warm_session_matches(
+    warm: &Option<WarmLiveSession>,
+    api_key: &str,
+    model: &str,
+    instruction: &str,
+) -> bool {
+    matches!(warm, Some((_, key, warm_model, warm_instruction))
+    if warm_identity_matches(
+        key,
+        warm_model,
+        warm_instruction,
+        api_key,
+        model,
+        instruction,
+    ))
+}
+
+fn warm_identity_matches(
+    warm_api_key: &str,
+    warm_model: &str,
+    warm_instruction: &str,
+    api_key: &str,
+    model: &str,
+    instruction: &str,
+) -> bool {
+    warm_api_key == api_key && warm_model == model && warm_instruction == instruction
+}
 
 /// Connect + run the setup handshake for `model`, returning a socket ready to
 /// receive content. Used both on demand and to PRE-WARM the next socket.
@@ -177,7 +206,7 @@ fn response_text(frame: &LiveServerFrame) -> (Option<String>, bool) {
 pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
     std::thread::sleep(Duration::from_millis(50)); // stagger startup
     // A single pre-warmed socket for the last (model, instruction) we served.
-    let mut warm: Option<(ReadyLiveSession, String, String)> = None;
+    let mut warm: Option<WarmLiveSession> = None;
 
     loop {
         if manager.shutdown.load(Ordering::SeqCst) {
@@ -206,29 +235,7 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
             continue;
         }
 
-        let saved_api_key = match APP.lock() {
-            Ok(app) => app.config.gemini_api_key.clone(),
-            Err(_) => {
-                let _ = request
-                    .response_tx
-                    .send(LiveEvent::Error("Failed to get config".to_string()));
-                continue;
-            }
-        };
-        let api_key = crate::api::provider_credentials::resolve("GEMINI_API_KEY", &saved_api_key);
-        if api_key.trim().is_empty() {
-            let lang = APP
-                .lock()
-                .ok()
-                .map(|a| a.config.ui_language.clone())
-                .unwrap_or_else(|| "en".to_string());
-            crate::overlay::utils::show_api_key_error_notification("NO_API_KEY:gemini", &lang);
-            let _ = request
-                .response_tx
-                .send(LiveEvent::Error("NO_API_KEY:gemini".to_string()));
-            continue;
-        }
-
+        let api_key = request.req.api_key.clone();
         let model = request.req.model.clone();
         let instruction = request.req.instruction.clone();
         let instr_opt = (!instruction.trim().is_empty()).then_some(instruction.as_str());
@@ -241,9 +248,9 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
 
         // Reuse the pre-warmed socket if it matches this (model, instruction);
         // otherwise connect cold. On a stale warm socket, fall back to cold once.
-        let warm_match = matches!(&warm, Some((_, m, i)) if *m == model && *i == instruction);
+        let warm_match = warm_session_matches(&warm, &api_key, &model, &instruction);
         let mut session = if warm_match {
-            warm.take().map(|(s, _, _)| s).unwrap()
+            warm.take().map(|(session, _, _, _)| session).unwrap()
         } else {
             warm = None; // wrong model/instruction — drop the warm one
             match connect_and_setup(
@@ -312,7 +319,7 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
                 || false,
             )
             .ok()
-            .map(|s| (s, model, instruction));
+            .map(|session| (session, api_key, model, instruction));
         } else {
             warm = None;
         }
@@ -358,5 +365,25 @@ mod tests {
         };
 
         assert_eq!(response_text(&frame), (Some("reasoning".to_string()), true));
+    }
+
+    #[test]
+    fn warm_session_identity_includes_the_exact_credential() {
+        assert!(warm_identity_matches(
+            "key-a",
+            "model",
+            "instruction",
+            "key-a",
+            "model",
+            "instruction"
+        ));
+        assert!(!warm_identity_matches(
+            "key-a",
+            "model",
+            "instruction",
+            "key-b",
+            "model",
+            "instruction"
+        ));
     }
 }

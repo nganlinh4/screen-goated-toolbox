@@ -40,6 +40,7 @@ impl GeminiLiveManager {
     /// Returns (request_id, event_receiver)
     pub fn request(
         &self,
+        api_key: String,
         model: String,
         content: LiveInputContent,
         instruction: String,
@@ -53,6 +54,7 @@ impl GeminiLiveManager {
         let (tx, rx) = mpsc::channel();
 
         let req = LiveRequest {
+            api_key,
             model,
             content,
             instruction,
@@ -83,5 +85,26 @@ impl GeminiLiveManager {
 impl Default for GeminiLiveManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queued_request_preserves_the_callers_credential() {
+        let manager = GeminiLiveManager::new();
+        let (_id, _receiver) = manager.request(
+            "caller-key".to_string(),
+            "model".to_string(),
+            LiveInputContent::Text("hello".to_string()),
+            String::new(),
+            false,
+            None,
+            None,
+        );
+        let queue = manager.work_queue.lock().unwrap();
+        assert_eq!(queue.front().unwrap().req.api_key, "caller-key");
     }
 }

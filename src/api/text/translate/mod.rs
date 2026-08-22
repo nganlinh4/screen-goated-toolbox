@@ -141,6 +141,7 @@ where
             // --- GEMINI LIVE API (WebSocket-based low-latency streaming) ---
             return crate::api::gemini_live::gemini_live_generate(
                 crate::api::gemini_live::GeminiLiveGenerateRequest {
+                    api_key: gemini_api_key.to_string(),
                     model,
                     text,
                     instruction,

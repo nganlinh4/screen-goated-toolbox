@@ -85,6 +85,7 @@ fn translate_with_llm_chain(
                 history_entries,
             ),
             "gemini-live" => translate_with_gemini_live(
+                &keys.gemini,
                 &model.full_name,
                 request,
                 target_language,
@@ -163,6 +164,7 @@ fn translate_with_google_model(
 }
 
 fn translate_with_gemini_live(
+    api_key: &str,
     model_name: &str,
     request: &TranslationRequest,
     target_language: &str,
@@ -171,6 +173,7 @@ fn translate_with_gemini_live(
     let prompt = build_structured_prompt(request, target_language, history_entries);
     let text = crate::api::gemini_live::gemini_live_generate(
         crate::api::gemini_live::GeminiLiveGenerateRequest {
+            api_key: api_key.to_string(),
             model: model_name.to_string(),
             text: prompt,
             instruction: String::new(),

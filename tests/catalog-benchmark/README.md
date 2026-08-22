@@ -193,6 +193,22 @@ verified signed feed, merges every fragment, and uploads
 that provider. JSON credential arrays rotate independent accounts/projects and
 start at shard-specific offsets.
 
+The plan job first runs `scripts/catalog_model_discovery.py`. Gemini and Groq
+inventories come from their authenticated list-model APIs across every configured
+credential; public first-party pricing/free-limit pages provide separate tier
+evidence. The final artifact includes `catalog-model-discovery.json`. Discovery
+never mutates the catalog and never treats API visibility as proof that an
+endpoint is free-tier or general purpose. Routine discovery is browserless;
+browser review is reserved for an API/document disagreement, an unparseable page,
+an ambiguous lifecycle/capability, or an authenticated project-limit check.
+
+Set the workflow's optional `resume_run_id` to a prior benchmark-day run to reuse
+its successful cells and rerun only incomplete work. The merge job includes that
+base run before recovery fragments, so the final artifact remains one complete
+logical run. Groq vision shards reserve their documented free-tier token capacity
+with a longer interval; this avoids misclassifying predictable quota admission as
+model failure while independent credentials still rotate.
+
 For the selected latest row:
 
 - text accuracy comes only from completed structured human review; automatic

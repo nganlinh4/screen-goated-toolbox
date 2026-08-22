@@ -19,8 +19,18 @@ then changes the shared catalog when authorized.
 
 ## Unified discovery phase
 
-- Use only current first-party documentation, provider list-model APIs, and
-  authenticated consoles. Record the observation date and exact endpoint ID.
+- Run `py -3 scripts/catalog_model_discovery.py --output <report.json>` first.
+  It queries authenticated list-model APIs across every configured credential,
+  verifies cross-key inventory consistency, reconciles machine-readable
+  first-party free-tier pages, and records exact endpoint IDs and observation
+  time without exposing credentials or changing the catalog.
+- Routine discovery is browserless. Use browser control only when an API and
+  machine-readable first-party page disagree, a page cannot be parsed, lifecycle
+  or general-purpose capability remains ambiguous, or exact authenticated project
+  limits are required. API visibility alone is never free-tier or general-purpose
+  proof.
+- Use only current first-party documentation, provider list-model APIs, and the
+  authenticated console fallback. Record the observation date and exact endpoint ID.
 - Google: inspect the signed-in AI Studio project limits and official
   [rate-limit](https://ai.google.dev/gemini-api/docs/rate-limits), model,
   lifecycle, API-version, and capability pages. Rate limits are project- and
@@ -30,6 +40,8 @@ then changes the shared catalog when authorized.
   [rate-limit](https://console.groq.com/docs/rate-limits) pages plus account-visible
   list-models and structural response headers. Limits are enforced at organization
   and project/model scopes; adding keys in one project does not invent quota.
+  Intersect `GET /openai/v1/models` with the official Free Plan table; keep
+  API-only IDs as review findings instead of silently qualifying them.
 - OpenRouter: define free only from parseable zero prompt and completion pricing;
   confirm the current [shared free allowance](https://openrouter.ai/docs/faq).
   Its free request allowance is account-wide, so keep one provider-wide shard.
