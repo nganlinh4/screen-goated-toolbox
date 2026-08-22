@@ -85,38 +85,40 @@ pub fn show_model_and_settings(
                 ui.separator();
             }
 
-            for m in get_all_models_with_ollama() {
-                if m.enabled
-                    && m.model_type == target_model_type
-                    && viewer.is_provider_enabled(&m.provider)
-                {
-                    let name = m.localized_name(&viewer.ui_language);
-                    let quota = m.localized_quota(&viewer.ui_language);
-                    let label = format!("{} - {} - {}", name, m.full_name, quota);
-                    let is_selected = *model == m.id;
+            crate::gui::settings_ui::model_selector::model_popup_scroll(ui, |ui| {
+                for m in get_all_models_with_ollama() {
+                    if m.enabled
+                        && m.model_type == target_model_type
+                        && viewer.is_provider_enabled(&m.provider)
+                    {
+                        let name = m.localized_name(&viewer.ui_language);
+                        let quota = m.localized_quota(&viewer.ui_language);
+                        let label = format!("{} - {} - {}", name, m.full_name, quota);
+                        let is_selected = *model == m.id;
 
-                    ui.horizontal(|ui| {
-                        crate::gui::model_performance::render_prefix(ui, &m);
-                        crate::gui::icons::draw_icon_static(
-                            ui,
-                            crate::gui::icons::provider_icon(&m.provider),
-                            Some(crate::gui::icons::ICON_MD),
-                        );
-                        if ui.selectable_label(is_selected, label).clicked() {
-                            *model = m.id.clone();
-                            viewer.changed = true;
-                            egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
-                        }
-                        if model_shows_search_marker(&m.id) {
+                        ui.horizontal(|ui| {
+                            crate::gui::model_performance::render_prefix(ui, &m);
                             crate::gui::icons::draw_icon_static(
                                 ui,
-                                Icon::Search,
-                                Some(crate::gui::icons::ICON_XS),
+                                crate::gui::icons::provider_icon(&m.provider),
+                                Some(crate::gui::icons::ICON_MD),
                             );
-                        }
-                    });
+                            if ui.selectable_label(is_selected, label).clicked() {
+                                *model = m.id.clone();
+                                viewer.changed = true;
+                                egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
+                            }
+                            if model_shows_search_marker(&m.id) {
+                                crate::gui::icons::draw_icon_static(
+                                    ui,
+                                    Icon::Search,
+                                    Some(crate::gui::icons::ICON_XS),
+                                );
+                            }
+                        });
+                    }
                 }
-            }
+            });
         });
     });
 

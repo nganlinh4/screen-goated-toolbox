@@ -1,6 +1,6 @@
 # Catalog benchmark
 
-Current catalog decision record for OCR and the image chain order:
+Latest completed catalog decision record for OCR and the image chain order:
 [`RESULTS-2026-08-20-PROTOCOL11-CLEAN.md`](RESULTS-2026-08-20-PROTOCOL11-CLEAN.md).
 
 Superseded OCR record:
@@ -9,12 +9,13 @@ discharges the re-run the protocol-10 amendment required and owns every OCR late
 and accuracy figure. It reordered no chain: that run hit a shared Gemini quota
 exhaustion, so its reliability column is an artifact.
 
-Chain orders, text and coordinate rows:
+Existing chain orders, text and coordinate rows:
 [`RESULTS-2026-08-19-PROTOCOL10.md`](RESULTS-2026-08-19-PROTOCOL10.md), the source
 of every chain order, default and latency. Amended on 2026-08-20: its OCR accuracy
 figures were measured through a request shape the product no longer sends, so
-`benchmark_protocol_version` is 11 and every OCR row needs a fresh run. Latency,
-reliability, the text and coordinate suites and all chain orders still stand.
+`benchmark_protocol_version` was 11 and every OCR row needed a fresh run. Latency,
+reliability, the text and coordinate suites and all chain orders still stood at
+that amendment. Protocol 13 now supersedes its text rows.
 The interim decisions it absorbs remain in
 [`RESULTS-2026-08-19-FOLLOWUP.md`](RESULTS-2026-08-19-FOLLOWUP.md), and the run those
 rested on is
@@ -38,7 +39,11 @@ Their completed live candidate evaluation is recorded in
 The post-Ling free-route screen is recorded in
 [`OPENROUTER-SCREEN-2026-07-24-R2.md`](OPENROUTER-SCREEN-2026-07-24-R2.md).
 
-This opt-in Rust benchmark exercises the production catalog and provider request paths. It measures text translation, image coordinate grounding, and image OCR. Each catalog-history suite has ten cases of increasing difficulty. A separate three-level Screen Translate diagnostic tests the production structured text contract across the configured text-priority models; it never contributes to catalog history. Scheduling is round-major: every selected model sees difficulty 1 before any model moves to difficulty 2. Coordinate attempts reuse Computer Control's exact point prompt, schema, tolerant parser, 1600 px short-edge JPEG preparation, crosshair crop, verification prompt/schema/parser, and 70% acceptance threshold.
+Protocol 13 supersedes every earlier text row. Existing catalog values remain the
+last reviewed decisions, but a new text result is catalog-ready only after a
+complete protocol-13 run and its structured human review.
+
+This opt-in Rust benchmark exercises the production catalog and provider request paths. It measures diverse text transformation, image coordinate grounding, and image OCR. The ten text levels cover classification, extraction, translation, rewriting, summarization, structured extraction, reasoning, and synthesis; retained translation coverage includes Korean or mixed Korean to Vietnamese and Simplified Chinese to Vietnamese. Each catalog-history suite has ten cases of increasing difficulty. A separate three-level Screen Translate diagnostic tests the production structured text contract across the configured text-priority models; it never contributes to catalog history. Scheduling is round-major: every selected model sees difficulty 1 before any model moves to difficulty 2. Coordinate attempts reuse Computer Control's exact point prompt, schema, tolerant parser, 1600 px short-edge JPEG preparation, crosshair crop, verification prompt/schema/parser, and 70% acceptance threshold.
 
 Normal `cargo test` does not call providers. It validates the manifest, all image decodes, difficulty coverage, coordinate bounds, OCR crop bounds, each OCR input origin, and every localization golden. Open `review.html` before the first live run and check the image inputs, the ten red coordinate boxes and zooms, the green localization regions, both OCR crops, and OCR references in `manifest.json`.
 
@@ -69,18 +74,21 @@ cargo test catalog_benchmark_live -- --ignored --nocapture
 Omit `CATALOG_BENCH_MODELS` to select every enabled catalog model that has usable credentials. Optional controls:
 
 - `CATALOG_BENCH_SUITES=text,coordinate,ocr`
+- `CATALOG_BENCH_PROVIDERS=google,groq,nvidia` selects providers while retaining signed-feed discovery
 - `CATALOG_BENCH_MIN_INTERVAL_MS=2500` (per provider)
 - `CATALOG_BENCH_REQUEST_TIMEOUT_SECS=120`
 - `CATALOG_BENCH_OUTPUT=target/catalog-benchmark/my-run`
 - `CATALOG_BENCH_HISTORY_ROOT=target/catalog-benchmark` changes the local history root
 - `CATALOG_BENCH_RESUME_INPUTS=target/catalog-benchmark/interrupted/attempts.jsonl` skips successful cells already present in one or more semicolon-separated reports
+- `GEMINI_API_KEYS_JSON`, `GROQ_API_KEYS_JSON`, `OPENROUTER_API_KEYS_JSON`, and `NVIDIA_API_KEYS_JSON` accept JSON arrays of independent credentials; indexed names remain supported
 
 Without an explicit output, runs are stored under
 `target/catalog-benchmark/runs/`. A completed live-run directory contains
-`attempts.jsonl`, `summary.json`, `summary.md`, and `run.json`. The raw output
-and rubric are retained because translation accuracy needs human judgment; the
-automatic translation score combines reference similarity with explicit
-terminology, placeholder, forbidden-term, and line-count constraints.
+`attempts.jsonl`, `summary.json`, `summary.md`, `review-template.json`,
+`human-review.md`, and `run.json`. The raw output and rubric are retained because
+valid text answers can differ substantially. Reference similarity, terminology,
+placeholder, forbidden-term, and line-count metrics appear only in attempt
+details to prioritize review; they do not become text quality scores.
 Coordinate accuracy is strict end-to-end product success: the located point
 must hit the reviewed box and the production crosshair verifier must accept it
 at 70% confidence or higher. Locator-only hit and verifier results remain in
@@ -118,56 +126,19 @@ cargo test catalog_benchmark_transport_probe -- --ignored --nocapture
 ```
 
 `CATALOG_BENCH_PROBE_PROMPT_OVERRIDE` can isolate prompt wording. Every record
-keeps the exact prompt, full-answer latency, TTFO, OCR score, response, and raw
+keeps the exact prompt, full-result latency, OCR score, response, and raw
 Gemini usage metadata. Use it to test competing explanations such as input
 order, image-token resolution, streaming, or prompt length before changing
 `catalog/model_catalog.json#vision_request_profiles`.
 
-The July 2026 production-path probes found that Google Gemma's long latency
-tails persisted across input order, default/low/medium/high resolution,
-streaming, and a compact prompt. Lower resolution reduced billed input tokens
-but did not durably reduce completion time. Flash-Lite likewise showed no
-repeatable completion-latency gain from a forced resolution, and its ordinary
-minimal-thinking calls recorded zero thought tokens. The catalog therefore
-uses each provider's documented input order, provider-default resolution, and
-non-streaming full-answer OCR. Protocol 5 added the catalog-owned Qwen
-small-image output ceiling after live TPD admission probes showed that the
-previous 2,048-token reservation unnecessarily blocked short OCR calls.
-Protocol 6 supersedes older benchmark selections because it corrects reviewed
-goldens, makes translation exact-fragment alternatives and OCR input origins
-explicit, and replaces the synthetic one-call coordinate request with the
-production two-call locate-and-verify pipeline. Every live benchmark request
-calls the same Rust `translate_text_streaming` or
-`translate_image_streaming` entry point as the app. Enabled ordinary vision
-endpoints are build-validated to have exactly one
-explicit catalog request profile, and attempts record both that profile and the
-effective reasoning policy. “Fastest” therefore means the fastest production
-wire policy established by the current provider probes; it is auditable and
-identical between benchmark and product, but remains revisable when a provider
-adds a genuinely faster supported method.
-Protocol 7 supersedes coordinate rows from protocol 6: visual grounding now
-uses strict JSON point collections and catalog-owned structured-output transport,
-and Google vision inputs are image-first. Text and plain-OCR scoring are unchanged,
-but vision request-profile changes require fresh rows.
-Protocol 8 changes the randomly selected translation levels 3, 5, and 10 to
-English-to-Vietnamese, Korean-to-Vietnamese, and Chinese-to-Vietnamese while
-preserving their numeric-fidelity, idiom, and structured-constraint skills. It
-also adds two Vietnamese OCR fixtures covering a photographed sign and a dense
-web crop. Its fixture fingerprint and protocol version intentionally prevent
-earlier results from being selected for the revised suite.
-Protocol 10 changes plain-text OCR for endpoints the catalog marks
-`json-object`. Qwen 3.6 on Groq deterministically appends a re-tokenized
-repetition of the text it just emitted when asked for bare text, so those
-requests now carry a `{"text": ...}` envelope in JSON object mode and the reply
-is unwrapped before it leaves the vision path. Only Qwen matches that profile
-today. Text, coordinate, and every other OCR endpoint are unchanged, but OCR
-rows still need fresh runs because the request shape moved.
-
-Protocol 9 supersedes protocol 8 coordinate rows. The shared production
-grounding prompts now spell out the complete strict point-object contract so
-JSON-object, prompt-only, and Live transports receive the same semantics as
-providers that accept a wire-level JSON schema. OCR and translation requests
-are unchanged.
+Every live request calls the same Rust `translate_text_streaming` or
+`translate_image_streaming` entry point as the app. That shared path owns
+reasoning controls, request profiles, provider retries, parsing, and repetition
+protection. Benchmark day starts by refreshing the same verified signed NVIDIA
+feed, so runnable curated and newly discovered NVIDIA endpoints use the same
+current request control as normal SGT operation. First-party documentation and
+the production payload must be rechecked during human review; if best practice
+changes, fix the shared adapter/profile and rerun under a new protocol.
 
 ## Local latest-run history
 
@@ -192,10 +163,40 @@ runs have no `run.json`. Focused recoveries may be merged with their base output
 and registered once as one complete logical run; never register the fragments
 as separate results.
 
+Protocol 13 retains protocol 12's diverse explicit text tasks and changes the
+decision authority: text automatic metrics are triage only, complete human
+reviews own quality, and every recorded latency is start-to-full-result only.
+Protocol 12 replaced the translation-locked text request with explicit task
+instructions spanning eight task families. It retains Korean and Simplified
+Chinese translation into Vietnamese, starts with a several-word classification,
+and ends with a long structured policy synthesis. Dedicated non-LLM and
+search-by-default services are excluded because they do not execute the normal
+general text contract. The changed
+fixture fingerprint, scoring weights, and protocol version prevent older text
+rows from being combined with these results.
+
+## Human review
+
+Copy `review-template.json` to `reviews.json`. For every successful response that
+requires review, set `verdict` to `pass`, `partial`, or `fail`; set a 1–5
+`rating`; answer every `rubric_checks` item; and add notes where useful. Refresh
+or register history after saving the file. A missing verdict, rating, or rubric
+judgment keeps the row explicitly not decision-ready.
+
+## Hosted parallel run
+
+Dispatch `.github/workflows/catalog-benchmark-day.yml` for the shortest wall
+time. It compiles one Windows test binary, shards model-scoped providers across
+GitHub-hosted runners, keeps OpenRouter provider-wide, runs NVIDIA from the
+verified signed feed, merges every fragment, and uploads
+`catalog-benchmark-complete-human-review`. Missing provider secrets skip only
+that provider. JSON credential arrays rotate independent accounts/projects and
+start at shard-specific offsets.
+
 For the selected latest row:
 
-- accuracy uses successful attempts, with translation still
-  requiring rubric-based human review;
+- text accuracy comes only from completed structured human review; automatic
+  metrics remain visible as triage evidence;
 - reliability is successful attempts divided by every attempt, including
   overload and quota errors (ten attempts per suite);
 - text `catalog_latency_ms` is the median completion time across that run's ten
@@ -237,9 +238,7 @@ Every request uses the matching production transport mode and records:
 - the effective catalog-owned ordinary reasoning policy;
 - the generated vision request profile in successful coordinate/OCR details;
 - end-to-end completion time;
-- time to first real output (TTFO), excluding thinking placeholders;
-- generation time after first output;
-- output length, end-to-end characters/second, and post-first-output characters/second;
+- output length and end-to-end characters/second;
 - image byte size and decoded dimensions for vision attempts.
 
 Here, end-to-end means from entry into the shared Rust translation/vision
@@ -251,7 +250,7 @@ latency is the sum of its two shared model-call times; the deterministic local
 crosshair crop between them is excluded as product setup rather than model
 latency.
 
-Text translation streams, matching the normal interactive text path.
+Text requests stream, matching the normal interactive text path.
 Both coordinate calls and OCR requests are non-streaming, matching Rust
 Computer Control and the built-in `Extract text` preset respectively. OCR
 requests plain text.
@@ -271,17 +270,10 @@ The manifest validator requires at least four representative cases in each
 vision suite so a future fixture edit cannot silently collapse either timing
 sample.
 
-Use the selected latest run's median for the catalog's user-facing latency.
-Use the warm-only median as a diagnostic comparison, TTFO to diagnose
-queue/network delay, and
-post-first-output throughput to diagnose generation speed. A high completion
-time with low TTFO and high throughput is usually a longer valid answer or
-larger task, not a slow serving engine. A high TTFO points to provider load,
-networking, or cold setup; low post-first throughput points to inference speed.
-TTFO also includes any server-side buffering. When a provider buffers most of
-the completion and flushes chunks together, near-zero post-first duration and a
-huge apparent rate measure delivery only; they do not reveal internal token
-generation speed.
+Use the selected latest run's full-result median for the catalog's user-facing
+latency. The warm-only median, output length, provider retry evidence, and
+full-result throughput may diagnose outliers, but no first-token proxy enters
+benchmark reports or catalog decisions.
 The same ten cases, exact source images, and round-major interleaving make model
 comparisons fair. Within-run latency dispersion still combines task-size
 sensitivity with provider variability; it is not a pure same-prompt load test.
@@ -324,9 +316,10 @@ cargo test catalog_benchmark_merge_reports -- --ignored --nocapture
 ```
 
 The runner makes one provider request per text/OCR attempt and two per
-coordinate attempt (locate, then verify). It performs no benchmark-level retry.
-The normal per-provider pacer runs before each of the two coordinate calls, but
-that deliberate delay is not counted as model latency. Errors—including
+coordinate attempt (locate, then verify). It adds no retry outside the shared
+production transports. The pacer scopes independent model quotas by endpoint
+and keeps OpenRouter provider-wide; deliberate pacing is not counted as model
+latency. Errors—including
 overload responses—are recorded so availability is part of consistency. The
 production Gemini transport retries generic transient HTTP
 429/500/502/503/504 responses at most twice with short jittered backoff. An
@@ -346,11 +339,11 @@ This wait is excluded from measured model latency.
 
 This non-history probe is deliberately bounded to three difficulty levels and
 every enabled model in the default text-to-text priority stack. Each level may
-contain multiple scripts and layouts. It uses Screen
-Translate's exact OCR-region prompt, strict response schema, detector-owned ids,
-streaming transport, and parser. Time to first output is the first paintable
-region when available, rather than full-response latency. The reviewed boxes
-remain attached only to ids, so the language model cannot change geometry.
+contain multiple scripts and layouts. It uses Screen Translate's exact OCR-region
+prompt, strict response schema, detector-owned ids, streaming transport, and
+parser. Its latency is full-result completion like every other benchmark path.
+The reviewed boxes remain attached only to ids, so the language model cannot
+change geometry.
 
 The report writes the normal `attempts.jsonl`, `summary.json`, and `summary.md`,
 plus `localization-review.html` and paired PNG overlays. Green is reviewed

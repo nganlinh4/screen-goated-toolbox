@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
-    CustomModelDefinition, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, EdgeTtsSettings, Hotkey,
-    KokoroSettings, MagpieSettings, ModelPriorityChains, PendingPresetModelUpdate, PresetProfile,
-    RestoreDefaultsSelection, ScreenTranslateSettings, StepAudioReferenceVoice, StepAudioSettings,
-    SupertonicSettings, ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod,
-    TtsPlaygroundSettings, VieneuSettings, VoxtralSettings, default_tts_language_conditions,
-    get_system_ui_language,
+    AdaptiveModelPriority, CustomModelDefinition, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT,
+    EdgeTtsSettings, Hotkey, KokoroSettings, MagpieSettings, ModelPriorityChains,
+    PendingPresetModelUpdate, PresetProfile, RestoreDefaultsSelection, ScreenTranslateSettings,
+    StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings, ThemeMode,
+    TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    VieneuSettings, VoxtralSettings, default_tts_language_conditions, get_system_ui_language,
 };
 
 // ============================================================================
@@ -298,6 +298,8 @@ pub struct Config {
     // -------------------------------------------------------------------------
     #[serde(default = "default_model_priority_chains")]
     pub model_priority_chains: ModelPriorityChains,
+    #[serde(default)]
+    pub adaptive_model_priority: AdaptiveModelPriority,
 
     // -------------------------------------------------------------------------
     // Ollama Configuration
@@ -524,6 +526,7 @@ impl Default for Config {
             use_nvidia: crate::model_config::DEFAULT_USE_NVIDIA,
             use_ollama: crate::model_config::DEFAULT_USE_OLLAMA,
             model_priority_chains: ModelPriorityChains::default(),
+            adaptive_model_priority: AdaptiveModelPriority::default(),
 
             // Ollama
             ollama_base_url: "http://localhost:11434".to_string(),

@@ -13,7 +13,7 @@ index 961546d..e3dad16 100644
      emath::{GuiRounding, TSTransform},
      epaint::Shadow,
      pos2,
-@@ -989,9 +988,57 @@ where
+@@ -989,9 +988,58 @@ where
      clamp_scale(&mut to_global, min_scale, max_scale, ui_rect);
  
      let mut snarl_resp = ui.response();
@@ -25,6 +25,7 @@ index 961546d..e3dad16 100644
 +    {
 +        let scroll_delta = ui.ctx().input(|i| i.smooth_scroll_delta);
 +        let zoom_delta = ui.ctx().input(|i| i.zoom_delta());
++        let popup_open = egui::Popup::is_any_open(ui.ctx());
 +        let pointer_in_canvas = ui.ctx().input(|i| {
 +            i.pointer
 +                .hover_pos()
@@ -32,7 +33,7 @@ index 961546d..e3dad16 100644
 +                .unwrap_or(false)
 +        });
 +
-+        if scroll_delta.y.abs() > 0.1 && pointer_in_canvas {
++        if scroll_delta.y.abs() > 0.1 && pointer_in_canvas && !popup_open {
 +            let zoom_factor = (1.0 + scroll_delta.y * 0.003).clamp(0.9, 1.1);
 +            let pointer_pos = ui
 +                .ctx()
@@ -48,7 +49,7 @@ index 961546d..e3dad16 100644
 +            }
 +        }
 +
-+        if zoom_delta != 1.0 && pointer_in_canvas {
++        if zoom_delta != 1.0 && pointer_in_canvas && !popup_open {
 +            let pointer_pos = ui
 +                .ctx()
 +                .input(|i| i.pointer.hover_pos())
@@ -74,7 +75,7 @@ index 961546d..e3dad16 100644
  
      if snarl_resp.changed() {
          ui.ctx().request_repaint();
-@@ -2410,7 +2457,29 @@ where
+@@ -2410,7 +2458,29 @@ where
                          vec2(ui.spacing().icon_width, ui.spacing().icon_width),
                          Sense::click(),
                      );

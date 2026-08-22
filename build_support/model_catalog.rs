@@ -210,11 +210,21 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
             "strict-json-schema" => "StructuredOutputPolicy::StrictJsonSchema",
             value => panic!("unsupported structured output policy {value:?}"),
         };
+        // Absent means "no known fault", so a new endpoint is trusted until it
+        // has been measured rather than guarded on suspicion.
+        let restates_output = profile
+            .get("restates_output")
+            .map(|value| {
+                value
+                    .as_bool()
+                    .expect("vision restates_output must be a boolean")
+            })
+            .unwrap_or(false);
         let (provider, api_model) = profile_key
             .split_once(':')
             .unwrap_or_else(|| panic!("vision request profile key must be provider:api-model"));
         lines.push(format!(
-            "        ({}, {}) => Some(VisionRequestProfile {{ input_order: {input_order}, media_resolution: {media_resolution}, sampling: {sampling}, max_output_tokens: {max_output_tokens}, structured_output: {structured_output} }}),",
+            "        ({}, {}) => Some(VisionRequestProfile {{ input_order: {input_order}, media_resolution: {media_resolution}, sampling: {sampling}, max_output_tokens: {max_output_tokens}, structured_output: {structured_output}, restates_output: {restates_output} }}),",
             rust_string(provider),
             rust_string(api_model)
         ));
@@ -391,6 +401,34 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
             ),
             "        ),".to_string(),
         ]);
+    }
+    lines.push("    ]".to_string());
+    lines.push("}".to_string());
+    lines.push(String::new());
+
+    // Endpoints deliberately kept out of the product, regardless of how healthy
+    // they measure. A disabled row cannot express this: disabled rows are skipped
+    // above, so the model simply vanishes from the build and the availability
+    // feed reintroduces it under a derived id. The withdrawal has to outlive the
+    // row it removed.
+    lines.push(String::new());
+    lines.push("/// Endpoints withdrawn from the product, as `provider:full_name`.".to_string());
+    lines.push("///".to_string());
+    lines.push(
+        "/// Each entry carries the reason it was withdrawn, so the decision can be".to_string(),
+    );
+    lines.push("/// re-examined against evidence rather than folklore.".to_string());
+    lines.push(
+        "pub fn generated_withdrawn_endpoints() -> &'static [(&'static str, &'static str)] {"
+            .to_string(),
+    );
+    lines.push("    &[".to_string());
+    for (endpoint, reason) in manifest_object(&manifest, "withdrawn_models") {
+        lines.push(format!(
+            "        ({}, {}),",
+            rust_string(endpoint),
+            rust_string(reason.as_str().expect("a withdrawal must state a reason"))
+        ));
     }
     lines.push("    ]".to_string());
     lines.push("}".to_string());

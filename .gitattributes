@@ -49,4 +49,4 @@
 /component-notices/** -whitespace
 /mobile/native/**/assets/third_party/** -whitespace
 /mobile/native/sherpa-runtime/*.patch -whitespace
-/scripts/*.patch -whitespace
+/scripts/*.patch text eol=lf -whitespace

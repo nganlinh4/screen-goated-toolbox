@@ -114,3 +114,14 @@ fn ignored_egui_checkouts_exactly_match_tracked_patches() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn graph_wheel_zoom_yields_to_open_popups() {
+    let patch = read_source("scripts/egui-snarl-scroll-zoom.patch");
+
+    assert!(patch.contains("let popup_open = egui::Popup::is_any_open(ui.ctx());"));
+    assert!(
+        patch.matches("pointer_in_canvas && !popup_open").count() >= 2,
+        "both wheel and native zoom input must yield to graph-node dropdowns"
+    );
+}

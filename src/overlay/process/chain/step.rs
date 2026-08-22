@@ -79,12 +79,35 @@ pub fn run_chain_step(request: ChainStepRequest) {
     crate::overlay::result::latency::begin(&trace_id);
 
     // 1. Resolve Model & Prompt
-    let model_id = block.model.clone();
-    let model_conf = crate::model_config::get_model_by_id(&model_id);
+    //
+    // A pinned model can stop resolving: a catalog row retired by an update, a
+    // custom definition deleted, an Ollama model uninstalled, or a discovered one
+    // the feed no longer offers. Keep the preset unchanged and silently enter the
+    // same priority/fallback machinery used after a normal provider failure.
+    let block_model_id = block.model.clone();
+    let resolved = crate::model_config::get_model_by_id(&block_model_id)
+        .filter(|model| model.enabled)
+        .or_else(|| {
+            crate::retry_model_chain::resolve_unavailable_pinned_model(
+                &block.block_type,
+                &block_model_id,
+                &config,
+            )
+        });
+    if let Some(fallback) = resolved.as_ref().filter(|model| model.id != block_model_id) {
+        crate::log_info!(
+            "[Chain] Preset model {block_model_id:?} is unavailable; continuing with priority model {:?}",
+            fallback.id
+        );
+    }
+    let model_id = resolved
+        .as_ref()
+        .map_or_else(|| block_model_id.clone(), |model| model.id.clone());
+    let model_conf = resolved;
     let provider = model_conf
         .clone()
         .map(|m| m.provider)
-        .unwrap_or("groq".to_string());
+        .unwrap_or_else(|| "groq".to_string());
     let model_full_name = model_conf.map(|m| m.full_name).unwrap_or(model_id.clone());
 
     let mut final_prompt = block.prompt.clone();

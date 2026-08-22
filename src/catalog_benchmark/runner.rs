@@ -22,11 +22,22 @@ pub fn run() -> Result<()> {
     let manifest = Manifest::load()?;
     manifest.validate()?;
     let suites = Suites::from_env()?;
-    let credentials = Credentials::load();
+    let credentials = Credentials::load()?;
+    refresh_production_model_feed(&credentials);
     let filter = super::setup::model_filter();
-    let text_models = super::setup::select_models(ModelType::Text, filter.as_ref(), &credentials);
-    let vision_models =
-        super::setup::select_models(ModelType::Vision, filter.as_ref(), &credentials);
+    let providers = super::setup::provider_filter();
+    let text_models = super::setup::select_models(
+        ModelType::Text,
+        filter.as_ref(),
+        providers.as_ref(),
+        &credentials,
+    );
+    let vision_models = super::setup::select_models(
+        ModelType::Vision,
+        filter.as_ref(),
+        providers.as_ref(),
+        &credentials,
+    );
     super::setup::ensure_selection(suites, &text_models, &vision_models)?;
 
     if text_models
@@ -50,7 +61,7 @@ pub fn run() -> Result<()> {
                 if completed.contains(&attempt_key("text", model, &case.id, round)) {
                     continue;
                 }
-                pacer.wait(&model.provider);
+                pacer.wait(model);
                 recorder.push(run_text(model, case, round, &credentials, timeout))?;
             }
         }
@@ -60,7 +71,7 @@ pub fn run() -> Result<()> {
                 if completed.contains(&attempt_key("coordinate", model, &case.id, round)) {
                     continue;
                 }
-                pacer.wait(&model.provider);
+                pacer.wait(model);
                 recorder.push(coordinate::run(
                     model,
                     case,
@@ -78,7 +89,7 @@ pub fn run() -> Result<()> {
                 if completed.contains(&attempt_key("ocr", model, &case.id, round)) {
                     continue;
                 }
-                pacer.wait(&model.provider);
+                pacer.wait(model);
                 recorder.push(run_ocr(
                     model,
                     case,
@@ -93,6 +104,26 @@ pub fn run() -> Result<()> {
     recorder.finish()
 }
 
+fn refresh_production_model_feed(credentials: &Credentials) {
+    if !credentials.supports("nvidia") {
+        return;
+    }
+    match crate::model_feed::store::refresh() {
+        Ok(feed) => println!(
+            "BENCH_FEED provider={} generated_at={} models={}",
+            feed.provider,
+            feed.generated_at,
+            feed.models.len()
+        ),
+        Err(error) if crate::model_feed::store::cached().is_some() => {
+            println!("BENCH_FEED source=verified_cache refresh_error={error:#}");
+        }
+        Err(error) => {
+            println!("BENCH_FEED source=catalog_fallback refresh_error={error:#}");
+        }
+    }
+}
+
 fn run_text(
     model: &ModelConfig,
     case: &TextCase,
@@ -100,12 +131,8 @@ fn run_text(
     credentials: &Credentials,
     timeout: Option<Duration>,
 ) -> Attempt {
-    let instruction = format!(
-        "Translate from {} to {}. Preserve meaning, tone, formatting, names, numbers, and constraints. Output only the translation.",
-        case.source_language, case.target_language
-    );
+    let instruction = case.instruction.clone();
     let started = Instant::now();
-    let mut callback_events = Vec::new();
     let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_text_streaming(
             TranslateTextRequest {
@@ -122,15 +149,15 @@ fn run_text(
                 ui_language: "en",
                 cancel_token: None,
                 request_timeout: timeout,
-                target_language: Some(case.target_language.clone()),
+                target_language: case.target_language.clone(),
             },
-            |chunk| callback_events.push((started.elapsed().as_millis(), chunk.to_string())),
+            |_| {},
         )
     });
     let latency_ms = started.elapsed().as_millis();
     match result {
         Ok(response) if !response.trim().is_empty() => {
-            let timing = TimingMetrics::for_response(latency_ms, &callback_events, &response);
+            let timing = TimingMetrics::for_response(latency_ms, &response);
             let similarity = scoring::text_similarity(&response, &case.reference);
             let term_coverage = scoring::term_coverage(&response, &case.required_terms);
             let exact_coverage = scoring::exact_constraint_coverage(
@@ -143,6 +170,9 @@ fn run_text(
             let line_count = scoring::line_count_matches(response.trim(), case.expected_line_count);
             let constraint_score =
                 (term_coverage + exact_coverage + forbidden_avoidance + line_count) / 4.0;
+            let similarity_weight = case.task.reference_similarity_weight();
+            let automatic_score =
+                similarity_weight * similarity + (1.0 - similarity_weight) * constraint_score;
             base_attempt(
                 "text",
                 model,
@@ -152,7 +182,7 @@ fn run_text(
                 timing,
             )
             .success(
-                0.65 * similarity + 0.35 * constraint_score,
+                None,
                 None,
                 response,
                 json!({
@@ -163,6 +193,9 @@ fn run_text(
                     "forbidden_term_avoidance": forbidden_avoidance,
                     "line_count_match": line_count,
                     "constraint_score": constraint_score,
+                    "task": case.task.as_str(),
+                    "reference_similarity_weight": similarity_weight,
+                    "automatic_triage_score": automatic_score,
                     "input_chars": case.input.chars().count(),
                 }),
                 Some(case.reference.clone()),
@@ -176,7 +209,7 @@ fn run_text(
             case.id.clone(),
             case.difficulty,
             round,
-            TimingMetrics::for_response(latency_ms, &callback_events, ""),
+            TimingMetrics::for_response(latency_ms, ""),
         )
         .failure("empty", "provider returned an empty response"),
         Err(error) => base_attempt(
@@ -219,7 +252,6 @@ fn run_ocr(
     let image_height = image.height();
     let prompt = case.instruction.clone();
     let started = Instant::now();
-    let mut callback_events = Vec::new();
     let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_image_streaming(
             TranslateImageRequest {
@@ -235,7 +267,7 @@ fn run_ocr(
                 cancel_token: None,
                 request_timeout: timeout,
             },
-            |chunk| callback_events.push((started.elapsed().as_millis(), chunk.to_string())),
+            |_| {},
         )
     });
     let latency_ms = started.elapsed().as_millis();
@@ -253,10 +285,10 @@ fn run_ocr(
                 case.id.clone(),
                 case.difficulty,
                 round,
-                TimingMetrics::for_response(latency_ms, &callback_events, &response),
+                TimingMetrics::for_response(latency_ms, &response),
             )
             .success(
-                similarity,
+                Some(similarity),
                 Some(similarity >= 0.98),
                 response,
                 json!({
@@ -283,7 +315,7 @@ fn run_ocr(
             case.id.clone(),
             case.difficulty,
             round,
-            TimingMetrics::for_response(latency_ms, &callback_events, ""),
+            TimingMetrics::for_response(latency_ms, ""),
         )
         .failure("empty", "provider returned an empty response"),
         Err(error) => base_attempt(
@@ -301,11 +333,8 @@ fn run_ocr(
 #[derive(Clone, Copy, Default)]
 struct TimingMetrics {
     total_ms: u128,
-    time_to_first_output_ms: Option<u128>,
-    generation_duration_ms: Option<u128>,
     output_chars: Option<usize>,
     end_to_end_chars_per_second: Option<f64>,
-    generation_chars_per_second: Option<f64>,
 }
 
 impl TimingMetrics {
@@ -316,7 +345,7 @@ impl TimingMetrics {
         }
     }
 
-    fn for_response(total_ms: u128, events: &[(u128, String)], response: &str) -> Self {
+    fn for_response(total_ms: u128, response: &str) -> Self {
         let output_chars = response.chars().count();
         if output_chars == 0 {
             return Self {
@@ -326,36 +355,18 @@ impl TimingMetrics {
             };
         }
 
-        let first = events.iter().find_map(|(elapsed_ms, chunk)| {
-            let content = chunk
-                .strip_prefix(crate::api::WIPE_SIGNAL)
-                .unwrap_or(chunk)
-                .trim_end_matches('\0');
-            (!content.is_empty() && response.starts_with(content))
-                .then(|| (*elapsed_ms, content.chars().count()))
-        });
-        let (first_output_ms, first_output_chars) = first.unwrap_or((total_ms, output_chars));
-        let generation_ms = total_ms.saturating_sub(first_output_ms);
-        let remaining_chars = output_chars.saturating_sub(first_output_chars);
-
         Self {
             total_ms,
-            time_to_first_output_ms: Some(first_output_ms),
-            generation_duration_ms: Some(generation_ms),
             output_chars: Some(output_chars),
             end_to_end_chars_per_second: rate(output_chars, total_ms),
-            generation_chars_per_second: rate(remaining_chars, generation_ms),
         }
     }
 
     fn for_non_streaming_pipeline(total_ms: u128, output_chars: usize) -> Self {
         Self {
             total_ms,
-            time_to_first_output_ms: None,
-            generation_duration_ms: None,
             output_chars: Some(output_chars),
             end_to_end_chars_per_second: rate(output_chars, total_ms),
-            generation_chars_per_second: None,
         }
     }
 }
@@ -384,11 +395,8 @@ fn base_attempt(
         reasoning_policy: reasoning_policy_label(model),
         status: "pending".to_string(),
         latency_ms: timing.total_ms,
-        time_to_first_output_ms: timing.time_to_first_output_ms,
-        generation_duration_ms: timing.generation_duration_ms,
         output_chars: timing.output_chars,
         end_to_end_chars_per_second: timing.end_to_end_chars_per_second,
-        generation_chars_per_second: timing.generation_chars_per_second,
         score: None,
         strict_pass: None,
         response: None,
@@ -423,7 +431,7 @@ impl AttemptBuilder {
     )]
     fn success(
         mut self,
-        score: f64,
+        score: Option<f64>,
         strict_pass: Option<bool>,
         response: String,
         details: serde_json::Value,
@@ -432,7 +440,7 @@ impl AttemptBuilder {
         manual_review_required: bool,
     ) -> Attempt {
         self.0.status = "success".to_string();
-        self.0.score = Some(score);
+        self.0.score = score;
         self.0.strict_pass = strict_pass;
         self.0.response = Some(response);
         self.0.details = details;

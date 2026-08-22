@@ -3,6 +3,7 @@ mod localization_probe;
 mod manifest;
 mod reasoning;
 mod report;
+mod review;
 mod runner;
 mod scoring;
 pub(crate) mod setup;

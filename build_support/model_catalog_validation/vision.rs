@@ -39,17 +39,35 @@ pub(super) fn validate_request_profiles(
             .as_object()
             .expect("vision request profiles must be objects");
         let fields: HashSet<&str> = profile.keys().map(String::as_str).collect();
-        assert_eq!(
-            fields,
-            HashSet::from([
-                "input_order",
-                "media_resolution",
-                "sampling",
-                "max_output_tokens",
-                "structured_output",
-            ]),
-            "vision request profile fields drifted for {profile_key:?}"
+        let required = HashSet::from([
+            "input_order",
+            "media_resolution",
+            "sampling",
+            "max_output_tokens",
+            "structured_output",
+        ]);
+        assert!(
+            required.is_subset(&fields),
+            "vision request profile is missing required fields for {profile_key:?}"
         );
+        // Optional because it records a fault that has actually been measured on
+        // one endpoint. Requiring it everywhere would mean declaring every other
+        // endpoint sound without having checked.
+        let optional = HashSet::from(["restates_output"]);
+        let unknown: Vec<&&str> = fields
+            .iter()
+            .filter(|field| !required.contains(*field) && !optional.contains(*field))
+            .collect();
+        assert!(
+            unknown.is_empty(),
+            "vision request profile has unknown fields {unknown:?} for {profile_key:?}"
+        );
+        if let Some(value) = profile.get("restates_output") {
+            assert!(
+                value.is_boolean(),
+                "restates_output must be a boolean for {profile_key:?}"
+            );
+        }
         assert!(
             ["text-first", "image-first"].contains(&string(profile, "input_order")),
             "unsupported input_order for {profile_key:?}"

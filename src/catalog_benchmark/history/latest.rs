@@ -25,11 +25,15 @@ struct GroupSample {
     completed_at: String,
     model_name: String,
     attempts: Vec<Attempt>,
+    human_scores: Vec<f64>,
+    reviewed_attempts: usize,
+    review_required_attempts: usize,
 }
 
 struct StoredRun {
     metadata: RunMetadata,
     attempts: Vec<Attempt>,
+    reviews: super::super::review::ReviewState,
 }
 
 type ExpectedCases = BTreeMap<String, BTreeMap<u8, String>>;
@@ -68,12 +72,19 @@ pub(super) fn has_complete_group(
     attempts: Vec<Attempt>,
     manifest: &Manifest,
 ) -> bool {
-    !complete_groups(metadata, attempts, &expected_cases(manifest)).is_empty()
+    !complete_groups(
+        metadata,
+        attempts,
+        super::super::review::ReviewState::default(),
+        &expected_cases(manifest),
+    )
+    .is_empty()
 }
 
 fn complete_groups(
     metadata: RunMetadata,
     attempts: Vec<Attempt>,
+    reviews: super::super::review::ReviewState,
     expected: &ExpectedCases,
 ) -> Vec<(GroupKey, GroupSample)> {
     let selected_suites = metadata
@@ -134,6 +145,11 @@ fn complete_groups(
                         == cases.len();
                 complete.then(|| {
                     let model_name = attempts[0].model_name.clone();
+                    let human_scores = attempts
+                        .iter()
+                        .filter_map(|attempt| reviews.score(attempt))
+                        .collect();
+                    let (reviewed_attempts, review_required_attempts) = reviews.counts(&attempts);
                     (
                         GroupKey {
                             suite,
@@ -147,6 +163,9 @@ fn complete_groups(
                             completed_at: metadata.completed_at.clone(),
                             model_name,
                             attempts,
+                            human_scores,
+                            reviewed_attempts,
+                            review_required_attempts,
                         },
                     )
                 })
@@ -186,6 +205,7 @@ struct LatestRow {
     success_rate: f64,
     mean_accuracy_score: Option<f64>,
     strict_pass_rate: Option<f64>,
+    human_reviews: String,
     catalog_latency_attempts: usize,
     catalog_latency_ms: Option<u64>,
     catalog_p95_latency_ms: Option<f64>,
@@ -255,7 +275,7 @@ fn build_rows(
     });
     let mut latest = BTreeMap::new();
     for run in runs {
-        for (key, sample) in complete_groups(run.metadata, run.attempts, expected) {
+        for (key, sample) in complete_groups(run.metadata, run.attempts, run.reviews, expected) {
             latest.entry(key).or_insert(sample);
         }
     }
@@ -279,12 +299,15 @@ fn summarize_latest(key: GroupKey, sample: GroupSample, policy: &HistoryPolicy) 
             if catalog_latency_eligible(attempt, policy.vision_representative_max_edge_px) {
                 catalog_latencies.push(attempt.latency_ms as f64);
             }
-            scores.extend(attempt.score);
+            if !attempt.manual_review_required {
+                scores.extend(attempt.score);
+            }
             strict.extend(attempt.strict_pass);
         } else {
             *errors.entry(attempt.status.clone()).or_insert(0) += 1;
         }
     }
+    scores.extend(sample.human_scores.iter().copied());
     catalog_latencies.sort_by(f64::total_cmp);
     all_case_latencies.sort_by(f64::total_cmp);
     let required_catalog_cases = match key.suite.as_str() {
@@ -292,7 +315,8 @@ fn summarize_latest(key: GroupKey, sample: GroupSample, policy: &HistoryPolicy) 
         "coordinate" | "ocr" => policy.minimum_representative_cases_per_vision_suite,
         _ => usize::MAX,
     };
-    let decision_ready = catalog_latencies.len() >= required_catalog_cases;
+    let reviews_complete = sample.reviewed_attempts == sample.review_required_attempts;
+    let decision_ready = catalog_latencies.len() >= required_catalog_cases && reviews_complete;
     let catalog_median = percentile(&catalog_latencies, 0.5);
     let attempts = sample.attempts.len();
     LatestRow {
@@ -315,6 +339,10 @@ fn summarize_latest(key: GroupKey, sample: GroupSample, policy: &HistoryPolicy) 
         mean_accuracy_score: mean(&scores),
         strict_pass_rate: (!strict.is_empty())
             .then(|| strict.iter().filter(|passed| **passed).count() as f64 / strict.len() as f64),
+        human_reviews: format!(
+            "{}/{}",
+            sample.reviewed_attempts, sample.review_required_attempts
+        ),
         catalog_latency_attempts: catalog_latencies.len(),
         catalog_latency_ms: decision_ready
             .then(|| catalog_median.map(|value| value.round() as u64))
@@ -341,9 +369,12 @@ fn load_stored_run(metadata_path: &Path) -> Result<StoredRun> {
     let output = metadata_path
         .parent()
         .context("run metadata has no parent")?;
+    let attempts = read_attempts(&output.join("attempts.jsonl"))?;
+    let reviews = super::super::review::load(output, &attempts)?;
     Ok(StoredRun {
         metadata,
-        attempts: read_attempts(&output.join("attempts.jsonl"))?,
+        attempts,
+        reviews,
     })
 }
 
@@ -386,13 +417,13 @@ fn latest_markdown(report: &LatestReport) -> String {
             .policy
             .minimum_representative_cases_per_vision_suite
     ));
-    output.push_str("| Suite | Model | Provider endpoint | Reasoning | Run | Ready | Success | Accuracy aid | Strict | Catalog n | Catalog median ms | Catalog P95 ms | All-case median ms | All-case P95 ms |\n");
+    output.push_str("| Suite | Model | Provider endpoint | Reasoning | Run | Ready | Human reviews | Success | Reviewed quality / automatic aid | Strict | Catalog n | Catalog full-result median ms | Catalog P95 ms | All-case full-result median ms | All-case P95 ms |\n");
     output.push_str(
-        "| --- | --- | --- | --- | --- | :---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+        "| --- | --- | --- | --- | --- | :---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
     );
     for row in &report.rows {
         output.push_str(&format!(
-            "| {} | {} | {} / {} | {} | {} | {} | {}/{} | {} | {} | {} | {} | {} | {} | {} |\n",
+            "| {} | {} | {} / {} | {} | {} | {} | {} | {}/{} | {} | {} | {} | {} | {} | {} | {} |\n",
             row.suite,
             row.model_id,
             row.provider,
@@ -400,6 +431,7 @@ fn latest_markdown(report: &LatestReport) -> String {
             row.reasoning_policy,
             row.run_id,
             if row.decision_ready { "yes" } else { "no" },
+            row.human_reviews,
             row.successes,
             row.attempts,
             format_optional(row.mean_accuracy_score),
@@ -412,7 +444,7 @@ fn latest_markdown(report: &LatestReport) -> String {
             format_optional(row.all_case_p95_latency_ms),
         ));
     }
-    output.push_str("\nA recovery report may be registered after it has been merged into one complete logical run. Older compatible runs remain historical evidence but never contribute to current catalog values. Translation accuracy still requires rubric-based human review.\n");
+    output.push_str("\nEvery latency runs from request start through the complete returned result. Human-review suites remain not ready until every successful response has a verdict, 1–5 rating, and a judgment for each rubric item. Automatic metrics only triage the queue.\n");
     output
 }
 

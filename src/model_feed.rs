@@ -1,7 +1,7 @@
 //! The published provider availability feed.
 //!
 //! A scheduled job probes every NVIDIA NIM endpoint and publishes which ones
-//! answer, answer correctly, and with which reasoning control. Discovering that
+//! answer, which general modality they accept, and with which reasoning control. Discovering that
 //! from a user's machine would cost seventy-five models times three samples every
 //! couple of hours, and it changes: three endpoints changed state within a single
 //! day during evaluation.
@@ -9,14 +9,16 @@
 //! What the feed decides, and what it does not:
 //!
 //! - it may **offer** models, which appear as [`ModelSource::Discovered`];
-//! - it may **order** the retry chain from position 1 downward;
-//! - it may **never** take position 0. That position is tied to
+//! - it may offer live candidates to the adaptive tail below position 0;
+//! - it may never take position 0. That position is tied to
 //!   `default_text_model_id`, carries every request before any fallback exists,
 //!   and stays under local control.
 //!
-//! Latency in the feed is a ranking hint, not an ordering. It is measured from
-//! one datacenter while the user is on their own network, so it only breaks ties
-//! among endpoints the feed has already judged healthy.
+//! Feed eligibility is an operational reliability gate. Stable catalog quality
+//! tiers and latency then form a bounded tradeoff for eligible models. A sample
+//! from one preset never qualifies or disqualifies a whole generic catalog.
+//! Latency comes from measured evidence but remains only a ranking hint because
+//! the user's network can differ from the measurement environment.
 //!
 //! Nothing is trusted before its signature verifies against the tracked public
 //! key, and a feed that fails verification is ignored rather than partly applied.
@@ -39,30 +41,47 @@ const LABEL: &str = "availability feed";
 
 /// Schema versions this client understands.
 ///
-/// Both are accepted so a client update and a publisher update need not land
-/// together: a new build reading the last schema-1 feed keeps working until the
-/// next publish, rather than losing the feed for the length of a publish cycle.
-/// Schema 1 carries no modality, and a model without one is treated as text,
-/// which is the safe reading — routing an image at a text endpoint fails, while
-/// declining to route one merely forgoes a fallback.
-const SUPPORTED_SCHEMAS: &[u32] = &[1, 2];
+/// Schema 3 separates operational availability from catalog quality. Schema 2
+/// used preset-specific output checks as universal eligibility and is rejected.
+/// Schema 1 remains readable only as the historical empty feed.
+const SUPPORTED_SCHEMAS: &[u32] = &[1, 3];
 
 /// Providers the feed is allowed to describe. A feed naming anything else is
 /// rejected outright rather than filtered, because it means the publisher and
 /// this client disagree about what is being published.
 const ALLOWED_PROVIDERS: &[&str] = &["nvidia"];
 
+const CONTROL_CONTRACT_VERSION: u32 = 1;
+const AVAILABILITY_GATE_VERSION: u32 = 1;
+
+fn default_control_contract_version() -> u32 {
+    CONTROL_CONTRACT_VERSION
+}
+
+/// Versioned request controls whose exact wire meaning is shared with the
+/// publisher. Adding or changing a control requires a new feed contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FeedControl {
+    Plain,
+    EffortNone,
+    EffortLow,
+    TemplateKwargs,
+    NoThink,
+    ThinkingOff,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct FeedModel {
     pub id: String,
-    /// Reasoning control the publisher found working.
+    /// Reasoning control the publisher found working, and the one actually sent.
     ///
-    /// The catalog owns the policy actually sent, so this is not applied here;
-    /// it is carried so a diagnostic can explain why an endpoint behaves as it
-    /// does, and so a mismatch between publisher and catalog is visible.
+    /// This overrides the catalog policy for the endpoint. The catalog fixes a
+    /// policy when the build is cut; the monitor rediscovers it from the live
+    /// endpoint every couple of hours, and sending a control an endpoint has
+    /// stopped accepting turns a healthy model into HTTP 500.
     #[serde(default)]
-    #[allow(dead_code)]
-    pub control: Option<String>,
+    pub control: Option<FeedControl>,
     /// Whether the publisher verified this endpoint on images. Routing an image
     /// to a text endpoint fails every time, so this is carried rather than
     /// assumed.
@@ -80,6 +99,13 @@ pub struct FeedModel {
 pub struct AvailabilityFeed {
     #[serde(rename = "schemaVersion")]
     pub schema_version: u32,
+    #[serde(
+        rename = "controlVersion",
+        default = "default_control_contract_version"
+    )]
+    pub control_version: u32,
+    #[serde(rename = "availabilityGateVersion", default)]
+    pub availability_gate_version: u32,
     pub provider: String,
     /// Publication time, surfaced when reporting which feed is in use.
     #[serde(rename = "generatedAt")]
@@ -106,6 +132,22 @@ fn validate(feed: &AvailabilityFeed) -> Result<()> {
             feed.schema_version
         );
     }
+    if feed.control_version != CONTROL_CONTRACT_VERSION {
+        bail!(
+            "{LABEL} reasoning-control contract {} is not supported by this build",
+            feed.control_version
+        );
+    }
+    if feed.schema_version == 1 {
+        if !feed.models.is_empty() {
+            bail!("{LABEL} legacy schema may not offer models");
+        }
+    } else if feed.availability_gate_version != AVAILABILITY_GATE_VERSION {
+        bail!(
+            "{LABEL} availability gate {} is not supported by this build",
+            feed.availability_gate_version
+        );
+    }
     if !ALLOWED_PROVIDERS.contains(&feed.provider.as_str()) {
         bail!("{LABEL} names an unexpected provider: {}", feed.provider);
     }
@@ -124,7 +166,7 @@ fn validate(feed: &AvailabilityFeed) -> Result<()> {
 
 /// Success rate below which a published model is not worth appending.
 ///
-/// The publisher already applies hysteresis and withholds anything that failed
+/// The publisher already applies hysteresis and withholds anything unavailable
 /// its latest run, so this is a second opinion rather than the only one. Demanding
 /// a perfect record rejected models that pass five runs in six, which are useful
 /// at the back of a chain: reaching them at all means everything local has already
@@ -143,23 +185,120 @@ pub fn ranked_models(feed: &AvailabilityFeed) -> Vec<&FeedModel> {
     usable
 }
 
-/// Appends feed models behind the entire local chain.
+/// Comparable evidence used to place adaptive candidates without reordering the
+/// user's configured rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CandidateRank {
+    pub quality_tier: u8,
+    pub latency_ms: u32,
+}
+
+impl CandidateRank {
+    /// Lower is better. Catalog quality has six tiers; each tier step may justify
+    /// up to 1.5x the latency. Speed remains dominant enough that a proven-fast
+    /// fallback can displace a much slower higher-tier model.
+    fn priority_cost(self) -> u32 {
+        const HIGHEST_QUALITY_TIER: u8 = 6;
+        let tier = self.quality_tier.clamp(1, HIGHEST_QUALITY_TIER);
+        let distance = u32::from(HIGHEST_QUALITY_TIER - tier);
+        let numerator = u64::from(self.latency_ms).saturating_mul(3_u64.pow(distance));
+        let denominator = 2_u64.pow(distance);
+        u32::try_from(numerator / denominator).unwrap_or(u32::MAX)
+    }
+
+    fn outranks_or_ties(self, other: Self) -> bool {
+        self.priority_cost() < other.priority_cost()
+            || (self.priority_cost() == other.priority_cost()
+                && (self.quality_tier > other.quality_tier
+                    || (self.quality_tier == other.quality_tier
+                        && self.latency_ms <= other.latency_ms)))
+    }
+}
+
+/// Interleaves adaptive candidates while keeping the configured head and the
+/// relative order of every non-adaptive configured fallback intact.
 ///
-/// Feed members are deep fallback and nothing more. Locally configured models
-/// keep their order and their positions, and a remote decision can only lengthen
-/// the tail. That is deliberate given how these endpoints behave: they come and
-/// go, and a member that is momentarily dead costs one fast rejection and a
-/// cooldown when it sits at the back, against a visible stall when it sits near
-/// the front.
-pub fn merge_into_chain(chain: &[String], offered: &[String]) -> Vec<String> {
+/// Each candidate lands before the first slower or weaker configured fallback.
+/// Enabling adaptation explicitly hands currently offered rows back to the
+/// formula, even when a previous manual edit persisted them into the chain.
+/// This makes re-enabling Live and later feed refreshes capable of restoring the
+/// measured order instead of mistaking yesterday's live rows for fixed choices.
+#[cfg(test)]
+pub fn merge_into_chain(
+    chain: &[String],
+    offered: &[String],
+    rank_for: impl Fn(&str) -> CandidateRank,
+) -> Vec<String> {
+    merge_into_chain_with_overrides(chain, offered, &[], &[], rank_for)
+}
+
+pub fn merge_into_chain_with_overrides(
+    chain: &[String],
+    offered: &[String],
+    pinned: &[String],
+    excluded: &[String],
+    rank_for: impl Fn(&str) -> CandidateRank,
+) -> Vec<String> {
     if chain.is_empty() {
         return chain.to_vec();
     }
-    let mut merged: Vec<String> = chain.to_vec();
-    for id in offered {
-        if !merged.iter().any(|existing| existing == id) {
-            merged.push(id.clone());
+    const MAX_ADAPTIVE_OFFERS: usize = 5;
+    let protected_head = &chain[0];
+    let is_pinned = |id: &String| {
+        pinned.iter().any(|candidate| candidate == id)
+            && chain.iter().any(|configured| configured == id)
+    };
+    let is_excluded = |id: &String| excluded.iter().any(|candidate| candidate == id);
+    let mut adaptive: Vec<&String> = offered
+        .iter()
+        .filter(|id| *id != protected_head && !is_pinned(id) && !is_excluded(id))
+        .collect();
+    adaptive.sort_by(|left, right| {
+        let left = rank_for(left);
+        let right = rank_for(right);
+        left.priority_cost()
+            .cmp(&right.priority_cost())
+            .then_with(|| right.quality_tier.cmp(&left.quality_tier))
+            .then_with(|| left.latency_ms.cmp(&right.latency_ms))
+    });
+    adaptive.truncate(MAX_ADAPTIVE_OFFERS);
+
+    let mut merged: Vec<String> = chain
+        .iter()
+        .enumerate()
+        .filter(|(index, id)| {
+            *index == 0
+                || (!is_excluded(id)
+                    && (is_pinned(id) || !offered.iter().any(|candidate| candidate == *id)))
+        })
+        .map(|(_, id)| id.clone())
+        .collect();
+    for id in adaptive {
+        if merged.iter().any(|existing| existing == id) {
+            continue;
         }
+        let candidate_rank = rank_for(id);
+        let insert_at = merged
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find(|(_, existing)| !rank_for(existing).outranks_or_ties(candidate_rank))
+            .map(|(index, _)| index)
+            .unwrap_or(merged.len());
+        merged.insert(insert_at, id.clone());
+    }
+    for (authored_index, pinned_id) in chain
+        .iter()
+        .enumerate()
+        .skip(1)
+        .filter(|(_, id)| is_pinned(id) && !is_excluded(id))
+    {
+        let Some(current_index) = merged.iter().position(|id| id == pinned_id) else {
+            continue;
+        };
+        let pinned_id = merged.remove(current_index);
+        let target_index = authored_index.min(merged.len());
+        merged.insert(target_index, pinned_id);
     }
     merged
 }

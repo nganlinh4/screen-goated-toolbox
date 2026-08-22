@@ -44,7 +44,6 @@ struct ProbeAttempt {
     prompt: String,
     status: String,
     latency_ms: u128,
-    time_to_first_output_ms: Option<u128>,
     score: Option<f64>,
     strict_pass: Option<bool>,
     response: Option<String>,
@@ -55,7 +54,7 @@ struct ProbeAttempt {
 pub fn run() -> Result<()> {
     let manifest = Manifest::load()?;
     manifest.validate()?;
-    let credentials = Credentials::load();
+    let credentials = Credentials::load()?;
     ensure!(
         credentials.supports("google"),
         "transport probe requires GEMINI_API_KEY"
@@ -83,7 +82,7 @@ pub fn run() -> Result<()> {
             .unwrap_or_else(|_| case.instruction.clone());
         for (variant_name, variant) in &variants {
             for model in &models {
-                pacer.wait("google");
+                pacer.wait(model);
                 let attempt = credentials.with_provider_key("google", |gemini_api_key| {
                     run_google(
                         model,
@@ -142,7 +141,6 @@ fn run_google(
         PromptOrder::ImageFirst => json!([image, text]),
     };
     let started = Instant::now();
-    let mut events = Vec::new();
     let result = stream_gemini_generate_detailed(
         GeminiGenerateRequest {
             parts,
@@ -158,7 +156,7 @@ fn run_google(
             media_resolution: variant.resolution,
             retry_observer: None,
         },
-        &mut |chunk| events.push((started.elapsed().as_millis(), chunk.to_string())),
+        &mut |_| {},
     );
     let latency_ms = started.elapsed().as_millis();
     match result {
@@ -178,7 +176,6 @@ fn run_google(
                 prompt: prompt.to_string(),
                 status: "success".to_string(),
                 latency_ms,
-                time_to_first_output_ms: first_output_ms(&events, &output.content, latency_ms),
                 score: Some(score),
                 strict_pass: Some(score >= 0.98),
                 response: Some(output.content),
@@ -195,7 +192,6 @@ fn run_google(
             prompt: prompt.to_string(),
             status: "empty".to_string(),
             latency_ms,
-            time_to_first_output_ms: None,
             score: None,
             strict_pass: Some(false),
             response: Some(output.content),
@@ -211,7 +207,6 @@ fn run_google(
             prompt: prompt.to_string(),
             status: "request_error".to_string(),
             latency_ms,
-            time_to_first_output_ms: None,
             score: None,
             strict_pass: Some(false),
             response: None,
@@ -304,24 +299,6 @@ fn parse_variant(value: &str) -> Result<Variant> {
         resolution,
         streaming,
     })
-}
-
-fn first_output_ms(events: &[(u128, String)], response: &str, fallback: u128) -> Option<u128> {
-    if response.is_empty() {
-        return None;
-    }
-    Some(
-        events
-            .iter()
-            .find_map(|(elapsed_ms, chunk)| {
-                let content = chunk
-                    .strip_prefix(crate::api::WIPE_SIGNAL)
-                    .unwrap_or(chunk)
-                    .trim_end_matches('\0');
-                (!content.is_empty() && response.starts_with(content)).then_some(*elapsed_ms)
-            })
-            .unwrap_or(fallback),
-    )
 }
 
 fn comma_values(name: &str) -> Result<Option<Vec<String>>> {

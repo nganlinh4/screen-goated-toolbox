@@ -58,7 +58,7 @@ impl HistoryPolicy {
             "unsupported catalog latency statistic"
         );
         ensure!(
-            policy.accuracy_statistic == "latest_run_successful_attempt_scores",
+            policy.accuracy_statistic == "human_review_for_manual_suites_else_latest_run_scores",
             "unsupported catalog accuracy statistic"
         );
         ensure!(
@@ -151,9 +151,11 @@ pub(super) fn live_recorder(
         "benchmark output {} is already registered; choose a fresh output directory",
         output.display()
     );
-    if !super::setup::resume_inputs().is_empty() {
+    if !super::setup::resume_inputs().is_empty()
+        || std::env::var("CATALOG_BENCH_FRAGMENT").as_deref() == Ok("1")
+    {
         println!(
-            "BENCH_HISTORY_SKIP output={} reason=recovery_run",
+            "BENCH_HISTORY_SKIP output={} reason=fragment_or_recovery_run",
             output.display()
         );
         return Recorder::new(&output);

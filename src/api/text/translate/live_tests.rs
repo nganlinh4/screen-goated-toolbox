@@ -88,11 +88,12 @@ fn translate_adherence_across_models() {
         eprintln!("set CATALOG_BENCH_LIVE=1 to run");
         return;
     }
-    let credentials = Credentials::load();
+    let credentials = Credentials::load().expect("load benchmark credentials");
     let filter = crate::catalog_benchmark::setup::model_filter();
     let models = crate::catalog_benchmark::setup::select_models(
         ModelType::Text,
         filter.as_ref(),
+        None,
         &credentials,
     );
     assert!(!models.is_empty(), "no text model has credentials");

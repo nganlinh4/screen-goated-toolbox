@@ -76,6 +76,7 @@ mod tests {
             sampling: VisionSamplingPolicy::ProviderDefault,
             max_output_tokens: None,
             structured_output: StructuredOutputPolicy::Unsupported,
+            restates_output: false,
         }
     }
 

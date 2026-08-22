@@ -345,7 +345,8 @@
       "media_resolution": "provider-default",
       "sampling": "qwen3-groq-non-thinking",
       "max_output_tokens": 512,
-      "structured_output": "json-object"
+      "structured_output": "json-object",
+      "restates_output": true
     },
     "google:gemma-4-26b-a4b-it": {
       "input_order": "image-first",
@@ -806,21 +807,9 @@
       "reasoning_policy": "openai-low"
     },
     "nvidia:nvidia/nemotron-3.5-lightning-30b-a3b": {
-      "name_vi": "N Nhanh",
-      "name_ko": "N 빠름",
-      "name_en": "N Fast",
-      "quota_vi": "Không giới hạn",
-      "quota_ko": "무제한",
-      "quota_en": "Unlimited",
-      "intelligence_tier": 4,
-      "supports_search": false,
-      "search_tool_enabled_by_default": false,
-      "reasoning_policy": "openai-none"
-    },
-    "nvidia:nvidia/nemotron-3-nano-30b-a3b": {
-      "name_vi": "N Gọn",
-      "name_ko": "N 소형",
-      "name_en": "N Compact",
+      "name_vi": "N n35l3a",
+      "name_ko": "N n35l3a",
+      "name_en": "N n35l3a",
       "quota_vi": "Không giới hạn",
       "quota_ko": "무제한",
       "quota_en": "Unlimited",
@@ -830,9 +819,9 @@
       "reasoning_policy": "openai-none"
     },
     "nvidia:nvidia/nemotron-3-super-120b-a12b": {
-      "name_vi": "N Mạnh",
-      "name_ko": "N 강함",
-      "name_en": "N Strong",
+      "name_vi": "N n3s1a",
+      "name_ko": "N n3s1a",
+      "name_en": "N n3s1a",
       "quota_vi": "Không giới hạn",
       "quota_ko": "무제한",
       "quota_en": "Unlimited",
@@ -842,9 +831,9 @@
       "reasoning_policy": "openai-none"
     },
     "nvidia:openai/gpt-oss-120b": {
-      "name_vi": "N GPT Lớn",
-      "name_ko": "N GPT 대형",
-      "name_en": "N GPT Large",
+      "name_vi": "N go1",
+      "name_ko": "N go1",
+      "name_en": "N go1",
       "quota_vi": "Không giới hạn",
       "quota_ko": "무제한",
       "quota_en": "Unlimited",
@@ -854,9 +843,9 @@
       "reasoning_policy": "openai-low"
     },
     "nvidia:openai/gpt-oss-20b": {
-      "name_vi": "N GPT Nhỏ",
-      "name_ko": "N GPT 소형",
-      "name_en": "N GPT Small",
+      "name_vi": "N go2",
+      "name_ko": "N go2",
+      "name_en": "N go2",
       "quota_vi": "Không giới hạn",
       "quota_ko": "무제한",
       "quota_en": "Unlimited",
@@ -1410,15 +1399,6 @@
       "performance_source": "probe-2026-08-20:nvidia-corpus"
     },
     {
-      "id": "nvidia-nemotron-3-nano-30b-text",
-      "provider": "nvidia",
-      "full_name": "nvidia/nemotron-3-nano-30b-a3b",
-      "model_type": "Text",
-      "enabled": true,
-      "typical_latency_ms": 480,
-      "performance_source": "probe-2026-08-20:nvidia-corpus"
-    },
-    {
       "id": "nvidia-nemotron-3-super-120b-text",
       "provider": "nvidia",
       "full_name": "nvidia/nemotron-3-super-120b-a12b",
@@ -1445,5 +1425,6 @@
       "typical_latency_ms": 750,
       "performance_source": "probe-2026-08-20:nvidia-corpus"
     }
-  ]
+  ],
+  "withdrawn_models": {}
 }

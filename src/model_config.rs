@@ -32,58 +32,12 @@ pub enum OrdinaryReasoningPolicy {
     LiveProfile,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum VisionInputOrder {
-    TextFirst,
-    ImageFirst,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum VisionMediaResolutionPolicy {
-    ProviderDefault,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum VisionSamplingPolicy {
-    ProviderDefault,
-    Qwen3GroqNonThinking,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum StructuredOutputPolicy {
-    Unsupported,
-    // Constructed by the generated catalog rather than by hand, so it reads as
-    // dead whenever no enabled endpoint selects it. It stays because the value
-    // is part of the shared wire contract that Android, both validators, and
-    // catalog/README.md all define.
-    #[allow(dead_code)]
-    PromptOnly,
-    JsonObject,
-    StrictJsonSchema,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-pub struct VisionRequestProfile {
-    pub input_order: VisionInputOrder,
-    pub media_resolution: VisionMediaResolutionPolicy,
-    pub sampling: VisionSamplingPolicy,
-    pub max_output_tokens: Option<u32>,
-    pub structured_output: StructuredOutputPolicy,
-}
-
-impl VisionRequestProfile {
-    const SAFE_DEFAULT: Self = Self {
-        input_order: VisionInputOrder::TextFirst,
-        media_resolution: VisionMediaResolutionPolicy::ProviderDefault,
-        sampling: VisionSamplingPolicy::ProviderDefault,
-        max_output_tokens: None,
-        structured_output: StructuredOutputPolicy::Unsupported,
-    };
-}
+#[path = "model_config/vision_profile.rs"]
+mod vision_profile;
+pub use vision_profile::{
+    StructuredOutputPolicy, VisionInputOrder, VisionMediaResolutionPolicy, VisionRequestProfile,
+    VisionSamplingPolicy,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LiveEndpointProfile {
@@ -189,6 +143,33 @@ impl ModelConfig {
     }
 }
 
+/// Compact provider-marked label derived from a provider endpoint.
+///
+/// Provider-fed catalogs can grow faster than product translations. Keeping the
+/// label mechanical makes every endpoint from the same provider consistent while
+/// the selector's detail line still exposes the complete endpoint name.
+#[cfg(not(feature = "recorder-worker"))]
+pub fn compact_provider_endpoint_name(provider: &str, full_name: &str) -> String {
+    let provider_mark = provider
+        .chars()
+        .find(|character| character.is_alphanumeric())
+        .map(|character| character.to_uppercase().collect::<String>())
+        .unwrap_or_else(|| "?".to_string());
+    let leaf = full_name.rsplit('/').next().unwrap_or(full_name);
+    let initials: String = leaf
+        .split(|character: char| !character.is_alphanumeric())
+        .filter_map(|part| part.chars().next())
+        .take(8)
+        .flat_map(char::to_lowercase)
+        .collect();
+    let initials = if initials.is_empty() {
+        "model"
+    } else {
+        &initials
+    };
+    format!("{provider_mark} {initials}")
+}
+
 include!(concat!(env!("OUT_DIR"), "/model_catalog_generated.rs"));
 
 #[path = "model_config/presentation.rs"]
@@ -278,11 +259,50 @@ pub fn get_model_by_id_with_custom(
         return Some(model);
     }
 
-    ollama::find_cached_model(id)
+    if let Some(model) = ollama::find_cached_model(id) {
+        return Some(model);
+    }
+
+    #[cfg(not(feature = "recorder-worker"))]
+    if let Some(model) = get_all_models()
+        .iter()
+        .find(|model| {
+            crate::model_feed::store::discovered_id(&model.provider, &model.full_name) == id
+        })
+        .cloned()
+    {
+        return Some(model);
+    }
+
+    #[cfg(not(feature = "recorder-worker"))]
+    if let Some(model) = crate::model_feed::store::discovered_models()
+        .into_iter()
+        .find(|model| model.id == id)
+    {
+        return Some(model);
+    }
+
+    None
 }
 
 pub fn live_endpoint_profile(api_model: &str) -> Option<LiveEndpointProfile> {
     generated_live_endpoint_profile(api_model)
+}
+
+/// Whether an endpoint has been withdrawn from the product.
+///
+/// Withdrawal is a curated judgement and outranks every live signal. The
+/// availability feed can only report that an endpoint answers; a model can answer
+/// promptly, consistently, and with invented content, and score perfectly on
+/// every measure availability has. Removing its catalog row is not enough,
+/// because a row that is gone is exactly what the feed treats as "a model the
+/// catalog has never heard of" and re-introduces under a derived id.
+#[cfg(not(feature = "recorder-worker"))]
+pub fn is_withdrawn_endpoint(provider: &str, full_name: &str) -> bool {
+    let key = format!("{provider}:{full_name}");
+    generated_withdrawn_endpoints()
+        .iter()
+        .any(|(endpoint, _)| *endpoint == key)
 }
 
 pub fn ordinary_reasoning_policy(provider: &str, api_model: &str) -> OrdinaryReasoningPolicy {
@@ -392,6 +412,13 @@ pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
     models
 }
 
+/// Every model this app can route to right now.
+///
+/// Four sources, merged in one place: the compiled catalog, the user's own
+/// definitions, a local Ollama scan, and the signed availability feed. Keeping
+/// the merge here is the point -- a caller that assembled its own view would
+/// silently miss whichever source was added last, which is exactly what happened
+/// to the feed.
 pub fn get_all_models_with_custom(
     custom_models: &[crate::config::types::CustomModelDefinition],
 ) -> Vec<ModelConfig> {
@@ -405,7 +432,29 @@ pub fn get_all_models_with_custom(
 
     models.extend(ollama::cached_models());
 
+    #[cfg(not(feature = "recorder-worker"))]
+    {
+        let discovered = crate::model_feed::store::discovered_models();
+        extend_unique_endpoint_models(&mut models, discovered);
+    }
+
     models
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+fn extend_unique_endpoint_models(
+    models: &mut Vec<ModelConfig>,
+    incoming: impl IntoIterator<Item = ModelConfig>,
+) {
+    for model in incoming {
+        let duplicate = models.iter().any(|existing| {
+            existing.id == model.id
+                || (existing.provider == model.provider && existing.full_name == model.full_name)
+        });
+        if !duplicate {
+            models.push(model);
+        }
+    }
 }
 
 pub fn custom_model_definition_to_config(

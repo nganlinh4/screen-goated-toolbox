@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn every_nvidia_model_uses_the_same_endpoint_abbreviation_rule() {
+    let models: Vec<ModelConfig> = get_all_models()
+        .iter()
+        .filter(|model| model.provider == "nvidia")
+        .cloned()
+        .collect();
+    assert!(!models.is_empty());
+    for model in models {
+        let expected = compact_provider_endpoint_name(&model.provider, &model.full_name);
+        assert_eq!(model.name_vi, expected);
+        assert_eq!(model.name_ko, expected);
+        assert_eq!(model.name_en, expected);
+    }
+}
+
+#[test]
 fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
     assert_eq!(DEFAULT_IMAGE_MODEL_ID, "groq-qwen-3-6-27b-vision");
     assert_eq!(
@@ -106,7 +122,7 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
             Some(expected)
         );
     }
-    // Lowest measured translation quality of any enabled text row, so speed
+    // Lowest catalog-owned quality tier among these enabled text rows, so speed
     // alone does not buy it a forward seat.
     assert_eq!(
         default_text_to_text_priority_chain_ids().get(8).copied(),
@@ -331,4 +347,29 @@ fn behavioral_model_names_match_the_shared_presentation_fixture() {
             );
         }
     }
+}
+
+#[test]
+fn a_promoted_discovered_id_resolves_to_its_curated_catalog_row() {
+    let endpoint = "openai/gpt-oss-120b";
+    let discovered_id = crate::model_feed::store::discovered_id("nvidia", endpoint);
+    let promoted = get_model_by_id_with_custom(&discovered_id, &[])
+        .expect("a historical discovered pin must survive catalog promotion");
+
+    assert_eq!(promoted.id, "nvidia-gpt-oss-120b-text");
+    assert_eq!(promoted.provider, "nvidia");
+    assert_eq!(promoted.full_name, endpoint);
+}
+
+#[test]
+fn discovery_does_not_duplicate_an_existing_endpoint_or_id() {
+    let mut models = vec![get_model_by_id("nvidia-gpt-oss-120b-text").unwrap()];
+    let mut same_endpoint = models[0].clone();
+    same_endpoint.id = "feed-derived-id".to_string();
+    let mut same_id = models[0].clone();
+    same_id.full_name = "different/endpoint".to_string();
+
+    extend_unique_endpoint_models(&mut models, [same_endpoint, same_id]);
+
+    assert_eq!(models.len(), 1);
 }

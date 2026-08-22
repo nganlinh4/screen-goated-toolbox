@@ -132,8 +132,8 @@ while all-case median/P95 remain large-image stress diagnostics. Coordinate
 rows are separate Computer/Phone Control evidence and never enter the general
 image-to-text latency. A vision row needs at least four successful
 representative cases. Reliability counts every attempt in the selected run,
-including errors. Diagnose surprising results with TTFO, generation duration,
-post-first-output throughput, output length, and recorded image dimensions;
+including errors. Diagnose surprising results with full-result completion time,
+output length, recorded image dimensions, provider retries, and quota evidence;
 never substitute a different provider's result for a same-family endpoint.
 
 Latency labels round to one decimal second and omit `.0`: `800` → `0.8s`,
@@ -201,8 +201,7 @@ The current policies come from production-path transport probes:
   the provider adapter may attach it only when the exact profile allows it.
 
 OCR catalog timing measures full-answer completion through the real
-non-streaming preset path. A diagnostic streaming probe may record time to
-first output, but must not substitute that value for product completion time.
+non-streaming preset path. Time-to-first-token is not benchmark evidence.
 Increment the benchmark protocol before registering runs after any request
 profile changes.
 

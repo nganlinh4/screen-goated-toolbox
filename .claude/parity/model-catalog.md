@@ -40,10 +40,33 @@
   siblings retain the base name. Identically named models served by different
   providers retain provider-specific names, quotas, and request policy.
 - Lists sort globally by latency regardless of provider, with durable model ID
-  as the tie-breaker. Runtime priority/retry chains retain their authored order.
+  as the tie-breaker. Runtime priority/retry chains retain the relative order of
+  authored rows. On Windows, eligible live-feed rows may enter before a slower
+  authored fallback without truncating user-authored rows; the chosen head stays
+  fixed.
+- Windows exposes one persisted adaptive-model toggle beside each priority-chain
+  title. While enabled, its formula-ranked live-feed entries render as ordinary
+  selectable, draggable, removable chain rows. Moving a live row pins that row at
+  its authored anchor; removing it records a chain-local exclusion. These narrow
+  overrides and edits to other rows preserve Live, so every unpinned, non-excluded
+  offer continues to receive availability and formula-order updates. Changing a
+  live row excludes its old identity and pins its live replacement. Restoring the
+  chain defaults clears its pins and exclusions. A manual edit that leaves no
+  live-feed row in the chain disables Live; Add stays available. Live-off chains
+  retain their authored manual order. Android has no live availability-feed
+  source, so it renders no inert switch.
+- The image `10` and text `12` counts are shipped-default preparation targets,
+  never UI, persistence, or runtime limits. Users may add any number of rows.
+- The chosen-model sentinel is numbered `0`, editable retry rows are numbered
+  continuously from `1`, and the automatic-fallback sentinel receives the next
+  number after the final visible row.
 - A benchmark-qualified built-in endpoint becomes selectable
   on Windows and Android from the same catalog revision; neither platform may
   hide it behind a platform-local allowlist or duplicate its fallback placement.
+- Architecture never implies general capability. Translation-only, search-only,
+  embedding, and other dedicated endpoints remain outside generic Text-to-Text
+  priority chains even when implemented as LLMs and even when they pass their
+  dedicated task suite.
 - Lifecycle-disabled modality rows retain their durable catalog identity but
   are excluded from selectable generated catalogs and retry chains on both
   platforms. Ordinary vision request profiles cover enabled rows only.
@@ -87,3 +110,12 @@
 - Screen Recorder uses fixed flex columns inside its shared select component.
 - Windows uses egui fixed-size labels and Android uses fixed-width Compose text.
   The visual primitives differ; ordering, values, and formatting do not.
+- The signed live availability feed and its per-chain switch are Windows-only.
+  Android continues to use shared authored catalog chains until it gains an
+  equivalent verified live-feed source.
+- A signed feed names both its wire schema and the operational-availability
+  contract that admitted its candidates. Windows rejects feeds using obsolete
+  availability semantics; signature validity alone does not make stale evidence
+  current. Preset samples may exercise the monitor, but no preset-specific
+  result can admit or remove a model from a whole Text-to-Text or Image-to-Text
+  catalog. Durable quality remains owned by the catalog benchmark.

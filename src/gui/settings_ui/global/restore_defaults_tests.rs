@@ -51,6 +51,7 @@ const APP: &[&str] = &[
 ];
 const MODELS: &[&str] = &[
     "model_priority_chains",
+    "adaptive_model_priority",
     "ollama_vision_model",
     "ollama_text_model",
 ];
@@ -509,6 +510,16 @@ fn non_default_config() -> Config {
     };
     config.model_priority_chains.image_to_text.clear();
     config.model_priority_chains.text_to_text.clear();
+    config.adaptive_model_priority.image_to_text = false;
+    config.adaptive_model_priority.text_to_text = false;
+    config
+        .adaptive_model_priority
+        .image_to_text_overrides
+        .pin("changed-image-model");
+    config
+        .adaptive_model_priority
+        .text_to_text_overrides
+        .exclude("changed-text-model");
     config.edge_tts_settings.pitch = 10;
     config.step_audio_settings.voice = "step-voice".to_string();
     config.magpie_settings.voice = "magpie-voice".to_string();

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use super::super::{HistoryPolicy, ModelIdentity, RunKind, RunMetadata};
 use super::{ExpectedCases, GroupKey, GroupSample, StoredRun, build_rows, summarize_latest};
 use crate::catalog_benchmark::report::Attempt;
+use crate::catalog_benchmark::review::ReviewState;
 
 fn policy() -> HistoryPolicy {
     HistoryPolicy {
@@ -12,7 +13,7 @@ fn policy() -> HistoryPolicy {
         vision_representative_max_edge_px: 1024,
         minimum_representative_cases_per_vision_suite: 4,
         latency_statistic: "latest_run_median".to_string(),
-        accuracy_statistic: "latest_run_successful_attempt_scores".to_string(),
+        accuracy_statistic: "human_review_for_manual_suites_else_latest_run_scores".to_string(),
         reliability_statistic: "latest_run_success_rate_including_errors".to_string(),
     }
 }
@@ -29,11 +30,8 @@ fn vision_attempt(round: u8, latency_ms: u128, edge_px: u64) -> Attempt {
         reasoning_policy: "none".to_string(),
         status: "success".to_string(),
         latency_ms,
-        time_to_first_output_ms: None,
-        generation_duration_ms: None,
         output_chars: None,
         end_to_end_chars_per_second: None,
-        generation_chars_per_second: None,
         score: Some(1.0),
         strict_pass: Some(true),
         response: None,
@@ -90,6 +88,7 @@ fn stored_run(
         attempts: (1..=attempts)
             .map(|round| attempt(round, reasoning_policy, latency_ms, failed_round))
             .collect(),
+        reviews: ReviewState::default(),
     }
 }
 
@@ -111,11 +110,8 @@ fn attempt(
         reasoning_policy: reasoning_policy.to_string(),
         status: if failed { "http-503" } else { "success" }.to_string(),
         latency_ms,
-        time_to_first_output_ms: None,
-        generation_duration_ms: None,
         output_chars: None,
         end_to_end_chars_per_second: None,
-        generation_chars_per_second: None,
         score: (!failed).then_some(1.0),
         strict_pass: (!failed).then_some(true),
         response: None,
@@ -123,7 +119,7 @@ fn attempt(
         details: serde_json::Value::Null,
         reference: None,
         rubric: Vec::new(),
-        manual_review_required: true,
+        manual_review_required: false,
     }
 }
 
@@ -182,6 +178,9 @@ fn representative_ocr_latency_excludes_large_stress_inputs() {
             vision_attempt(4, 130, 900),
             vision_attempt(5, 10_000, 2_560),
         ],
+        human_scores: Vec::new(),
+        reviewed_attempts: 0,
+        review_required_attempts: 0,
     };
     let row = summarize_latest(
         GroupKey {
@@ -198,4 +197,30 @@ fn representative_ocr_latency_excludes_large_stress_inputs() {
     assert_eq!(row.catalog_latency_attempts, 4);
     assert_eq!(row.catalog_latency_ms, Some(115));
     assert_eq!(row.all_case_median_latency_ms, Some(120.0));
+}
+
+#[test]
+fn missing_human_reviews_block_decision_readiness() {
+    let sample = GroupSample {
+        run_id: "latest".to_string(),
+        completed_at: "2026-07-26T12:00:00+00:00".to_string(),
+        model_name: "api/model".to_string(),
+        attempts: vec![attempt(1, "none", 100, None)],
+        human_scores: Vec::new(),
+        reviewed_attempts: 9,
+        review_required_attempts: 10,
+    };
+    let row = summarize_latest(
+        GroupKey {
+            suite: "text".to_string(),
+            model_id: "model-text".to_string(),
+            provider: "provider".to_string(),
+            api_model: "api/model".to_string(),
+            reasoning_policy: "none".to_string(),
+        },
+        sample,
+        &policy(),
+    );
+    assert!(!row.decision_ready);
+    assert_eq!(row.human_reviews, "9/10");
 }

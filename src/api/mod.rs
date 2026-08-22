@@ -63,18 +63,82 @@ pub fn gemini_important_task_thinking_config(model: &str) -> Option<serde_json::
     }
 }
 
-/// Apply the catalog-owned lowest supported reasoning effort to ordinary
-/// OpenAI-compatible requests.
+/// Apply the lowest supported reasoning effort to ordinary OpenAI-compatible
+/// requests.
+///
+/// The availability feed wins over the catalog when it has an opinion. Both
+/// describe the same thing -- how to ask this endpoint to stop thinking -- but
+/// the catalog fixes its answer when the build is cut, while the monitor
+/// rediscovers it from the live endpoint every couple of hours. A control an
+/// endpoint no longer accepts is not a cosmetic mismatch: during evaluation it
+/// turned a healthy model into HTTP 500.
 pub fn apply_ordinary_openai_reasoning_policy(
     payload: &mut serde_json::Value,
     provider: &str,
     model: &str,
 ) {
+    #[cfg(not(feature = "recorder-worker"))]
+    if let Some(control) = crate::model_feed::store::control_for(provider, model) {
+        apply_feed_reasoning_control(payload, control);
+        return;
+    }
     if let crate::model_config::OrdinaryReasoningPolicy::OpenAiEffort(effort) =
         crate::model_config::ordinary_reasoning_policy(provider, model)
     {
         payload["reasoning_effort"] = serde_json::Value::String(effort.to_string());
     }
+}
+
+/// Shape one request the way the publisher proved the endpoint accepts.
+///
+/// The typed labels mirror the monitor's versioned contract in
+/// `scripts/monitor_nvidia_models.py`; an unknown label invalidates the feed
+/// rather than being guessed at on a user request.
+#[cfg(not(feature = "recorder-worker"))]
+fn apply_feed_reasoning_control(
+    payload: &mut serde_json::Value,
+    control: crate::model_feed::FeedControl,
+) {
+    use crate::model_feed::FeedControl;
+    match control {
+        FeedControl::EffortNone => {
+            payload["reasoning_effort"] = serde_json::Value::String("none".into());
+        }
+        FeedControl::EffortLow => {
+            payload["reasoning_effort"] = serde_json::Value::String("low".into());
+        }
+        FeedControl::TemplateKwargs => {
+            payload["chat_template_kwargs"] = serde_json::json!({ "thinking": false });
+        }
+        FeedControl::NoThink => prepend_system_message(payload, "/no_think"),
+        FeedControl::ThinkingOff => prepend_system_message(payload, "detailed thinking off"),
+        FeedControl::Plain => {}
+    }
+}
+
+/// Puts a control instruction ahead of the conversation, as the publisher sends it.
+#[cfg(not(feature = "recorder-worker"))]
+fn prepend_system_message(payload: &mut serde_json::Value, content: &str) {
+    let Some(messages) = payload["messages"].as_array_mut() else {
+        return;
+    };
+    if let Some(existing) = messages
+        .first_mut()
+        .filter(|message| message["role"] == "system")
+    {
+        if let Some(text) = existing["content"].as_str() {
+            existing["content"] = serde_json::Value::String(format!("{content}\n\n{text}"));
+            return;
+        }
+        if let Some(parts) = existing["content"].as_array_mut() {
+            parts.insert(0, serde_json::json!({ "type": "text", "text": content }));
+            return;
+        }
+    }
+    messages.insert(
+        0,
+        serde_json::json!({ "role": "system", "content": content }),
+    );
 }
 
 /// Apply an exact catalog reasoning policy using OpenRouter's nested request
@@ -93,6 +157,59 @@ mod tests {
         apply_ordinary_openai_reasoning_policy, apply_ordinary_openrouter_reasoning_policy,
         gemini_thinking_config,
     };
+
+    #[test]
+    fn a_published_control_is_sent_exactly_as_the_publisher_proved_it() {
+        use super::apply_feed_reasoning_control;
+        use crate::model_feed::FeedControl;
+
+        let mut payload = serde_json::json!({ "messages": [{"role": "user", "content": "hi"}] });
+        apply_feed_reasoning_control(&mut payload, FeedControl::EffortNone);
+        assert_eq!(payload["reasoning_effort"], "none");
+
+        let mut payload = serde_json::json!({ "messages": [] });
+        apply_feed_reasoning_control(&mut payload, FeedControl::TemplateKwargs);
+        assert_eq!(payload["chat_template_kwargs"]["thinking"], false);
+
+        // The system-message controls have to reach the conversation, not the
+        // top level, or the endpoint simply thinks anyway.
+        let mut payload = serde_json::json!({ "messages": [{"role": "user", "content": "hi"}] });
+        apply_feed_reasoning_control(&mut payload, FeedControl::ThinkingOff);
+        assert_eq!(payload["messages"][0]["role"], "system");
+        assert_eq!(payload["messages"][0]["content"], "detailed thinking off");
+        assert_eq!(payload["messages"][1]["role"], "user");
+    }
+
+    #[test]
+    fn a_plain_control_leaves_the_request_untouched() {
+        use super::apply_feed_reasoning_control;
+        use crate::model_feed::FeedControl;
+
+        let original = serde_json::json!({ "messages": [{"role": "user", "content": "hi"}] });
+        let mut payload = original.clone();
+        apply_feed_reasoning_control(&mut payload, FeedControl::Plain);
+        assert_eq!(payload, original);
+    }
+
+    #[test]
+    fn a_system_control_preserves_the_existing_system_instruction() {
+        use super::apply_feed_reasoning_control;
+        use crate::model_feed::FeedControl;
+
+        let mut payload = serde_json::json!({
+            "messages": [
+                {"role": "system", "content": "Translate faithfully."},
+                {"role": "user", "content": "hi"}
+            ]
+        });
+        apply_feed_reasoning_control(&mut payload, FeedControl::NoThink);
+
+        assert_eq!(payload["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            payload["messages"][0]["content"],
+            "/no_think\n\nTranslate faithfully."
+        );
+    }
 
     #[test]
     fn minimizes_thinking_for_flash_lite_models() {

@@ -3,9 +3,9 @@ use super::cooldown::{
     rate_limit_error, record_model_failure_at, unavailable_model_error,
 };
 use super::{
-    RetryChainKind, benchmark_derived_timeout, interactive_request_timeout, preflight_skip_reason,
-    record_model_success, release_model_probe, resolve_next_configured_model,
-    resolve_next_retry_model,
+    RetryChainKind, UNBENCHMARKED_FEED_QUALITY_TIER, benchmark_derived_timeout,
+    interactive_request_timeout, preflight_skip_reason, record_model_success, release_model_probe,
+    resolve_next_configured_model, resolve_next_retry_model, resolve_unavailable_pinned_model,
 };
 use crate::config::Config;
 use std::collections::HashSet;
@@ -26,6 +26,11 @@ fn benchmark_timeout_is_multiplied_and_bounded() {
         Duration::from_secs(30)
     );
     assert_eq!(benchmark_derived_timeout(None), Duration::from_secs(30));
+}
+
+#[test]
+fn live_corpus_passes_enter_as_capable_fallbacks_pending_offline_benchmark() {
+    assert_eq!(UNBENCHMARKED_FEED_QUALITY_TIER, 4);
 }
 
 #[test]
@@ -203,6 +208,25 @@ fn configured_retry_does_not_escape_the_priority_chain() {
 }
 
 #[test]
+fn an_unavailable_pin_silently_enters_the_configured_priority_chain() {
+    let mut config = Config {
+        api_key: "test-groq-key".to_string(),
+        gemini_api_key: "test-gemini-key".to_string(),
+        ..Default::default()
+    };
+    config.model_priority_chains.text_to_text = vec![
+        "missing-model".to_string(),
+        "groq-qwen-3-6-27b-text".to_string(),
+    ];
+
+    let fallback = resolve_unavailable_pinned_model("text", "missing-model", &config)
+        .expect("the next usable priority model should be selected");
+
+    assert_eq!(fallback.id, "groq-qwen-3-6-27b-text");
+    assert!(resolve_unavailable_pinned_model("audio", "missing-model", &config).is_none());
+}
+
+#[test]
 fn ordinary_text_auto_retry_excludes_search_tool_endpoints() {
     let mut config = Config {
         api_key: "test-groq-key".to_string(),
@@ -315,18 +339,24 @@ fn real_groq_rate_headers_populate_the_token_budget() {
 }
 
 #[test]
-fn the_shipped_chains_stay_within_their_length_cap() {
-    // The cap exists so the priority list stays readable, and it is enforced in
-    // three places that can drift apart: the catalog validators and
-    // `effective_chain`. This pins the shipped data to the same number.
-    let config = Config::default();
-    for kind in [RetryChainKind::ImageToText, RetryChainKind::TextToText] {
-        let configured = kind.configured_chain(&config);
-        assert!(
-            configured.len() <= kind.max_chain_len(),
-            "{kind:?} ships {} models, above its cap of {}",
-            configured.len(),
-            kind.max_chain_len()
-        );
-    }
+fn disabling_adaptive_models_returns_the_authored_chain_exactly() {
+    let mut config = Config::default();
+    config.adaptive_model_priority.text_to_text = false;
+    assert_eq!(
+        RetryChainKind::TextToText.effective_chain(&config),
+        config.model_priority_chains.text_to_text
+    );
+}
+
+#[test]
+fn user_authored_chain_is_not_runtime_truncated() {
+    let mut config = Config::default();
+    config.adaptive_model_priority.text_to_text = false;
+    config.model_priority_chains.text_to_text =
+        (0..30).map(|index| format!("user-model-{index}")).collect();
+
+    assert_eq!(
+        RetryChainKind::TextToText.effective_chain(&config),
+        config.model_priority_chains.text_to_text
+    );
 }
