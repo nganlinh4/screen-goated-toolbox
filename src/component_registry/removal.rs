@@ -83,7 +83,10 @@ pub(super) fn run_reserved_removal(id: &str) -> Result<RemovalOutcome> {
     };
     let finished = matches!(
         outcome,
-        RemovalOutcome::Missing | RemovalOutcome::Removed | RemovalOutcome::PreservedModified(_)
+        RemovalOutcome::Missing
+            | RemovalOutcome::Removed
+            | RemovalOutcome::RequiredBy(_)
+            | RemovalOutcome::PreservedModified(_)
     );
     super::models::invalidate_status(id);
     super::lease::finish_removal(id, finished);
@@ -100,7 +103,10 @@ fn lock_removal_filesystem() -> std::sync::MutexGuard<'static, ()> {
 pub(super) fn finish_pending(id: &str, outcome: &RemovalOutcome) -> Result<()> {
     if matches!(
         outcome,
-        RemovalOutcome::Missing | RemovalOutcome::Removed | RemovalOutcome::PreservedModified(_)
+        RemovalOutcome::Missing
+            | RemovalOutcome::Removed
+            | RemovalOutcome::RequiredBy(_)
+            | RemovalOutcome::PreservedModified(_)
     ) {
         super::pending::clear(id)?;
     }
@@ -445,6 +451,13 @@ mod tests {
         assert_eq!(
             request_remove(runtime_id).unwrap(),
             RemovalOutcome::RequiredBy(vec![worker_id.to_string()])
+        );
+        assert!(!super::super::lease::pending(runtime_id));
+        assert!(super::super::acquire(runtime_id).is_ok());
+        assert!(
+            !super::super::pending::list()
+                .unwrap()
+                .contains(&runtime_id.to_string())
         );
         assert_eq!(request_remove(worker_id).unwrap(), RemovalOutcome::Removed);
         for _ in 0..100 {
