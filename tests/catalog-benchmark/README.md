@@ -177,14 +177,10 @@ rows from being combined with these results.
 
 ## Human review
 
-Open [`human-review.html`](human-review.html), load `review-template.json`, and
-export `reviews.json` when review is complete. The page groups every model under
-the same authored case, keeps progress in browser-local storage, and never sends
-responses anywhere. `Exact pass` and `Clear fail` are explicit human shortcuts;
-partial judgments keep their verdict, rating, and rubric checks independent.
-You may also edit the JSON directly. Every successful response requires a
-verdict, a 1–5 rating, and one boolean per authored rubric item. A missing
-judgment keeps the row explicitly not decision-ready.
+Human review may be performed directly from the generated response evidence.
+Every successful response requires a `pass`, `partial`, or `fail` verdict, a 1–5
+rating, and one boolean per authored rubric item before it becomes
+decision-ready. Automatic metrics remain triage evidence only.
 
 ## Hosted parallel run
 
