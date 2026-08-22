@@ -129,6 +129,11 @@ git diff --stat -- help-index.json
 
 Confirm `help-index.json` changed for the intended source tree and contains no local secrets.
 
+After the index is verified, stop the private embedding service before moving
+to validation. Confirm that its process has exited and released its GPU memory;
+the machine-specific service location and shutdown check belong only in
+`docs/RELEASING.local.md`.
+
 ## 5. Validate
 
 ```powershell
@@ -615,6 +620,34 @@ Every GitHub release must attach both the Windows x64 executable and the Full
 Android APK. Review title, body (English bullets plus the step 3 Zalo and
 VietQR footer), binaries, sizes, and checksums in GitHub UI. Publish only after
 owner approval.
+
+### Publish the signed stable app-update feed
+
+Immediately after the reviewed GitHub draft becomes a public stable release,
+run the `Publish stable app update manifest` workflow with the exact `v<VERSION>`
+tag. It downloads the public Windows asset, verifies GitHub's size and SHA-256,
+builds a signed manifest, and advances the `app-update-feed` branch with one
+atomic commit containing `stable-v1.json` and `stable-v1.sig`.
+
+The workflow must complete its remote byte read-back check before the release is
+considered discoverable. Never edit an already published version's manifest or
+move the feed backwards. The app accepts only the pinned stable channel, strict
+semantic versions, the exact versioned Windows asset name and GitHub URL, and a
+matching size and SHA-256. If the feed has not been created yet, the client uses
+a bounded GitHub fallback that locally rejects drafts, prereleases, malformed
+tags, incompatible assets, and assets without a GitHub SHA-256 digest.
+
+The candidate presented in the UI remains the candidate downloaded and staged;
+do not refetch a potentially different release after the user accepts it. The
+restart path launches only that exact staged filename and re-verifies its size
+and SHA-256 immediately before launch. Never select an update by directory order
+or modification time.
+
+Legacy hosts predating this feed inspect GitHub's release ordering. Until those
+hosts have reasonably migrated, do not delete and recreate the
+`sgt-runtime-staging` release after publishing an app release; recreating it can
+put it ahead of the stable release for those old clients. Current hosts do not
+rely on that ordering.
 
 ## 10. Publish Google Play
 

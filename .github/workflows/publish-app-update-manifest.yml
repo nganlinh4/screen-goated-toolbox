@@ -1,0 +1,133 @@
+name: Publish stable app update manifest
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release tag, for example v5.5.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install signing dependency
+        run: python -m pip install --disable-pip-version-check ecdsa==0.19.1
+
+      - name: Download and verify the published stable installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,body,assets > release.json
+          python - "$RELEASE_TAG" release.json <<'PY'
+          import json, pathlib, re, sys
+          tag = sys.argv[1]
+          release = json.load(open(sys.argv[2], encoding="utf-8"))
+          if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
+              raise SystemExit("stable release tag must be v<major>.<minor>.<patch>")
+          if release["tagName"] != tag or release["isDraft"] or release["isPrerelease"]:
+              raise SystemExit("release must already be published, stable, and match the requested tag")
+          version = tag[1:]
+          name = f"ScreenGoatedToolbox_v{version}.exe"
+          matching = [asset for asset in release["assets"] if asset["name"] == name]
+          if len(matching) != 1:
+              raise SystemExit(f"release must contain exactly one {name}")
+          pathlib.Path("release-notes.txt").write_text(release["body"], encoding="utf-8")
+          pathlib.Path("asset-contract.json").write_text(json.dumps(matching[0]), encoding="utf-8")
+          PY
+          version="${RELEASE_TAG#v}"
+          mkdir -p app-update-input
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "ScreenGoatedToolbox_v${version}.exe" --dir app-update-input
+          python - asset-contract.json "app-update-input/ScreenGoatedToolbox_v${version}.exe" <<'PY'
+          import hashlib, json, pathlib, sys
+          expected = json.load(open(sys.argv[1], encoding="utf-8"))
+          data = pathlib.Path(sys.argv[2]).read_bytes()
+          if len(data) != expected["size"]:
+              raise SystemExit("downloaded installer size differs from the published asset")
+          digest = "sha256:" + hashlib.sha256(data).hexdigest()
+          if expected.get("digest") != digest:
+              raise SystemExit("downloaded installer digest differs from the published asset")
+          PY
+
+      - name: Build and sign the stable manifest
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          SGT_UPDATE_CATALOG_P256_PRIVATE_KEY_PEM_BASE64: ${{ secrets.SGT_UPDATE_CATALOG_P256_PRIVATE_KEY_PEM_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          python scripts/build_app_update_manifest.py \
+            --version "$version" \
+            --installer "app-update-input/ScreenGoatedToolbox_v${version}.exe" \
+            --release-notes release-notes.txt \
+            --output app-update-output
+
+      - name: Atomically advance the stable feed
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_ref="refs/remotes/origin/app-update-feed"
+          if git fetch origin "refs/heads/app-update-feed:$remote_ref"; then
+            parent="$(git rev-parse "$remote_ref")"
+            git show "$remote_ref:stable-v1.json" > previous-manifest.json
+            python - previous-manifest.json app-update-output/stable-v1.json <<'PY'
+          import json, sys
+          previous = json.load(open(sys.argv[1], encoding="utf-8"))
+          current = json.load(open(sys.argv[2], encoding="utf-8"))
+          old = tuple(map(int, previous["version"].split(".")))
+          new = tuple(map(int, current["version"].split(".")))
+          if new < old:
+              raise SystemExit("stable app update feed cannot move backwards")
+          if new == old and previous != current:
+              raise SystemExit("a published stable version is immutable")
+          PY
+          else
+            parent=""
+          fi
+
+          manifest_blob="$(git hash-object -w app-update-output/stable-v1.json)"
+          signature_blob="$(git hash-object -w app-update-output/stable-v1.sig)"
+          tree="$(printf '100644 blob %s\tstable-v1.json\n100644 blob %s\tstable-v1.sig\n' \
+            "$manifest_blob" "$signature_blob" | git mktree)"
+          export GIT_AUTHOR_NAME="github-actions[bot]"
+          export GIT_AUTHOR_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          if test -n "$parent"; then
+            commit="$(printf 'Publish stable app update %s\n' "$RELEASE_TAG" | git commit-tree "$tree" -p "$parent")"
+          else
+            commit="$(printf 'Publish stable app update %s\n' "$RELEASE_TAG" | git commit-tree "$tree")"
+          fi
+          git push origin "$commit:refs/heads/app-update-feed"
+
+      - name: Verify the published feed bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in stable-v1.json stable-v1.sig; do
+            gh api "repos/$GITHUB_REPOSITORY/contents/$name?ref=app-update-feed" \
+              --jq .content | base64 --decode > "readback-$name"
+            cmp "app-update-output/$name" "readback-$name"
+          done

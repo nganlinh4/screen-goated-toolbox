@@ -1,345 +1,447 @@
-use std::sync::mpsc::Sender;
+mod github;
+mod manifest;
+
+use anyhow::{Context, Result, bail};
+use sha2::{Digest, Sha256};
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, mpsc::Sender};
 use std::thread;
+use std::time::Duration;
 
-/// Minimal local model of a GitHub release asset (replaces `self_update::update::ReleaseAsset`).
-struct ReleaseAsset {
-    name: String,
+const MAX_INSTALLER_BYTES: u64 = 1024 * 1024 * 1024;
+
+#[derive(Debug, Clone)]
+struct UpdateCandidate {
+    version: semver::Version,
+    body: String,
+    asset_name: String,
     download_url: String,
+    size_bytes: u64,
+    sha256: String,
 }
 
-/// Minimal local model of a GitHub release (replaces `self_update::update::Release`).
-/// Only the fields the updater actually consumes are kept.
-struct Release {
+#[derive(Default)]
+struct UpdateSelection {
+    generation: u64,
+    candidate: Option<UpdateCandidate>,
+}
+
+impl UpdateSelection {
+    fn begin_check(&mut self) -> u64 {
+        self.generation = self.generation.wrapping_add(1);
+        self.candidate = None;
+        self.generation
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StagedUpdate {
     version: String,
-    assets: Vec<ReleaseAsset>,
+    asset_name: String,
+    size_bytes: u64,
+    sha256: String,
 }
 
-/// Compare two semantic versions, returning `true` if `new` is strictly greater
-/// than `current`. Replaces `self_update::version::bump_is_greater`.
-fn bump_is_greater(current: &str, new: &str) -> Result<bool, semver::Error> {
-    Ok(semver::Version::parse(new)? > semver::Version::parse(current)?)
+impl StagedUpdate {
+    pub(crate) fn version(&self) -> &str {
+        &self.version
+    }
+
+    pub(crate) fn verified_path_beside(&self, current_exe: &Path) -> Result<PathBuf> {
+        let version = semver::Version::parse(&self.version)?;
+        let expected_name = format!("ScreenGoatedToolbox_v{version}.exe");
+        if self.asset_name != expected_name {
+            bail!("staged update identity no longer matches its checked version");
+        }
+        let path = current_exe
+            .parent()
+            .context("could not find executable directory")?
+            .join(&self.asset_name);
+        let file = std::fs::File::open(&path).context("verified staged update is missing")?;
+        verify_reader(file, self.size_bytes, &self.sha256)?;
+        Ok(path)
+    }
 }
 
-fn select_release_asset(assets: &[ReleaseAsset]) -> Option<&ReleaseAsset> {
-    assets.iter().find(|asset| {
-        let name = asset.name.to_ascii_lowercase();
-        name.starts_with("screengoatedtoolbox_v") && name.ends_with(".exe")
-    })
+impl UpdateCandidate {
+    fn validate(&self) -> Result<()> {
+        let expected_name = format!("ScreenGoatedToolbox_v{}.exe", self.version);
+        if self.asset_name != expected_name {
+            bail!("update installer name does not match its version");
+        }
+        let expected_url = format!(
+            "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v{}/{}",
+            self.version, expected_name
+        );
+        if self.download_url != expected_url {
+            bail!("update installer URL is outside the stable release contract");
+        }
+        if self.size_bytes == 0 || self.size_bytes > MAX_INSTALLER_BYTES {
+            bail!("update installer size is outside the accepted range");
+        }
+        if !self.version.pre.is_empty() || !self.version.build.is_empty() {
+            bail!("update version is not a stable release");
+        }
+        if self.sha256.len() != 64 || !self.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            bail!("update installer SHA-256 is invalid");
+        }
+        Ok(())
+    }
+}
+
+fn latest_candidate() -> Result<UpdateCandidate> {
+    match manifest::fetch() {
+        Ok(Some(candidate)) => Ok(candidate),
+        Ok(None) => github::fetch_latest().context("stable update feed is not published"),
+        Err(error) => Err(error).context("stable update feed was rejected"),
+    }
+}
+
+fn bump_is_greater(current: &str, new: &semver::Version) -> Result<bool> {
+    Ok(new > &semver::Version::parse(current)?)
 }
 
 #[derive(Debug, Clone)]
 pub enum UpdateStatus {
     Idle,
     Checking,
-    UpToDate(String), // Current version
+    UpToDate(String),
     UpdateAvailable { version: String, body: String },
     Downloading,
     Error(String),
-    UpdatedAndRestartRequired { version: String },
+    UpdatedAndRestartRequired(StagedUpdate),
 }
 
 pub struct Updater {
     tx: Sender<UpdateStatus>,
+    selection: Arc<Mutex<UpdateSelection>>,
 }
 
 impl Updater {
     pub fn new(tx: Sender<UpdateStatus>) -> Self {
-        Self { tx }
+        Self {
+            tx,
+            selection: Arc::new(Mutex::new(UpdateSelection::default())),
+        }
     }
 
     pub fn check_for_updates(&self) {
         let tx = self.tx.clone();
-        thread::spawn(move || {
+        let selection = Arc::clone(&self.selection);
+        let generation = {
+            let Ok(mut state) = selection.lock() else {
+                send_error(&tx, "update selection state was unavailable");
+                return;
+            };
+            let generation = state.begin_check();
             let _ = tx.send(UpdateStatus::Checking);
-
-            // Use a custom manual request with a specific User-Agent to avoid 403 Forbidden
-            // GitHub API requires a User-Agent, and self_update's default might be blocked or rate-limited.
-            let url = "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=1&prerelease=false";
-
-            let request = crate::api::client::UREQ_AGENT
-                .get(url)
-                .header("User-Agent", "screen-goated-toolbox-checker");
-            let response = crate::api::client::with_request_timeout(
-                request,
-                Some(std::time::Duration::from_secs(10)),
-            )
-            .call();
-
-            match response {
-                Ok(mut resp) => {
-                    let release_json: String = match resp.body_mut().read_to_string() {
-                        Ok(s) => s,
-                        Err(e) => {
-                            let _ = tx.send(UpdateStatus::Error(format!(
-                                "Failed to read response: {}",
-                                e
-                            )));
-                            return;
-                        }
-                    };
-
-                    let data: Result<Vec<serde_json::Value>, _> =
-                        serde_json::from_str(&release_json);
-                    match data {
-                        Ok(mut releases) if !releases.is_empty() => {
-                            let rel = releases.remove(0);
-                            let tag_name =
-                                rel.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
-                            let version = tag_name.trim_start_matches('v').to_string();
-                            let body = rel
-                                .get("body")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-
-                            let current = env!("CARGO_PKG_VERSION");
-                            let is_newer = bump_is_greater(current, &version).unwrap_or(false);
-
-                            if is_newer {
-                                let _ = tx.send(UpdateStatus::UpdateAvailable { version, body });
-                            } else {
-                                let _ = tx.send(UpdateStatus::UpToDate(current.to_string()));
-                            }
-                        }
-                        Ok(_) => {
-                            let _ = tx.send(UpdateStatus::Error(
-                                "No releases found on GitHub".to_string(),
-                            ));
-                        }
-                        Err(e) => {
-                            let _ =
-                                tx.send(UpdateStatus::Error(format!("JSON parse error: {}", e)));
-                        }
+            generation
+        };
+        thread::spawn(move || match latest_candidate() {
+            Ok(candidate) => {
+                let current = env!("CARGO_PKG_VERSION");
+                match bump_is_greater(current, &candidate.version) {
+                    Ok(true) => {
+                        let status = UpdateStatus::UpdateAvailable {
+                            version: candidate.version.to_string(),
+                            body: candidate.body.clone(),
+                        };
+                        publish_check_result(&selection, generation, &tx, status, Some(candidate));
                     }
-                }
-                Err(e) => {
-                    let error_msg = {
-                        let err_str = e.to_string();
-                        if err_str.contains("403") {
-                            "Status 403: GitHub API rate limit reached or access forbidden. Please try again later or check your network/VPN.".to_string()
-                        } else {
-                            format!("Network error: {}", e)
-                        }
-                    };
-                    let _ = tx.send(UpdateStatus::Error(format!(
-                        "Failed to fetch info: {}",
-                        error_msg
-                    )));
+                    Ok(false) => {
+                        publish_check_result(
+                            &selection,
+                            generation,
+                            &tx,
+                            UpdateStatus::UpToDate(current.to_string()),
+                            None,
+                        );
+                    }
+                    Err(error) => publish_check_result(
+                        &selection,
+                        generation,
+                        &tx,
+                        UpdateStatus::Error(error.to_string()),
+                        None,
+                    ),
                 }
             }
+            Err(error) => publish_check_result(
+                &selection,
+                generation,
+                &tx,
+                UpdateStatus::Error(error.to_string()),
+                None,
+            ),
         });
     }
 
     pub fn perform_update(&self) {
         let tx = self.tx.clone();
-        thread::spawn(move || {
-            let _ = tx.send(UpdateStatus::Downloading);
-
-            // Get current exe directory
-            let exe_dir = match std::env::current_exe() {
-                Ok(exe_path) => match exe_path.parent() {
-                    Some(dir) => dir.to_path_buf(),
-                    None => {
-                        let _ = tx.send(UpdateStatus::Error(
-                            "Could not find exe directory".to_string(),
-                        ));
-                        return;
-                    }
-                },
-                Err(_) => {
-                    let _ = tx.send(UpdateStatus::Error("Could not get exe path".to_string()));
-                    return;
-                }
-            };
-
-            let temp_path = exe_dir.join("temp_download");
-            // We'll set this after getting the asset
-            let mut staging_path = exe_dir.join("update_pending.exe");
-
-            // Use a custom HTTP request to get the latest release (the one marked as "Latest" on GitHub)
-            let release_json = match crate::api::client::UREQ_AGENT.get("https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=1&prerelease=false")
-                .header("User-Agent", "screen-goated-toolbox-updater")
-                .call()
-            {
-                Ok(mut response) => {
-                    match response.body_mut().read_to_string() {
-                        Ok(s) => s,
-                        Err(e) => {
-                            let _ = tx.send(UpdateStatus::Error(format!("Failed to parse response: {}", e)));
-                            return;
-                        }
-                    }
-                }
-                Err(e) => {
-                    let error_msg = {
-                        let err_str = e.to_string();
-                        if err_str.contains("403") {
-                            "Status 403: GitHub API rate limit reached or access forbidden. Please try again later.".to_string()
-                        } else {
-                            format!("Failed to fetch release list: {}", e)
-                        }
-                    };
-                    let _ = tx.send(UpdateStatus::Error(error_msg));
-                    return;
-                }
-            };
-
-            // Parse the JSON to get the first release.
-            let release_data: Result<Vec<serde_json::Value>, _> =
-                serde_json::from_str(&release_json);
-            let release = match release_data {
-                Ok(mut releases) if !releases.is_empty() => {
-                    let rel = releases.remove(0);
-                    let version = rel
-                        .get("tag_name")
-                        .and_then(|value| value.as_str())
-                        .unwrap_or("")
-                        .trim_start_matches('v')
-                        .to_string();
-                    if version.is_empty() {
-                        let _ = tx.send(UpdateStatus::Error(
-                            "Release version was missing".to_string(),
-                        ));
-                        return;
-                    }
-                    Release {
-                        version,
-                        assets: rel
-                            .get("assets")
-                            .and_then(|a| a.as_array())
-                            .unwrap_or(&vec![])
-                            .iter()
-                            .filter_map(|asset| {
-                                let name = asset.get("name")?.as_str()?.to_string();
-                                let download_url =
-                                    asset.get("browser_download_url")?.as_str()?.to_string();
-                                Some(ReleaseAsset { name, download_url })
-                            })
-                            .collect(),
-                    }
-                }
-                _ => {
-                    let _ = tx.send(UpdateStatus::Error("No releases found".to_string()));
-                    return;
-                }
-            };
-
-            // Find the .exe or .zip asset from release
-            let asset = match select_release_asset(&release.assets) {
-                Some(a) => a,
-                None => {
-                    let _ = tx.send(UpdateStatus::Error(
-                        "No compatible installer asset found in release assets".to_string(),
-                    ));
-                    return;
-                }
-            };
-
-            // Set staging path to the asset name (for display) or update_pending.exe (for extraction)
-            if asset.name.ends_with(".exe") {
-                staging_path = exe_dir.join(&asset.name);
+        let candidate = self
+            .selection
+            .lock()
+            .ok()
+            .and_then(|mut state| state.candidate.take());
+        let Some(candidate) = candidate else {
+            send_error(&tx, "check for updates again before downloading");
+            return;
+        };
+        let _ = tx.send(UpdateStatus::Downloading);
+        thread::spawn(move || match download_and_stage(candidate) {
+            Ok(staged) => {
+                let _ = tx.send(UpdateStatus::UpdatedAndRestartRequired(staged));
             }
-
-            // Download the asset
-            let mut file = match std::fs::File::create(&temp_path) {
-                Ok(f) => f,
-                Err(e) => {
-                    let _ = tx.send(UpdateStatus::Error(format!(
-                        "Failed to create temp file: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            match crate::api::client::UREQ_DOWNLOAD_AGENT
-                .get(&asset.download_url)
-                .call()
-            {
-                Ok(response) => {
-                    let mut reader = response.into_body().into_reader();
-                    if let Err(e) = std::io::copy(&mut reader, &mut file) {
-                        let _ = tx.send(UpdateStatus::Error(format!("Download failed: {}", e)));
-                        let _ = std::fs::remove_file(&temp_path);
-                        return;
-                    }
-                    drop(file); // Close file before processing
-
-                    // Process the downloaded file
-                    if asset.name.ends_with(".zip") {
-                        // Extract zip
-                        match std::fs::File::open(&temp_path) {
-                            Ok(zip_file) => match zip::ZipArchive::new(zip_file) {
-                                Ok(mut archive) => match archive.by_index(0) {
-                                    Ok(mut zipped_file) => {
-                                        match std::fs::File::create(&staging_path) {
-                                            Ok(mut exe_file) => {
-                                                if std::io::copy(&mut zipped_file, &mut exe_file)
-                                                    .is_ok()
-                                                {
-                                                    let _ = std::fs::remove_file(&temp_path);
-                                                    let _ = tx.send(
-                                                        UpdateStatus::UpdatedAndRestartRequired {
-                                                            version: release.version.clone(),
-                                                        },
-                                                    );
-                                                } else {
-                                                    let _ = tx.send(UpdateStatus::Error(
-                                                        "Failed to extract zip".to_string(),
-                                                    ));
-                                                }
-                                            }
-                                            Err(e) => {
-                                                let _ = tx.send(UpdateStatus::Error(format!(
-                                                    "Failed to create staging file: {}",
-                                                    e
-                                                )));
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let _ = tx.send(UpdateStatus::Error(format!(
-                                            "Failed to read zip entry: {}",
-                                            e
-                                        )));
-                                    }
-                                },
-                                Err(e) => {
-                                    let _ = tx.send(UpdateStatus::Error(format!(
-                                        "Failed to open zip: {}",
-                                        e
-                                    )));
-                                }
-                            },
-                            Err(e) => {
-                                let _ = tx.send(UpdateStatus::Error(format!(
-                                    "Failed to open temp file: {}",
-                                    e
-                                )));
-                            }
-                        }
-                    } else {
-                        // Direct exe - move to staging
-                        match std::fs::rename(&temp_path, &staging_path) {
-                            Ok(_) => {
-                                let _ = tx.send(UpdateStatus::UpdatedAndRestartRequired {
-                                    version: release.version.clone(),
-                                });
-                            }
-                            Err(e) => {
-                                let _ = tx.send(UpdateStatus::Error(format!(
-                                    "Failed to stage exe: {}",
-                                    e
-                                )));
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(UpdateStatus::Error(format!("Download failed: {}", e)));
-                    let _ = std::fs::remove_file(&temp_path);
-                }
-            }
+            Err(error) => send_error(&tx, error),
         });
+    }
+}
+
+fn publish_check_result(
+    selection: &Mutex<UpdateSelection>,
+    generation: u64,
+    tx: &Sender<UpdateStatus>,
+    status: UpdateStatus,
+    candidate: Option<UpdateCandidate>,
+) {
+    let Ok(mut state) = selection.lock() else {
+        send_error(tx, "update selection state was unavailable");
+        return;
+    };
+    if state.generation != generation {
+        return;
+    }
+    state.candidate = candidate;
+    let _ = tx.send(status);
+}
+
+fn download_and_stage(candidate: UpdateCandidate) -> Result<StagedUpdate> {
+    candidate.validate()?;
+    if !bump_is_greater(env!("CARGO_PKG_VERSION"), &candidate.version)? {
+        bail!("the selected release is not newer than this app");
+    }
+    let exe_dir = std::env::current_exe()
+        .context("could not get executable path")?
+        .parent()
+        .context("could not find executable directory")?
+        .to_path_buf();
+    let partial_path = exe_dir.join("update_download.part");
+    let staging_path = exe_dir.join(&candidate.asset_name);
+    if partial_path.exists() {
+        std::fs::remove_file(&partial_path).context("failed to clear an older partial update")?;
+    }
+
+    let result = download_verified(&candidate, &partial_path)
+        .and_then(|()| replace_staged_file(&partial_path, &staging_path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&partial_path);
+    }
+    result?;
+    Ok(StagedUpdate {
+        version: candidate.version.to_string(),
+        asset_name: candidate.asset_name,
+        size_bytes: candidate.size_bytes,
+        sha256: candidate.sha256,
+    })
+}
+
+fn download_verified(candidate: &UpdateCandidate, destination: &Path) -> Result<()> {
+    let response = crate::api::client::with_request_timeout(
+        crate::api::client::UREQ_DOWNLOAD_AGENT.get(&candidate.download_url),
+        Some(Duration::from_secs(5 * 60)),
+    )
+    .call()
+    .context("failed to download update")?;
+    let mut reader = response.into_body().into_reader();
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .context("failed to create update staging file")?;
+    copy_verified(&mut reader, &mut file, candidate)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn copy_verified(
+    mut reader: impl Read,
+    mut writer: impl Write,
+    candidate: &UpdateCandidate,
+) -> Result<()> {
+    let mut hasher = Sha256::new();
+    let mut total = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .context("update download was interrupted")?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read as u64);
+        if total > candidate.size_bytes || total > MAX_INSTALLER_BYTES {
+            bail!("downloaded update exceeded its declared size");
+        }
+        writer.write_all(&buffer[..read])?;
+        hasher.update(&buffer[..read]);
+    }
+    if total != candidate.size_bytes {
+        bail!("downloaded update size did not match its release contract");
+    }
+    let actual = format!("{:x}", hasher.finalize());
+    if !actual.eq_ignore_ascii_case(&candidate.sha256) {
+        bail!("downloaded update failed SHA-256 verification");
+    }
+    Ok(())
+}
+
+fn verify_reader(mut reader: impl Read, expected_size: u64, expected_sha256: &str) -> Result<()> {
+    let mut hasher = Sha256::new();
+    let mut total = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read as u64);
+        if total > expected_size || total > MAX_INSTALLER_BYTES {
+            bail!("staged update exceeded its verified size");
+        }
+        hasher.update(&buffer[..read]);
+    }
+    if total != expected_size {
+        bail!("staged update size changed after verification");
+    }
+    let actual = format!("{:x}", hasher.finalize());
+    if !actual.eq_ignore_ascii_case(expected_sha256) {
+        bail!("staged update SHA-256 changed after verification");
+    }
+    Ok(())
+}
+
+fn replace_staged_file(partial: &Path, staging: &Path) -> Result<()> {
+    if staging.exists() {
+        std::fs::remove_file(staging).context("failed to replace an older staged update")?;
+    }
+    std::fs::rename(partial, staging).context("failed to stage the verified update")
+}
+
+fn send_error(tx: &Sender<UpdateStatus>, error: impl std::fmt::Display) {
+    let _ = tx.send(UpdateStatus::Error(error.to_string()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_candidate(bytes: &[u8]) -> UpdateCandidate {
+        UpdateCandidate {
+            version: semver::Version::new(5, 5, 0),
+            body: String::new(),
+            asset_name: "ScreenGoatedToolbox_v5.5.0.exe".into(),
+            download_url: "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v5.5.0/ScreenGoatedToolbox_v5.5.0.exe".into(),
+            size_bytes: bytes.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(bytes)),
+        }
+    }
+
+    #[test]
+    fn candidate_rejects_mismatched_asset_identity() {
+        let candidate = UpdateCandidate {
+            version: semver::Version::new(5, 5, 0),
+            body: String::new(),
+            asset_name: "ScreenGoatedToolbox_v5.4.3.exe".into(),
+            download_url: "https://example.com/update.exe".into(),
+            size_bytes: 100,
+            sha256: "a".repeat(64),
+        };
+        assert!(candidate.validate().is_err());
+    }
+
+    #[test]
+    fn verified_copy_rejects_truncation_and_digest_mismatch() {
+        let bytes = b"complete installer";
+        let candidate = valid_candidate(bytes);
+        assert!(copy_verified(&bytes[..5], Vec::new(), &candidate).is_err());
+
+        let mut wrong_digest = candidate;
+        wrong_digest.sha256 = "0".repeat(64);
+        assert!(copy_verified(bytes.as_slice(), Vec::new(), &wrong_digest).is_err());
+    }
+
+    #[test]
+    fn verified_copy_accepts_exact_bytes() {
+        let bytes = b"complete installer";
+        let candidate = valid_candidate(bytes);
+        let mut output = Vec::new();
+        copy_verified(bytes.as_slice(), &mut output, &candidate).unwrap();
+        assert_eq!(output, bytes);
+    }
+
+    #[test]
+    fn stale_check_generation_cannot_publish_or_replace_selection() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let selection = Mutex::new(UpdateSelection {
+            generation: 2,
+            candidate: None,
+        });
+        publish_check_result(
+            &selection,
+            1,
+            &tx,
+            UpdateStatus::Error("stale".into()),
+            Some(valid_candidate(b"stale installer")),
+        );
+
+        assert!(rx.try_recv().is_err());
+        assert!(selection.lock().unwrap().candidate.is_none());
+    }
+
+    #[test]
+    fn selected_candidate_can_be_consumed_only_once() {
+        let mut selection = UpdateSelection {
+            generation: 1,
+            candidate: Some(valid_candidate(b"installer")),
+        };
+        assert!(selection.candidate.take().is_some());
+        assert!(selection.candidate.take().is_none());
+    }
+
+    #[test]
+    fn restart_path_is_exact_and_reverified_after_staging() {
+        let bytes = b"verified executable";
+        let candidate = valid_candidate(bytes);
+        let directory = std::env::temp_dir().join(format!(
+            "sgt-updater-restart-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let current_exe = directory.join("current.exe");
+        let staged_path = directory.join(&candidate.asset_name);
+        std::fs::write(&staged_path, bytes).unwrap();
+        let staged = StagedUpdate {
+            version: candidate.version.to_string(),
+            asset_name: candidate.asset_name,
+            size_bytes: candidate.size_bytes,
+            sha256: candidate.sha256,
+        };
+
+        assert_eq!(
+            staged.verified_path_beside(&current_exe).unwrap(),
+            staged_path
+        );
+        std::fs::write(&staged_path, b"changed executable").unwrap();
+        assert!(staged.verified_path_beside(&current_exe).is_err());
+
+        std::fs::remove_file(staged_path).unwrap();
+        std::fs::remove_dir(directory).unwrap();
     }
 }

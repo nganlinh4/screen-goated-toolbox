@@ -99,7 +99,7 @@ def _validate_vision_request_profiles(manifest: dict) -> None:
         }
         # Optional because it records a fault measured on one endpoint. Requiring
         # it everywhere would declare every other endpoint sound unchecked.
-        optional = {"restates_output"}
+        optional = {"restates_output", "min_reliable_pixels"}
         missing = required - set(request_profile)
         if missing:
             raise ValueError(
@@ -112,6 +112,11 @@ def _validate_vision_request_profiles(manifest: dict) -> None:
             )
         if not isinstance(request_profile.get("restates_output", False), bool):
             raise ValueError(f"restates_output must be a boolean for {profile_key}")
+        floor = request_profile.get("min_reliable_pixels")
+        if floor is not None and (not isinstance(floor, int) or floor <= 0):
+            raise ValueError(
+                f"min_reliable_pixels must be a positive integer for {profile_key}"
+            )
         if request_profile.get("input_order") not in {"text-first", "image-first"}:
             raise ValueError(f"unsupported input_order for {profile_key}")
         if request_profile.get("media_resolution") != "provider-default":

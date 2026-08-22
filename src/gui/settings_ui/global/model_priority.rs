@@ -13,7 +13,7 @@ mod feed;
 #[path = "model_priority/step_keys.rs"]
 mod step_keys;
 
-use step_keys::{StepKeys, animated_step_offset};
+use step_keys::StepKeys;
 
 const STEP_ROW_HEIGHT: f32 = 24.0;
 const STEP_NUMBER_WIDTH: f32 = 16.0;
@@ -33,7 +33,6 @@ pub fn render_model_priority_body(
     text: &LocaleText,
 ) -> bool {
     let mut changed = false;
-    let snapshot = config.clone();
     let ui_language = config.ui_language.clone();
     let mut image_adaptive = config.adaptive_model_priority.image_to_text;
     let mut text_adaptive = config.adaptive_model_priority.text_to_text;
@@ -45,6 +44,21 @@ pub fn render_model_priority_body(
         .adaptive_model_priority
         .text_to_text_overrides
         .clone();
+    let selector_models = model_selector::selector_models(&config.custom_models);
+    let image_prepared = feed::prepare_chain(
+        config,
+        RetryChainKind::ImageToText,
+        &config.model_priority_chains.image_to_text,
+        &image_overrides,
+        image_adaptive,
+    );
+    let text_prepared = feed::prepare_chain(
+        config,
+        RetryChainKind::TextToText,
+        &config.model_priority_chains.text_to_text,
+        &text_overrides,
+        text_adaptive,
+    );
     ui.columns(2, |columns| {
         if render_chain_section(
             &mut columns[0],
@@ -54,7 +68,8 @@ pub fn render_model_priority_body(
                 overrides: &mut image_overrides,
             },
             RetryChainKind::ImageToText,
-            &snapshot,
+            image_prepared,
+            &selector_models,
             &ui_language,
             text,
         ) {
@@ -69,7 +84,8 @@ pub fn render_model_priority_body(
                 overrides: &mut text_overrides,
             },
             RetryChainKind::TextToText,
-            &snapshot,
+            text_prepared,
+            &selector_models,
             &ui_language,
             text,
         ) {
@@ -98,7 +114,8 @@ fn render_chain_section(
     ui: &mut egui::Ui,
     state: ChainEditorState<'_>,
     chain_kind: RetryChainKind,
-    config: &Config,
+    prepared: feed::PreparedChain,
+    selector_models: &[crate::model_config::ModelConfig],
     ui_language: &str,
     text: &LocaleText,
 ) -> bool {
@@ -107,6 +124,11 @@ fn render_chain_section(
         adaptive_enabled,
         overrides,
     } = state;
+    let feed::PreparedChain {
+        mut visible,
+        adaptive,
+        live_ids,
+    } = prepared;
     let mut changed = false;
     let section_title = match chain_kind {
         RetryChainKind::ImageToText => text.model_catalog.model_priority_image_chain_title,
@@ -149,7 +171,9 @@ fn render_chain_section(
                     .changed()
                 {
                     if was_adaptive && !*adaptive_enabled {
-                        *chain = feed::visible_chain(config, chain_kind, chain, overrides, true);
+                        chain.clone_from(&visible);
+                    } else if !was_adaptive && *adaptive_enabled {
+                        visible.clone_from(&adaptive);
                     }
                     changed = true;
                 }
@@ -184,11 +208,10 @@ fn render_chain_section(
 
             let keys_id = egui::Id::new((section_id, "step-keys"));
             let mut keys: StepKeys = ui.data(|data| data.get_temp(keys_id)).unwrap_or_default();
-            let mut visible_chain =
-                feed::visible_chain(config, chain_kind, chain, overrides, *adaptive_enabled);
-            let live_ids = feed::live_ids(config, chain_kind);
+            let mut visible_chain = visible;
             keys.sync(visible_chain.len());
             let mut reorder = ListReorder::load(ui, section_id);
+            reorder.track(ui, visible_chain.len());
             let lifting = reorder.is_lifting();
             let visible_count = visible_chain.len();
 
@@ -207,45 +230,34 @@ fn render_chain_section(
                 let tinted = (step_number - 1).is_multiple_of(2);
 
                 let key = keys.at(chain_idx);
-                // Steps glide to the slot the gap pushed them into, so the list
-                // parts for the carried step instead of jumping around it.
-                let transform = egui::emath::TSTransform::from_translation(animated_step_offset(
-                    ui, section_id, key, lifting,
-                ));
                 let mut remove_clicked = false;
                 let mut grip = None;
-                let row_rect = ui
-                    .with_visual_transform(transform, |ui| {
-                        step_row(ui, &theme, step_number, tinted, |ui| {
-                            let old_model = visible_chain[chain_idx].clone();
-                            if model_selector::render_model_combo(
-                                ui,
-                                (section_id, "combo", key),
-                                &mut visible_chain[chain_idx],
-                                chain_kind,
-                                ui_language,
-                            ) {
-                                manual_edits.push(feed::ManualEdit::Replace {
-                                    old: old_model,
-                                    new: visible_chain[chain_idx].clone(),
-                                });
-                            }
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if reorder_clicked(ui, Icon::Close, true) {
-                                        remove_clicked = true;
-                                    }
-                                    grip = Some(drag_grip(
-                                        ui,
-                                        egui::Id::new((section_id, "chain-grip", key)),
-                                        lifting,
-                                    ));
-                                },
-                            );
-                        })
-                    })
-                    .inner;
+                let row_rect = step_row(ui, &theme, step_number, tinted, |ui| {
+                    let old_model = visible_chain[chain_idx].clone();
+                    if model_selector::render_model_combo_from_models(
+                        ui,
+                        (section_id, "combo", key),
+                        &mut visible_chain[chain_idx],
+                        chain_kind,
+                        ui_language,
+                        selector_models,
+                    ) {
+                        manual_edits.push(feed::ManualEdit::Replace {
+                            old: old_model,
+                            new: visible_chain[chain_idx].clone(),
+                        });
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if reorder_clicked(ui, Icon::Close, true) {
+                            remove_clicked = true;
+                        }
+                        grip = Some(drag_grip(
+                            ui,
+                            egui::Id::new((section_id, "chain-grip", key)),
+                            lifting,
+                        ));
+                    });
+                });
 
                 reorder.note_slot(row_rect);
                 if remove_clicked {
@@ -265,6 +277,7 @@ fn render_chain_section(
                 &reorder,
                 section_id,
                 &visible_chain,
+                selector_models,
                 ui_language,
             );
 
@@ -274,7 +287,7 @@ fn render_chain_section(
                 let removed = visible_chain.remove(idx);
                 keys.forget(idx);
                 manual_edits.push(feed::ManualEdit::Remove(removed));
-            } else if let Some((from, to)) = reorder.settle(ui, visible_count) {
+            } else if let Some((from, to)) = reorder.settle(ui) {
                 let step = visible_chain.remove(from);
                 manual_edits.push(feed::ManualEdit::Move(step.clone()));
                 visible_chain.insert(to, step);
@@ -307,7 +320,8 @@ fn render_chain_section(
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
             {
-                let added = model_selector::default_model_id(chain_kind);
+                let added =
+                    model_selector::default_model_id_from_models(selector_models, chain_kind);
                 visible_chain.push(added.clone());
                 keys.sync(visible_chain.len());
                 manual_edits.push(feed::ManualEdit::Add(added));
@@ -449,6 +463,7 @@ fn draw_lifted_step(
     reorder: &ListReorder,
     section: &'static str,
     chain: &[String],
+    selector_models: &[crate::model_config::ModelConfig],
     ui_language: &str,
 ) {
     let Some(floating) = reorder.floating(ui) else {
@@ -457,7 +472,8 @@ fn draw_lifted_step(
     let Some(model_id) = chain.get(floating.from) else {
         return;
     };
-    let label = model_selector::model_short_label(model_id, ui_language);
+    let label =
+        model_selector::model_short_label_from_models(selector_models, model_id, ui_language);
     let step_number = floating.insert + 1;
 
     // Tooltip order, not Foreground: the ladder lives inside an `egui::Modal`,
@@ -565,5 +581,12 @@ mod tests {
         keys.sync(3);
         assert_eq!(keys.keys.len(), 3);
         assert_ne!(keys.at(2), keys.at(0), "keys must stay unique");
+    }
+
+    #[test]
+    fn centered_priority_modal_never_uses_visual_row_transforms() {
+        let source = include_str!("model_priority.rs");
+        assert!(!source.contains(&["with_visual", "_transform"].concat()));
+        assert!(!source.contains(&["animated_step", "_offset"].concat()));
     }
 }

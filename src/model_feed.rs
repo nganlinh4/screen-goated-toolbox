@@ -60,6 +60,7 @@ fn default_control_contract_version() -> u32 {
 
 /// Versioned request controls whose exact wire meaning is shared with the
 /// publisher. Adding or changing a control requires a new feed contract.
+#[cfg(not(feature = "recorder-worker"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FeedControl {
@@ -80,6 +81,7 @@ pub struct FeedModel {
     /// policy when the build is cut; the monitor rediscovers it from the live
     /// endpoint every couple of hours, and sending a control an endpoint has
     /// stopped accepting turns a healthy model into HTTP 500.
+    #[cfg(not(feature = "recorder-worker"))]
     #[serde(default)]
     pub control: Option<FeedControl>,
     /// Whether the publisher verified this endpoint on images. Routing an image

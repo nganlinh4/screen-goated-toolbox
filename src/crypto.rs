@@ -1,15 +1,15 @@
 //! Shared P-256 signature verification.
 //!
-//! Two feeds are signed with separate keys: the component update catalog, which
-//! delivers runtime bundles, and the provider availability feed, which only
-//! influences model routing. They must not share a key, but they should share
-//! one copy of this verification, because it is unsafe Windows crypto and a
-//! second transcription of it is a second place to get it wrong.
+//! Delivery manifests (the component catalog and host app update feed) use the
+//! update-delivery key. The provider availability feed only influences model
+//! routing and uses a separate, lower-trust key. All share this verification
+//! implementation because it is unsafe Windows crypto and a second
+//! transcription would be a second place to get it wrong.
 //!
-//! The two differ only in how the public key is written down. The update catalog
-//! tracks the uncompressed SEC1 form, 65 bytes beginning `0x04`; the availability
-//! feed tracks the raw coordinate pair, 64 bytes. Both reduce to the same X‖Y
-//! that Windows wants, so both are accepted here and normalised.
+//! The two tracked key encodings differ only in representation. The update key
+//! is uncompressed SEC1, 65 bytes beginning `0x04`; the availability key is the
+//! raw 64-byte coordinate pair. Both reduce to the X‖Y that Windows wants, so
+//! both are accepted here and normalised.
 
 use anyhow::{Result, bail};
 use sha2::{Digest, Sha256};

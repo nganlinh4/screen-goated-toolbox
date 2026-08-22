@@ -297,7 +297,6 @@ pub fn live_endpoint_profile(api_model: &str) -> Option<LiveEndpointProfile> {
 /// every measure availability has. Removing its catalog row is not enough,
 /// because a row that is gone is exactly what the feed treats as "a model the
 /// catalog has never heard of" and re-introduces under a derived id.
-#[cfg(not(feature = "recorder-worker"))]
 pub fn is_withdrawn_endpoint(provider: &str, full_name: &str) -> bool {
     let key = format!("{provider}:{full_name}");
     generated_withdrawn_endpoints()

@@ -58,7 +58,8 @@ pub(super) struct Lane {
 
 impl Lane {
     pub(super) fn load(ui: &egui::Ui, key: &'static str, indices: Vec<usize>) -> Self {
-        let reorder = ListReorder::load(ui, key);
+        let mut reorder = ListReorder::load(ui, key);
+        reorder.track(ui, indices.len());
         let plan = reorder.plan(indices.len());
         Self {
             reorder,
@@ -89,7 +90,7 @@ impl Lane {
 
     /// Track the cursor, and on release report the config indices to move.
     pub(super) fn settle(&mut self, ui: &egui::Ui) -> Option<(usize, usize)> {
-        let (from, to) = self.reorder.settle(ui, self.indices.len())?;
+        let (from, to) = self.reorder.settle(ui)?;
         Some((*self.indices.get(from)?, *self.indices.get(to)?))
     }
 

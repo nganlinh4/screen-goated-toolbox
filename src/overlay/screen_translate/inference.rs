@@ -102,9 +102,14 @@ where
         let schema = response_schema(pending.len());
         let request_text = prompt_with_instruction(target_language, translation_prompt, &pending)?;
         let request_timeout = TRANSLATION_TIMEOUT;
-        if let Some(reason) =
-            preflight_skip_reason(&current.id, &current.provider, &config, &blocked_providers)
-                .or_else(|| claim_model_attempt(&current.id))
+        if let Some(reason) = preflight_skip_reason(
+            &current.id,
+            &current.provider,
+            &config,
+            &blocked_providers,
+            None,
+        )
+        .or_else(|| claim_model_attempt(&current.id))
         {
             crate::log_info!(
                 "[Screen Translate] trace={trace_id} model skipped model={} reason={reason}",
