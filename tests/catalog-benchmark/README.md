@@ -177,10 +177,13 @@ rows from being combined with these results.
 
 ## Human review
 
-Copy `review-template.json` to `reviews.json`. For every successful response that
-requires review, set `verdict` to `pass`, `partial`, or `fail`; set a 1–5
-`rating`; answer every `rubric_checks` item; and add notes where useful. Refresh
-or register history after saving the file. A missing verdict, rating, or rubric
+Open [`human-review.html`](human-review.html), load `review-template.json`, and
+export `reviews.json` when review is complete. The page groups every model under
+the same authored case, keeps progress in browser-local storage, and never sends
+responses anywhere. `Exact pass` and `Clear fail` are explicit human shortcuts;
+partial judgments keep their verdict, rating, and rubric checks independent.
+You may also edit the JSON directly. Every successful response requires a
+verdict, a 1–5 rating, and one boolean per authored rubric item. A missing
 judgment keeps the row explicitly not decision-ready.
 
 ## Hosted parallel run
