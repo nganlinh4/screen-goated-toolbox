@@ -237,6 +237,7 @@ where
         trace.mark_provider_started();
         return crate::api::gemini_live::gemini_live_generate(
             crate::api::gemini_live::GeminiLiveGenerateRequest {
+                api_key: gemini_api_key.to_string(),
                 model,
                 text: prompt,
                 instruction: String::new(),

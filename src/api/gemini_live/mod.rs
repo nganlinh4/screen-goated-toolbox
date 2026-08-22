@@ -49,6 +49,7 @@ pub fn init_gemini_live() {
 }
 
 pub struct GeminiLiveGenerateRequest<'a> {
+    pub api_key: String,
     pub model: String,
     pub text: String,
     pub instruction: String,
@@ -81,6 +82,7 @@ where
     F: FnMut(&str),
 {
     let GeminiLiveGenerateRequest {
+        api_key,
         model,
         text,
         instruction,
@@ -91,6 +93,10 @@ where
         cancel_token,
         request_timeout,
     } = request;
+    if api_key.trim().is_empty() {
+        crate::overlay::utils::show_api_key_error_notification("NO_API_KEY:gemini", ui_language);
+        anyhow::bail!("NO_API_KEY:gemini");
+    }
     let deadline = request_timeout.and_then(|timeout| Instant::now().checked_add(timeout));
 
     // Log what we're sending
@@ -131,6 +137,7 @@ where
 
     // Send request to the manager
     let (id, rx) = GEMINI_LIVE_MANAGER.request(
+        api_key,
         model,
         content,
         instruction,

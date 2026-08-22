@@ -25,7 +25,10 @@ those rules to every catalog change; do not invent a feature-local convention.
    Keep one localized base name per endpoint; use a catalog-owned
    `presentation_variant` only when behavioral rows sharing that endpoint need
    a localized disambiguating suffix.
-2. Check the provider's current official model/deprecation documentation.
+2. Run the API-first discovery report described by
+   `.claude/skills/update-model-catalog/SKILL.md`, then check current official
+   model/deprecation documentation for every reported ambiguity. Browser control
+   is a fallback, not the routine inventory mechanism.
 3. Search both identifiers and sibling-family capability logic:
 
 ```powershell

@@ -40,6 +40,8 @@ pub enum LiveInputContent {
 /// A request to the Gemini Live LLM
 #[derive(Clone)]
 pub struct LiveRequest {
+    /// Exact credential selected by the caller for this request.
+    pub api_key: String,
     /// Gemini Live API model name
     pub model: String,
     /// The input content

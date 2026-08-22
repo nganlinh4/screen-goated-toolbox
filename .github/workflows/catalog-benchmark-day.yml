@@ -12,9 +12,14 @@ on:
         required: true
         default: text,coordinate,ocr
         type: string
+      resume_run_id:
+        description: Optional prior benchmark workflow run ID; successful cells are reused
+        required: false
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: catalog-benchmark-day
@@ -27,6 +32,18 @@ jobs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v5
+      - name: Collect API-first model and free-tier discovery evidence
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEYS_JSON: ${{ secrets.GEMINI_API_KEYS_JSON }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEYS_JSON: ${{ secrets.GROQ_API_KEYS_JSON }}
+        run: python scripts/catalog_model_discovery.py --output catalog-model-discovery.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-model-discovery
+          path: catalog-model-discovery.json
+          if-no-files-found: error
       - id: matrix
         shell: bash
         env:
@@ -103,6 +120,13 @@ jobs:
       - uses: actions/download-artifact@v5
         with:
           name: catalog-benchmark-test-binary
+      - uses: actions/download-artifact@v5
+        if: inputs.resume_run_id != ''
+        with:
+          name: catalog-benchmark-complete-human-review
+          path: resume
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
       - id: availability
         name: Resolve credential-backed availability without exposing secrets
         shell: pwsh
@@ -139,6 +163,8 @@ jobs:
           CATALOG_BENCH_SHARD_INDEX: ${{ matrix.index }}
           CATALOG_BENCH_OUTPUT: benchmark-output
           CATALOG_BENCH_REQUEST_TIMEOUT_SECS: "120"
+          CATALOG_BENCH_MIN_INTERVAL_MS: ${{ matrix.min_interval_ms }}
+          CATALOG_BENCH_RESUME_INPUTS: ${{ inputs.resume_run_id != '' && 'resume/complete-benchmark/attempts.jsonl' || '' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEYS_JSON: ${{ secrets.GEMINI_API_KEYS_JSON }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -166,6 +192,17 @@ jobs:
           name: catalog-benchmark-test-binary
       - uses: actions/download-artifact@v5
         with:
+          name: catalog-model-discovery
+          path: discovery
+      - uses: actions/download-artifact@v5
+        if: inputs.resume_run_id != ''
+        with:
+          name: catalog-benchmark-complete-human-review
+          path: resume
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v5
+        with:
           pattern: catalog-benchmark-fragment-*
           path: fragments
       - name: Merge fragments and generate the human-review queue
@@ -173,6 +210,10 @@ jobs:
         run: |
           $inputs = Get-ChildItem -Path fragments -Filter attempts.jsonl -Recurse |
             ForEach-Object { $_.FullName }
+          $resume = 'resume/complete-benchmark/attempts.jsonl'
+          if (Test-Path -LiteralPath $resume) {
+            $inputs = @((Resolve-Path -LiteralPath $resume).Path) + @($inputs)
+          }
           if (-not $inputs) { throw 'no benchmark fragments were produced' }
           $env:CATALOG_BENCH_MERGE_INPUTS = $inputs -join ';'
           $env:CATALOG_BENCH_OUTPUT = 'complete-benchmark'
@@ -187,4 +228,5 @@ jobs:
             complete-benchmark
             benchmark-history/latest.json
             benchmark-history/latest.md
+            discovery/catalog-model-discovery.json
           if-no-files-found: error

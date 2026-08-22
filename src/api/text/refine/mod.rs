@@ -223,6 +223,7 @@ where
                 let mime = "image/jpeg".to_string();
                 crate::api::gemini_live::gemini_live_generate(
                     crate::api::gemini_live::GeminiLiveGenerateRequest {
+                        api_key: gemini_api_key.to_string(),
                         model: target_id_or_name.clone(),
                         text: final_prompt,
                         instruction: String::new(),
@@ -306,6 +307,7 @@ where
     } else if Provider::from_wire(&provider) == Some(Provider::GeminiLive) {
         crate::api::gemini_live::gemini_live_generate(
             crate::api::gemini_live::GeminiLiveGenerateRequest {
+                api_key: gemini_api_key.to_string(),
                 model,
                 text: final_prompt.to_string(),
                 instruction: String::new(),
