@@ -387,7 +387,7 @@ fn catalog_knows(provider: &str, full_name: &str) -> bool {
             .any(|model| model.provider == provider && model.full_name == full_name)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::*;
 

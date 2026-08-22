@@ -225,7 +225,7 @@ impl CandidateRank {
 /// formula, even when a previous manual edit persisted them into the chain.
 /// This makes re-enabling Live and later feed refreshes capable of restoring the
 /// measured order instead of mistaking yesterday's live rows for fixed choices.
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 pub fn merge_into_chain(
     chain: &[String],
     offered: &[String],
@@ -308,5 +308,6 @@ pub fn merge_into_chain_with_overrides(
 #[path = "model_feed/store.rs"]
 pub mod store;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
+#[path = "model_feed/tests.rs"]
 mod tests;
