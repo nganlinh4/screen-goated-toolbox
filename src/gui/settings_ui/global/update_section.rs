@@ -90,27 +90,21 @@ pub fn render_update_section_content(
                 u.check_for_updates();
             }
         }
-        UpdateStatus::UpdatedAndRestartRequired { .. } => {
+        UpdateStatus::UpdatedAndRestartRequired(staged) => {
             ui.label(
                 egui::RichText::new(text.desktop_settings.update_success)
                     .color(theme.success())
                     .heading(),
             );
             ui.label(text.desktop_settings.restart_to_use_new_version);
-            if ui.button(text.desktop_settings.restart_app_btn).clicked()
-                && let Ok(exe_path) = std::env::current_exe()
-                && let Some(exe_dir) = exe_path.parent()
-                && let Ok(entries) = std::fs::read_dir(exe_dir)
-                && let Some(newest_exe) = entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| {
-                        let name = e.file_name();
-                        let name_str = name.to_string_lossy();
-                        name_str.starts_with("ScreenGoatedToolbox_v") && name_str.ends_with(".exe")
-                    })
-                    .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
-            {
-                let path = newest_exe.path();
+            if ui.button(text.desktop_settings.restart_app_btn).clicked() {
+                let path = std::env::current_exe()
+                    .map_err(anyhow::Error::from)
+                    .and_then(|exe_path| staged.verified_path_beside(&exe_path));
+                let Ok(path) = path else {
+                    eprintln!("Refused to launch an unverified staged update");
+                    return;
+                };
                 println!("Attempting to spawn with delay: {:?}", path);
 
                 // Create a temporary batch file to handle the delayed restart reliably

@@ -20,7 +20,6 @@ const INTERACTIVE_TIMEOUT_MULTIPLIER: u64 = 10;
 const MIN_INTERACTIVE_TIMEOUT_MS: u64 = 10_000;
 #[cfg(not(feature = "recorder-worker"))]
 const MAX_INTERACTIVE_TIMEOUT_MS: u64 = 30_000;
-#[cfg(not(feature = "recorder-worker"))]
 const UNBENCHMARKED_FEED_QUALITY_TIER: u8 = 4;
 
 #[cfg(feature = "recorder-worker")]
@@ -162,9 +161,20 @@ impl RetryChainKind {
         if !self.adaptive_enabled(config) {
             return configured.to_vec();
         }
+        self.adaptive_chain(config, configured, self.live_overrides(config))
+    }
+
+    /// Resolves an adaptive chain from editor-owned rows without cloning the
+    /// rest of [`Config`]. The priority UI holds those rows mutably, while feed
+    /// eligibility and model ranks still come from the same frame's config.
+    pub(crate) fn adaptive_chain(
+        self,
+        config: &Config,
+        configured: &[String],
+        overrides: &crate::config::types::LiveModelOverrides,
+    ) -> Vec<String> {
         let offered = crate::model_feed::store::offered_models(config, self.target_model_type());
         let offered_ids: Vec<String> = offered.iter().map(|(id, _)| id.clone()).collect();
-        let overrides = self.live_overrides(config);
         if offered_ids.is_empty() {
             configured.to_vec()
         } else {
@@ -265,12 +275,31 @@ fn credential_present(environment: &str, saved: &str) -> bool {
     !crate::api::provider_credentials::resolve(environment, saved).is_empty()
 }
 
+/// Why this model should be passed over for the request about to be made.
+///
+/// `input_pixels` is the area of the image this call would send, where there is
+/// one. An endpoint that declares a reliable floor is skipped below it, and the
+/// caller advances to the next model exactly as it would for another structural
+/// capability mismatch.
 pub fn preflight_skip_reason(
     model_id: &str,
     provider: &str,
     config: &Config,
     blocked_providers: &HashSet<String>,
+    input_pixels: Option<u32>,
 ) -> Option<String> {
+    #[cfg(feature = "recorder-worker")]
+    let _ = input_pixels;
+    #[cfg(not(feature = "recorder-worker"))]
+    if let Some(pixels) = input_pixels
+        && let Some(model) = get_model_by_id_with_custom(model_id, &config.custom_models)
+        && let Some(floor) =
+            crate::model_config::vision_request_profile(&model.provider, &model.full_name)
+                .min_reliable_pixels
+        && pixels < floor
+    {
+        return Some(format!("MODEL_INPUT_TOO_SMALL:{model_id}:{pixels}px"));
+    }
     #[cfg(not(feature = "recorder-worker"))]
     if let Some(reason) = model_cooldown_skip_reason(model_id) {
         return Some(reason);

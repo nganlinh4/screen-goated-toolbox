@@ -210,6 +210,15 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
             "strict-json-schema" => "StructuredOutputPolicy::StrictJsonSchema",
             value => panic!("unsupported structured output policy {value:?}"),
         };
+        let min_reliable_pixels = match profile.get("min_reliable_pixels") {
+            None | Some(serde_json::Value::Null) => "None".to_string(),
+            Some(value) => format!(
+                "Some({}u32)",
+                value
+                    .as_u64()
+                    .expect("vision min_reliable_pixels must be an unsigned integer")
+            ),
+        };
         // Absent means "no known fault", so a new endpoint is trusted until it
         // has been measured rather than guarded on suspicion.
         let restates_output = profile
@@ -224,7 +233,7 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
             .split_once(':')
             .unwrap_or_else(|| panic!("vision request profile key must be provider:api-model"));
         lines.push(format!(
-            "        ({}, {}) => Some(VisionRequestProfile {{ input_order: {input_order}, media_resolution: {media_resolution}, sampling: {sampling}, max_output_tokens: {max_output_tokens}, structured_output: {structured_output}, restates_output: {restates_output} }}),",
+            "        ({}, {}) => Some(VisionRequestProfile {{ input_order: {input_order}, media_resolution: {media_resolution}, sampling: {sampling}, max_output_tokens: {max_output_tokens}, structured_output: {structured_output}, min_reliable_pixels: {min_reliable_pixels}, restates_output: {restates_output} }}),",
             rust_string(provider),
             rust_string(api_model)
         ));

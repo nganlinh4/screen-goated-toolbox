@@ -341,7 +341,8 @@
       "sampling": "qwen3-groq-non-thinking",
       "max_output_tokens": 512,
       "structured_output": "json-object",
-      "restates_output": true
+      "restates_output": true,
+      "min_reliable_pixels": 16384
     },
     "google:gemma-4-26b-a4b-it": {
       "input_order": "image-first",

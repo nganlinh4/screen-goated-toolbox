@@ -154,6 +154,7 @@ fn skips_disabled_provider_in_preflight() {
         "google",
         &config,
         &HashSet::new(),
+        None,
     );
 
     assert_eq!(reason.as_deref(), Some("PROVIDER_DISABLED:google"));
@@ -359,4 +360,61 @@ fn user_authored_chain_is_not_runtime_truncated() {
         RetryChainKind::TextToText.effective_chain(&config),
         config.model_priority_chains.text_to_text
     );
+}
+
+#[test]
+fn an_image_below_an_endpoints_floor_moves_to_the_next_model() {
+    let config = Config::default();
+    let leader = RetryChainKind::ImageToText.configured_chain(&config)[0].clone();
+    let model = crate::model_config::get_model_by_id(&leader).expect("chain leader exists");
+    let floor = crate::model_config::vision_request_profile(&model.provider, &model.full_name)
+        .min_reliable_pixels
+        .expect("the chain leader declares a reliable floor");
+
+    // Any input below the catalog-declared capability boundary is routed onward.
+    let reason = preflight_skip_reason(
+        &leader,
+        &model.provider,
+        &config,
+        &HashSet::new(),
+        Some(59 * 15),
+    )
+    .expect("a crop far below the floor must be skipped");
+    assert!(reason.starts_with("MODEL_INPUT_TOO_SMALL"), "{reason}");
+
+    // Skipping is not a provider fault: the provider's other models, and this
+    // model on larger images, must stay reachable.
+    assert!(!crate::overlay::utils::should_block_retry_provider(&reason));
+
+    // ... and the chain has somewhere to go, which is what makes the skip safe.
+    // Checked structurally rather than by resolving a candidate, because
+    // resolution needs credentials this test does not have.
+    let chain = RetryChainKind::ImageToText.configured_chain(&config);
+    assert!(
+        chain.len() > 1,
+        "skipping the leader on small input is only safe while something follows it"
+    );
+    assert!(
+        chain[1..].iter().all(|id| {
+            let model = crate::model_config::get_model_by_id(id).expect("chain member exists");
+            crate::model_config::vision_request_profile(&model.provider, &model.full_name)
+                .min_reliable_pixels
+                .is_none_or(|other| other < floor)
+        }),
+        "a fallback that declares the same floor would skip too, and small images          would reach nothing"
+    );
+
+    // At and above the floor, and for a call carrying no image at all, the size
+    // rule must not fire. Compared by reason rather than by `None`, because a
+    // test environment without credentials is skipped for that instead.
+    for pixels in [Some(floor), Some(floor + 1), None] {
+        let reason =
+            preflight_skip_reason(&leader, &model.provider, &config, &HashSet::new(), pixels);
+        assert!(
+            !reason
+                .as_deref()
+                .is_some_and(|reason| reason.starts_with("MODEL_INPUT_TOO_SMALL")),
+            "{pixels:?} is not below the floor and must not be skipped for size"
+        );
+    }
 }

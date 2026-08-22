@@ -267,7 +267,6 @@ fn discovered_model(
 }
 
 /// A stable id for a model that exists only in the feed.
-#[cfg(not(feature = "recorder-worker"))]
 pub fn discovered_id(provider: &str, full_name: &str) -> String {
     let mut slug: String = full_name
         .chars()

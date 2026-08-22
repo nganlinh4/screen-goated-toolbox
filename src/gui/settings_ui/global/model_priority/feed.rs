@@ -10,6 +10,34 @@ pub(super) enum ManualEdit {
     Add(String),
 }
 
+pub(super) struct PreparedChain {
+    pub(super) visible: Vec<String>,
+    pub(super) adaptive: Vec<String>,
+    pub(super) live_ids: Vec<String>,
+}
+
+/// Resolves both possible toggle states before the editor mutably borrows its
+/// authored rows. This keeps full-config cloning out of egui's frame loop.
+pub(super) fn prepare_chain(
+    config: &Config,
+    chain_kind: RetryChainKind,
+    authored: &[String],
+    overrides: &LiveModelOverrides,
+    adaptive_enabled: bool,
+) -> PreparedChain {
+    let adaptive = visible_chain(config, chain_kind, authored, overrides, true);
+    let visible = if adaptive_enabled {
+        adaptive.clone()
+    } else {
+        authored.to_vec()
+    };
+    PreparedChain {
+        visible,
+        adaptive,
+        live_ids: live_ids(config, chain_kind),
+    }
+}
+
 /// Builds the rows the editor displays. Live entries deliberately use the same
 /// shape as authored entries so each receives the normal selector and actions.
 pub(super) fn visible_chain(
@@ -22,27 +50,7 @@ pub(super) fn visible_chain(
     if !adaptive_enabled {
         return authored.to_vec();
     }
-
-    // The caller owns a chain mutably while `config` is its frame-start snapshot.
-    // Copy current state into the snapshot so edits appear in the same frame.
-    let mut effective_config = config.clone();
-    match chain_kind {
-        RetryChainKind::ImageToText => {
-            effective_config.model_priority_chains.image_to_text = authored.to_vec();
-            effective_config.adaptive_model_priority.image_to_text = true;
-            effective_config
-                .adaptive_model_priority
-                .image_to_text_overrides = overrides.clone();
-        }
-        RetryChainKind::TextToText => {
-            effective_config.model_priority_chains.text_to_text = authored.to_vec();
-            effective_config.adaptive_model_priority.text_to_text = true;
-            effective_config
-                .adaptive_model_priority
-                .text_to_text_overrides = overrides.clone();
-        }
-    }
-    chain_kind.effective_chain(&effective_config)
+    chain_kind.adaptive_chain(config, authored, overrides)
 }
 
 pub(super) fn live_ids(config: &Config, chain_kind: RetryChainKind) -> Vec<String> {

@@ -53,7 +53,7 @@ pub(super) fn validate_request_profiles(
         // Optional because it records a fault that has actually been measured on
         // one endpoint. Requiring it everywhere would mean declaring every other
         // endpoint sound without having checked.
-        let optional = HashSet::from(["restates_output"]);
+        let optional = HashSet::from(["restates_output", "min_reliable_pixels"]);
         let unknown: Vec<&&str> = fields
             .iter()
             .filter(|field| !required.contains(*field) && !optional.contains(*field))

@@ -94,6 +94,16 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     let retry_chain_kind = RetryChainKind::from_block_type(&block.block_type)
         .filter(|_| !crate::model_config::model_is_non_llm(model_id));
 
+    // Area of the image this block would send, where there is one. An endpoint
+    // that declares a reliable floor is passed over below it, and the chain moves
+    // to the next model on its own.
+    let input_pixels = match context {
+        RefineContext::Image(bytes) => image::load_from_memory(bytes)
+            .ok()
+            .map(|image| image.width().saturating_mul(image.height())),
+        _ => None,
+    };
+
     let window_shown = Arc::new(Mutex::new(block.block_type != "image"));
     let processing_hwnd_arc = Arc::new(Mutex::new(processing_hwnd_shared));
 
@@ -115,6 +125,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 &current_provider,
                 config,
                 &blocked_providers,
+                input_pixels,
             )
             .or_else(|| claim_model_attempt(&current_model_id))
         {

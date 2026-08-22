@@ -131,5 +131,5 @@ fn is_compatible_translation_model(
         && !model_is_non_llm(&model.id)
         && !blocked_providers.contains(&model.provider)
         && provider_is_available(&model.provider, config)
-        && preflight_skip_reason(&model.id, &model.provider, config, blocked_providers).is_none()
+        && preflight_skip_reason(&model.id, &model.provider, config, blocked_providers, None).is_none()
 }

@@ -2,8 +2,8 @@
 
 use crate::gui::icons::{Icon, draw_icon_static, provider_icon};
 use crate::model_config::{
-    ModelConfig, ModelType, get_all_models_with_ollama, get_model_by_id, model_is_non_llm,
-    model_search_tool_enabled_by_default_by_id,
+    ModelConfig, ModelType, get_all_models_with_custom, get_all_models_with_ollama,
+    model_is_non_llm, sort_models_for_display,
 };
 use crate::retry_model_chain::RetryChainKind;
 use eframe::egui;
@@ -36,6 +36,19 @@ pub(crate) fn compatible_models(chain_kind: RetryChainKind) -> Vec<ModelConfig> 
         .collect()
 }
 
+/// Builds one selector catalog from the config already borrowed by the caller.
+///
+/// Dense editors must prepare this once and share it across their rows. Calling
+/// [`compatible_models`] from every row repeatedly locks global app state,
+/// clones the dynamic catalog, and sorts it even while every popup is closed.
+pub(crate) fn selector_models(
+    custom_models: &[crate::config::types::CustomModelDefinition],
+) -> Vec<ModelConfig> {
+    let mut models = get_all_models_with_custom(custom_models);
+    sort_models_for_display(&mut models);
+    models
+}
+
 pub(crate) fn render_model_combo(
     ui: &mut egui::Ui,
     id: impl std::hash::Hash,
@@ -44,8 +57,19 @@ pub(crate) fn render_model_combo(
     ui_language: &str,
 ) -> bool {
     let models = compatible_models(chain_kind);
-    let selected = get_model_by_id(model_id);
-    if let Some(model) = selected.as_ref() {
+    render_model_combo_from_models(ui, id, model_id, chain_kind, ui_language, &models)
+}
+
+pub(crate) fn render_model_combo_from_models(
+    ui: &mut egui::Ui,
+    id: impl std::hash::Hash,
+    model_id: &mut String,
+    chain_kind: RetryChainKind,
+    ui_language: &str,
+    models: &[ModelConfig],
+) -> bool {
+    let selected = models.iter().find(|model| model.id == *model_id);
+    if let Some(model) = selected {
         crate::gui::model_performance::render_prefix(ui, model);
         draw_icon_static(
             ui,
@@ -61,7 +85,8 @@ pub(crate) fn render_model_combo(
         .push_id(id, |ui| {
             ui.add_sized(
                 egui::vec2(MODEL_SELECTOR_WIDTH, ui.spacing().interact_size.y),
-                egui::Button::new(model_short_label(model_id, ui_language)).truncate(),
+                egui::Button::new(model_short_label_from_models(models, model_id, ui_language))
+                    .truncate(),
             )
         })
         .inner;
@@ -89,7 +114,10 @@ pub(crate) fn render_model_combo(
             ui.set_min_width(460.0);
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             model_popup_scroll(ui, |ui| {
-                for model in &models {
+                for model in models
+                    .iter()
+                    .filter(|model| compatible_with_chain(model, chain_kind))
+                {
                     ui.horizontal(|ui| {
                         crate::gui::model_performance::render_prefix(ui, model);
                         draw_icon_static(
@@ -108,7 +136,7 @@ pub(crate) fn render_model_combo(
                             changed = true;
                             egui::Popup::toggle_id(ui.ctx(), popup_id);
                         }
-                        if model_search_tool_enabled_by_default_by_id(&model.id) {
+                        if model.search_tool_enabled_by_default {
                             draw_icon_static(ui, Icon::Search, Some(crate::gui::icons::ICON_XS));
                         }
                     });
@@ -118,11 +146,23 @@ pub(crate) fn render_model_combo(
     changed
 }
 
-pub(crate) fn default_model_id(chain_kind: RetryChainKind) -> String {
-    compatible_models(chain_kind)
-        .first()
+pub(crate) fn default_model_id_from_models(
+    models: &[ModelConfig],
+    chain_kind: RetryChainKind,
+) -> String {
+    models
+        .iter()
+        .find(|model| compatible_with_chain(model, chain_kind))
         .map(|model| model.id.clone())
         .unwrap_or_default()
+}
+
+fn compatible_with_chain(model: &ModelConfig, chain_kind: RetryChainKind) -> bool {
+    let model_type = match chain_kind {
+        RetryChainKind::ImageToText => ModelType::Vision,
+        RetryChainKind::TextToText => ModelType::Text,
+    };
+    model.enabled && model.model_type == model_type && !model_is_non_llm(&model.id)
 }
 
 fn model_option_label(model: &ModelConfig, ui_language: &str) -> String {
@@ -134,8 +174,14 @@ fn model_option_label(model: &ModelConfig, ui_language: &str) -> String {
     )
 }
 
-pub(crate) fn model_short_label(model_id: &str, ui_language: &str) -> String {
-    get_model_by_id(model_id)
+pub(crate) fn model_short_label_from_models(
+    models: &[ModelConfig],
+    model_id: &str,
+    ui_language: &str,
+) -> String {
+    models
+        .iter()
+        .find(|model| model.id == model_id)
         .map(|model| model.localized_name(ui_language).to_string())
         .unwrap_or_else(|| model_id.to_string())
 }

@@ -39,6 +39,18 @@ struct ListMetrics {
     pitch: f32,
 }
 
+fn projected_insert(
+    pointer_y: f32,
+    lifted: LiftedRow,
+    metrics: ListMetrics,
+    len: usize,
+) -> Option<usize> {
+    (metrics.pitch > 0.0).then(|| {
+        let travelled = (pointer_y - lifted.grab_dy - metrics.first_slot.top()) / metrics.pitch;
+        travelled.round().clamp(0.0, len.saturating_sub(1) as f32) as usize
+    })
+}
+
 impl Default for ListMetrics {
     fn default() -> Self {
         Self {
@@ -108,6 +120,27 @@ impl ListReorder {
 
     pub(crate) fn is_lifting(&self) -> bool {
         self.state.lifted.is_some()
+    }
+
+    /// Projects the current pointer into a landing slot before this frame is
+    /// laid out. Updating after layout makes the visible gap trail by a frame.
+    pub(crate) fn track(&mut self, ui: &egui::Ui, len: usize) {
+        let metrics = self.metrics();
+        if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            self.state.lifted = None;
+            return;
+        }
+        let Some(pointer) = ui.ctx().pointer_interact_pos() else {
+            return;
+        };
+        let Some(lifted) = self.state.lifted else {
+            return;
+        };
+        if let Some(insert) = projected_insert(pointer.y, lifted, metrics, len)
+            && let Some(lifted) = self.state.lifted.as_mut()
+        {
+            lifted.insert = insert;
+        }
     }
 
     /// The order to draw the list in: untouched, or the remaining rows with a
@@ -181,28 +214,12 @@ impl ListReorder {
         })
     }
 
-    /// Track the cursor, and on release report the move to apply as `(from, to)`.
-    /// Escape abandons the lift, leaving the list as it was.
-    pub(crate) fn settle(&mut self, ui: &egui::Ui, len: usize) -> Option<(usize, usize)> {
+    /// On release, reports the move to apply as `(from, to)`.
+    pub(crate) fn settle(&mut self, ui: &egui::Ui) -> Option<(usize, usize)> {
         let metrics = self.metrics();
         self.state.metrics = metrics;
-        let pointer = ui.ctx().pointer_interact_pos();
         let released = !ui.input(|input| input.pointer.any_down());
-        let cancelled = ui.input(|input| input.key_pressed(egui::Key::Escape));
-
-        let lifted = self.state.lifted.as_mut()?;
-        if cancelled {
-            self.state.lifted = None;
-            return None;
-        }
-        if let Some(pointer) = pointer
-            && metrics.pitch > 0.0
-        {
-            // Project from where the row is being held, not from the row under
-            // the pointer: the carried row decides its own landing slot.
-            let travelled = (pointer.y - lifted.grab_dy - metrics.first_slot.top()) / metrics.pitch;
-            lifted.insert = travelled.round().clamp(0.0, len.saturating_sub(1) as f32) as usize;
-        }
+        let lifted = self.state.lifted?;
         if released {
             let moved = (lifted.from, lifted.insert);
             self.state.lifted = None;
@@ -277,6 +294,23 @@ mod tests {
         let plan = lifted(1, 99).plan(3);
         assert_eq!(plan.len(), 3, "one slot per step, gap included");
         assert_eq!(plan.last(), Some(&Slot::Gap));
+    }
+
+    #[test]
+    fn pointer_projection_reaches_the_current_slot_without_a_layout_pass() {
+        let metrics = ListMetrics {
+            first_slot: egui::Rect::from_min_size(egui::pos2(20.0, 100.0), egui::vec2(180.0, 24.0)),
+            pitch: 30.0,
+        };
+        let lifted = LiftedRow {
+            from: 0,
+            insert: 0,
+            grab_dy: 12.0,
+            size: egui::vec2(180.0, 24.0),
+        };
+        assert_eq!(projected_insert(172.0, lifted, metrics, 4), Some(2));
+        assert_eq!(projected_insert(-500.0, lifted, metrics, 4), Some(0));
+        assert_eq!(projected_insert(900.0, lifted, metrics, 4), Some(3));
     }
 
     /// Runs one egui pass, handing the body a `Ui` to work in.

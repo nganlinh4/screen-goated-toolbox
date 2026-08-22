@@ -81,9 +81,11 @@ pub fn cleanup_temporary_files() {
     if let Ok(exe_path) = std::env::current_exe()
         && let Some(exe_dir) = exe_path.parent()
     {
-        let temp_download = exe_dir.join("temp_download");
-        if temp_download.exists() {
-            let _ = std::fs::remove_file(temp_download);
+        for name in ["temp_download", "update_download.part"] {
+            let partial_download = exe_dir.join(name);
+            if partial_download.exists() {
+                let _ = std::fs::remove_file(partial_download);
+            }
         }
     }
 }
