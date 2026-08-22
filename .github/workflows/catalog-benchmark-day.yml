@@ -73,6 +73,8 @@ jobs:
             ~/.cargo/git
             target
           key: catalog-benchmark-build-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs', 'build_support/**', 'catalog/model_catalog.json', 'scripts/egui-patch-contract.ps1', 'scripts/egui-*.patch') }}
+          restore-keys: |
+            catalog-benchmark-build-${{ runner.os }}-
       - name: Compile the benchmark test binary once
         shell: pwsh
         run: |
