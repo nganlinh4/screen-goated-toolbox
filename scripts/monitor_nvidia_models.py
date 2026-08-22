@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Probe every NVIDIA NIM model and score it for the published availability feed.
+"""Probe every NVIDIA NIM model for the published availability feed.
 
 The feed carries facts a client cannot cheaply discover for itself: whether an
-endpoint answers at all, whether its answer is correct, and which reasoning
-control silences its thinking. Latency is reported too, but only as a coarse
-ranking hint -- the runner measures from one datacenter, while the client sits on
-the user's own network and already records real per-call latency.
+endpoint answers, which general modality it accepts, and which reasoning control
+silences its thinking. Latency is reported too, but only as a coarse ranking hint
+-- the runner measures from one datacenter, while the client sits on the user's
+own network and already records real per-call latency.
 
 Two properties matter more than the numbers.
 
@@ -15,7 +15,10 @@ sending `reasoning_effort` to an endpoint that does not accept it turned a healt
 model into HTTP 500. The working control is therefore discovered per model, cached
 in the history file, and re-checked only when a model stops answering.
 
-Health is hysteretic. Three NVIDIA endpoints changed state within one day, so a
+Health is operational and hysteretic. A preset-specific answer can be useful
+diagnostic evidence, but never qualifies or disqualifies a model for an entire
+Text-to-Text or Image-to-Text catalog. Durable quality belongs to the catalog's
+broad benchmark and review process. Three NVIDIA endpoints changed state within one day, so a
 single run must never promote or demote anything; a model becomes eligible only
 after several consecutive healthy runs and loses eligibility only after several
 consecutive failures.
@@ -32,8 +35,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-
-import monitor_quality as quality
 
 # A failure reason quotes the model's own text, which is routinely not ASCII: a
 # rejected reply may carry Vietnamese or Korean. On a console with a legacy code
@@ -53,11 +54,15 @@ CALL_SPACING_SECONDS = 1.6  # stays under the 40 requests-per-minute allowance
 RUNS_KEPT = 24  # two days at a two-hourly cadence
 RUNS_TO_PROMOTE = 3
 RUNS_TO_DEMOTE = 2
+AVAILABILITY_GATE_VERSION = 1
+MAX_ACCEPTABLE_P50_MS = 6_000
 
-TEXT_PROMPT = (
-    "Translate to Vietnamese, output only the translation: "
-    '"Settings > Display > Night light. Turn on automatically at sunset."'
+TEXT_PROBES = (
+    "Reply with exactly READY.",
+    "Summarize in one sentence: A background task finished successfully and its output is ready.",
+    "Return the two labels in their original order, one per line: alpha-17, beta-42.",
 )
+TEXT_PROMPT = TEXT_PROBES[0]
 
 # Ordered by preference: an endpoint that reaches zero reasoning tokens on an
 # earlier control never needs a later one.
@@ -181,18 +186,17 @@ def build_case_body(model: str, control: str, prompt: str) -> dict:
 
 
 def measure(key: str, model: str, control: str) -> dict:
-    """Runs the text quality suite once per case and records why it failed.
+    """Measures whether the endpoint can serve ordinary text requests.
 
     An empty reply is retried once before it is recorded. Not answering is an
-    availability event, and a provider drops one occasionally; the quality gate
-    demands every case pass, so without this a single transient blank rejects a
-    model that is entirely correct. Being wrong still fails on the first
-    occurrence -- only silence gets the second chance.
+    availability event, and a provider drops one occasionally. Reply content is
+    deliberately not judged here: these probes cover the whole text catalog, so
+    no single task's expected answer is a valid universal quality gate.
     """
     latencies: list[float] = []
-    results: list[tuple[bool, str]] = []
-    for case in quality.CASES:
-        body = build_case_body(model, control, case["prompt"])
+    failures: list[str] = []
+    for prompt in TEXT_PROBES:
+        body = build_case_body(model, control, prompt)
         status, payload, elapsed = post(key, body)
         time.sleep(CALL_SPACING_SECONDS)
         content, _ = answer_of(payload)
@@ -201,90 +205,100 @@ def measure(key: str, model: str, control: str) -> dict:
             time.sleep(CALL_SPACING_SECONDS)
             content, _ = answer_of(payload)
         if content is None:
-            results.append((False, f"no reply ({status})"))
+            failures.append(f"no reply ({status})")
             continue
         latencies.append(elapsed)
-        results.append(quality.judge(case, content))
     p50 = int(statistics.median(latencies) * 1000) if latencies else None
-    passed, reason = quality.verdict(results, p50)
-    return {
-        "gate": quality.GATE_VERSION,
+    sample = {
+        "gate": AVAILABILITY_GATE_VERSION,
         "answered": len(latencies),
-        "attempts": len(quality.CASES),
-        "passed": passed,
-        "reason": reason,
+        "attempts": len(TEXT_PROBES),
         "p50_ms": p50,
         "p95_ms": int(max(latencies) * 1000) if latencies else None,
     }
+    passed, reason = operational_verdict(sample)
+    sample["passed"] = passed
+    sample["reason"] = reason or (failures[0] if failures else "")
+    return sample
 
 
 def measure_vision(key: str, model: str, control: str) -> dict | None:
-    """Runs the OCR suite. Returns None when the model cannot take an image.
+    """Checks whether a model accepts image input and returns a useful payload.
 
     Vision capability is discovered rather than declared: the model list does not
     say which endpoints accept images, and several that look multimodal reject one.
+    The content is not scored as OCR, localization, description, or any other
+    preset because this capability feeds the whole Image-to-Text catalog.
     """
-    latencies: list[float] = []
-    results: list[tuple[bool, str]] = []
-    for index, case in enumerate(quality.VISION_CASES):
-        path = Path(case["image"])
-        if not path.exists():
-            return None
-        encoded = base64.b64encode(path.read_bytes()).decode()
-        body = build_body(model, control)
-        body["messages"] = [m for m in body["messages"] if m["role"] != "user"]
-        body["messages"].append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": case["instruction"]},
-                {"type": "image_url",
-                 "image_url": {"url": f"data:{case['mime']};base64,{encoded}"}},
-            ],
-        })
-        body["max_tokens"] = 300
-        status, payload, elapsed = post(key, body)
-        time.sleep(CALL_SPACING_SECONDS)
-        content, _ = answer_of(payload)
-        if content is None:
-            # A refusal on the first image means this is not a vision endpoint.
-            if index == 0:
-                return None
-            results.append((False, f"no reply ({status})"))
-            continue
-        latencies.append(elapsed)
-        results.append(quality.judge_vision(case, content))
-    p50 = int(statistics.median(latencies) * 1000) if latencies else None
-    passed, reason = quality.verdict(results, p50)
+    path = Path("tests/catalog-benchmark/images/coordinate/08-filter-chip.png")
+    if not path.exists():
+        return None
+    encoded = base64.b64encode(path.read_bytes()).decode()
+    body = build_body(model, control)
+    body["messages"] = [m for m in body["messages"] if m["role"] != "user"]
+    body["messages"].append({
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Describe the visible interface briefly."},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}},
+        ],
+    })
+    body["max_tokens"] = 300
+    status, payload, elapsed = post(key, body)
+    time.sleep(CALL_SPACING_SECONDS)
+    content, _ = answer_of(payload)
+    if content is None:
+        return None
     return {
-        "gate": quality.GATE_VERSION,
-        "answered": len(latencies),
-        "attempts": len(quality.VISION_CASES),
-        "passed": passed,
-        "reason": reason,
-        "p50_ms": p50,
-        "p95_ms": int(max(latencies) * 1000) if latencies else None,
+        "gate": AVAILABILITY_GATE_VERSION,
+        "answered": 1,
+        "attempts": 1,
+        "passed": True,
+        "reason": "",
+        "p50_ms": int(elapsed * 1000),
+        "p95_ms": int(elapsed * 1000),
     }
 
 
-def healthy(sample: dict) -> bool:
-    """Whether a run satisfied the quality gate outright.
+def operational_verdict(sample: dict) -> tuple[bool, str]:
+    """Catalog-wide endpoint health, independent of any preset's semantics."""
+    answered = int(sample.get("answered", 0))
+    attempts = int(sample.get("attempts", 0))
+    p50_ms = sample.get("p50_ms")
+    if attempts <= 0 or answered < max(1, attempts - 1):
+        return False, f"insufficient replies ({answered}/{attempts})"
+    if p50_ms is None:
+        return False, "no latency"
+    if p50_ms > MAX_ACCEPTABLE_P50_MS:
+        return False, f"too slow ({p50_ms}ms)"
+    return True, ""
 
-    There is no partial credit. A model that translates one sentence correctly and
-    answers the next in the wrong language is not usable, and an average would
-    hide exactly that.
-    """
-    return bool(sample.get("passed"))
+
+def healthy(sample: dict) -> bool:
+    """Whether recorded transport evidence satisfies the availability contract."""
+    return operational_verdict(sample)[0]
 
 
 def updated_eligibility(known: dict, sample: dict) -> tuple[int, int, bool]:
-    """Streak state after one sample, scoped to the current quality gate.
+    """Streak state after one sample, scoped only to operational semantics.
 
-    Eligibility earned under a weaker suite is not evidence under a stronger
-    one. The explicit gate marker also repairs old history whose persisted
-    counters crossed a gate revision before this invariant was recorded.
+    On migration, recent transport evidence is re-evaluated under this contract.
+    That restores endpoints which were operationally sound but failed an old
+    preset-specific content check, without restoring silent or slow endpoints.
     """
-    if known.get("eligibility_gate") != quality.GATE_VERSION:
-        streak_ok, streak_bad, eligible = 0, 0, False
+    if known.get("eligibility_gate") != AVAILABILITY_GATE_VERSION:
+        statuses = [healthy(item) for item in known.get("recent", [])]
+        streak_ok = 0
+        for status in reversed(statuses):
+            if not status:
+                break
+            streak_ok += 1
+        streak_bad = 0
+        for status in reversed(statuses):
+            if status:
+                break
+            streak_bad += 1
+        eligible = streak_ok >= RUNS_TO_PROMOTE and streak_bad < RUNS_TO_DEMOTE
     else:
         streak_ok = known.get("healthy_streak", 0)
         streak_bad = known.get("failing_streak", 0)
@@ -305,15 +319,17 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
     if limit:
         models = models[:limit]
     previous = history.get("models", {})
-    results: dict[str, dict] = {}
+    # A focused probe updates only named endpoints. Keeping the rest is essential:
+    # an emergency check must not make every unselected model disappear.
+    results: dict[str, dict] = dict(previous) if only is not None else {}
     for model in models:
         known = previous.get(model, {})
         control = known.get("control")
         if not control:
             control, _ = discover_control(key, model)
         sample = measure(key, model, control) if control else {
-            "gate": quality.GATE_VERSION,
-            "answered": 0, "attempts": len(quality.CASES), "passed": False,
+            "gate": AVAILABILITY_GATE_VERSION,
+            "answered": 0, "attempts": len(TEXT_PROBES), "passed": False,
             "reason": "no working reasoning control", "p50_ms": None, "p95_ms": None,
         }
         if control and sample["answered"] == 0:
@@ -321,13 +337,11 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
             control, _ = discover_control(key, model)
             if control:
                 sample = measure(key, model, control)
-        # Whether an endpoint accepts images at all is a property of the endpoint
-        # and stays cached; whether its transcription is good enough is a property
-        # of the gate, and must be re-judged when the gate changes. Conflating the
-        # two published two endpoints as verified vision on a verdict taken before
-        # the diacritic check existed.
+        # Whether an endpoint accepts images is a property of the endpoint and
+        # stays cached. Preset-specific image output quality is catalog evidence,
+        # not live availability evidence.
         vision = known.get("vision")
-        stale = isinstance(vision, dict) and vision.get("gate") != quality.GATE_VERSION
+        stale = isinstance(vision, dict) and vision.get("gate") != AVAILABILITY_GATE_VERSION
         if control and healthy(sample) and (vision is None or stale):
             measured = measure_vision(key, model, control)
             # None means it refused an image, which is capability, not quality.
@@ -338,7 +352,7 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
         results[model] = {
             "control": control,
             "vision": vision,
-            "eligibility_gate": quality.GATE_VERSION,
+            "eligibility_gate": AVAILABILITY_GATE_VERSION,
             "healthy_streak": streak_ok,
             "failing_streak": streak_bad,
             "eligible": eligible,
@@ -354,7 +368,7 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
 
 
 def published(history: dict, generated_at: str) -> dict:
-    """The client-facing view: models that passed the gate, with what a client
+    """The client-facing view: operationally healthy general models, with what a client
     needs to use one without shipping a new build.
 
     `modality` and `control` are carried because the client cannot infer them and
@@ -371,15 +385,13 @@ def published(history: dict, generated_at: str) -> dict:
         # recent run is not offered, even while it keeps its eligibility. Without
         # this, a tightened gate publishes models at zero percent success until
         # two consecutive failures demote them.
-        if not (state["recent"] and state["recent"][-1].get("passed")):
+        if not (state["recent"] and healthy(state["recent"][-1])):
             continue
-        comparable = [
-            s for s in state["recent"] if s.get("gate") == quality.GATE_VERSION
-        ]
+        comparable = list(state["recent"])
         recent = [s for s in comparable if s.get("p50_ms") is not None]
         if not recent:
             continue
-        passes = sum(1 for s in comparable if s.get("passed"))
+        passes = sum(1 for s in comparable if healthy(s))
         vision = state.get("vision")
         modality = published_modality(model, vision)
         if modality is None:
@@ -394,13 +406,14 @@ def published(history: dict, generated_at: str) -> dict:
         })
     entries.sort(key=lambda e: e["p50_ms"])
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "controlVersion": 1,
-        "qualityGateVersion": quality.GATE_VERSION,
+        "availabilityGateVersion": AVAILABILITY_GATE_VERSION,
         "provider": "nvidia",
         "generatedAt": generated_at,
-        "note": ("Latency is measured from one datacenter and is a ranking hint only; "
-                 "clients should order by their own observed latency."),
+        "note": ("Eligibility measures endpoint availability, modality, and latency only. "
+                 "Durable quality comes from the catalog benchmark; clients should refine "
+                 "latency order using their own observations."),
         "models": entries,
     }
 

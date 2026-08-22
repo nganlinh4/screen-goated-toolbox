@@ -1,7 +1,8 @@
 name: Monitor NVIDIA availability
 
-# Publishes which NVIDIA endpoints answer, answer correctly, and with which
-# reasoning control. Latency is included only as a coarse ranking hint: this
+# Publishes which NVIDIA endpoints answer, which general modality they accept,
+# and with which reasoning control. Preset output is never a catalog-wide gate.
+# Latency is included only as a coarse ranking hint: this
 # runner measures from one datacenter, while clients sit on the user's network
 # and already record their own per-call latency.
 #
