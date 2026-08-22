@@ -1,13 +1,12 @@
 //! Manager for Gemini Live LLM connection pool
 
-use super::types::{LiveEvent, LiveInputContent, LiveRequest, QueuedLiveRequest};
+use super::types::{LiveEvent, LiveRequest, QueuedLiveRequest};
 use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::sync::{
-    Arc, Condvar, Mutex,
+    Condvar, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
-use std::time::Instant;
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -38,30 +37,11 @@ impl GeminiLiveManager {
 
     /// Send a request to the Gemini Live LLM and get a receiver for events
     /// Returns (request_id, event_receiver)
-    pub fn request(
-        &self,
-        api_key: String,
-        model: String,
-        content: LiveInputContent,
-        instruction: String,
-        show_thinking: bool,
-        cancel_token: Option<Arc<AtomicBool>>,
-        deadline: Option<Instant>,
-    ) -> (u64, mpsc::Receiver<LiveEvent>) {
+    pub fn request(&self, req: LiveRequest) -> (u64, mpsc::Receiver<LiveEvent>) {
         let id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         let current_gen = self.interrupt_generation.load(Ordering::SeqCst);
 
         let (tx, rx) = mpsc::channel();
-
-        let req = LiveRequest {
-            api_key,
-            model,
-            content,
-            instruction,
-            show_thinking,
-            cancel_token,
-            deadline,
-        };
 
         {
             let mut queue = self.work_queue.lock().unwrap();
@@ -91,19 +71,20 @@ impl Default for GeminiLiveManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::gemini_live::types::LiveInputContent;
 
     #[test]
     fn queued_request_preserves_the_callers_credential() {
         let manager = GeminiLiveManager::new();
-        let (_id, _receiver) = manager.request(
-            "caller-key".to_string(),
-            "model".to_string(),
-            LiveInputContent::Text("hello".to_string()),
-            String::new(),
-            false,
-            None,
-            None,
-        );
+        let (_id, _receiver) = manager.request(LiveRequest {
+            api_key: "caller-key".to_string(),
+            model: "model".to_string(),
+            content: LiveInputContent::Text("hello".to_string()),
+            instruction: String::new(),
+            show_thinking: false,
+            cancel_token: None,
+            deadline: None,
+        });
         let queue = manager.work_queue.lock().unwrap();
         assert_eq!(queue.front().unwrap().req.api_key, "caller-key");
     }

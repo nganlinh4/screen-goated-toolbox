@@ -29,7 +29,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 pub use manager::GeminiLiveManager;
-pub use types::{LiveEvent, LiveInputContent};
+pub use types::{LiveEvent, LiveInputContent, LiveRequest};
 
 /// Global Gemini Live manager instance
 pub static GEMINI_LIVE_MANAGER: LazyLock<Arc<GeminiLiveManager>> =
@@ -136,15 +136,15 @@ where
     let show_thinking = false;
 
     // Send request to the manager
-    let (id, rx) = GEMINI_LIVE_MANAGER.request(
+    let (id, rx) = GEMINI_LIVE_MANAGER.request(LiveRequest {
         api_key,
         model,
         content,
         instruction,
         show_thinking,
-        cancel_token.clone(),
+        cancel_token: cancel_token.clone(),
         deadline,
-    );
+    });
     println!("[GeminiLive] Request queued with ID: {}", id);
 
     let mut full_content = String::new();
