@@ -3,78 +3,78 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-08-23T08:51:29Z",
+ "generatedAt": "2026-08-23T10:44:14Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "meta/llama-3.1-8b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 313,
+   "p50_ms": 312,
    "success_rate": 1.0,
-   "runs": 21
+   "runs": 22
   },
   {
    "id": "nvidia/nemotron-mini-4b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 387,
-   "success_rate": 0.857,
-   "runs": 21
+   "p50_ms": 385,
+   "success_rate": 0.864,
+   "runs": 22
   },
   {
    "id": "nvidia/nemotron-3-nano-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 398,
+   "p50_ms": 397,
    "success_rate": 1.0,
-   "runs": 21
+   "runs": 22
   },
   {
    "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
    "control": "effort-none",
    "modality": "vision",
-   "p50_ms": 456,
-   "success_rate": 0.952,
-   "runs": 21
+   "p50_ms": 458,
+   "success_rate": 0.955,
+   "runs": 22
   },
   {
    "id": "mistralai/mistral-nemotron",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 475,
-   "success_rate": 0.81,
-   "runs": 21
+   "p50_ms": 465,
+   "success_rate": 0.818,
+   "runs": 22
   },
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 561,
-   "success_rate": 0.905,
-   "runs": 21
+   "p50_ms": 564,
+   "success_rate": 0.909,
+   "runs": 22
   },
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 663,
-   "success_rate": 0.952,
-   "runs": 21
-  },
-  {
-   "id": "thinkingmachines/inkling",
-   "control": "effort-none",
-   "modality": "text",
-   "p50_ms": 743,
-   "success_rate": 1.0,
-   "runs": 20
+   "p50_ms": 633,
+   "success_rate": 0.955,
+   "runs": 22
   },
   {
    "id": "meta/llama-3.1-70b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 784,
+   "p50_ms": 733,
+   "success_rate": 1.0,
+   "runs": 22
+  },
+  {
+   "id": "thinkingmachines/inkling",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 735,
    "success_rate": 1.0,
    "runs": 21
   },
@@ -82,15 +82,15 @@
    "id": "meta/muse-glimmer-30b",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 799,
-   "success_rate": 0.7,
-   "runs": 20
+   "p50_ms": 787,
+   "success_rate": 0.714,
+   "runs": 21
   },
   {
    "id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 826,
+   "p50_ms": 873,
    "success_rate": 0.917,
    "runs": 24
   },
@@ -98,65 +98,65 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 898,
-   "success_rate": 0.857,
-   "runs": 21
-  },
-  {
-   "id": "meta/llama-3.2-11b-vision-instruct",
-   "control": "plain",
-   "modality": "vision",
-   "p50_ms": 1149,
-   "success_rate": 0.952,
-   "runs": 21
+   "p50_ms": 1068,
+   "success_rate": 0.864,
+   "runs": 22
   },
   {
    "id": "nvidia/nemotron-nano-12b-v2-vl",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1235,
-   "success_rate": 0.762,
-   "runs": 21
+   "p50_ms": 1221,
+   "success_rate": 0.773,
+   "runs": 22
+  },
+  {
+   "id": "meta/llama-3.2-11b-vision-instruct",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 1229,
+   "success_rate": 0.955,
+   "runs": 22
   },
   {
    "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1667,
-   "success_rate": 0.6,
-   "runs": 20
+   "p50_ms": 1543,
+   "success_rate": 0.619,
+   "runs": 21
   },
   {
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1727,
-   "success_rate": 0.7,
-   "runs": 20
-  },
-  {
-   "id": "deepseek-ai/deepseek-v4-flash-0731",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 2211,
-   "success_rate": 0.35,
-   "runs": 20
+   "p50_ms": 1811,
+   "success_rate": 0.714,
+   "runs": 21
   },
   {
    "id": "meta/llama-3.2-90b-vision-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2520,
-   "success_rate": 0.75,
-   "runs": 20
+   "p50_ms": 2549,
+   "success_rate": 0.762,
+   "runs": 21
+  },
+  {
+   "id": "deepseek-ai/deepseek-v4-flash-0731",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 2594,
+   "success_rate": 0.381,
+   "runs": 21
   },
   {
    "id": "nvidia/nvidia-nemotron-nano-9b-v2",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 4048,
-   "success_rate": 0.7,
-   "runs": 20
+   "p50_ms": 4087,
+   "success_rate": 0.714,
+   "runs": 21
   }
  ]
 }
