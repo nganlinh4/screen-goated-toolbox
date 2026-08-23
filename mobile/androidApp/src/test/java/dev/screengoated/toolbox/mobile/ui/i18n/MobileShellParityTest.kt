@@ -10,6 +10,9 @@ import dev.screengoated.toolbox.mobile.ui.credentialsProviderOrder
 import dev.screengoated.toolbox.mobile.ui.layoutBehavior
 import dev.screengoated.toolbox.mobile.ui.methodLabel
 import dev.screengoated.toolbox.mobile.ui.shouldLockPagerForCarouselTouch
+import dev.screengoated.toolbox.mobile.ui.isEnabled
+import dev.screengoated.toolbox.mobile.ui.withEnabled
+import dev.screengoated.toolbox.mobile.preset.PresetProviderSettings
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
@@ -239,6 +242,27 @@ class MobileShellParityTest {
             case.getValue("order").jsonArray.map { it.jsonPrimitive.content },
             credentialsProviderOrder().map { it.label },
         )
+    }
+
+    @Test
+    fun providerEnableControlsCoverTheCredentialOrderWithoutRewritingOtherFlags() {
+        val case = credentialsFixtureCase("windows_global_settings_credentials_provider_order")
+        assertEquals(
+            "preset_runtime_settings",
+            case.getValue("android_enable_control_surface").jsonPrimitive.content,
+        )
+        val disabled = PresetProviderSettings(
+            useGroq = false,
+            useGemini = false,
+            useOpenRouter = false,
+            useNvidia = false,
+            useOllama = false,
+        )
+        credentialsProviderOrder().forEach { provider ->
+            val updated = disabled.withEnabled(provider, true)
+            assertTrue(updated.isEnabled(provider))
+            assertEquals(1, credentialsProviderOrder().count(updated::isEnabled))
+        }
     }
 
     @Test

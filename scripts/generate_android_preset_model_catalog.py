@@ -132,6 +132,7 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
                 "sampling": "provider-default",
                 "max_output_tokens": None,
                 "structured_output": "unsupported",
+                "restates_output": False,
             },
         )
         max_output_tokens = request_profile["max_output_tokens"]
@@ -161,6 +162,7 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
                 f"            visionSamplingPolicy = PresetVisionSamplingPolicy.{VISION_SAMPLING_POLICY_MAP[request_profile['sampling']]},",
                 f"            visionMaxOutputTokens = {max_output_tokens_value},",
                 f"            structuredOutputPolicy = PresetStructuredOutputPolicy.{STRUCTURED_OUTPUT_POLICY_MAP[request_profile['structured_output']]},",
+                f"            restatesOutput = {str(request_profile.get('restates_output', False)).lower()},",
                 f"            intelligenceTier = {profile['intelligence_tier']},",
                 f"            typicalLatencyMs = {model['typical_latency_ms']},",
                 f"            performanceSource = {kotlin_string(model['performance_source'])},",
@@ -170,6 +172,33 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
 
     lines.extend(
         [
+            "    )",
+            "",
+            "    val knownEndpoints: List<KnownPresetEndpoint> = listOf(",
+        ]
+    )
+    for model in manifest["models"]:
+        provider = model["provider"]
+        if provider not in PROVIDER_MAP:
+            continue
+        lines.extend(
+            [
+                "        KnownPresetEndpoint(",
+                f"            provider = PresetModelProvider.{PROVIDER_MAP[provider]},",
+                f"            fullName = {kotlin_string(model['full_name'])},",
+                f"            enabled = {str(model['enabled']).lower()},",
+                "        ),",
+            ]
+        )
+    lines.extend(
+        [
+            "    )",
+            "",
+            "    val withdrawnEndpoints: Set<String> = setOf(",
+            *[
+                f"        {kotlin_string(endpoint)},"
+                for endpoint in manifest.get("withdrawn_models", {}).keys()
+            ],
             "    )",
             "",
             "    val providerSettings = PresetProviderSettings(",

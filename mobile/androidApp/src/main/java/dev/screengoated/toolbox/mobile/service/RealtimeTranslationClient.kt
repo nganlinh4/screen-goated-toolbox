@@ -4,18 +4,27 @@ import android.util.Log
 import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
 import dev.screengoated.toolbox.mobile.preset.ModelUsageStats
+import dev.screengoated.toolbox.mobile.preset.NVIDIA_ENDPOINT
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelDescriptor
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.preset.applyFastReasoningPolicy
-import dev.screengoated.toolbox.mobile.preset.providerIsAvailable
+import dev.screengoated.toolbox.mobile.preset.claimPresetModelAttempt
+import dev.screengoated.toolbox.mobile.preset.newPresetCall
+import dev.screengoated.toolbox.mobile.preset.preflightSkipReason
+import dev.screengoated.toolbox.mobile.preset.providerFailureMessage
+import dev.screengoated.toolbox.mobile.preset.recordPresetModelFailure
+import dev.screengoated.toolbox.mobile.preset.recordPresetModelSuccess
+import dev.screengoated.toolbox.mobile.preset.releasePresetModelProbe
+import dev.screengoated.toolbox.mobile.preset.shouldBlockRetryProvider
 import dev.screengoated.toolbox.mobile.preset.streamGeminiLiveText
 import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
 import dev.screengoated.toolbox.mobile.shared.live.TranslationResponse
 import dev.screengoated.toolbox.mobile.shared.live.TranslationPatch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -38,6 +47,7 @@ class RealtimeTranslationClient(
     suspend fun translate(
         geminiApiKey: String,
         groqApiKey: String,
+        nvidiaApiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
         providerId: String,
@@ -49,6 +59,7 @@ class RealtimeTranslationClient(
             return@withContext translateWithExactProvider(
                 geminiApiKey = geminiApiKey,
                 groqApiKey = groqApiKey,
+                nvidiaApiKey = nvidiaApiKey,
                 request = request,
                 targetLanguage = targetLanguage,
                 providerId = primaryId,
@@ -61,6 +72,7 @@ class RealtimeTranslationClient(
         translateWithExactProvider(
             geminiApiKey = geminiApiKey,
             groqApiKey = groqApiKey,
+            nvidiaApiKey = nvidiaApiKey,
             request = request,
             targetLanguage = targetLanguage,
             providerId = fallbackId,
@@ -72,6 +84,7 @@ class RealtimeTranslationClient(
     suspend fun translateWithExactProvider(
         geminiApiKey: String,
         groqApiKey: String,
+        nvidiaApiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
         providerId: String,
@@ -81,6 +94,7 @@ class RealtimeTranslationClient(
         val apiKeys = ApiKeys(
             geminiKey = geminiApiKey,
             groqKey = groqApiKey,
+            nvidiaKey = nvidiaApiKey,
         )
         val response = dispatchProvider(
             providerId = providerId,
@@ -125,20 +139,28 @@ class RealtimeTranslationClient(
         targetLanguage: String,
     ): TranslationResponse {
         var lastError: Throwable? = null
+        val blockedProviders = mutableSetOf<PresetModelProvider>()
         for (modelId in chainModelIds) {
             val descriptor = PresetModelCatalog.getById(modelId) ?: continue
-            if (!providerIsAvailable(descriptor.provider, apiKeys, runtimeSettings)) {
+            if (descriptor.provider !in TEXT_LLM_PROVIDERS) {
                 continue
             }
-            val attempt = runCatching {
+            val skip = preflightSkipReason(
+                modelId = descriptor.id,
+                provider = descriptor.provider,
+                apiKeys = apiKeys,
+                blockedProviders = blockedProviders,
+                settings = runtimeSettings,
+            ) ?: claimPresetModelAttempt(descriptor.id)
+            if (skip != null) continue
+            val result = try {
                 when (descriptor.provider) {
                     PresetModelProvider.GOOGLE -> {
                         val key = apiKeys.geminiKey.takeIf { it.isNotBlank() }
-                            ?: return@runCatching null
+                            ?: throw IOException("NO_API_KEY:google")
                         translateWithGemini(
-                            endpoint = "https://generativelanguage.googleapis.com/v1beta/models/${descriptor.fullName}:generateContent",
+                            descriptor = descriptor,
                             apiKey = key,
-                            model = descriptor.fullName,
                             request = request,
                             targetLanguage = targetLanguage,
                         )
@@ -146,7 +168,7 @@ class RealtimeTranslationClient(
 
                     PresetModelProvider.GEMINI_LIVE -> {
                         val key = apiKeys.geminiKey.takeIf { it.isNotBlank() }
-                            ?: return@runCatching null
+                            ?: throw IOException("NO_API_KEY:gemini-live")
                         translateWithGeminiLive(
                             descriptor = descriptor,
                             apiKey = key,
@@ -157,10 +179,21 @@ class RealtimeTranslationClient(
 
                     PresetModelProvider.GROQ -> {
                         val key = apiKeys.groqKey.takeIf { it.isNotBlank() }
-                            ?: return@runCatching null
+                            ?: throw IOException("NO_API_KEY:groq")
                         translateWithGroq(
+                            descriptor = descriptor,
                             apiKey = key,
-                            model = descriptor.fullName,
+                            request = request,
+                            targetLanguage = targetLanguage,
+                        )
+                    }
+
+                    PresetModelProvider.NVIDIA -> {
+                        val key = apiKeys.nvidiaKey.takeIf { it.isNotBlank() }
+                            ?: throw IOException("NO_API_KEY:nvidia")
+                        translateWithNvidia(
+                            descriptor = descriptor,
+                            apiKey = key,
                             request = request,
                             targetLanguage = targetLanguage,
                         )
@@ -168,14 +201,21 @@ class RealtimeTranslationClient(
 
                     else -> null
                 }
-            }
-            val result = attempt.getOrElse {
-                lastError = it
+            } catch (cancelled: CancellationException) {
+                releasePresetModelProbe(descriptor.id)
+                throw cancelled
+            } catch (error: Throwable) {
+                val message = error.message ?: error.toString()
+                recordPresetModelFailure(descriptor.id, message)
+                if (shouldBlockRetryProvider(message)) blockedProviders += descriptor.provider
+                lastError = error
                 null
             }
             if (result != null) {
+                recordPresetModelSuccess(descriptor.id)
                 return result
             }
+            releasePresetModelProbe(descriptor.id)
         }
         throw lastError ?: IOException("No LLM provider in the priority chain produced a translation.")
     }
@@ -197,20 +237,20 @@ class RealtimeTranslationClient(
     }
 
     private fun translateWithGroq(
+        descriptor: PresetModelDescriptor,
         apiKey: String,
-        model: String,
         request: TranslationRequest,
         targetLanguage: String,
     ): TranslationResponse {
         val requestBody = applyFastReasoningPolicy(
             JSONObject()
-                .put("model", model)
+                .put("model", descriptor.fullName)
                 .put("messages", liveTranslateMessages(request, targetLanguage))
                 .put("stream", false)
             .put("max_tokens", 512)
             .put("response_format", JSONObject().put("type", "json_object")),
             PresetModelProvider.GROQ,
-            model,
+            descriptor.fullName,
         )
             .toString()
             .toRequestBody(JSON_MEDIA_TYPE)
@@ -222,10 +262,10 @@ class RealtimeTranslationClient(
             .post(requestBody)
             .build()
 
-        httpClient.newCall(httpRequest).execute().use { response ->
-            ModelUsageStats.update(PresetModelProvider.GROQ, model, response.headers)
+        httpClient.newPresetCall(httpRequest, descriptor, streamingEnabled = false).execute().use { response ->
+            ModelUsageStats.update(PresetModelProvider.GROQ, descriptor.fullName, response.headers)
             if (!response.isSuccessful) {
-                throw IOException("Groq translation request failed with ${response.code}")
+                throw IOException(response.providerFailureMessage("Groq translation request"))
             }
             val body = response.body.string().orEmpty()
             val root = JSONObject(body)
@@ -238,17 +278,55 @@ class RealtimeTranslationClient(
         }
     }
 
-    private fun translateWithGemini(
-        endpoint: String,
+    private fun translateWithNvidia(
+        descriptor: PresetModelDescriptor,
         apiKey: String,
-        model: String,
+        request: TranslationRequest,
+        targetLanguage: String,
+    ): TranslationResponse {
+        val payload = applyFastReasoningPolicy(
+            JSONObject()
+                .put("model", descriptor.fullName)
+                .put("messages", liveTranslateMessages(request, targetLanguage))
+                .put("stream", false)
+                .put("max_tokens", 512)
+                .put("temperature", 0)
+                .put("response_format", liveTranslateResponseFormat()),
+            PresetModelProvider.NVIDIA,
+            descriptor.fullName,
+        )
+        val httpRequest = Request.Builder()
+            .url(NVIDIA_ENDPOINT)
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        httpClient.newPresetCall(httpRequest, descriptor, streamingEnabled = false).execute().use { response ->
+            ModelUsageStats.update(PresetModelProvider.NVIDIA, descriptor.fullName, response.headers)
+            if (!response.isSuccessful) {
+                throw IOException(response.providerFailureMessage("NVIDIA translation request"))
+            }
+            val content = JSONObject(response.body.string().orEmpty())
+                .optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                .orEmpty()
+            return parseTranslationResponse(content, request)
+        }
+    }
+
+    private fun translateWithGemini(
+        descriptor: PresetModelDescriptor,
+        apiKey: String,
         request: TranslationRequest,
         targetLanguage: String,
     ): TranslationResponse {
         val generationConfig = JSONObject().put("responseMimeType", "application/json")
         PresetModelCatalog.geminiThinkingConfig(
             PresetModelProvider.GOOGLE,
-            model,
+            descriptor.fullName,
         )?.let { thinking ->
             generationConfig.put("thinkingConfig", JSONObject(thinking))
         }
@@ -274,15 +352,16 @@ class RealtimeTranslationClient(
             .toRequestBody(JSON_MEDIA_TYPE)
 
         val httpRequest = Request.Builder()
-            .url(endpoint)
+            .url("https://generativelanguage.googleapis.com/v1beta/models/${descriptor.fullName}:generateContent")
             .header("x-goog-api-key", apiKey)
             .header("Content-Type", "application/json")
             .post(requestBody)
             .build()
 
-        httpClient.newCall(httpRequest).execute().use { response ->
+        httpClient.newPresetCall(httpRequest, descriptor, streamingEnabled = false).execute().use { response ->
+            ModelUsageStats.update(PresetModelProvider.GOOGLE, descriptor.fullName, response.headers)
             if (!response.isSuccessful) {
-                throw IOException("Gemini translation request failed with ${response.code}")
+                throw IOException(response.providerFailureMessage("Gemini translation request"))
             }
             val body = response.body.string().orEmpty()
             val root = JSONObject(body)
@@ -362,6 +441,12 @@ class RealtimeTranslationClient(
         private val PROVIDER_LLM = LiveTranslationModelCatalog.PROVIDER_LLM
         private val PROVIDER_GTX = LiveTranslationModelCatalog.PROVIDER_GTX
         private const val TRANSLATION_TAG = "LiveTranslate"
+        private val TEXT_LLM_PROVIDERS = setOf(
+            PresetModelProvider.GOOGLE,
+            PresetModelProvider.GEMINI_LIVE,
+            PresetModelProvider.GROQ,
+            PresetModelProvider.NVIDIA,
+        )
     }
 
     data class TranslationExecutionResult(

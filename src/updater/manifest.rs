@@ -21,6 +21,7 @@ struct StableManifest {
     #[serde(default)]
     release_notes: String,
     installer: Installer,
+    android_full_apk: Installer,
 }
 
 #[derive(Deserialize)]
@@ -57,8 +58,34 @@ fn parse(payload: &[u8]) -> Result<UpdateCandidate> {
         size_bytes: manifest.installer.size_bytes,
         sha256: manifest.installer.sha256,
     };
+    validate_android_full_apk(&manifest.android_full_apk, &manifest.version)?;
     candidate.validate()?;
     Ok(candidate)
+}
+
+fn validate_android_full_apk(asset: &Installer, version: &str) -> Result<()> {
+    let expected_name = format!("ScreenGoatedToolbox_v{version}.apk");
+    if asset.name != expected_name {
+        bail!("Full Android APK name does not match its version");
+    }
+    let expected_url = format!(
+        "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v{version}/{expected_name}"
+    );
+    if asset.url != expected_url {
+        bail!("Full Android APK URL is outside the stable release contract");
+    }
+    if asset.size_bytes == 0 || asset.size_bytes > 2 * 1024 * 1024 * 1024 {
+        bail!("Full Android APK size is outside the accepted range");
+    }
+    if asset.sha256.len() != 64
+        || !asset
+            .sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        bail!("Full Android APK SHA-256 is invalid");
+    }
+    Ok(())
 }
 
 fn fetch_optional(url: &str, limit: u64) -> Result<Option<Vec<u8>>> {
@@ -106,7 +133,7 @@ mod tests {
 
     #[test]
     fn parses_a_valid_stable_contract() {
-        let payload = br#"{"schemaVersion":1,"channel":"stable","version":"5.5.0","releaseNotes":"Notes","installer":{"name":"ScreenGoatedToolbox_v5.5.0.exe","url":"https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v5.5.0/ScreenGoatedToolbox_v5.5.0.exe","sizeBytes":123,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}"#;
+        let payload = br#"{"schemaVersion":1,"channel":"stable","version":"5.5.0","releaseNotes":"Notes","installer":{"name":"ScreenGoatedToolbox_v5.5.0.exe","url":"https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v5.5.0/ScreenGoatedToolbox_v5.5.0.exe","sizeBytes":123,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"androidFullApk":{"name":"ScreenGoatedToolbox_v5.5.0.apk","url":"https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v5.5.0/ScreenGoatedToolbox_v5.5.0.apk","sizeBytes":456,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}"#;
         let candidate = parse(payload).unwrap();
         assert_eq!(candidate.version, semver::Version::new(5, 5, 0));
         assert_eq!(candidate.body, "Notes");
@@ -114,7 +141,7 @@ mod tests {
 
     #[test]
     fn rejects_a_non_stable_channel() {
-        let payload = br#"{"schemaVersion":1,"channel":"staging","version":"5.5.0","installer":{"name":"ScreenGoatedToolbox_v5.5.0.exe","url":"https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v5.5.0/ScreenGoatedToolbox_v5.5.0.exe","sizeBytes":123,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}"#;
+        let payload = br#"{"schemaVersion":1,"channel":"staging","version":"5.5.0","installer":{"name":"ScreenGoatedToolbox_v5.5.0.exe","url":"https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v5.5.0/ScreenGoatedToolbox_v5.5.0.exe","sizeBytes":123,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"androidFullApk":{"name":"ScreenGoatedToolbox_v5.5.0.apk","url":"https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v5.5.0/ScreenGoatedToolbox_v5.5.0.apk","sizeBytes":456,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}"#;
         assert!(parse(payload).is_err());
     }
 }

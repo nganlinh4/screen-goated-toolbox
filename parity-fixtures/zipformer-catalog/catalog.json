@@ -6,6 +6,7 @@
       "modelName": "streaming-zipformer-en-kroko",
       "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06/resolve/572aaf4e2e0c603c3fc2a574d096e755a178faa1",
       "hasNativePunctuation": true,
+      "sherpaModelType": "zipformer2",
       "modelFiles": [
         {"name": "encoder.onnx", "byteCount": 70092599, "sha256": "d4881c57449d581e0770fd53fa66c2fdc6cd167d92ece7c715e603defc96d9d4"},
         {"name": "decoder.onnx", "byteCount": 617488, "sha256": "455ba38466fce8d5a57e7db68a323b684079ca4d9e1dd93a740d9b2429aae3b1"},
@@ -18,6 +19,7 @@
       "modelName": "streaming-zipformer-korean",
       "downloadBaseUrl": "https://modelscope.cn/models/k2-fsa/sherpa-onnx-streaming-zipformer-korean-2024-06-16/resolve/e5a1c5c5e52de4577aeddd4689f8b3844af36c7d",
       "hasNativePunctuation": true,
+      "sherpaModelType": "",
       "modelFiles": [
         {"name": "encoder-epoch-99-avg-1.int8.onnx", "byteCount": 126968852, "sha256": "8d0b1aa24fbedd4e3948564ab7facd151b8ce9b0c48fc987c541de2de3af5697"},
         {"name": "decoder-epoch-99-avg-1.onnx", "byteCount": 11309084, "sha256": "b29cfb4575141e50a30a22b2c4579934f3d4f45b83c9c8c08c3aef5a3fa7abfc"},
@@ -31,6 +33,7 @@
       "modelName": "streaming-zipformer-zh",
       "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/ad658fa0201659a09ea3c176129a191c77ecae8f",
       "hasNativePunctuation": false,
+      "sherpaModelType": "",
       "modelFiles": [
         {"name": "encoder.int8.onnx", "byteCount": 161141793, "sha256": "5ac51e27981bb4dab01bb9be4958453ba50c3b61c063ddda0eab23fd3671aa4f"},
         {"name": "decoder.onnx", "byteCount": 5165083, "sha256": "06522ad63cec0fdf6809f4e1db9bb4f7d710c34582e3b35db62ac60eccafac7e"},
@@ -43,6 +46,7 @@
       "modelName": "streaming-zipformer-fr-kroko",
       "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-fr-kroko-2025-08-06/resolve/08b84b7b7cf519be9817e9c16919d96a7a8bad91",
       "hasNativePunctuation": true,
+      "sherpaModelType": "zipformer2",
       "modelFiles": [
         {"name": "encoder.onnx", "byteCount": 70092599, "sha256": "e02facae1daf6f1f13da67ea3ace7c722516d0868d1768d78c0580bc22cc0c5b"},
         {"name": "decoder.onnx", "byteCount": 617488, "sha256": "6aed547570e3ab5afc05429a017cedd3a056c16df3baa5703f02461cefa25bac"},
@@ -55,6 +59,7 @@
       "modelName": "streaming-zipformer-de-kroko",
       "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8",
       "hasNativePunctuation": true,
+      "sherpaModelType": "zipformer2",
       "modelFiles": [
         {"name": "encoder.onnx", "byteCount": 70091557, "sha256": "6e83993d6967ec7a3498b055b7e85ace85b5d64d1b1e8773cb29a43a11f5edb5"},
         {"name": "decoder.onnx", "byteCount": 617489, "sha256": "94a29592b403c53fa2231b478637da1ab4abcef7f5e46e432098416a4a3ed562"},
@@ -67,6 +72,7 @@
       "modelName": "streaming-zipformer-es-kroko",
       "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06/resolve/20cf7a4921613397841d31168796cade5b866585",
       "hasNativePunctuation": true,
+      "sherpaModelType": "zipformer2",
       "modelFiles": [
         {"name": "encoder.onnx", "byteCount": 154878102, "sha256": "2d9f5ef87d1a5257f8a6687e21501c56f3aa2fcbfcfab9364dcc4ce4e06ae81b"},
         {"name": "decoder.onnx", "byteCount": 617488, "sha256": "d4ce176b94b25f7acc88717bc3f704fcf5d6e131aaac2e0cabab3885541181ee"},
@@ -79,6 +85,7 @@
       "modelName": "streaming-zipformer-small-ru-vosk",
       "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ru-vosk-2025-08-16/resolve/b26590f0f87c179d5ea76ed08aa017ad5a8ae8b3",
       "hasNativePunctuation": false,
+      "sherpaModelType": "",
       "modelFiles": [
         {"name": "encoder.onnx", "byteCount": 90994145, "sha256": "e9c27453e618bc97cf8a10169f34c104bd478166522907fcd122a46a88c78c69"},
         {"name": "decoder.onnx", "byteCount": 2093080, "sha256": "89b3088a9e20e1ef7f2e85ce1a3478afe6a9c4ac57369cabcc4beb8e95328ea0"},
@@ -92,6 +99,7 @@
       "modelName": "streaming-zipformer-multilingual-8lang",
       "downloadBaseUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10/resolve/c6726c1147387ad2a11148b33973135d92a55e6c",
       "hasNativePunctuation": false,
+      "sherpaModelType": "",
       "modelFiles": [
         {"name": "encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx", "byteCount": 296583597, "sha256": "f9001ed7a9e46d0294438c1a30cd7c72d1cc4bdd4e7880edbcda36f67081e32e"},
         {"name": "decoder-epoch-75-avg-11-chunk-16-left-128.onnx", "byteCount": 33837085, "sha256": "7ebc63f34b21c8efb4a41a5a2eee7fe1448829ce0230ecc5369e67fc14d90d48"},

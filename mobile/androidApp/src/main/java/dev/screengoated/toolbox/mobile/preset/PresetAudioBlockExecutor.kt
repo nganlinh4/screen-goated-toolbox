@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.preset
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.CancellationException
 import java.io.IOException
 
 internal class PresetAudioBlockExecutor(
@@ -38,48 +39,60 @@ internal class PresetAudioBlockExecutor(
         val shouldSurfaceStreaming = shouldSurfaceOverlay && actualStreamingEnabled && !block.requestsHtmlOutput()
         val descriptor = PresetModelCatalog.getById(block.model)
             ?: error("Unknown model config: ${block.model}")
-        preflightSkipReason(
+        (preflightSkipReason(
             modelId = block.model,
             provider = descriptor.provider,
             apiKeys = apiKeys(),
             blockedProviders = emptySet(),
             settings = runtimeSettings(),
-        )?.let { reason ->
+        ) ?: claimPresetModelAttempt(block.model))?.let { reason ->
             throw IllegalStateException(reason)
         }
 
-        val result = input.precomputedTranscript
-            ?.takeIf { incoming[index].isEmpty() }
-            ?: audioApiClient.executeStreaming(
-                modelId = block.model,
-                prompt = finalPrompt,
-                wavBytes = input.wavBytes,
-                apiKeys = apiKeys(),
-                uiLanguage = uiLanguage(),
-                streamingEnabled = actualStreamingEnabled,
-                onChunk = { chunk ->
-                    blockBuffer.append(chunk)
-                    if (shouldSurfaceStreaming) {
-                        executionState.value = executionState.value.withWindowState(
-                            PresetResultWindowState(
-                                id = resultWindowId,
-                                blockIdx = index,
-                                title = preset.nameEn,
-                                markdownText = blockBuffer.toString(),
-                                isLoading = false,
-                                loadingStatusText = null,
-                                isStreaming = true,
-                                renderMode = block.renderMode,
-                                overlayOrder = overlayOrder.getValue(index),
-                            ),
-                        )
-                    }
-                },
-            ).getOrThrow()
+        val result = try {
+            input.precomputedTranscript
+                ?.takeIf { incoming[index].isEmpty() }
+                ?: audioApiClient.executeStreaming(
+                    modelId = block.model,
+                    prompt = finalPrompt,
+                    wavBytes = input.wavBytes,
+                    apiKeys = apiKeys(),
+                    uiLanguage = uiLanguage(),
+                    streamingEnabled = actualStreamingEnabled,
+                    onChunk = { chunk ->
+                        blockBuffer.append(chunk)
+                        if (shouldSurfaceStreaming) {
+                            executionState.value = executionState.value.withWindowState(
+                                PresetResultWindowState(
+                                    id = resultWindowId,
+                                    blockIdx = index,
+                                    title = preset.nameEn,
+                                    markdownText = blockBuffer.toString(),
+                                    isLoading = false,
+                                    loadingStatusText = null,
+                                    isStreaming = true,
+                                    renderMode = block.renderMode,
+                                    overlayOrder = overlayOrder.getValue(index),
+                                    modelId = descriptor.id,
+                                    modelProvider = descriptor.provider,
+                                ),
+                            )
+                        }
+                    },
+                ).getOrThrow()
+        } catch (cancelled: CancellationException) {
+            releasePresetModelProbe(block.model)
+            throw cancelled
+        } catch (error: Exception) {
+            recordPresetModelFailure(block.model, error.message.orEmpty())
+            throw error
+        }
 
         if (result.isBlank()) {
+            recordPresetModelFailure(block.model, "Audio transcription returned no text.")
             throw IOException("Audio transcription returned no text.")
         }
+        recordPresetModelSuccess(block.model)
         outputs[index] = result
         historyRecorder.recordAudioResult(
             block = block,
@@ -101,6 +114,8 @@ internal class PresetAudioBlockExecutor(
                 isStreaming = input.isStreamingResult,
                 renderMode = block.renderMode,
                 overlayOrder = overlayOrder.getValue(index),
+                modelId = descriptor.id,
+                modelProvider = descriptor.provider,
             ),
         )
     }

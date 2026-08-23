@@ -90,6 +90,54 @@ class ModelUsageStatsTest {
         )
     }
 
+    @Test
+    fun tokenBudgetBlocksOnlyCertainShortfallsAndProjectsContinuousRefill() {
+        val provider = PresetModelProvider.GROQ
+        val model = "vendor/vision-model"
+        ModelUsageStats.update(
+            provider,
+            model,
+            headers(
+                "x-ratelimit-remaining-tokens" to "0",
+                "x-ratelimit-limit-tokens" to "8000",
+                "x-ratelimit-reset-tokens" to "20s",
+            ),
+            observedAtUnixSeconds = 100,
+        )
+
+        assertEquals(4L, ModelUsageStats.tokenBudgetWaitSeconds(provider, model, 1_282, 100))
+        assertNull(ModelUsageStats.tokenBudgetWaitSeconds(provider, model, 1_282, 110))
+    }
+
+    @Test
+    fun unknownOrMalformedTokenWindowNeverBlocks() {
+        assertNull(
+            ModelUsageStats.tokenBudgetWaitSeconds(
+                PresetModelProvider.GROQ,
+                "never-observed",
+                5_000,
+                100,
+            ),
+        )
+        ModelUsageStats.update(
+            PresetModelProvider.GROQ,
+            "missing-reset",
+            headers(
+                "x-ratelimit-remaining-tokens" to "0",
+                "x-ratelimit-limit-tokens" to "8000",
+            ),
+            observedAtUnixSeconds = 100,
+        )
+        assertNull(
+            ModelUsageStats.tokenBudgetWaitSeconds(
+                PresetModelProvider.GROQ,
+                "missing-reset",
+                5_000,
+                100,
+            ),
+        )
+    }
+
     private fun headers(vararg values: Pair<String, String>): Headers =
         Headers.Builder()
             .apply { values.forEach { (name, value) -> add(name, value) } }

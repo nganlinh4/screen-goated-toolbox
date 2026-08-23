@@ -156,10 +156,15 @@ pub fn run_translation_loop(
                         "GROQ_API_KEY",
                         &app.config.api_key,
                     ),
+                    nvidia: crate::api::provider_credentials::resolve(
+                        "NVIDIA_API_KEY",
+                        &app.config.nvidia_api_key,
+                    ),
                 };
                 let model = app.config.realtime_translation_model.clone();
-                let chain = app.config.model_priority_chains.text_to_text.clone();
                 let cfg = app.config.clone();
+                let chain =
+                    crate::retry_model_chain::RetryChainKind::TextToText.effective_chain(&cfg);
                 drop(app);
                 let history = if let Ok(s) = state.lock() {
                     s.translation_history.clone()

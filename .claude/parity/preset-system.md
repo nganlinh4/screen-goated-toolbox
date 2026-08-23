@@ -59,13 +59,18 @@
 - Permission-gated image/audio paths fail before capture, explain the required Android permission, and preserve retry state.
 - Image presets support continuous relaunch. Non-image continuous mode remains a documented gap.
 - Result windows are session-owned, precreated in loading state, multi-window, and support markdown streaming or raw HTML according to block render mode.
+- The result-control badge identifies the endpoint that actually produced the current result after retry/fallback, formatted as provider display name plus the complete API model name; non-model results have no badge.
 - Android result and mini-app WebViews follow [the shared Android overlay rendering contract](../../parity-fixtures/android-webview-overlays/rendering-contract.json): each overlay window owns hardware acceleration and its WebView composes directly without a persistent offscreen hardware layer.
 - Reuse Windows markdown fitting/theme/font/table and button-canvas contracts. Preserve text selection, one-finger window drag, two-finger bidirectional content scroll, navigation recovery, and result geometry ownership.
-- Edit/refine, undo/redo, share/download, and speaker actions are real Android actions. Do not list implemented actions as placeholders.
+- Edit/refine, undo/redo, share/download, and speaker actions are real Android actions. Refine starts with the endpoint that actually produced the displayed text when it is text-capable, then uses the current adaptive Text-to-Text retry chain and circuit policy. Its result badge follows the endpoint that completes the refine. Do not list implemented actions as placeholders.
 - Android still omits the desktop markdown/plain toggle and broom mouse-button variants.
 
 ## Provider Contract
 
+- Android preset capability checks use the same runtime-dispatch capability
+  table as the text, vision, and audio clients. A provider that the client can
+  execute—including NVIDIA and Gemini Live—must not be rejected by a stale
+  editor or repository allowlist.
 - Resolve every internal model ID through generated data from `catalog/model_catalog.json`; call the resolved provider and `full_name`.
 - Preserve Windows render-mode, streaming, catalog-owned reasoning/search
   capability, provider-availability, retry, and fallback semantics. Built-in
@@ -85,10 +90,14 @@
 - Live server events are decoded structurally. Setup completion must be a top-level field, all audio parts in a frame are retained, and finite responses complete on either `turnComplete` or `generationComplete`.
 - Blank, legacy, or unknown Gemini TTS model values normalize to the catalog-owned TTS default on both platforms; listed models remain unchanged.
 - Provider/auth failures and retryable model failures remain distinct. Retrying an open result updates its loading status.
-- A `json-object` vision endpoint serving a non-streaming plain-text caller wraps
-  the reply in a `{"text": ...}` envelope and unwraps it before returning, on both
-  platforms. Streaming and schema-bearing callers are unaffected, and the envelope
-  fails open: a reply that is not the expected object is returned unchanged.
+- Every enabled provider has a complete encrypted credential path from settings
+  state to execution. In particular, NVIDIA availability and requests use the
+  persisted NVIDIA key on both platforms; an empty key makes that provider
+  unavailable without altering the authored chain.
+- A non-streaming plain-text vision caller never requests JSON mode or a schema.
+  Endpoint profiles that may restate the requested output use the same
+  endpoint-scoped repetition guard on both platforms; unrelated endpoints and
+  structured callers are unchanged.
 - Ordinary LLM vision request shape comes from
   `catalog/model_catalog.json#vision_request_profiles` on both platforms.
   Google vision endpoints send image before text; Groq Qwen sends text before
@@ -120,6 +129,10 @@
   provider error and continue the normal fallback chain. The short ceiling
   prevents long quota-window responses from freezing the feature. Windows and
   Android use the same contract.
+- NVIDIA ordinary text, refine, and vision requests use deterministic
+  non-thinking sampling (`temperature: 0`) unless a newer signed feed supplies a
+  compatible endpoint control. Feed controls are applied by endpoint identity,
+  never by display name.
 - The canonical general image retry order comes only from the catalog priority
   chain. Availability is a hard gate: a provider failure that blocks fallback
   for tens of seconds outweighs a fast successful-call median when ordering the
@@ -128,7 +141,18 @@
   retry fixture must preserve those bounds. Do not duplicate a prose or
   platform-specific model list.
 - Computer-control pixel grounding has a separate catalog-owned fail-closed primary/fallback chain, locked by the Phone Control model-chain fixture. `CC_VISION_MODEL` explicitly replaces that default chain with one diagnostic model. General OCR/description fallbacks never inherit authority to click. A transport error, empty response, or malformed structured response may advance to the next grounding model; a valid not-visible or verification rejection is terminal. Coordinate clicks require a fresh marked-crop verification at 70% confidence; `CC_VERIFY_LOCATE=0` is a diagnostic escape hatch, not a preset default.
-- A vision model that returns a rate-limit/quota error enters a five-minute in-process cooldown, preventing later chain steps from repeatedly paying for the same known failure. Small provider `retry-after` recovery remains bounded inside the request.
+- Retry state is shared by all preset request paths in a process. A rate-limit
+  response observes a provider-reported delay between five seconds and six hours
+  or uses the five-minute default. Two consecutive timeouts open a thirty-minute
+  circuit; unavailable and billing failures open a six-hour circuit. Open
+  circuits become half-open after expiry and admit one probe. Success closes the
+  circuit and clears failure state; a cancelled or abandoned probe releases its
+  claim. Recorded token-budget reset metadata may defer a request before network
+  I/O when the known remaining budget cannot admit it. Provider error bodies and
+  structural `retry-after` headers remain in the classified failure instead of
+  being reduced to a status code. Non-streaming interactive calls use ten times
+  catalog median latency, clamped to ten through thirty seconds; streaming calls
+  do not use that whole-call deadline.
 - OpenRouter ordinary text, refine, vision, and recorder-subtitle requests
   apply catalog reasoning policy through OpenRouter's nested
   `reasoning: { effort: "none" }` field. `reasoning_effort` is not an
@@ -150,11 +174,3 @@
 - [text-input-overlay.json](../../parity-fixtures/preset-system/text-input-overlay.json)
 - [text-provider-routing.json](../../parity-fixtures/preset-system/text-provider-routing.json)
 - [vision-payload.json](../../parity-fixtures/preset-system/vision-payload.json)
-
-## Known Contract Debt
-
-- `result-overlay.json` still marks implemented result actions unsupported.
-- `text-input-overlay.json` still labels microphone input deferred.
-- One `catalog-overrides.json` case name says HTML is a placeholder although its expected result is supported.
-
-Treat these as fixture/source synchronization work, not as permission to restore old behavior.

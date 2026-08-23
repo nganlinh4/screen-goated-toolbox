@@ -247,10 +247,12 @@ data class MobileProviderLocale(
     override val geminiKeyLabel: String,
     override val groqKeyLabel: String,
     override val openRouterKeyLabel: String,
+    override val nvidiaKeyLabel: String,
     override val ollamaUrlLabel: String,
     override val geminiGetKeyLink: String,
     override val groqGetKeyLink: String,
     override val openRouterGetKeyLink: String,
+    override val nvidiaGetKeyLink: String,
     override val ollamaLearnMoreLink: String,
     override val turnOn: String,
     override val turnOff: String,
@@ -259,6 +261,7 @@ data class MobileProviderLocale(
 
 data class MobilePresetRuntimeLocale(
     override val presetRuntimeTitle: String,
+    override val presetRuntimeLive: String,
     override val presetRuntimeDescription: String,
     override val presetRuntimeButton: String,
     override val presetRuntimeSettingsAction: String,

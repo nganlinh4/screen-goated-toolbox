@@ -14,7 +14,19 @@ fn shared_fixtures_match_windows_realtime_state() {
     )
     .expect("fixture json");
 
-    assert_eq!(fixtures.version, 2);
+    assert_eq!(fixtures.version, 4);
+    assert_eq!(
+        fixtures.text_llm_providers,
+        ["google", "gemini-live", "groq", "nvidia"]
+    );
+    assert_eq!(
+        fixtures.text_llm_request_policy.non_streaming_deadline,
+        "benchmark_derived_10_to_30_seconds"
+    );
+    assert!(fixtures.text_llm_request_policy.circuit_preflight);
+    assert!(fixtures.text_llm_request_policy.provider_blocking);
+    assert_eq!(fixtures.text_llm_request_policy.cancellation, "propagate");
+    assert!(fixtures.text_llm_request_policy.usage_headers);
 
     for case in fixtures.cases {
         let mut state = RealtimeState::new();
@@ -202,7 +214,19 @@ fn gemini_force_commit_timeout_matches_windows_thresholds() {
 #[serde(rename_all = "camelCase")]
 struct FixtureDocument {
     version: u32,
+    text_llm_providers: Vec<String>,
+    text_llm_request_policy: FixtureTextLlmRequestPolicy,
     cases: Vec<FixtureCase>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FixtureTextLlmRequestPolicy {
+    non_streaming_deadline: String,
+    circuit_preflight: bool,
+    provider_blocking: bool,
+    cancellation: String,
+    usage_headers: bool,
 }
 
 #[derive(Debug, Deserialize)]

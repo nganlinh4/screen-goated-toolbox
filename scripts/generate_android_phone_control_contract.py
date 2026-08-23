@@ -94,6 +94,10 @@ def load_authority_matrix(source: Path) -> dict[str, Any]:
     if (
         distribution.get("behavior") != "identical"
         or distribution.get("catalogAndRuntimeMustMatch") is not True
+        or distribution.get("minimumApiLevel") != 29
+        or distribution.get("api29WindowDisplayScope") != "default_display_only"
+        or distribution.get("api29WindowDisplayIdAccess")
+        != "never_call_api_30_accessor"
     ):
         raise ValueError("Phone Control flavor behavior and runtime must stay identical")
     providers = matrix.get("providers")

@@ -26,7 +26,7 @@ jobs:
       - name: Install signing dependency
         run: python -m pip install --disable-pip-version-check ecdsa==0.19.1
 
-      - name: Download and verify the published stable installer
+      - name: Download and verify the published stable assets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
@@ -44,26 +44,35 @@ jobs:
           if release["tagName"] != tag or release["isDraft"] or release["isPrerelease"]:
               raise SystemExit("release must already be published, stable, and match the requested tag")
           version = tag[1:]
-          name = f"ScreenGoatedToolbox_v{version}.exe"
-          matching = [asset for asset in release["assets"] if asset["name"] == name]
-          if len(matching) != 1:
-              raise SystemExit(f"release must contain exactly one {name}")
+          names = [
+              f"ScreenGoatedToolbox_v{version}.exe",
+              f"ScreenGoatedToolbox_v{version}.apk",
+          ]
+          matching = {}
+          for name in names:
+              found = [asset for asset in release["assets"] if asset["name"] == name]
+              if len(found) != 1:
+                  raise SystemExit(f"release must contain exactly one {name}")
+              matching[name] = found[0]
           pathlib.Path("release-notes.txt").write_text(release["body"], encoding="utf-8")
-          pathlib.Path("asset-contract.json").write_text(json.dumps(matching[0]), encoding="utf-8")
+          pathlib.Path("asset-contract.json").write_text(json.dumps(matching), encoding="utf-8")
           PY
           version="${RELEASE_TAG#v}"
           mkdir -p app-update-input
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "ScreenGoatedToolbox_v${version}.exe" --dir app-update-input
-          python - asset-contract.json "app-update-input/ScreenGoatedToolbox_v${version}.exe" <<'PY'
+            --pattern "ScreenGoatedToolbox_v${version}.exe" \
+            --pattern "ScreenGoatedToolbox_v${version}.apk" --dir app-update-input
+          python - asset-contract.json app-update-input <<'PY'
           import hashlib, json, pathlib, sys
-          expected = json.load(open(sys.argv[1], encoding="utf-8"))
-          data = pathlib.Path(sys.argv[2]).read_bytes()
-          if len(data) != expected["size"]:
-              raise SystemExit("downloaded installer size differs from the published asset")
-          digest = "sha256:" + hashlib.sha256(data).hexdigest()
-          if expected.get("digest") != digest:
-              raise SystemExit("downloaded installer digest differs from the published asset")
+          contracts = json.load(open(sys.argv[1], encoding="utf-8"))
+          root = pathlib.Path(sys.argv[2])
+          for name, expected in contracts.items():
+              data = (root / name).read_bytes()
+              if len(data) != expected["size"]:
+                  raise SystemExit(f"downloaded {name} size differs from the published asset")
+              digest = "sha256:" + hashlib.sha256(data).hexdigest()
+              if expected.get("digest") != digest:
+                  raise SystemExit(f"downloaded {name} digest differs from the published asset")
           PY
 
       - name: Build and sign the stable manifest
@@ -77,6 +86,7 @@ jobs:
           python scripts/build_app_update_manifest.py \
             --version "$version" \
             --installer "app-update-input/ScreenGoatedToolbox_v${version}.exe" \
+            --android-full-apk "app-update-input/ScreenGoatedToolbox_v${version}.apk" \
             --release-notes release-notes.txt \
             --output app-update-output
 

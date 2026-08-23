@@ -84,7 +84,7 @@ class ModelPerformancePrefixTest {
     fun adaptivePriorityRecordsTheLiveFeedPlatformBoundary() {
         val adaptive = fixture().getValue("adaptive_priority").jsonObject
         assertTrue(adaptive.getValue("windows_live_feed").jsonPrimitive.content.toBoolean())
-        assertFalse(adaptive.getValue("android_live_feed").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("android_live_feed").jsonPrimitive.content.toBoolean())
         assertTrue(adaptive.getValue("live_rows_editable").jsonPrimitive.content.toBoolean())
         assertTrue(adaptive.getValue("live_row_reorder_creates_pin").jsonPrimitive.content.toBoolean())
         assertTrue(adaptive.getValue("live_row_delete_creates_exclusion").jsonPrimitive.content.toBoolean())
@@ -97,6 +97,10 @@ class ModelPerformancePrefixTest {
         assertEquals(5, adaptive.getValue("maximum_offers_per_chain").jsonPrimitive.int)
         assertEquals(3, adaptive.getValue("signed_feed_schema").jsonPrimitive.int)
         assertEquals(1, adaptive.getValue("availability_gate_version").jsonPrimitive.int)
+        assertEquals(
+            "atomic_with_same_directory_fallback",
+            adaptive.getValue("verified_cache_replace").jsonPrimitive.content,
+        )
     }
 
     @Test

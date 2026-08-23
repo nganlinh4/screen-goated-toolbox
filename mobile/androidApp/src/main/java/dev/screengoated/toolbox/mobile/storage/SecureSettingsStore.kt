@@ -113,6 +113,16 @@ class SecureSettingsStore(
         }
     }
 
+    fun loadNvidiaApiKey(): String {
+        return prefs.getString(KEY_NVIDIA_API_KEY, "") ?: ""
+    }
+
+    fun saveNvidiaApiKey(apiKey: String) {
+        prefs.edit {
+            putString(KEY_NVIDIA_API_KEY, apiKey)
+        }
+    }
+
     fun loadOllamaUrl(): String {
         return prefs.getString(KEY_OLLAMA_URL, "http://localhost:11434") ?: "http://localhost:11434"
     }
@@ -233,6 +243,7 @@ class SecureSettingsStore(
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
         private const val KEY_GROQ_API_KEY = "groq_api_key"
         private const val KEY_OPENROUTER_API_KEY = "openrouter_api_key"
+        private const val KEY_NVIDIA_API_KEY = "nvidia_api_key"
         private const val KEY_OLLAMA_URL = "ollama_url"
         private const val KEY_PRESET_RUNTIME_SETTINGS = "preset_runtime_settings"
         private const val KEY_CUSTOM_MODELS = "custom_models"

@@ -60,11 +60,12 @@ private suspend fun TextApiClient.streamGeminiStreaming(
     var thinkingShown = false
     var contentStarted = false
 
-    httpClient.newCall(request).execute().use { response ->
+    httpClient.newPresetCall(request, model, streamingEnabled = true).execute().use { response ->
+        ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
-            throw IOException("Gemini request failed with $code")
+            throw IOException(response.providerFailureMessage("Gemini request"))
         }
 
         val body = response.body
@@ -114,11 +115,12 @@ private suspend fun TextApiClient.generateGeminiBlocking(
         .post(payload.toString().toRequestBody(jsonMediaType))
         .build()
 
-    httpClient.newCall(request).execute().use { response ->
+    httpClient.newPresetCall(request, model, streamingEnabled = false).execute().use { response ->
+        ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
-            throw IOException("Gemini request failed with $code")
+            throw IOException(response.providerFailureMessage("Gemini request"))
         }
 
         val body = response.body

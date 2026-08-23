@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 25,
+  "schemaVersion": 26,
   "feature": "phone-control",
   "canonicalFeature": "computer-control",
   "distribution": {
@@ -9,7 +9,10 @@
     ],
     "behavior": "identical",
     "catalogAndRuntimeMustMatch": true,
-    "visualGroundingAssetRequired": false
+    "visualGroundingAssetRequired": false,
+    "minimumApiLevel": 29,
+    "api29WindowDisplayScope": "default_display_only",
+    "api29WindowDisplayIdAccess": "never_call_api_30_accessor"
   },
   "catalog": {
     "normalTurnPolicy": "stable_full_catalog",

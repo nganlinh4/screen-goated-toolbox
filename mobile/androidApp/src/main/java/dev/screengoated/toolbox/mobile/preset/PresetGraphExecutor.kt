@@ -6,6 +6,7 @@ import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
 import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 
 internal class PresetGraphExecutor(
@@ -70,6 +71,9 @@ internal class PresetGraphExecutor(
 
         overlayIndexes.forEach { index ->
             val block = preset.blocks[index]
+            val initialModel = block.model
+                .takeUnless { block.blockType == BlockType.INPUT_ADAPTER }
+                ?.let(PresetModelCatalog::getById)
             val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
             val initialText = if (block.blockType == BlockType.INPUT_ADAPTER) {
                 inputAdapterOverlayContent(input, uiLanguage()).orEmpty()
@@ -89,6 +93,8 @@ internal class PresetGraphExecutor(
                         isStreaming = false,
                         renderMode = if (block.blockType == BlockType.INPUT_ADAPTER) "markdown" else block.renderMode,
                         overlayOrder = overlayOrder.getOrElse(index) { 0 },
+                        modelId = initialModel?.id.orEmpty(),
+                        modelProvider = initialModel?.provider,
                     ),
                 )
             }
@@ -285,7 +291,7 @@ internal class PresetGraphExecutor(
                 apiKeys = currentApiKeys,
                 blockedProviders = blockedProviders,
                 settings = currentRuntimeSettings,
-            )
+            ) ?: claimPresetModelAttempt(currentModelId)
             if (preflight != null) {
                 if (shouldBlockRetryProvider(preflight)) {
                     blockedProviders += descriptor.provider
@@ -307,7 +313,7 @@ internal class PresetGraphExecutor(
                         blockIndex = index,
                         overlayOrder = overlayOrder.getValue(index),
                         renderMode = block.renderMode,
-                        modelName = next.fullName,
+                        model = next,
                     )
                 }
                 continue
@@ -333,6 +339,8 @@ internal class PresetGraphExecutor(
                                 isStreaming = true,
                                 renderMode = block.renderMode,
                                 overlayOrder = overlayOrder.getValue(index),
+                                modelId = currentModelId,
+                                modelProvider = descriptor.provider,
                             ),
                         )
                     }
@@ -341,6 +349,10 @@ internal class PresetGraphExecutor(
 
             val error = attemptResult.exceptionOrNull()
             if (error != null) {
+                if (error is CancellationException) {
+                    releasePresetModelProbe(currentModelId)
+                    throw error
+                }
                 val message = error.message ?: "Execution failed"
                 recordPresetModelFailure(currentModelId, message)
                 if (!shouldAdvanceRetryChain(message)) {
@@ -367,12 +379,13 @@ internal class PresetGraphExecutor(
                         blockIndex = index,
                         overlayOrder = overlayOrder.getValue(index),
                         renderMode = block.renderMode,
-                        modelName = next.fullName,
+                        model = next,
                     )
                 }
                 continue
             }
 
+            recordPresetModelSuccess(currentModelId)
             result = attemptResult.getOrThrow()
         }
 
@@ -395,6 +408,8 @@ internal class PresetGraphExecutor(
                     isStreaming = false,
                     renderMode = block.renderMode,
                     overlayOrder = overlayOrder.getValue(index),
+                    modelId = currentModelId,
+                    modelProvider = PresetModelCatalog.getById(currentModelId)?.provider,
                 ),
             )
         }
@@ -504,7 +519,7 @@ internal class PresetGraphExecutor(
         blockIndex: Int,
         overlayOrder: Int,
         renderMode: String,
-        modelName: String,
+        model: PresetModelDescriptor,
     ) {
         executionState.update {
             it.withWindowState(
@@ -514,10 +529,12 @@ internal class PresetGraphExecutor(
                     title = preset.nameEn,
                     markdownText = "",
                     isLoading = true,
-                    loadingStatusText = retryStatusText(modelName),
+                    loadingStatusText = retryStatusText(model.fullName),
                     isStreaming = false,
                     renderMode = renderMode,
                     overlayOrder = overlayOrder,
+                    modelId = model.id,
+                    modelProvider = model.provider,
                 ),
             )
         }

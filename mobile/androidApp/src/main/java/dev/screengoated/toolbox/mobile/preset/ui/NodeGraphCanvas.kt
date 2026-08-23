@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
+import dev.screengoated.toolbox.mobile.preset.PresetModelFeed
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
 import kotlin.math.roundToInt
@@ -89,6 +91,7 @@ fun NodeGraphCanvas(
     providerSettings: dev.screengoated.toolbox.mobile.preset.PresetProviderSettings =
         dev.screengoated.toolbox.mobile.preset.PresetProviderSettings(),
 ) {
+    val modelFeedSnapshot by PresetModelFeed.state.collectAsState()
     val density = LocalDensity.current
     val nodeWidthPx = with(density) { NODE_WIDTH_DP.toPx() }
     val pinHitRadiusPx = with(density) { PIN_HIT_RADIUS_DP.toPx() }
@@ -388,6 +391,7 @@ fun NodeGraphCanvas(
                         onPromptEditRequest(node.id, node.block.prompt)
                     },
                     providerSettings = providerSettings,
+                    modelCatalogRevision = modelFeedSnapshot.revision,
                     onMeasured = { heightPx ->
                         measuredHeights[node.id] = heightPx
                     },

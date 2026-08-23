@@ -177,6 +177,13 @@ internal fun SgtMobileApp(
     if (showPresetRuntimeSettings) {
         PresetRuntimeSettingsDialog(
             settings = presetRuntimeSettings,
+            apiKeys = dev.screengoated.toolbox.mobile.preset.ApiKeys(
+                geminiKey = providerKeys.apiKey,
+                groqKey = providerKeys.groqApiKey,
+                openRouterKey = providerKeys.openRouterApiKey,
+                nvidiaKey = providerKeys.nvidiaApiKey,
+                ollamaBaseUrl = providerKeys.ollamaUrl,
+            ),
             locale = locale,
             uiLanguage = uiPreferences.uiLanguage,
             onDismiss = { showPresetRuntimeSettings = false },

@@ -92,7 +92,9 @@ fn chain_ids(config: &Config, prefer: &[&str], task: VisionTask) -> Vec<String> 
                 .collect()
         });
     let configured: Vec<String> = match task {
-        VisionTask::General => config.model_priority_chains.image_to_text.clone(),
+        VisionTask::General => {
+            crate::retry_model_chain::RetryChainKind::ImageToText.effective_chain(config)
+        }
         VisionTask::Grounding => grounding_chain,
     };
     let candidates = match task {

@@ -31,18 +31,19 @@ internal suspend fun VisionApiClient.streamGeminiVision(
         .build()
 
     if (!streamingEnabled) {
-        return generateGeminiVisionBlocking(request)
+        return generateGeminiVisionBlocking(request, model)
     }
 
     val fullContent = StringBuilder()
     var thinkingShown = false
     var contentStarted = false
 
-    httpClient.newCall(request).execute().use { response ->
+    httpClient.newPresetCall(request, model, streamingEnabled = true).execute().use { response ->
+        ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
-            throw IOException("Gemini vision request failed with $code")
+            throw IOException(response.providerFailureMessage("Gemini vision request"))
         }
 
         val body = response.body
@@ -77,12 +78,16 @@ internal suspend fun VisionApiClient.streamGeminiVision(
     return fullContent.toString()
 }
 
-private fun VisionApiClient.generateGeminiVisionBlocking(request: Request): String {
-    httpClient.newCall(request).execute().use { response ->
+private fun VisionApiClient.generateGeminiVisionBlocking(
+    request: Request,
+    model: PresetModelDescriptor,
+): String {
+    httpClient.newPresetCall(request, model, streamingEnabled = false).execute().use { response ->
+        ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
-            throw IOException("Gemini vision request failed with $code")
+            throw IOException(response.providerFailureMessage("Gemini vision request"))
         }
 
         val body = response.body

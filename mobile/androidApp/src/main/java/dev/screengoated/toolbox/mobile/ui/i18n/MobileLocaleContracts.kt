@@ -125,10 +125,12 @@ interface MobileProviderText {
     val geminiKeyLabel: String
     val groqKeyLabel: String
     val openRouterKeyLabel: String
+    val nvidiaKeyLabel: String
     val ollamaUrlLabel: String
     val geminiGetKeyLink: String
     val groqGetKeyLink: String
     val openRouterGetKeyLink: String
+    val nvidiaGetKeyLink: String
     val ollamaLearnMoreLink: String
     val turnOn: String
     val turnOff: String
@@ -167,6 +169,7 @@ data class MobileUsageTipCategoryText(
 
 interface MobilePresetRuntimeText {
     val presetRuntimeTitle: String
+    val presetRuntimeLive: String
     val presetRuntimeDescription: String
     val presetRuntimeButton: String
     val presetRuntimeSettingsAction: String

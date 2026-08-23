@@ -1,5 +1,10 @@
 {
-  "version": 3,
+  "version": 4,
+  "android_runtime_provider_capabilities": {
+    "text": ["google", "groq", "openrouter", "nvidia", "google-gtx", "gemini-live", "ollama", "taalas"],
+    "vision": ["google", "groq", "openrouter", "nvidia", "gemini-live", "ollama", "qrserver"],
+    "audio": ["google", "groq", "gemini-live"]
+  },
   "retired_builtins": [
     {
       "preset_id": "preset_extract_retranslate",
@@ -102,7 +107,7 @@
       }
     },
     {
-      "name": "html_output_text_input_requires_placeholder_execution",
+      "name": "html_output_text_input_is_repository_executable",
       "preset_id": "preset_make_game",
       "expected_execution": {
         "supported": true,

@@ -410,6 +410,7 @@ internal class PresetOverlayController(
             geminiKey = repo.currentApiKey(),
             groqKey = repo.currentGroqApiKey(),
             openRouterKey = repo.currentOpenRouterApiKey(),
+            nvidiaKey = repo.currentNvidiaApiKey(),
             ollamaBaseUrl = repo.currentOllamaUrl(),
         )
     }

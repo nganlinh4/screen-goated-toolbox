@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "cases": [
     {
       "name": "preset_result_missing_key",
@@ -56,6 +56,14 @@
       "expected_notice": true,
       "expected_provider": "OpenRouter",
       "expected_en": "Invalid OpenRouter API key!"
+    },
+    {
+      "name": "invalid_nvidia_key",
+      "raw_error": "INVALID_API_KEY:nvidia",
+      "surface": "preset_result_overlay",
+      "expected_notice": true,
+      "expected_provider": "NVIDIA",
+      "expected_en": "Invalid NVIDIA API key!"
     }
   ]
 }

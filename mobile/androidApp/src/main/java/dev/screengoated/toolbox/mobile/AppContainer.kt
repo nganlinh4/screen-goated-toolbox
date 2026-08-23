@@ -14,6 +14,7 @@ import dev.screengoated.toolbox.mobile.preset.ApiKeys
 import dev.screengoated.toolbox.mobile.preset.PresetPersistence
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
+import dev.screengoated.toolbox.mobile.preset.ModelFeedRepository
 import dev.screengoated.toolbox.mobile.preset.TextApiClient
 import dev.screengoated.toolbox.mobile.preset.VisionApiClient
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
@@ -84,6 +85,7 @@ class AppContainer(
         overlaySupported = BuildConfig.OVERLAY_SUPPORTED,
         historyRepository = historyRepository,
     )
+    private val modelFeedRepository = ModelFeedRepository(appContext, httpClient).also { it.start() }
     private val languageDetector = dev.screengoated.toolbox.mobile.service.tts.DeviceLanguageDetector(appContext)
     val translationGummyRepository = TranslationGummyRepository(settingsStore, languageDetector)
 
@@ -108,6 +110,7 @@ class AppContainer(
                 geminiKey = repository.currentApiKey(),
                 groqKey = repository.currentGroqApiKey(),
                 openRouterKey = repository.currentOpenRouterApiKey(),
+                nvidiaKey = repository.currentNvidiaApiKey(),
                 ollamaBaseUrl = repository.currentOllamaUrl(),
             )
         },
@@ -122,6 +125,7 @@ class AppContainer(
         geminiKey = repository.currentApiKey(),
         groqKey = repository.currentGroqApiKey(),
         openRouterKey = repository.currentOpenRouterApiKey(),
+        nvidiaKey = repository.currentNvidiaApiKey(),
         ollamaBaseUrl = repository.currentOllamaUrl(),
     )
 

@@ -17,8 +17,11 @@ import dev.screengoated.toolbox.mobile.shared.live.TranslationRequest
 import dev.screengoated.toolbox.mobile.shared.live.TranslationResponse
 import dev.screengoated.toolbox.mobile.shared.live.LiveTextState
 import dev.screengoated.toolbox.mobile.preset.CustomPresetModelDefinition
+import dev.screengoated.toolbox.mobile.preset.ApiKeys
 import dev.screengoated.toolbox.mobile.preset.PresetCustomModelRegistry
+import dev.screengoated.toolbox.mobile.preset.PresetRetryChainKind
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
+import dev.screengoated.toolbox.mobile.preset.effectiveChain
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +42,7 @@ class AndroidLiveSessionRepository(
     private val mutableApiKey = MutableStateFlow(settingsStore.loadApiKey())
     private val mutableGroqApiKey = MutableStateFlow(settingsStore.loadGroqApiKey())
     private val mutableOpenRouterApiKey = MutableStateFlow(settingsStore.loadOpenRouterApiKey())
+    private val mutableNvidiaApiKey = MutableStateFlow(settingsStore.loadNvidiaApiKey())
     private val mutableOllamaUrl = MutableStateFlow(settingsStore.loadOllamaUrl())
     private val mutablePaneFontSizes = MutableStateFlow(settingsStore.loadPaneFontSizes())
     private val mutableRealtimeTtsSettings = MutableStateFlow(settingsStore.loadRealtimeTtsSettings())
@@ -52,6 +56,7 @@ class AndroidLiveSessionRepository(
     val apiKey: StateFlow<String> = mutableApiKey.asStateFlow()
     val groqApiKey: StateFlow<String> = mutableGroqApiKey.asStateFlow()
     val openRouterApiKey: StateFlow<String> = mutableOpenRouterApiKey.asStateFlow()
+    val nvidiaApiKey: StateFlow<String> = mutableNvidiaApiKey.asStateFlow()
     val ollamaUrl: StateFlow<String> = mutableOllamaUrl.asStateFlow()
     val state: StateFlow<LiveSessionState> = store.state
     val projectionStore: ProjectionConsentStore = projectionConsentStore
@@ -116,6 +121,11 @@ class AndroidLiveSessionRepository(
     fun updateOpenRouterApiKey(apiKey: String) {
         mutableOpenRouterApiKey.value = apiKey
         settingsStore.saveOpenRouterApiKey(apiKey.trim())
+    }
+
+    fun updateNvidiaApiKey(apiKey: String) {
+        mutableNvidiaApiKey.value = apiKey
+        settingsStore.saveNvidiaApiKey(apiKey.trim())
     }
 
     fun updateOllamaUrl(url: String) {
@@ -289,6 +299,8 @@ class AndroidLiveSessionRepository(
 
     fun currentOpenRouterApiKey(): String = openRouterApiKey.value.trim()
 
+    fun currentNvidiaApiKey(): String = nvidiaApiKey.value.trim()
+
     fun currentOllamaUrl(): String = ollamaUrl.value.trim()
 
     fun currentConfig(): LiveSessionConfig = state.value.config
@@ -305,8 +317,19 @@ class AndroidLiveSessionRepository(
 
     fun currentCustomModels(): List<CustomPresetModelDefinition> = customModels.value
 
-    fun currentTextToTextChain(): List<String> =
-        presetRuntimeSettings.value.modelPriorityChains.textToText
+    fun currentTextToTextChain(): List<String> {
+        val settings = presetRuntimeSettings.value
+        return PresetRetryChainKind.TEXT_TO_TEXT.effectiveChain(
+            settings,
+            ApiKeys(
+                geminiKey = currentApiKey(),
+                groqKey = currentGroqApiKey(),
+                openRouterKey = currentOpenRouterApiKey(),
+                nvidiaKey = currentNvidiaApiKey(),
+                ollamaBaseUrl = currentOllamaUrl(),
+            ),
+        )
+    }
 
     fun translationModelId(): String = state.value.config.translationProvider.id
 

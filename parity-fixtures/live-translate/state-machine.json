@@ -1,5 +1,18 @@
 {
-  "version": 2,
+  "version": 4,
+  "textLlmProviders": [
+    "google",
+    "gemini-live",
+    "groq",
+    "nvidia"
+  ],
+  "textLlmRequestPolicy": {
+    "nonStreamingDeadline": "benchmark_derived_10_to_30_seconds",
+    "circuitPreflight": true,
+    "providerBlocking": true,
+    "cancellation": "propagate",
+    "usageHeaders": true
+  },
   "cases": [
     {
       "name": "finished request commits finalized bytes and replaces draft",

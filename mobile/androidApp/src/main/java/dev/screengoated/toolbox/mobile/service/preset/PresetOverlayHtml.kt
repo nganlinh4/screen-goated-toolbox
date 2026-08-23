@@ -1,9 +1,11 @@
 package dev.screengoated.toolbox.mobile.service.preset
 
 import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
+import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.triLang
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowState
+import dev.screengoated.toolbox.mobile.preset.displayName
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import org.json.JSONArray
@@ -57,6 +59,7 @@ internal fun buildCanvasPayload(
                         put("hasRedo", window.runtimeState.redoHistory.isNotEmpty())
                         put("ttsLoading", window.runtimeState.ttsLoading)
                         put("ttsSpeaking", window.runtimeState.ttsRequestId != 0L && !window.runtimeState.ttsLoading)
+                        put("modelLabel", resultModelLabel(window.windowState))
                         put(
                             "disabledActions",
                             JSONArray(window.runtimeState.disabledActions.toList()),
@@ -68,6 +71,14 @@ internal fun buildCanvasPayload(
         put("activeWindowId", window.id.wireValue())
         put("lingerMs", lingerMs)
     }.toString()
+}
+
+internal fun resultModelLabel(state: PresetResultWindowState): String {
+    if (state.modelId.isBlank()) return ""
+    val model = PresetModelCatalog.getById(state.modelId)
+    val endpoint = model?.fullName ?: state.modelId
+    val provider = model?.provider ?: state.modelProvider
+    return provider?.let { "${it.displayName()} · $endpoint" } ?: endpoint
 }
 
 internal fun placeholderReasonLabel(

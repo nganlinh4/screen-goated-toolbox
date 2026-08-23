@@ -33,6 +33,7 @@ struct ProviderToggles {
     groq: bool,
     gemini: bool,
     openrouter: bool,
+    nvidia: bool,
     ollama: bool,
 }
 
@@ -61,6 +62,7 @@ pub fn render_usage_body(
     use_groq: bool,
     use_gemini: bool,
     use_openrouter: bool,
+    use_nvidia: bool,
     use_ollama: bool,
     custom_models: &[CustomModelDefinition],
     body_height: f32,
@@ -70,6 +72,7 @@ pub fn render_usage_body(
         groq: use_groq,
         gemini: use_gemini,
         openrouter: use_openrouter,
+        nvidia: use_nvidia,
         ollama: use_ollama,
     };
     let column_count = if ui.available_width() >= WIDE_DIALOG_MIN_WIDTH {
@@ -194,6 +197,7 @@ fn provider_enabled(provider: &str, toggles: ProviderToggles) -> bool {
         "groq" => toggles.groq,
         "google" | "gemini-live" => toggles.gemini,
         "openrouter" => toggles.openrouter,
+        "nvidia" => toggles.nvidia,
         "ollama" => toggles.ollama,
         _ => true,
     }

@@ -102,6 +102,8 @@ val generatedNativeRuntimeContractAssets =
     layout.buildDirectory.dir("generated/nativeRuntimeContractAssets")
 val generatedComponentUpdateTrustAssets =
     layout.buildDirectory.dir("generated/componentUpdateTrustAssets")
+val generatedModelFeedTrustAssets =
+    layout.buildDirectory.dir("generated/modelFeedTrustAssets")
 val generatedFullCreationRuntimeDeliveryAssets =
     layout.buildDirectory.dir("generated/fullCreationRuntimeDeliveryAssets")
 val generatedFullDownloaderRuntimeDeliveryAssets =
@@ -293,6 +295,19 @@ val generatePresetModelCatalog by tasks.registering {
     }
 }
 
+val generateModelFeedTrustAssets by tasks.registering {
+    val publicKey = rootProject.projectDir.parentFile
+        .resolve("monitoring/monitoring-p256-public-key.hex")
+    inputs.file(publicKey)
+    outputs.dir(generatedModelFeedTrustAssets)
+    doLast {
+        val output = generatedModelFeedTrustAssets.get().asFile
+            .resolve("model-feed/public-key.hex")
+        output.parentFile.mkdirs()
+        output.writeText(publicKey.readText())
+    }
+}
+
 val generatePhoneControlContract by tasks.registering {
     val repoRoot = rootProject.projectDir.parentFile
     val catalogSource = repoRoot.resolve("src/overlay/computer_control/phone_control_catalog.json")
@@ -473,6 +488,7 @@ android {
         assets.srcDir(generatedPhoneControlContract.map { it.dir("assets") })
         java.srcDir(generatedPhoneControlContract.map { it.dir("kotlin") })
         assets.srcDir(generatedNativeRuntimeContractAssets)
+        assets.srcDir(generatedModelFeedTrustAssets)
     }
     sourceSets.named("full") {
         assets.srcDir(rootProject.projectDir.resolve("native/sherpa-runtime/assets"))
@@ -489,10 +505,12 @@ android {
 
 tasks.matching {
     it.name != generatePresetOverlayAssets.name &&
+        it.name != generateModelFeedTrustAssets.name &&
         it.name != "verifyCreationModelViewerAssets" &&
         it.name.contains("Assets", ignoreCase = false)
 }.configureEach {
     dependsOn(generatePresetOverlayAssets)
+    dependsOn(generateModelFeedTrustAssets)
 }
 
 tasks.matching {
@@ -515,6 +533,7 @@ tasks.matching {
 }.configureEach {
     dependsOn(generatePresetOverlayAssets)
     dependsOn(generatePresetModelCatalog)
+    dependsOn(generateModelFeedTrustAssets)
 }
 
 dependencies {

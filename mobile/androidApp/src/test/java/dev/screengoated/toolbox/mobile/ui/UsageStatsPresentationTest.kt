@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.ui
 import dev.screengoated.toolbox.mobile.preset.PresetModelDescriptor
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.PresetModelType
+import dev.screengoated.toolbox.mobile.preset.PresetProviderSettings
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import java.io.File
 import kotlinx.serialization.json.Json
@@ -43,7 +44,7 @@ class UsageStatsPresentationTest {
         val fixture = Json.parseToJsonElement(
             File(repoRoot(), FIXTURE_PATH).readText(),
         ).jsonObject
-        assertEquals(7, fixture.getValue("version").jsonPrimitive.int)
+        assertEquals(8, fixture.getValue("version").jsonPrimitive.int)
         assertEquals(
             300L,
             fixture.getValue("freshness")
@@ -94,6 +95,17 @@ class UsageStatsPresentationTest {
             assertTrue(locale.usageStatsEndpointCount.isNotBlank())
             assertTrue(locale.usageStatsCheckUsage.isNotBlank())
         }
+    }
+
+    @Test
+    fun nvidiaSectionFollowsItsSharedProviderToggle() {
+        val hidden = usageProviderSections(PresetProviderSettings(useNvidia = false))
+            .single { it.primaryProvider == PresetModelProvider.NVIDIA }
+        val visible = usageProviderSections(PresetProviderSettings(useNvidia = true))
+            .single { it.primaryProvider == PresetModelProvider.NVIDIA }
+
+        assertFalse(hidden.enabled)
+        assertTrue(visible.enabled)
     }
 
     private fun model(

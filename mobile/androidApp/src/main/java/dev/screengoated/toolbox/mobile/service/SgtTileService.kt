@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.service
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Intent
@@ -73,9 +74,14 @@ class SgtTileService : TileService() {
                 ),
             )
         } else {
-            @Suppress("DEPRECATION")
-            startActivityAndCollapse(intent)
+            startLegacyActivityAndCollapse(intent)
         }
+    }
+
+    @SuppressLint("StartActivityAndCollapseDeprecated")
+    @Suppress("DEPRECATION")
+    private fun startLegacyActivityAndCollapse(intent: Intent) {
+        startActivityAndCollapse(intent)
     }
 
     private fun updateState(state: Int) {

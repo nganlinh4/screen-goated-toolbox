@@ -163,6 +163,7 @@ pub fn render_global_settings(
             groq: config.use_groq,
             gemini: config.use_gemini,
             openrouter: config.use_openrouter,
+            nvidia: config.use_nvidia,
             ollama: config.use_ollama,
         },
         ModelsHubState {

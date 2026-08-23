@@ -9,10 +9,21 @@ class RealtimeTranslationClientParityTest {
     fun `text llm chain uses shared provider availability gates`() {
         val clientSource = loadSourceFile(CLIENT_SOURCE_PATH).readText()
         val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
+        val repositorySource = loadSourceFile(REPOSITORY_SOURCE_PATH).readText()
 
-        assertTrue(clientSource.contains("import dev.screengoated.toolbox.mobile.preset.providerIsAvailable"))
-        assertTrue(clientSource.contains("providerIsAvailable(descriptor.provider, apiKeys, runtimeSettings)"))
+        assertTrue(clientSource.contains("preflightSkipReason("))
+        assertTrue(clientSource.contains("claimPresetModelAttempt(descriptor.id)"))
+        assertTrue(clientSource.contains("recordPresetModelFailure(descriptor.id, message)"))
+        assertTrue(clientSource.contains("recordPresetModelSuccess(descriptor.id)"))
+        assertTrue(clientSource.contains("catch (cancelled: CancellationException)"))
+        assertTrue(clientSource.contains("newPresetCall(httpRequest, descriptor, streamingEnabled = false)"))
         assertTrue(runtimeSource.contains("runtimeSettings = repository.currentPresetRuntimeSettings()"))
+        assertTrue(repositorySource.contains("PresetRetryChainKind.TEXT_TO_TEXT.effectiveChain("))
+        assertTrue(clientSource.contains("PresetModelProvider.NVIDIA ->"))
+        assertTrue(clientSource.contains("nvidiaApiKey = repository.currentNvidiaApiKey()") ||
+            runtimeSource.contains("nvidiaApiKey = repository.currentNvidiaApiKey()"))
+        assertTrue(clientSource.contains(".put(\"temperature\", 0)"))
+        assertTrue(clientSource.contains("liveTranslateResponseFormat()"))
     }
 
     @Test

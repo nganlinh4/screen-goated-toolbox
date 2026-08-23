@@ -29,14 +29,12 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:${providerName.lowercase()}")
 
-    val plainTextEnvelope = needsPlainTextEnvelope(model, streamingEnabled)
     val payload = openAiVisionPayload(
         model,
         prompt,
         imageBase64,
         mimeType,
         streamingEnabled,
-        plainTextEnvelope,
     )
 
     if (!streamingEnabled) {
@@ -46,7 +44,6 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
             providerName,
             model,
             payload,
-            plainTextEnvelope,
             onChunk,
         )
     }
@@ -62,7 +59,7 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
     var thinkingShown = false
     var contentStarted = false
 
-    executeOpenAiVisionRequest(request, providerName, model).use { response ->
+    executeOpenAiVisionRequest(request, providerName, model, streamingEnabled = true).use { response ->
         val body = response.body
         body.charStream().buffered().useLines { lines ->
             lines.forEach { rawLine ->
@@ -100,7 +97,6 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
     providerName: String,
     model: PresetModelDescriptor,
     payload: JSONObject,
-    plainTextEnvelope: Boolean,
     onChunk: (String) -> Unit,
 ): String {
     val request = Request.Builder()
@@ -110,7 +106,7 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
         .post(payload.toString().toRequestBody(jsonMediaType))
         .build()
 
-    executeOpenAiVisionRequest(request, providerName, model).use { response ->
+    executeOpenAiVisionRequest(request, providerName, model, streamingEnabled = false).use { response ->
         val content = try {
             JSONObject(response.body.string().orEmpty())
                 .optJSONArray("choices")
@@ -122,9 +118,8 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
             ""
         }
         if (content.isBlank()) throw IOException("$providerName vision returned blank content.")
-        val text = if (plainTextEnvelope) unwrapPlainTextEnvelope(content) else content
-        onChunk(text)
-        return text
+        onChunk(content)
+        return content
     }
 }
 
@@ -132,16 +127,18 @@ private suspend fun VisionApiClient.executeOpenAiVisionRequest(
     request: Request,
     providerName: String,
     model: PresetModelDescriptor,
+    streamingEnabled: Boolean,
 ): okhttp3.Response {
     var retried = false
     while (true) {
         coroutineContext.ensureActive()
-        val response = httpClient.newCall(request).execute()
+        val response = httpClient.newPresetCall(request, model, streamingEnabled).execute()
         ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (response.isSuccessful) return response
 
         val code = response.code
-        val retryAfterSeconds = response.header("retry-after")
+        val retryAfter = response.header("retry-after")?.trim()?.take(80)
+        val retryAfterSeconds = retryAfter
             ?.toDoubleOrNull()
             ?.let(::ceil)
             ?.toLong()
@@ -162,7 +159,11 @@ private suspend fun VisionApiClient.executeOpenAiVisionRequest(
             throw IOException(invalidApiKeyMessage(providerName))
         }
         throw IOException(
-            "$providerName vision request failed with $code: ${providerErrorMessage(code, body)}",
+            buildString {
+                append("$providerName vision request failed with $code: ")
+                append(providerErrorMessage(code, body))
+                if (!retryAfter.isNullOrBlank()) append("; retry-after: ").append(retryAfter)
+            },
         )
     }
 }
@@ -231,51 +232,16 @@ internal fun VisionApiClient.callQrServer(
     }
 }
 
-/**
- * Instruction appended when plain text has to travel inside a JSON envelope.
- */
-internal const val PLAIN_TEXT_ENVELOPE_PROMPT: String =
-    "\n\nRespond with a single JSON object of the form {\"text\": \"<all extracted text>\"} " +
-        "and nothing else."
-
-/**
- * Whether a plain-text extraction must be wrapped in a JSON envelope.
- *
- * Qwen 3.6 on Groq deterministically appends a re-tokenized repetition of the text
- * it just emitted when asked for bare text; constraining the reply to a JSON object
- * terminates generation cleanly. Mirrors the Windows vision request policy.
- */
-internal fun needsPlainTextEnvelope(
-    model: PresetModelDescriptor,
-    streaming: Boolean,
-): Boolean =
-    !streaming &&
-        model.structuredOutputPolicy == PresetStructuredOutputPolicy.JSON_OBJECT
-
-/**
- * Recovers the text from a [PLAIN_TEXT_ENVELOPE_PROMPT] reply, failing open so a
- * malformed envelope degrades to the raw body instead of losing text.
- */
-internal fun unwrapPlainTextEnvelope(content: String): String =
-    try {
-        JSONObject(content.trim()).takeIf { it.has("text") }?.optString("text").orEmpty()
-            .ifEmpty { content }
-    } catch (_: JSONException) {
-        content
-    }
-
 internal fun openAiVisionPayload(
     model: PresetModelDescriptor,
     prompt: String,
     imageBase64: String,
     mimeType: String,
     stream: Boolean,
-    plainTextEnvelope: Boolean = false,
 ): JSONObject {
     val provider = model.provider
     val fullName = model.fullName
-    val effectivePrompt = if (plainTextEnvelope) prompt + PLAIN_TEXT_ENVELOPE_PROMPT else prompt
-    val textPart = JSONObject().put("type", "text").put("text", effectivePrompt)
+    val textPart = JSONObject().put("type", "text").put("text", prompt)
     val imagePart = JSONObject()
         .put("type", "image_url")
         .put(
@@ -307,8 +273,5 @@ internal fun openAiVisionPayload(
             .put("presence_penalty", 1.5)
     }
     model.visionMaxOutputTokens?.let { payload.put("max_completion_tokens", it) }
-    if (plainTextEnvelope) {
-        payload.put("response_format", JSONObject().put("type", "json_object"))
-    }
     return applyFastReasoningPolicy(payload, provider, fullName)
 }

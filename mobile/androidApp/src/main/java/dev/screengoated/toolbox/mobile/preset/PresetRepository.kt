@@ -11,6 +11,7 @@ import dev.screengoated.toolbox.mobile.shared.preset.PresetType
 import dev.screengoated.toolbox.mobile.AppToastBus
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -19,6 +20,28 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+internal data class PresetRefineResult(
+    val text: String,
+    val modelId: String,
+    val modelProvider: PresetModelProvider,
+)
+
+internal fun initialRefineModel(
+    originalModelId: String,
+    settings: PresetRuntimeSettings,
+    apiKeys: ApiKeys,
+): PresetModelDescriptor? {
+    PresetModelCatalog.getById(originalModelId)
+        ?.takeIf { it.modelType == PresetModelType.TEXT && !it.isNonLlm }
+        ?.let { return it }
+    return PresetRetryChainKind.TEXT_TO_TEXT.effectiveChain(settings, apiKeys)
+        .firstNotNullOfOrNull { id ->
+            PresetModelCatalog.getById(id)?.takeIf {
+                it.modelType == PresetModelType.TEXT && !it.isNonLlm
+            }
+        }
+}
 
 class PresetRepository(
     private val textApiClient: TextApiClient,
@@ -269,33 +292,98 @@ class PresetRepository(
         }
     }
 
-    fun refineInPlace(
-        preset: Preset,
+    internal fun refineInPlace(
+        originalModelId: String,
         previousText: String,
         refinePrompt: String,
         onChunk: (String) -> Unit,
-        onComplete: (Result<String>) -> Unit,
+        onModelSelected: (PresetModelDescriptor) -> Unit,
+        onComplete: (Result<PresetRefineResult>) -> Unit,
     ): Job {
-        val blockModel = preset.blocks.firstOrNull()?.model.orEmpty()
-        val modelId = blockModel.ifEmpty {
-            runtimeSettings().modelPriorityChains.textToText.firstOrNull()
-        } ?: return scope.launch { onComplete(Result.failure(Exception("No model configured"))) }
         val keys = apiKeys()
+        val settings = runtimeSettings()
+        val initialModel = initialRefineModel(originalModelId, settings, keys)
+            ?: return scope.launch { onComplete(Result.failure(Exception("No text model configured"))) }
         val lang = uiLanguage()
 
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         return scope.launch(Dispatchers.IO) {
-            val result = textApiClient.executeStreaming(
-                modelId = modelId,
-                prompt = "Content:\n$previousText\n\nInstruction:\n$refinePrompt\n\nOutput ONLY the result.",
-                inputText = previousText,
-                apiKeys = keys,
-                uiLanguage = lang,
-                searchLabel = null,
-                onChunk = { chunk -> mainHandler.post { onChunk(chunk) } },
-                streamingEnabled = true,
-                predictionContent = previousText,
-            )
+            val prompt = "Content:\n$previousText\n\nInstruction:\n$refinePrompt\n\nOutput ONLY the result."
+            val failedModelIds = mutableListOf<String>()
+            val blockedProviders = linkedSetOf<PresetModelProvider>()
+            var currentModel = initialModel
+            val result: Result<PresetRefineResult> = runCatching {
+                var completed: PresetRefineResult? = null
+                while (completed == null) {
+                    val preflight = preflightSkipReason(
+                        modelId = currentModel.id,
+                        provider = currentModel.provider,
+                        apiKeys = keys,
+                        blockedProviders = blockedProviders,
+                        settings = settings,
+                    ) ?: claimPresetModelAttempt(currentModel.id)
+                    if (preflight != null) {
+                        if (shouldBlockRetryProvider(preflight)) {
+                            blockedProviders += currentModel.provider
+                        }
+                        failedModelIds += currentModel.id
+                        currentModel = resolveNextRetryModel(
+                            currentModelId = currentModel.id,
+                            failedModelIds = failedModelIds,
+                            blockedProviders = blockedProviders,
+                            chainKind = PresetRetryChainKind.TEXT_TO_TEXT,
+                            apiKeys = keys,
+                            settings = settings,
+                        ) ?: error(preflight)
+                        continue
+                    }
+
+                    val attemptedModel = currentModel
+                    mainHandler.post { onModelSelected(attemptedModel) }
+                    val attempt = textApiClient.executeStreaming(
+                        modelId = attemptedModel.id,
+                        prompt = prompt,
+                        inputText = previousText,
+                        apiKeys = keys,
+                        uiLanguage = lang,
+                        searchLabel = null,
+                        onChunk = { chunk -> mainHandler.post { onChunk(chunk) } },
+                        streamingEnabled = true,
+                        predictionContent = previousText,
+                    )
+                    val error = attempt.exceptionOrNull()
+                    if (error == null) {
+                        recordPresetModelSuccess(attemptedModel.id)
+                        completed = PresetRefineResult(
+                            text = attempt.getOrThrow(),
+                            modelId = attemptedModel.id,
+                            modelProvider = attemptedModel.provider,
+                        )
+                        continue
+                    }
+                    if (error is CancellationException) {
+                        releasePresetModelProbe(attemptedModel.id)
+                        throw error
+                    }
+                    val message = error.message ?: "Refine failed"
+                    recordPresetModelFailure(attemptedModel.id, message)
+                    if (!shouldAdvanceRetryChain(message)) throw error
+                    if (shouldBlockRetryProvider(message)) {
+                        blockedProviders += attemptedModel.provider
+                    }
+                    failedModelIds += attemptedModel.id
+                    currentModel = resolveNextRetryModel(
+                        currentModelId = attemptedModel.id,
+                        failedModelIds = failedModelIds,
+                        blockedProviders = blockedProviders,
+                        chainKind = PresetRetryChainKind.TEXT_TO_TEXT,
+                        apiKeys = keys,
+                        settings = settings,
+                    ) ?: throw error
+                    mainHandler.post { onChunk(TextApiClient.WIPE_SIGNAL) }
+                }
+                requireNotNull(completed)
+            }
             kotlinx.coroutines.withContext(Dispatchers.Main) {
                 onComplete(result)
             }

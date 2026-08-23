@@ -81,6 +81,7 @@ pub struct ProviderEnabled {
     pub groq: bool,
     pub gemini: bool,
     pub openrouter: bool,
+    pub nvidia: bool,
     pub ollama: bool,
 }
 
@@ -140,6 +141,7 @@ pub fn render_models_modal(
                         providers.groq,
                         providers.gemini,
                         providers.openrouter,
+                        providers.nvidia,
                         providers.ollama,
                         &config.custom_models,
                         body_height,

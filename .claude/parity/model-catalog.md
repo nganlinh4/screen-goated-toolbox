@@ -44,7 +44,7 @@
   authored rows. On Windows, eligible live-feed rows may enter before a slower
   authored fallback without truncating user-authored rows; the chosen head stays
   fixed.
-- Windows exposes one persisted adaptive-model toggle beside each priority-chain
+- Windows and Android expose one persisted adaptive-model toggle beside each priority-chain
   title. While enabled, its formula-ranked live-feed entries render as ordinary
   selectable, draggable, removable chain rows. Moving a live row pins that row at
   its authored anchor; removing it records a chain-local exclusion. These narrow
@@ -53,8 +53,10 @@
   live row excludes its old identity and pins its live replacement. Restoring the
   chain defaults clears its pins and exclusions. A manual edit that leaves no
   live-feed row in the chain disables Live; Add stays available. Live-off chains
-  retain their authored manual order. Android has no live availability-feed
-  source, so it renders no inert switch.
+  retain their authored manual order. Both platforms consume the same signed
+  availability document, apply the same endpoint controls, and reject invalid,
+  stale, incompatible, or unsigned documents without replacing the last valid
+  cached feed.
 - The image `10` and text `12` counts are shipped-default preparation targets,
   never UI, persistence, or runtime limits. Users may add any number of rows.
 - The chosen-model sentinel is numbered `0`, editable retry rows are numbered
@@ -63,6 +65,11 @@
 - A benchmark-qualified built-in endpoint becomes selectable
   on Windows and Android from the same catalog revision; neither platform may
   hide it behind a platform-local allowlist or duplicate its fallback placement.
+- Every model-selection surface, including the Android node editor, observes
+  live-feed revisions and applies the shared provider-enabled predicate. A
+  newly offered NVIDIA endpoint therefore appears without reopening the editor,
+  while disabling NVIDIA removes it from selectors without deleting persisted
+  chain choices.
 - Architecture never implies general capability. Translation-only, search-only,
   embedding, and other dedicated endpoints remain outside generic Text-to-Text
   priority chains even when implemented as LLMs and even when they pass their
@@ -89,6 +96,9 @@
   reasoning policies fail catalog generation.
 - Unknown persisted IDs do not alias or migrate. Preset loading replaces them
   with the canonical default for the block modality.
+- A verified feed cache is replaced atomically when the filesystem supports it;
+  a same-directory replace is the compatibility fallback. Lack of atomic-move
+  support must not prevent a valid signed refresh from becoming active.
 - Removing an unavailable endpoint removes its profile and model rows atomically;
   recommended chains may replace it only with another enabled, benchmarked row
   already owned by the shared catalog.
@@ -110,9 +120,9 @@
 - Screen Recorder uses fixed flex columns inside its shared select component.
 - Windows uses egui fixed-size labels and Android uses fixed-width Compose text.
   The visual primitives differ; ordering, values, and formatting do not.
-- The signed live availability feed and its per-chain switch are Windows-only.
-  Android continues to use shared authored catalog chains until it gains an
-  equivalent verified live-feed source.
+- Android uses native Compose controls while Windows uses egui controls; the
+  signed feed, adaptive merge, pins, exclusions, and persistence semantics are
+  shared behavior.
 - A signed feed names both its wire schema and the operational-availability
   contract that admitted its candidates. Windows rejects feeds using obsolete
   availability semantics; signature validity alone does not make stale evidence

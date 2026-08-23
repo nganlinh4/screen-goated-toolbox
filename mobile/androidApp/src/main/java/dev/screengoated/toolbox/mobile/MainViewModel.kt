@@ -51,6 +51,7 @@ class MainViewModel(
     val apiKey: StateFlow<String> = repository.apiKey
     val groqApiKey: StateFlow<String> = repository.groqApiKey
     val openRouterApiKey: StateFlow<String> = repository.openRouterApiKey
+    val nvidiaApiKey: StateFlow<String> = repository.nvidiaApiKey
     val ollamaUrl: StateFlow<String> = repository.ollamaUrl
     val realtimeTtsSettings: StateFlow<RealtimeTtsSettings> = repository.realtimeTtsSettings
     val globalTtsSettings: StateFlow<MobileGlobalTtsSettings> = repository.globalTtsSettings
@@ -106,6 +107,10 @@ class MainViewModel(
 
     fun onOpenRouterApiKeyChanged(apiKey: String) {
         repository.updateOpenRouterApiKey(apiKey)
+    }
+
+    fun onNvidiaApiKeyChanged(apiKey: String) {
+        repository.updateNvidiaApiKey(apiKey)
     }
 
     fun onOllamaUrlChanged(url: String) {

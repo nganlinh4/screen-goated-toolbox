@@ -168,6 +168,18 @@ class TextApiClientTest {
     }
 
     @Test
+    fun nvidiaTextUsesDeterministicSampling() {
+        val payload = json.parseToJsonElement(
+            client.debugBuildRequestBody(
+                modelId = "nvidia-nemotron-3-5-lightning-text",
+                prompt = "Summarize.",
+                inputText = "Hello",
+            ),
+        ).jsonObject
+        assertEquals(0.0, payload.getValue("temperature").jsonPrimitive.content.toDouble(), 0.0)
+    }
+
+    @Test
     fun compoundMiniBodyUsesCompoundToolsContract() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(

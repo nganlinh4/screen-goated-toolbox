@@ -138,7 +138,7 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                     redoHistory = emptyList(),
                 )
             }
-            val resolved = presetRepository.getResolvedPreset(window.presetId) ?: return
+            if (presetRepository.getResolvedPreset(window.presetId) == null) return
 
             val loadingState = window.windowState.copy(
                 markdownText = "",
@@ -151,9 +151,19 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
             updateResultWindowSupport(resultWindows[windowId]!!)
             val accumulated = StringBuilder()
             presetRepository.refineInPlace(
-                preset = resolved.preset,
+                originalModelId = window.windowState.modelId,
                 previousText = currentText,
                 refinePrompt = refineText,
+                onModelSelected = { model ->
+                    val active = resultWindows[windowId] ?: return@refineInPlace
+                    resultWindows[windowId] = active.copy(
+                        windowState = active.windowState.copy(
+                            modelId = model.id,
+                            modelProvider = model.provider,
+                        ),
+                    )
+                    updateResultWindowSupport(resultWindows[windowId] ?: return@refineInPlace)
+                },
                 onChunk = { chunk ->
 
                     if (chunk.startsWith("\u0000WIPE\u0000")) {
@@ -177,7 +187,8 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                 },
                 onComplete = { result ->
                     val active = resultWindows[windowId] ?: return@refineInPlace
-                    val finalText = result.getOrElse { it.message ?: "Refine failed" }
+                    val refined = result.getOrNull()
+                    val finalText = refined?.text ?: result.exceptionOrNull()?.message ?: "Refine failed"
 
                     val finalState = active.windowState.copy(
                         markdownText = finalText,
@@ -185,6 +196,8 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                         isStreaming = false,
                         isError = result.isFailure,
                         loadingStatusText = null,
+                        modelId = refined?.modelId ?: active.windowState.modelId,
+                        modelProvider = refined?.modelProvider ?: active.windowState.modelProvider,
                     )
                     resultWindows[windowId] = active.copy(windowState = finalState)
                     updateResultWindowSupport(resultWindows[windowId]!!)

@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "identity": [
     "provider",
     "full_name"
@@ -52,6 +52,13 @@
       "gemini-live"
     ]
   },
+  "configured_provider_toggles": [
+    "groq",
+    "google",
+    "openrouter",
+    "nvidia",
+    "ollama"
+  ],
   "observed_usage_providers": [
     "groq",
     "openrouter"

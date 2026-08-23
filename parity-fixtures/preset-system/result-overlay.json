@@ -24,13 +24,18 @@
   ],
   "canvas": {
     "reveal_model": "tap_and_linger",
+    "model_badge": {
+      "identity": "actual_successful_retry_endpoint",
+      "format": "provider_display_name_middle_dot_full_api_model",
+      "empty_for_non_model_results": true
+    },
+    "refine": {
+      "first_choice": "actual_successful_text_endpoint",
+      "fallback": "adaptive_text_to_text_chain_with_circuit_policy",
+      "model_badge": "actual_successful_refine_endpoint"
+    },
     "linger_ms": 2000,
     "unsupported_actions": [
-      "edit",
-      "undo",
-      "redo",
-      "download",
-      "speaker",
       "markdown_toggle",
       "broom_group_all"
     ]

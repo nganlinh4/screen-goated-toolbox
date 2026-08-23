@@ -4,6 +4,6 @@ import android.content.Context
 import okhttp3.OkHttpClient
 
 internal fun createAppUpdateController(
-    _context: Context,
+    context: Context,
     httpClient: OkHttpClient,
-): AppUpdateController = AppUpdateRepository(httpClient)
+): AppUpdateController = AppUpdateRepository(context, httpClient)

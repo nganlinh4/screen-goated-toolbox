@@ -51,15 +51,18 @@ internal fun verifyP256Signature(
     payload: ByteArray,
     rawSignature: ByteArray,
 ): Boolean {
-    if (publicPoint.size != 65 || publicPoint[0] != 4.toByte() || rawSignature.size != 64) {
-        return false
+    val coordinates = when {
+        publicPoint.size == 64 -> publicPoint
+        publicPoint.size == 65 && publicPoint[0] == 4.toByte() -> publicPoint.copyOfRange(1, 65)
+        else -> return false
     }
+    if (rawSignature.size != 64) return false
     val parameters = AlgorithmParameters.getInstance("EC").apply {
         init(ECGenParameterSpec("secp256r1"))
     }.getParameterSpec(ECParameterSpec::class.java)
     val point = ECPoint(
-        BigInteger(1, publicPoint.copyOfRange(1, 33)),
-        BigInteger(1, publicPoint.copyOfRange(33, 65)),
+        BigInteger(1, coordinates.copyOfRange(0, 32)),
+        BigInteger(1, coordinates.copyOfRange(32, 64)),
     )
     val publicKey = KeyFactory.getInstance("EC").generatePublic(ECPublicKeySpec(point, parameters))
     val verified = Signature.getInstance("SHA256withECDSA").run {

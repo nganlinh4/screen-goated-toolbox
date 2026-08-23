@@ -59,6 +59,12 @@ internal fun applyFastReasoningPolicy(
     provider: PresetModelProvider,
     fullName: String,
 ): JSONObject {
+    if (provider == PresetModelProvider.NVIDIA) {
+        payload.put("temperature", 0)
+    }
+    PresetModelFeed.controlFor(provider, fullName)?.let { control ->
+        return applyFeedReasoningControl(payload, control)
+    }
     val effort = PresetModelCatalog.openAiReasoningEffort(provider, fullName)
     if (effort != null) {
         if (provider == PresetModelProvider.OPENROUTER) {
@@ -68,4 +74,44 @@ internal fun applyFastReasoningPolicy(
         }
     }
     return payload
+}
+
+private fun applyFeedReasoningControl(
+    payload: JSONObject,
+    control: FeedReasoningControl,
+): JSONObject {
+    when (control) {
+        FeedReasoningControl.EFFORT_NONE -> payload.put("reasoning_effort", "none")
+        FeedReasoningControl.EFFORT_LOW -> payload.put("reasoning_effort", "low")
+        FeedReasoningControl.TEMPLATE_KWARGS ->
+            payload.put("chat_template_kwargs", JSONObject().put("thinking", false))
+        FeedReasoningControl.NO_THINK -> prependSystemMessage(payload, "/no_think")
+        FeedReasoningControl.THINKING_OFF ->
+            prependSystemMessage(payload, "detailed thinking off")
+        FeedReasoningControl.PLAIN -> Unit
+    }
+    return payload
+}
+
+private fun prependSystemMessage(payload: JSONObject, instruction: String) {
+    val messages = payload.optJSONArray("messages") ?: return
+    val first = messages.optJSONObject(0)
+    if (first?.optString("role") == "system") {
+        when (val content = first.opt("content")) {
+            is String -> first.put("content", "$instruction\n\n$content")
+            is JSONArray -> {
+                val replacement = JSONArray().put(
+                    JSONObject().put("type", "text").put("text", instruction),
+                )
+                for (index in 0 until content.length()) replacement.put(content.get(index))
+                first.put("content", replacement)
+            }
+        }
+        return
+    }
+    val replacement = JSONArray().put(
+        JSONObject().put("role", "system").put("content", instruction),
+    )
+    for (index in 0 until messages.length()) replacement.put(messages.get(index))
+    payload.put("messages", replacement)
 }

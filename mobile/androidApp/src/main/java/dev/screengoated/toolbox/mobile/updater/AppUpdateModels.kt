@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.updater
 
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
+import java.math.BigInteger
 import kotlinx.coroutines.flow.StateFlow
 
 enum class AppUpdateStatus {
@@ -47,8 +48,8 @@ internal fun isRemoteVersionNewer(
     }
     val maxSize = maxOf(current.size, remote.size)
     for (index in 0 until maxSize) {
-        val localPart = current.getOrElse(index) { 0 }
-        val remotePart = remote.getOrElse(index) { 0 }
+        val localPart = current.getOrElse(index) { BigInteger.ZERO }
+        val remotePart = remote.getOrElse(index) { BigInteger.ZERO }
         if (localPart != remotePart) {
             return remotePart > localPart
         }
@@ -56,11 +57,11 @@ internal fun isRemoteVersionNewer(
     return false
 }
 
-private fun versionTokens(version: String): List<Int> {
+private fun versionTokens(version: String): List<BigInteger> {
     return version
         .trim()
         .trimStart('v', 'V')
         .split(Regex("[^0-9]+"))
         .filter { it.isNotBlank() }
-        .mapNotNull { it.toIntOrNull() }
+        .mapNotNull { it.toBigIntegerOrNull() }
 }

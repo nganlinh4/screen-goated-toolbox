@@ -1,5 +1,15 @@
 {
-  "version": 7,
+  "version": 8,
+  "request_contract": {
+    "candidate_chain": "effective_text_to_text",
+    "signed_live_feed_interleaving": true,
+    "shared_provider_and_runtime_gates": true
+  },
+  "general_vision": {
+    "candidate_chain": "effective_image_to_text",
+    "signed_live_feed_interleaving": true,
+    "grounding_chain_isolated": true
+  },
   "live_session": {
     "api_model": "gemini-3.1-flash-live-preview",
     "thinking_config": {

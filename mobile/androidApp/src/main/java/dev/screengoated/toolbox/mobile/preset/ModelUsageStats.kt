@@ -84,6 +84,29 @@ object ModelUsageStats {
     fun providerHasUsageStatistics(provider: PresetModelProvider): Boolean =
         provider !in localRuntimeProviders
 
+    fun tokenBudgetWaitSeconds(
+        provider: PresetModelProvider,
+        fullName: String,
+        minimumCost: Int,
+        nowUnixSeconds: Long = nowUnixSeconds(),
+    ): Long? {
+        val snapshot = snapshots.value[keyForResponse(provider, fullName)] ?: return null
+        val metric = snapshot.metrics.firstOrNull { it.kind == MetricKind.TOKENS_MINUTE }
+            ?: return null
+        val limit = metric.limit?.toDoubleOrNull()?.takeIf { it > 0.0 } ?: return null
+        val remaining = metric.remaining?.toDoubleOrNull()?.coerceIn(0.0, limit) ?: return null
+        val resetSeconds = metric.reset?.let(::parseDurationSeconds)?.takeIf { it > 0.0 }
+            ?: return null
+        val elapsed = (nowUnixSeconds - snapshot.observedAtUnixSeconds).coerceAtLeast(0L).toDouble()
+        val refilled = limit * (elapsed / resetSeconds)
+        val available = (remaining + refilled).coerceAtMost(limit)
+        if (available >= minimumCost.toDouble()) return null
+        val missing = minimumCost - available
+        return kotlin.math.ceil(missing / (limit / resetSeconds))
+            .toLong()
+            .coerceAtMost(kotlin.math.ceil(resetSeconds).toLong())
+    }
+
     fun keyForResponse(provider: PresetModelProvider, fullName: String): UsageKey =
         if (provider == PresetModelProvider.OPENROUTER) {
             providerKey(provider)

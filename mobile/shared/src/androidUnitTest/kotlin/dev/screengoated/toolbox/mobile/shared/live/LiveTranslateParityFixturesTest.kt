@@ -15,7 +15,19 @@ class LiveTranslateParityFixturesTest {
     @Test
     fun sharedFixturesMatchMobileParityReducer() {
         val fixtures = loadFixtureDocument()
-        assertEquals(2, fixtures.version)
+        assertEquals(4, fixtures.version)
+        assertEquals(
+            listOf("google", "gemini-live", "groq", "nvidia"),
+            fixtures.textLlmProviders,
+        )
+        assertEquals(
+            "benchmark_derived_10_to_30_seconds",
+            fixtures.textLlmRequestPolicy.nonStreamingDeadline,
+        )
+        assertTrue(fixtures.textLlmRequestPolicy.circuitPreflight)
+        assertTrue(fixtures.textLlmRequestPolicy.providerBlocking)
+        assertEquals("propagate", fixtures.textLlmRequestPolicy.cancellation)
+        assertTrue(fixtures.textLlmRequestPolicy.usageHeaders)
 
         fixtures.cases.forEach { fixtureCase ->
             var state = LiveTranslateParity.reset()
@@ -148,7 +160,18 @@ class LiveTranslateParityFixturesTest {
 @Serializable
 private data class FixtureDocument(
     val version: Int,
+    val textLlmProviders: List<String>,
+    val textLlmRequestPolicy: FixtureTextLlmRequestPolicy,
     val cases: List<FixtureCase>,
+)
+
+@Serializable
+private data class FixtureTextLlmRequestPolicy(
+    val nonStreamingDeadline: String,
+    val circuitPreflight: Boolean,
+    val providerBlocking: Boolean,
+    val cancellation: String,
+    val usageHeaders: Boolean,
 )
 
 @Serializable

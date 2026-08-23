@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.updater
 
+import android.content.Context
 import dev.screengoated.toolbox.mobile.BuildConfig
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -14,8 +15,12 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
+import okio.Buffer
+import java.math.BigInteger
+import java.util.concurrent.TimeUnit
 
 class AppUpdateRepository(
+    private val context: Context,
     private val httpClient: OkHttpClient,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     currentVersionName: String = BuildConfig.CANONICAL_APP_VERSION,
@@ -23,58 +28,21 @@ class AppUpdateRepository(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val currentVersion = canonicalAppVersion(currentVersionName)
     private var autoCheckStarted = false
-
-    private val mutableState = MutableStateFlow(
-        AppUpdateUiState(currentVersion = currentVersion),
-    )
+    private val mutableState = MutableStateFlow(AppUpdateUiState(currentVersion = currentVersion))
     override val state: StateFlow<AppUpdateUiState> = mutableState.asStateFlow()
 
     override fun autoCheckForUpdates() {
-        if (autoCheckStarted) {
-            return
-        }
+        if (autoCheckStarted) return
         autoCheckStarted = true
         checkForUpdates()
     }
 
     override fun checkForUpdates() {
-        if (mutableState.value.status == AppUpdateStatus.CHECKING) {
-            return
-        }
+        if (mutableState.value.status == AppUpdateStatus.CHECKING) return
         scope.launch {
-            mutableState.update {
-                it.copy(
-                    status = AppUpdateStatus.CHECKING,
-                    errorMessage = null,
-                )
-            }
-
-            val latestRelease = withContext(ioDispatcher) { fetchLatestRelease() }
-            latestRelease.fold(
-                onSuccess = { release ->
-                    if (isRemoteVersionNewer(currentVersion, release.version)) {
-                        mutableState.update {
-                            it.copy(
-                                status = AppUpdateStatus.UPDATE_AVAILABLE,
-                                latestVersion = release.version,
-                                releaseNotes = release.body,
-                                actionUrl = release.assetUrl ?: release.releaseUrl,
-                                errorMessage = null,
-                                notificationSerial = it.notificationSerial + 1,
-                            )
-                        }
-                    } else {
-                        mutableState.update {
-                            it.copy(
-                                status = AppUpdateStatus.UP_TO_DATE,
-                                latestVersion = currentVersion,
-                                releaseNotes = "",
-                                actionUrl = release.assetUrl ?: release.releaseUrl,
-                                errorMessage = null,
-                            )
-                        }
-                    }
-                },
+            mutableState.update { it.copy(status = AppUpdateStatus.CHECKING, errorMessage = null) }
+            withContext(ioDispatcher) { fetchLatestRelease() }.fold(
+                onSuccess = ::publishCandidate,
                 onFailure = { error ->
                     mutableState.update {
                         it.copy(
@@ -87,52 +55,123 @@ class AppUpdateRepository(
         }
     }
 
-    private fun fetchLatestRelease(): Result<GitHubReleaseInfo> = runCatching {
+    private fun publishCandidate(candidate: AndroidUpdateCandidate) {
+        if (isRemoteVersionNewer(currentVersion, candidate.version)) {
+            mutableState.update {
+                it.copy(
+                    status = AppUpdateStatus.UPDATE_AVAILABLE,
+                    latestVersion = candidate.version,
+                    releaseNotes = candidate.body,
+                    actionUrl = candidate.assetUrl,
+                    errorMessage = null,
+                    notificationSerial = it.notificationSerial + 1,
+                )
+            }
+        } else {
+            mutableState.update {
+                it.copy(
+                    status = AppUpdateStatus.UP_TO_DATE,
+                    latestVersion = currentVersion,
+                    releaseNotes = "",
+                    actionUrl = candidate.assetUrl,
+                    errorMessage = null,
+                )
+            }
+        }
+    }
+
+    private fun fetchLatestRelease(): Result<AndroidUpdateCandidate> = runCatching {
+        fetchStableManifest() ?: fetchGitHubFallback()
+    }
+
+    private fun fetchStableManifest(): AndroidUpdateCandidate? {
+        val payload = fetchBytesOrNull(MANIFEST_URL, MAXIMUM_MANIFEST_BYTES) ?: return null
+        val signature = fetchBytes(SIGNATURE_URL, 64)
+        require(signature.size == 64) { "App update signature shape is invalid" }
+        val publicPoint = context.assets.open(PUBLIC_KEY_ASSET).bufferedReader().use { reader ->
+            decodeHex(reader.readText().trim())
+        }
+        return verifiedStableManifest(payload, signature, publicPoint)
+    }
+
+    private fun fetchGitHubFallback(): AndroidUpdateCandidate {
+        val candidates = mutableListOf<AndroidUpdateCandidate>()
+        for (page in 1..MAXIMUM_RELEASE_PAGES) {
+            val payload = fetchBytes(
+                "$RELEASES_URL?per_page=$RELEASES_PER_PAGE&page=$page",
+                MAXIMUM_GITHUB_RESPONSE_BYTES,
+            )
+            candidates += githubCandidates(payload)
+            if (JSONArray(payload.toString(Charsets.UTF_8)).length() < RELEASES_PER_PAGE) break
+        }
+        return candidates.maxWithOrNull(
+            Comparator { left, right -> compareCanonicalVersions(left.version, right.version) },
+        ) ?: error("No compatible stable GitHub release was found")
+    }
+
+    private fun fetchBytes(url: String, limit: Int): ByteArray {
+        return fetchBytesOrNull(url, limit, allowMissing = false)
+            ?: error("Required update source is missing")
+    }
+
+    private fun fetchBytesOrNull(
+        url: String,
+        limit: Int,
+        allowMissing: Boolean = true,
+    ): ByteArray? {
         val request = Request.Builder()
-            .url(LATEST_RELEASES_URL)
+            .url(url)
             .header("User-Agent", "screen-goated-toolbox-android-updater")
             .build()
+        val call = httpClient.newCall(request)
+        call.timeout().timeout(10, TimeUnit.SECONDS)
+        call.execute().use { response ->
+            if (allowMissing && response.code == 404) return null
+            require(response.isSuccessful) { "Update source failed: HTTP ${response.code}" }
+            val body = response.body
+            require(body.contentLength() <= limit || body.contentLength() == -1L) {
+                "Update source exceeded its size limit"
+            }
+            val source = body.source()
+            val buffer = Buffer()
+            while (buffer.size <= limit) {
+                val remaining = limit.toLong() + 1L - buffer.size
+                if (source.read(buffer, minOf(8_192L, remaining)) == -1L) break
+            }
+            val bytes = buffer.readByteArray()
+            require(bytes.size <= limit) { "Update source exceeded its size limit" }
+            return bytes
+        }
+    }
 
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                error("Failed to fetch release info: HTTP ${response.code}")
-            }
-            val rawBody = response.body.string().orEmpty()
-            val releases = JSONArray(rawBody)
-            if (releases.length() == 0) {
-                error("No releases found on GitHub")
-            }
-            val latest = releases.optJSONObject(0) ?: error("Invalid release response")
-            val version = canonicalAppVersion(
-                latest.optString("tag_name").removePrefix("v"),
-            )
-            if (version.isBlank()) {
-                error("Latest release is missing a version tag")
-            }
-            val assetsJson = latest.optJSONArray("assets")
-            val assets = buildList {
-                if (assetsJson != null) {
-                    for (index in 0 until assetsJson.length()) {
-                        val asset = assetsJson.optJSONObject(index) ?: continue
-                        val name = asset.optString("name")
-                        val url = asset.optString("browser_download_url")
-                        if (name.isNotBlank() && url.isNotBlank()) {
-                            add(name to url)
-                        }
-                    }
-                }
-            }
-            GitHubReleaseInfo(
-                version = version,
-                body = latest.optString("body"),
-                releaseUrl = latest.optString("html_url"),
-                assetUrl = selectAndroidAssetUrl(assets),
-            )
+    private fun decodeHex(value: String): ByteArray {
+        require(
+            value.length == 130 && value.startsWith("04") &&
+                value.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' },
+        )
+        return ByteArray(value.length / 2) { index ->
+            value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
         }
     }
 
     private companion object {
-        const val LATEST_RELEASES_URL =
-            "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=1&prerelease=false"
+        const val MANIFEST_URL =
+            "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/app-update-feed/stable-v1.json"
+        const val SIGNATURE_URL =
+            "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/app-update-feed/stable-v1.sig"
+        const val RELEASES_URL =
+            "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases"
+        const val PUBLIC_KEY_ASSET = "component-update/public-key.hex"
+        const val RELEASES_PER_PAGE = 100
+        const val MAXIMUM_RELEASE_PAGES = 10
     }
+}
+
+private fun compareCanonicalVersions(left: String, right: String): Int {
+    val leftParts = left.split('.').map(::BigInteger)
+    val rightParts = right.split('.').map(::BigInteger)
+    return leftParts.zip(rightParts)
+        .firstOrNull { (leftPart, rightPart) -> leftPart != rightPart }
+        ?.let { (leftPart, rightPart) -> leftPart.compareTo(rightPart) }
+        ?: 0
 }

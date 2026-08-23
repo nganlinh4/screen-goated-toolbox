@@ -56,11 +56,13 @@ internal fun CredentialsCard(
     apiKey: String,
     groqApiKey: String,
     openRouterApiKey: String,
+    nvidiaApiKey: String,
     ollamaUrl: String,
     locale: MobileLocaleText,
     onApiKeyChanged: (String) -> Unit,
     onGroqApiKeyChanged: (String) -> Unit,
     onOpenRouterApiKeyChanged: (String) -> Unit,
+    onNvidiaApiKeyChanged: (String) -> Unit,
     onOllamaUrlChanged: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -87,6 +89,13 @@ internal fun CredentialsCard(
                 keyLabel = locale.openRouterKeyLabel,
                 getKeyUrl = "https://openrouter.ai/settings/keys",
                 getKeyLabel = locale.openRouterGetKeyLink,
+            )
+            CredentialsProviderId.NVIDIA -> ProviderDef(
+                label = provider.label,
+                icon = R.drawable.ms_auto_awesome,
+                keyLabel = locale.nvidiaKeyLabel,
+                getKeyUrl = "https://build.nvidia.com/settings/api-keys",
+                getKeyLabel = locale.nvidiaGetKeyLink,
             )
             CredentialsProviderId.OLLAMA -> ProviderDef(
                 label = provider.label,
@@ -129,7 +138,8 @@ internal fun CredentialsCard(
                 FieldEntry(0, groqApiKey, onGroqApiKeyChanged),
                 FieldEntry(1, apiKey, onApiKeyChanged),
                 FieldEntry(2, openRouterApiKey, onOpenRouterApiKeyChanged),
-                FieldEntry(3, ollamaUrl, onOllamaUrlChanged, isPassword = false),
+                FieldEntry(3, nvidiaApiKey, onNvidiaApiKeyChanged),
+                FieldEntry(4, ollamaUrl, onOllamaUrlChanged, isPassword = false),
             )
             @Composable
             fun ApiKeyFieldContent(

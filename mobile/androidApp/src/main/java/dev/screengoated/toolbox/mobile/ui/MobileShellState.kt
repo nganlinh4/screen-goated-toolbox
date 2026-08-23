@@ -25,10 +25,12 @@ data class ProviderKeysState(
     val apiKey: String,
     val groqApiKey: String,
     val openRouterApiKey: String,
+    val nvidiaApiKey: String,
     val ollamaUrl: String,
     val onApiKeyChanged: (String) -> Unit,
     val onGroqApiKeyChanged: (String) -> Unit,
     val onOpenRouterApiKeyChanged: (String) -> Unit,
+    val onNvidiaApiKeyChanged: (String) -> Unit,
     val onOllamaUrlChanged: (String) -> Unit,
 )
 

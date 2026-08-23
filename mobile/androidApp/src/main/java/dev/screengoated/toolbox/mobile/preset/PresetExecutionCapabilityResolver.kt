@@ -203,13 +203,7 @@ internal class PresetExecutionCapabilityResolver {
     private fun isVisionModelSupported(modelId: String): Boolean {
         val descriptor = PresetModelCatalog.getById(modelId) ?: return false
         if (descriptor.modelType != PresetModelType.VISION) return false
-        return descriptor.provider in setOf(
-            PresetModelProvider.GOOGLE,
-            PresetModelProvider.GROQ,
-            PresetModelProvider.OPENROUTER,
-            PresetModelProvider.OLLAMA,
-            PresetModelProvider.QRSERVER,
-        )
+        return descriptor.provider.hasVisionPresetRuntime()
     }
 
     private fun isTextModelSupported(modelId: String): Boolean {
@@ -217,13 +211,7 @@ internal class PresetExecutionCapabilityResolver {
         if (descriptor.modelType != PresetModelType.TEXT) {
             return false
         }
-        return descriptor.provider in setOf(
-            PresetModelProvider.GOOGLE,
-            PresetModelProvider.GROQ,
-            PresetModelProvider.OPENROUTER,
-            PresetModelProvider.GOOGLE_GTX,
-            PresetModelProvider.OLLAMA,
-        )
+        return descriptor.provider.hasTextPresetRuntime()
     }
 
     private fun isAudioModelSupported(modelId: String): Boolean {
@@ -233,13 +221,8 @@ internal class PresetExecutionCapabilityResolver {
         }
         // Must mirror the providers AudioApiClient.executeStreaming can actually
         // dispatch; anything else would pass preflight and then throw at runtime.
-        return descriptor.provider in setOf(
-            PresetModelProvider.GOOGLE,
-            PresetModelProvider.GROQ,
-            PresetModelProvider.GEMINI_LIVE,
-        )
+        return descriptor.provider.hasAudioPresetRuntime()
     }
-
 }
 
 internal fun PresetPlaceholderReason.message(): String = when (this) {

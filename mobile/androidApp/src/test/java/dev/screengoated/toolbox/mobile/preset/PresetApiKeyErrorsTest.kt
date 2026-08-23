@@ -26,6 +26,10 @@ class PresetApiKeyErrorsTest {
             "Invalid Groq API key!",
             apiKeyErrorToastText(invalidApiKeyMessage("groq"), "en"),
         )
+        assertEquals(
+            "Invalid NVIDIA API key!",
+            apiKeyErrorToastText(invalidApiKeyMessage("nvidia"), "en"),
+        )
     }
 
     @Test

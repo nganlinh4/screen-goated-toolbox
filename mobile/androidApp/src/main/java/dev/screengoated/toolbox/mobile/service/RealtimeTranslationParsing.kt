@@ -45,6 +45,44 @@ internal fun RealtimeTranslationClient.liveTranslateMessages(
     return messages
 }
 
+internal fun RealtimeTranslationClient.liveTranslateResponseFormat(): JSONObject {
+    val patch = JSONObject()
+        .put("type", "object")
+        .put(
+            "properties",
+            JSONObject()
+                .put("sourceStart", JSONObject().put("type", "integer"))
+                .put("sourceEnd", JSONObject().put("type", "integer"))
+                .put(
+                    "state",
+                    JSONObject().put("type", "string").put("enum", JSONArray(listOf("final", "draft"))),
+                )
+                .put("translation", JSONObject().put("type", "string")),
+        )
+        .put("required", JSONArray(listOf("sourceStart", "sourceEnd", "state", "translation")))
+        .put("additionalProperties", false)
+    val schema = JSONObject()
+        .put("type", "object")
+        .put(
+            "properties",
+            JSONObject().put(
+                "patches",
+                JSONObject().put("type", "array").put("items", patch),
+            ),
+        )
+        .put("required", JSONArray(listOf("patches")))
+        .put("additionalProperties", false)
+    return JSONObject()
+        .put("type", "json_schema")
+        .put(
+            "json_schema",
+            JSONObject()
+                .put("name", "live_translate_patches")
+                .put("strict", true)
+                .put("schema", schema),
+        )
+}
+
 internal fun RealtimeTranslationClient.buildStructuredPrompt(
     request: TranslationRequest,
     targetLanguage: String,

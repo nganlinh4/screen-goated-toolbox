@@ -45,7 +45,7 @@ import dev.screengoated.toolbox.mobile.preset.ui.providerIconRes
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import kotlinx.coroutines.delay
 
-private data class ProviderSection(
+internal data class ProviderSection(
     val name: String,
     val primaryProvider: PresetModelProvider,
     val providers: Set<PresetModelProvider>,
@@ -361,7 +361,7 @@ internal fun usageEndpointRepresentatives(
             ),
         )
 
-private fun usageProviderSections(settings: PresetProviderSettings): List<ProviderSection> =
+internal fun usageProviderSections(settings: PresetProviderSettings): List<ProviderSection> =
     listOf(
         ProviderSection(
             "Groq",
@@ -384,6 +384,13 @@ private fun usageProviderSections(settings: PresetProviderSettings): List<Provid
             settings.useOpenRouter,
             "https://openrouter.ai/activity",
         ),
+        ProviderSection(
+            "NVIDIA",
+            PresetModelProvider.NVIDIA,
+            setOf(PresetModelProvider.NVIDIA),
+            settings.useNvidia,
+            "https://build.nvidia.com/settings/api-keys",
+        ),
         providerSection("Taalas", PresetModelProvider.TAALAS),
         providerSection("Google Translate", PresetModelProvider.GOOGLE_GTX),
         providerSection("QR", PresetModelProvider.QRSERVER),
@@ -399,6 +406,7 @@ private fun usageStatsAccent(provider: PresetModelProvider): Color = when (provi
     PresetModelProvider.GEMINI_LIVE,
     -> MaterialTheme.colorScheme.tertiary
     PresetModelProvider.OPENROUTER -> MaterialTheme.colorScheme.secondary
+    PresetModelProvider.NVIDIA -> MaterialTheme.colorScheme.primary
     PresetModelProvider.TAALAS -> MaterialTheme.colorScheme.primary
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }

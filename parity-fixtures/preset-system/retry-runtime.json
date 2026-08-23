@@ -6,6 +6,30 @@
     "use_nvidia": true,
     "use_ollama": false
   },
+  "provider_credentials": {
+    "encrypted_at_rest": true,
+    "required_runtime_keys": [
+      "gemini",
+      "groq",
+      "openrouter",
+      "nvidia"
+    ]
+  },
+  "retry_circuit": {
+    "rate_limit_default_seconds": 300,
+    "reported_rate_limit_min_seconds": 5,
+    "reported_rate_limit_max_seconds": 21600,
+    "timeout_failure_threshold": 2,
+    "timeout_open_seconds": 1800,
+    "unavailable_open_seconds": 21600,
+    "billing_open_seconds": 21600,
+    "half_open_probe_limit": 1,
+    "success_clears_failures": true,
+    "abandoned_probe_releases_claim": true,
+    "known_token_budget_preflight": true,
+    "provider_error_body_preserved_all_modalities": true,
+    "audio_whole_call_timeout": null
+  },
   "recommended_model_defaults": {
     "generic_image": "groq-qwen-3-6-27b-vision",
     "image_ask": "groq-qwen-3-6-27b-vision",

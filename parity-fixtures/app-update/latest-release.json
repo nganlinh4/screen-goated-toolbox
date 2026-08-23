@@ -1,13 +1,42 @@
 {
-  "description": "Synthetic release payload for update comparison and asset-selection tests. It is not the current product release.",
+  "description": "Synthetic release payload for update-authority, comparison, and fallback-selection tests. It is not a product release.",
+  "stable_manifest": {
+    "schemaVersion": 1,
+    "channel": "stable",
+    "version": "9.9.9",
+    "releaseNotes": "- Synthetic release note",
+    "releaseUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/tag/v9.9.9",
+    "installer": {
+      "name": "ScreenGoatedToolbox_v9.9.9.exe",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v9.9.9/ScreenGoatedToolbox_v9.9.9.exe",
+      "sizeBytes": 123456789,
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "androidFullApk": {
+      "name": "ScreenGoatedToolbox_v9.9.9.apk",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v9.9.9/ScreenGoatedToolbox_v9.9.9.apk",
+      "sizeBytes": 98765432,
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  },
   "latest_release": {
     "tag_name": "v9.9.9",
-    "html_url": "https://example.invalid/releases/tag/v9.9.9",
+    "html_url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/tag/v9.9.9",
     "body": "- Synthetic release note",
+    "draft": false,
+    "prerelease": false,
     "assets": [
       {
         "name": "ScreenGoatedToolbox_v9.9.9.exe",
-        "browser_download_url": "https://example.invalid/releases/download/v9.9.9/ScreenGoatedToolbox_v9.9.9.exe"
+        "browser_download_url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v9.9.9/ScreenGoatedToolbox_v9.9.9.exe",
+        "size": 123456789,
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "name": "ScreenGoatedToolbox_v9.9.9.apk",
+        "browser_download_url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/v9.9.9/ScreenGoatedToolbox_v9.9.9.apk",
+        "size": 98765432,
+        "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
       }
     ]
   },
@@ -26,7 +55,18 @@
     }
   ],
   "asset_selection": {
-    "preferred_extension": ".apk",
-    "fallback_when_missing": "release_html_url"
+    "exact_full_apk_name": "ScreenGoatedToolbox_v9.9.9.apk",
+    "primary_authority": "signed_stable_manifest",
+    "fallback_requires": [
+      "non_draft",
+      "non_prerelease",
+      "stable_semver_tag",
+      "one_exact_apk",
+      "positive_size",
+      "sha256_digest"
+    ],
+    "fallback_trigger": "primary_manifest_http_404_only",
+    "invalid_primary": "fail_closed",
+    "fallback_when_missing": "error"
   }
 }

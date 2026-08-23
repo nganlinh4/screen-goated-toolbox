@@ -27,9 +27,9 @@ pub(in crate::overlay::computer_control) fn read_text_pref_where(
     let mut last_error = None;
     let mut candidates = Vec::new();
     let input_bytes = instruction.len().saturating_add(context.len());
-    for id in &config.model_priority_chains.text_to_text {
-        if !id.trim().is_empty() && !candidates.contains(id) {
-            candidates.push(id.clone());
+    for id in crate::retry_model_chain::RetryChainKind::TextToText.effective_chain(&config) {
+        if !id.trim().is_empty() && !candidates.contains(&id) {
+            candidates.push(id);
         }
     }
 
@@ -130,12 +130,11 @@ pub(in crate::overlay::computer_control) fn read_text_pref_where(
 #[cfg(test)]
 mod tests {
     #[test]
-    fn configured_text_chain_remains_distinct_from_image_chain() {
+    fn effective_text_chain_remains_distinct_from_image_chain() {
         let config = crate::load_config();
-        assert!(!config.model_priority_chains.text_to_text.is_empty());
-        assert_ne!(
-            config.model_priority_chains.text_to_text,
-            config.model_priority_chains.image_to_text
-        );
+        let text_chain =
+            crate::retry_model_chain::RetryChainKind::TextToText.effective_chain(&config);
+        assert!(!text_chain.is_empty());
+        assert_ne!(text_chain, config.model_priority_chains.image_to_text);
     }
 }

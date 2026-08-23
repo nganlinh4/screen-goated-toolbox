@@ -16,6 +16,8 @@
 - Android uses a single app-level toast bus for the notice.
 - Local in-window or in-screen error state may still render, but it must not be the only user-visible signal for an API-key failure.
 - The toast must preserve the provider name when available; preset provider clients should emit provider-bearing invalid-key errors instead of collapsing 401/403 responses to generic `INVALID_API_KEY`.
+- Every configured remote preset provider, including NVIDIA, must resolve to its
+  product name in the localized notice rather than the generic `API` fallback.
 
 ## Fixtures
 - Shared triggers: [parity-fixtures/api-key-notifications/triggers.json](../../parity-fixtures/api-key-notifications/triggers.json)

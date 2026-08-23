@@ -59,7 +59,8 @@ impl RefineCatalogState {
             .lock()
             .ok()
             .map(|app| Self {
-                text_priority: app.config.model_priority_chains.text_to_text.clone(),
+                text_priority: crate::retry_model_chain::RetryChainKind::TextToText
+                    .effective_chain(&app.config),
                 custom_models: app.config.custom_models.clone(),
                 saved_openrouter_api_key: app.config.openrouter_api_key.clone(),
                 saved_nvidia_api_key: app.config.nvidia_api_key.clone(),

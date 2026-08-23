@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
             val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
             val groqApiKey by viewModel.groqApiKey.collectAsStateWithLifecycle()
             val openRouterApiKey by viewModel.openRouterApiKey.collectAsStateWithLifecycle()
+            val nvidiaApiKey by viewModel.nvidiaApiKey.collectAsStateWithLifecycle()
             val ollamaUrl by viewModel.ollamaUrl.collectAsStateWithLifecycle()
             val globalTtsSettings by viewModel.globalTtsSettings.collectAsStateWithLifecycle()
             val uiPreferences by viewModel.uiPreferences.collectAsStateWithLifecycle()
@@ -146,10 +147,12 @@ class MainActivity : ComponentActivity() {
                         apiKey = apiKey,
                         groqApiKey = groqApiKey,
                         openRouterApiKey = openRouterApiKey,
+                        nvidiaApiKey = nvidiaApiKey,
                         ollamaUrl = ollamaUrl,
                         onApiKeyChanged = viewModel::onApiKeyChanged,
                         onGroqApiKeyChanged = viewModel::onGroqApiKeyChanged,
                         onOpenRouterApiKeyChanged = viewModel::onOpenRouterApiKeyChanged,
+                        onNvidiaApiKeyChanged = viewModel::onNvidiaApiKeyChanged,
                         onOllamaUrlChanged = viewModel::onOllamaUrlChanged,
                     ),
                     globalTtsSettings = globalTtsSettings,

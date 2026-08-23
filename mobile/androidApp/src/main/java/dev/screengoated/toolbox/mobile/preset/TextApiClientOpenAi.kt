@@ -48,12 +48,12 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
     val fullContent = StringBuilder()
     var thinkingShown = false
     var contentStarted = false
-    httpClient.newCall(request).execute().use { response ->
+    httpClient.newPresetCall(request, model, streamingEnabled = true).execute().use { response ->
         ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
-            throw IOException("$providerName request failed with $code")
+            throw IOException(response.providerFailureMessage("$providerName request"))
         }
 
         val body = response.body
@@ -152,12 +152,12 @@ internal fun TextApiClient.runGroqCompound(
         .post(payload.toString().toRequestBody(jsonMediaType))
         .build()
 
-    httpClient.newCall(request).execute().use { response ->
+    httpClient.newPresetCall(request, model, streamingEnabled = false).execute().use { response ->
         ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("groq"))
-            throw IOException("Groq request failed with $code")
+            throw IOException(response.providerFailureMessage("Groq request"))
         }
 
         val body = response.body.string().orEmpty()
@@ -207,12 +207,12 @@ private suspend fun TextApiClient.generateOpenAiCompatibleBlocking(
         )
         .build()
 
-    httpClient.newCall(request).execute().use { response ->
+    httpClient.newPresetCall(request, model, streamingEnabled = false).execute().use { response ->
         ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
             if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
-            throw IOException("$providerName request failed with $code")
+            throw IOException(response.providerFailureMessage("$providerName request"))
         }
 
         val content = try {

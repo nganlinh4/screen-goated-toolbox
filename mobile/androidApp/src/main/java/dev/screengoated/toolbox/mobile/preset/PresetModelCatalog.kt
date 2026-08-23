@@ -18,6 +18,21 @@ enum class PresetModelProvider {
     TAALAS,
 }
 
+internal fun PresetModelProvider.displayName(): String = when (this) {
+    PresetModelProvider.GOOGLE,
+    PresetModelProvider.GEMINI_LIVE,
+    -> "Gemini"
+    PresetModelProvider.GROQ -> "Groq"
+    PresetModelProvider.OPENROUTER -> "OpenRouter"
+    PresetModelProvider.NVIDIA -> "NVIDIA"
+    PresetModelProvider.GOOGLE_GTX -> "Google Translate"
+    PresetModelProvider.OLLAMA -> "Ollama"
+    PresetModelProvider.QRSERVER -> "QR"
+    PresetModelProvider.PARAKEET -> "Local"
+    PresetModelProvider.MOONSHINE -> "Moonshine"
+    PresetModelProvider.TAALAS -> "Taalas"
+}
+
 enum class PresetModelType {
     TEXT,
     VISION,
@@ -100,6 +115,7 @@ data class PresetModelDescriptor(
     val visionMaxOutputTokens: Int? = null,
     val structuredOutputPolicy: PresetStructuredOutputPolicy =
         PresetStructuredOutputPolicy.UNSUPPORTED,
+    val restatesOutput: Boolean = false,
     val intelligenceTier: Int? = null,
     val typicalLatencyMs: Int? = null,
     val performanceSource: String? = null,
@@ -116,6 +132,12 @@ data class PresetModelDescriptor(
         else -> quotaEn
     }
 }
+
+internal data class KnownPresetEndpoint(
+    val provider: PresetModelProvider,
+    val fullName: String,
+    val enabled: Boolean,
+)
 
 object PresetCustomModelRegistry {
     @Volatile
@@ -152,7 +174,7 @@ object PresetCustomModelRegistry {
 object PresetModelCatalog {
     private val builtInModels: List<PresetModelDescriptor> = GeneratedPresetModelCatalogData.models
     private val allModels: List<PresetModelDescriptor>
-        get() = builtInModels + PresetCustomModelRegistry.descriptors()
+        get() = builtInModels + PresetCustomModelRegistry.descriptors() + PresetModelFeed.discoveredModels()
     private val selectableModels: List<PresetModelDescriptor>
         get() = allModels.filter { it.provider != PresetModelProvider.PARAKEET }
     val models: List<PresetModelDescriptor>
@@ -162,6 +184,13 @@ object PresetModelCatalog {
         get() = allModels.associateBy { it.id }
 
     fun getById(id: String): PresetModelDescriptor? = byId[id]
+
+    internal fun builtInForEndpoint(
+        provider: PresetModelProvider,
+        fullName: String,
+    ): PresetModelDescriptor? = builtInModels.firstOrNull {
+        it.provider == provider && it.fullName == fullName
+    }
 
     fun forType(type: PresetModelType): List<PresetModelDescriptor> =
         models.filter { it.modelType == type }

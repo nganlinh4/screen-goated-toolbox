@@ -29,6 +29,9 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val model = resolveModel(modelId)
+            require(model.modelType == PresetModelType.TEXT && model.provider.hasTextPresetRuntime()) {
+                "Unsupported text provider: ${model.provider.name.lowercase()}"
+            }
             when (model.provider) {
                 PresetModelProvider.GOOGLE -> streamGemini(
                     model = model,

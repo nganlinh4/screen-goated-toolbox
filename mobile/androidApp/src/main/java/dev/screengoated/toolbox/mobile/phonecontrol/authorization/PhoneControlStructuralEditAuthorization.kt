@@ -8,7 +8,7 @@ import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelType
 import dev.screengoated.toolbox.mobile.preset.PresetRetryChainKind
 import dev.screengoated.toolbox.mobile.preset.TextApiClient
-import dev.screengoated.toolbox.mobile.preset.configuredChain
+import dev.screengoated.toolbox.mobile.preset.effectiveChain
 import dev.screengoated.toolbox.mobile.preset.preflightSkipReason
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
@@ -375,7 +375,7 @@ internal class AndroidRequestContractCandidates(context: Context) :
     fun modelIds(): List<String> {
         val settings = container.currentPresetRuntimeSettings()
         val apiKeys = container.currentPresetApiKeys()
-        return PresetRetryChainKind.TEXT_TO_TEXT.configuredChain(settings)
+        return PresetRetryChainKind.TEXT_TO_TEXT.effectiveChain(settings, apiKeys)
             .distinct()
             .filter { id ->
                 val model = PresetModelCatalog.getById(id)

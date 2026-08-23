@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
+import dev.screengoated.toolbox.mobile.preset.presetProviderEnabled
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
 import dev.screengoated.toolbox.mobile.ui.ModelPerformancePrefix
@@ -82,6 +83,7 @@ internal fun NodeCard(
         dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT,
     providerSettings: dev.screengoated.toolbox.mobile.preset.PresetProviderSettings =
         dev.screengoated.toolbox.mobile.preset.PresetProviderSettings(),
+    modelCatalogRevision: Long = 0,
     lang: String = "en",
 ) {
     val block = node.block
@@ -221,17 +223,13 @@ internal fun NodeCard(
                     val descriptor = catalog.getById(block.model)
                     val isNonLlm = descriptor?.isNonLlm == true
                     val isGtx = descriptor?.provider == PresetModelProvider.GOOGLE_GTX
-                    val availableModels = remember(block.blockType, providerSettings) {
+                    val availableModels = remember(
+                        block.blockType,
+                        providerSettings,
+                        modelCatalogRevision,
+                    ) {
                         catalog.forBlockType(block.blockType).filter { model ->
-                            when (model.provider) {
-                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GROQ -> providerSettings.useGroq
-                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GOOGLE,
-                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.GEMINI_LIVE,
-                                -> providerSettings.useGemini
-                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OPENROUTER -> providerSettings.useOpenRouter
-                                dev.screengoated.toolbox.mobile.preset.PresetModelProvider.OLLAMA -> providerSettings.useOllama
-                                else -> true
-                            }
+                            presetProviderEnabled(model.provider, providerSettings)
                         }
                     }
 

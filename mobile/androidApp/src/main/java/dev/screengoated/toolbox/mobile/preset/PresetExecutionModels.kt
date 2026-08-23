@@ -16,6 +16,8 @@ data class PresetResultWindowState(
     val isError: Boolean = false,
     val renderMode: String = "markdown_stream",
     val overlayOrder: Int = 0,
+    val modelId: String = "",
+    val modelProvider: PresetModelProvider? = null,
 )
 
 data class PresetExecutionState(

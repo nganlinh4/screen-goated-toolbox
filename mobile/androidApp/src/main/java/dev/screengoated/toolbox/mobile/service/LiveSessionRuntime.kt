@@ -362,6 +362,7 @@ class LiveSessionRuntime(
                 var result = translationClient.translate(
                     geminiApiKey = repository.currentApiKey(),
                     groqApiKey = repository.currentGroqApiKey(),
+                    nvidiaApiKey = repository.currentNvidiaApiKey(),
                     request = request,
                     targetLanguage = repository.currentConfig().targetLanguage,
                     providerId = requestedProvider,
@@ -378,7 +379,8 @@ class LiveSessionRuntime(
                     val fallbackProvider = fallbackTranslationProviderId(requestedProvider)
                     result = translationClient.translateWithExactProvider(
                         geminiApiKey = repository.currentApiKey(),
-                            groqApiKey = repository.currentGroqApiKey(),
+                        groqApiKey = repository.currentGroqApiKey(),
+                        nvidiaApiKey = repository.currentNvidiaApiKey(),
                         request = request,
                         targetLanguage = repository.currentConfig().targetLanguage,
                         providerId = fallbackProvider,

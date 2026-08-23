@@ -385,6 +385,7 @@ mod tests {
         model_name: String,
         download_base_url: String,
         has_native_punctuation: bool,
+        sherpa_model_type: String,
         model_files: Vec<CatalogFile>,
     }
 
@@ -422,6 +423,12 @@ mod tests {
             assert_eq!(
                 lang.has_native_punctuation(),
                 entry.has_native_punctuation,
+                "{}",
+                lang.code()
+            );
+            assert_eq!(
+                lang.sherpa_model_type(),
+                entry.sherpa_model_type,
                 "{}",
                 lang.code()
             );

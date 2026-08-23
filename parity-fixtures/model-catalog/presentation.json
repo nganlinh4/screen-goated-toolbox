@@ -1,5 +1,5 @@
 {
-  "version": 15,
+  "version": 16,
   "id_rule": {
     "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-(?:text|vision|audio|search)$",
     "forbidden_lifecycle_segments": [
@@ -16,6 +16,7 @@
       "gemini-live": "google-",
       "groq": "groq-",
       "openrouter": "openrouter-",
+      "nvidia": "nvidia-",
       "taalas": "taalas-",
       "qrserver": "qrserver-",
       "parakeet": "local-",
@@ -28,6 +29,7 @@
     "gemini-live": "GG ",
     "groq": "G ",
     "openrouter": "O ",
+    "nvidia": "N ",
     "taalas": "T ",
     "qrserver": "QR ",
     "parakeet": "L ",
@@ -111,9 +113,15 @@
     "maximum_offers_per_chain": 5,
     "quality_latency_multiplier_per_tier": 1.5,
     "windows_live_feed": true,
-    "android_live_feed": false,
+    "android_live_feed": true,
     "signed_feed_schema": 3,
-    "availability_gate_version": 1
+    "availability_gate_version": 1,
+    "verified_cache_replace": "atomic_with_same_directory_fallback"
+  },
+  "selector_availability": {
+    "shared_provider_predicate": true,
+    "node_editor_observes_live_feed_revision": true,
+    "nvidia_respects_provider_switch": true
   },
   "priority_chain_size": {
     "user_limit": null,

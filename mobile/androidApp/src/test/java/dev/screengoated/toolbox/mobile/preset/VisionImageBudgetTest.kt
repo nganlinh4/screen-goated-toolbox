@@ -80,6 +80,30 @@ class VisionImageBudgetTest {
         assertEquals(1.5, payload.getDouble("presence_penalty"), 0.0)
         assertFalse(payload.has("top_k"))
         assertFalse(payload.has("min_p"))
+        assertFalse(payload.has("response_format"))
+        assertTrue(
+            requireNotNull(PresetModelCatalog.getById("groq-qwen-3-6-27b-vision"))
+                .restatesOutput,
+        )
+    }
+
+    @Test
+    fun nvidiaVisionUsesDeterministicSampling() {
+        val model = PresetModelDescriptor(
+            id = "nvidia-test-vision",
+            provider = PresetModelProvider.NVIDIA,
+            fullName = "nvidia/test-vision",
+            modelType = PresetModelType.VISION,
+            displayName = "N test",
+        )
+        val payload = openAiVisionPayload(
+            model = model,
+            prompt = "Read",
+            imageBase64 = "AA==",
+            mimeType = "image/png",
+            stream = false,
+        )
+        assertEquals(0.0, payload.getDouble("temperature"), 0.0)
     }
 
     @Test
@@ -151,6 +175,7 @@ class VisionImageBudgetTest {
                 case.getString("structured_output"),
                 model.structuredOutputPolicy.wireName(),
             )
+            assertEquals(case.getBoolean("restates_output"), model.restatesOutput)
         }
     }
 

@@ -221,9 +221,13 @@ fn adaptive_priority_policy_matches_the_shared_platform_fixture() {
     assert_eq!(policy["maximum_offers_per_chain"], 5);
     assert_eq!(policy["quality_latency_multiplier_per_tier"], 1.5);
     assert_eq!(policy["windows_live_feed"], true);
-    assert_eq!(policy["android_live_feed"], false);
+    assert_eq!(policy["android_live_feed"], true);
     assert_eq!(policy["signed_feed_schema"], 3);
     assert_eq!(policy["availability_gate_version"], 1);
+    assert_eq!(
+        policy["verified_cache_replace"],
+        "atomic_with_same_directory_fallback"
+    );
     let size = &fixture["priority_chain_size"];
     assert!(size["user_limit"].is_null());
     assert_eq!(size["prepared_image_default_target"], 10);

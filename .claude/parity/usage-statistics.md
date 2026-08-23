@@ -31,6 +31,8 @@
   endpoint. OpenRouter's free request/day allowance is provider-scoped.
 - The list includes every enabled provider represented in the current catalog.
   Provider settings hide providers that have an explicit disabled toggle.
+  NVIDIA follows its shared provider toggle on both Windows and Android; it is
+  never omitted from Android merely because no rate-limit snapshot exists yet.
   Runtime-local providers are excluded because they have no provider-side API
   usage or quota; their installation and availability belong in model selectors
   and Downloaded Tools instead.

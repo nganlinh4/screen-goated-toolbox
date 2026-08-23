@@ -20,9 +20,8 @@ import java.nio.file.Paths
  * too. If codes / model dirs / download URLs / file lists / native-punctuation
  * drift between the platforms, one suite goes red.
  *
- * Two fields are intentionally NOT asserted (see .claude/parity/zipformer-catalog.md):
- * the All-8 displayName (Android adds spaces) and sherpaModelType (Windows sets
- * "zipformer2" for the Kroko models, Android auto-detects — pending on-device check).
+ * The All-8 displayName is intentionally not asserted because Android adds
+ * presentation-only spaces. Runtime model type is part of the shared contract.
  */
 class ZipformerCatalogParityTest {
     private val json = Json { ignoreUnknownKeys = true }
@@ -53,6 +52,11 @@ class ZipformerCatalogParityTest {
                 "hasNativePunctuation ${lang.code}",
                 entry["hasNativePunctuation"]!!.jsonPrimitive.boolean,
                 lang.hasNativePunctuation,
+            )
+            assertEquals(
+                "sherpaModelType ${lang.code}",
+                entry["sherpaModelType"]!!.jsonPrimitive.content,
+                lang.sherpaModelType,
             )
             val expectedFiles = entry["modelFiles"]!!.jsonArray.map { fileElement ->
                 val file = fileElement.jsonObject

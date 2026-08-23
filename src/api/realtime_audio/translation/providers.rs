@@ -1,5 +1,7 @@
 use isolang;
 use serde::Deserialize;
+use std::collections::HashSet;
+use std::time::Duration;
 use urlencoding;
 
 use crate::api::client::{
@@ -11,6 +13,7 @@ use crate::config::Config;
 pub(super) struct TranslationKeys {
     pub(super) gemini: String,
     pub(super) groq: String,
+    pub(super) nvidia: String,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +68,7 @@ fn translate_with_llm_chain(
     text_chain: &[String],
     config: &Config,
 ) -> Option<ValidatedTranslationResponse> {
+    let blocked_providers = HashSet::new();
     for model_id in text_chain {
         let Some(model) = crate::model_config::get_model_by_id(model_id) else {
             continue;
@@ -72,9 +76,26 @@ fn translate_with_llm_chain(
         if !model.enabled {
             continue;
         }
-        if !crate::retry_model_chain::provider_is_available(&model.provider, config) {
+        if !matches!(
+            model.provider.as_str(),
+            "google" | "gemini-live" | "groq" | "nvidia"
+        ) {
             continue;
         }
+        if crate::retry_model_chain::preflight_skip_reason(
+            &model.id,
+            &model.provider,
+            config,
+            &blocked_providers,
+            None,
+        )
+        .is_some()
+            || crate::retry_model_chain::claim_model_attempt(&model.id).is_some()
+        {
+            continue;
+        }
+        let request_timeout =
+            crate::retry_model_chain::interactive_request_timeout(&model.id, config, false);
 
         let result = match model.provider.as_str() {
             "google" => translate_with_google_model(
@@ -83,6 +104,7 @@ fn translate_with_llm_chain(
                 request,
                 target_language,
                 history_entries,
+                request_timeout,
             ),
             "gemini-live" => translate_with_gemini_live(
                 &keys.gemini,
@@ -90,6 +112,7 @@ fn translate_with_llm_chain(
                 request,
                 target_language,
                 history_entries,
+                request_timeout,
             ),
             "groq" => translate_with_groq(
                 &keys.groq,
@@ -97,13 +120,24 @@ fn translate_with_llm_chain(
                 request,
                 target_language,
                 history_entries,
+                request_timeout,
+            ),
+            "nvidia" => translate_with_nvidia(
+                &keys.nvidia,
+                &model.full_name,
+                request,
+                target_language,
+                history_entries,
+                request_timeout,
             ),
             _ => continue,
         };
 
         if result.is_some() {
+            crate::retry_model_chain::record_model_success(&model.id);
             return result;
         }
+        crate::retry_model_chain::release_model_probe(&model.id);
     }
     None
 }
@@ -114,6 +148,7 @@ fn translate_with_google_model(
     request: &TranslationRequest,
     target_language: &str,
     history_entries: &[(String, String)],
+    request_timeout: Option<Duration>,
 ) -> Option<ValidatedTranslationResponse> {
     if api_key.trim().is_empty() {
         return None;
@@ -138,11 +173,12 @@ fn translate_with_google_model(
         payload["generationConfig"]["thinkingConfig"] = thinking_config;
     }
 
-    let resp = UREQ_RESPONSE_AGENT
+    let http_request = UREQ_RESPONSE_AGENT
         .post(&url)
-        .header("x-goog-api-key", api_key)
-        .send_json(payload)
-        .ok()?;
+        .header("x-goog-api-key", api_key);
+    let http_request = crate::api::client::with_request_timeout(http_request, request_timeout);
+    let resp = http_request.send_json(payload).ok()?;
+    crate::api::client::record_usage_headers("google", model_name, resp.headers());
 
     let root: serde_json::Value = resp.into_body().read_json().ok()?;
     let parts = root
@@ -169,6 +205,7 @@ fn translate_with_gemini_live(
     request: &TranslationRequest,
     target_language: &str,
     history_entries: &[(String, String)],
+    request_timeout: Option<Duration>,
 ) -> Option<ValidatedTranslationResponse> {
     let prompt = build_structured_prompt(request, target_language, history_entries);
     let text = crate::api::gemini_live::gemini_live_generate(
@@ -182,7 +219,7 @@ fn translate_with_gemini_live(
             streaming_enabled: false,
             ui_language: "",
             cancel_token: None,
-            request_timeout: None,
+            request_timeout,
         },
         |_| {},
     )
@@ -196,6 +233,7 @@ fn translate_with_groq(
     request: &TranslationRequest,
     target_language: &str,
     history_entries: &[(String, String)],
+    request_timeout: Option<Duration>,
 ) -> Option<ValidatedTranslationResponse> {
     if api_key.trim().is_empty() {
         return None;
@@ -215,12 +253,12 @@ fn translate_with_groq(
     });
     crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", model_name);
 
-    let resp = UREQ_RESPONSE_AGENT
+    let http_request = UREQ_RESPONSE_AGENT
         .post("https://api.groq.com/openai/v1/chat/completions")
         .header("Authorization", &format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .send_json(payload)
-        .ok()?;
+        .header("Content-Type", "application/json");
+    let http_request = crate::api::client::with_request_timeout(http_request, request_timeout);
+    let resp = http_request.send_json(payload).ok()?;
 
     record_usage_simple(resp.headers(), model_name);
     if !resp.status().is_success() {
@@ -236,6 +274,46 @@ fn translate_with_groq(
         .get("content")?
         .as_str()?;
 
+    parse_translation_response(content, request)
+}
+
+fn translate_with_nvidia(
+    api_key: &str,
+    model_name: &str,
+    request: &TranslationRequest,
+    target_language: &str,
+    history_entries: &[(String, String)],
+    request_timeout: Option<Duration>,
+) -> Option<ValidatedTranslationResponse> {
+    if api_key.trim().is_empty() {
+        return None;
+    }
+
+    let mut payload = serde_json::json!({
+        "model": model_name,
+        "messages": build_chat_messages(request, target_language, history_entries),
+        "stream": false,
+        "max_tokens": 512,
+        "temperature": 0,
+        "response_format": live_translate_response_format(),
+    });
+    crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "nvidia", model_name);
+
+    let http_request = UREQ_RESPONSE_AGENT
+        .post(crate::api::NVIDIA_CHAT_COMPLETIONS_URL)
+        .header("Authorization", &format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json");
+    let http_request = crate::api::client::with_request_timeout(http_request, request_timeout);
+    let resp = http_request.send_json(payload).ok()?;
+    crate::api::client::record_usage_headers("nvidia", model_name, resp.headers());
+    let root: serde_json::Value = resp.into_body().read_json().ok()?;
+    let content = root
+        .get("choices")?
+        .as_array()?
+        .first()?
+        .get("message")?
+        .get("content")?
+        .as_str()?;
     parse_translation_response(content, request)
 }
 

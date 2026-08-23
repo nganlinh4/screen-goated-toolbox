@@ -15,6 +15,7 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -27,6 +28,11 @@ import java.nio.file.Paths
 
 class PresetRetryChainTest {
     private val json = Json { ignoreUnknownKeys = true }
+
+    @After
+    fun clearCircuitState() {
+        clearPresetModelCircuitsForTest()
+    }
 
     @Test
     fun advancesRetryChainForRetryableErrorsLikeWindows() {
@@ -76,6 +82,68 @@ class PresetRetryChainTest {
         )
 
         assertTrue(reason?.startsWith("MODEL_RATE_LIMIT_COOLDOWN:$modelId:") == true)
+    }
+
+    @Test
+    fun reportedCooldownParsingMatchesProviderFormatsAndSafetyBounds() {
+        assertEquals(22_012L, reportedCooldownMillis("HTTP 429; please try again in 22.012s"))
+        assertEquals(90_000L, reportedCooldownMillis("quota exceeded; retry in 1m30s"))
+        assertEquals(22_000L, reportedCooldownMillis("HTTP 429 retry-after: 22"))
+        assertEquals(5_000L, reportedCooldownMillis("429 try again in 500ms"))
+        assertEquals(21_600_000L, reportedCooldownMillis("429 retry after 99h"))
+        assertNull(reportedCooldownMillis("429 rate limit reached"))
+    }
+
+    @Test
+    fun twoTimeoutsOpenCircuitAndSuccessClearsIt() {
+        val modelId = "timeout-circuit-model"
+        recordPresetModelFailureAt(modelId, "request timed out", 1_000L)
+        assertNull(presetModelCircuitSkipReasonAt(modelId, 1_001L))
+
+        recordPresetModelFailureAt(modelId, "deadline exceeded", 2_000L)
+        assertTrue(
+            presetModelCircuitSkipReasonAt(modelId, 2_001L)
+                ?.startsWith("MODEL_TIMEOUT_COOLDOWN:$modelId:") == true,
+        )
+
+        recordPresetModelSuccess(modelId)
+        assertNull(presetModelCircuitSkipReasonAt(modelId, 2_002L))
+    }
+
+    @Test
+    fun expiredCircuitAdmitsExactlyOneHalfOpenProbe() {
+        val modelId = "half-open-model"
+        recordPresetModelFailureAt(modelId, "HTTP 429 retry-after: 5", 10_000L)
+
+        assertNull(claimPresetModelAttemptAt(modelId, 15_000L))
+        assertEquals(
+            "MODEL_COOLDOWN_PROBE_IN_FLIGHT:$modelId",
+            claimPresetModelAttemptAt(modelId, 15_000L),
+        )
+
+        releasePresetModelProbeAt(modelId, 15_000L)
+        assertNull(claimPresetModelAttemptAt(modelId, 15_000L))
+    }
+
+    @Test
+    fun unavailableAndBillingFailuresUseLongLivedTypedCircuits() {
+        val unavailable = "withdrawn-model"
+        val billing = "paid-model"
+        recordPresetModelFailureAt(
+            unavailable,
+            "HTTP 404 model not found because it was removed",
+            4_000L,
+        )
+        recordPresetModelFailureAt(billing, "HTTP 402 payment required", 4_000L)
+
+        assertTrue(
+            presetModelCircuitSkipReasonAt(unavailable, 4_001L)
+                ?.startsWith("MODEL_UNAVAILABLE_COOLDOWN:$unavailable:") == true,
+        )
+        assertTrue(
+            presetModelCircuitSkipReasonAt(billing, 4_001L)
+                ?.startsWith("MODEL_BILLING_COOLDOWN:$billing:") == true,
+        )
     }
 
     @Test

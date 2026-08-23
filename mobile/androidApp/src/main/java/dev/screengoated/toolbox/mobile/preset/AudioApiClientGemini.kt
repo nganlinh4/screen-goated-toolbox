@@ -51,11 +51,12 @@ internal suspend fun AudioApiClient.transcribeWithGemini(
 
     return if (streamingEnabled) {
         val fullContent = StringBuilder()
-        httpClient.newCall(request).execute().use { response ->
+        httpClient.newPresetCall(request, model, streamingEnabled = true).execute().use { response ->
+            ModelUsageStats.update(model.provider, model.fullName, response.headers)
             if (!response.isSuccessful) {
                 val code = response.code
                 if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
-                throw IOException("Gemini audio request failed with $code")
+                throw IOException(response.providerFailureMessage("Gemini audio request"))
             }
             val body = response.body
             body.charStream().buffered().useLines { lines ->
@@ -76,10 +77,11 @@ internal suspend fun AudioApiClient.transcribeWithGemini(
         fullContent.toString()
     } else {
         httpClient.newCall(request).execute().use { response ->
+            ModelUsageStats.update(model.provider, model.fullName, response.headers)
             if (!response.isSuccessful) {
                 val code = response.code
                 if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage("google"))
-                throw IOException("Gemini audio request failed with $code")
+                throw IOException(response.providerFailureMessage("Gemini audio request"))
             }
             val body = response.body.string().orEmpty()
             extractGeminiAudioDelta(body)

@@ -30,6 +30,7 @@ enum class ZipformerLanguage(
             modelFile("joiner.onnx", 336_817, "d406f616736350e2a7df3e39398b78eb2fc1a2ca6973a19d3853fa3227e25b52"),
             modelFile("tokens.txt", 6_310, "396dbeb5f4858875690716084f54e90d339679d0ba3e6b5b584f3d7589254d2d"),
         ),
+        sherpaModelType = "zipformer2",
     ),
     KOREAN(
         "ko",
@@ -67,6 +68,7 @@ enum class ZipformerLanguage(
             modelFile("joiner.onnx", 336_817, "a51eec759bcdcaae2614686fa2a8b57417b2d420dd55a5a5558b388d35a9b2b6"),
             modelFile("tokens.txt", 5_415, "fedfb9c844bfb2bf14171f8184863e3d617b815a8667bdd9fc9a3149fde73298"),
         ),
+        sherpaModelType = "zipformer2",
     ),
     GERMAN(
         "de",
@@ -79,6 +81,7 @@ enum class ZipformerLanguage(
             modelFile("joiner.onnx", 336_817, "28356bff070aea51ab1d725a3278e81d19f9300f860d3248a7014292264df15a"),
             modelFile("tokens.txt", 5_606, "86e8370994ff2c01149ba8c4f8709aa93cdc18914b27a717e291e96faf39a6eb"),
         ),
+        sherpaModelType = "zipformer2",
     ),
     SPANISH(
         "es",
@@ -91,6 +94,7 @@ enum class ZipformerLanguage(
             modelFile("joiner.onnx", 336_817, "dae35df88d676e320fcdb99217328e66dcf722bf11b0f2459e14ddb5b982ded5"),
             modelFile("tokens.txt", 6_385, "1be5e0a58e05d06d327df4c6b7b5e4f8aba01da6981eb016fcaceafc6a56680f"),
         ),
+        sherpaModelType = "zipformer2",
     ),
     RUSSIAN(
         "ru",

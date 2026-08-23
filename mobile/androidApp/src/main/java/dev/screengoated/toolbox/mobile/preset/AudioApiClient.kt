@@ -31,6 +31,9 @@ class AudioApiClient(
         onChunk: (String) -> Unit,
     ): AudioStreamingSession? = withContext(Dispatchers.IO) {
         val model = resolveModel(modelId)
+        require(model.modelType == PresetModelType.AUDIO && model.provider.hasAudioPresetRuntime()) {
+            "Unsupported audio provider: ${model.provider.name.lowercase()}"
+        }
         when (model.provider) {
             PresetModelProvider.GEMINI_LIVE -> openGeminiLiveInputSession(
                 model = model,
@@ -53,6 +56,9 @@ class AudioApiClient(
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val model = resolveModel(modelId)
+            require(model.modelType == PresetModelType.AUDIO && model.provider.hasAudioPresetRuntime()) {
+                "Unsupported audio provider: ${model.provider.name.lowercase()}"
+            }
             when (model.provider) {
                 PresetModelProvider.GROQ -> transcribeWithGroq(
                     model = model,

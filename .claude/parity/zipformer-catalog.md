@@ -17,6 +17,8 @@ fixture locks the fields that MUST stay in sync:
 - `hasNativePunctuation` — whether the model emits punctuation (drives the
   offline-ASR commit machine's Case 1/2 vs Case 3 — see
   [offline-asr-stream.md](offline-asr-stream.md)).
+- `sherpaModelType` — the explicit recognizer model-type hint. Kroko
+  EN/FR/DE/ES use `zipformer2`; the remaining models use auto-detection (`""`).
 - `modelFiles` — the exact file name, byte count, and SHA-256 identity for each
   downloaded model/tokenizer file.
 
@@ -32,18 +34,9 @@ the other platform's test fail until it is reconciled).
 - **All-8 `displayName`.** Windows uses `"AR,EN,ID,JA,RU,TH,VI,ZH"`; Android uses
   `"AR, EN, ID, JA, RU, TH, VI, ZH"` (spaces for readability). Presentation-only;
   not asserted by the fixture.
-- **`sherpaModelType` (⚠️ needs on-device validation).** Windows sets `"zipformer2"`
-  for the Kroko EN/FR/DE/ES models and auto-detects (`""`) for the rest; Android
-  currently leaves all entries at the `""` auto-detect default. This value is passed
-  to the sherpa-onnx recognizer config on both platforms, so it is a live behavioral
-  setting, not dead metadata. Whether Android needs the explicit `"zipformer2"` hint
-  depends on whether the Kroko ONNX files embed model-type metadata (if they do,
-  auto-detect is sufficient). Reconciling requires running a Kroko model on an
-  Android device and confirming it loads/decodes; until then the value is excluded
-  from the fixture and the divergence is documented here.
 
 ## Fixtures
-- Catalog fixture: [parity-fixtures/zipformer-catalog/catalog.json](../../parity-fixtures/zipformer-catalog/catalog.json) — 8 `{ code, modelName, downloadBaseUrl, hasNativePunctuation, modelFiles: [{ name, byteCount, sha256 }] }` entries in Windows order.
+- Catalog fixture: [parity-fixtures/zipformer-catalog/catalog.json](../../parity-fixtures/zipformer-catalog/catalog.json) — 8 `{ code, modelName, downloadBaseUrl, hasNativePunctuation, sherpaModelType, modelFiles: [{ name, byteCount, sha256 }] }` entries in Windows order.
 - Rust assertion: `windows_zipformer_catalog_matches_parity_fixture` in [src/api/realtime_audio/sherpa_onnx/mod.rs](../../src/api/realtime_audio/sherpa_onnx/mod.rs).
 - Android assertion: [mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/ZipformerCatalogParityTest.kt](../../mobile/androidApp/src/test/java/dev/screengoated/toolbox/mobile/parity/ZipformerCatalogParityTest.kt).
 

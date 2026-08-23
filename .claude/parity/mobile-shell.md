@@ -42,6 +42,7 @@
     - `Groq`
     - `Gemini`
     - `OpenRouter`
+    - `NVIDIA`
     - `Ollama`
   - tools uses a page-scoped footer for preset actions; its preset rows scroll independently beneath that footer instead of owning the footer position
   - nested horizontal carousels in apps/tools own touch gestures for the full gesture whenever they have horizontal scroll available; the shell tab pager must not compete for drags that start inside a scrollable inner carousel
@@ -78,3 +79,6 @@
 ## Deviations
 - Mobile uses Android-native Compose controls instead of egui widgets.
 - Windows currently maps some non-`en/vi/ko` system locales such as `ja` and `zh` internally; mobile launcher selection remains the same three-option UI requested for parity with the visible Windows title bar.
+- Screen Translate is intentionally desktop-only. Android already provides the
+  OS-owned Circle to Search flow for that role, so the app does not duplicate a
+  second capture/translation surface or carry inert Screen Translate controls.

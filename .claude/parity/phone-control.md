@@ -149,6 +149,9 @@ in `parity-fixtures/phone-control/model-chain.json`. Windows Computer Control an
 Android Phone Control consume the same generated IDs; neither platform owns a
 second locator-model constant. The current chain uses Robotics ER2 as the
 strict-accuracy primary and Gemini 3.5 Flash Lite as the faster fallback.
+General screenshot reading remains separate from target grounding and uses the
+effective shared Image-to-Text chain, including signed Live-feed interleaving.
+The dedicated grounding chain never inherits those general candidates.
 
 The live control session uses the fixture's exact Gemini Live endpoint and
 bounded `LOW` thinking configuration on both platforms. Silent thought parts
@@ -951,8 +954,9 @@ display. Phone Control additionally requires:
 
 - general immutable window/node snapshots rather than text-selection-only
   traversal; API 30+ enumerates all displays, API 29 declares its default-display
-  limit, and a window snapshot survives absent/inaccessible root content with
-  `content_accessible=false`;
+  limit and must never call the API-30-only accessibility-window display-ID
+  accessor, and a window snapshot survives absent/inaccessible root content
+  with `content_accessible=false`;
 - session-scoped window/content/scroll event subscriptions sufficient to
   invalidate snapshots, narrowed again while idle; events are hints, never a
   substitute for a fresh observation;
@@ -1119,6 +1123,10 @@ current user request, but never replacement or artifact content. At least two
 distinct text-model verdicts must approve and any negative verdict vetoes the
 write. This authorizes only the exact target scope, not the mutation content.
 Starting a new independent user turn retires the completed prior turn's scope.
+The independent verdict candidates come from the effective shared Text-to-Text
+chain, including signed Live-feed interleaving and the normal provider/key,
+cooldown, and token-budget gates. They must not fall back to an authored-only
+snapshot that silently omits currently eligible models.
 
 An authorized write receives an immutable target lease containing the canonical
 path, whether it existed, and its existing hash when applicable. The commit edge

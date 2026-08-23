@@ -25,13 +25,33 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val model = resolveModel(modelId)
+            require(model.modelType == PresetModelType.VISION && model.provider.hasVisionPresetRuntime()) {
+                "Unsupported vision provider: ${model.provider.name.lowercase()}"
+            }
+            val repetitionGuard = model.restatesOutput.takeIf { it }?.let { VisionRepetitionGuard() }
+            val guardedOnChunk: (String) -> Unit = { chunk ->
+                if (repetitionGuard == null) {
+                    onChunk(chunk)
+                } else if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
+                    val replacement = chunk.removePrefix(TextApiClient.WIPE_SIGNAL)
+                    repetitionGuard.restart(replacement)
+                    onChunk(chunk)
+                } else {
+                    when (val action = repetitionGuard.observe(chunk)) {
+                        RepetitionAction.Paint -> onChunk(chunk)
+                        is RepetitionAction.Replace ->
+                            onChunk("${TextApiClient.WIPE_SIGNAL}${action.text}")
+                        RepetitionAction.Suppress -> Unit
+                    }
+                }
+            }
             val prepared = prepareImage(
                 rawBytes = imageBytes,
                 provider = model.provider,
                 modelFullName = model.fullName,
                 promptBytes = prompt.toByteArray(Charsets.UTF_8).size,
             )
-            when (model.provider) {
+            val result = when (model.provider) {
                 PresetModelProvider.GOOGLE -> streamGeminiVision(
                     model = model,
                     prompt = prompt,
@@ -39,7 +59,7 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     mimeType = prepared.mimeType,
                     apiKey = apiKeys.geminiKey,
                     uiLanguage = uiLanguage,
-                    onChunk = onChunk,
+                    onChunk = guardedOnChunk,
                     streamingEnabled = streamingEnabled,
                     responseSchema = responseSchema,
                 )
@@ -53,7 +73,7 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     imageBase64 = prepared.base64,
                     mimeType = prepared.mimeType,
                     uiLanguage = uiLanguage,
-                    onChunk = onChunk,
+                    onChunk = guardedOnChunk,
                     streamingEnabled = streamingEnabled,
                 )
 
@@ -66,7 +86,7 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     imageBase64 = prepared.base64,
                     mimeType = prepared.mimeType,
                     uiLanguage = uiLanguage,
-                    onChunk = onChunk,
+                    onChunk = guardedOnChunk,
                     streamingEnabled = streamingEnabled,
                 )
 
@@ -79,7 +99,7 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     imageBase64 = prepared.base64,
                     mimeType = prepared.mimeType,
                     uiLanguage = uiLanguage,
-                    onChunk = onChunk,
+                    onChunk = guardedOnChunk,
                     streamingEnabled = streamingEnabled,
                 )
 
@@ -89,13 +109,13 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     prompt = prompt,
                     imageBase64 = prepared.base64,
                     uiLanguage = uiLanguage,
-                    onChunk = onChunk,
+                    onChunk = guardedOnChunk,
                     streamingEnabled = streamingEnabled,
                 )
 
                 PresetModelProvider.QRSERVER -> callQrServer(
                     imageBytes = imageBytes,
-                    onChunk = onChunk,
+                    onChunk = guardedOnChunk,
                 )
 
                 PresetModelProvider.GEMINI_LIVE -> httpClient.streamGeminiLiveVision(
@@ -104,11 +124,20 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                     prompt = prompt,
                     imageBytes = prepared.bytes,
                     mimeType = prepared.mimeType,
-                    onChunk = onChunk,
+                    onChunk = guardedOnChunk,
                 )
 
                 else ->
                     throw IOException("Unsupported vision provider: ${model.provider.name.lowercase()}")
+            }
+            if (repetitionGuard == null) {
+                result
+            } else {
+                val salvaged = repetitionGuard.finish(result)
+                if (salvaged != result) {
+                    onChunk("${TextApiClient.WIPE_SIGNAL}$salvaged")
+                }
+                salvaged
             }
         }
     }

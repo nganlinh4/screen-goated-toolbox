@@ -505,6 +505,7 @@ internal class PresetAudioCaptureSession(
             geminiKey = appContainer.repository.currentApiKey(),
             groqKey = appContainer.repository.currentGroqApiKey(),
             openRouterKey = appContainer.repository.currentOpenRouterApiKey(),
+            nvidiaKey = appContainer.repository.currentNvidiaApiKey(),
             ollamaBaseUrl = appContainer.repository.currentOllamaUrl(),
         )
     }

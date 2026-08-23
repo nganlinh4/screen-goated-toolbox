@@ -35,6 +35,7 @@ fn google_and_live_share_a_section_without_sharing_endpoint_identity() {
             groq: true,
             gemini: true,
             openrouter: true,
+            nvidia: true,
             ollama: true,
         },
     );
@@ -47,6 +48,7 @@ fn disabled_explicit_provider_is_hidden_but_future_provider_remains_visible() {
         groq: false,
         gemini: true,
         openrouter: true,
+        nvidia: false,
         ollama: true,
     };
     assert!(!provider_enabled("groq", toggles));

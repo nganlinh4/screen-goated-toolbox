@@ -2,6 +2,9 @@ package dev.screengoated.toolbox.mobile.service.preset
 
 import dev.screengoated.toolbox.mobile.preset.inputAdapterOverlayContent
 import dev.screengoated.toolbox.mobile.preset.PresetExecutionCapability
+import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
+import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
+import dev.screengoated.toolbox.mobile.preset.PresetResultWindowState
 import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import java.io.File
@@ -82,7 +85,6 @@ class PresetOverlayHtmlTest {
         val requiredMessages = contract["required_messages"]!!.jsonArray.map { it.jsonPrimitive.content }
         val requiredHooks = contract["required_js_hooks"]!!.jsonArray.map { it.jsonPrimitive.content }
         val acceptedMobileShims = contract["accepted_mobile_shims"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
-        val documentedDeferred = fixture["documented_deferred_behavior"]!!.jsonArray.map { it.jsonPrimitive.content }
         val androidBuilder = File(repoRoot(), "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetTextInputHtmlSupport.kt").readText()
         val html = PresetTextInputHtmlBuilder().build(
             PresetTextInputHtmlSettings(
@@ -110,7 +112,7 @@ class PresetOverlayHtmlTest {
         assertTrue("touch drag shim should be explicitly accepted", "touch_drag_delta_messages" in acceptedMobileShims)
         assertTrue("outside tap focus shim should be explicitly accepted", "outside_tap_focus_release" in acceptedMobileShims)
         assertTrue("drag shim missing", html.contains("""type: 'dragInputWindow'"""))
-        assertTrue("deferred mic runtime should keep the bridge message visible", "mic_button_runtime" in documentedDeferred)
+        assertTrue("working microphone bridge message missing", html.contains("window.ipc.postMessage('mic')"))
     }
 
     @Test
@@ -290,11 +292,16 @@ class PresetOverlayHtmlTest {
         val fixture = fixture("parity-fixtures/preset-system/result-overlay.json")
         val canvas = fixture["canvas"]!!.jsonObject
         val unsupportedActions = canvas["unsupported_actions"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        val modelBadge = canvas["model_badge"]!!.jsonObject
         val html = presetButtonCanvasBaseHtmlTemplate()
         val js = mobileCanvasJavascript()
 
         assertEquals("tap_and_linger", canvas["reveal_model"]!!.jsonPrimitive.content)
         assertEquals(2000, canvas["linger_ms"]!!.jsonPrimitive.int)
+        assertEquals(
+            "actual_successful_retry_endpoint",
+            modelBadge["identity"]!!.jsonPrimitive.content,
+        )
         assertTrue("markdown toggle exclusion should stay documented", "markdown_toggle" in unsupportedActions)
         assertTrue("broom group/all exclusion should stay documented", "broom_group_all" in unsupportedActions)
         assertTrue(html.contains("""<div id="button-container"></div>"""))
@@ -305,6 +312,23 @@ class PresetOverlayHtmlTest {
         assertTrue(js.contains("""querySelector('[data-action="markdown"]')"""))
         assertTrue(js.contains("""querySelector('.btn.broom')"""))
         assertFalse(js.contains("plainTextLabel"))
+    }
+
+    @Test
+    fun resultBadgeUsesProviderAndCompleteSuccessfulEndpoint() {
+        val state = PresetResultWindowState(
+            id = PresetResultWindowId("session", 1),
+            blockIdx = 1,
+            title = "Result",
+            modelId = "nvidia-nemotron-3-5-lightning-text",
+            modelProvider = PresetModelProvider.NVIDIA,
+        )
+
+        assertEquals(
+            "NVIDIA · nvidia/nemotron-3.5-lightning-30b-a3b",
+            resultModelLabel(state),
+        )
+        assertEquals("", resultModelLabel(state.copy(modelId = "", modelProvider = null)))
     }
 
     private fun messageContractSnippet(message: String): String = when (message) {

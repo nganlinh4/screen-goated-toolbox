@@ -1,36 +1,6 @@
 package dev.screengoated.toolbox.mobile.preset
 
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
-import java.util.concurrent.ConcurrentHashMap
-
-private const val MODEL_RATE_LIMIT_COOLDOWN_MILLIS = 300_000L
-private val modelRateLimitCooldowns = ConcurrentHashMap<String, Long>()
-private fun monotonicMillis(): Long = System.nanoTime() / 1_000_000L
-
-private fun isRateLimitError(error: String): Boolean {
-    val lower = error.lowercase()
-    return lower.contains("http 429") ||
-        lower.contains("request failed with 429") ||
-        lower.contains("rate limit") ||
-        lower.contains("too many requests") ||
-        lower.contains("quota exceeded")
-}
-
-internal fun recordPresetModelFailure(modelId: String, error: String) {
-    if (isRateLimitError(error)) {
-        modelRateLimitCooldowns[modelId] = monotonicMillis() + MODEL_RATE_LIMIT_COOLDOWN_MILLIS
-    }
-}
-
-private fun modelCooldownRemainingMillis(modelId: String): Long? {
-    val now = monotonicMillis()
-    val until = modelRateLimitCooldowns[modelId] ?: return null
-    if (until <= now) {
-        modelRateLimitCooldowns.remove(modelId, until)
-        return null
-    }
-    return until - now
-}
 
 internal enum class PresetRetryChainKind {
     IMAGE_TO_TEXT,
@@ -86,9 +56,7 @@ internal fun preflightSkipReason(
     blockedProviders: Set<PresetModelProvider>,
     settings: PresetRuntimeSettings,
 ): String? {
-    modelCooldownRemainingMillis(modelId)?.let { remaining ->
-        return "MODEL_RATE_LIMIT_COOLDOWN:$modelId:${(remaining + 999) / 1_000}s"
-    }
+    presetModelCircuitSkipReason(modelId)?.let { return it }
     if (provider in blockedProviders) {
         return "Provider ${providerKey(provider)} is unavailable for retry."
     }
@@ -118,6 +86,12 @@ internal fun preflightSkipReason(
     if (PresetModelCatalog.getById(modelId) == null) {
         return "Model config not found: $modelId"
     }
+    val model = PresetModelCatalog.getById(modelId)
+    val minimumTokens = model?.visionMaxOutputTokens?.let { 770 + it }
+    if (model != null && minimumTokens != null) {
+        ModelUsageStats.tokenBudgetWaitSeconds(model.provider, model.fullName, minimumTokens)
+            ?.let { return "MODEL_TOKEN_BUDGET:$modelId:${it.coerceAtLeast(1)}s" }
+    }
     return null
 }
 
@@ -129,9 +103,10 @@ internal fun shouldAdvanceRetryChain(error: String): Boolean {
     ) {
         return true
     }
+    if (isPresetBillingError(error)) return true
     extractHttpStatusCode(error)?.let { code ->
         return when (code) {
-            400, 401, 403, 404, 429 -> true
+            400, 401, 402, 403, 404, 408, 409, 413, 422, 425, 429 -> true
             in 500..599 -> true
             else -> false
         }
@@ -143,9 +118,11 @@ internal fun shouldAdvanceRetryChain(error: String): Boolean {
         lower.contains("peer disconnected") ||
         lower.contains("connection reset") ||
         lower.contains("connection aborted") ||
+        lower.contains("connection closed") ||
         lower.contains("broken pipe") ||
         lower.contains("timed out") ||
         lower.contains("timeout") ||
+        lower.contains("deadline exceeded") ||
         lower.contains("not found") ||
         lower.contains("unsupported") ||
         lower.contains("not support")
@@ -156,11 +133,25 @@ internal fun shouldBlockRetryProvider(error: String): Boolean {
         error.contains("NO_API_KEY") ||
         error.contains("INVALID_API_KEY") ||
         error.contains("PROVIDER_DISABLED") ||
-        error.contains("PROVIDER_NOT_READY")
+        error.contains("PROVIDER_NOT_READY") ||
+        error.contains("STRUCTURED_OUTPUT_REJECTED")
     ) {
         return true
     }
+    if (isPresetBillingError(error)) return true
     return extractHttpStatusCode(error) in setOf(401, 403)
+}
+
+private fun isPresetBillingError(error: String): Boolean {
+    val lower = error.lowercase()
+    return listOf(
+        "payment required",
+        "insufficient credit",
+        "insufficient_quota",
+        "insufficient funds",
+        "out of credits",
+        "credit balance is too low",
+    ).any { it in lower }
 }
 
 internal fun resolveNextRetryModel(
@@ -174,7 +165,7 @@ internal fun resolveNextRetryModel(
     val current = PresetModelCatalog.getById(currentModelId) ?: return null
     val mustSupportSearch = PresetModelCatalog.supportsSearchById(currentModelId)
     val targetType = chainKind.targetModelType()
-    val explicit = chainKind.configuredChain(settings)
+    val explicit = chainKind.effectiveChain(settings, apiKeys)
 
     explicit.firstNotNullOfOrNull { candidateId ->
         val candidate = PresetModelCatalog.getById(candidateId) ?: return@firstNotNullOfOrNull null

@@ -17,7 +17,9 @@ class AppUpdateManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             installer = Path(directory) / "ScreenGoatedToolbox_v5.5.0.exe"
             installer.write_bytes(b"published installer bytes")
-            payload = json.loads(build_payload("5.5.0", installer, "Release notes"))
+            apk = Path(directory) / "ScreenGoatedToolbox_v5.5.0.apk"
+            apk.write_bytes(b"published Full APK bytes")
+            payload = json.loads(build_payload("5.5.0", installer, apk, "Release notes"))
 
         self.assertEqual(payload["channel"], "stable")
         self.assertEqual(payload["version"], "5.5.0")
@@ -32,6 +34,18 @@ class AppUpdateManifestTests(unittest.TestCase):
                 ),
                 "sizeBytes": len(b"published installer bytes"),
                 "sha256": hashlib.sha256(b"published installer bytes").hexdigest(),
+            },
+        )
+        self.assertEqual(
+            payload["androidFullApk"],
+            {
+                "name": apk.name,
+                "url": (
+                    "https://github.com/nganlinh4/screen-goated-toolbox/releases/"
+                    "download/v5.5.0/ScreenGoatedToolbox_v5.5.0.apk"
+                ),
+                "sizeBytes": len(b"published Full APK bytes"),
+                "sha256": hashlib.sha256(b"published Full APK bytes").hexdigest(),
             },
         )
 

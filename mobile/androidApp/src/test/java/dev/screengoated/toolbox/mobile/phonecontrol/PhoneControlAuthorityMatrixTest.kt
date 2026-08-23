@@ -31,7 +31,7 @@ class PhoneControlAuthorityMatrixTest {
         val fixture = PhoneControlAuthorityFixture.load()
         val catalog = fixture.root.getValue("catalog").jsonObject
 
-        assertEquals(25L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
+        assertEquals(26L, fixture.root.getValue("schemaVersion").jsonPrimitive.long)
         assertEquals("phone-control", fixture.root.getValue("feature").jsonPrimitive.content)
         val distribution = fixture.root.getValue("distribution").jsonObject
         assertEquals(
@@ -43,6 +43,15 @@ class PhoneControlAuthorityMatrixTest {
         assertEquals("identical", distribution.getValue("behavior").jsonPrimitive.content)
         assertTrue(distribution.getValue("catalogAndRuntimeMustMatch").jsonPrimitive.boolean)
         assertFalse(distribution.getValue("visualGroundingAssetRequired").jsonPrimitive.boolean)
+        assertEquals(29L, distribution.getValue("minimumApiLevel").jsonPrimitive.long)
+        assertEquals(
+            "default_display_only",
+            distribution.getValue("api29WindowDisplayScope").jsonPrimitive.content,
+        )
+        assertEquals(
+            "never_call_api_30_accessor",
+            distribution.getValue("api29WindowDisplayIdAccess").jsonPrimitive.content,
+        )
         assertEquals(
             fixture.capabilityStates,
             CapabilityState.entries.map(CapabilityState::wireName),

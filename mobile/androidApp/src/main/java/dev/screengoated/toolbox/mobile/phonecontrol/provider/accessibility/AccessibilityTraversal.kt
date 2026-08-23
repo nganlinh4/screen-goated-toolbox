@@ -8,6 +8,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import android.view.Display
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import androidx.core.util.forEach
 import dev.screengoated.toolbox.mobile.phonecontrol.overlay.PhoneControlOverlayExclusion
 import dev.screengoated.toolbox.mobile.phonecontrol.result.PhoneControlTargetIdentity
 import dev.screengoated.toolbox.mobile.phonecontrol.result.TargetBounds
@@ -57,9 +58,8 @@ internal fun captureAccessibilitySurface(
     val activeWindow = activeRoot?.window
     val activeWindowDisplayId = activeRoot?.let { root ->
         activeWindow?.takeIf { window ->
-            window.id == root.windowId && window.displayId >= 0 &&
-                (window.isActive || window.isFocused)
-        }?.displayId
+            window.id == root.windowId && (window.isActive || window.isFocused)
+        }?.let(::accessibilityWindowDisplayId)
     }
     val sourceWindows = appendMissingAccessibilityWindow(
         windows = accessibilityWindows(service),
@@ -171,11 +171,11 @@ internal fun accessibilityWindows(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val windowsByDisplay = service.windowsOnAllDisplays
             buildList {
-                for (index in 0 until windowsByDisplay.size()) {
+                windowsByDisplay.forEach { displayId, windows ->
                     add(
                         AccessibilityDisplayWindows(
-                            displayId = windowsByDisplay.keyAt(index),
-                            windows = windowsByDisplay.valueAt(index).orEmpty(),
+                            displayId = displayId,
+                            windows = windows.orEmpty(),
                         ),
                     )
                 }
@@ -185,6 +185,11 @@ internal fun accessibilityWindows(
         }
     },
 )
+
+private fun accessibilityWindowDisplayId(window: AccessibilityWindowInfo): Int? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+    return window.displayId.takeIf { it >= 0 }
+}
 
 internal fun findAccessibilityWindowRoot(
     service: SgtAccessibilityService,
@@ -206,9 +211,8 @@ internal fun findAccessibilityWindowRoot(
         }
     }
     val activeDisplayId = activeRoot.window?.takeIf { window ->
-        window.id == activeRoot.windowId && window.displayId >= 0 &&
-            (window.isActive || window.isFocused)
-    }?.displayId ?: resolveActiveRootDisplay(rootBounds, displayExtents)
+        window.id == activeRoot.windowId && (window.isActive || window.isFocused)
+    }?.let(::accessibilityWindowDisplayId) ?: resolveActiveRootDisplay(rootBounds, displayExtents)
     return activeRoot.takeIf { activeDisplayId == displayId }
 }
 
@@ -250,11 +254,7 @@ private fun AccessibilityWindowOnDisplay<AccessibilityWindowInfo>.capture(
         focused = window.isFocused,
         bounds = bounds,
         accessibilityOverlay = window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY,
-        pictureInPicture = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            window.isInPictureInPictureMode
-        } else {
-            false
-        },
+        pictureInPicture = window.isInPictureInPictureMode,
         root = root,
     )
 }
@@ -432,7 +432,7 @@ internal fun AccessibilityNodeInfo.accessibilityContent(editable: Boolean): Acce
         isPassword = isPassword,
         contentDescription = contentDescription?.toString(),
         text = text?.toString(),
-        hint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) hintText?.toString() else null,
+        hint = hintText?.toString(),
         stateDescription = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             stateDescription?.toString()
         } else {

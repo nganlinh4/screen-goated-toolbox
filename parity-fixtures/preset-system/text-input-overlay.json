@@ -26,8 +26,5 @@
       "touch_drag_delta_messages",
       "outside_tap_focus_release"
     ]
-  },
-  "documented_deferred_behavior": [
-    "mic_button_runtime"
-  ]
+  }
 }

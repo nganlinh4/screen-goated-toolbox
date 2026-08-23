@@ -10,7 +10,8 @@
         "media_resolution": "provider-default",
         "sampling": "qwen3-groq-non-thinking",
         "max_output_tokens": 512,
-        "structured_output": "json-object"
+        "structured_output": "json-object",
+        "restates_output": true
       },
       {
         "provider": "google",
@@ -19,7 +20,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "google",
@@ -28,7 +30,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "google",
@@ -37,7 +40,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "google",
@@ -46,7 +50,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "google",
@@ -55,7 +60,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "google",
@@ -64,7 +70,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "google",
@@ -73,7 +80,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "google",
@@ -82,7 +90,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "google",
@@ -91,7 +100,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "openrouter",
@@ -100,7 +110,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "google",
@@ -109,7 +120,8 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "strict-json-schema"
+        "structured_output": "strict-json-schema",
+        "restates_output": false
       },
       {
         "provider": "openrouter",
@@ -118,13 +130,15 @@
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": 512,
-        "structured_output": "json-object"
+        "structured_output": "json-object",
+        "restates_output": false
       }
     ],
     "rules": [
       "reasoning_uses_the_catalog_owned_minimum_policy",
       "google_single_image_requests_put_the_image_before_the_prompt",
       "plain_ocr_never_requests_json_or_a_schema",
+      "restates_output_profiles_use_endpoint_scoped_repetition_salvage",
       "structured_output_requires_an_explicit_caller_schema_and_endpoint_support",
       "media_resolution_stays_provider_default_until_a_comparable_probe_proves_a_better_policy",
       "openrouter_reasoning_policy_uses_nested_reasoning_effort_none"

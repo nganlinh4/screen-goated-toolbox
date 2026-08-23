@@ -84,7 +84,12 @@ impl UpdateCandidate {
         if !self.version.pre.is_empty() || !self.version.build.is_empty() {
             bail!("update version is not a stable release");
         }
-        if self.sha256.len() != 64 || !self.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        if self.sha256.len() != 64
+            || !self
+                .sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
             bail!("update installer SHA-256 is invalid");
         }
         Ok(())

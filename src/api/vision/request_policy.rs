@@ -129,6 +129,10 @@ mod tests {
                 structured_output_name(profile.structured_output),
                 case["structured_output"].as_str().unwrap()
             );
+            assert_eq!(
+                profile.restates_output,
+                case["restates_output"].as_bool().unwrap()
+            );
         }
     }
 
