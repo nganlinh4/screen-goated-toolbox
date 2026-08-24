@@ -1,12 +1,15 @@
 pub(super) fn with_card_bridge(mut html: String) -> String {
-    const BRIDGE: &str = r#"<script>
+    const BRIDGE: &str = r#"<script data-sgt-card-identity="__SGT_CARD_FRAME_IDENTITY__">
 (function() {
+  var frameIdentity = document.currentScript
+    ? String(document.currentScript.dataset.sgtCardIdentity || '') : '';
+  var frameIdentityMatch = frameIdentity.match(/^(-?\d+):(\d+)$/);
   var cardPathMatch = location.pathname.match(/\/card\/(-?\d+)/);
-  var cardId = cardPathMatch ? cardPathMatch[1] : '';
-  var documentRevision = Number(new URLSearchParams(location.search).get('revision') || 0);
+  var cardId = frameIdentityMatch ? frameIdentityMatch[1] : (cardPathMatch ? cardPathMatch[1] : '');
+  var documentRevision = frameIdentityMatch ? Number(frameIdentityMatch[2])
+    : Number(new URLSearchParams(location.search).get('revision') || 0);
   var pendingFit = 0;
   var resizeFit = 0;
-  var reportedStreamUpdate = false;
   var fontReady = false;
   var pendingFontFit = false;
   var nextFrameHandle = 0;
@@ -46,20 +49,6 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
   function cancelBridgeFrame(handle) {
     frameCallbacks.delete(Number(handle));
   }
-  function finishBodyPresentation() {
-    if (document.body) {
-      document.body.style.setProperty('animation', 'none', 'important');
-      document.body.style.setProperty('opacity', '1', 'important');
-      document.body.style.setProperty('filter', 'blur(0)', 'important');
-      document.body.style.setProperty('-webkit-backdrop-filter', 'blur(0)', 'important');
-      document.body.style.setProperty('backdrop-filter', 'blur(0)', 'important');
-      document.body.style.setProperty('transform', 'translateY(0)', 'important');
-    }
-    if (!document.body || typeof document.body.getAnimations !== 'function') return;
-    document.body.getAnimations().forEach(function(animation) {
-      try { animation.finish(); } catch (_error) {}
-    });
-  }
   function queueFit(streaming) {
     window.__SGT_STREAMING__ = Boolean(streaming);
     if (!fontReady) {
@@ -75,19 +64,12 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
       });
     }, 0);
   }
-  function reportPaint(phase, contentRevision) {
-    scheduleBridgeFrame(function() {
-      scheduleBridgeFrame(function() {
-        reportCardState(phase + '_painted', null, contentRevision);
-      });
-    });
-  }
   window.__SGT_REQUEST_FIT__ = queueFit;
   var receivedCommands = Object.create(null);
   function handleHostMessage(event) {
     if (!event.data) return;
     var commandType = String(event.data.type || '');
-    if (!['stream_update', 'finalize', 'run_fit', 'activate_font', 'theme_update', 'frame_tick'].includes(commandType)) return;
+    if (!['run_fit', 'activate_font', 'theme_update', 'frame_tick'].includes(commandType)) return;
     if (String(event.data.card_id || '') !== cardId) {
       reportCardState('command_rejected', new Error('card identity mismatch'));
       return;
@@ -100,40 +82,6 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
       var callback = frameCallbacks.get(Number(event.data.handle));
       frameCallbacks.delete(Number(event.data.handle));
       if (callback) callback(Number(event.data.timestamp) || performance.now());
-    } else if (commandType === 'stream_update') {
-      try {
-        window.__SGT_APPLY_STREAM_UPDATE__({
-          html: event.data.html,
-          runInlineSizing: true,
-          animateNewWords: true
-        });
-        document.body.dataset.sgtMode = event.data.refining ? 'refining' : 'result';
-        queueFit(true);
-        if (!reportedStreamUpdate) {
-          reportedStreamUpdate = true;
-          reportPaint('stream', event.data.content_revision);
-          reportCardState('stream_applied', null, event.data.content_revision);
-        }
-      } catch (error) {
-        reportCardState('stream_failed', error);
-      }
-    } else if (commandType === 'finalize') {
-      try {
-        window.__SGT_APPLY_STREAM_UPDATE__({
-          html: event.data.html,
-          runInlineSizing: true,
-          finalizing: true,
-          animateNewWords: false
-        });
-        if (event.data.settle_before_reveal) finishBodyPresentation();
-        document.body.dataset.sgtMode = event.data.refining ? 'refining' : 'result';
-        window.__SGT_INIT_STREAM_GRIDS__();
-        queueFit(false);
-        reportPaint('final', event.data.content_revision);
-        reportCardState('finalize_applied', null, event.data.content_revision);
-      } catch (error) {
-        reportCardState('finalize_failed', error);
-      }
     } else if (commandType === 'run_fit') {
       window.__SGT_STREAMING__ = Boolean(event.data.streaming);
       if (typeof window.__SGT_RUN_FIT__ === 'function') {
@@ -215,15 +163,10 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
   reportCardState('bridge_ready', null, 0, channel ? [channel.port2] : []);
 })();
 </script>"#;
-    let (grid_css_url, grid_js_url) = crate::overlay::html_components::grid_js::get_lib_urls();
-    let stream_runtime = include_str!("stream_runtime.js")
-        .replace("__SGT_GRID_CSS_URL__", grid_css_url)
-        .replace("__SGT_GRID_JS_URL__", grid_js_url);
-    let bridge = format!("<script>{stream_runtime}</script>{BRIDGE}");
     if let Some(position) = html.to_ascii_lowercase().rfind("</body>") {
-        html.insert_str(position, &bridge);
+        html.insert_str(position, BRIDGE);
     } else {
-        html.push_str(&bridge);
+        html.push_str(BRIDGE);
     }
     html
 }
@@ -233,15 +176,14 @@ mod tests {
     use super::with_card_bridge;
 
     #[test]
-    fn isolated_final_render_finishes_presentation_before_settled_fit() {
+    fn isolated_document_bridge_preserves_authored_body_and_scripts() {
         let html = with_card_bridge("<html><body></body></html>".to_string());
 
         assert!(html.contains("style.setProperty('user-select', 'text', 'important')"));
         assert!(html.contains("postToParent({ type: 'copy_selection', text: text })"));
-        assert!(html.contains("if (event.data.settle_before_reveal) finishBodyPresentation()"));
-        assert!(html.contains("style.setProperty('animation', 'none', 'important')"));
-        assert!(html.contains("style.setProperty('opacity', '1', 'important')"));
-        assert!(html.contains("style.setProperty('backdrop-filter', 'blur(0)', 'important')"));
-        assert!(html.contains("settleBeforeReveal: Boolean(event.data.settle_before_reveal)"));
+        assert!(html.contains("postToParent({ type: 'fit_complete' })"));
+        assert!(!html.contains("document.body.innerHTML"));
+        assert!(!html.contains("window.__SGT_APPLY_STREAM_UPDATE__"));
+        assert!(!html.contains("commandType === 'finalize'"));
     }
 }

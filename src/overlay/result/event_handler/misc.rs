@@ -18,6 +18,7 @@ pub const WM_DOWNLOAD_CLICK: u32 = WM_USER + 217;
 pub const WM_CLOSE_GROUP_CLICK: u32 = WM_USER + 219;
 
 pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
+    super::super::raw_webview::destroy(hwnd);
     super::super::scene_compositor::remove_window(hwnd);
     if let Some(state) = WINDOW_STATES.lock().unwrap().remove(&(hwnd.0 as isize)) {
         if let Some(token) = state.cancellation_token {
@@ -78,17 +79,22 @@ pub unsafe fn handle_show_window(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) -> 
     unsafe {
         let showing = wparam.0 != 0;
         super::super::scene_compositor::sync_window(hwnd, showing);
+        super::super::raw_webview::request_sync(hwnd);
         DefWindowProcW(hwnd, WM_SHOWWINDOW, wparam, lparam)
     }
 }
 
 pub unsafe fn handle_back_click(hwnd: HWND) -> LRESULT {
-    super::super::scene_compositor::go_back(hwnd);
+    if !super::super::raw_webview::go_back(hwnd) {
+        super::super::scene_compositor::go_back(hwnd);
+    }
     LRESULT(0)
 }
 
 pub unsafe fn handle_forward_click(hwnd: HWND) -> LRESULT {
-    super::super::scene_compositor::go_forward(hwnd);
+    if !super::super::raw_webview::go_forward(hwnd) {
+        super::super::scene_compositor::go_forward(hwnd);
+    }
     LRESULT(0)
 }
 

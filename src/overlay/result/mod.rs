@@ -3,6 +3,7 @@ mod event_handler;
 pub(crate) mod latency;
 pub mod layout;
 pub mod markdown_view;
+mod raw_webview;
 mod refine;
 mod restore;
 pub mod scene_compositor;
@@ -36,6 +37,7 @@ pub fn update_theme(is_dark: bool) {
 }
 
 pub fn raise_window(hwnd: HWND) {
+    raw_webview::raise_window(hwnd);
     scene_compositor::raise_window(hwnd);
 }
 
@@ -148,6 +150,7 @@ pub fn trigger_undo(hwnd: HWND) {
         scene_compositor::sync_window(hwnd, unsafe {
             windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(hwnd).as_bool()
         });
+        raw_webview::request_sync(hwnd);
 
         // Update canvas
         button_canvas::update_window_position(hwnd);
@@ -186,6 +189,7 @@ pub fn trigger_redo(hwnd: HWND) {
         scene_compositor::sync_window(hwnd, unsafe {
             windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(hwnd).as_bool()
         });
+        raw_webview::request_sync(hwnd);
 
         button_canvas::update_window_position(hwnd);
     }

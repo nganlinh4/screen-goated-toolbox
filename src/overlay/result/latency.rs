@@ -111,6 +111,9 @@ pub(crate) fn mark_card_phase(id: isize, phase: &str, payload_len: usize, text_l
     let trace_phase = match phase {
         "document_load_requested" => Some("document_load_requested"),
         "document_loaded" => Some("document_loaded"),
+        "interactive_document_alive" => Some("interactive_document_alive"),
+        "interactive_surface_visible" => Some("interactive_surface_visible"),
+        "interactive_pixels_visible" => Some("interactive_pixels_visible"),
         "content_queued" => {
             if has_content {
                 mark_id_after(id, "compositor_received", "provider_first_output");

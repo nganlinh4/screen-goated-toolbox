@@ -117,7 +117,9 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
         let height = (target_rect.bottom - target_rect.top).abs();
         let favorite_overlay_opacity = {
             let app = crate::APP.lock().unwrap();
-            app.config.favorite_overlay_opacity.clamp(10, 100)
+            crate::config::types::normalize_result_overlay_opacity_percent(
+                app.config.favorite_overlay_opacity,
+            )
         };
 
         // WindowType logic essentially just sets color now, but we override it via custom_bg_color usually
@@ -204,6 +206,7 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
 
 pub(crate) fn initialize_result_window(hwnd: HWND) {
     super::scene_compositor::register_window(hwnd);
+    super::raw_webview::request_sync(hwnd);
 }
 
 pub fn create_result_window(params: ResultWindowParams) -> HWND {
@@ -248,7 +251,8 @@ pub(crate) fn configure_text_only_result_window(hwnd: HWND, options: TextOnlyRes
             state.source_segments = options.source_segments;
             state.chain_id = Some(options.chain_id);
             if let Some(opacity) = options.opacity_percent {
-                state.opacity_percent = opacity.clamp(10, 100);
+                state.opacity_percent =
+                    crate::config::types::normalize_result_overlay_opacity_percent(opacity);
             }
         }
     }
@@ -271,6 +275,7 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
         state.full_text = text.to_string();
     }
     super::scene_compositor::queue_window_sync(hwnd);
+    super::raw_webview::request_sync(hwnd);
 }
 
 pub fn update_text_only_segments(hwnd: HWND, segments: Vec<String>) {

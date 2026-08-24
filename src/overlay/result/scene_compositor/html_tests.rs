@@ -17,23 +17,45 @@ fn ordinary_cards_use_one_shared_document_runtime() {
 }
 
 #[test]
-fn raw_html_and_navigation_keep_an_isolated_frame_boundary() {
+fn raw_html_stays_isolated_and_web_navigation_leaves_the_shared_compositor() {
     assert!(COMPOSED.contains("function loadIsolatedDocument"));
-    assert!(COMPOSED.contains("isolatedOrigin + '/card/'"));
+    assert!(COMPOSED.contains("entry.frame.srcdoc = documentHtml"));
     assert!(COMPOSED.contains("frame.referrerPolicy = 'no-referrer'"));
-    assert!(!COMPOSED.contains("setAttribute('sandbox'"));
-    assert!(COMPOSED.contains("event.origin !== isolatedOrigin"));
+    assert!(COMPOSED.contains("frame.setAttribute('sandbox'"));
+    assert!(!COMPOSED.contains("allow-same-origin"));
+    assert!(COMPOSED.contains("event.source !== entry.frame.contentWindow"));
     assert!(COMPOSED.contains("event.data.card_id"));
     assert!(COMPOSED.contains("event.data.document_revision"));
     assert!(COMPOSED.contains("entry.navigationDepth !== 0"));
     assert!(COMPOSED.contains("postMessage(message, '*')"));
-    assert!(!COMPOSED.contains("sgtresult://localhost/card/"));
     assert!(COMPOSED.contains("function navigateTo(entry, url)"));
-    assert!(COMPOSED.contains("entry.frame.src = url"));
+    assert!(COMPOSED.contains("type: 'navigation_request'"));
+    assert!(!COMPOSED.contains("entry.frame.src = url"));
+    assert!(COMPOSED.contains("if (nextDocument !== null)"));
+    assert!(COMPOSED.contains("'document_content_committed'"));
+    assert!(COMPOSED.contains("activateCard(entry, becameVisible);\n    return;"));
+    let raw_branch = COMPOSED
+        .split("if (nextDocument !== null)")
+        .nth(1)
+        .and_then(|tail| tail.split("selectSurface(entry, null)").next())
+        .expect("raw-document branch");
+    assert!(!raw_branch.contains("prepareSettledReveal"));
 }
 
 #[test]
-fn isolated_bridge_handshake_flushes_content_before_iframe_load_fallback() {
+fn interactive_raw_document_acceptance_requires_a_visible_surface() {
+    let settled = include_str!("settled_reveal_runtime.js");
+
+    assert!(settled.contains("function isolatedSurfaceVisibility(entry)"));
+    assert!(settled.contains("entry.frame.isConnected"));
+    assert!(settled.contains("entry.frame.hidden"));
+    assert!(settled.contains("rect.left < window.innerWidth"));
+    assert!(COMPOSED.contains("phase === 'interactive_document_alive'"));
+    assert!(COMPOSED.contains("'interactive_surface_visible'"));
+}
+
+#[test]
+fn isolated_bridge_handshake_activates_the_loaded_document() {
     assert!(COMPOSED.contains("event.data.phase === 'bridge_ready'"));
     assert!(COMPOSED.contains("entry.activateIsolatedBridge = activateIsolatedBridge"));
     assert!(COMPOSED.contains("entry.activateIsolatedBridge()"));

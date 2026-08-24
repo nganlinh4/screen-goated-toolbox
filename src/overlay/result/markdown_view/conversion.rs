@@ -5,7 +5,7 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 use super::css::{MARKDOWN_CSS, get_compositor_font_style, get_font_style, get_theme_css};
 use super::html_utils::{
     escape_html_text, inject_gridjs, inject_render_diagnostics, inject_scrollbar_css,
-    inject_storage_polyfill, is_html_content,
+    inject_storage_polyfill, normalize_html_content,
 };
 
 const INTERACTIVE_WORD_WRAP_CHAR_LIMIT: usize = 6000;
@@ -29,9 +29,9 @@ pub fn render_for_compositor(
             isolated_document: None,
         };
     }
-    if is_html_content(markdown) {
+    if let Some(raw_html) = normalize_html_content(markdown) {
         let document =
-            markdown_to_html_for_compositor(markdown, is_refining, preset_prompt, input_text);
+            markdown_to_html_for_compositor(&raw_html, is_refining, preset_prompt, input_text);
         return CompositorRender {
             body: document_body(&document),
             isolated_document: Some(document),
@@ -72,7 +72,6 @@ pub fn markdown_to_html(
         preset_prompt,
         input_text,
         &get_font_style(),
-        false,
     )
 }
 
@@ -88,7 +87,6 @@ pub fn markdown_to_html_for_compositor(
         preset_prompt,
         input_text,
         &get_compositor_font_style(),
-        true,
     )
 }
 
@@ -98,7 +96,6 @@ fn markdown_to_html_with_font_style(
     preset_prompt: &str,
     input_text: &str,
     font_style: &str,
-    inject_raw_font: bool,
 ) -> String {
     let is_dark = crate::overlay::is_dark_mode();
     let theme_css = get_theme_css(is_dark);
@@ -146,14 +143,9 @@ fn markdown_to_html_with_font_style(
     }
 
     // If input is already HTML, inject localStorage polyfill, Grid.js, and hidden scrollbar styles
-    if is_html_content(markdown) {
-        let with_storage = inject_storage_polyfill(markdown);
-        let with_font = if inject_raw_font {
-            inject_style_into_document(&with_storage, font_style)
-        } else {
-            with_storage
-        };
-        let with_grid = inject_gridjs(&with_font);
+    if let Some(raw_html) = normalize_html_content(markdown) {
+        let with_storage = inject_storage_polyfill(&raw_html);
+        let with_grid = inject_gridjs(&with_storage);
         let with_scrollbar = inject_scrollbar_css(&with_grid);
         return inject_render_diagnostics(
             &with_scrollbar,
@@ -303,19 +295,6 @@ fn document_body(html: &str) -> String {
     html[content_start..content_start + content_end].to_string()
 }
 
-fn inject_style_into_document(html: &str, style: &str) -> String {
-    let lower = html.to_ascii_lowercase();
-    let mut result = html.to_string();
-    if let Some(position) = lower.find("</head>") {
-        result.insert_str(position, style);
-    } else if let Some(position) = lower.find("<body") {
-        result.insert_str(position, style);
-    } else {
-        result.insert_str(0, style);
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::{markdown_to_html_for_compositor, render_for_compositor};
@@ -331,17 +310,18 @@ mod tests {
     }
 
     #[test]
-    fn compositor_raw_html_receives_the_same_font_gate() {
+    fn compositor_raw_html_preserves_authored_typography_and_scripts() {
         let html = markdown_to_html_for_compositor(
-            "<html><head></head><body>hello</body></html>",
+            "<html><head><style>body{font-family:serif}</style></head><body>hello<script>window.gameReady=true;</script></body></html>",
             false,
             "",
             "",
         );
 
-        assert!(html.contains("Google Sans Flex"));
-        assert!(html.contains("html:not(.sgt-font-ready) body"));
-        assert_eq!(html.matches("data:font/ttf;base64,").count(), 1);
+        assert!(html.contains("body{font-family:serif}"));
+        assert!(html.contains("window.gameReady=true"));
+        assert!(!html.contains("Google Sans Flex"));
+        assert!(!html.contains("html:not(.sgt-font-ready) body"));
     }
 
     #[test]
@@ -365,5 +345,20 @@ mod tests {
 
         assert_eq!(rendered.body.trim_start(), "<p>hello</p>");
         assert!(rendered.isolated_document.is_some());
+    }
+
+    #[test]
+    fn fenced_html_is_normalized_before_becoming_an_isolated_document() {
+        let rendered = render_for_compositor(
+            "```html\n<!doctype html><html><body><button>Play</button></body></html>\n```",
+            false,
+            "",
+            "",
+        );
+
+        let document = rendered.isolated_document.unwrap();
+        assert!(document.trim_start().starts_with("<!doctype html>"));
+        assert!(!document.contains("```"));
+        assert_eq!(rendered.body.trim(), "<button>Play</button>");
     }
 }

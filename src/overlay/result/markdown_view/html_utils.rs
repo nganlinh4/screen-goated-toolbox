@@ -5,19 +5,57 @@ pub fn escape_html_text(text: &str) -> String {
     crate::overlay::utils::escape_html(text)
 }
 
-/// Check if content is already HTML (rather than Markdown)
-pub fn is_html_content(content: &str) -> bool {
-    let trimmed = content.trim();
-    // Check for HTML doctype or opening html tag
-    trimmed.starts_with("<!DOCTYPE")
-        || trimmed.starts_with("<!doctype")
-        || trimmed.starts_with("<html")
-        || trimmed.starts_with("<HTML")
-        // Check for common HTML structure patterns
-        || (trimmed.contains("<html") && trimmed.contains("</html>"))
-        || (trimmed.contains("<head") && trimmed.contains("</head>"))
-        // Also detect HTML fragments (has script/style but no html wrapper)
-        || is_html_fragment(content)
+/// Return the executable HTML payload, removing only transport decoration that
+/// models commonly add around an otherwise complete document.
+pub fn normalize_html_content(content: &str) -> Option<String> {
+    let trimmed = content.trim().trim_start_matches('\u{feff}').trim_start();
+    let candidate = strip_outer_html_fence(trimmed).unwrap_or(trimmed).trim();
+    let lower = candidate.to_ascii_lowercase();
+
+    if lower.starts_with("<!doctype") || lower.starts_with("<html") {
+        return Some(candidate.to_string());
+    }
+
+    if let Some(html_start) = lower.find("<html")
+        && let Some(html_end) = lower.rfind("</html>")
+    {
+        let doctype_start = lower[..html_start].rfind("<!doctype").unwrap_or(html_start);
+        return Some(candidate[doctype_start..html_end + "</html>".len()].to_string());
+    }
+
+    if (lower.contains("<head") && lower.contains("</head>")) || is_html_fragment(candidate) {
+        return Some(candidate.to_string());
+    }
+
+    None
+}
+
+fn strip_outer_html_fence(content: &str) -> Option<&str> {
+    let first = content.as_bytes().first().copied()?;
+    if first != b'`' && first != b'~' {
+        return None;
+    }
+    let marker_len = content.bytes().take_while(|byte| *byte == first).count();
+    if marker_len < 3 {
+        return None;
+    }
+    let header_end = content.find('\n')?;
+    let label = content[marker_len..header_end].trim();
+    if !label.is_empty()
+        && !label.eq_ignore_ascii_case("html")
+        && !label.eq_ignore_ascii_case("htm")
+    {
+        return None;
+    }
+    let closing = std::str::from_utf8(&vec![first; marker_len])
+        .ok()?
+        .to_string();
+    let body_and_close = &content[header_end + 1..];
+    let close_start = body_and_close.rfind('\n')?;
+    if body_and_close[close_start + 1..].trim() != closing {
+        return None;
+    }
+    Some(&body_and_close[..close_start])
 }
 
 /// Check if content is an HTML fragment (has HTML-like content but no document wrapper)

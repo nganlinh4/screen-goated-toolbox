@@ -9,9 +9,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 pub(super) fn focus_renderer(hwnd: HWND) {
+    activate_window(hwnd);
+    super::child::focus_webview();
+}
+
+pub(in crate::overlay::result) fn activate_window(hwnd: HWND) {
     make_renderer_activatable(hwnd);
     bring_renderer_to_foreground(hwnd);
-    super::child::focus_webview();
 }
 
 fn bring_renderer_to_foreground(hwnd: HWND) {
@@ -40,7 +44,7 @@ pub(super) fn make_renderer_activatable(hwnd: HWND) {
     }
 }
 
-pub(super) fn restore_nonactivating_style(hwnd: HWND) {
+pub(in crate::overlay::result) fn restore_nonactivating_style(hwnd: HWND) {
     unsafe {
         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_NOACTIVATE.0 as isize);

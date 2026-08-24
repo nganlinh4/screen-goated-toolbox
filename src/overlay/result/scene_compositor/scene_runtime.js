@@ -1,7 +1,6 @@
 const scene = document.getElementById('scene'); const isolatedOrigin = __SGT_ISOLATED_ORIGIN_JSON__;
 const cards = new Map();
-const cardStyleText = __SGT_CARD_CSS_JSON__;
-let currentThemeCss = '';
+const cardStyleText = __SGT_CARD_CSS_JSON__; let currentThemeCss = '';
 let highestStackOrder = 0;
 let activeFit = null;
 const pendingFits = new Map();
@@ -64,6 +63,7 @@ function ensureCard(id) {
   frame.className = 'result-frame';
   frame.hidden = true;
   frame.referrerPolicy = 'no-referrer';
+  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock allow-presentation');
   const backdrop = document.createElement('img');
   backdrop.className = 'region-backdrop';
   backdrop.hidden = true;
@@ -353,9 +353,9 @@ function loadIsolatedDocument(entry, documentHtml) {
   reportCardDiagnostic(entry.card.dataset.id, entry, 'document_load_requested', {
     payloadLen: documentHtml ? documentHtml.length : 0
   });
-  entry.frame.removeAttribute('srcdoc');
-  entry.frame.src = isolatedOrigin + '/card/' +
-    encodeURIComponent(entry.card.dataset.id) + '?revision=' + entry.revision;
+  entry.frame.removeAttribute('src');
+  entry.frame.srcdoc = documentHtml.replace('__SGT_CARD_FRAME_IDENTITY__',
+    entry.card.dataset.id + ':' + entry.revision);
 }
 function selectSurface(entry, documentHtml) {
   const changed = documentKey(entry.document) !== documentKey(documentHtml);
@@ -438,8 +438,24 @@ function applyContentModel(entry, model, type) {
   const nextDocument = model.document === undefined ? null : model.document;
   const surfaceChanged = documentKey(entry.document) !== documentKey(nextDocument);
   if (surfaceChanged) entry.pendingContent = null;
-  selectSurface(entry, nextDocument);
   const settleBeforeReveal = type === 'finalize' && !entry.streamingEnabled;
+  if (model.native_document === true) {
+    entry.pendingContent = null; entry.document = nextDocument; entry.mode = 'native';
+    entry.directHost.hidden = true; entry.frame.hidden = true;
+    activateCard(entry, becameVisible); return;
+  }
+  if (nextDocument !== null) {
+    entry.pendingContent = null;
+    entry.contentRevision++;
+    selectSurface(entry, nextDocument);
+    reportCardDiagnostic(entry.card.dataset.id, entry, 'document_content_committed', {
+      revision: entry.contentRevision,
+      payloadLen: nextDocument.length
+    });
+    activateCard(entry, becameVisible);
+    return;
+  }
+  selectSurface(entry, null);
   queueCardContent(entry, { type: type, html: model.body, refining: model.refining,
     settle_before_reveal: settleBeforeReveal });
   if (settleBeforeReveal) {
@@ -505,25 +521,16 @@ function reportNavigation(id, entry) {
   }));
 }
 function navigateTo(entry, url) {
-  cancelActiveFit(entry);
-  entry.navigationUrls.splice(entry.navigationDepth);
-  entry.navigationUrls.push(url);
-  entry.navigationDepth = entry.navigationUrls.length;
-  entry.mode = 'isolated';
-  entry.ready = false;
-  if (entry.commandPort) entry.commandPort.close();
-  entry.commandPort = null;
-  entry.directHost.hidden = true;
-  entry.frame.hidden = false;
-  entry.frame.removeAttribute('srcdoc');
-  entry.frame.src = url;
-  reportNavigation(entry.card.dataset.id, entry);
+  window.ipc.postMessage(JSON.stringify({
+    type: 'navigation_request', id: Number(entry.card.dataset.id), url: String(url)
+  }));
 }
 window.addEventListener('message', function(event) {
-  if (!event.data || event.origin !== isolatedOrigin) return;
+  if (!event.data) return;
   const id = String(event.data.card_id || '');
   const entry = cards.get(id);
   if (!entry || entry.mode !== 'isolated') return;
+  if (event.source !== entry.frame.contentWindow) return;
   if (Number(event.data.document_revision || 0) !== entry.revision) return;
     if (event.data.type === 'fit_diagnostic') {
       window.ipc.postMessage(JSON.stringify({ type: 'fit_diagnostic', id: Number(id), payload: event.data.payload }));
@@ -563,6 +570,11 @@ window.addEventListener('message', function(event) {
         };
         if (!deferIsolatedSettledPaint(entry, phase, details)) {
           reportCardDiagnostic(id, entry, phase, details);
+        }
+        if (phase === 'interactive_document_alive') {
+          const surface = isolatedSurfaceVisibility(entry);
+          reportCardDiagnostic(id, entry, surface.visible ? 'interactive_surface_visible'
+            : 'interactive_surface_rejected', { error: surface.error });
         }
       }
     } else if (event.data.type === 'card_interaction') {

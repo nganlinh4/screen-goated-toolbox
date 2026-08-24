@@ -1,5 +1,4 @@
 use super::card_bridge::with_card_bridge;
-use super::card_document::with_fit;
 use super::delivery::send_command;
 use super::diagnostics::{
     CardDiagnosticLog, log_card_diagnostic, log_fit_diagnostic, log_host_command,
@@ -83,9 +82,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
 
     let rendered = render_for_compositor(&snapshot.0, snapshot.1, &snapshot.2, &snapshot.3);
     let body = rendered.body;
-    let document = rendered
-        .isolated_document
-        .map(|document| with_card_bridge(with_fit(document)));
+    let document = rendered.isolated_document.map(with_card_bridge);
     let Some(geometry) = read_geometry(hwnd, requested_visible, snapshot.8) else {
         return;
     };
@@ -102,6 +99,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         control_rect: geometry.control_rect,
         body: body.clone(),
         document,
+        native_document: super::super::raw_webview::is_active(hwnd),
         refining: snapshot.1,
         background: format!("#{:06x}", snapshot.4 & 0x00ff_ffff),
         opacity: snapshot.5,
@@ -275,6 +273,15 @@ fn read_geometry(
             windows::Win32::UI::WindowsAndMessaging::SM_XVIRTUALSCREEN,
         )
     };
+    let scene_x = super::compositor_host_x(
+        virtual_x,
+        unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+                windows::Win32::UI::WindowsAndMessaging::SM_CXVIRTUALSCREEN,
+            )
+        }
+        .max(1),
+    );
     let virtual_y = unsafe {
         windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
             windows::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN,
@@ -287,13 +294,13 @@ fn read_geometry(
     Some(SceneGeometry {
         id: hwnd.0 as isize,
         rect: SceneRect {
-            x: screen_rect.left - virtual_x + x_inset,
+            x: screen_rect.left - scene_x + x_inset,
             y: screen_rect.top - virtual_y + y_inset,
             width: (screen_rect.right - screen_rect.left - width_inset).max(1),
             height: (screen_rect.bottom - screen_rect.top - height_inset).max(1),
         },
         control_rect: SceneRect {
-            x: screen_rect.left - virtual_x,
+            x: screen_rect.left - scene_x,
             y: screen_rect.top - virtual_y,
             width: (screen_rect.right - screen_rect.left).max(1),
             height: (screen_rect.bottom - screen_rect.top).max(1),
@@ -433,6 +440,10 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
             depth,
             max_depth,
         } => update_navigation_state(id, depth, max_depth),
+        ChildEvent::NavigationRequest { id, url } => {
+            let hwnd = HWND(id as *mut std::ffi::c_void);
+            super::super::raw_webview::request_navigation(hwnd, &url);
+        }
         ChildEvent::Interaction { id } => {
             raise_window_id(id);
         }

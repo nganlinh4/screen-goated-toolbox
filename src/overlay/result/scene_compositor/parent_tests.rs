@@ -31,6 +31,7 @@ fn test_card(streaming: bool) -> SceneCard {
         },
         body: "result".to_string(),
         document: None,
+        native_document: false,
         refining: false,
         background: "#ffffff".to_string(),
         opacity: 90,
@@ -71,11 +72,9 @@ fn streaming_to_completed_transition_is_always_finalize() {
 }
 
 #[test]
-fn final_fit_remains_callable_after_iframe_resize() {
-    let fitted = with_fit("<html><body>result</body></html>".to_string());
-    let bridged = with_card_bridge(fitted);
+fn isolated_document_bridge_reports_ready_and_refits_after_resize() {
+    let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
 
-    assert!(bridged.contains("window.__SGT_RUN_FIT__=function(streaming)"));
     assert!(bridged.contains("window.addEventListener('resize'"));
     assert!(bridged.contains("queueFit(window.__SGT_STREAMING__)"));
     assert!(bridged.contains("type: 'fit_request'"));
@@ -106,47 +105,23 @@ fn card_content_stays_hidden_until_document_font_activation() {
 
 #[test]
 fn card_document_waits_for_activation_before_its_first_fit() {
-    let fitted = with_fit("<html><body>result</body></html>".to_string());
-
-    assert!(fitted.contains("window.__SGT_RUN_FIT__=function(streaming)"));
-    assert!(!fitted.contains("window.__SGT_RUN_FIT__(window.__SGT_STREAMING__)"));
-}
-
-#[test]
-fn streaming_cards_use_the_full_fitter() {
-    let fitted = with_fit("<html><body>result</body></html>".to_string());
-    assert!(fitted.contains("fit_font_to_window_runtime"));
-    assert!(fitted.contains("const isStreamingFit = Boolean(streaming)"));
-    assert!(fitted.contains("window.__SGT_STREAMING__=false"));
-}
-
-#[test]
-fn finalization_reuses_the_loaded_document() {
     let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
 
-    assert!(bridged.contains("commandType === 'finalize'"));
+    assert!(bridged.contains("if (!fontReady)"));
+    assert!(bridged.contains("commandType === 'activate_font'"));
+    assert!(
+        !bridged.contains("queueFit(window.__SGT_STREAMING__);\n  reportCardState('bridge_ready'")
+    );
+}
+
+#[test]
+fn isolated_document_is_authoritative_and_cannot_be_replaced_by_inner_html() {
+    let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
+
     assert!(bridged.contains("event.data.card_id"));
-    assert!(bridged.contains("window.__SGT_APPLY_STREAM_UPDATE__"));
-    assert!(bridged.contains("animateNewWords: false"));
-    assert!(bridged.contains("window.__SGT_INIT_STREAM_GRIDS__()"));
-    assert!(bridged.contains("queueFit(false)"));
-    assert!(bridged.contains("finalizing: true"));
-}
-
-#[test]
-fn streaming_keeps_the_legacy_word_reveal_contract() {
-    let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
-
-    assert!(bridged.contains("lastRevealedIndex"));
-    assert!(bridged.contains("targetWordsPerSecond = 40"));
-    assert!(bridged.contains("runInlineSizing: true"));
-}
-
-#[test]
-fn auto_fitted_streaming_content_remains_top_anchored() {
-    let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
-
-    assert!(bridged.contains("window.scrollTo({"));
-    assert!(bridged.contains("top: 0"));
-    assert!(!bridged.contains("smoothScroll"));
+    assert!(!bridged.contains("'stream_update'"));
+    assert!(!bridged.contains("'finalize'"));
+    assert!(!bridged.contains("document.body.innerHTML"));
+    assert!(!bridged.contains("window.__SGT_APPLY_STREAM_UPDATE__"));
+    assert!(!bridged.contains("fit_font_to_window_runtime"));
 }

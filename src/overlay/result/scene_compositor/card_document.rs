@@ -11,19 +11,6 @@ pub(super) fn compositor_document(isolated_origin: &str) -> String {
     )
 }
 
-pub(super) fn with_fit(mut html: String) -> String {
-    let script = crate::overlay::result::markdown_view::fit::runtime_fit_script();
-    let injected = format!(
-        "<script>window.__SGT_STREAMING__=false;window.__SGT_RUN_FIT__=function(streaming){{{script}}};</script>"
-    );
-    if let Some(position) = html.to_ascii_lowercase().rfind("</body>") {
-        html.insert_str(position, &injected);
-    } else {
-        html.push_str(&injected);
-    }
-    html
-}
-
 fn build_compositor_document() -> String {
     let card_css = format!(
         r#"

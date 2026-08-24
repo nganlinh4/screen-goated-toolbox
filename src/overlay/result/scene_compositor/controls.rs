@@ -48,7 +48,7 @@ pub fn sync_all() {
 
 pub fn set_opacity(hwnd: HWND, value: u8) {
     let id = hwnd.0 as isize;
-    let opacity = value.clamp(10, 100);
+    let opacity = crate::config::types::normalize_result_overlay_opacity_percent(value);
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         let Some(state) = states.get_mut(&id) else {
@@ -67,6 +67,7 @@ pub fn set_opacity(hwnd: HWND, value: u8) {
     if updated {
         send_command(HostCommand::Opacity { id, opacity });
     }
+    super::super::raw_webview::request_sync(hwnd);
 }
 
 pub fn set_control_scope_opacity(hwnd: HWND, value: u8) {

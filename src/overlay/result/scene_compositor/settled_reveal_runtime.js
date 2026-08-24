@@ -4,6 +4,29 @@ function setSettledSurfaceVisibility(entry, visible) {
   entry.frame.style.visibility = visibility;
 }
 
+function isolatedSurfaceVisibility(entry) {
+  const cardStyle = getComputedStyle(entry.card);
+  const frameStyle = getComputedStyle(entry.frame);
+  const rect = entry.frame.getBoundingClientRect();
+  const visible = entry.mode === 'isolated' && entry.frame.isConnected
+    && !entry.card.hidden && !entry.frame.hidden
+    && cardStyle.display !== 'none' && cardStyle.visibility === 'visible'
+    && frameStyle.display !== 'none' && frameStyle.visibility === 'visible'
+    && Number(cardStyle.opacity) > 0 && Number(frameStyle.opacity) > 0
+    && rect.width >= 1 && rect.height >= 1 && rect.right > 0 && rect.bottom > 0
+    && rect.left < window.innerWidth && rect.top < window.innerHeight;
+  return {
+    visible: visible,
+    error: visible ? null : 'mode=' + entry.mode + ' connected=' + entry.frame.isConnected
+      + ' card_hidden=' + entry.card.hidden + ' frame_hidden=' + entry.frame.hidden
+      + ' card_display=' + cardStyle.display + ' frame_display=' + frameStyle.display
+      + ' card_visibility=' + cardStyle.visibility + ' frame_visibility=' + frameStyle.visibility
+      + ' card_opacity=' + cardStyle.opacity + ' frame_opacity=' + frameStyle.opacity
+      + ' rect=' + rect.left + ',' + rect.top + ',' + rect.width + ',' + rect.height
+      + ' viewport=' + window.innerWidth + ',' + window.innerHeight
+  };
+}
+
 const sourceReplacementReveal = (function() {
   let pending = [];
   let frame = 0;

@@ -4,7 +4,7 @@ use crate::overlay::result::scene_compositor::protocol::{
 };
 
 #[test]
-fn geometry_only_commands_do_not_force_a_webview_redraw() {
+fn only_commands_that_change_native_clipping_or_content_redraw_the_region() {
     let command = HostCommand::Geometry {
         cards: vec![SceneGeometry {
             id: 42,
@@ -32,7 +32,7 @@ fn geometry_only_commands_do_not_force_a_webview_redraw() {
             cards: Vec::new(),
         },
     }));
-    assert!(!command_requires_region_redraw(&HostCommand::Raise {
+    assert!(command_requires_region_redraw(&HostCommand::Raise {
         id: 42,
         stack_order: 9,
     }));

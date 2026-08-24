@@ -29,7 +29,7 @@ pub(super) static CARDS: LazyLock<Mutex<HashMap<isize, SceneCard>>> =
 static STDOUT: LazyLock<Mutex<std::io::Stdout>> = LazyLock::new(|| Mutex::new(std::io::stdout()));
 
 thread_local! {
-    static WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
+    pub(super) static WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
     static WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
 }
 
@@ -70,7 +70,10 @@ fn create_host_window() -> anyhow::Result<HWND> {
             ..Default::default()
         };
         let _ = RegisterClassW(&window_class);
-        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let x = super::compositor_host_x(
+            GetSystemMetrics(SM_XVIRTUALSCREEN),
+            GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1),
+        );
         let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
         let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
         let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
@@ -286,10 +289,7 @@ fn drain_commands(hwnd: HWND) {
 fn command_requires_region_redraw(command: &HostCommand) -> bool {
     !matches!(
         command,
-        HostCommand::Geometry { .. }
-            | HostCommand::Opacity { .. }
-            | HostCommand::Theme { .. }
-            | HostCommand::Raise { .. }
+        HostCommand::Geometry { .. } | HostCommand::Opacity { .. } | HostCommand::Theme { .. }
     )
 }
 
@@ -343,6 +343,7 @@ fn handle_renderer_event(body: &str) {
             if let Ok(event) = serde_json::from_str::<ChildEvent>(body) {
                 match event {
                     ChildEvent::Navigation { .. }
+                    | ChildEvent::NavigationRequest { .. }
                     | ChildEvent::Interaction { .. }
                     | ChildEvent::ButtonAction { .. }
                     | ChildEvent::DragStarted
@@ -351,6 +352,11 @@ fn handle_renderer_event(body: &str) {
                     | ChildEvent::CardDiagnostic { .. }
                     | ChildEvent::FontReady { .. }
                     | ChildEvent::CommandError { .. } => {
+                        if let ChildEvent::CardDiagnostic { phase, .. } = &event
+                            && phase == "final_fit_completed"
+                        {
+                            click_acceptance_link();
+                        }
                         emit_event(event);
                     }
                     ChildEvent::Ready
@@ -361,6 +367,15 @@ fn handle_renderer_event(body: &str) {
             }
         }
     }
+}
+
+fn click_acceptance_link() {
+    if !super::acceptance_offscreen() {
+        return;
+    }
+    evaluate_script(
+        "if(!window.__SGT_ACCEPTANCE_LINK_CLICKED__){for(const host of document.querySelectorAll('.result-card .direct-host')){const anchor=host.shadowRoot?.querySelector('a[href]');if(anchor){window.__SGT_ACCEPTANCE_LINK_CLICKED__=true;anchor.click();break;}}}",
+    );
 }
 
 fn command_name(command: &HostCommand) -> &'static str {
@@ -504,10 +519,10 @@ fn evaluate_script(script: &str) {
 
 fn resize_host(hwnd: HWND) {
     unsafe {
-        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
         let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
         let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
+        let x = super::compositor_host_x(GetSystemMetrics(SM_XVIRTUALSCREEN), width);
+        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
         let _ = SetWindowPos(
             hwnd,
             Some(HWND_TOPMOST),

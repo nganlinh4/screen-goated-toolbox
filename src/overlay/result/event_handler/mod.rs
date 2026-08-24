@@ -18,6 +18,21 @@ pub unsafe extern "system" fn result_wnd_proc(
             WM_PAINT => misc::handle_paint(hwnd),
             WM_NCHITTEST => handle_hit_test(hwnd, lparam),
             WM_DESTROY => misc::handle_destroy(hwnd),
+            WM_PARENTNOTIFY
+                if wparam.0 & 0xffff == WM_LBUTTONDOWN as usize
+                    && super::raw_webview::is_active(hwnd) =>
+            {
+                super::raw_webview::focus(hwnd);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+            msg if msg == super::raw_webview::WM_SYNC => {
+                super::raw_webview::sync(hwnd);
+                LRESULT(0)
+            }
+            msg if msg == super::raw_webview::WM_NAVIGATE => {
+                super::raw_webview::navigate_pending(hwnd);
+                LRESULT(0)
+            }
             WM_DISPLAYCHANGE => misc::handle_display_change(hwnd),
             WM_SHOWWINDOW => misc::handle_show_window(hwnd, wparam, lparam),
             WM_GETMINMAXINFO => {
@@ -53,6 +68,7 @@ pub unsafe extern "system" fn result_wnd_proc(
             msg if msg == misc::WM_DOWNLOAD_CLICK => misc::handle_download_click(hwnd),
             msg if msg == misc::WM_CLOSE_GROUP_CLICK => misc::handle_close_group_click(hwnd),
             WM_WINDOWPOSCHANGED => {
+                super::raw_webview::resize(hwnd);
                 crate::overlay::result::scene_compositor::sync_geometry(
                     hwnd,
                     IsWindowVisible(hwnd).as_bool(),

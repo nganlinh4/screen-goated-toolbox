@@ -18,6 +18,8 @@ pub struct SceneCard {
     pub control_rect: SceneRect,
     pub body: String,
     pub document: Option<String>,
+    #[serde(default)]
+    pub native_document: bool,
     pub refining: bool,
     pub background: String,
     pub opacity: u8,
@@ -294,6 +296,10 @@ pub enum ChildEvent {
         depth: usize,
         max_depth: usize,
     },
+    NavigationRequest {
+        id: isize,
+        url: String,
+    },
     Interaction {
         id: isize,
     },
@@ -336,6 +342,7 @@ mod tests {
                 },
                 body: "<p>line one</p>".to_string(),
                 document: Some("<p>line one</p>\n<script>const x = `quoted`;</script>".to_string()),
+                native_document: true,
                 refining: false,
                 background: "#112233".to_string(),
                 opacity: 85,
@@ -360,6 +367,7 @@ mod tests {
 
         assert_eq!(decoded, command);
         assert!(!encoded.contains('\n'));
+        assert!(encoded.contains("\"native_document\":true"));
     }
 
     #[test]

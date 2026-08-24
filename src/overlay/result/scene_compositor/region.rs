@@ -12,6 +12,10 @@ pub(super) fn needs_update(redraw: bool, dragging: bool) -> bool {
     redraw || !dragging
 }
 
+fn compositor_owns_card_region(native_document: bool) -> bool {
+    !native_document
+}
+
 fn base_bounds(dragging: bool, width: i32, height: i32) -> RECT {
     if dragging {
         RECT {
@@ -38,6 +42,9 @@ pub(super) fn update(hwnd: HWND, redraw: bool) {
         let mut visible_count = 0usize;
         for card in cards.values().filter(|card| card.visible) {
             visible_count += 1;
+            if !compositor_owns_card_region(card.native_document) {
+                continue;
+            }
             union_rect(
                 combined,
                 card.rect.x,
@@ -80,7 +87,7 @@ unsafe fn union_rect(region: HRGN, x: i32, y: i32, width: i32, height: i32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{base_bounds, needs_update};
+    use super::{base_bounds, compositor_owns_card_region, needs_update};
 
     #[test]
     fn drag_uses_the_full_compositor_without_moving_the_native_clip() {
@@ -90,5 +97,11 @@ mod tests {
         assert!(!needs_update(false, true));
         assert!(needs_update(false, false));
         assert!(needs_update(true, true));
+    }
+
+    #[test]
+    fn native_documents_leave_a_hole_in_the_shared_compositor() {
+        assert!(!compositor_owns_card_region(true));
+        assert!(compositor_owns_card_region(false));
     }
 }
