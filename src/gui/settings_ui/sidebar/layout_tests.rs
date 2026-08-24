@@ -18,7 +18,7 @@ fn lay_out_sidebar(config: &mut Config) -> egui::Context {
     // Two passes: an egui Grid measures its column widths on the first frame and
     // only settles on the second.
     for _ in 0..2 {
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let _ = crate::gui::test_support::run_ui(&ctx, egui::RawInput::default(), |ui| {
             ui.set_max_width(900.0);
             render_sidebar(ui, config, &mut view_mode, &text);
         });

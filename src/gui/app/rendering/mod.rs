@@ -126,7 +126,7 @@ impl SettingsApp {
                         bottom: 0,
                     }),
             )
-            .show_inside(root_ui, |ui| {
+            .show(root_ui, |ui| {
                 let sidebar_response =
                     render_sidebar(ui, &mut self.config, &mut self.view_mode, &text);
                 if let Some(index_move) = sidebar_response.preset_index_move {
@@ -151,7 +151,7 @@ impl SettingsApp {
             .exact_size(RIGHT_PAD)
             .show_separator_line(false)
             .frame(egui::Frame::NONE.fill(panel_fill))
-            .show_inside(root_ui, |_ui| {});
+            .show(root_ui, |_ui| {});
 
         // Aux columns dock from the right — History outermost, then Global — so the
         // visual order is: controls | editor | global | history.
@@ -166,7 +166,7 @@ impl SettingsApp {
                 .show_separator_line(false)
                 .exact_size(detail_pane_width(*pane))
                 .frame(col_frame(crate::gui::theme::space::CARD))
-                .show_inside(root_ui, |ui| {
+                .show(root_ui, |ui| {
                     let cb = san(ui.max_rect().bottom(), 600.0);
                     let cr = san(ui.max_rect().right(), 1200.0);
                     self.render_detail_pane(ui, ctx, *pane, &text, cb, cr);
@@ -176,7 +176,7 @@ impl SettingsApp {
         // Central: the main / first pane (the editor, or the focused single pane).
         egui::CentralPanel::default()
             .frame(col_frame(crate::gui::theme::space::CARD))
-            .show_inside(root_ui, |ui| {
+            .show(root_ui, |ui| {
                 let cb = san(ui.max_rect().bottom(), 600.0);
                 let cr = san(ui.max_rect().right(), 1200.0);
                 if let Some(main) = panes.first() {

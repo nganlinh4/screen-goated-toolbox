@@ -296,7 +296,7 @@ mod tests {
     fn a_lane_maps_grid_rows_to_presets_gaps_and_its_add_button() {
         let ctx = egui::Context::default();
         let mut cells = Vec::new();
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let _ = crate::gui::test_support::run_ui(&ctx, egui::RawInput::default(), |ui| {
             // Config indices 1, 4 and 7 belong to this lane; the rest are other
             // modalities interleaved between them.
             let lane = Lane::load(ui, "test-lane", vec![1, 4, 7]);

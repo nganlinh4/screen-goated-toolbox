@@ -488,7 +488,7 @@ fn combo_chevron(
 
 /// A themed [`egui::ComboBox`] that paints a Material chevron instead of egui's
 /// default triangle. Drop-in replacement for `egui::ComboBox::from_id_salt(..)`.
-pub fn combo(id_salt: impl std::hash::Hash) -> egui::ComboBox {
+pub fn combo(id_salt: impl std::hash::Hash + std::fmt::Debug) -> egui::ComboBox {
     egui::ComboBox::from_id_salt(id_salt).icon(combo_chevron)
 }
 

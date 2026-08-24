@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.87"
 name = "wgpu-hal"
-version = "29.0.3"
+version = "30.0.1"
 authors = ["gfx-rs developers"]
 build = "build.rs"
 autolib = false
@@ -56,7 +56,6 @@ dx12 = [
     "dep:bit-set",
     "dep:bytemuck",
     "dep:gpu-allocator",
-    "dep:hashbrown",
     "dep:libloading",
     "dep:once_cell",
     "dep:ordered-float",
@@ -68,6 +67,7 @@ dx12 = [
     "naga/hlsl-out",
     "once_cell/std",
     "windows/Win32_Devices_DeviceAndDriverInstallation",
+    "windows/Win32_Devices_Display",
     "windows/Win32_Graphics_Direct3D_Dxc",
     "windows/Win32_Graphics_Direct3D_Fxc",
     "windows/Win32_Graphics_Direct3D",
@@ -75,6 +75,7 @@ dx12 = [
     "windows/Win32_Graphics_DirectComposition",
     "windows/Win32_Graphics_Direct2D_Common",
     "windows/Win32_Graphics_Dxgi_Common",
+    "windows/Win32_Graphics_Gdi",
     "windows/Win32_Security",
     "windows/Win32_System_Diagnostics_Debug",
     "windows/Win32_System_Kernel",
@@ -88,7 +89,6 @@ gles = [
     "dep:bytemuck",
     "dep:glow",
     "dep:glutin_wgl_sys",
-    "dep:hashbrown",
     "dep:js-sys",
     "dep:khronos-egl",
     "dep:libloading",
@@ -114,10 +114,10 @@ metal = [
     "dep:arrayvec",
     "dep:block2",
     "dep:bytemuck",
-    "dep:hashbrown",
-    "dep:libc",
+    "dep:libloading",
     "dep:objc2",
     "dep:objc2-core-foundation",
+    "dep:objc2-core-graphics",
     "dep:objc2-foundation",
     "dep:objc2-metal",
     "dep:objc2-quartz-core",
@@ -142,8 +142,6 @@ vulkan = [
     "dep:arrayvec",
     "dep:ash",
     "dep:bytemuck",
-    "dep:gpu-descriptor",
-    "dep:hashbrown",
     "dep:libc",
     "dep:libloading",
     "dep:ordered-float",
@@ -154,6 +152,11 @@ vulkan = [
     "dep:windows",
     "gpu-allocator/vulkan",
     "windows/Win32",
+    "windows/Win32_Devices_Display",
+    "windows/Win32_Foundation",
+    "windows/Win32_Graphics_Dxgi",
+    "windows/Win32_Graphics_Dxgi_Common",
+    "windows/Win32_Graphics_Gdi",
 ]
 
 [lib]
@@ -198,19 +201,21 @@ version = "0.17"
 optional = true
 
 [dependencies.hashbrown]
-version = "0.16"
+version = "0.17"
 features = [
     "default-hasher",
     "inline-more",
 ]
-optional = true
 default-features = false
 
 [dependencies.log]
 version = "0.4.29"
 
 [dependencies.naga]
-version = "29.0.1"
+version = "30.0.0"
+
+[dependencies.naga-types]
+version = "30.0.0"
 
 [dependencies.ordered-float]
 version = ">=3, <6.0"
@@ -230,15 +235,18 @@ default-features = false
 version = "0.6.2"
 default-features = false
 
+[dependencies.static_assertions]
+version = "1.1"
+
 [dependencies.thiserror]
 version = "2.0.12"
 default-features = false
 
 [dependencies.wgpu-naga-bridge]
-version = "29.0.1"
+version = "30.0.0"
 
 [dependencies.wgpu-types]
-version = "29.0.1"
+version = "30.0.0"
 default-features = false
 
 [dev-dependencies.env_logger]
@@ -246,10 +254,10 @@ version = "0.11"
 default-features = false
 
 [dev-dependencies.glam]
-version = "0.32.0"
+version = "0.33.0"
 
 [dev-dependencies.naga]
-version = "29.0.1"
+version = "30.0.0"
 features = [
     "wgsl-in",
     "termcolor",
@@ -260,29 +268,34 @@ version = "0.30.8"
 features = ["android-native-activity"]
 
 [build-dependencies.cfg_aliases]
-version = "0.2.1"
+version = "0.2.2"
 
 [target.'cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))'.dependencies.js-sys]
-version = "0.3.85"
+version = "0.3.104"
 optional = true
 default-features = true
 
 [target.'cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))'.dependencies.wasm-bindgen]
-version = "0.2.108"
+version = "0.2.127"
 optional = true
 default-features = false
 
 [target.'cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))'.dependencies.web-sys]
-version = "0.3.85"
+version = "0.3.104"
 features = [
     "default",
     "Window",
     "HtmlCanvasElement",
     "WebGl2RenderingContext",
     "OffscreenCanvas",
+    "VideoFrame",
 ]
 optional = true
 default-features = false
+
+[target.'cfg(all(unix, not(target_vendor = "apple"), not(target_family = "wasm")))'.dependencies.drm]
+version = "0.15"
+optional = true
 
 [target.'cfg(all(windows, not(target_arch = "aarch64"), target_env = "msvc"))'.dependencies.mach-dxcompiler-rs]
 version = "0.1.4"
@@ -322,10 +335,6 @@ version = "0.28"
 features = ["hashbrown"]
 optional = true
 default-features = false
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.gpu-descriptor]
-version = "0.3.2"
-optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.khronos-egl]
 version = "6"
@@ -395,6 +404,15 @@ features = [
 optional = true
 default-features = false
 
+[target.'cfg(target_vendor = "apple")'.dependencies.objc2-core-graphics]
+version = "0.3.2"
+features = [
+    "std",
+    "CGColorSpace",
+]
+optional = true
+default-features = false
+
 [target.'cfg(target_vendor = "apple")'.dependencies.objc2-foundation]
 version = "0.3.2"
 features = [
@@ -454,6 +472,7 @@ version = "0.3.2"
 features = [
     "std",
     "objc2-core-foundation",
+    "objc2-core-graphics",
     "CALayer",
     "CAMetalLayer",
     "objc2-metal",
@@ -466,7 +485,7 @@ version = "1.0"
 optional = true
 
 [target."cfg(unix)".dependencies.libc]
-version = "0.2.172"
+version = "0.2.183"
 optional = true
 default-features = false
 
@@ -480,7 +499,7 @@ features = [
 optional = true
 
 [target."cfg(windows)".dependencies.bit-set]
-version = "0.9"
+version = "0.10"
 optional = true
 default-features = false
 
@@ -511,6 +530,9 @@ default-features = false
 version = "0.4"
 optional = true
 default-features = false
+
+[lints.rust]
+missing_debug_implementations = "warn"
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

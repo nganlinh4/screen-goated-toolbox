@@ -311,7 +311,7 @@ fn map_blend_component(
 pub fn map_render_targets(
     color_targets: &[Option<wgt::ColorTargetState>],
 ) -> [Direct3D12::D3D12_RENDER_TARGET_BLEND_DESC;
-    Direct3D12::D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT as usize] {
+       Direct3D12::D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT as usize] {
     let dummy_target = Direct3D12::D3D12_RENDER_TARGET_BLEND_DESC {
         BlendEnable: false.into(),
         LogicOpEnable: false.into(),
@@ -446,4 +446,22 @@ pub(crate) fn map_acceleration_structure_copy_mode(
             Direct3D12::D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT
         }
     }
+}
+
+pub(crate) const fn make_shader_component_mapping(
+    src0: Direct3D12::D3D12_SHADER_COMPONENT_MAPPING,
+    src1: Direct3D12::D3D12_SHADER_COMPONENT_MAPPING,
+    src2: Direct3D12::D3D12_SHADER_COMPONENT_MAPPING,
+    src3: Direct3D12::D3D12_SHADER_COMPONENT_MAPPING,
+) -> Direct3D12::D3D12_SHADER_COMPONENT_MAPPING {
+    const M: i32 = Direct3D12::D3D12_SHADER_COMPONENT_MAPPING_MASK as i32;
+    const S: i32 = Direct3D12::D3D12_SHADER_COMPONENT_MAPPING_SHIFT as i32;
+    Direct3D12::D3D12_SHADER_COMPONENT_MAPPING(
+        (src0.0 & M)
+            | (src1.0 & M) << S
+            | (src2.0 & M) << (S * 2)
+            | (src3.0 & M) << (S * 3)
+            | Direct3D12::D3D12_SHADER_COMPONENT_MAPPING_ALWAYS_SET_BIT_AVOIDING_ZEROMEM_MISTAKES
+                as i32,
+    )
 }

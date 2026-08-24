@@ -11,9 +11,9 @@
 
 [package]
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.95"
 name = "egui-wgpu"
-version = "0.34.3"
+version = "0.36.1"
 authors = [
     "Nils Hasenbanck <nils@hasenbanck.de>",
     "embotech <opensource@embotech.com>",
@@ -86,23 +86,23 @@ features = [
 default-features = false
 
 [dependencies.bytemuck]
-version = "1.24.0"
+version = "1.25"
 
 [dependencies.document-features]
-version = "0.2.11"
+version = "0.2.12"
 
 [dependencies.egui]
-version = "0.34.3"
+version = "0.36.1"
 optional = true
 default-features = false
 
 [dependencies.epaint]
-version = "0.34.3"
+version = "0.36.1"
 features = ["bytemuck"]
 default-features = false
 
 [dependencies.log]
-version = "0.4.28"
+version = "0.4.33"
 features = ["std"]
 
 # SGT modification: used to rebuild Painter GPU state synchronously inside the existing event loop.
@@ -110,20 +110,20 @@ features = ["std"]
 version = "0.4"
 
 [dependencies.profiling]
-version = "1.0.17"
+version = "1.0"
 default-features = false
 
 [dependencies.thiserror]
-version = "2.0.17"
+version = "2.0"
 
 [dependencies.type-map]
 version = "0.5.1"
 
 [dependencies.web-time]
-version = "1.1.0"
+version = "1.1"
 
 [dependencies.wgpu]
-version = "29.0.1"
+version = "30.0"
 features = [
     "std",
     "wgsl",
@@ -146,6 +146,7 @@ assigning_clones = "allow"
 await_holding_lock = "warn"
 bool_to_int_with_if = "warn"
 branches_sharing_code = "warn"
+cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
 char_lit_as_u8 = "warn"
 checked_conversions = "warn"
@@ -156,6 +157,7 @@ coerce_container_to_any = "warn"
 comparison_chain = "allow"
 dbg_macro = "warn"
 debug_assert_with_mut_call = "warn"
+decimal_bitwise_operands = "warn"
 default_union_representation = "warn"
 derive_partial_eq_without_eq = "warn"
 disallowed_macros = "warn"
@@ -168,9 +170,10 @@ doc_comment_double_space_linebreaks = "warn"
 doc_include_without_cfg = "warn"
 doc_link_with_quotes = "warn"
 doc_markdown = "warn"
+duration_suboptimal_units = "warn"
 elidable_lifetime_names = "warn"
-empty_enum = "warn"
 empty_enum_variants_with_brackets = "warn"
+empty_enums = "warn"
 empty_line_after_outer_attr = "warn"
 enum_glob_use = "warn"
 equatable_if_let = "warn"
@@ -185,10 +188,12 @@ flat_map_option = "warn"
 float_cmp_const = "warn"
 fn_params_excessive_bools = "warn"
 fn_to_numeric_cast_any = "warn"
+format_push_string = "warn"
 from_iter_instead_of_collect = "warn"
 get_unwrap = "warn"
 if_let_mutex = "warn"
 ignore_without_reason = "warn"
+ignored_unit_patterns = "warn"
 implicit_clone = "warn"
 implied_bounds_in_impls = "warn"
 imprecise_flops = "warn"
@@ -221,6 +226,7 @@ lossy_float_literal = "warn"
 macro_use_imports = "warn"
 manual_assert = "warn"
 manual_clamp = "warn"
+manual_ilog2 = "warn"
 manual_instant_elapsed = "warn"
 manual_is_power_of_two = "warn"
 manual_is_variant_and = "warn"
@@ -241,6 +247,7 @@ mismatching_type_param_order = "warn"
 missing_assert_message = "warn"
 missing_enforced_import_renames = "warn"
 missing_errors_doc = "warn"
+missing_fields_in_debug = "warn"
 missing_safety_doc = "warn"
 mixed_attributes_style = "warn"
 mut_mut = "warn"
@@ -250,10 +257,13 @@ needless_continue = "warn"
 needless_for_each = "warn"
 needless_pass_by_ref_mut = "warn"
 needless_pass_by_value = "warn"
+needless_raw_string_hashes = "warn"
+needless_type_cast = "warn"
 negative_feature_names = "warn"
 non_std_lazy_statics = "warn"
 non_zero_suggestions = "warn"
 nonstandard_macro_braces = "warn"
+only_used_in_recursion = "warn"
 option_as_ref_cloned = "warn"
 option_option = "warn"
 or_fun_call = "warn"
@@ -270,11 +280,13 @@ rc_mutex = "warn"
 readonly_write_lock = "warn"
 redundant_type_annotations = "warn"
 ref_as_ptr = "warn"
+ref_option = "warn"
 ref_option_ref = "warn"
 ref_patterns = "warn"
 rest_pat_in_fully_bound_structs = "warn"
 return_and_then = "warn"
 same_functions_in_if_condition = "warn"
+same_length_and_capacity = "warn"
 self_named_module_files = "allow"
 self_only_used_in_recursion = "warn"
 semicolon_if_nothing_returned = "warn"
@@ -294,6 +306,7 @@ suspicious_command_arg_space = "warn"
 suspicious_xor_used_as_pow = "warn"
 todo = "warn"
 too_long_first_doc_paragraph = "warn"
+too_many_arguments = "warn"
 too_many_lines = "allow"
 trailing_empty_array = "warn"
 trait_duplication_in_bounds = "warn"
@@ -312,6 +325,7 @@ unnecessary_safety_doc = "warn"
 unnecessary_self_imports = "warn"
 unnecessary_semicolon = "warn"
 unnecessary_struct_initialization = "warn"
+unnecessary_trailing_comma = "warn"
 unnecessary_wraps = "warn"
 unnested_or_patterns = "warn"
 unused_async = "warn"

@@ -4,7 +4,7 @@
 
 use alloc::vec::Vec;
 
-use hashbrown::{HashMap, hash_map::Entry};
+use hashbrown::{hash_map::Entry, HashMap};
 
 use ordered_float::OrderedFloat;
 use parking_lot::Mutex;
@@ -185,10 +185,7 @@ impl SamplerHeap {
                 // Try to get a new index from the freelist.
                 let Some(index) = state.freelist.pop() else {
                     // If the freelist is empty, we have hit the maximum number of samplers.
-                    log::error!(
-                        "There is no more room in the global sampler heap for more unique samplers. Your device supports a maximum of {} unique samplers.",
-                        state.mapping.len()
-                    );
+                    log::error!("There is no more room in the global sampler heap for more unique samplers. Your device supports a maximum of {} unique samplers.", state.mapping.len());
                     return Err(crate::DeviceError::OutOfMemory);
                 };
 

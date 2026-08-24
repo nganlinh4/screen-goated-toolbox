@@ -316,7 +316,7 @@ mod tests {
     /// Runs one egui pass, handing the body a `Ui` to work in.
     fn pass(ctx: &egui::Context, body: impl FnOnce(&mut egui::Ui)) {
         let mut body = Some(body);
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let _ = crate::gui::test_support::run_ui(ctx, egui::RawInput::default(), |ui| {
             if let Some(body) = body.take() {
                 body(ui);
             }

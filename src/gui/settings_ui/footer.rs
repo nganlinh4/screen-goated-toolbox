@@ -305,7 +305,8 @@ mod tests {
             let mut show_tts_playground = false;
             let mut show_download = false;
 
-            let _ = context.run_ui(
+            let _ = crate::gui::test_support::run_ui(
+                &context,
                 egui::RawInput {
                     screen_rect: Some(screen),
                     ..Default::default()

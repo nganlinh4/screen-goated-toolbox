@@ -1,11 +1,10 @@
 use anyhow::{Context, bail};
 use std::io::Cursor;
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
+use symphonia::core::codecs::audio::{AudioDecoderOptions, CODEC_ID_NULL_AUDIO};
 use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 /// Decode in-memory MP3 bytes to interleaved-then-mono-downmixed PCM16, mirroring
 /// the previous `minimp3` decode loop used by the Edge and Google TTS workers.
@@ -27,34 +26,31 @@ pub(crate) fn decode_mp3_to_pcm(
     let mut hint = Hint::new();
     hint.with_extension("mp3");
 
-    let probed = match symphonia::default::get_probe().format(
+    let mut format = match symphonia::default::get_probe().probe(
         &hint,
         mss,
-        &FormatOptions::default(),
-        &MetadataOptions::default(),
+        FormatOptions::default(),
+        MetadataOptions::default(),
     ) {
         Ok(p) => p,
         Err(_) => return true,
     };
 
-    let mut format = probed.format;
-
-    let track = match format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-    {
-        Some(t) => t,
+    let track = match format.tracks().iter().find_map(|track| {
+        let params = track.codec_params.as_ref()?.audio()?;
+        (params.codec != CODEC_ID_NULL_AUDIO).then_some((track.id, params.clone()))
+    }) {
+        Some(track) => track,
         None => return true,
     };
-    let track_id = track.id;
-    let codec_params = track.codec_params.clone();
+    let (track_id, codec_params) = track;
 
-    let mut decoder =
-        match symphonia::default::get_codecs().make(&codec_params, &DecoderOptions::default()) {
-            Ok(d) => d,
-            Err(_) => return true,
-        };
+    let mut decoder = match symphonia::default::get_codecs()
+        .make_audio_decoder(&codec_params, &AudioDecoderOptions::default())
+    {
+        Ok(d) => d,
+        Err(_) => return true,
+    };
 
     loop {
         if is_interrupted() {
@@ -62,13 +58,14 @@ pub(crate) fn decode_mp3_to_pcm(
         }
 
         let packet = match format.next_packet() {
-            Ok(p) => p,
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
             // EOF (and any other read error) ends decoding, matching the previous
             // `minimp3::Error::Eof => break` / `Err(_) => break` behavior.
             Err(_) => break,
         };
 
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
 
@@ -77,21 +74,18 @@ pub(crate) fn decode_mp3_to_pcm(
             Err(_) => continue,
         };
 
-        let spec = *decoded.spec();
-        *source_sample_rate = spec.rate;
+        let spec = decoded.spec();
+        *source_sample_rate = spec.rate();
+        let mut samples = vec![0_i16; decoded.samples_interleaved()];
+        decoded.copy_to_slice_interleaved(&mut samples);
 
-        let duration = decoded.capacity() as u64;
-        let mut sample_buf = SampleBuffer::<i16>::new(duration, spec);
-        sample_buf.copy_interleaved_ref(decoded);
-        let samples = sample_buf.samples();
-
-        if spec.channels.count() == 2 {
-            for chunk in samples.chunks(2) {
+        if spec.channels().count() == 2 {
+            for chunk in samples.as_chunks::<2>().0 {
                 let sample = ((chunk[0] as i32 + chunk[1] as i32) / 2) as i16;
                 all_samples.push(sample);
             }
         } else {
-            all_samples.extend_from_slice(samples);
+            all_samples.extend_from_slice(&samples);
         }
     }
 

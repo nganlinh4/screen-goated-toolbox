@@ -72,19 +72,15 @@ mod row_alignment_tests {
     /// regression is invisible in code review and shows up as every label in
     /// the app sitting ~2px high, so it is pinned here.
     #[test]
-    #[expect(
-        deprecated,
-        reason = "CentralPanel::show is the only way to get a Ui from a bare Context in a test"
-    )]
     fn a_label_shares_the_row_centre_with_a_control_added_after_it() {
         let ctx = Context::default();
         AppTheme::apply_global_style(&ctx, true);
         // First pass loads fonts; measure on the second.
-        let _ = ctx.run_ui(Default::default(), |_| {});
+        let _ = crate::gui::test_support::run_ui(&ctx, Default::default(), |_| {});
 
         let mut label_centre = 0.0;
         let mut control_centre = 0.0;
-        let _ = ctx.run_ui(Default::default(), |ctx| {
+        let _ = crate::gui::test_support::run_ui(&ctx, Default::default(), |ctx| {
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     label_centre = ui
@@ -117,21 +113,17 @@ mod row_alignment_tests {
     /// Centre-aligning boxes of different text sizes puts the smaller one's
     /// baseline ~2px high, so `widgets::baseline_aligned` nudges it back down.
     #[test]
-    #[expect(
-        deprecated,
-        reason = "CentralPanel::show is the only way to get a Ui from a bare Context in a test"
-    )]
     fn dialog_description_sits_on_the_title_baseline() {
         use crate::gui::widgets::{DIALOG_DESCRIPTION_SIZE, DIALOG_TITLE_SIZE, baseline_aligned};
 
         let ctx = Context::default();
         AppTheme::apply_global_style(&ctx, true);
         crate::gui::utils::configure_fonts(&ctx);
-        let _ = ctx.run_ui(Default::default(), |_| {});
+        let _ = crate::gui::test_support::run_ui(&ctx, Default::default(), |_| {});
 
         let mut title_baseline = 0.0;
         let mut description_baseline = 0.0;
-        let _ = ctx.run_ui(Default::default(), |ctx| {
+        let _ = crate::gui::test_support::run_ui(&ctx, Default::default(), |ctx| {
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     let title =

@@ -397,7 +397,7 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
 
     let audio_paths: Vec<_> = dropped_files
         .iter()
-        .filter_map(|file| file.path.clone())
+        .map(|file| file.path().to_path_buf())
         .filter(|path| {
             path.extension()
                 .and_then(|ext| ext.to_str())
@@ -413,14 +413,15 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
 
     // Process the first dropped file
     if let Some(file) = dropped_files.first() {
-        if let Some(path) = &file.path {
+        let path = file.path();
+        if !path.as_os_str().is_empty() {
             crate::log_info!("Handling dropped file: {:?}", path);
             process_file_path(path);
             return true;
         }
         // If path is not available, use existing byte handling (already threaded but serial load->process)
-        else if let Some(bytes) = &file.bytes {
-            let bytes_clone = bytes.clone();
+        else if let Ok(bytes) = file.bytes() {
+            let bytes_clone = bytes;
             std::thread::spawn(move || {
                 // Try to interpret as image first
                 if let Ok(img) = image::load_from_memory(&bytes_clone) {

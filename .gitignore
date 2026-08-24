@@ -138,3 +138,7 @@ local-runtime-bundles/
 /temp-*.md
 /cc-golden-runs/
 /work/
+
+# crates.io extraction metadata is not part of the maintained vendor patches.
+third_party/**/.cargo-ok
+third_party/**/.cargo_vcs_info.json

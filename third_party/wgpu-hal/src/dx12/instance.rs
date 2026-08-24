@@ -7,7 +7,7 @@ use super::SurfaceTarget;
 use crate::{
     auxil,
     dx12::{
-        D3D12Lib, DCompLib, device_creation::DeviceFactory, shader_compilation::CompilerContainer,
+        device_creation::DeviceFactory, shader_compilation::CompilerContainer, D3D12Lib, DCompLib,
     },
 };
 
@@ -62,7 +62,7 @@ impl crate::Instance for super::Instance {
                 crate::InstanceError::with_source(String::from("Failed to load FXC"), e)
             })?,
             wgt::Dx12Compiler::Auto => {
-                if cfg!(feature = "static-dxc") {
+                if cfg!(static_dxc) {
                     // Prefer static DXC if its compiled in
                     CompilerContainer::new_static_dxc().map_err(|e| {
                         crate::InstanceError::with_source(
@@ -154,6 +154,7 @@ impl crate::Instance for super::Instance {
                     supports_allow_tearing: self.supports_allow_tearing,
                     swap_chain: RwLock::new(None),
                     options: self.options.clone(),
+                    hdr_source: Some(auxil::dxgi::hdr::DxgiHdrSource::new(handle)),
                 })
             }
             _ => Err(crate::InstanceError::new(format!(

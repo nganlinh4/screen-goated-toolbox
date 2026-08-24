@@ -23,8 +23,8 @@ fn native_options_for_wgpu(viewport: eframe::egui::ViewportBuilder) -> eframe::N
             .dx12
             .presentation_system = eframe::wgpu::Dx12SwapchainKind::DxgiFromVisual;
     }
-    options.wgpu_options.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
-    options.wgpu_options.desired_maximum_frame_latency = Some(1);
+    options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
+    options.wgpu_options.surface.desired_maximum_frame_latency = Some(1);
 
     options.wgpu_options.on_device_recovery = std::sync::Arc::new(|message| {
         crate::debug_log::log_debug(&format!("[WGPU recovery] {message}"));

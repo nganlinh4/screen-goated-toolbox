@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use crate::auxil::dxgi::result::HResult;
 use thiserror::Error;
 use windows::{
-    Win32::Graphics::Direct3D::{D3D_SHADER_MACRO, Dxc, Fxc, ID3DBlob},
     core::{Interface, PCSTR, PCWSTR},
+    Win32::Graphics::Direct3D::{Dxc, Fxc, ID3DBlob, D3D_SHADER_MACRO},
 };
 
 pub(super) enum CompilerContainer {
@@ -88,9 +88,7 @@ impl CompilerContainer {
         }
         #[cfg(not(static_dxc))]
         {
-            panic!(
-                "Attempted to create a static DXC shader compiler, but the static-dxc feature was not enabled"
-            )
+            panic!("Attempted to create a static DXC shader compiler, but the static-dxc feature was not enabled")
         }
     }
 
@@ -413,7 +411,10 @@ fn compile_dxc(
         compile_args.push(Dxc::DXC_ARG_SKIP_OPTIMIZATIONS);
     }
 
-    if device.features.contains(wgt::Features::SHADER_F16) {
+    if device
+        .features
+        .intersects(wgt::Features::SHADER_F16 | wgt::Features::SHADER_I16)
+    {
         compile_args.push(windows::core::w!("-enable-16bit-types"));
     }
 

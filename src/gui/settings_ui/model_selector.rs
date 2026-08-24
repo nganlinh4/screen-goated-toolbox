@@ -51,7 +51,7 @@ pub(crate) fn selector_models(
 
 pub(crate) fn render_model_combo(
     ui: &mut egui::Ui,
-    id: impl std::hash::Hash,
+    id: impl std::hash::Hash + std::fmt::Debug,
     model_id: &mut String,
     chain_kind: RetryChainKind,
     ui_language: &str,
@@ -62,7 +62,7 @@ pub(crate) fn render_model_combo(
 
 pub(crate) fn render_model_combo_from_models(
     ui: &mut egui::Ui,
-    id: impl std::hash::Hash,
+    id: impl std::hash::Hash + std::fmt::Debug,
     model_id: &mut String,
     chain_kind: RetryChainKind,
     ui_language: &str,

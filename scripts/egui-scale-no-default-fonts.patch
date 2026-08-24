@@ -6,4 +6,14 @@ index 194fb70..f1272fc 100644
  
  [dependencies]
 -egui = "0.34"
-+egui = { version = "0.34", default-features = false }
++egui = { version = "0.36", default-features = false }
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -151,6 +151,5 @@ impl EguiScale for Visuals {
+     #[inline]
+     fn scale(&mut self, scale: f32) {
+-        self.clip_rect_margin.scale(scale);
+         self.menu_corner_radius.scale(scale);
+         self.popup_shadow.scale(scale);
+         self.resize_corner_size.scale(scale);

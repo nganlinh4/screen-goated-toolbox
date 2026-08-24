@@ -395,7 +395,8 @@ mod tests {
             let mut selected = UsageTipCategory::default();
 
             for _ in 0..2 {
-                let _ = context.run_ui(
+                let _ = crate::gui::test_support::run_ui(
+                    &context,
                     egui::RawInput {
                         screen_rect: Some(screen),
                         ..Default::default()

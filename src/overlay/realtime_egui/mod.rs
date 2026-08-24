@@ -200,7 +200,7 @@ pub fn render_minimal_overlay(ctx: &egui::Context) {
                         .stroke(egui::Stroke::new(1.0_f32, border))
                         .corner_radius(egui::CornerRadius::same(12)),
                 )
-                .show_inside(ctx, |ui| {
+                .show(ctx, |ui| {
                     ui::render_main_ui(ui, &mut ui_state);
                 });
         },

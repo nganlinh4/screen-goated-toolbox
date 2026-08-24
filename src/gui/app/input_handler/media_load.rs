@@ -5,7 +5,8 @@
 use std::io::Cursor;
 use std::path::Path;
 
-use symphonia::core::codecs::{CodecRegistry, DecoderOptions};
+use symphonia::core::codecs::audio::AudioDecoderOptions;
+use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia_adapter_libopus::OpusDecoder;
 
 pub(crate) const SUPPORTED_AUDIO_EXTENSIONS: &[&str] = &[
@@ -19,18 +20,17 @@ pub(crate) fn is_supported_audio_extension(extension: &str) -> bool {
 fn decoder_registry() -> CodecRegistry {
     let mut registry = CodecRegistry::new();
     symphonia::default::register_enabled_codecs(&mut registry);
-    registry.register_all::<OpusDecoder>();
+    registry.register_audio_decoder::<OpusDecoder>();
     registry
 }
 
 /// Load an audio file and convert to WAV format using symphonia.
 /// Supports: WAV, MP3, FLAC, OGG, AAC, ALAC, AIFF, etc.
 pub(crate) fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
-    use symphonia::core::audio::SampleBuffer;
     use symphonia::core::formats::FormatOptions;
+    use symphonia::core::formats::probe::Hint;
     use symphonia::core::io::MediaSourceStream;
     use symphonia::core::meta::MetadataOptions;
-    use symphonia::core::probe::Hint;
 
     // Open the file
     let file = std::fs::File::open(path).ok()?;
@@ -43,32 +43,33 @@ pub(crate) fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
     }
 
     // Probe the media source
-    let probed = symphonia::default::get_probe()
-        .format(
+    let mut format = symphonia::default::get_probe()
+        .probe(
             &hint,
             mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
+            FormatOptions::default(),
+            MetadataOptions::default(),
         )
         .ok()?;
 
-    let mut format = probed.format;
-
     // Find the first audio track
-    let track = format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)?;
-    let track_id = track.id;
-    let codec_params = track.codec_params.clone();
+    let (track_id, codec_params) = format.tracks().iter().find_map(|track| {
+        let params = track.codec_params.as_ref()?.audio()?;
+        (params.codec != symphonia::core::codecs::audio::CODEC_ID_NULL_AUDIO)
+            .then_some((track.id, params.clone()))
+    })?;
 
     // Get sample rate and channels
     let sample_rate = codec_params.sample_rate.unwrap_or(44100);
-    let channels = codec_params.channels.map(|c| c.count()).unwrap_or(2) as u16;
+    let channels = codec_params
+        .channels
+        .as_ref()
+        .map(|channels| channels.count())
+        .unwrap_or(2) as u16;
 
     // Create decoder
     let mut decoder = decoder_registry()
-        .make(&codec_params, &DecoderOptions::default())
+        .make_audio_decoder(&codec_params, &AudioDecoderOptions::default())
         .ok()?;
 
     // Decode all samples
@@ -76,7 +77,8 @@ pub(crate) fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
 
     loop {
         let packet = match format.next_packet() {
-            Ok(p) => p,
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
             Err(symphonia::core::errors::Error::IoError(ref e))
                 if e.kind() == std::io::ErrorKind::UnexpectedEof =>
             {
@@ -85,7 +87,7 @@ pub(crate) fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
             Err(_) => break,
         };
 
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
 
@@ -94,12 +96,9 @@ pub(crate) fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
             Err(_) => continue,
         };
 
-        // Convert to interleaved i16 samples
-        let spec = *decoded.spec();
-        let duration = decoded.capacity() as u64;
-        let mut sample_buf = SampleBuffer::<i16>::new(duration, spec);
-        sample_buf.copy_interleaved_ref(decoded);
-        all_samples.extend(sample_buf.samples());
+        let old_len = all_samples.len();
+        all_samples.resize(old_len + decoded.samples_interleaved(), 0);
+        decoded.copy_to_slice_interleaved(&mut all_samples[old_len..]);
     }
 
     if all_samples.is_empty() {
@@ -129,7 +128,8 @@ pub(crate) fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use symphonia::core::codecs::{CODEC_TYPE_OPUS, CodecParameters};
+    use symphonia::core::codecs::audio::AudioCodecParameters;
+    use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
 
     #[test]
     fn advertised_extensions_are_the_exact_core_audio_contract() {
@@ -145,14 +145,14 @@ mod tests {
 
     #[test]
     fn advertised_opus_has_a_registered_decoder() {
-        let mut params = CodecParameters::new();
+        let mut params = AudioCodecParameters::new();
         params
-            .for_codec(CODEC_TYPE_OPUS)
+            .for_codec(CODEC_ID_OPUS)
             .with_sample_rate(48_000)
-            .with_channels(symphonia::core::audio::Channels::FRONT_LEFT);
+            .with_channels(symphonia::core::audio::layouts::CHANNEL_LAYOUT_MONO);
         assert!(
             decoder_registry()
-                .make(&params, &DecoderOptions::default())
+                .make_audio_decoder(&params, &AudioDecoderOptions::default())
                 .is_ok()
         );
     }

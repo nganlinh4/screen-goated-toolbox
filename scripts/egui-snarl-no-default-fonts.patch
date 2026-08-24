@@ -7,7 +7,7 @@ index 02b7865..0ec45bc 100644
  
  [workspace.dependencies]
 -egui = { version = "0.34" }
-+egui = { version = "0.34", default-features = false }
++egui = { version = "0.36", default-features = false }
  eframe = { version = "0.34" }
  egui_extras = { version = "0.34" }
  syn = { version = "2" }

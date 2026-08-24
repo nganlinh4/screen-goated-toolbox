@@ -60,7 +60,7 @@ impl SettingsApp {
                     .stroke(egui::Stroke::NONE),
             )
             .show_separator_line(false)
-            .show_inside(root_ui, |ui| {
+            .show(root_ui, |ui| {
                 let ctx = ui.ctx().clone();
                 // --- DRAG HANDLE (Middle Gap Only) ---
                 // Registered FIRST so buttons rendered later always take priority.

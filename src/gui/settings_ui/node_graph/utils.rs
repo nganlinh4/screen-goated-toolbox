@@ -60,7 +60,7 @@ pub fn show_language_selector(
 pub fn show_language_value_selector(
     ui: &mut egui::Ui,
     label: impl Into<String>,
-    id: impl std::hash::Hash,
+    id: impl std::hash::Hash + std::fmt::Debug,
     value: &mut String,
 ) -> bool {
     let label = label.into();

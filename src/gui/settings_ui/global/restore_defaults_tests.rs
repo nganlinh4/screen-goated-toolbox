@@ -149,14 +149,15 @@ fn modal_fits_the_minimum_window_in_every_supported_locale() {
         // Anchored egui Areas learn their content size in the first frame and
         // use it for exact centering from the second frame onward.
         for frame in 0..2 {
-            let _ = context.run_ui(
+            let _ = crate::gui::test_support::run_ui(
+                &context,
                 egui::RawInput {
                     screen_rect: Some(screen),
                     time: Some(frame as f64 / 60.0),
                     ..Default::default()
                 },
                 |ui| {
-                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| {
                         assert!(!render_restore_defaults_modal(
                             ui,
                             &mut config,

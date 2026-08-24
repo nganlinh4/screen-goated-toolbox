@@ -139,14 +139,15 @@ mod tests {
             let mut observed_rects = Vec::new();
 
             for frame in 0..2 {
-                let _ = context.run_ui(
+                let _ = crate::gui::test_support::run_ui(
+                    &context,
                     egui::RawInput {
                         screen_rect: Some(screen),
                         time: Some(frame as f64 / 60.0),
                         ..Default::default()
                     },
                     |ui| {
-                        egui::CentralPanel::default().show_inside(ui, |ui| {
+                        egui::CentralPanel::default().show(ui, |ui| {
                             let _ = show_dialog(ui, &text);
                         });
                     },

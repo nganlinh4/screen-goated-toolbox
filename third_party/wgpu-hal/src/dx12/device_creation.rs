@@ -1,8 +1,8 @@
 use alloc::sync::Arc;
 use core::ops::Deref;
 
-use windows::Win32::Graphics::{Direct3D, Direct3D12};
 use windows::core::Interface as _;
+use windows::Win32::Graphics::{Direct3D, Direct3D12};
 
 use super::D3D12Lib;
 use crate::auxil::dxgi::factory::DxgiAdapter;

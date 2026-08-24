@@ -122,7 +122,8 @@ mod tests {
             let locale = crate::gui::locale::LocaleText::get(language);
             assert_eq!(locale.workspace.tips_btn, expected_label);
 
-            let _ = context.run_ui(
+            let _ = crate::gui::test_support::run_ui(
+                &context,
                 egui::RawInput {
                     screen_rect: Some(screen),
                     ..Default::default()

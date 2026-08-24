@@ -73,7 +73,7 @@ impl SettingsApp {
                     })
                     .stroke(egui::Stroke::NONE),
             )
-            .show_inside(root_ui, |ui| {
+            .show(root_ui, |ui| {
                 let screen_translate_was_open = self.show_screen_translate_dialog;
                 footer_content_width = render_footer(
                     ui,

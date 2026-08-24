@@ -9,6 +9,7 @@
             Patches = @(
                 "scripts/egui-snarl-scroll-zoom.patch"
                 "scripts/egui-snarl-no-default-fonts.patch"
+                "scripts/egui-snarl-egui-0.36.patch"
                 "scripts/egui-snarl-rustfmt.patch"
             )
         }

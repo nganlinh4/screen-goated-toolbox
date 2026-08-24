@@ -1,13 +1,13 @@
 use alloc::sync::Arc;
 
-use gpu_allocator::{MemoryLocation, d3d12::AllocationCreateDesc};
+use gpu_allocator::{d3d12::AllocationCreateDesc, MemoryLocation};
 use parking_lot::Mutex;
 use windows::Win32::Graphics::{Direct3D12, Dxgi};
 
 use crate::{
-    AllocationSizes,
     auxil::dxgi::{name::ObjectExt as _, result::HResult as _},
     dx12::conv,
+    AllocationSizes,
 };
 
 #[derive(Debug)]

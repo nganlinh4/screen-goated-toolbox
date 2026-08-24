@@ -1,0 +1,89 @@
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -11,5 +11,6 @@ repository = "https://github.com/zakarumych/egui-snarl"
+ [workspace.dependencies]
+ egui = { version = "0.36", default-features = false }
++ahash = "0.8"
+ eframe = { version = "0.34" }
+ egui_extras = { version = "0.34" }
+ syn = { version = "2" }
+@@ -41,6 +42,7 @@ serde = ["dep:serde", "egui/serde", "slab/serde"]
+ 
+ [dependencies]
+ egui.workspace = true
++ahash.workspace = true
+ slab = { version = "0.4" }
+ serde = { workspace = true, features = ["derive"], optional = true }
+ smallvec = { version = "1.15", features = ["const_new"] }
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -20,5 +20,6 @@ pub mod ui;
+ 
+ use std::ops::{Index, IndexMut};
+ 
+-use egui::{Pos2, ahash::HashSet};
++use ahash::HashSet;
++use egui::Pos2;
+ use slab::Slab;
+@@ -133,5 +134,5 @@ impl<'de> serde::Deserialize<'de> for Wires {
+                 A: serde::de::SeqAccess<'de>,
+             {
+-                let mut wires = HashSet::with_hasher(egui::ahash::RandomState::new());
++                let mut wires = HashSet::with_hasher(ahash::RandomState::new());
+                 while let Some(wire) = seq.next_element()? {
+                     wires.insert(wire);
+@@ -149,5 +150,5 @@ impl Wires {
+     fn new() -> Self {
+         Wires {
+-            wires: HashSet::with_hasher(egui::ahash::RandomState::new()),
++            wires: HashSet::with_hasher(ahash::RandomState::new()),
+         }
+     }
+diff --git a/src/ui.rs b/src/ui.rs
+--- a/src/ui.rs
++++ b/src/ui.rs
+@@ -868,6 +868,6 @@ impl SnarlWidget {
+     #[inline]
+     #[must_use]
+-    pub fn id_salt(mut self, id_salt: impl Hash) -> Self {
++    pub fn id_salt(mut self, id_salt: impl Hash + std::fmt::Debug) -> Self {
+         self.id_salt = Id::new(id_salt);
+         self
+     }
+@@ -2619,5 +2619,11 @@ impl<T> Snarl<T> {
+     /// Render [`Snarl`] using given viewer and style into the [`Ui`].
+     #[inline]
+-    pub fn show<V>(&mut self, viewer: &mut V, style: &SnarlStyle, id_salt: impl Hash, ui: &mut Ui)
++    pub fn show<V>(
++        &mut self,
++        viewer: &mut V,
++        style: &SnarlStyle,
++        id_salt: impl Hash + std::fmt::Debug,
++        ui: &mut Ui,
++    )
+     where
+         V: SnarlViewer<T>,
+diff --git a/src/ui/state.rs b/src/ui/state.rs
+--- a/src/ui/state.rs
++++ b/src/ui/state.rs
+@@ -1,6 +1,6 @@
++use ahash::HashSet;
+ use egui::{
+     Context, Id, Pos2, Rect, Ui, Vec2,
+-    ahash::HashSet,
+     emath::{GuiRounding, TSTransform},
+     style::Spacing,
+ };
+diff --git a/src/ui/wire.rs b/src/ui/wire.rs
+--- a/src/ui/wire.rs
++++ b/src/ui/wire.rs
+@@ -1,5 +1,6 @@
+ use core::f32;
+ 
+-use egui::{Context, Id, Pos2, Rect, Shape, Stroke, Ui, ahash::HashMap, cache::CacheTrait, pos2};
++use ahash::HashMap;
++use egui::{Context, Id, Pos2, Rect, Shape, Stroke, Ui, cache::CacheTrait, pos2};
+ 
+ use crate::{InPinId, OutPinId};

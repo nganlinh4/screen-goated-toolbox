@@ -116,7 +116,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut value = String::new();
 
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let _ = crate::gui::test_support::run_ui(&ctx, egui::RawInput::default(), |ui| {
             ui.add(egui::TextEdit::singleline(&mut value))
                 .request_focus();
         });
