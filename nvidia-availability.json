@@ -3,30 +3,30 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-08-24T09:07:25Z",
+ "generatedAt": "2026-08-24T10:56:27Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
-  {
-   "id": "meta/llama-3.1-8b-instruct",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 301,
-   "success_rate": 1.0,
-   "runs": 24
-  },
   {
    "id": "meta/llama-3.2-1b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 313,
-   "success_rate": 0.458,
+   "p50_ms": 288,
+   "success_rate": 0.5,
+   "runs": 24
+  },
+  {
+   "id": "meta/llama-3.1-8b-instruct",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 304,
+   "success_rate": 1.0,
    "runs": 24
   },
   {
    "id": "nvidia/nemotron-3-nano-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 360,
+   "p50_ms": 361,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -34,7 +34,7 @@
    "id": "nvidia/nemotron-mini-4b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 392,
+   "p50_ms": 391,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -42,7 +42,7 @@
    "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 405,
+   "p50_ms": 404,
    "success_rate": 0.708,
    "runs": 24
   },
@@ -55,34 +55,42 @@
    "runs": 24
   },
   {
-   "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
-   "control": "effort-none",
-   "modality": "text",
-   "p50_ms": 493,
-   "success_rate": 0.917,
-   "runs": 24
-  },
-  {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 495,
+   "p50_ms": 492,
    "success_rate": 0.958,
+   "runs": 24
+  },
+  {
+   "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 508,
+   "success_rate": 0.917,
    "runs": 24
   },
   {
    "id": "thinkingmachines/inkling",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 671,
+   "p50_ms": 592,
    "success_rate": 1.0,
+   "runs": 24
+  },
+  {
+   "id": "google/diffusiongemma-26b-a4b-it",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 639,
+   "success_rate": 0.417,
    "runs": 24
   },
   {
    "id": "meta/llama-3.1-70b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 673,
+   "p50_ms": 683,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -95,18 +103,10 @@
    "runs": 24
   },
   {
-   "id": "nvidia/nemotron-nano-12b-v2-vl",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 785,
-   "success_rate": 0.875,
-   "runs": 24
-  },
-  {
    "id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 826,
+   "p50_ms": 888,
    "success_rate": 0.917,
    "runs": 24
   },
@@ -114,16 +114,8 @@
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 919,
+   "p50_ms": 932,
    "success_rate": 1.0,
-   "runs": 24
-  },
-  {
-   "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 1019,
-   "success_rate": 0.875,
    "runs": 24
   },
   {
@@ -138,7 +130,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 1281,
+   "p50_ms": 1165,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -146,23 +138,15 @@
    "id": "meta/llama-3.2-90b-vision-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2078,
+   "p50_ms": 2275,
    "success_rate": 0.917,
-   "runs": 24
-  },
-  {
-   "id": "stepfun-ai/step-3.7-flash",
-   "control": "plain",
-   "modality": "vision",
-   "p50_ms": 3932,
-   "success_rate": 0.667,
    "runs": 24
   },
   {
    "id": "nvidia/nvidia-nemotron-nano-9b-v2",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 4121,
+   "p50_ms": 4101,
    "success_rate": 0.958,
    "runs": 24
   }
