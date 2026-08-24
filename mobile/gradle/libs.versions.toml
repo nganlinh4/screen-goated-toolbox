@@ -1,14 +1,10 @@
 [versions]
-# NOTE: AGP is pinned to 8.10.0 to match the local includeBuild at
-# ../../youtubedl-android (C:\WORK\youtubedl-android), whose buildscript
-# hardcodes com.android.tools.build:gradle:8.10.0. AGP enforces an exact
-# AGP version across a composite build, and that included build is outside
-# mobile/ (must not be modified). Standalone lint is pinned separately.
-agp = "8.10.0"
+agp = "9.1.1"
 kotlin = "2.4.10"
 compose-bom = "2026.04.01"
 compose-material3 = "1.5.0-alpha18"
 activity-compose = "1.13.0"
+fragment = "1.9.0"
 lifecycle = "2.10.0"
 navigation = "2.9.8"
 core-ktx = "1.18.0"
@@ -35,9 +31,8 @@ libadb-android = "3.1.1"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-android-library = { id = "com.android.library", version.ref = "agp" }
 android-dynamic-feature = { id = "com.android.dynamic-feature", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
@@ -53,6 +48,7 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "compose-material3" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
+androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "core-splashscreen" }
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }

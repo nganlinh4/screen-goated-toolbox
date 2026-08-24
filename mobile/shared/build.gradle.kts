@@ -2,7 +2,7 @@ import org.gradle.api.tasks.Exec
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    alias(libs.plugins.android.library)
+    alias(libs.plugins.android.kotlin.multiplatform.library)
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
 }
@@ -53,10 +53,14 @@ val generatePresetDefaultModels by tasks.registering(Exec::class) {
 }
 
 kotlin {
-    androidTarget {
+    android {
+        namespace = "dev.screengoated.toolbox.mobile.shared"
+        compileSdk = 36
+        minSdk = 29
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
         }
+        withHostTest {}
     }
 
     listOf(
@@ -87,22 +91,13 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.test)
             }
         }
-        val androidUnitTest by getting {
+        val androidHostTest by getting {
             dependencies {
                 implementation(kotlin("test"))
                 implementation(libs.junit4)
                 implementation(libs.kotlinx.serialization.json)
             }
         }
-    }
-}
-
-android {
-    namespace = "dev.screengoated.toolbox.mobile.shared"
-    compileSdk = 36
-
-    defaultConfig {
-        minSdk = 29
     }
 }
 

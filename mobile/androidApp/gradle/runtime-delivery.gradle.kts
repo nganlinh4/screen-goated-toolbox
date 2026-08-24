@@ -1,6 +1,5 @@
 import groovy.json.JsonSlurper
 import org.gradle.api.tasks.Sync
-import java.security.MessageDigest
 
 enum class CreationRuntimeDeliveryChannel {
     Production,
@@ -211,10 +210,7 @@ val downloaderLauncherContract = linkedMapOf(
     ),
 )
 
-fun File.sha256(): String {
-    val digest = MessageDigest.getInstance("SHA-256").digest(readBytes())
-    return digest.joinToString(separator = "") { "%02x".format(it) }
-}
+val androidAssetVerifier = rootProject.projectDir.resolve("scripts/verify_android_build_assets.py")
 
 val stageNativeRuntimeContract by tasks.registering(Sync::class) {
     dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
@@ -222,60 +218,33 @@ val stageNativeRuntimeContract by tasks.registering(Sync::class) {
     into(generatedNativeRuntimeContractAssets.map { it.dir("native-runtime") })
 }
 
-val stageComponentUpdateTrust by tasks.registering(Sync::class) {
+val verifyComponentUpdateTrust by tasks.registering(Exec::class) {
     inputs.file(componentUpdatePublicKey)
-    doFirst {
-        require(componentUpdatePublicKey.isFile) {
-            "Tracked component-update public key is required: $componentUpdatePublicKey"
-        }
-        require(componentUpdatePublicKey.readText().trim().matches(Regex("04[0-9a-f]{128}"))) {
-            "Component-update public key must be an uncompressed P-256 point"
-        }
-    }
+    inputs.file(androidAssetVerifier)
+    commandLine(
+        "py", "-3", androidAssetVerifier.absolutePath,
+        "component-key", "--file", componentUpdatePublicKey.absolutePath,
+    )
+}
+
+val stageComponentUpdateTrust by tasks.registering(Sync::class) {
+    dependsOn(verifyComponentUpdateTrust)
     from(componentUpdatePublicKey) { rename { "public-key.hex" } }
     into(generatedComponentUpdateTrustAssets.map { it.dir("component-update") })
 }
 
-val verifyCreationModelViewerAssets by tasks.registering {
-    val expected = setOf(
-        "creation_model_viewer/index.html",
-        "creation_model_viewer/assets/viewer.css",
-        "creation_model_viewer/assets/viewer.js",
-    )
+val verifyCreationModelViewerAssets by tasks.registering(Exec::class) {
     inputs.dir(sharedCreationModelViewerAssets)
-    doLast {
-        require(sharedCreationModelViewerAssets.isDirectory) {
-            "Shared creation viewer build is missing: $sharedCreationModelViewerAssets"
-        }
-        val actual = sharedCreationModelViewerAssets.walkTopDown()
-            .filter { it.isFile }
-            .map { it.relativeTo(sharedCreationModelViewerAssets).invariantSeparatorsPath }
-            .toSet()
-        require(actual == expected) {
-            "Shared creation viewer must contain exactly $expected, found $actual"
-        }
-        val document = sharedCreationModelViewerAssets
-            .resolve("creation_model_viewer/index.html")
-            .readText()
-        require("data-viewer-version=\"1\"" in document) {
-            "Shared creation viewer document version is missing"
-        }
-        require("default-src 'none'" in document && "connect-src 'self'" in document) {
-            "Shared creation viewer CSP must deny external resources"
-        }
-    }
+    inputs.file(androidAssetVerifier)
+    commandLine(
+        "py", "-3", androidAssetVerifier.absolutePath,
+        "viewer", "--root", sharedCreationModelViewerAssets.absolutePath,
+    )
 }
 
 val stageFullCreationRuntimeDelivery by tasks.registering(Sync::class) {
     inputs.file(creationRuntimeDeliveryManifest)
     inputs.property("creationRuntimeDeliveryChannel", creationRuntimeDeliverySelection.channel.name)
-    doFirst {
-        validateCreationRuntimeDeliveryManifest(
-            creationRuntimeDeliveryManifest,
-            creationRuntimeDeliverySelection.channel,
-            creationRuntimeHostVersion,
-        )
-    }
     from(creationRuntimeDeliveryManifest) { rename { "delivery.json" } }
     into(generatedFullCreationRuntimeDeliveryAssets.map { it.dir("creation-runtime") })
 }
@@ -421,88 +390,44 @@ val testDebugCreationRuntimeDeliverySelection by tasks.registering {
     }
 }
 
-val stageFullDownloaderRuntimeDelivery by tasks.registering(Sync::class) {
+val verifyFullDownloaderRuntimeDelivery by tasks.registering(Exec::class) {
     inputs.file(downloaderRuntimeDeliveryManifest)
-    doFirst {
-        require(downloaderRuntimeDeliveryManifest.isFile) {
-            "Full downloader delivery manifest is required: $downloaderRuntimeDeliveryManifest"
-        }
-        val root = JsonSlurper().parse(downloaderRuntimeDeliveryManifest) as Map<*, *>
-        require((root["schemaVersion"] as? Number)?.toInt() == 1) {
-            "Unsupported downloader delivery schema"
-        }
-        require(root["abi"] == "arm64-v8a") { "Downloader delivery must target arm64-v8a" }
-        val version = (root["version"] as? String)?.takeIf(String::isNotBlank)
-            ?: error("Downloader delivery version is missing")
-        val artifacts = root["artifacts"] as? List<*>
-            ?: error("Downloader delivery artifacts are missing")
-        val contracts = artifacts.map { it as? Map<*, *> ?: error("Invalid downloader artifact") }
-        require(contracts.map { it["role"] }.toSet() == setOf("yt_dlp", "python", "ffmpeg")) {
-            "Downloader delivery roles must be yt_dlp, python, and ffmpeg"
-        }
-        require(contracts.size == 3) { "Downloader delivery repeats an artifact" }
-        contracts.forEach { contract ->
-            val role = contract["role"] as String
-            val asset = (contract["asset"] as? String)?.takeIf {
-                it.isNotBlank() && '/' !in it && '\\' !in it
-            } ?: error("Invalid downloader asset for $role")
-            val url = contract["downloadUrl"] as? String
-                ?: error("Downloader URL is missing for $role")
-            val bytes = (contract["sizeBytes"] as? Number)?.toLong() ?: 0L
-            val sha256 = contract["sha256"] as? String ?: ""
-            require(bytes > 0L && sha256.matches(Regex("[0-9a-f]{64}"))) {
-                "Invalid downloader identity for $role"
-            }
-            require(url.endsWith("/$asset")) { "Downloader asset URL differs for $role" }
-            if (role == "yt_dlp") {
-                require(url.matches(Regex(
-                    "https://github\\.com/yt-dlp/yt-dlp/releases/download/[0-9.]+/yt-dlp",
-                ))) { "yt-dlp must use an immutable official release URL" }
-                require(version.startsWith(url.substringAfter("/download/").substringBefore('/'))) {
-                    "yt-dlp version and delivery version differ"
-                }
-            } else {
-                require(url.startsWith(
-                    "https://github.com/nganlinh4/screen-goated-toolbox/releases/" +
-                        "download/sgt-runtime-bundles/sgt-downloader-",
-                )) { "$role must use a uniquely named sgt-runtime-bundles asset" }
-                require(asset.contains(sha256.take(12))) {
-                    "$role asset must include its SHA-256 prefix"
-                }
-                require((contract["entryCount"] as? Number)?.toInt()?.let { it > 0 } == true &&
-                    (contract["uncompressedBytes"] as? Number)?.toLong()?.let { it > 0L } == true
-                ) { "$role extraction contract is incomplete" }
-                require((contract["requiredPaths"] as? List<*>)?.isNotEmpty() == true) {
-                    "$role required paths are missing"
-                }
-            }
-        }
-    }
+    inputs.file(androidAssetVerifier)
+    commandLine(
+        "py", "-3", androidAssetVerifier.absolutePath,
+        "downloader-delivery", "--file", downloaderRuntimeDeliveryManifest.absolutePath,
+    )
+}
+
+val stageFullDownloaderRuntimeDelivery by tasks.registering(Sync::class) {
+    dependsOn(verifyFullDownloaderRuntimeDelivery)
     from(downloaderRuntimeDeliveryManifest) { rename { "delivery.json" } }
     into(generatedFullDownloaderRuntimeDeliveryAssets.map { it.dir("downloader-runtime") })
 }
 
-val stageFullDownloaderLaunchers by tasks.registering(Sync::class) {
+val verifyFullDownloaderLaunchers by tasks.registering(Exec::class) {
     val sources = downloaderLauncherContract.keys.map { downloaderLauncherSourceRoot.resolve(it) }
     inputs.files(sources)
+    inputs.file(androidAssetVerifier)
     inputs.property(
         "launcherContract",
         downloaderLauncherContract.map { (path, identity) ->
             "$path:${identity.first}:${identity.second}"
         },
     )
-    doFirst {
-        downloaderLauncherContract.forEach { (path, identity) ->
-            val source = downloaderLauncherSourceRoot.resolve(path)
-            require(source.isFile) { "Full downloader launcher is missing: $source" }
-            require(source.length() == identity.first) {
-                "Full downloader launcher size mismatch: $source"
-            }
-            require(source.sha256() == identity.second) {
-                "Full downloader launcher SHA-256 mismatch: $source"
-            }
-        }
+    commandLine("py", "-3", androidAssetVerifier.absolutePath, "launchers")
+    downloaderLauncherContract.forEach { (path, identity) ->
+        args(
+            "--launcher",
+            "${downloaderLauncherSourceRoot.resolve(path).absolutePath}|" +
+                "${identity.first}|${identity.second}",
+        )
     }
+}
+
+val stageFullDownloaderLaunchers by tasks.registering(Sync::class) {
+    val sources = downloaderLauncherContract.keys.map { downloaderLauncherSourceRoot.resolve(it) }
+    dependsOn(verifyFullDownloaderLaunchers)
     from(sources)
     into(generatedFullDownloaderLauncherJniLibs.map { it.dir("arm64-v8a") })
 }

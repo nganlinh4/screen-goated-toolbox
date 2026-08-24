@@ -275,6 +275,7 @@ class PresetRepositoryTest {
             repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/$it")
         }
         val buildGradle = repoFile("mobile/androidApp/build.gradle.kts")
+        val presetOverlayGenerator = repoFile("mobile/scripts/generate_preset_overlay_assets.py")
         val recordingUi = repoFile("src/overlay/recording/ui.rs")
         val audioBlockExecutor = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetAudioBlockExecutor.kt")
         val graphExecutor = repoFile("mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/PresetGraphExecutor.kt")
@@ -296,9 +297,10 @@ class PresetRepositoryTest {
         val shellContract = fixture.getValue("recording_shell_contract").jsonObject
         assertEquals("windows_webview_template", shellContract.getValue("source").jsonPrimitive.content)
         assertTrue(buildGradle.contains("""repoRoot.resolve("src/overlay/recording/ui.rs")"""))
-        assertTrue(buildGradle.contains("windows_recording_template.html"))
-        assertTrue(buildGradle.contains("{{BRIDGE_PRELUDE}}"))
-        assertTrue(buildGradle.contains("{{MOBILE_SHIM}}"))
+        assertTrue(buildGradle.contains("generate_preset_overlay_assets.py"))
+        assertTrue(presetOverlayGenerator.contains("windows_recording_template.html"))
+        assertTrue(presetOverlayGenerator.contains("{{BRIDGE_PRELUDE}}"))
+        assertTrue(presetOverlayGenerator.contains("{{MOBILE_SHIM}}"))
         shellContract.getValue("bridge_methods").jsonArray
             .map { it.jsonPrimitive.content }
             .forEach { method ->

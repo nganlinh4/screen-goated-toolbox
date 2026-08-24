@@ -1,59 +1,9 @@
 import groovy.json.JsonSlurper
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
-}
-
-fun extractWindowsRawString(source: String, marker: String): String {
-    val markerIndex = source.indexOf(marker)
-    require(markerIndex >= 0) { "Missing marker: $marker" }
-    val start = source.indexOf("r#\"", markerIndex)
-    require(start >= 0) { "Missing raw string start for: $marker" }
-    val contentStart = start + 3
-    val end = source.indexOf("\"#", contentStart)
-    require(end >= 0) { "Missing raw string end for: $marker" }
-    return source.substring(contentStart, end)
-}
-
-fun extractRustConcatIncludeStrings(sourceFile: File, marker: String): String {
-    val source = sourceFile.readText()
-    val markerIndex = source.indexOf(marker)
-    require(markerIndex >= 0) { "Missing marker: $marker" }
-    val start = source.indexOf("concat!(", markerIndex)
-    require(start >= 0) { "Missing concat start for: $marker" }
-    val end = source.indexOf(");", start)
-    require(end >= 0) { "Missing concat end for: $marker" }
-    val body = source.substring(start, end)
-    val includePaths = Regex("""include_str!\("([^"]+)"\)""")
-        .findAll(body)
-        .map { it.groupValues[1] }
-        .toList()
-    require(includePaths.isNotEmpty()) { "Missing include_str entries for: $marker" }
-    return includePaths.joinToString(separator = "") { relativePath ->
-        sourceFile.parentFile.resolve(relativePath).readText()
-    }
-}
-
-fun extractQuotedStrings(source: String, marker: String, count: Int): List<String> {
-    val markerIndex = source.indexOf(marker)
-    require(markerIndex >= 0) { "Missing marker: $marker" }
-    val tail = source.substring(markerIndex)
-    val matches = "\"([^\"]*)\"".toRegex().findAll(tail).map { it.groupValues[1] }.take(count).toList()
-    require(matches.size == count) { "Missing quoted strings for: $marker" }
-    return matches
-}
-
-fun extractRustMatchArmRawString(source: String, armName: String): String {
-    val pattern = Regex(
-        """"${Regex.escape(armName)}"\s*=>\s*\{\s*r(#+)"(.*?)"\1\s*\}""",
-        setOf(RegexOption.DOT_MATCHES_ALL),
-    )
-    val match = requireNotNull(pattern.find(source)) { "Missing raw string match arm: $armName" }
-    return match.groupValues[2]
 }
 
 fun extractCargoPackageVersion(cargoToml: File): String {
@@ -113,8 +63,9 @@ val generatedFullDownloaderLauncherJniLibs =
 val sharedCreationModelViewerAssets = rootProject.projectDir.parentFile
     .resolve("3d-generator-ui/viewer-dist")
 
-val generatePresetOverlayAssets by tasks.registering {
+val generatePresetOverlayAssets by tasks.registering(Exec::class) {
     val repoRoot = rootProject.projectDir.parentFile
+    val generator = rootProject.projectDir.resolve("scripts/generate_preset_overlay_assets.py")
     val fitSource = repoRoot.resolve("src/overlay/result/markdown_view/fit.rs")
     val fitScriptSources = listOf(
         repoRoot.resolve("src/overlay/result/markdown_view/streaming/fit_impl/fit_font_script_part1.js"),
@@ -136,136 +87,22 @@ val generatePresetOverlayAssets by tasks.registering {
     inputs.file(gridJsSource)
     inputs.file(recordingUiSource)
     inputs.file(iconsSource)
+    inputs.file(generator)
+    inputs.dir(projectDir.resolve("src/main/assets/preset_overlay_static"))
     outputs.dir(generatedPresetOverlayAssets)
-
-    doLast {
-        val outputDir = generatedPresetOverlayAssets.get().asFile.resolve("preset_overlay")
-        outputDir.mkdirs()
-
-        val fitScript = extractRustConcatIncludeStrings(
-            fitSource,
-            "const FIT_FONT_SCRIPT: &str = concat!(",
-        )
-        outputDir.resolve("windows_markdown_fit.js").writeText(
-            """
-            window.runWindowsMarkdownFit = function(streamingMode, phase) {
-                const source = ${groovy.json.JsonOutput.toJson(fitScript)};
-                const resolved = source
-                    .replace(/__FIT_PHASE__/g, phase || "mobile_markdown_fit")
-                    .replace(/__STREAMING_MODE__/g, streamingMode ? "true" : "false");
-                return window.eval(resolved);
-            };
-            """.trimIndent(),
-        )
-
-        val markdownCss = extractWindowsRawString(
-            cssSource.readText(),
-            "pub const MARKDOWN_CSS: &str = r#\"",
-        )
-        outputDir.resolve("windows_markdown.css").writeText(markdownCss)
-        val markdownThemeSource = cssSource.readText()
-        outputDir.resolve("windows_markdown_theme_dark.css").writeText(
-            extractWindowsRawString(markdownThemeSource, "if is_dark {"),
-        )
-        outputDir.resolve("windows_markdown_theme_light.css").writeText(
-            extractWindowsRawString(markdownThemeSource, "} else {"),
-        )
-        val (gridCssUrl, gridJsUrl) = extractQuotedStrings(
-            gridJsSource.readText(),
-            "pub fn get_lib_urls() -> (&'static str, &'static str) {",
-            2,
-        )
-        outputDir.resolve("windows_gridjs_urls.json").writeText(
-            """
-            {
-              "cssUrl": ${groovy.json.JsonOutput.toJson(gridCssUrl)},
-              "jsUrl": ${groovy.json.JsonOutput.toJson(gridJsUrl)}
-            }
-            """.trimIndent(),
-        )
-        outputDir.resolve("windows_gridjs.css").writeText(
-            extractWindowsRawString(
-                gridJsSource.readText(),
-                "pub fn get_css() -> &'static str {",
-            ),
-        )
-        outputDir.resolve("windows_gridjs_init.js").writeText(
-            extractWindowsRawString(
-                gridJsSource.readText(),
-                "pub fn get_init_script() -> &'static str {",
-            ),
-        )
-        val staticAssetsDir = projectDir.resolve("src/main/assets/preset_overlay_static")
-        if (staticAssetsDir.isDirectory) {
-            staticAssetsDir.listFiles()?.forEach { file ->
-                file.copyTo(outputDir.resolve(file.name), overwrite = true)
-            }
-        }
-
-        outputDir.resolve("windows_button_canvas.css").writeText(
-            extractWindowsRawString(
-                buttonCanvasCssSource.readText(),
-                "pub fn get_base_css() -> &'static str {",
-            ),
-        )
-        outputDir.resolve("windows_button_canvas.js").writeText(
-            extractWindowsRawString(
-                buttonCanvasJsSource.readText(),
-                "pub fn get_javascript() -> &'static str {",
-            ),
-        )
-        val themeSource = buttonCanvasThemeSource.readText()
-        outputDir.resolve("windows_button_canvas_theme_dark.css").writeText(
-            extractWindowsRawString(themeSource, "if is_dark {"),
-        )
-        outputDir.resolve("windows_button_canvas_theme_light.css").writeText(
-            extractWindowsRawString(themeSource, "} else {"),
-        )
-
-        val recordingTemplate = extractWindowsRawString(
-            recordingUiSource.readText(),
-            "format!(",
-        )
-            .replace("{{", "{")
-            .replace("}}", "}")
-            .replace("{font_css}", "{{FONT_CSS}}")
-            .replace("{width}", "{{WINDOW_WIDTH}}")
-            .replace("{height}", "{{WINDOW_HEIGHT}}")
-            .replace("{tx_rec}", "{{TEXT_RECORDING}}")
-            .replace("{tx_proc}", "{{TEXT_PROCESSING}}")
-            .replace("{tx_wait}", "{{TEXT_WARMUP}}")
-            .replace("{tx_init}", "{{TEXT_INITIALIZING}}")
-            .replace("{tx_sub}", "{{TEXT_SUBTEXT}}")
-            .replace("{tx_paused}", "{{TEXT_PAUSED}}")
-            .replace("{icon_pause}", "{{ICON_PAUSE}}")
-            .replace("{icon_play}", "{{ICON_PLAY}}")
-            .replace("{icon_close}", "{{ICON_CLOSE}}")
-            .replace("{container_bg}", "{{COLOR_CONTAINER_BG}}")
-            .replace("{container_border}", "{{COLOR_CONTAINER_BORDER}}")
-            .replace("{text_color}", "{{COLOR_TEXT}}")
-            .replace("{subtext_color}", "{{COLOR_SUBTEXT}}")
-            .replace("{btn_bg}", "{{COLOR_BUTTON_BG}}")
-            .replace("{btn_hover_bg}", "{{COLOR_BUTTON_HOVER_BG}}")
-            .replace("{btn_color}", "{{COLOR_BUTTON}}")
-            .replace("{text_shadow}", "{{COLOR_TEXT_SHADOW}}")
-            .replace("{is_dark}", "{{IS_DARK}}")
-            .replace("<div class=\"container\">", "<div class=\"container\" id=\"container\">")
-            .replaceFirst(
-                "<script>",
-                "<script>\n        {{BRIDGE_PRELUDE}}\n",
-            )
-            .replace(
-                "\n    </script>\n</body>",
-                "\n        {{MOBILE_SHIM}}\n    </script>\n</body>",
-            )
-        val iconsSourceText = iconsSource.readText()
-        outputDir.resolve("windows_recording_template.html").writeText(
-            recordingTemplate
-                .replace("{{ICON_PAUSE}}", extractRustMatchArmRawString(iconsSourceText, "pause"))
-                .replace("{{ICON_PLAY}}", extractRustMatchArmRawString(iconsSourceText, "play_arrow"))
-                .replace("{{ICON_CLOSE}}", extractRustMatchArmRawString(iconsSourceText, "close")),
-        )
-    }
+    commandLine(
+        "py", "-3", generator.absolutePath,
+        "--fit-source", fitSource.absolutePath,
+        "--css-source", cssSource.absolutePath,
+        "--button-css-source", buttonCanvasCssSource.absolutePath,
+        "--button-js-source", buttonCanvasJsSource.absolutePath,
+        "--button-theme-source", buttonCanvasThemeSource.absolutePath,
+        "--grid-source", gridJsSource.absolutePath,
+        "--recording-source", recordingUiSource.absolutePath,
+        "--icons-source", iconsSource.absolutePath,
+        "--static-assets", projectDir.resolve("src/main/assets/preset_overlay_static").absolutePath,
+        "--output", generatedPresetOverlayAssets.get().asFile.absolutePath,
+    )
 }
 
 val generatePresetModelCatalog by tasks.registering(Exec::class) {
@@ -289,17 +126,15 @@ val generatePresetModelCatalog by tasks.registering(Exec::class) {
     )
 }
 
-val generateModelFeedTrustAssets by tasks.registering {
+val generateModelFeedTrustAssets by tasks.registering(Sync::class) {
     val publicKey = rootProject.projectDir.parentFile
         .resolve("monitoring/monitoring-p256-public-key.hex")
     inputs.file(publicKey)
-    outputs.dir(generatedModelFeedTrustAssets)
-    doLast {
-        val output = generatedModelFeedTrustAssets.get().asFile
-            .resolve("model-feed/public-key.hex")
-        output.parentFile.mkdirs()
-        output.writeText(publicKey.readText())
+    from(publicKey) {
+        into("model-feed")
+        rename { "public-key.hex" }
     }
+    into(generatedModelFeedTrustAssets)
 }
 
 val generatePhoneControlContract by tasks.registering(Exec::class) {
@@ -427,13 +262,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_17)
-        }
-        jvmToolchain(17)
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -472,25 +300,25 @@ android {
 
     sourceSets.named("main") {
         // Saved models remain viewable after the removable creation runtime is uninstalled.
-        assets.srcDir(sharedCreationModelViewerAssets)
-        assets.srcDir(generatedPresetOverlayAssets)
-        java.srcDir(generatedPresetModelCatalogSources)
-        assets.srcDir(generatedPhoneControlContract.map { it.dir("assets") })
-        java.srcDir(generatedPhoneControlContract.map { it.dir("kotlin") })
-        assets.srcDir(generatedNativeRuntimeContractAssets)
-        assets.srcDir(generatedModelFeedTrustAssets)
+        assets.directories.add(sharedCreationModelViewerAssets.absolutePath)
+        assets.directories.add(generatedPresetOverlayAssets.get().asFile.absolutePath)
+        kotlin.directories.add(generatedPresetModelCatalogSources.get().asFile.absolutePath)
+        assets.directories.add(generatedPhoneControlContract.get().dir("assets").asFile.absolutePath)
+        kotlin.directories.add(generatedPhoneControlContract.get().dir("kotlin").asFile.absolutePath)
+        assets.directories.add(generatedNativeRuntimeContractAssets.get().asFile.absolutePath)
+        assets.directories.add(generatedModelFeedTrustAssets.get().asFile.absolutePath)
     }
     sourceSets.named("full") {
-        assets.srcDir(rootProject.projectDir.resolve("native/sherpa-runtime/assets"))
-        assets.srcDir(rootProject.projectDir.resolve("native/ort-runtime/assets"))
-        assets.srcDir(rootProject.projectDir.resolve("native/moonshine-runtime/assets"))
-        assets.srcDir(generatedFullCreationRuntimeDeliveryAssets)
-        assets.srcDir(generatedFullDownloaderRuntimeDeliveryAssets)
-        assets.srcDir(generatedComponentUpdateTrustAssets)
-        jniLibs.srcDir(generatedFullDownloaderLauncherJniLibs)
+        assets.directories.add(rootProject.projectDir.resolve("native/sherpa-runtime/assets").absolutePath)
+        assets.directories.add(rootProject.projectDir.resolve("native/ort-runtime/assets").absolutePath)
+        assets.directories.add(rootProject.projectDir.resolve("native/moonshine-runtime/assets").absolutePath)
+        assets.directories.add(generatedFullCreationRuntimeDeliveryAssets.get().asFile.absolutePath)
+        assets.directories.add(generatedFullDownloaderRuntimeDeliveryAssets.get().asFile.absolutePath)
+        assets.directories.add(generatedComponentUpdateTrustAssets.get().asFile.absolutePath)
+        jniLibs.directories.add(generatedFullDownloaderLauncherJniLibs.get().asFile.absolutePath)
     }
-    sourceSets.maybeCreate("testFullDebug").java.srcDir("src/testDebug/java")
-    sourceSets.maybeCreate("testPlayDebug").java.srcDir("src/testDebug/java")
+    sourceSets.maybeCreate("testFullDebug").kotlin.directories.add(file("src/testDebug/java").absolutePath)
+    sourceSets.maybeCreate("testPlayDebug").kotlin.directories.add(file("src/testDebug/java").absolutePath)
 }
 
 tasks.matching {
@@ -533,6 +361,7 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
 
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.fragment)
     implementation(libs.androidx.compose.foundation)
     // material-icons-extended removed — replaced by Material Symbols vector drawables (res/drawable/ms_*.xml)
     implementation(libs.androidx.compose.material3)
@@ -584,5 +413,5 @@ dependencies {
     androidTestImplementation(libs.androidx.uiautomator)
 }
 
-apply(from = "gradle/runtime-delivery.gradle.kts")
-apply(from = "gradle/play-compliance.gradle.kts")
+apply(from = file("gradle/runtime-delivery.gradle.kts"))
+apply(from = file("gradle/play-compliance.gradle.kts"))

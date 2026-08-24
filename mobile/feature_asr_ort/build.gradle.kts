@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.dynamic.feature)
-    alias(libs.plugins.kotlin.android)
 }
 
 val generatedJni = layout.buildDirectory.dir("generated/jniLibs")
@@ -14,6 +13,7 @@ val prepareNativePayload by tasks.registering(Sync::class) {
 }
 
 android {
+    enableKotlin = false
     namespace = "dev.screengoated.toolbox.mobile.feature.asr.ort"
     compileSdk = 36
     defaultConfig { minSdk = 29 }
@@ -23,8 +23,8 @@ android {
         create("play") { dimension = "distribution" }
     }
     sourceSets.named("main") {
-        jniLibs.srcDir(generatedJni)
-        assets.srcDir(rootProject.projectDir.resolve("native/ort-runtime/assets"))
+        jniLibs.directories.add(generatedJni.get().asFile.absolutePath)
+        assets.directories.add(rootProject.projectDir.resolve("native/ort-runtime/assets").absolutePath)
     }
     packaging.jniLibs.keepDebugSymbols += setOf(
         "**/libonnxruntime.so",
