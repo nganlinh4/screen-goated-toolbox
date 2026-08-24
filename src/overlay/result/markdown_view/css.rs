@@ -327,6 +327,7 @@ pub fn get_theme_css(is_dark: bool) -> String {
             --shadow-color: rgba(79, 195, 247, 0.6);
             --shadow-weak: rgba(79, 195, 247, 0.3);
             --result-outline: __SGT_SUBTLE_OUTLINE__;
+            --processing-track: rgba(0, 0, 0, 0.58);
             --sort-icon-filter: invert(1) brightness(200%) grayscale(100%);
             --bg: transparent;
         }
@@ -354,6 +355,7 @@ pub fn get_theme_css(is_dark: bool) -> String {
             --shadow-color: rgba(2, 136, 209, 0.4);
             --shadow-weak: rgba(2, 136, 209, 0.2);
             --result-outline: __SGT_SUBTLE_OUTLINE__;
+            --processing-track: rgba(255, 255, 255, 0.72);
             --sort-icon-filter: none;
             --bg: transparent;
         }

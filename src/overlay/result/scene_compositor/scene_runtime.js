@@ -2,8 +2,7 @@ const scene = document.getElementById('scene'); const isolatedOrigin = __SGT_ISO
 const cards = new Map();
 const cardStyleText = __SGT_CARD_CSS_JSON__; let currentThemeCss = '';
 let highestStackOrder = 0;
-let activeFit = null;
-const pendingFits = new Map();
+let activeFit = null; const pendingFits = new Map();
 let sharedCardSheet = null;
 function reportCardDiagnostic(id, entry, phase, details) {
   details = details || {};
@@ -67,9 +66,11 @@ function ensureCard(id) {
   const backdrop = document.createElement('img');
   backdrop.className = 'region-backdrop';
   backdrop.hidden = true;
+  const processing = window.__SGT_CREATE_PROCESSING_AURA__();
   card.appendChild(backdrop);
   card.appendChild(directHost);
   card.appendChild(frame);
+  card.appendChild(processing.element);
   scene.appendChild(card);
   entry = {
     card: card,
@@ -77,6 +78,7 @@ function ensureCard(id) {
     directHost: directHost,
     bodyElement: bodyElement,
     frame: frame,
+    processing: processing,
     body: '',
     document: null,
     loadedDocument: 'shared',
@@ -90,7 +92,7 @@ function ensureCard(id) {
     visible: false,
     navigationDepth: 0,
     navigationUrls: [],
-    refining: false, streamingEnabled: true,
+    refining: false, processingEffect: 'standard', streamingEnabled: true,
     contentRevision: 0, revision: 0, resizeFit: 0,
     awaitingSettledReveal: false, settledRevealRevision: 0,
     pendingSettledPaint: null,
@@ -376,6 +378,7 @@ function applyGeometry(entry, model) {
     (model.rect.y / scale) + 'px,0)';
   entry.card.style.width = width + 'px';
   entry.card.style.height = height + 'px';
+  entry.processing.resize(width, height, scale);
   if (resized && entry.ready && entry.visible) {
     clearTimeout(entry.resizeFit);
     entry.resizeFit = setTimeout(function() { queueFit(entry, entry.streaming); }, 40);
@@ -428,13 +431,17 @@ function activateCard(entry, becameVisible) {
 }
 function applyContentModel(entry, model, type) {
   const becameVisible = applyAppearance(entry, model);
+  if (type !== 'finalize' && entry.contentPhase === 'finalized') return;
   entry.body = model.body;
   entry.streaming = type !== 'finalize';
   entry.streamingEnabled = Boolean(model.streaming_enabled);
   entry.refining = Boolean(model.refining);
+  entry.processingEffect = model.processing_effect === 'minimal' ? 'minimal' : 'standard';
+  entry.card.dataset.processing = entry.refining ? 'true' : 'false';
+  entry.card.dataset.processingEffect = entry.processingEffect;
+  entry.processing.setState(entry.refining, entry.processingEffect);
   if (type === 'finalize') entry.contentPhase = 'finalized';
   else if (entry.contentPhase !== 'finalized') entry.contentPhase = 'streaming';
-  if (type !== 'finalize' && entry.contentPhase === 'finalized') return;
   const nextDocument = model.document === undefined ? null : model.document;
   const surfaceChanged = documentKey(entry.document) !== documentKey(nextDocument);
   if (surfaceChanged) entry.pendingContent = null;
@@ -500,6 +507,7 @@ function removeCard(id) {
   cancelActiveFit(entry);
   clearTimeout(entry.resizeFit);
   entry.directRuntime.destroy();
+  entry.processing.destroy();
   if (entry.commandPort) entry.commandPort.close();
   entry.card.remove();
   cards.delete(key);

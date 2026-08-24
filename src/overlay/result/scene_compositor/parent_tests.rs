@@ -33,6 +33,7 @@ fn test_card(streaming: bool) -> SceneCard {
         document: None,
         native_document: false,
         refining: false,
+        processing_effect: Default::default(),
         background: "#ffffff".to_string(),
         opacity: 90,
         visible: true,

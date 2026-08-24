@@ -16,8 +16,11 @@ const NON_STREAMING_CARD_INDEX: usize = 4;
 
 pub(crate) fn run() -> i32 {
     let interactive_hold_ms = interactive_acceptance_hold_ms();
+    let processing_hold_ms = processing_acceptance_hold_ms();
     let card_count = if interactive_hold_ms > 0 {
         1
+    } else if processing_hold_ms > 0 {
+        4
     } else {
         CARD_COUNT
     };
@@ -38,12 +41,15 @@ pub(crate) fn run() -> i32 {
     for index in 0..card_count {
         let trace_id = format!("smoke-{}-{index}", std::process::id());
         super::latency::begin(&trace_id);
-        let Some((hwnd, thread)) = spawn_card(index, trace_id.clone()) else {
+        let Some((hwnd, thread)) = spawn_card(index, trace_id.clone(), processing_hold_ms > 0)
+        else {
             close_cards(&cards);
             return 1;
         };
         cards.push((hwnd, trace_id, thread));
     }
+
+    hold_for_processing_acceptance(&cards, processing_hold_ms);
 
     let chunks = [
         "Google Sans Flex",
@@ -200,6 +206,54 @@ fn interactive_acceptance_hold_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn processing_acceptance_hold_ms() -> u64 {
+    std::env::var("SGT_RESULT_COMPOSITOR_PROCESSING_ACCEPTANCE_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(|value| value.clamp(1_000, 120_000))
+        .unwrap_or(0)
+}
+
+fn hold_for_processing_acceptance(
+    cards: &[(HWND, String, std::thread::JoinHandle<()>)],
+    hold_ms: u64,
+) {
+    if hold_ms == 0 {
+        return;
+    }
+    if cards.is_empty() {
+        return;
+    }
+    {
+        let mut states = WINDOW_STATES.lock().unwrap();
+        for (hwnd, _, _) in cards {
+            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                state.is_refining = true;
+                state.is_streaming_active = true;
+            }
+        }
+    }
+    for (hwnd, _, _) in cards {
+        super::scene_compositor::queue_window_sync(*hwnd);
+        super::raise_window(*hwnd);
+    }
+    crate::debug_log::log_debug(&format!(
+        "[OverlaySmoke] phase=processing_hold duration_ms={hold_ms}"
+    ));
+    std::thread::sleep(Duration::from_millis(hold_ms));
+    {
+        let mut states = WINDOW_STATES.lock().unwrap();
+        for (hwnd, _, _) in cards {
+            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                state.is_refining = false;
+            }
+        }
+    }
+    for (hwnd, _, _) in cards {
+        super::scene_compositor::queue_window_sync(*hwnd);
+    }
+}
+
 fn hold_for_interactive_acceptance(
     cards: &[(HWND, String, std::thread::JoinHandle<()>)],
     hold_ms: u64,
@@ -232,7 +286,11 @@ fn wait_for_navigation(hwnd: HWND, depth: usize, active: bool) -> bool {
     false
 }
 
-fn spawn_card(index: usize, trace_id: String) -> Option<(HWND, std::thread::JoinHandle<()>)> {
+fn spawn_card(
+    index: usize,
+    trace_id: String,
+    processing_acceptance: bool,
+) -> Option<(HWND, std::thread::JoinHandle<()>)> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let thread = std::thread::spawn(move || {
         let com = unsafe { CoInitialize(None) };
@@ -244,15 +302,20 @@ fn spawn_card(index: usize, trace_id: String) -> Option<(HWND, std::thread::Join
         } else {
             0
         };
-        let left = host_x + 80 + (index as i32 * 54);
-        let top = 80 + (index as i32 * 46);
-        let hwnd = create_result_window(ResultWindowParams {
-            target_rect: RECT {
+        let target_rect = if processing_acceptance {
+            processing_acceptance_rect(index, host_x)
+        } else {
+            let left = host_x + 80 + (index as i32 * 54);
+            let top = 80 + (index as i32 * 46);
+            RECT {
                 left,
                 top,
                 right: left + 620,
                 bottom: top + 240,
-            },
+            }
+        };
+        let hwnd = create_result_window(ResultWindowParams {
+            target_rect,
             win_type: WindowType::Primary,
             context: RefineContext::None,
             model_id: "smoke".to_string(),
@@ -288,6 +351,21 @@ fn spawn_card(index: usize, trace_id: String) -> Option<(HWND, std::thread::Join
         .recv_timeout(Duration::from_secs(4))
         .ok()
         .map(|hwnd| (hwnd.0, thread))
+}
+
+fn processing_acceptance_rect(index: usize, host_x: i32) -> RECT {
+    let (left, top, width, height) = match index {
+        0 => (40, 40, 820, 72),
+        1 => (900, 40, 380, 240),
+        2 => (40, 150, 96, 620),
+        _ => (180, 300, 220, 100),
+    };
+    RECT {
+        left: host_x + left,
+        top,
+        right: host_x + left + width,
+        bottom: top + height,
+    }
 }
 
 fn close_cards(cards: &[(HWND, String, std::thread::JoinHandle<()>)]) {

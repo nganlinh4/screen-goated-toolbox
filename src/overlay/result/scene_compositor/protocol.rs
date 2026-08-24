@@ -1,5 +1,6 @@
 use crate::overlay::result::ResultPresentation;
 use crate::overlay::result::SourceReplacementRegion;
+use crate::overlay::result::state::ResultProcessingEffect;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -21,6 +22,8 @@ pub struct SceneCard {
     #[serde(default)]
     pub native_document: bool,
     pub refining: bool,
+    #[serde(default)]
+    pub processing_effect: ResultProcessingEffect,
     pub background: String,
     pub opacity: u8,
     pub visible: bool,
@@ -124,6 +127,8 @@ pub struct SceneStream {
     pub body: String,
     pub document: Option<String>,
     pub refining: bool,
+    #[serde(default)]
+    pub processing_effect: ResultProcessingEffect,
     pub background: String,
     pub opacity: u8,
     pub visible: bool,
@@ -139,6 +144,8 @@ pub struct SceneFinalize {
     pub body: String,
     pub document: Option<String>,
     pub refining: bool,
+    #[serde(default)]
+    pub processing_effect: ResultProcessingEffect,
     pub background: String,
     pub opacity: u8,
     pub visible: bool,
@@ -344,6 +351,7 @@ mod tests {
                 document: Some("<p>line one</p>\n<script>const x = `quoted`;</script>".to_string()),
                 native_document: true,
                 refining: false,
+                processing_effect: ResultProcessingEffect::Standard,
                 background: "#112233".to_string(),
                 opacity: 85,
                 visible: true,
@@ -407,6 +415,7 @@ mod tests {
                 body: "<p>latest words</p>".to_string(),
                 document: None,
                 refining: false,
+                processing_effect: ResultProcessingEffect::Standard,
                 background: "#112233".to_string(),
                 opacity: 75,
                 visible: true,
@@ -432,6 +441,7 @@ mod tests {
                 body: "<p>final body</p>".to_string(),
                 document: Some("<html><body><p>final body</p></body></html>".to_string()),
                 refining: false,
+                processing_effect: ResultProcessingEffect::Standard,
                 background: "#112233".to_string(),
                 opacity: 90,
                 visible: true,

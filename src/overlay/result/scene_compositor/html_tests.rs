@@ -115,6 +115,28 @@ fn result_card_outline_does_not_bleed_into_the_control_gap() {
 }
 
 #[test]
+fn refining_cards_own_a_compositor_only_processing_signal() {
+    assert!(COMPOSED.contains("window.__SGT_CREATE_PROCESSING_AURA__()"));
+    assert!(COMPOSED.contains("entry.card.dataset.processing = entry.refining ? 'true' : 'false'"));
+    assert!(COMPOSED.contains("model.processing_effect === 'minimal'"));
+    assert!(COMPOSED.contains("entry.processing.resize(width, height, scale)"));
+
+    let document = super::super::card_document::compositor_document("http://127.0.0.1:32123");
+    assert!(document.contains("motion.setAttribute('type', 'rotate')"));
+    assert!(document.contains("gradient.setAttribute('gradientUnits', 'userSpaceOnUse')"));
+    assert!(document.contains("const halfSpan = Math.hypot(width, height) / 2"));
+    assert!(document.contains("const edge = stroke"));
+    assert!(document.contains("entry.processing.setState(entry.refining, entry.processingEffect)"));
+    assert!(document.contains("processing-runner-glow"));
+    assert!(!document.contains("stroke-dasharray"));
+    assert!(document.contains("@keyframes sgt-processing-scan"));
+    assert!(document.contains("stroke:#00ff00"));
+    assert!(document.contains("--processing-track"));
+    assert!(document.contains("pathLength', '100'"));
+    assert!(document.contains("prefers-reduced-motion:reduce"));
+}
+
+#[test]
 fn text_only_cards_keep_the_fitter_without_card_chrome() {
     let direct_runtime = include_str!("direct_runtime.js");
     let shape_runtime = include_str!("shape_runtime.js");

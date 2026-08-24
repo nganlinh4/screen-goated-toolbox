@@ -244,6 +244,7 @@ mod tests {
     fn state(linked_windows: Vec<HWND>) -> WindowState {
         WindowState {
             presentation: crate::overlay::result::ResultPresentation::Standard,
+            processing_effect: Default::default(),
             control_options: None,
             backdrop_data_url: None,
             foreground_color: None,

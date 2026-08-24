@@ -64,6 +64,10 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
         .replace("__SGT_REVEAL_RUNTIME__", include_str!("reveal_runtime.js"))
         .replace("__SGT_DIRECT_RUNTIME__", &direct_runtime)
         .replace(
+            "__SGT_PROCESSING_RUNTIME__",
+            include_str!("processing_runtime.js"),
+        )
+        .replace(
             "__SGT_HOST_COMMAND_RUNTIME__",
             include_str!("host_command_runtime.js"),
         )
@@ -104,6 +108,7 @@ mod tests {
         assert!(document.contains("inset 0 0 0 1px var(--result-outline)"));
         assert!(!document.contains("__SGT_CARD_CSS_JSON__"));
         assert!(!document.contains("__SGT_DIRECT_RUNTIME__"));
+        assert!(!document.contains("__SGT_PROCESSING_RUNTIME__"));
         assert!(!document.contains("__SGT_DOM_PATCH_RUNTIME__"));
         assert!(!document.contains("__SGT_REVEAL_RUNTIME__"));
         assert!(!document.contains("__SGT_HOST_COMMAND_RUNTIME__"));
