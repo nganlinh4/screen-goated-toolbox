@@ -5,7 +5,7 @@
 /** Simple class for getting the current audio level. */
 export class AudioAnalyser extends EventTarget {
   readonly node: AnalyserNode;
-  private readonly freqData: Uint8Array;
+  private readonly freqData: Uint8Array<ArrayBuffer>;
   private rafId: number | null = null;
   constructor(context: AudioContext) {
     super();

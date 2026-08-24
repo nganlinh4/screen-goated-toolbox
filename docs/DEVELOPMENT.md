@@ -140,6 +140,12 @@ npm run build
 Pop-Location
 ```
 
+Frontend type-checking uses the native TypeScript 7 compiler. Keep `tsconfig`
+options compatible with TypeScript 7 instead of suppressing removed-option
+diagnostics. The recorder also keeps the TypeScript 6 compatibility package
+under the canonical `typescript` dependency solely for tools that still use
+the legacy compiler API; its `tsc` executable remains the native compiler.
+
 Use the equivalent package directory for another mini app. Packaged assets are copied to the matching `src/overlay/<feature>/dist/` directory by repository build scripts.
 
 Recorder-specific architecture and tests: [`../screen-record/README.md`](../screen-record/README.md).

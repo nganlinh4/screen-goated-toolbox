@@ -18,6 +18,12 @@ Production asset build:
 npm run build
 ```
 
+The `tsc` build lane is native TypeScript 7. `typescript-eslint` still consumes
+the legacy compiler API, so the canonical `typescript` dependency is the
+official TypeScript 6 compatibility package while `@typescript/native` owns the
+`tsc` executable. Do not collapse the two dependencies until the linter supports
+the TypeScript 7 API.
+
 Root `run-dev.ps1` builds and copies `dist/` into `src/overlay/screen_record/dist/` before running Rust.
 
 ## Validation
