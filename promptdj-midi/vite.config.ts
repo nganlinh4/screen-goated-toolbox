@@ -15,7 +15,8 @@ export default defineConfig(({ mode }) => {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
     },
     build: {
-      rollupOptions: {
+      minify: "oxc",
+      rolldownOptions: {
         output: {
           entryFileNames: `assets/[name].js`,
           chunkFileNames: `assets/[name].js`,
@@ -23,13 +24,13 @@ export default defineConfig(({ mode }) => {
           // Single bundle — no code splitting. Required for inlining into HTML
           // so the shared font server can serve everything as one page.
           manualChunks: undefined,
-          inlineDynamicImports: true,
+          codeSplitting: false,
         }
       }
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       }
     }
   };

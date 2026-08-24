@@ -10,7 +10,7 @@ export default defineConfig(async () => ({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
@@ -35,6 +35,7 @@ export default defineConfig(async () => ({
     },
   },
   build: {
+    minify: "oxc",
     rolldownOptions: {
       checks: {
         // Build duration varies with host load; correctness and bundle-size

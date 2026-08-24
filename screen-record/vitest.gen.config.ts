@@ -5,7 +5,7 @@ import { defineConfig } from "vitest/config";
 // Temporary config to run the one-off golden generator (*.gen.ts).
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
+  resolve: { alias: { "@": path.resolve(import.meta.dirname, "./src") } },
   test: {
     environment: "node",
     globals: true,

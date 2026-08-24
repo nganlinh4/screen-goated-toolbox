@@ -8,11 +8,14 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   build: {
+    minify: "terser",
+    terserOptions: { compress: { passes: 2 } },
     outDir: "dist",
     emptyOutDir: true,
     assetsDir: "assets",
     cssCodeSplit: false,
-    rollupOptions: {
+    rolldownOptions: {
+      checks: { pluginTimings: false },
       input: "index.html",
       output: {
         entryFileNames: "assets/index.js",

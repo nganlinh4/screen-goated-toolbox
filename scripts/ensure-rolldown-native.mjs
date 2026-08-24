@@ -11,7 +11,7 @@ if (!fs.existsSync(packageJsonPath)) {
 }
 
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-const targetPackage = resolveRollupNativePackage();
+const targetPackage = resolveRolldownNativePackage();
 
 if (!targetPackage) {
   process.exit(0);
@@ -23,11 +23,11 @@ if (!versionRange) {
 }
 
 const requireFromPackage = createRequire(packageJsonPath);
-if (hasNativeRollupPackage(requireFromPackage, targetPackage)) {
+if (hasNativeRolldownPackage(requireFromPackage, targetPackage)) {
   process.exit(0);
 }
 
-console.log(`[ensure-rollup-native] Missing ${targetPackage}; installing ${versionRange}`);
+console.log(`[ensure-rolldown-native] Missing ${targetPackage}; installing ${versionRange}`);
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const installResult = spawnSync(
@@ -44,22 +44,22 @@ if (installResult.status !== 0) {
   process.exit(installResult.status ?? 1);
 }
 
-if (!hasNativeRollupPackage(requireFromPackage, targetPackage)) {
-  console.error(`[ensure-rollup-native] ${targetPackage} is still unavailable after install`);
+if (!hasNativeRolldownPackage(requireFromPackage, targetPackage)) {
+  console.error(`[ensure-rolldown-native] ${targetPackage} is still unavailable after install`);
   process.exit(1);
 }
 
-function resolveRollupNativePackage() {
+function resolveRolldownNativePackage() {
   if (process.platform === 'win32' && process.arch === 'x64') {
-    return '@rollup/rollup-win32-x64-msvc';
+    return '@rolldown/binding-win32-x64-msvc';
   }
   if (process.platform === 'linux' && process.arch === 'x64') {
-    return '@rollup/rollup-linux-x64-gnu';
+    return '@rolldown/binding-linux-x64-gnu';
   }
   return null;
 }
 
-function hasNativeRollupPackage(requireFromPackage, packageName) {
+function hasNativeRolldownPackage(requireFromPackage, packageName) {
   try {
     requireFromPackage.resolve(`${packageName}/package.json`);
     return true;

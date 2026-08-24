@@ -2,10 +2,11 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   build: {
+    minify: "oxc",
     outDir: "dist",
     emptyOutDir: true,
     assetsDir: "assets",
-    rollupOptions: {
+    rolldownOptions: {
       input: "index.html",
       output: {
         entryFileNames: "assets/index.js",
