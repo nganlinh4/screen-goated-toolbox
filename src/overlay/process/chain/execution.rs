@@ -23,6 +23,8 @@ use std::time::Duration;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use super::visibility::claim_result_reveal;
+
 const MAX_INTERACTIVE_PROVIDER_ATTEMPTS: usize = 2;
 
 pub struct ExecuteBlockRequest<'a> {
@@ -534,6 +536,11 @@ fn handle_execution_result(
                     }
                 }
                 update_window_text(h, &txt);
+                if claim_result_reveal(window_shown) {
+                    unsafe {
+                        let _ = ShowWindow(h, SW_SHOW);
+                    }
+                }
             }
             txt
         }

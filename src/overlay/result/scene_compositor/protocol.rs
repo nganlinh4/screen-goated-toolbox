@@ -220,6 +220,9 @@ pub enum HostCommand {
     Geometry {
         cards: Vec<SceneGeometry>,
     },
+    DragSettled {
+        cards: Vec<SceneGeometry>,
+    },
     Controls {
         cards: Vec<SceneControlUpdate>,
     },
@@ -412,6 +415,16 @@ mod tests {
             serde_json::from_str::<HostCommand>(&encoded).unwrap(),
             command
         );
+
+        let settled = HostCommand::DragSettled {
+            cards: match command {
+                HostCommand::Geometry { cards } => cards,
+                _ => unreachable!(),
+            },
+        };
+        let settled_json = serde_json::to_string(&settled).unwrap();
+        assert!(settled_json.contains("\"type\":\"drag_settled\""));
+        assert!(!settled_json.contains("html"));
     }
 
     #[test]

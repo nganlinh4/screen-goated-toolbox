@@ -54,9 +54,20 @@ fn authored_html_acceptance_is_captured_from_the_shared_compositor() {
 }
 
 #[test]
-fn drag_completion_restores_controls_after_the_native_drag_lock_is_cleared() {
-    let source = include_str!("child.rs");
+fn drag_completion_reveals_controls_only_after_committed_geometry_is_applied() {
+    let child = include_str!("child.rs");
+    let controls = include_str!("button_scene_runtime.js");
+    let pointer = crate::overlay::result::button_canvas::document_script();
+    let resize = include_str!("resize_runtime.js");
 
-    assert!(source.contains("ChildEvent::DragFinished { .. }"));
-    assert!(source.contains("setDragActive(false)"));
+    assert!(!child.contains("ChildEvent::DragFinished { .. } =>"));
+    assert!(!pointer.contains("activeResultDragPreview = null;\n    setResultDraggingCursor(false);\n    window.__SGT_BUTTON_SCENE__?.setDragActive(false)"));
+    assert!(
+        !resize.contains("active = null;\n    window.__SGT_BUTTON_SCENE__?.setDragActive(false)")
+    );
+    let settled = controls.find("command.type === 'drag_settled'").unwrap();
+    let merge = controls[settled..].find("mergeCard(card)").unwrap();
+    let reveal = controls[settled..].find("setDragActive(false)").unwrap();
+    assert!(merge < reveal);
+    assert!(controls[settled..].contains("externalDrag = false"));
 }

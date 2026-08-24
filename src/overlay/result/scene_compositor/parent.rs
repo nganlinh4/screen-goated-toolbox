@@ -269,6 +269,32 @@ pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
     }
 }
 
+fn settle_drag_geometry(targets: &[isize]) {
+    for id in targets {
+        let hwnd = HWND(*id as *mut std::ffi::c_void);
+        if unsafe { IsWindow(Some(hwnd)).as_bool() } {
+            sync_geometry(hwnd, unsafe { IsWindowVisible(hwnd).as_bool() });
+        }
+    }
+    let scenes = SCENES.lock().unwrap();
+    let cards = targets
+        .iter()
+        .filter_map(|id| scenes.get(id))
+        .map(|card| SceneGeometry {
+            id: card.id,
+            rect: card.rect.clone(),
+            control_rect: card.control_rect.clone(),
+            visible: card.visible,
+        })
+        .collect::<Vec<_>>();
+    drop(scenes);
+    send_command(HostCommand::DragSettled { cards });
+}
+
+pub(super) fn settle_external_drag(hwnd: HWND) {
+    settle_drag_geometry(&[hwnd.0 as isize]);
+}
+
 fn read_geometry(
     hwnd: HWND,
     requested_visible: bool,
@@ -466,6 +492,11 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
         } => {
             DRAGGING.store(false, Ordering::SeqCst);
             crate::overlay::result::button_canvas::handle_drag_finished(id, &targets, outcome);
+            if outcome == super::protocol::DragOutcome::Moved {
+                settle_drag_geometry(&targets);
+            } else {
+                send_command(HostCommand::DragSettled { cards: Vec::new() });
+            }
             super::controls::sync_all();
         }
         ChildEvent::FitDiagnostic { id, payload } => log_fit_diagnostic(id, &payload),

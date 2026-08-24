@@ -93,6 +93,13 @@ fn recorder_holds_deferred_capability_for_the_worker_lifetime() {
 }
 
 #[test]
+fn deferred_ffmpeg_resolution_is_visible_and_clears_before_capture() {
+    let source = include_str!("deferred_capability.rs");
+    assert!(source.contains("resolve_external_tool_with_badge_before_capture"));
+    assert!(!source.contains("capabilities::resolve_external_tool("));
+}
+
+#[test]
 fn recorder_worker_owns_a_distinct_webview_profile() {
     assert_eq!(RECORDER_WEBVIEW_PROFILE, "screen-recorder-worker");
     assert_ne!(RECORDER_WEBVIEW_PROFILE, "common");

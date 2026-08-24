@@ -20,6 +20,7 @@ body{font-family:'Google Sans Flex';user-select:none}
 .processing-scan{display:none;stroke:#00ff00;stroke-linecap:round;
   filter:drop-shadow(0 0 2px #00ff00);transform:translate3d(0,0,0)}
 .result-card[data-processing="true"] .processing-aura{opacity:1}
+.result-card[data-surface="native"]{background:transparent!important;box-shadow:none!important}
 .result-card[data-processing-effect="minimal"] .processing-runner-glow,
 .result-card[data-processing-effect="minimal"] .processing-runner{display:none}
 .result-card[data-processing-effect="minimal"] .processing-scan{display:block;
@@ -44,7 +45,8 @@ body{font-family:'Google Sans Flex';user-select:none}
 </style></head><body><span class="font-prewarm" aria-hidden="true">SGT</span>
 <main id="scene"></main><aside id="button-container"></aside>
 <script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DOM_PATCH_RUNTIME__</script><script>__SGT_REVEAL_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script><script>__SGT_PROCESSING_RUNTIME__</script><script>__SGT_RESIZE_RUNTIME__</script>
-<script>window.__SGT_RUN_FIT__ = function(streaming) { __SGT_FIT_RUNTIME__ };
+<script>__SGT_SURFACE_RUNTIME__
+window.__SGT_RUN_FIT__ = function(streaming) { __SGT_FIT_RUNTIME__ };
 __SGT_SCENE_RUNTIME__
 __SGT_HOST_COMMAND_RUNTIME__
 

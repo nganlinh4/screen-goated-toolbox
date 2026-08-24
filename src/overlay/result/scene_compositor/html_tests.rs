@@ -5,8 +5,14 @@ use std::sync::LazyLock;
 /// inlined. The runtime moved out to `scene_runtime.js` — matching the other
 /// runtimes in this directory — so assertions about runtime behaviour have to
 /// read the composed output, not the shell.
-static COMPOSED: LazyLock<String> =
-    LazyLock::new(|| DOCUMENT.replace("__SGT_SCENE_RUNTIME__", include_str!("scene_runtime.js")));
+static COMPOSED: LazyLock<String> = LazyLock::new(|| {
+    DOCUMENT
+        .replace("__SGT_SCENE_RUNTIME__", include_str!("scene_runtime.js"))
+        .replace(
+            "__SGT_SURFACE_RUNTIME__",
+            include_str!("surface_runtime.js"),
+        )
+});
 
 #[test]
 fn ordinary_cards_use_one_shared_document_runtime() {
@@ -56,7 +62,11 @@ fn isolated_html_has_a_rounded_mask_and_compositor_owned_resize_edges() {
     assert!(COMPOSED.contains(".result-frame{border-radius:inherit;clip-path:inset(0 round"));
     assert!(COMPOSED.contains(".resize-handle{position:absolute;z-index:4"));
     assert!(document.contains("action: 'result_resize_start'"));
+    assert!(document.contains("action: 'result_resize_preview'"));
     assert!(document.contains("action: 'result_resize_finish'"));
+    assert!(COMPOSED.contains("entry.externalNavigation = model.external_navigation === true"));
+    assert!(COMPOSED.contains("entry.card.dataset.surface = 'native'"));
+    assert!(COMPOSED.contains("data-surface=\"native\""));
     assert!(document.contains("requestAnimationFrame(render)"));
 }
 
@@ -158,7 +168,8 @@ fn refining_cards_own_a_compositor_only_processing_signal() {
 fn external_navigation_keeps_the_processing_shell_until_the_native_page_is_ready() {
     assert!(COMPOSED.contains("entry.navigationLoading = Boolean(model.navigation_loading)"));
     assert!(COMPOSED.contains("entry.mode = 'navigation-loading'"));
-    assert!(COMPOSED.contains("entry.directHost.hidden = true; entry.frame.hidden = true"));
+    assert!(COMPOSED.contains("entry.directHost.hidden = true"));
+    assert!(COMPOSED.contains("entry.frame.hidden = true"));
     let loading = COMPOSED
         .find("if (entry.navigationLoading)")
         .expect("navigation loading branch");

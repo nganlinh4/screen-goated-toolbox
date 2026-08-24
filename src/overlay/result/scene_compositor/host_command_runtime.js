@@ -6,7 +6,7 @@ window.applyHostCommand = function(command) {
   } else if (command.type === 'upsert') upsertCard(command.card);
   else if (command.type === 'stream') streamCard(command.card);
   else if (command.type === 'finalize') finalizeCard(command.card);
-  else if (command.type === 'geometry') {
+  else if (command.type === 'geometry' || command.type === 'drag_settled') {
     for (const card of command.cards) updateGeometry(card);
   } else if (command.type === 'theme') applyTheme(command.theme);
   else if (command.type === 'raise') {

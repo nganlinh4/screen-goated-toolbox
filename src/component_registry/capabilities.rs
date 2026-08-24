@@ -51,6 +51,40 @@ pub(crate) fn resolve_external_tool_with_badge(
     result
 }
 
+pub(crate) fn resolve_external_tool_with_badge_before_capture(
+    tool: ExternalTool,
+    cancelled: &AtomicBool,
+) -> Result<ExternalToolUse> {
+    if let Ok(component) = acquire_external_tool(tool) {
+        return Ok(component);
+    }
+
+    let name = external_tools::localized_tool_name(tool);
+    let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&name);
+    let result = external_tools::ensure(tool, cancelled, |event| {
+        external_tools::report_badge_event(&badge, &name, event);
+    });
+    badge.finish();
+
+    let result = match result {
+        Ok(component)
+            if crate::overlay::status_compositor::progress_remove_before_capture(
+                std::time::Duration::from_secs(5),
+            ) =>
+        {
+            Ok(component)
+        }
+        Ok(_) => Err(anyhow::anyhow!(
+            "status notification did not clear before capture"
+        )),
+        Err(error) => Err(error),
+    };
+    if result.is_err() {
+        notify_resolution(&name, &result);
+    }
+    result
+}
+
 pub(crate) fn requested_external_tool(error: &str) -> Option<ExternalTool> {
     error
         .match_indices(MISSING_CAPABILITY_PREFIX)

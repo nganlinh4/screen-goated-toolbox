@@ -3,6 +3,7 @@ use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, DeleteObject, HRGN, RGN_OR, SetWindowRgn,
 };
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, HWND_TOPMOST, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SW_HIDE,
     SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, ShowWindow,
@@ -43,6 +44,7 @@ pub(super) fn update(hwnd: HWND, redraw: bool) {
         for card in cards.values().filter(|card| card.visible) {
             visible_count += 1;
             if !compositor_owns_card_region(card.external_navigation) {
+                union_external_resize_edges(combined, card);
                 continue;
             }
             union_rect(
@@ -77,6 +79,60 @@ pub(super) fn update(hwnd: HWND, redraw: bool) {
     }
 }
 
+unsafe fn union_external_resize_edges(region: HRGN, card: &super::protocol::SceneCard) {
+    unsafe {
+        let target = HWND(card.id as *mut std::ffi::c_void);
+        let edge = resize_edge_width(GetDpiForWindow(target));
+        let rect = &card.rect;
+        for edge_rect in external_resize_rects(rect.x, rect.y, rect.width, rect.height, edge) {
+            union_rect(
+                region,
+                edge_rect.left,
+                edge_rect.top,
+                edge_rect.right - edge_rect.left,
+                edge_rect.bottom - edge_rect.top,
+            );
+        }
+    }
+}
+
+fn resize_edge_width(dpi: u32) -> i32 {
+    6_u32.saturating_mul(dpi.max(96)).div_ceil(96) as i32
+}
+
+fn external_resize_rects(x: i32, y: i32, width: i32, height: i32, edge: i32) -> [RECT; 4] {
+    let right = x + width.max(0);
+    let bottom = y + height.max(0);
+    let horizontal_edge = edge.max(0).min(height.max(0));
+    let vertical_edge = edge.max(0).min(width.max(0));
+    [
+        RECT {
+            left: x,
+            top: y,
+            right,
+            bottom: y + horizontal_edge,
+        },
+        RECT {
+            left: x,
+            top: bottom - horizontal_edge,
+            right,
+            bottom,
+        },
+        RECT {
+            left: x,
+            top: y,
+            right: x + vertical_edge,
+            bottom,
+        },
+        RECT {
+            left: right - vertical_edge,
+            top: y,
+            right,
+            bottom,
+        },
+    ]
+}
+
 unsafe fn union_rect(region: HRGN, x: i32, y: i32, width: i32, height: i32) {
     unsafe {
         let rect = CreateRectRgn(x, y, x + width, y + height);
@@ -87,7 +143,10 @@ unsafe fn union_rect(region: HRGN, x: i32, y: i32, width: i32, height: i32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{base_bounds, compositor_owns_card_region, needs_update};
+    use super::{
+        base_bounds, compositor_owns_card_region, external_resize_rects, needs_update,
+        resize_edge_width,
+    };
 
     #[test]
     fn drag_uses_the_full_compositor_without_moving_the_native_clip() {
@@ -103,5 +162,12 @@ mod tests {
     fn external_navigation_leaves_a_hole_in_the_shared_compositor() {
         assert!(!compositor_owns_card_region(true));
         assert!(compositor_owns_card_region(false));
+        assert_eq!(resize_edge_width(96), 6);
+        assert_eq!(resize_edge_width(144), 9);
+
+        let edges = external_resize_rects(100, 200, 640, 480, resize_edge_width(144));
+        let right = edges[3];
+        assert_eq!((right.left, right.right), (731, 740));
+        assert_eq!((right.top, right.bottom), (200, 680));
     }
 }

@@ -30,6 +30,13 @@
     resize.entry.card.style.width = rect.width + 'px';
     resize.entry.card.style.height = rect.height + 'px';
     resize.entry.processing.resize(rect.width, rect.height, window.devicePixelRatio || 1);
+    if (resize.entry.externalNavigation) {
+      const scale = window.devicePixelRatio || 1;
+      window.ipc.postMessage(JSON.stringify({
+        action: 'result_resize_preview', hwnd: resize.entry.card.dataset.id,
+        dx: Math.round(resize.dx * scale), dy: Math.round(resize.dy * scale)
+      }));
+    }
   }
 
   function start(event, entry, edge) {
@@ -71,7 +78,6 @@
       dx: Math.round(resize.dx * scale), dy: Math.round(resize.dy * scale)
     }));
     active = null;
-    window.__SGT_BUTTON_SCENE__?.setDragActive(false);
   }
 
   function attach(entry) {

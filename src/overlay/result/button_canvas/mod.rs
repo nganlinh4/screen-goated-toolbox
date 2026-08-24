@@ -71,8 +71,8 @@ pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
     crate::overlay::result::scene_compositor::is_point_over_result_window(x, y)
 }
 
-pub fn set_drag_mode(active: bool) {
-    crate::overlay::result::scene_compositor::set_external_drag(active);
+pub fn set_drag_mode(hwnd: HWND, active: bool) {
+    crate::overlay::result::scene_compositor::set_external_drag(hwnd, active);
 }
 
 pub(crate) fn handle_action(

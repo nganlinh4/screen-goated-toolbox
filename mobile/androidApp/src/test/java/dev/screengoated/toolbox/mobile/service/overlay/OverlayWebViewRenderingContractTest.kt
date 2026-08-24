@@ -44,6 +44,10 @@ class OverlayWebViewRenderingContractTest {
             invariants.string("gestureGeometryCadence"),
         )
         assertEquals(
+            "after_committed_terminal_geometry",
+            invariants.string("gestureControlReveal"),
+        )
+        assertEquals(
             "gesture_terminal_only",
             invariants.string("phoneControlPositionPersistence"),
         )
@@ -66,6 +70,10 @@ class OverlayWebViewRenderingContractTest {
         assertEquals(
             "same_frame_as_result_overlay",
             invariants.string("externalNavigationGestureGeometry"),
+        )
+        assertEquals(
+            "result_geometry_not_page_content",
+            invariants.string("externalNavigationResizeHitTestOwner"),
         )
         assertEquals(
             "platform_antialiased_rounded_bounds",

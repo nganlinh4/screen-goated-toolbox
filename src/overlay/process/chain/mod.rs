@@ -5,6 +5,7 @@ mod execution;
 mod post_process;
 mod step;
 mod templates;
+mod visibility;
 
 pub use step::{ChainStepRequest, run_chain_step};
 

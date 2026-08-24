@@ -289,7 +289,10 @@ fn drain_commands(hwnd: HWND) {
 fn command_requires_region_redraw(command: &HostCommand) -> bool {
     !matches!(
         command,
-        HostCommand::Geometry { .. } | HostCommand::Opacity { .. } | HostCommand::Theme { .. }
+        HostCommand::Geometry { .. }
+            | HostCommand::DragSettled { .. }
+            | HostCommand::Opacity { .. }
+            | HostCommand::Theme { .. }
     )
 }
 
@@ -313,14 +316,8 @@ fn handle_renderer_event(body: &str) {
                 return;
             }
             super::button_input::RendererInput::EventAndRefresh(event) => {
-                match &event {
-                    ChildEvent::DragStarted => {
-                        evaluate_script("window.__SGT_BUTTON_SCENE__?.setDragActive(true);");
-                    }
-                    ChildEvent::DragFinished { .. } => {
-                        evaluate_script("window.__SGT_BUTTON_SCENE__?.setDragActive(false);");
-                    }
-                    _ => {}
+                if matches!(&event, ChildEvent::DragStarted) {
+                    evaluate_script("window.__SGT_BUTTON_SCENE__?.setDragActive(true);");
                 }
                 emit_event(event);
                 super::region::update(host, true);
@@ -400,6 +397,7 @@ fn command_name(command: &HostCommand) -> &'static str {
         HostCommand::Stream { .. } => "stream",
         HostCommand::Finalize { .. } => "finalize",
         HostCommand::Geometry { .. } => "geometry",
+        HostCommand::DragSettled { .. } => "drag_settled",
         HostCommand::Controls { .. } => "controls",
         HostCommand::Opacity { .. } => "opacity",
         HostCommand::RefineText { .. } => "refine_text",
@@ -425,6 +423,7 @@ fn command_id(command: &HostCommand) -> Option<isize> {
         HostCommand::RefineText { id, .. } => Some(*id),
         HostCommand::Snapshot { .. }
         | HostCommand::Geometry { .. }
+        | HostCommand::DragSettled { .. }
         | HostCommand::Controls { .. }
         | HostCommand::ExternalDrag { .. }
         | HostCommand::Theme { .. }
@@ -470,13 +469,16 @@ fn apply_scene_state(command: &HostCommand) {
                 card.controls.clone_from(&update.controls);
             }
         }
-        HostCommand::Geometry { cards: updates } => {
+        HostCommand::Geometry { cards: updates } | HostCommand::DragSettled { cards: updates } => {
             for update in updates {
                 if let Some(card) = cards.get_mut(&update.id) {
                     card.rect = update.rect.clone();
                     card.control_rect = update.control_rect.clone();
                     card.visible = update.visible;
                 }
+            }
+            if matches!(command, HostCommand::DragSettled { .. }) {
+                super::button_input::set_external_drag(false);
             }
         }
         HostCommand::Controls { cards: updates } => {

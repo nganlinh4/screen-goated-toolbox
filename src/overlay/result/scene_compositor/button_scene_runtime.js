@@ -79,6 +79,11 @@
     } else if (command.type === 'geometry') {
       if (!nativeDrag) window.clearResultDragControlPreview?.();
       for (const card of command.cards || []) mergeCard(card);
+    } else if (command.type === 'drag_settled') {
+      for (const card of command.cards || []) mergeCard(card);
+      externalDrag = false;
+      setDragActive(false);
+      return;
     } else if (command.type === 'controls') {
       for (const card of command.cards || []) mergeCard(card);
     } else if (command.type === 'opacity') {
@@ -113,6 +118,7 @@
     if (nativeDrag) {
       hideControlsForDrag();
     } else if (wasActive || controlsHiddenForDrag) {
+      window.clearResultDragControlPreview?.();
       rebuild();
     }
   }

@@ -277,7 +277,9 @@ fn apply_native_state(command: &HostCommand) {
             scene.notification_rect = *rect;
             scene.progress = Some(progress.clone());
         }
-        HostCommand::ProgressRemove => scene.progress = None,
+        HostCommand::ProgressRemove | HostCommand::ProgressRemoveBeforeCapture { .. } => {
+            scene.progress = None
+        }
         HostCommand::SelectionShow { rect, text } => {
             scene.selection.rect = *rect;
             scene.selection.text_visible = true;

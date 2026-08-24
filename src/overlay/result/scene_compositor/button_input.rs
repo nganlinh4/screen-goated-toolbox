@@ -48,6 +48,8 @@ struct ResizeEdge {
 struct ActiveResize {
     id: isize,
     edge: ResizeEdge,
+    start_rect: RECT,
+    live_native: bool,
 }
 
 static BUTTON_REGIONS: LazyLock<Mutex<Vec<SceneRect>>> = LazyLock::new(|| Mutex::new(Vec::new()));
@@ -106,6 +108,7 @@ pub(super) fn handle_renderer_message(
         "result_drag_preview" => preview_drag_from_message(&message),
         "result_drag_finish" => finish_drag_from_message(&message),
         "result_resize_start" => begin_resize(id, &message, cards),
+        "result_resize_preview" => preview_resize_from_message(&message),
         "result_resize_finish" => finish_resize_from_message(&message),
         _ => button_action(id, action, &message)
             .map(RendererInput::Event)
@@ -334,9 +337,9 @@ fn begin_resize(
     if ACTIVE_DRAG.lock().unwrap().is_some() || ACTIVE_RESIZE.lock().unwrap().is_some() {
         return RendererInput::RefreshRegion;
     }
-    if !cards.get(&id).is_some_and(|card| card.visible) {
+    let Some(card) = cards.get(&id).filter(|card| card.visible) else {
         return RendererInput::RefreshRegion;
-    }
+    };
     let Some(edge) = message
         .get("edge")
         .and_then(|value| value.as_str())
@@ -344,7 +347,16 @@ fn begin_resize(
     else {
         return RendererInput::RefreshRegion;
     };
-    *ACTIVE_RESIZE.lock().unwrap() = Some(ActiveResize { id, edge });
+    let mut start_rect = RECT::default();
+    if unsafe { GetWindowRect(HWND(id as *mut std::ffi::c_void), &mut start_rect) }.is_err() {
+        return RendererInput::RefreshRegion;
+    }
+    *ACTIVE_RESIZE.lock().unwrap() = Some(ActiveResize {
+        id,
+        edge,
+        start_rect,
+        live_native: card.external_navigation,
+    });
     BUTTON_REGIONS.lock().unwrap().clear();
     RendererInput::EventAndRefresh(ChildEvent::DragStarted)
 }
@@ -354,12 +366,22 @@ fn finish_resize_from_message(message: &serde_json::Value) -> RendererInput {
         return RendererInput::RefreshRegion;
     };
     let (dx, dy) = drag_offset(message);
-    unsafe { resize_target(resize.id, resize.edge, dx, dy) };
+    unsafe { place_resized_target(&resize, dx, dy) };
     RendererInput::EventAndRefresh(ChildEvent::DragFinished {
         id: resize.id,
         targets: vec![resize.id],
         outcome: DragOutcome::Moved,
     })
+}
+
+fn preview_resize_from_message(message: &serde_json::Value) -> RendererInput {
+    let (dx, dy) = drag_offset(message);
+    if let Some(resize) = ACTIVE_RESIZE.lock().unwrap().as_ref()
+        && resize.live_native
+    {
+        unsafe { place_resized_target(resize, dx, dy) };
+    }
+    RendererInput::Handled
 }
 
 impl ResizeEdge {
@@ -415,14 +437,10 @@ fn resized_rect(mut rect: RECT, edge: ResizeEdge, dx: i32, dy: i32) -> RECT {
     rect
 }
 
-unsafe fn resize_target(id: isize, edge: ResizeEdge, dx: i32, dy: i32) {
+unsafe fn place_resized_target(resize: &ActiveResize, dx: i32, dy: i32) {
     unsafe {
-        let hwnd = HWND(id as *mut std::ffi::c_void);
-        let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_err() {
-            return;
-        }
-        let rect = resized_rect(rect, edge, dx, dy);
+        let hwnd = HWND(resize.id as *mut std::ffi::c_void);
+        let rect = resized_rect(resize.start_rect, resize.edge, dx, dy);
         let _ = SetWindowPos(
             hwnd,
             None,
@@ -508,6 +526,7 @@ mod tests {
 
     #[test]
     fn compositor_resize_edges_preserve_the_opposite_edge_and_native_minimum() {
+        let source = include_str!("button_input.rs");
         let rect = RECT {
             left: 100,
             top: 200,
@@ -528,5 +547,7 @@ mod tests {
             crate::overlay::result::event_handler::MIN_WINDOW_HEIGHT
         );
         assert!(ResizeEdge::parse("center").is_none());
+        assert!(source.contains("result_resize_preview"));
+        assert!(source.contains("resized_rect(resize.start_rect"));
     }
 }

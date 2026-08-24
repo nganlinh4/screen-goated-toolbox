@@ -169,6 +169,15 @@ window.applyStatusCommand = command => {{
       invoke('notification', 'upsertProgressNotification', command.progress.title,
         command.progress.snippet, command.progress.progress); break;
     case 'progress_remove': invoke('notification', 'removeProgressNotification'); break;
+    case 'progress_remove_before_capture': {{
+      const notificationDocument = frameWindow('notification')?.document;
+      notificationDocument?.getElementById('progress-badge')?.remove();
+      const container = notificationDocument?.getElementById('notifications');
+      if (!container || container.children.length === 0) hide('notification');
+      requestAnimationFrame(() => requestAnimationFrame(() =>
+        post({{type:'progress_removal_applied',request_id:command.request_id}})));
+      break;
+    }}
     case 'selection_show':
       place('selection', command.rect); textVisible = true; show('selection');
       invoke('selection', 'updateState', false, command.text); invoke('selection', 'playEntry');
@@ -238,6 +247,8 @@ mod tests {
         assert!(html.contains("displayScale = Math.max(1, Number(display.scale) || 1)"));
         assert!(html.contains("Object.entries(frameRects)"));
         assert!(html.contains("invoke('notification', 'resetNotifications')"));
+        assert!(html.contains("progress_removal_applied"));
+        assert!(html.contains("getElementById('progress-badge')?.remove()"));
         assert!(html.contains("classList.toggle('visible', scene.recording.visible)"));
     }
 }

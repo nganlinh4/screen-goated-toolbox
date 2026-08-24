@@ -400,7 +400,6 @@ function finishLocalResultDrag(event) {
     }));
     activeResultDragPreview = null;
     setResultDraggingCursor(false);
-    window.__SGT_BUTTON_SCENE__?.setDragActive(false);
 }
 document.addEventListener('pointermove', queueResultDragPreview, true);
 document.addEventListener('pointerup', finishLocalResultDrag, true);

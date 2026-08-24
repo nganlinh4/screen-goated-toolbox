@@ -89,6 +89,7 @@ static GPU_FAILURES: AtomicU32 = AtomicU32::new(0);
 static LAST_GPU_FAILURE_MS: AtomicU64 = AtomicU64::new(0);
 static SOFTWARE_RENDERING_REQUIRED: AtomicBool = AtomicBool::new(false);
 static CAPTURE_APPLIED: AtomicU64 = AtomicU64::new(0);
+static PROGRESS_REMOVAL_APPLIED: AtomicU64 = AtomicU64::new(0);
 static WATCHDOG: Once = Once::new();
 static MONOTONIC_EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
 
@@ -112,6 +113,17 @@ pub(super) fn wait_for_capture(request_id: u64, timeout: Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
         if CAPTURE_APPLIED.load(Ordering::SeqCst) >= request_id {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    false
+}
+
+pub(super) fn wait_for_progress_removal(request_id: u64, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if PROGRESS_REMOVAL_APPLIED.load(Ordering::SeqCst) >= request_id {
             return true;
         }
         std::thread::sleep(Duration::from_millis(2));
@@ -396,6 +408,9 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
                     .unwrap()
                     .notifications
                     .retain(|notification| notification.id > through_id);
+            }
+            ChildEvent::ProgressRemovalApplied { request_id } => {
+                PROGRESS_REMOVAL_APPLIED.fetch_max(request_id, Ordering::SeqCst);
             }
             ChildEvent::SelectionCaptureApplied { request_id } => {
                 CAPTURE_APPLIED.fetch_max(request_id, Ordering::SeqCst);

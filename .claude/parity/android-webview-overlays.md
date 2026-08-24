@@ -22,7 +22,9 @@
   lifecycle ownership remains unchanged.
 - Latest-state visual updates that supersede older updates are conflated to at
   most one dispatch per display frame. Geometry changes are likewise applied at
-  most once per display frame while a pointer gesture is active.
+  most once per display frame while a pointer gesture is active. Controls stay
+  hidden through gesture completion and are revealed only after the terminal
+  geometry has been committed, never from the pre-gesture layout.
 - Phone Control keeps the canonical full-display renderer and separate orb touch
   shim. Dragging updates only the touch window and renderer placement; the
   full-display renderer window is resized only for attachment or configuration
@@ -39,10 +41,13 @@
   sites keep working when embedding is forbidden. It follows the same result
   geometry authority at display-frame cadence and uses the platform's
   antialiased rounded-window clip; it cannot maintain an independent drag,
-  resize, opacity, or corner policy. Browser content remains fully opaque while
-  visible. Each navigation keeps the native surface hidden until its completed
-  page load, while the result renderer retains the shell and canonical
-  processing outline; the handoff cannot expose an empty native surface.
+  resize, opacity, or corner policy. Resize hit testing belongs to that result
+  geometry authority rather than injected page content, so site scrollbars and
+  layout cannot inset or disable an overlay edge. Browser content remains fully
+  opaque while visible. Each navigation keeps the native surface hidden until
+  its completed page load, while the result renderer retains the shell and
+  canonical processing outline; the handoff cannot expose an empty native
+  surface.
 - Related preset result cards may later share one Android renderer only when the
   Windows scene protocol can be ported without changing independent card input,
   focus, navigation, and lifecycle behavior. Renderer consolidation is not a

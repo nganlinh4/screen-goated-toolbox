@@ -83,6 +83,9 @@ pub enum HostCommand {
         progress: ProgressScene,
     },
     ProgressRemove,
+    ProgressRemoveBeforeCapture {
+        request_id: u64,
+    },
     SelectionShow {
         rect: PhysicalRect,
         text: String,
@@ -117,6 +120,7 @@ pub enum ChildEvent {
     RecordingCancel,
     RecordingMoved { rect: PhysicalRect },
     NotificationFinished { through_id: u64 },
+    ProgressRemovalApplied { request_id: u64 },
     SelectionCaptureApplied { request_id: u64 },
     ResyncRequested,
     RendererFailure { kind: RendererFailureKind },
@@ -165,5 +169,23 @@ mod tests {
             serde_json::from_str::<HostCommand>(&encoded).unwrap(),
             command
         );
+    }
+
+    #[test]
+    fn capture_safe_progress_removal_has_an_exact_acknowledgement_contract() {
+        let command = HostCommand::ProgressRemoveBeforeCapture { request_id: 17 };
+        assert_eq!(
+            serde_json::to_value(command).unwrap(),
+            serde_json::json!({
+                "type": "progress_remove_before_capture",
+                "request_id": 17
+            })
+        );
+        let event: ChildEvent = serde_json::from_value(serde_json::json!({
+            "type": "progress_removal_applied",
+            "request_id": 17
+        }))
+        .unwrap();
+        assert_eq!(event, ChildEvent::ProgressRemovalApplied { request_id: 17 });
     }
 }

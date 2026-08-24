@@ -50,6 +50,7 @@ function ensureCard(id) {
   const card = document.createElement('section');
   card.className = 'result-card';
   card.dataset.id = key;
+  card.dataset.surface = 'result';
   const directHost = document.createElement('div');
   directHost.className = 'direct-host';
   const shadow = directHost.attachShadow({ mode: 'open' });
@@ -92,7 +93,7 @@ function ensureCard(id) {
     visible: false,
     navigationDepth: 0,
     navigationUrls: [],
-    refining: false, navigationLoading: false,
+    refining: false, navigationLoading: false, externalNavigation: false,
     processingEffect: 'standard', streamingEnabled: true,
     contentRevision: 0, revision: 0, resizeFit: 0,
     awaitingSettledReveal: false, settledRevealRevision: 0,
@@ -439,6 +440,7 @@ function applyContentModel(entry, model, type) {
   entry.streamingEnabled = Boolean(model.streaming_enabled);
   entry.refining = Boolean(model.refining);
   entry.navigationLoading = Boolean(model.navigation_loading);
+  entry.externalNavigation = model.external_navigation === true;
   entry.processingEffect = model.processing_effect === 'minimal' ? 'minimal' : 'standard';
   const processing = entry.refining || entry.navigationLoading;
   entry.card.dataset.processing = processing ? 'true' : 'false';
@@ -447,19 +449,9 @@ function applyContentModel(entry, model, type) {
   if (type === 'finalize') entry.contentPhase = 'finalized';
   else if (entry.contentPhase !== 'finalized') entry.contentPhase = 'streaming';
   const nextDocument = model.document === undefined ? null : model.document;
-  const surfaceChanged = documentKey(entry.document) !== documentKey(nextDocument);
-  if (surfaceChanged) entry.pendingContent = null;
+  if (documentKey(entry.document) !== documentKey(nextDocument)) entry.pendingContent = null;
   const settleBeforeReveal = type === 'finalize' && !entry.streamingEnabled;
-  if (entry.navigationLoading) {
-    entry.pendingContent = null; entry.mode = 'navigation-loading';
-    entry.directHost.hidden = true; entry.frame.hidden = true;
-    return;
-  }
-  if (model.external_navigation === true) {
-    entry.pendingContent = null; entry.document = nextDocument; entry.mode = 'native';
-    entry.directHost.hidden = true; entry.frame.hidden = true;
-    activateCard(entry, becameVisible); return;
-  }
+  if (window.__SGT_APPLY_EXTERNAL_SURFACE__(entry, model, nextDocument, becameVisible, activateCard)) return;
   if (nextDocument !== null) {
     entry.pendingContent = null;
     entry.contentRevision++;

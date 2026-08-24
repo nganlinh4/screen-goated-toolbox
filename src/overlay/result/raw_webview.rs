@@ -7,12 +7,10 @@ use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWCP_ROUND, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::SetWindowRgn;
-use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_STYLE, GetClientRect, GetWindowLongPtrW, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTLEFT,
-    HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, HWND_TOPMOST, IsWindowVisible, LWA_ALPHA, PostMessageW,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SendMessageW, SetLayeredWindowAttributes,
-    SetWindowLongPtrW, SetWindowPos, WM_APP, WM_NCLBUTTONDOWN, WS_CLIPCHILDREN,
+    GWL_STYLE, GetClientRect, GetWindowLongPtrW, HWND_TOPMOST, IsWindowVisible, LWA_ALPHA,
+    PostMessageW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetLayeredWindowAttributes,
+    SetWindowLongPtrW, SetWindowPos, WM_APP, WS_CLIPCHILDREN,
 };
 use wry::{PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
 
@@ -156,26 +154,13 @@ fn handle_ipc(hwnd: HWND, body: &str) {
                 .as_ref()
                 .and_then(|value| value.get("type"))
                 .and_then(|value| value.as_str());
-            match request_type {
-                Some("navigation_request") => {
-                    if let Some(url) = request
-                        .as_ref()
-                        .and_then(|value| value.get("url"))
-                        .and_then(|value| value.as_str())
-                    {
-                        request_navigation(hwnd, url);
-                    }
-                }
-                Some("navigation_resize_start") => {
-                    if let Some(edge) = request
-                        .as_ref()
-                        .and_then(|value| value.get("edge"))
-                        .and_then(|value| value.as_str())
-                    {
-                        begin_navigation_resize(hwnd, edge);
-                    }
-                }
-                _ => {}
+            if let Some("navigation_request") = request_type
+                && let Some(url) = request
+                    .as_ref()
+                    .and_then(|value| value.get("url"))
+                    .and_then(|value| value.as_str())
+            {
+                request_navigation(hwnd, url);
             }
         }
     }
@@ -432,41 +417,7 @@ fn public_web_url(raw: &str) -> Option<String> {
 }
 
 fn navigation_initialization_script() -> String {
-    include_str!("navigation_runtime.js").replace(
-        "__SGT_NAVIGATION_RESIZE_EDGE_PX__",
-        &crate::overlay::result::event_handler::MIN_WINDOW_HEIGHT
-            .min(6)
-            .to_string(),
-    )
-}
-
-fn navigation_resize_hit_test(edge: &str) -> Option<usize> {
-    Some(match edge {
-        "n" => HTTOP as usize,
-        "s" => HTBOTTOM as usize,
-        "e" => HTRIGHT as usize,
-        "w" => HTLEFT as usize,
-        "ne" => HTTOPRIGHT as usize,
-        "nw" => HTTOPLEFT as usize,
-        "se" => HTBOTTOMRIGHT as usize,
-        "sw" => HTBOTTOMLEFT as usize,
-        _ => return None,
-    })
-}
-
-fn begin_navigation_resize(hwnd: HWND, edge: &str) {
-    let Some(hit_test) = navigation_resize_hit_test(edge) else {
-        return;
-    };
-    unsafe {
-        let _ = ReleaseCapture();
-        let _ = SendMessageW(
-            hwnd,
-            WM_NCLBUTTONDOWN,
-            Some(windows::Win32::Foundation::WPARAM(hit_test)),
-            Some(windows::Win32::Foundation::LPARAM(0)),
-        );
-    }
+    include_str!("navigation_runtime.js").to_string()
 }
 
 fn content_bounds(hwnd: HWND) -> Rect {
@@ -516,8 +467,7 @@ fn set_host_mode(hwnd: HWND, raw: bool) {
 mod tests {
     use super::{
         WM_NAVIGATE, WM_SYNC, content_bounds, host_alpha, navigation_initialization_script,
-        navigation_resize_hit_test, navigation_surface_active, public_web_url,
-        should_activate_foreground,
+        navigation_surface_active, public_web_url, should_activate_foreground,
     };
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::WM_APP;
@@ -578,15 +528,10 @@ mod tests {
     }
 
     #[test]
-    fn external_navigation_owns_native_resize_edges_without_page_specific_code() {
+    fn external_navigation_page_script_does_not_own_overlay_geometry() {
         let script = navigation_initialization_script();
-        for edge in ["n", "s", "e", "w", "ne", "nw", "se", "sw"] {
-            assert!(script.contains(&format!("data-edge=\"{edge}\"")));
-            assert!(navigation_resize_hit_test(edge).is_some());
-        }
-        assert!(script.contains("navigation_resize_start"));
+        assert!(!script.contains("resize"));
+        assert!(!script.contains("scrollbar"));
         assert!(!script.contains("anchor.target === '_blank'"));
-        assert!(!script.contains("__SGT_NAVIGATION_RESIZE_EDGE_PX__"));
-        assert!(navigation_resize_hit_test("center").is_none());
     }
 }

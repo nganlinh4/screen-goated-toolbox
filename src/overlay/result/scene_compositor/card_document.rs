@@ -38,6 +38,10 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
         // (`__SGT_CARD_CSS_JSON__`, `__SGT_BOX_RADIUS_PX__`), so it has to be
         // in the document before the substitution pass reaches them.
         .replace("__SGT_SCENE_RUNTIME__", include_str!("scene_runtime.js"))
+        .replace(
+            "__SGT_SURFACE_RUNTIME__",
+            include_str!("surface_runtime.js"),
+        )
         .replace("__SGT_FONT_FACE__", &super::font::face_css("/font.ttf"))
         .replace(
             "__SGT_BUTTON_CSS__",
@@ -148,6 +152,7 @@ mod tests {
         assert!(document.contains("Unified result controls did not initialize"));
         assert!(document.contains("style.visibility = 'hidden'"));
         assert!(document.contains("else if (wasActive || controlsHiddenForDrag)"));
+        assert!(document.contains("window.clearResultDragControlPreview?.();"));
         assert!(!document.contains("window.updateWindows({});"));
         assert!(document.contains("setPointerCapture(e.pointerId)"));
         assert!(document.contains("requestAnimationFrame(renderResultDragPreview)"));

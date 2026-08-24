@@ -94,9 +94,13 @@ pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
     });
 }
 
-pub fn set_external_drag(active: bool) {
+pub fn set_external_drag(hwnd: HWND, active: bool) {
     DRAGGING.store(active, Ordering::SeqCst);
-    send_command(HostCommand::ExternalDrag { active });
+    if active {
+        send_command(HostCommand::ExternalDrag { active: true });
+    } else {
+        super::parent::settle_external_drag(hwnd);
+    }
 }
 
 pub fn is_dragging() -> bool {

@@ -69,11 +69,10 @@ impl DeferredFfmpeg {
                         windows::Win32::Foundation::HANDLE(request.as_raw_handle());
                     let wait = unsafe { WaitForSingleObject(request_handle, 250) };
                     if wait == WAIT_OBJECT_0 {
-                        let result =
-                            crate::component_registry::capabilities::resolve_external_tool(
+                        let result = crate::component_registry::capabilities::
+                            resolve_external_tool_with_badge_before_capture(
                                 ExternalTool::Ffmpeg,
                                 &thread_cancelled,
-                                |_| {},
                             )
                             .map_err(|error| format!("{error:#}"));
                         let succeeded = result.is_ok();

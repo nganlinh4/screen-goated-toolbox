@@ -19,6 +19,7 @@ use windows061::Win32::UI::WindowsAndMessaging::{
 pub(crate) const CHILD_FLAG: &str = "--internal-status-compositor";
 static NEXT_SCENE_ORDER: AtomicU64 = AtomicU64::new(1);
 static NEXT_CAPTURE_REQUEST: AtomicU64 = AtomicU64::new(1);
+static NEXT_PROGRESS_REMOVAL_REQUEST: AtomicU64 = AtomicU64::new(1);
 const MAX_ACTIVE_NOTIFICATIONS: usize = 32;
 const MAX_TITLE_CHARS: usize = 256;
 const MAX_SNIPPET_CHARS: usize = 2_048;
@@ -144,6 +145,13 @@ pub(crate) fn progress_upsert(title: String, snippet: String, progress: f32) {
 pub(crate) fn progress_remove() {
     parent::SNAPSHOT.lock().unwrap().progress = None;
     parent::send(HostCommand::ProgressRemove);
+}
+
+pub(crate) fn progress_remove_before_capture(timeout: Duration) -> bool {
+    parent::SNAPSHOT.lock().unwrap().progress = None;
+    let request_id = NEXT_PROGRESS_REMOVAL_REQUEST.fetch_add(1, Ordering::SeqCst);
+    parent::send(HostCommand::ProgressRemoveBeforeCapture { request_id });
+    parent::wait_for_progress_removal(request_id, timeout)
 }
 
 pub(crate) fn selection_show(rect: PhysicalRect, text: String) {
