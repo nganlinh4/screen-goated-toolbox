@@ -26,9 +26,9 @@ use std::sync::{Mutex, Once};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2, ICoreWebView2CompositionController,
 };
-use windows061::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows061::Win32::UI::HiDpi::GetDpiForSystem;
-use windows061::Win32::UI::WindowsAndMessaging::{
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::HiDpi::GetDpiForSystem;
+use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, IsWindow, PostMessageW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
     SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WM_APP,
 };

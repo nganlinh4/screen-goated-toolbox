@@ -11,13 +11,13 @@ use std::sync::atomic::Ordering;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC, ICoreWebView2Controller,
 };
-use windows061::Win32::Foundation::{HWND, POINT, RECT};
-use windows061::Win32::Graphics::Gdi::{CreateRectRgn, GetWindowRgnBox, SetWindowRgn};
-use windows061::Win32::UI::WindowsAndMessaging::{
+use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::Graphics::Gdi::{CreateRectRgn, GetWindowRgnBox, SetWindowRgn};
+use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, IsWindow, KillTimer,
     SetForegroundWindow, SetTimer, SetWindowLongPtrW, WS_EX_NOACTIVATE,
 };
-use windows061::core::Interface;
+use windows::core::Interface;
 
 use super::{
     LEAVE_TIMER_ID, ORB_COMP, ORB_PREV_FG, ORB_TEXT_MODE, get_dpi_scale, note_page_ready,

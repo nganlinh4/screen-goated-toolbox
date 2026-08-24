@@ -7,16 +7,16 @@
 
 use std::sync::atomic::Ordering;
 
-use windows061::Win32::Foundation::HWND;
-use windows061::Win32::Graphics::Gdi::HBRUSH;
-use windows061::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
-use windows061::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows061::Win32::UI::WindowsAndMessaging::{
+use windows::Win32::Foundation::HWND;
+use windows::Win32::Graphics::Gdi::HBRUSH;
+use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, IDC_ARROW, LoadCursorW, MSG,
     RegisterClassW, SetWindowDisplayAffinity, TranslateMessage, WDA_EXCLUDEFROMCAPTURE, WNDCLASSW,
     WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
-use windows061::core::w;
+use windows::core::w;
 
 use super::{
     ORB_COMP, ORB_HWND, ORB_INITIALIZING, ORB_PAGE_READY, ORB_SHOW_POSTED, ORB_SHOW_REQUESTED,

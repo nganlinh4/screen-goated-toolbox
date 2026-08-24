@@ -1,9 +1,9 @@
 use image::{GenericImageView, ImageFormat};
 use webview2_com::CapturePreviewCompletedHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
-use windows061::Win32::Foundation::HGLOBAL;
-use windows061::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
-use windows061::Win32::System::Com::{IStream, STATFLAG_NONAME, STREAM_SEEK_SET};
+use windows::Win32::Foundation::HGLOBAL;
+use windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
+use windows::Win32::System::Com::{IStream, STATFLAG_NONAME, STREAM_SEEK_SET};
 use wry::WebViewExtWindows;
 
 const AUTHORED_PIXEL: [u8; 3] = [0x0d, 0xb1, 0x5b];
@@ -76,7 +76,7 @@ fn start_capture_with(
     webview: &wry::WebView,
     evidence_name: &'static str,
     complete: impl FnOnce(Result<usize, String>) + 'static,
-) -> windows061::core::Result<()> {
+) -> windows::core::Result<()> {
     unsafe {
         let stream = CreateStreamOnHGlobal(HGLOBAL::default(), true)?;
         let completion_stream = stream.clone();

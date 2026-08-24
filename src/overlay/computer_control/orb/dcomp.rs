@@ -8,7 +8,7 @@
 //! (`CreateCoreWebView2CompositionController` + `RootVisualTarget`).
 //!
 //! wry only does windowed hosting, so this talks to WebView2 directly via `webview2-com`
-//! (which binds `windows 0.61` — aliased `windows061` — so the whole DComp/WebView2 stack
+//! (which binds `windows 0.61` — aliased `windows` — so the whole DComp/WebView2 stack
 //! lives on 0.61 to avoid cross-version COM-pointer casts).
 //!
 //! `build_host` is the COM/DComp plumbing; `window.rs` owns the window + message loop and
@@ -30,17 +30,17 @@ use webview2_com::{
     },
     ProcessFailedEventHandler, WebMessageReceivedEventHandler,
 };
-use windows061::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
-use windows061::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
-use windows061::Win32::Graphics::Direct3D11::{
+use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+use windows::Win32::Graphics::Direct3D11::{
     D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
 };
-use windows061::Win32::Graphics::DirectComposition::{
+use windows::Win32::Graphics::DirectComposition::{
     DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
 };
-use windows061::Win32::Graphics::Dxgi::IDXGIDevice;
-use windows061::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
-use windows061::core::{Interface, PCWSTR};
+use windows::Win32::Graphics::Dxgi::IDXGIDevice;
+use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+use windows::core::{Interface, PCWSTR};
 
 /// Bootstrap injected before the page loads: provide the `window.ipc` shim wry would
 /// normally give us, so `orb.html` posts to us unchanged (`window.ipc.postMessage` →
@@ -62,7 +62,7 @@ pub(super) struct DcompHost {
 /// Build the DirectComposition device + visual tree bound to `hwnd` and host WebView2 in
 /// composition mode over it, navigated to the orb page. The window stays hidden; `show_orb`
 /// reveals it after the page reports `orbReady`.
-pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
+pub(super) fn build_host(hwnd: HWND) -> windows::core::Result<DcompHost> {
     unsafe {
         // --- DirectComposition device + visual tree bound to the window ---
         let mut d3d: Option<ID3D11Device> = None;
@@ -91,7 +91,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
         // with ERROR_INVALID_STATE (0x8007139F). A private folder sidesteps the constraint entirely.
         let init = crate::overlay::webview_init::acquire("computer-control-orb");
         let user_data = crate::overlay::get_shared_webview_data_dir(Some("cc-orb"));
-        let user_data = windows061::core::HSTRING::from(user_data.to_string_lossy().as_ref());
+        let user_data = windows::core::HSTRING::from(user_data.to_string_lossy().as_ref());
         let environment = {
             let (tx, rx) = std::sync::mpsc::channel();
             CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
@@ -172,7 +172,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
         let html = super::html::generate_orb_html();
         let url = crate::overlay::html_components::font_manager::store_html_page(html)
             .unwrap_or_else(|| "about:blank".to_string());
-        let url = windows061::core::HSTRING::from(url);
+        let url = windows::core::HSTRING::from(url);
         webview.Navigate(PCWSTR(url.as_ptr()))?;
 
         device.Commit()?;
@@ -187,10 +187,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
     }
 }
 
-unsafe fn attach_process_failure(
-    webview: &ICoreWebView2,
-    hwnd: HWND,
-) -> windows061::core::Result<()> {
+unsafe fn attach_process_failure(webview: &ICoreWebView2, hwnd: HWND) -> windows::core::Result<()> {
     unsafe {
         let handler = ProcessFailedEventHandler::create(Box::new(move |_webview, args| {
             let Some(args) = args else {
@@ -216,9 +213,9 @@ unsafe fn attach_process_failure(
 }
 
 /// Inject the `window.ipc` shim before any page script runs.
-unsafe fn inject_bootstrap(webview: &ICoreWebView2) -> windows061::core::Result<()> {
+unsafe fn inject_bootstrap(webview: &ICoreWebView2) -> windows::core::Result<()> {
     unsafe {
-        let js = windows061::core::HSTRING::from(ORB_BOOTSTRAP);
+        let js = windows::core::HSTRING::from(ORB_BOOTSTRAP);
         let webview = webview.clone(); // owned clone → the 'static completion handler can hold it
         AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
             Box::new(move |handler| {
@@ -236,12 +233,12 @@ unsafe fn inject_bootstrap(webview: &ICoreWebView2) -> windows061::core::Result<
 /// orb's IPC handler. The page posts `JSON.stringify(...)` — a STRING. Read it as a string,
 /// NOT as JSON (`WebMessageAsJson` would double-encode it into `"\"{...}\""` and parsing
 /// would fail).
-unsafe fn attach_ipc(webview: &ICoreWebView2, hwnd: HWND) -> windows061::core::Result<()> {
+unsafe fn attach_ipc(webview: &ICoreWebView2, hwnd: HWND) -> windows::core::Result<()> {
     unsafe {
         let hwnd_val = hwnd.0 as isize; // capture as isize (HWND's raw pointer isn't Send)
         let handler = WebMessageReceivedEventHandler::create(Box::new(move |_wv, args| {
             if let Some(args) = args {
-                let mut msg = windows061::core::PWSTR(std::ptr::null_mut());
+                let mut msg = windows::core::PWSTR(std::ptr::null_mut());
                 if args.TryGetWebMessageAsString(&mut msg).is_ok() && !msg.is_null() {
                     let body = webview2_com::CoTaskMemPWSTR::from(msg).to_string();
                     super::ipc::handle_orb_ipc(HWND(hwnd_val as *mut std::ffi::c_void), &body);
@@ -254,16 +251,15 @@ unsafe fn attach_ipc(webview: &ICoreWebView2, hwnd: HWND) -> windows061::core::R
     }
 }
 
-fn to_win_err(e: webview2_com::Error) -> windows061::core::Error {
+fn to_win_err(e: webview2_com::Error) -> windows::core::Error {
     match e {
         webview2_com::Error::WindowsError(err) => err,
-        other => windows061::core::Error::new(
-            windows061::Win32::Foundation::E_FAIL,
-            format!("{other:?}"),
-        ),
+        other => {
+            windows::core::Error::new(windows::Win32::Foundation::E_FAIL, format!("{other:?}"))
+        }
     }
 }
 
-fn err_pointer() -> windows061::core::Error {
-    windows061::core::Error::from(windows061::Win32::Foundation::E_POINTER)
+fn err_pointer() -> windows::core::Error {
+    windows::core::Error::from(windows::Win32::Foundation::E_POINTER)
 }

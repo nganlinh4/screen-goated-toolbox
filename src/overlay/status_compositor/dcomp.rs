@@ -15,18 +15,18 @@ use webview2_com::{
     },
     NavigationCompletedEventHandler, ProcessFailedEventHandler, WebMessageReceivedEventHandler,
 };
-use windows061::Win32::Foundation::{HWND, RECT};
-use windows061::Win32::Graphics::Direct3D::{
+use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
 };
-use windows061::Win32::Graphics::Direct3D11::{
+use windows::Win32::Graphics::Direct3D11::{
     D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
 };
-use windows061::Win32::Graphics::DirectComposition::{
+use windows::Win32::Graphics::DirectComposition::{
     DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
 };
-use windows061::Win32::Graphics::Dxgi::IDXGIDevice;
-use windows061::core::{BOOL, Interface, PCWSTR};
+use windows::Win32::Graphics::Dxgi::IDXGIDevice;
+use windows::core::{BOOL, Interface, PCWSTR};
 
 const BOOTSTRAP: &str = r#"
 window.ipc={postMessage:function(m){window.chrome.webview.postMessage(m);}};
@@ -46,7 +46,7 @@ impl DcompHost {
     pub(super) fn update_display(
         &self,
         display: super::DisplayMetrics,
-    ) -> windows061::core::Result<()> {
+    ) -> windows::core::Result<()> {
         unsafe {
             let controller: ICoreWebView2Controller = self.comp.cast()?;
             if let Ok(controller3) = controller.cast::<ICoreWebView2Controller3>() {
@@ -62,7 +62,7 @@ impl DcompHost {
     }
 }
 
-pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
+pub(super) fn build_host(hwnd: HWND) -> windows::core::Result<DcompHost> {
     unsafe {
         let device = create_composition_device()?;
         let target: IDCompositionTarget = device.CreateTargetForHwnd(hwnd, true)?;
@@ -70,7 +70,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
         target.SetRoot(&root)?;
 
         let user_data = crate::overlay::get_shared_webview_data_dir(Some("status-compositor"));
-        let user_data = windows061::core::HSTRING::from(user_data.to_string_lossy().as_ref());
+        let user_data = windows::core::HSTRING::from(user_data.to_string_lossy().as_ref());
         let environment = {
             let (sender, receiver) = std::sync::mpsc::channel();
             CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
@@ -143,7 +143,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
         let html = super::html::document();
         let page_url = crate::overlay::html_components::font_manager::store_html_page(html)
             .unwrap_or_else(|| "about:blank".to_string());
-        let page_url = windows061::core::HSTRING::from(page_url);
+        let page_url = windows::core::HSTRING::from(page_url);
         webview.Navigate(PCWSTR(page_url.as_ptr()))?;
         device.Commit()?;
 
@@ -157,7 +157,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows061::core::Result<DcompHost> {
     }
 }
 
-unsafe fn attach_process_failure(webview: &ICoreWebView2) -> windows061::core::Result<()> {
+unsafe fn attach_process_failure(webview: &ICoreWebView2) -> windows::core::Result<()> {
     unsafe {
         let handler = ProcessFailedEventHandler::create(Box::new(move |_webview, args| {
             let Some(args) = args else {
@@ -193,7 +193,7 @@ unsafe fn attach_process_failure(webview: &ICoreWebView2) -> windows061::core::R
     }
 }
 
-fn create_composition_device() -> windows061::core::Result<IDCompositionDevice> {
+fn create_composition_device() -> windows::core::Result<IDCompositionDevice> {
     let try_create = |driver_type: D3D_DRIVER_TYPE| unsafe {
         let mut device = None;
         D3D11CreateDevice(
@@ -221,7 +221,7 @@ fn driver_candidates() -> [D3D_DRIVER_TYPE; 2] {
     [D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP]
 }
 
-unsafe fn attach_navigation_probe(webview: &ICoreWebView2) -> windows061::core::Result<()> {
+unsafe fn attach_navigation_probe(webview: &ICoreWebView2) -> windows::core::Result<()> {
     unsafe {
         let handler = NavigationCompletedEventHandler::create(Box::new(move |webview, args| {
             let mut success_value = BOOL::default();
@@ -232,7 +232,7 @@ unsafe fn attach_navigation_probe(webview: &ICoreWebView2) -> windows061::core::
                 eprintln!("navigation completed without a WebView success={success}");
                 return Ok(());
             };
-            let probe = windows061::core::HSTRING::from(
+            let probe = windows::core::HSTRING::from(
                 "JSON.stringify({state:document.readyState,bridge:typeof window.ipc,apply:typeof window.applyStatusCommand,frames:document.querySelectorAll('iframe').length})",
             );
             let completion =
@@ -247,9 +247,9 @@ unsafe fn attach_navigation_probe(webview: &ICoreWebView2) -> windows061::core::
     }
 }
 
-unsafe fn inject_bootstrap(webview: &ICoreWebView2) -> windows061::core::Result<()> {
+unsafe fn inject_bootstrap(webview: &ICoreWebView2) -> windows::core::Result<()> {
     unsafe {
-        let script = windows061::core::HSTRING::from(BOOTSTRAP);
+        let script = windows::core::HSTRING::from(BOOTSTRAP);
         let webview = webview.clone();
         AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
             Box::new(move |handler| {
@@ -263,11 +263,11 @@ unsafe fn inject_bootstrap(webview: &ICoreWebView2) -> windows061::core::Result<
     }
 }
 
-unsafe fn attach_ipc(webview: &ICoreWebView2) -> windows061::core::Result<()> {
+unsafe fn attach_ipc(webview: &ICoreWebView2) -> windows::core::Result<()> {
     unsafe {
         let handler = WebMessageReceivedEventHandler::create(Box::new(move |_webview, args| {
             if let Some(args) = args {
-                let mut message = windows061::core::PWSTR(std::ptr::null_mut());
+                let mut message = windows::core::PWSTR(std::ptr::null_mut());
                 if args.TryGetWebMessageAsString(&mut message).is_ok() && !message.is_null() {
                     let body = webview2_com::CoTaskMemPWSTR::from(message).to_string();
                     super::child::handle_renderer_message(&body);
@@ -280,18 +280,17 @@ unsafe fn attach_ipc(webview: &ICoreWebView2) -> windows061::core::Result<()> {
     }
 }
 
-fn webview_error(error: webview2_com::Error) -> windows061::core::Error {
+fn webview_error(error: webview2_com::Error) -> windows::core::Error {
     match error {
         webview2_com::Error::WindowsError(error) => error,
-        other => windows061::core::Error::new(
-            windows061::Win32::Foundation::E_FAIL,
-            format!("{other:?}"),
-        ),
+        other => {
+            windows::core::Error::new(windows::Win32::Foundation::E_FAIL, format!("{other:?}"))
+        }
     }
 }
 
-fn pointer_error() -> windows061::core::Error {
-    windows061::core::Error::from(windows061::Win32::Foundation::E_POINTER)
+fn pointer_error() -> windows::core::Error {
+    windows::core::Error::from(windows::Win32::Foundation::E_POINTER)
 }
 
 #[cfg(test)]

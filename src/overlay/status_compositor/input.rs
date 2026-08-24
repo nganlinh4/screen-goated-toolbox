@@ -1,8 +1,8 @@
 use super::protocol::PhysicalRect;
 use std::sync::Mutex;
-use windows061::Win32::Foundation::{HWND, POINT};
-use windows061::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
-use windows061::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
+use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum RecordingTarget {

@@ -10,9 +10,9 @@ pub(crate) mod smoke;
 use protocol::{HostCommand, NotificationScene, PhysicalRect, ProgressScene, RecordingScene};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use windows061::Win32::Foundation::HWND;
-use windows061::Win32::UI::HiDpi::GetDpiForWindow;
-use windows061::Win32::UI::WindowsAndMessaging::{
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
@@ -222,9 +222,9 @@ fn notification_rect() -> PhysicalRect {
     const WIDTH: i32 = 1200;
     const HEIGHT: i32 = 400;
     let screen_width =
-        unsafe { GetSystemMetrics(windows061::Win32::UI::WindowsAndMessaging::SM_CXSCREEN) };
+        unsafe { GetSystemMetrics(windows::Win32::UI::WindowsAndMessaging::SM_CXSCREEN) };
     let screen_height =
-        unsafe { GetSystemMetrics(windows061::Win32::UI::WindowsAndMessaging::SM_CYSCREEN) };
+        unsafe { GetSystemMetrics(windows::Win32::UI::WindowsAndMessaging::SM_CYSCREEN) };
     physical_rect(
         (screen_width - WIDTH) / 2,
         screen_height - HEIGHT - 100,

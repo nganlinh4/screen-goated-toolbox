@@ -2,6 +2,11 @@
 # Keep release binaries portable across the target architecture.
 rustflags = []
 
+[env]
+# CMake dependencies must use the same static CRT contract as Rust. This is
+# loaded before each CMake project enables MSVC, so CMP0091 can take effect.
+CMAKE_TOOLCHAIN_FILE = { value = "scripts/cmake/msvc-static-runtime.cmake", relative = true, force = true }
+
 [target.x86_64-pc-windows-msvc]
 rustflags = [
     "-C", "target-feature=+crt-static"

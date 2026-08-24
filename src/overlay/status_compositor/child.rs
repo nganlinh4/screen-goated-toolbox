@@ -6,12 +6,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{LazyLock, Mutex, Once};
 use webview2_com::ExecuteScriptCompletedHandler;
-use windows061::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};
-use windows061::Win32::Graphics::Gdi::HBRUSH;
-use windows061::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
-use windows061::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows061::Win32::UI::WindowsAndMessaging::*;
-use windows061::core::{HSTRING, PCWSTR, w};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Graphics::Gdi::HBRUSH;
+use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::{HSTRING, PCWSTR, w};
 
 const WM_DRAIN_COMMANDS: u32 = WM_APP + 81;
 static HOST_HWND: AtomicIsize = AtomicIsize::new(0);

@@ -9,16 +9,16 @@ use webview2_com::ExecuteScriptCompletedHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_MOUSE_EVENT_KIND, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS, ICoreWebView2Controller,
 };
-use windows061::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows061::Win32::Graphics::Gdi::SetWindowRgn;
-use windows061::Win32::UI::WindowsAndMessaging::{
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::SetWindowRgn;
+use windows::Win32::UI::WindowsAndMessaging::{
     DefWindowProcW, GetForegroundWindow, HCURSOR, HWND_TOPMOST, IsWindow, KillTimer, MA_ACTIVATE,
     MA_NOACTIVATE, PostQuitMessage, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOZORDER,
     SetCursor, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, WM_CLOSE, WM_DESTROY,
     WM_DISPLAYCHANGE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SETCURSOR, WM_TIMER,
 };
-use windows061::core::{HSTRING, Interface, PCWSTR};
+use windows::core::{HSTRING, Interface, PCWSTR};
 
 use super::{
     HIDE_TIMER_ID, LEAVE_TIMER_ID, ORB_COMP, ORB_TEXT_MODE, ORB_WEBVIEW, WM_APP_HIDE_ORB,

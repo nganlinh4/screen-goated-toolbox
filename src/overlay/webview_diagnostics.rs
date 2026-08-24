@@ -13,7 +13,7 @@ use webview2_com::{
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
-use windows061::core::{Interface, PWSTR};
+use windows::core::{Interface, PWSTR};
 use wry::{WebView, WebViewExtWindows};
 
 pub fn attach_webview2_diagnostics(label: &'static str, hwnd: HWND, webview: &WebView) {
@@ -68,7 +68,7 @@ fn is_actionable_host_failure(kind: COREWEBVIEW2_PROCESS_FAILED_KIND) -> bool {
 
 unsafe fn read_pwstr<F>(read: F) -> Option<String>
 where
-    F: FnOnce(*mut PWSTR) -> windows061::core::Result<()>,
+    F: FnOnce(*mut PWSTR) -> windows::core::Result<()>,
 {
     let mut value = PWSTR(std::ptr::null_mut());
     if read(&mut value).is_err() || value.is_null() {
