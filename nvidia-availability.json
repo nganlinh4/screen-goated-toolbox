@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-08-24T02:00:04Z",
+ "generatedAt": "2026-08-24T03:18:45Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -18,7 +18,7 @@
    "id": "meta/llama-3.2-1b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 352,
+   "p50_ms": 339,
    "success_rate": 0.375,
    "runs": 24
   },
@@ -50,7 +50,7 @@
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 493,
+   "p50_ms": 466,
    "success_rate": 0.917,
    "runs": 24
   },
@@ -58,7 +58,7 @@
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 538,
+   "p50_ms": 530,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -82,8 +82,8 @@
    "id": "meta/muse-glimmer-30b",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 737,
-   "success_rate": 0.917,
+   "p50_ms": 730,
+   "success_rate": 0.958,
    "runs": 24
   },
   {
@@ -98,16 +98,8 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 898,
+   "p50_ms": 881,
    "success_rate": 0.917,
-   "runs": 24
-  },
-  {
-   "id": "minimaxai/minimax-m3",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 941,
-   "success_rate": 0.458,
    "runs": 24
   },
   {
@@ -115,7 +107,15 @@
    "control": "plain",
    "modality": "text",
    "p50_ms": 944,
-   "success_rate": 0.917,
+   "success_rate": 0.958,
+   "runs": 24
+  },
+  {
+   "id": "nvidia/nemotron-nano-12b-v2-vl",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 948,
+   "success_rate": 0.875,
    "runs": 24
   },
   {
@@ -127,35 +127,35 @@
    "runs": 24
   },
   {
-   "id": "nvidia/nemotron-nano-12b-v2-vl",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 1141,
-   "success_rate": 0.875,
-   "runs": 24
-  },
-  {
    "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1183,
-   "success_rate": 0.75,
+   "p50_ms": 1125,
+   "success_rate": 0.792,
    "runs": 24
   },
   {
    "id": "meta/llama-3.2-90b-vision-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2275,
-   "success_rate": 0.875,
+   "p50_ms": 2241,
+   "success_rate": 0.917,
+   "runs": 24
+  },
+  {
+   "id": "stepfun-ai/step-3.7-flash",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 3891,
+   "success_rate": 0.667,
    "runs": 24
   },
   {
    "id": "nvidia/nvidia-nemotron-nano-9b-v2",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 4154,
-   "success_rate": 0.875,
+   "p50_ms": 4121,
+   "success_rate": 0.917,
    "runs": 24
   }
  ]
