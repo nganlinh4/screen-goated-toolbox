@@ -6,20 +6,20 @@
     "components": [
       {
         "id": "creation-3d-web",
-        "asset": "creation-3d-web-5.4.3-e0f3edfdb26a4282.zip",
-        "sizeBytes": 194318,
-        "sha256": "e0f3edfdb26a428278ab63e48be062718e016189b80a9a9b4b09a066d7b94249",
-        "unpackedSizeBytes": 751116,
+        "asset": "creation-3d-web-5.5.0-686a17e9da936078.zip",
+        "sizeBytes": 189728,
+        "sha256": "686a17e9da936078183948a53279d5b04c1244753bec02b9c3e452457b2b8810",
+        "unpackedSizeBytes": 744921,
         "files": [
           {
             "path": "assets/index.css",
-            "sizeBytes": 24358,
-            "sha256": "1c03ddc07af5eba2e86bcc2a8b90838cadd850c7270286e54ed3920f1b3b590f"
+            "sizeBytes": 23973,
+            "sha256": "696e966d171ffed39698ae0111b62c10bd6fec2ec565a52cd2492f97c661c7cf"
           },
           {
             "path": "assets/index.js",
-            "sizeBytes": 726379,
-            "sha256": "2956bd0dc38bfb4118dce3f4fb33a04291d81d389634a855c55d1becb9b32b36"
+            "sizeBytes": 720569,
+            "sha256": "3344a40d3da5125ba9f8333a1db0ecaf027ea24be721880f9f894864c79b5a3d"
           },
           {
             "path": "index.html",
@@ -27,7 +27,7 @@
             "sha256": "e285371fe0989d29f10efcd18c860a9ea44a4874038b9a43b9862aeec5728853"
           }
         ],
-        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/creation-3d-web-5.4.3-e0f3edfdb26a4282.zip"
+        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/creation-3d-web-5.5.0-686a17e9da936078.zip"
       },
       {
         "id": "prompt-dj-web",

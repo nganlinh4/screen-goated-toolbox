@@ -84,6 +84,14 @@ pub fn app_local_data_dir() -> PathBuf {
         .join("screen-goated-toolbox")
 }
 
+/// The user's Downloads directory. Creation results are user-owned, so callers
+/// must surface an unavailable OS folder instead of falling back to app data.
+pub fn user_downloads_dir() -> Result<PathBuf, String> {
+    dirs::download_dir()
+        .or_else(|| dirs::home_dir().map(|home| home.join("Downloads")))
+        .ok_or_else(|| "The system Downloads folder is unavailable.".to_string())
+}
+
 /// Writable local state for bootstrap/runtime support files. Installed models
 /// and runtimes continue to be read through [`app_local_data_dir`].
 pub fn app_runtime_local_data_dir() -> PathBuf {

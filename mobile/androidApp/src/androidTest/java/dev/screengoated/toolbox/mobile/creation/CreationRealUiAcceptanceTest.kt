@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Environment
 import android.os.SystemClock
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -301,15 +302,21 @@ class CreationRealUiAcceptanceTest {
                 .isNotEmpty()
         }
         compose.onNodeWithTag("creation-selected-stage-done").assertExists()
-        val output = File(history.outputPath)
-        assertTrue("Committed result does not exist", output.isFile)
+        val output = snapshotOutput(history.outputPath)
+        assertTrue("Committed result does not exist", outputExists(history.outputPath))
         validate(output)
-        val artifactSha256 = sha256(output)
+        val artifactSha256 = outputSha256(history.outputPath)
         assertEquals("Committed artifact SHA-256 changed", history.committedSha256, artifactSha256)
-        assertEquals("Committed artifact size changed", history.committedSize, output.length())
+        assertEquals(
+            "Committed artifact size changed",
+            history.committedSize,
+            outputSize(history.outputPath),
+        )
         val segmented = if (expectedAutoSegment) {
-            validateBaseQuadCompanion(history, output, artifactSha256)
-            awaitAutomaticSegmentation(ownerId, acceptedCase, history, output, artifactSha256)
+            validateBaseQuadCompanion(history, history.outputPath, artifactSha256)
+            awaitAutomaticSegmentation(
+                ownerId, acceptedCase, history, history.outputPath, artifactSha256,
+            )
         } else {
             null
         }
@@ -340,7 +347,7 @@ class CreationRealUiAcceptanceTest {
                     .put("acceptedReferenceCount", requestEvidence.referenceSha256.size)
                     .put("acceptedReferenceSha256", JSONArray(requestEvidence.referenceSha256))
                     .put("acceptedRequestValidated", requestEvidence.frozenAndValidated)
-                    .put("artifactSize", output.length())
+                    .put("artifactSize", outputSize(history.outputPath))
                     .put("artifactSha256", artifactSha256)
                     .put("artifactValidator", "project-structural-v1")
                     .put("basePublishedBeforeAutomaticSegmentation", segmented != null)
@@ -359,26 +366,30 @@ class CreationRealUiAcceptanceTest {
 
     private fun validateBaseQuadCompanion(
         history: CreationHistoryEntry,
-        base: File,
+        basePath: String,
         baseSha256: String,
     ) {
         assertEquals(false, history.metadata["isSegmented"]?.jsonPrimitive?.booleanOrNull)
         val download = requireNotNull(history.metadata["download"]?.jsonObject)
-        val companion = File(requireNotNull(download["path"]?.jsonPrimitive?.contentOrNull))
-        assertTrue("Committed FBX companion does not exist", companion.isFile)
-        assertEquals(base.nameWithoutExtension, companion.nameWithoutExtension)
+        val companionPath = requireNotNull(download["path"]?.jsonPrimitive?.contentOrNull)
+        val companion = snapshotOutput(companionPath)
+        assertTrue("Committed FBX companion does not exist", outputExists(companionPath))
+        assertEquals(
+            outputDisplayName(basePath).substringBeforeLast('.'),
+            outputDisplayName(companionPath).substringBeforeLast('.'),
+        )
         assertTrue(companion.readBytes().take(FBX_MAGIC.size).toByteArray().contentEquals(FBX_MAGIC))
-        assertEquals(history.companionCommittedSize, companion.length())
-        assertEquals(history.companionCommittedSha256, sha256(companion))
-        assertTrue("Base GLB disappeared while validating its companion", base.isFile)
-        assertEquals(baseSha256, sha256(base))
+        assertEquals(history.companionCommittedSize, outputSize(companionPath))
+        assertEquals(history.companionCommittedSha256, outputSha256(companionPath))
+        assertTrue("Base GLB disappeared while validating its companion", outputExists(basePath))
+        assertEquals(baseSha256, outputSha256(basePath))
     }
 
     private fun awaitAutomaticSegmentation(
         ownerId: String,
         baseRecord: CreationJournalRecord,
         baseHistory: CreationHistoryEntry,
-        base: File,
+        basePath: String,
         baseSha256: String,
     ): File {
         val deadline = SystemClock.elapsedRealtime() + MAXIMUM_CASE_RUNTIME_MS
@@ -397,11 +408,17 @@ class CreationRealUiAcceptanceTest {
                     .firstOrNull { it.dispatchId == child.request.dispatchId }
                     ?.let { history ->
                         assertEquals(true, history.metadata["isSegmented"]?.jsonPrimitive?.booleanOrNull)
-                        val result = File(history.outputPath)
-                        assertTrue("Segmented result does not exist", result.isFile)
+                        val result = snapshotOutput(history.outputPath)
+                        assertTrue(
+                            "Segmented result does not exist",
+                            outputExists(history.outputPath),
+                        )
                         CreationArtifactValidator.validateGlb(result)
-                        assertTrue("Base result was removed by automatic separation", base.isFile)
-                        assertEquals(baseSha256, sha256(base))
+                        assertTrue(
+                            "Base result was removed by automatic separation",
+                            outputExists(basePath),
+                        )
+                        assertEquals(baseSha256, outputSha256(basePath))
                         return result
                     }
             }
@@ -489,6 +506,45 @@ class CreationRealUiAcceptanceTest {
 
     private fun sha256(uri: Uri): String = context.contentResolver.openInputStream(uri).use {
         sha256(requireNotNull(it).readBytes())
+    }
+
+    private fun outputExists(path: String): Boolean = path.creationContentUri()?.let { uri ->
+        runCatching {
+            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false
+        }.getOrDefault(false)
+    } ?: File(path).isFile
+
+    private fun outputSize(path: String): Long = path.creationContentUri()?.let { uri ->
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.SIZE),
+            null,
+            null,
+            null,
+        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else -1L } ?: -1L
+    } ?: File(path).length()
+
+    private fun outputDisplayName(path: String): String = path.creationContentUri()?.let { uri ->
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+    } ?: File(path).name
+
+    private fun outputSha256(path: String): String = path.creationContentUri()?.let(::sha256)
+        ?: sha256(File(path))
+
+    private fun snapshotOutput(path: String): File {
+        val uri = path.creationContentUri() ?: return File(path)
+        val directory = File(context.cacheDir, "creation/acceptance").apply(File::mkdirs)
+        val target = File(directory, safeCreationOutputName(outputDisplayName(path)))
+        context.contentResolver.openInputStream(uri).use { input ->
+            requireNotNull(input).use { source -> target.outputStream().use(source::copyTo) }
+        }
+        return target
     }
 
     private fun currentQueueSize(): Int =
