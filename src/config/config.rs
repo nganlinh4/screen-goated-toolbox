@@ -14,7 +14,8 @@ use crate::config::types::{
     PendingPresetModelUpdate, PresetProfile, RestoreDefaultsSelection, ScreenTranslateSettings,
     StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings, ThemeMode,
     TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
-    VieneuSettings, VoxtralSettings, default_tts_language_conditions, get_system_ui_language,
+    VieneuSettings, VoxtralSettings, default_result_overlay_opacity_percent,
+    default_tts_language_conditions, get_system_ui_language,
 };
 
 // ============================================================================
@@ -59,10 +60,6 @@ fn default_cc_memory_limit() -> usize {
 
 fn default_graphics_mode() -> String {
     "standard".to_string()
-}
-
-fn default_favorite_overlay_opacity() -> u8 {
-    85
 }
 
 fn default_show_startup_animation() -> bool {
@@ -231,7 +228,7 @@ pub struct Config {
     pub graphics_mode: String,
 
     /// Default opacity percentage for new result overlays
-    #[serde(default = "default_favorite_overlay_opacity")]
+    #[serde(default = "default_result_overlay_opacity_percent")]
     pub favorite_overlay_opacity: u8,
 
     /// Number of completed result overlays that have shown the control discovery pulse.
@@ -507,7 +504,7 @@ impl Default for Config {
             max_screen_record_recent_uploads: default_screen_record_upload_limit(),
             cc_max_memory_items: default_cc_memory_limit(),
             graphics_mode: "standard".to_string(),
-            favorite_overlay_opacity: default_favorite_overlay_opacity(),
+            favorite_overlay_opacity: default_result_overlay_opacity_percent(),
             result_controls_discovery_pulse_count: 0,
             restore_defaults_selection: RestoreDefaultsSelection::default(),
             pending_preset_model_update: None,

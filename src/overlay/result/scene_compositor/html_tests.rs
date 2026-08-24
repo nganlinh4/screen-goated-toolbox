@@ -19,6 +19,10 @@ fn ordinary_cards_use_one_shared_document_runtime() {
 #[test]
 fn raw_html_stays_isolated_and_web_navigation_leaves_the_shared_compositor() {
     assert!(COMPOSED.contains("function loadIsolatedDocument"));
+    assert!(
+        COMPOSED.contains(".direct-host[hidden],.result-frame[hidden]{display:none!important}")
+    );
+    assert!(COMPOSED.contains(".direct-host,.result-frame{position:absolute;inset:0"));
     assert!(COMPOSED.contains("entry.frame.srcdoc = documentHtml"));
     assert!(COMPOSED.contains("frame.referrerPolicy = 'no-referrer'"));
     assert!(COMPOSED.contains("frame.setAttribute('sandbox'"));
@@ -30,6 +34,9 @@ fn raw_html_stays_isolated_and_web_navigation_leaves_the_shared_compositor() {
     assert!(COMPOSED.contains("postMessage(message, '*')"));
     assert!(COMPOSED.contains("function navigateTo(entry, url)"));
     assert!(COMPOSED.contains("type: 'navigation_request'"));
+    assert!(!COMPOSED.contains("anchor.target === '_blank'"));
+    assert!(COMPOSED.contains("if (model.external_navigation === true)"));
+    assert!(!COMPOSED.contains("native_document"));
     assert!(!COMPOSED.contains("entry.frame.src = url"));
     assert!(COMPOSED.contains("if (nextDocument !== null)"));
     assert!(COMPOSED.contains("'document_content_committed'"));
@@ -40,6 +47,17 @@ fn raw_html_stays_isolated_and_web_navigation_leaves_the_shared_compositor() {
         .and_then(|tail| tail.split("selectSurface(entry, null)").next())
         .expect("raw-document branch");
     assert!(!raw_branch.contains("prepareSettledReveal"));
+}
+
+#[test]
+fn isolated_html_has_a_rounded_mask_and_compositor_owned_resize_edges() {
+    let document = super::super::card_document::compositor_document("http://127.0.0.1:32123");
+
+    assert!(COMPOSED.contains(".result-frame{border-radius:inherit;clip-path:inset(0 round"));
+    assert!(COMPOSED.contains(".resize-handle{position:absolute;z-index:4"));
+    assert!(document.contains("action: 'result_resize_start'"));
+    assert!(document.contains("action: 'result_resize_finish'"));
+    assert!(document.contains("requestAnimationFrame(render)"));
 }
 
 #[test]
@@ -117,7 +135,7 @@ fn result_card_outline_does_not_bleed_into_the_control_gap() {
 #[test]
 fn refining_cards_own_a_compositor_only_processing_signal() {
     assert!(COMPOSED.contains("window.__SGT_CREATE_PROCESSING_AURA__()"));
-    assert!(COMPOSED.contains("entry.card.dataset.processing = entry.refining ? 'true' : 'false'"));
+    assert!(COMPOSED.contains("const processing = entry.refining || entry.navigationLoading"));
     assert!(COMPOSED.contains("model.processing_effect === 'minimal'"));
     assert!(COMPOSED.contains("entry.processing.resize(width, height, scale)"));
 
@@ -126,7 +144,7 @@ fn refining_cards_own_a_compositor_only_processing_signal() {
     assert!(document.contains("gradient.setAttribute('gradientUnits', 'userSpaceOnUse')"));
     assert!(document.contains("const halfSpan = Math.hypot(width, height) / 2"));
     assert!(document.contains("const edge = stroke"));
-    assert!(document.contains("entry.processing.setState(entry.refining, entry.processingEffect)"));
+    assert!(document.contains("entry.processing.setState(processing, entry.processingEffect)"));
     assert!(document.contains("processing-runner-glow"));
     assert!(!document.contains("stroke-dasharray"));
     assert!(document.contains("@keyframes sgt-processing-scan"));
@@ -134,6 +152,20 @@ fn refining_cards_own_a_compositor_only_processing_signal() {
     assert!(document.contains("--processing-track"));
     assert!(document.contains("pathLength', '100'"));
     assert!(document.contains("prefers-reduced-motion:reduce"));
+}
+
+#[test]
+fn external_navigation_keeps_the_processing_shell_until_the_native_page_is_ready() {
+    assert!(COMPOSED.contains("entry.navigationLoading = Boolean(model.navigation_loading)"));
+    assert!(COMPOSED.contains("entry.mode = 'navigation-loading'"));
+    assert!(COMPOSED.contains("entry.directHost.hidden = true; entry.frame.hidden = true"));
+    let loading = COMPOSED
+        .find("if (entry.navigationLoading)")
+        .expect("navigation loading branch");
+    let native = COMPOSED
+        .find("if (model.external_navigation === true)")
+        .expect("native navigation branch");
+    assert!(loading < native);
 }
 
 #[test]

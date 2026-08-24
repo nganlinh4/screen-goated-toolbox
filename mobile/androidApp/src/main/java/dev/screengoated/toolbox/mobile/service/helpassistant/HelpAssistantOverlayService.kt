@@ -20,6 +20,7 @@ import dev.screengoated.toolbox.mobile.helpassistant.helpErrorMarkdown
 import dev.screengoated.toolbox.mobile.helpassistant.helpLoadingMessage
 import dev.screengoated.toolbox.mobile.helpassistant.helpResultMarkdown
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
+import dev.screengoated.toolbox.mobile.model.normalizedResultOverlayOpacityPercent
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowState
 import dev.screengoated.toolbox.mobile.service.preset.PresetButtonCanvasHtmlBuilder
@@ -75,7 +76,8 @@ class HelpAssistantOverlayService : Service() {
             onNoOverlaysRemaining = { stopSelf() },
             onMicRequested = {},
             overlayOpacityProvider = {
-                appContainer.repository.currentUiPreferences().overlayOpacityPercent.coerceIn(10, 100)
+                appContainer.repository.currentUiPreferences().overlayOpacityPercent
+                    .normalizedResultOverlayOpacityPercent()
             },
         )
 

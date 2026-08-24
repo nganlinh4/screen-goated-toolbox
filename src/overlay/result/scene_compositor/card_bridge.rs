@@ -149,7 +149,7 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
     var anchor = event.target && event.target.closest
       ? event.target.closest('a[href]')
       : null;
-    if (!anchor || anchor.target === '_blank' || event.defaultPrevented) return;
+    if (!anchor || event.defaultPrevented) return;
     var url = anchor.href;
     if (!/^https?:\/\//i.test(url)) return;
     postToParent({ type: 'card_navigation', url: url });
@@ -181,6 +181,8 @@ mod tests {
 
         assert!(html.contains("style.setProperty('user-select', 'text', 'important')"));
         assert!(html.contains("postToParent({ type: 'copy_selection', text: text })"));
+        assert!(html.contains("postToParent({ type: 'card_navigation', url: url })"));
+        assert!(!html.contains("anchor.target === '_blank'"));
         assert!(html.contains("postToParent({ type: 'fit_complete' })"));
         assert!(!html.contains("document.body.innerHTML"));
         assert!(!html.contains("window.__SGT_APPLY_STREAM_UPDATE__"));

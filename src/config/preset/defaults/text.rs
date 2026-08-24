@@ -285,7 +285,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .text_type()
             .blocks(vec![
                 BlockBuilder::text(PRESET_TEXT_GAME_MODEL_ID)
-                    .prompt("Create a complete, standalone HTML game. The game MUST be playable using ONLY MOUSE CONTROLS (like swipe , drag or clicks, no keyboard required). Avoid the looping Game Over UI at startup. Use modern and trending CSS on the internet for a polished look, prefer using images or icons or svg assets from the internet for a convincing game aesthetics. Provide HTML code only. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks. Create the game based on the following request:")
+                    .prompt("Create a complete, standalone HTML game. Choose controls that fit the game: keyboard, mouse/pointer, touch, or a combination. Show clear control instructions in the game, and ensure keyboard input works after the player clicks or taps the game. Avoid the looping Game Over UI at startup. Use modern and trending CSS on the internet for a polished look, prefer using images or icons or svg assets from the internet for a convincing game aesthetics. Provide HTML code only. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks. Create the game based on the following request:")
                     .markdown()
                     .build(),
             ])

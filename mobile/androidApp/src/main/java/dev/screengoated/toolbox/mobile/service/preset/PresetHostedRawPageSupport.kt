@@ -26,21 +26,16 @@ internal fun presetHostedRawPageCss(
     } else {
         ""
     }
-    return presetResultCss(isDark)
-        .replace("overflow-y: hidden;", "overflow-y: auto;")
-        .replace("overflow-x: hidden;", "overflow-x: auto;")
-        .plus(
-            """
-            html, body {
-                touch-action: manipulation !important;
-                overscroll-behavior: contain !important;
-            }
-            body * {
-                overscroll-behavior: contain !important;
-            }
-            """.trimIndent(),
-        )
-        .plus(mediaOverride)
+    return """
+        ${presetResultInteractionChromeCss(isDark)}
+        html[data-sgt-result-hosted='1'], body[data-sgt-result-hosted='1'] {
+            scrollbar-width: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        html[data-sgt-result-hosted='1']::-webkit-scrollbar,
+        body[data-sgt-result-hosted='1']::-webkit-scrollbar { display: none; }
+        $mediaOverride
+    """.trimIndent()
 }
 
 internal fun presetHostedRawPageBootstrapScript(

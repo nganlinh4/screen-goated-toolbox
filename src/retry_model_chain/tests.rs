@@ -3,29 +3,69 @@ use super::cooldown::{
     rate_limit_error, record_model_failure_at, unavailable_model_error,
 };
 use super::{
-    RetryChainKind, UNBENCHMARKED_FEED_QUALITY_TIER, benchmark_derived_timeout,
-    interactive_request_timeout, preflight_skip_reason, record_model_success, release_model_probe,
-    resolve_next_configured_model, resolve_next_retry_model, resolve_unavailable_pinned_model,
+    DEFAULT_TEXT_OUTPUT_TOKENS, DEFAULT_VISION_OUTPUT_TOKENS, INTERACTIVE_REQUEST_BYTES_PER_SECOND,
+    INTERACTIVE_STARTUP_ALLOWANCE_MS, InteractiveRequestWorkload,
+    MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS, MAX_INTERACTIVE_TIMEOUT_MS,
+    MIN_INTERACTIVE_OUTPUT_TOKENS_PER_SECOND, MIN_INTERACTIVE_TIMEOUT_MS, RetryChainKind,
+    UNBENCHMARKED_FEED_QUALITY_TIER, interactive_request_timeout, preflight_skip_reason,
+    record_model_success, release_model_probe, resolve_next_configured_model,
+    resolve_next_retry_model, resolve_unavailable_pinned_model, workload_derived_timeout,
 };
 use crate::config::Config;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 #[test]
-fn benchmark_timeout_is_multiplied_and_bounded() {
+fn unary_timeout_uses_structural_workload_and_safety_bounds() {
+    assert_eq!(workload_derived_timeout(0, 1), Duration::from_secs(60));
     assert_eq!(
-        benchmark_derived_timeout(Some(200)),
-        Duration::from_secs(10)
+        workload_derived_timeout(1_000_000, 160),
+        Duration::from_secs(102)
     );
     assert_eq!(
-        benchmark_derived_timeout(Some(1_414)),
-        Duration::from_millis(14_140)
+        workload_derived_timeout(u64::MAX, u64::MAX),
+        Duration::from_secs(900)
+    );
+}
+
+#[test]
+fn interactive_deadline_constants_match_mobile_parity_fixture() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../parity-fixtures/preset-system/retry-runtime.json"
+    ))
+    .unwrap();
+    let unary = &fixture["interactive_deadlines"]["non_streaming"];
+    let streaming = &fixture["interactive_deadlines"]["streaming"];
+
+    assert_eq!(streaming["response_start_timeout_ms"], 120_000);
+    assert_eq!(streaming["progress_idle_timeout_ms"], 120_000);
+    assert!(streaming["whole_call_timeout_ms"].is_null());
+    assert_eq!(
+        unary["startup_allowance_ms"],
+        INTERACTIVE_STARTUP_ALLOWANCE_MS
     );
     assert_eq!(
-        benchmark_derived_timeout(Some(5_000)),
-        Duration::from_secs(30)
+        unary["request_bytes_per_allowance_second"],
+        INTERACTIVE_REQUEST_BYTES_PER_SECOND
     );
-    assert_eq!(benchmark_derived_timeout(None), Duration::from_secs(30));
+    assert_eq!(
+        unary["maximum_request_allowance_ms"],
+        MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS
+    );
+    assert_eq!(
+        unary["minimum_output_tokens_per_second"],
+        MIN_INTERACTIVE_OUTPUT_TOKENS_PER_SECOND
+    );
+    assert_eq!(
+        unary["default_text_output_tokens"],
+        DEFAULT_TEXT_OUTPUT_TOKENS
+    );
+    assert_eq!(
+        unary["default_vision_output_tokens"],
+        DEFAULT_VISION_OUTPUT_TOKENS
+    );
+    assert_eq!(unary["minimum_hard_timeout_ms"], MIN_INTERACTIVE_TIMEOUT_MS);
+    assert_eq!(unary["maximum_hard_timeout_ms"], MAX_INTERACTIVE_TIMEOUT_MS);
 }
 
 #[test]
@@ -37,11 +77,21 @@ fn live_corpus_passes_enter_as_capable_fallbacks_pending_offline_benchmark() {
 fn streaming_requests_do_not_receive_a_total_response_deadline() {
     let config = Config::default();
     assert_eq!(
-        interactive_request_timeout("google-gemini-3-5-flash-lite-vision", &config, false),
-        Some(Duration::from_millis(14_120))
+        interactive_request_timeout(
+            "google-gemini-3-5-flash-lite-vision",
+            &config,
+            false,
+            InteractiveRequestWorkload::default(),
+        ),
+        Some(Duration::from_secs(62))
     );
     assert_eq!(
-        interactive_request_timeout("google-gemini-3-5-flash-lite-vision", &config, true),
+        interactive_request_timeout(
+            "google-gemini-3-5-flash-lite-vision",
+            &config,
+            true,
+            InteractiveRequestWorkload::default(),
+        ),
         None
     );
 }

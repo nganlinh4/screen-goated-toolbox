@@ -9,8 +9,9 @@ use crate::config::{Config, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
 use crate::overlay::result::{ChainCancelToken, RefineContext, WINDOW_STATES, update_window_text};
 use crate::retry_model_chain::{
-    RetryChainKind, claim_model_attempt, interactive_request_timeout, preflight_skip_reason,
-    record_model_failure, record_model_success, release_model_probe, resolve_next_retry_model,
+    InteractiveRequestWorkload, RetryChainKind, claim_model_attempt, interactive_request_timeout,
+    preflight_skip_reason, record_model_failure, record_model_success, release_model_probe,
+    resolve_next_retry_model,
 };
 use crate::win_types::SendHwnd;
 use std::collections::HashSet;
@@ -75,7 +76,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     let groq_key = config.api_key.clone();
     let gemini_key = config.gemini_api_key.clone();
 
-    let actual_streaming_enabled = block.streaming_enabled;
+    let surface_streaming_enabled = block.streaming_enabled && block.render_mode != "markdown";
 
     let accumulated = Arc::new(Mutex::new(String::new()));
     let is_first_processing_block = blocks
@@ -102,6 +103,15 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
             .ok()
             .map(|image| image.width().saturating_mul(image.height())),
         _ => None,
+    };
+    let encoded_media_bytes = match context {
+        RefineContext::Image(bytes) => (bytes.len() as u64).saturating_mul(4).saturating_add(2) / 3,
+        _ => 0,
+    };
+    let workload = InteractiveRequestWorkload {
+        encoded_request_bytes: (final_prompt.len() as u64)
+            .saturating_add(input_text.len() as u64)
+            .saturating_add(encoded_media_bytes),
     };
 
     let window_shown = Arc::new(Mutex::new(block.block_type != "image"));
@@ -158,8 +168,16 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
         }
 
         provider_attempts += 1;
-        let request_timeout =
-            interactive_request_timeout(&current_model_id, config, actual_streaming_enabled);
+        let transport_streaming_enabled = crate::api::endpoint_supports_progress_streaming(
+            &current_provider,
+            &current_model_full_name,
+        );
+        let request_timeout = interactive_request_timeout(
+            &current_model_id,
+            config,
+            transport_streaming_enabled,
+            workload,
+        );
         let res_inner = if is_first_processing_block
             && block.block_type == "image"
             && matches!(context, RefineContext::Image(_))
@@ -171,10 +189,10 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 final_prompt,
                 model_full_name: &current_model_full_name,
                 provider: &current_provider,
-                streaming_enabled: actual_streaming_enabled,
+                streaming_enabled: transport_streaming_enabled,
                 request_timeout,
                 accumulated: acc_clone,
-                my_hwnd,
+                my_hwnd: my_hwnd.filter(|_| surface_streaming_enabled),
                 window_shown: window_shown_clone,
                 processing_hwnd: processing_hwnd_clone,
                 cancel_token,
@@ -188,12 +206,12 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 target_language: gtx_target_language(block),
                 model_full_name: &current_model_full_name,
                 provider: &current_provider,
-                streaming_enabled: actual_streaming_enabled,
+                streaming_enabled: transport_streaming_enabled,
                 request_timeout,
                 preset_id,
                 config,
                 accumulated: acc_clone,
-                my_hwnd,
+                my_hwnd: my_hwnd.filter(|_| surface_streaming_enabled),
                 cancel_token,
             })
         };

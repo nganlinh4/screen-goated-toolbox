@@ -79,10 +79,12 @@
     shared provider toggle, key, API model name, reasoning policy, request timing,
     usage accounting, and structured patch validation rather than realtime-only
     constants or a provider-local priority list.
-  - each non-streaming `text-llm` attempt uses the shared benchmark-derived
-    whole-call deadline (ten times typical latency, clamped to 10–30 seconds),
-    shared circuit/provider preflight, and usage-header accounting. Cancellation
-    propagates immediately; it is never converted into another model attempt.
+  - each non-streaming `text-llm` attempt uses the shared structural whole-call
+    budget derived from encoded request size and endpoint output allowance,
+    clamped to one through fifteen minutes. Benchmark latency never defines that
+    budget. Attempts retain shared circuit/provider preflight and usage-header
+    accounting. Cancellation propagates immediately; it is never converted into
+    another model attempt.
   - Android `text-llm` must reuse the same provider enabled/key availability checks as the preset retry chain before attempting a provider in the priority chain
   - `google-gtx` keeps the unofficial Google Translate endpoint and stays available without a key
   - Windows transcription providers are exposed in this order: `gemini-3.5-translate`, `gemini-live-audio`, `gemini-live-audio-3.1`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`

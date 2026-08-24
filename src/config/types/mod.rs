@@ -14,6 +14,7 @@ mod model_priority;
 mod preset_model_update;
 mod profile;
 mod restore_defaults;
+mod result_overlay;
 mod screen_translate;
 mod translation_gummy;
 mod tts;
@@ -38,6 +39,11 @@ pub use preset_model_update::{PendingPresetModelUpdate, RecommendedProviderDefau
 pub use profile::PresetProfile;
 
 pub use restore_defaults::RestoreDefaultsSelection;
+
+pub use result_overlay::{
+    MAX_RESULT_OVERLAY_OPACITY_PERCENT, MIN_RESULT_OVERLAY_OPACITY_PERCENT,
+    default_result_overlay_opacity_percent, normalize_result_overlay_opacity_percent,
+};
 
 #[cfg(feature = "recorder-worker")]
 pub use tts::StepAudioVoiceConfig;

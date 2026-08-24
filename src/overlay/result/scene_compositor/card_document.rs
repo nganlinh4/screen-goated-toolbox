@@ -67,6 +67,15 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
             "__SGT_PROCESSING_RUNTIME__",
             include_str!("processing_runtime.js"),
         )
+        .replace("__SGT_RESIZE_RUNTIME__", include_str!("resize_runtime.js"))
+        .replace(
+            "__SGT_MIN_WINDOW_WIDTH_PX__",
+            &crate::overlay::result::event_handler::MIN_WINDOW_WIDTH.to_string(),
+        )
+        .replace(
+            "__SGT_MIN_WINDOW_HEIGHT_PX__",
+            &crate::overlay::result::event_handler::MIN_WINDOW_HEIGHT.to_string(),
+        )
         .replace(
             "__SGT_HOST_COMMAND_RUNTIME__",
             include_str!("host_command_runtime.js"),
@@ -109,6 +118,9 @@ mod tests {
         assert!(!document.contains("__SGT_CARD_CSS_JSON__"));
         assert!(!document.contains("__SGT_DIRECT_RUNTIME__"));
         assert!(!document.contains("__SGT_PROCESSING_RUNTIME__"));
+        assert!(!document.contains("__SGT_RESIZE_RUNTIME__"));
+        assert!(!document.contains("__SGT_MIN_WINDOW_WIDTH_PX__"));
+        assert!(!document.contains("__SGT_MIN_WINDOW_HEIGHT_PX__"));
         assert!(!document.contains("__SGT_DOM_PATCH_RUNTIME__"));
         assert!(!document.contains("__SGT_REVEAL_RUNTIME__"));
         assert!(!document.contains("__SGT_HOST_COMMAND_RUNTIME__"));
@@ -135,6 +147,7 @@ mod tests {
         assert!(document.contains("window.__SGT_BUTTON_SCENE__"));
         assert!(document.contains("Unified result controls did not initialize"));
         assert!(document.contains("style.visibility = 'hidden'"));
+        assert!(document.contains("else if (wasActive || controlsHiddenForDrag)"));
         assert!(!document.contains("window.updateWindows({});"));
         assert!(document.contains("setPointerCapture(e.pointerId)"));
         assert!(document.contains("requestAnimationFrame(renderResultDragPreview)"));

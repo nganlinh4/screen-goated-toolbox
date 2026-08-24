@@ -44,3 +44,19 @@ fn only_commands_that_change_native_clipping_or_content_redraw_the_region() {
         id: 42
     }));
 }
+
+#[test]
+fn authored_html_acceptance_is_captured_from_the_shared_compositor() {
+    let source = include_str!("child.rs");
+
+    assert!(source.contains("phase == \"interactive_document_alive\""));
+    assert!(source.contains("acceptance_capture::capture_for_card(webview, *id)"));
+}
+
+#[test]
+fn drag_completion_restores_controls_after_the_native_drag_lock_is_cleared() {
+    let source = include_str!("child.rs");
+
+    assert!(source.contains("ChildEvent::DragFinished { .. }"));
+    assert!(source.contains("setDragActive(false)"));
+}

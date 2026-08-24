@@ -94,8 +94,26 @@ fn translate_with_llm_chain(
         {
             continue;
         }
-        let request_timeout =
-            crate::retry_model_chain::interactive_request_timeout(&model.id, config, false);
+        let history_bytes = history_entries
+            .iter()
+            .fold(0_u64, |total, (source, translated)| {
+                total
+                    .saturating_add(source.len() as u64)
+                    .saturating_add(translated.len() as u64)
+            });
+        let request_bytes = history_bytes
+            .saturating_add(request.pending_source.len() as u64)
+            .saturating_add(request.finalized_source.len() as u64)
+            .saturating_add(request.draft_source.len() as u64)
+            .saturating_add(request.previous_draft_translation.len() as u64);
+        let request_timeout = crate::retry_model_chain::interactive_request_timeout(
+            &model.id,
+            config,
+            false,
+            crate::retry_model_chain::InteractiveRequestWorkload {
+                encoded_request_bytes: request_bytes,
+            },
+        );
 
         let result = match model.provider.as_str() {
             "google" => translate_with_google_model(

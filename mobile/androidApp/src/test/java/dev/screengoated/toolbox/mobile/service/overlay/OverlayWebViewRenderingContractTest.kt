@@ -47,6 +47,38 @@ class OverlayWebViewRenderingContractTest {
             "gesture_terminal_only",
             invariants.string("phoneControlPositionPersistence"),
         )
+        assertEquals(
+            "platform_result_renderer_not_nested_native_surface",
+            invariants.string("authoredHtmlSurfaceOwner"),
+        )
+        assertEquals(
+            "result_overlay_exact_rounded_bounds",
+            invariants.string("authoredHtmlClip"),
+        )
+        assertEquals(
+            "same_frame_as_result_overlay",
+            invariants.string("authoredHtmlGestureGeometry"),
+        )
+        assertEquals(
+            "platform_native_browser_surface",
+            invariants.string("externalNavigationSurfaceOwner"),
+        )
+        assertEquals(
+            "same_frame_as_result_overlay",
+            invariants.string("externalNavigationGestureGeometry"),
+        )
+        assertEquals(
+            "platform_antialiased_rounded_bounds",
+            invariants.string("externalNavigationClip"),
+        )
+        assertEquals(
+            "fully_opaque_while_visible",
+            invariants.string("externalNavigationOpacity"),
+        )
+        assertEquals(
+            "result_processing_outline_until_page_finished",
+            invariants.string("externalNavigationLoadingHandoff"),
+        )
     }
 
     private fun repoFile(path: String): File {

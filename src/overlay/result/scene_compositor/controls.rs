@@ -271,6 +271,7 @@ mod tests {
             chain_id: None,
             latency_trace_id: None,
             is_browsing: false,
+            is_navigation_loading: false,
             navigation_depth: 0,
             max_navigation_depth: 0,
             tts_request_id: 0,

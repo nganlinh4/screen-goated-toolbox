@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.Intent
 import android.graphics.Rect
 import android.widget.Toast
+import dev.screengoated.toolbox.mobile.model.normalizedResultOverlayOpacityPercent
 import dev.screengoated.toolbox.mobile.service.tts.TtsConsumer
 import dev.screengoated.toolbox.mobile.service.tts.TtsPriority
 import dev.screengoated.toolbox.mobile.service.tts.TtsRequest
@@ -66,7 +67,7 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
         "set_opacity" -> {
             val value = payload.optInt("value", 100)
             val id = payload.optString("hwnd").toResultWindowIdOrNull() ?: return
-            val clamped = value.coerceIn(10, 100)
+            val clamped = value.normalizedResultOverlayOpacityPercent()
             val active = resultWindows[id] ?: return
             resultWindows[id] = active.copy(runtimeState = active.runtimeState.copy(opacityPercent = clamped))
             applyWindowOpacity(active.window, clamped)

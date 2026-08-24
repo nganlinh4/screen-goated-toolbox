@@ -35,14 +35,7 @@ internal fun presetResultBaseHtmlTemplate(): String {
 internal fun presetResultCss(isDark: Boolean): String {
     val shellBg = if (isDark) "rgba(18, 20, 28, 0.86)" else "rgba(252, 252, 255, 0.88)"
     val shellBorder = if (isDark) "rgba(255, 255, 255, 0.12)" else "rgba(10, 18, 28, 0.10)"
-    val selectionActionBg = if (isDark) "rgba(12, 16, 24, 0.90)" else "rgba(255, 255, 255, 0.96)"
-    val selectionActionBorder = if (isDark) "rgba(255, 255, 255, 0.18)" else "rgba(28, 34, 44, 0.14)"
-    val selectionActionColor = if (isDark) "rgba(255, 255, 255, 0.96)" else "rgba(18, 20, 28, 0.92)"
-    val selectionActionShadow = if (isDark) "0 10px 26px rgba(0, 0, 0, 0.22)" else "0 10px 24px rgba(24, 36, 54, 0.14)"
-    val handleBorder = if (isDark) "rgba(255, 255, 255, 0.90)" else "rgba(255, 255, 255, 0.96)"
-    val handleFill = if (isDark) "rgba(43, 122, 255, 0.96)" else "rgba(38, 112, 245, 0.94)"
-    val handleInner = if (isDark) "rgba(255, 255, 255, 0.96)" else "rgba(248, 250, 255, 0.98)"
-    val handleShadow = if (isDark) "0 6px 18px rgba(0, 0, 0, 0.22)" else "0 6px 16px rgba(24, 36, 54, 0.16)"
+    val interactionChrome = presetResultInteractionChromeCss(isDark)
     return """
         html {
             width: 100%;
@@ -77,6 +70,28 @@ internal fun presetResultCss(isDark: Boolean): String {
         html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
         body > *:first-child { margin-top: 0; }
         a { cursor: pointer; }
+        $interactionChrome
+        .sgt-loading-shell {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+    """.trimIndent()
+}
+
+internal fun presetResultInteractionChromeCss(isDark: Boolean): String {
+    val selectionActionBg = if (isDark) "rgba(12, 16, 24, 0.90)" else "rgba(255, 255, 255, 0.96)"
+    val selectionActionBorder = if (isDark) "rgba(255, 255, 255, 0.18)" else "rgba(28, 34, 44, 0.14)"
+    val selectionActionColor = if (isDark) "rgba(255, 255, 255, 0.96)" else "rgba(18, 20, 28, 0.92)"
+    val selectionActionShadow = if (isDark) "0 10px 26px rgba(0, 0, 0, 0.22)" else "0 10px 24px rgba(24, 36, 54, 0.14)"
+    val handleBorder = if (isDark) "rgba(255, 255, 255, 0.90)" else "rgba(255, 255, 255, 0.96)"
+    val handleFill = if (isDark) "rgba(43, 122, 255, 0.96)" else "rgba(38, 112, 245, 0.94)"
+    val handleInner = if (isDark) "rgba(255, 255, 255, 0.96)" else "rgba(248, 250, 255, 0.98)"
+    val handleShadow = if (isDark) "0 6px 18px rgba(0, 0, 0, 0.22)" else "0 6px 16px rgba(24, 36, 54, 0.16)"
+    return """
         .sgt-selection-action {
             position: fixed;
             z-index: 2147483646;
@@ -153,14 +168,6 @@ internal fun presetResultCss(isDark: Boolean): String {
         .sgt-selection-handle.visible {
             opacity: 1;
             pointer-events: auto;
-        }
-        .sgt-loading-shell {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            user-select: none;
-            -webkit-user-select: none;
         }
     """.trimIndent()
 }

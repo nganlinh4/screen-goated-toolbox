@@ -100,3 +100,22 @@ pub fn get_default_presets() -> Vec<Preset> {
         find(&audio, "preset_realtime_audio_translate"),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::get_default_presets;
+
+    #[test]
+    fn make_game_allows_game_appropriate_input() {
+        let preset = get_default_presets()
+            .into_iter()
+            .find(|preset| preset.id == "preset_make_game")
+            .expect("Make a Game preset");
+        let prompt = &preset.blocks.first().expect("game model block").prompt;
+
+        assert!(prompt.contains("keyboard, mouse/pointer, touch, or a combination"));
+        assert!(prompt.contains("after the player clicks or taps the game"));
+        assert!(!prompt.contains("ONLY MOUSE CONTROLS"));
+        assert!(!prompt.contains("no keyboard required"));
+    }
+}

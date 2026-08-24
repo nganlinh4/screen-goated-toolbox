@@ -236,6 +236,26 @@ pub fn inject_scrollbar_css(html: &str) -> String {
     result
 }
 
+/// Remove only browser-default page gutters for authored result documents.
+/// `:where` keeps zero specificity, so any authored margin or sizing still wins.
+pub fn inject_result_surface_css(html: &str) -> String {
+    let css = r#"<style data-sgt-result-surface="1">
+:where(html, body) { width: 100%; height: 100%; margin: 0; }
+:where(body) { box-sizing: border-box; }
+</style>"#;
+    let lower = html.to_ascii_lowercase();
+    let mut result = html.to_string();
+
+    if let Some(position) = lower.find("</head>") {
+        result.insert_str(position, css);
+    } else if let Some(position) = lower.find("<body>") {
+        result.insert_str(position, css);
+    } else {
+        result.insert_str(0, css);
+    }
+    result
+}
+
 /// Inject runtime diagnostics that report suspicious blank render states via IPC.
 pub fn inject_render_diagnostics(
     html: &str,

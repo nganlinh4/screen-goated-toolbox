@@ -2,6 +2,20 @@
   "surface": "preset_result_overlay",
   "render_mode": "markdown_only",
   "window_creation": "precreate_before_result_text",
+  "opacity": {
+    "default_percent": 90,
+    "minimum_percent": 10,
+    "maximum_percent": 100,
+    "missing_value_uses_default": true,
+    "explicit_saved_value_is_preserved": true
+  },
+  "interactive_html": {
+    "preset_id": "preset_make_game",
+    "input_policy": "game_appropriate_keyboard_pointer_touch_or_combination",
+    "keyboard_activation": "click_or_tap_result_focuses_embedded_document",
+    "visible_control_instructions": true,
+    "mouse_only_constraint": false
+  },
   "windows": [
     {
       "block_idx": 1,
@@ -49,6 +63,10 @@
     "dom_contract": "body_level_markdown_content",
     "render_mode": "markdown_plus_raw_html",
     "raw_html_supported": true,
+    "raw_html_normalization": "complete_document_or_single_outer_html_fence",
+    "raw_html_document_authority": "loaded_document_is_never_replaced_by_generic_body_inner_html",
+    "raw_html_style_authority": "authored_document_owns_typography_layout_animation_and_input_css",
+    "raw_html_script_lifecycle": "inline_scripts_execute_once_during_document_load_and_keep_live_state",
     "theme_sync_scope": "all_preset_overlays",
     "touch_scroll_model": "two_finger_bidirectional_native_scroll",
     "raw_html_host_contract": "page_load_reinjected_overlay_shell",

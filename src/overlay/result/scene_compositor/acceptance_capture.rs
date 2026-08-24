@@ -13,7 +13,7 @@ pub(in crate::overlay::result) fn capture_for_trace(webview: &wry::WebView, trac
     if !super::acceptance_offscreen() {
         return;
     }
-    let result = start_capture_with(webview, move |result| match result {
+    let result = start_capture_with(webview, "result-navigation", move |result| match result {
         Ok(pixel_count) => {
             crate::overlay::result::latency::mark(&trace_id, "interactive_pixels_visible");
             crate::debug_log::log_debug(&format!(
@@ -31,8 +31,50 @@ pub(in crate::overlay::result) fn capture_for_trace(webview: &wry::WebView, trac
     }
 }
 
+pub(super) fn capture_for_card(webview: &wry::WebView, id: isize) {
+    if !super::acceptance_offscreen() {
+        return;
+    }
+    let complete = move |result| match result {
+        Ok(pixel_count) => {
+            crate::debug_log::log_debug(&format!(
+                "[OverlaySmoke] phase=interactive_pixels_visible pixels={pixel_count}"
+            ));
+            emit_card_capture(id, "interactive_pixels_visible", None);
+        }
+        Err(error) => {
+            crate::debug_log::log_debug(&format!(
+                "[OverlaySmoke] phase=interactive_pixels_rejected error={error}"
+            ));
+            emit_card_capture(id, "interactive_pixels_rejected", Some(error));
+        }
+    };
+    if let Err(error) = start_capture_with(webview, "result-compositor", complete) {
+        let error = error.to_string();
+        crate::debug_log::log_debug(&format!(
+            "[OverlaySmoke] phase=interactive_pixels_rejected error={error}"
+        ));
+        emit_card_capture(id, "interactive_pixels_rejected", Some(error));
+    }
+}
+
+fn emit_card_capture(id: isize, phase: &str, error: Option<String>) {
+    super::child::emit_event(super::protocol::ChildEvent::CardDiagnostic {
+        id,
+        phase: phase.to_string(),
+        revision: 0,
+        visible: true,
+        ready: true,
+        payload_len: 0,
+        text_len: 0,
+        opacity: String::new(),
+        error,
+    });
+}
+
 fn start_capture_with(
     webview: &wry::WebView,
+    evidence_name: &'static str,
     complete: impl FnOnce(Result<usize, String>) + 'static,
 ) -> windows061::core::Result<()> {
     unsafe {
@@ -43,7 +85,7 @@ fn start_capture_with(
             let result = if code.is_err() {
                 Err(format!("CapturePreview failed: {code:?}"))
             } else {
-                verify_pixels(&completion_stream)
+                verify_pixels(&completion_stream, evidence_name)
             };
             if let Ok(mut complete) = complete.lock()
                 && let Some(complete) = complete.take()
@@ -60,11 +102,11 @@ fn start_capture_with(
     }
 }
 
-fn verify_pixels(stream: &IStream) -> Result<usize, String> {
+fn verify_pixels(stream: &IStream, evidence_name: &str) -> Result<usize, String> {
     let bytes = read_stream(stream)?;
     let evidence_dir = crate::paths::app_sgt_dir().join("acceptance");
     let _ = std::fs::create_dir_all(&evidence_dir);
-    let _ = std::fs::write(evidence_dir.join("result-compositor.png"), &bytes);
+    let _ = std::fs::write(evidence_dir.join(format!("{evidence_name}.png")), &bytes);
     let image = image::load_from_memory_with_format(&bytes, ImageFormat::Png)
         .map_err(|error| format!("invalid preview PNG: {error}"))?;
     let dimensions = image.dimensions();

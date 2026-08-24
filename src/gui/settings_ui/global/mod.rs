@@ -384,13 +384,20 @@ pub fn render_global_settings(
 
             ui.add_space(8.0);
 
-            config.favorite_overlay_opacity = config.favorite_overlay_opacity.clamp(10, 100);
+            config.favorite_overlay_opacity =
+                crate::config::types::normalize_result_overlay_opacity_percent(
+                    config.favorite_overlay_opacity,
+                );
             ui.horizontal(|ui| {
                 ui.label(text.global_settings.favorite_overlay_opacity_label);
                 if ui
                     .add(
-                        egui::Slider::new(&mut config.favorite_overlay_opacity, 10..=100)
-                            .suffix("%"),
+                        egui::Slider::new(
+                            &mut config.favorite_overlay_opacity,
+                            crate::config::types::MIN_RESULT_OVERLAY_OPACITY_PERCENT
+                                ..=crate::config::types::MAX_RESULT_OVERLAY_OPACITY_PERCENT,
+                        )
+                        .suffix("%"),
                     )
                     .changed()
                 {

@@ -180,6 +180,7 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
                     chain_id: None,
                     latency_trace_id: latency_trace_id.clone(),
                     is_browsing: false,
+                    is_navigation_loading: false,
                     navigation_depth: 0,
                     max_navigation_depth: 0,
                     tts_request_id: 0,

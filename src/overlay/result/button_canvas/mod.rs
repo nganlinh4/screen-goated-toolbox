@@ -135,7 +135,7 @@ mod tests {
         );
 
         assert!(buttons.contains("state.modelLabel"));
-        assert!(buttons.contains("!state.groupActions && state.modelLabel"));
+        assert!(buttons.contains("!isBrowsing && !state.groupActions && state.modelLabel"));
         assert!(script.contains("function escapeText"));
         assert!(buttons.contains("escapeText(state.modelLabel)"));
 
@@ -172,7 +172,10 @@ mod tests {
         assert!(script.contains("function renderResultDragPreview"));
         assert!(script.contains("requestAnimationFrame(renderResultDragPreview)"));
         assert!(script.contains("action: 'result_drag_finish'"));
-        assert!(script.contains("card.style.translate = offset"));
+        assert!(script.contains("action: 'result_drag_preview'"));
+        assert!(script.contains("state?.isBrowsing"));
+        assert!(script.contains("card.style.transform = 'translate3d('"));
+        assert!(!script.contains("card.style.translate = offset"));
         assert!(script.contains("function contrastingControlSurface"));
         assert!(script.contains("local-control-surface-light"));
         assert!(script.contains("local-control-surface-dark"));

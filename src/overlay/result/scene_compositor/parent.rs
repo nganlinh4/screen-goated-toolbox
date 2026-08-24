@@ -64,6 +64,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         (
             state.full_text.clone(),
             state.is_refining,
+            state.is_navigation_loading,
             state.processing_effect,
             state.preset_prompt.clone(),
             state.input_text.clone(),
@@ -81,10 +82,10 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         )
     };
 
-    let rendered = render_for_compositor(&snapshot.0, snapshot.1, &snapshot.3, &snapshot.4);
+    let rendered = render_for_compositor(&snapshot.0, snapshot.1, &snapshot.4, &snapshot.5);
     let body = rendered.body;
     let document = rendered.isolated_document.map(with_card_bridge);
-    let Some(geometry) = read_geometry(hwnd, requested_visible, snapshot.9) else {
+    let Some(geometry) = read_geometry(hwnd, requested_visible, snapshot.10) else {
         return;
     };
     claim_window_onboarding_pulse(hwnd_key);
@@ -100,24 +101,25 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         control_rect: geometry.control_rect,
         body: body.clone(),
         document,
-        native_document: super::super::raw_webview::is_active(hwnd),
+        external_navigation: super::super::raw_webview::is_active(hwnd),
+        navigation_loading: snapshot.2,
         refining: snapshot.1,
-        processing_effect: snapshot.2,
-        background: format!("#{:06x}", snapshot.5 & 0x00ff_ffff),
-        opacity: snapshot.6,
+        processing_effect: snapshot.3,
+        background: format!("#{:06x}", snapshot.6 & 0x00ff_ffff),
+        opacity: snapshot.7,
         visible: geometry.visible,
-        streaming: snapshot.7,
-        streaming_enabled: snapshot.8,
+        streaming: snapshot.8,
+        streaming_enabled: snapshot.9,
         stack_order,
         controls,
-        presentation: snapshot.9,
-        backdrop_data_url: snapshot.10,
-        foreground_color: snapshot.11,
-        preferred_font_size: snapshot.12,
-        source_replacement: snapshot.12.is_some(),
-        source_vertical: snapshot.13,
-        source_regions: snapshot.14,
-        source_segments: snapshot.15,
+        presentation: snapshot.10,
+        backdrop_data_url: snapshot.11,
+        foreground_color: snapshot.12,
+        preferred_font_size: snapshot.13,
+        source_replacement: snapshot.13.is_some(),
+        source_vertical: snapshot.14,
+        source_regions: snapshot.15,
+        source_segments: snapshot.16,
     };
 
     let previous = scenes.insert(hwnd_key, card.clone());
@@ -192,6 +194,7 @@ fn command_for_transition(
                     body: stream_body.clone(),
                     document: card.document.clone(),
                     refining: card.refining,
+                    navigation_loading: card.navigation_loading,
                     processing_effect: card.processing_effect,
                     background: card.background.clone(),
                     opacity: card.opacity,
@@ -206,6 +209,7 @@ fn command_for_transition(
                     body: stream_body,
                     document: card.document.clone(),
                     refining: card.refining,
+                    navigation_loading: card.navigation_loading,
                     processing_effect: card.processing_effect,
                     background: card.background.clone(),
                     opacity: card.opacity,

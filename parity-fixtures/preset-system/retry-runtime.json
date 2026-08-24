@@ -30,6 +30,25 @@
     "provider_error_body_preserved_all_modalities": true,
     "audio_whole_call_timeout": null
   },
+  "interactive_deadlines": {
+    "benchmark_latency_role": "ranking_and_presentation_only",
+    "presentation_transport_streaming_separate": true,
+    "streaming": {
+      "response_start_timeout_ms": 120000,
+      "progress_idle_timeout_ms": 120000,
+      "whole_call_timeout_ms": null
+    },
+    "non_streaming": {
+      "startup_allowance_ms": 30000,
+      "request_bytes_per_allowance_second": 16384,
+      "maximum_request_allowance_ms": 120000,
+      "minimum_output_tokens_per_second": 16,
+      "default_text_output_tokens": 4096,
+      "default_vision_output_tokens": 2048,
+      "minimum_hard_timeout_ms": 60000,
+      "maximum_hard_timeout_ms": 900000
+    }
+  },
   "recommended_model_defaults": {
     "generic_image": "groq-qwen-3-6-27b-vision",
     "image_ask": "groq-qwen-3-6-27b-vision",

@@ -36,9 +36,10 @@ internal class PresetMarkdownRenderer(
         markdown: String,
         isDark: Boolean,
     ): PresetRenderedContent {
-        if (isHtmlContent(markdown)) {
+        val rawHtml = normalizePresetHtmlContent(markdown)
+        if (rawHtml != null) {
             return PresetRenderedContent(
-                html = prepareRawHtmlDocument(markdown, isDark),
+                html = prepareRawHtmlDocument(rawHtml, isDark),
                 isRawHtmlDocument = true,
             )
         }
@@ -54,7 +55,7 @@ internal class PresetMarkdownRenderer(
         isDark: Boolean,
     ): String {
         val isInputAdapterMedia = isInputAdapterMediaHtml(content)
-        val wrapped = if (isHtmlFragment(content)) {
+        val wrapped = if (isPresetHtmlFragment(content)) {
             wrapHtmlFragment(content)
         } else {
             content
@@ -83,22 +84,6 @@ internal class PresetMarkdownRenderer(
             </script>
             """.trimIndent(),
         )
-    }
-
-    private fun isHtmlContent(content: String): Boolean {
-        val trimmed = content.trim()
-        return trimmed.startsWith("<!DOCTYPE", ignoreCase = true) ||
-            trimmed.startsWith("<html", ignoreCase = true) ||
-            (trimmed.contains("<html", ignoreCase = true) && trimmed.contains("</html>", ignoreCase = true)) ||
-            (trimmed.contains("<head", ignoreCase = true) && trimmed.contains("</head>", ignoreCase = true)) ||
-            isHtmlFragment(content)
-    }
-
-    private fun isHtmlFragment(content: String): Boolean {
-        val lower = content.lowercase()
-        return (lower.contains("<script") || lower.contains("<style")) &&
-            !lower.contains("<!doctype") &&
-            !lower.contains("<html")
     }
 
     private fun wrapHtmlFragment(fragment: String): String {
@@ -198,4 +183,49 @@ internal class PresetMarkdownRenderer(
     private fun asset(name: String): String {
         return appContext.assets.open("preset_overlay/$name").bufferedReader().use { it.readText() }
     }
+}
+
+internal fun normalizePresetHtmlContent(content: String): String? {
+    val trimmed = content.trim().trimStart('\uFEFF').trimStart()
+    val candidate = stripOuterPresetHtmlFence(trimmed)?.trim() ?: trimmed
+    val lower = candidate.lowercase()
+    if (lower.startsWith("<!doctype") || lower.startsWith("<html")) {
+        return candidate
+    }
+    val htmlStart = lower.indexOf("<html")
+    val htmlEnd = lower.lastIndexOf("</html>")
+    if (htmlStart >= 0 && htmlEnd >= htmlStart) {
+        val doctypeStart = lower.lastIndexOf("<!doctype", startIndex = htmlStart)
+            .takeIf { it >= 0 }
+            ?: htmlStart
+        return candidate.substring(doctypeStart, htmlEnd + "</html>".length)
+    }
+    if ((lower.contains("<head") && lower.contains("</head>")) || isPresetHtmlFragment(candidate)) {
+        return candidate
+    }
+    return null
+}
+
+private fun stripOuterPresetHtmlFence(content: String): String? {
+    val marker = content.firstOrNull()?.takeIf { it == '`' || it == '~' } ?: return null
+    val markerLength = content.takeWhile { it == marker }.length
+    if (markerLength < 3) return null
+    val headerEnd = content.indexOf('\n').takeIf { it >= 0 } ?: return null
+    val label = content.substring(markerLength, headerEnd).trim()
+    if (label.isNotEmpty() && !label.equals("html", ignoreCase = true) && !label.equals("htm", ignoreCase = true)) {
+        return null
+    }
+    val bodyAndClose = content.substring(headerEnd + 1)
+    val closeStart = bodyAndClose.lastIndexOf('\n').takeIf { it >= 0 } ?: return null
+    if (bodyAndClose.substring(closeStart + 1).trim() != marker.toString().repeat(markerLength)) {
+        return null
+    }
+    return bodyAndClose.substring(0, closeStart)
+}
+
+private fun isPresetHtmlFragment(content: String): Boolean {
+    val lower = content.lowercase()
+    return (lower.contains("<script") || lower.contains("<style")) &&
+        !lower.contains("<!doctype") &&
+        !lower.contains("<html")
 }

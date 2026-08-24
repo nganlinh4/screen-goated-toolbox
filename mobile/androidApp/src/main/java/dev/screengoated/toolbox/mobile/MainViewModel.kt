@@ -15,6 +15,7 @@ import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.next
+import dev.screengoated.toolbox.mobile.model.normalizedResultOverlayOpacityPercent
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.model.withMethod
 import dev.screengoated.toolbox.mobile.preset.CustomPresetModelDefinition
@@ -144,7 +145,7 @@ class MainViewModel(
     fun onOverlayOpacityChanged(opacityPercent: Int) {
         repository.updateUiPreferences(
             repository.currentUiPreferences().copy(
-                overlayOpacityPercent = opacityPercent.coerceIn(10, 100),
+                overlayOpacityPercent = opacityPercent.normalizedResultOverlayOpacityPercent(),
             ),
         )
     }

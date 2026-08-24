@@ -313,8 +313,14 @@ fn handle_renderer_event(body: &str) {
                 return;
             }
             super::button_input::RendererInput::EventAndRefresh(event) => {
-                if event == ChildEvent::DragStarted {
-                    evaluate_script("window.__SGT_BUTTON_SCENE__?.setDragActive(true);");
+                match &event {
+                    ChildEvent::DragStarted => {
+                        evaluate_script("window.__SGT_BUTTON_SCENE__?.setDragActive(true);");
+                    }
+                    ChildEvent::DragFinished { .. } => {
+                        evaluate_script("window.__SGT_BUTTON_SCENE__?.setDragActive(false);");
+                    }
+                    _ => {}
                 }
                 emit_event(event);
                 super::region::update(host, true);
@@ -341,6 +347,15 @@ fn handle_renderer_event(body: &str) {
         "renderer_heartbeat" => emit_event(ChildEvent::Heartbeat),
         _ => {
             if let Ok(event) = serde_json::from_str::<ChildEvent>(body) {
+                if let ChildEvent::CardDiagnostic { id, phase, .. } = &event
+                    && phase == "interactive_document_alive"
+                {
+                    WEBVIEW.with(|slot| {
+                        if let Some(webview) = slot.borrow().as_ref() {
+                            super::acceptance_capture::capture_for_card(webview, *id);
+                        }
+                    });
+                }
                 match event {
                     ChildEvent::Navigation { .. }
                     | ChildEvent::NavigationRequest { .. }
@@ -432,6 +447,8 @@ fn apply_scene_state(command: &HostCommand) {
                 card.body.clone_from(&update.body);
                 card.document.clone_from(&update.document);
                 card.refining = update.refining;
+                card.navigation_loading = update.navigation_loading;
+                card.processing_effect = update.processing_effect;
                 card.background.clone_from(&update.background);
                 card.opacity = update.opacity;
                 card.visible = update.visible;
@@ -444,6 +461,8 @@ fn apply_scene_state(command: &HostCommand) {
                 card.body.clone_from(&update.body);
                 card.document.clone_from(&update.document);
                 card.refining = update.refining;
+                card.navigation_loading = update.navigation_loading;
+                card.processing_effect = update.processing_effect;
                 card.background.clone_from(&update.background);
                 card.opacity = update.opacity;
                 card.visible = update.visible;

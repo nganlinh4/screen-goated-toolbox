@@ -294,7 +294,9 @@ internal fun SgtMobileApp(
                             // Match Windows reset scope: reset everything except API keys and language
                             presetRepository.resetAllToDefaults()
                             onPresetRuntimeSettingsChanged(PresetRuntimeSettings())
-                            onOverlayOpacityChanged(85)
+                            onOverlayOpacityChanged(
+                                dev.screengoated.toolbox.mobile.model.DEFAULT_RESULT_OVERLAY_OPACITY_PERCENT,
+                            )
                             onResetHistoryDefaults()
                             // Reset TTS to defaults
                             onGlobalTtsMethodChanged(dev.screengoated.toolbox.mobile.model.MobileTtsMethod.GEMINI_LIVE)

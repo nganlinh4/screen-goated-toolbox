@@ -14,6 +14,9 @@
   attached. A WebView does not keep a persistent hardware view layer because
   continuously animated transparent content would invalidate that extra
   offscreen texture every frame.
+- New and reset result overlays default to 90% opacity on both platforms.
+  Persisted explicit values remain unchanged, and supported values are clamped
+  to the shared 10–100% range.
 - Phone Control, Live Translate, and preset overlay WebViews share this window
   rendering policy. Feature-specific window, focus, touch, capture, and
   lifecycle ownership remains unchanged.
@@ -28,6 +31,18 @@
 - Performance work must preserve the canonical HTML, transparent pixels,
   backdrop/blur treatment, animations, controls, capture exclusion, and touch
   regions. It cannot replace a WebView effect with a reduced native redesign.
+- Authored result HTML stays inside the platform result renderer, fills its
+  complete content surface, and is clipped and moved by the exact same rounded
+  bounds as the result overlay. A nested native browser surface is reserved for
+  external navigation and cannot host authored result HTML.
+- External navigation remains a platform-native browser surface so arbitrary
+  sites keep working when embedding is forbidden. It follows the same result
+  geometry authority at display-frame cadence and uses the platform's
+  antialiased rounded-window clip; it cannot maintain an independent drag,
+  resize, opacity, or corner policy. Browser content remains fully opaque while
+  visible. Each navigation keeps the native surface hidden until its completed
+  page load, while the result renderer retains the shell and canonical
+  processing outline; the handoff cannot expose an empty native surface.
 - Related preset result cards may later share one Android renderer only when the
   Windows scene protocol can be ported without changing independent card input,
   focus, navigation, and lifecycle behavior. Renderer consolidation is not a

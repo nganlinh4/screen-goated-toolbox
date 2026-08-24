@@ -3,6 +3,13 @@ package dev.screengoated.toolbox.mobile.model
 import kotlinx.serialization.Serializable
 import java.util.Locale
 
+const val DEFAULT_RESULT_OVERLAY_OPACITY_PERCENT: Int = 90
+const val MIN_RESULT_OVERLAY_OPACITY_PERCENT: Int = 10
+const val MAX_RESULT_OVERLAY_OPACITY_PERCENT: Int = 100
+
+fun Int.normalizedResultOverlayOpacityPercent(): Int =
+    coerceIn(MIN_RESULT_OVERLAY_OPACITY_PERCENT, MAX_RESULT_OVERLAY_OPACITY_PERCENT)
+
 @Serializable
 enum class MobileThemeMode {
     SYSTEM,
@@ -14,7 +21,7 @@ enum class MobileThemeMode {
 data class MobileUiPreferences(
     val themeMode: MobileThemeMode = MobileThemeMode.SYSTEM,
     val uiLanguage: String = defaultMobileUiLanguage(),
-    val overlayOpacityPercent: Int = 85,
+    val overlayOpacityPercent: Int = DEFAULT_RESULT_OVERLAY_OPACITY_PERCENT,
 )
 
 fun MobileThemeMode.next(): MobileThemeMode {
@@ -32,4 +39,3 @@ fun defaultMobileUiLanguage(): String {
         else -> "en"
     }
 }
-

@@ -12,8 +12,8 @@ pub(super) fn needs_update(redraw: bool, dragging: bool) -> bool {
     redraw || !dragging
 }
 
-fn compositor_owns_card_region(native_document: bool) -> bool {
-    !native_document
+fn compositor_owns_card_region(external_navigation: bool) -> bool {
+    !external_navigation
 }
 
 fn base_bounds(dragging: bool, width: i32, height: i32) -> RECT {
@@ -42,7 +42,7 @@ pub(super) fn update(hwnd: HWND, redraw: bool) {
         let mut visible_count = 0usize;
         for card in cards.values().filter(|card| card.visible) {
             visible_count += 1;
-            if !compositor_owns_card_region(card.native_document) {
+            if !compositor_owns_card_region(card.external_navigation) {
                 continue;
             }
             union_rect(
@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn native_documents_leave_a_hole_in_the_shared_compositor() {
+    fn external_navigation_leaves_a_hole_in_the_shared_compositor() {
         assert!(!compositor_owns_card_region(true));
         assert!(compositor_owns_card_region(false));
     }

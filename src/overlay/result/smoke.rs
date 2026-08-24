@@ -76,6 +76,9 @@ pub(crate) fn run() -> i32 {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                 state.is_streaming_active = false;
+                if index + 1 == card_count {
+                    state.opacity_percent = 100;
+                }
             }
         }
         let final_text = if index == 0 {

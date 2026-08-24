@@ -109,8 +109,8 @@ where
     H: FnOnce(&HeaderMap),
     J: FnOnce(&serde_json::Value),
 {
-    // Streaming responses can legitimately run past the 120s unary cap, so they
-    // use the longer-lived streaming agent; unary calls keep the tight bound.
+    // Streaming responses use response-start and progress-idle deadlines without
+    // a whole-response cap; unary calls use their workload-derived hard budget.
     let agent = if streaming {
         &*UREQ_STREAM_RESPONSE_AGENT
     } else {

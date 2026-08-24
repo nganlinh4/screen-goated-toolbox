@@ -253,8 +253,8 @@ function generateButtonsHTML(hwnd, state, isVertical) {
         </div>`;
     }
 
-    if (!state.groupActions && state.modelLabel) {
-        buttons += `<div class="model-badge ${hideClass}" title="${escapeAttribute(state.modelLabel)}">${escapeText(state.modelLabel)}</div>`;
+    if (!isBrowsing && !state.groupActions && state.modelLabel) {
+        buttons += `<div class="model-badge" title="${escapeAttribute(state.modelLabel)}">${escapeText(state.modelLabel)}</div>`;
     }
 
     const opacityValue = state.opacityPercent || 100;
@@ -325,9 +325,19 @@ function handleResultDrag(e, hwnd, groupActions) {
         model?.state?.groupIds?.map(String) || [id]))];
     const targets = e.button === 1 ? allIds
         : ((groupActions || e.button === 2) ? groupIds : [String(hwnd)]);
+    const nativeTargets = targets.filter(id =>
+        Boolean(window.registeredWindows[id]?.state?.isBrowsing));
+    const cardOrigins = new Map();
+    for (const id of targets) {
+        const card = document.querySelector('.result-card[data-id="' + id + '"]');
+        if (!card) continue;
+        const rect = card.getBoundingClientRect();
+        cardOrigins.set(id, { x: rect.left, y: rect.top });
+    }
     activeResultDragPreview = {
         hwnd: String(hwnd), targets: targets, pointerId: e.pointerId,
-        startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, frame: 0
+        startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, frame: 0,
+        cardOrigins: cardOrigins, nativeTargets: nativeTargets
     };
 
     let action = 'result_drag_start';
@@ -345,12 +355,25 @@ function handleResultDrag(e, hwnd, groupActions) {
 function renderResultDragPreview() {
     if (!activeResultDragPreview) return;
     activeResultDragPreview.frame = 0;
-    const offset = activeResultDragPreview.dx + 'px ' + activeResultDragPreview.dy + 'px';
+    const dx = activeResultDragPreview.dx;
+    const dy = activeResultDragPreview.dy;
+    const offset = dx + 'px ' + dy + 'px';
     for (const id of activeResultDragPreview.targets) {
         const card = document.querySelector('.result-card[data-id="' + id + '"]');
-        if (card) card.style.translate = offset;
+        const origin = activeResultDragPreview.cardOrigins.get(id);
+        if (card && origin) {
+            card.style.transform = 'translate3d(' + (origin.x + dx) + 'px,' +
+                (origin.y + dy) + 'px,0)';
+        }
         const group = document.querySelector('.button-group[data-hwnd="' + id + '"]');
         if (group) group.style.translate = offset;
+    }
+    if (activeResultDragPreview.nativeTargets.length) {
+        const scale = window.devicePixelRatio || 1;
+        window.ipc.postMessage(JSON.stringify({
+            action: 'result_drag_preview', hwnd: activeResultDragPreview.hwnd,
+            dx: Math.round(dx * scale), dy: Math.round(dy * scale)
+        }));
     }
 }
 function queueResultDragPreview(event) {

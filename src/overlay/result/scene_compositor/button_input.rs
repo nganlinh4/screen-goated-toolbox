@@ -5,7 +5,7 @@ use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetWindowRect, SWP_NOACTIVATE,
-    SWP_NOSIZE, SWP_NOZORDER,
+    SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
 };
 
 #[derive(Debug, PartialEq)]
@@ -26,12 +26,33 @@ enum DragMode {
 
 struct ActiveDrag {
     id: isize,
-    targets: Vec<isize>,
+    targets: Vec<DragTarget>,
     click_outcome: DragOutcome,
+}
+
+#[derive(Clone, Copy)]
+struct DragTarget {
+    id: isize,
+    start_rect: RECT,
+    live_native: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ResizeEdge {
+    north: bool,
+    south: bool,
+    east: bool,
+    west: bool,
+}
+
+struct ActiveResize {
+    id: isize,
+    edge: ResizeEdge,
 }
 
 static BUTTON_REGIONS: LazyLock<Mutex<Vec<SceneRect>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 static ACTIVE_DRAG: Mutex<Option<ActiveDrag>> = Mutex::new(None);
+static ACTIVE_RESIZE: Mutex<Option<ActiveResize>> = Mutex::new(None);
 static EXTERNAL_DRAG: AtomicBool = AtomicBool::new(false);
 
 pub(super) fn handle_renderer_message(
@@ -82,7 +103,10 @@ pub(super) fn handle_renderer_message(
         "result_drag_start" => begin_drag(id, DragMode::One, cards),
         "result_group_drag_start" => begin_drag(id, DragMode::Group, cards),
         "result_all_drag_start" => begin_drag(id, DragMode::All, cards),
+        "result_drag_preview" => preview_drag_from_message(&message),
         "result_drag_finish" => finish_drag_from_message(&message),
+        "result_resize_start" => begin_resize(id, &message, cards),
+        "result_resize_finish" => finish_resize_from_message(&message),
         _ => button_action(id, action, &message)
             .map(RendererInput::Event)
             .unwrap_or(RendererInput::RefreshRegion),
@@ -156,16 +180,37 @@ fn update_regions(message: &serde_json::Value) {
 }
 
 fn begin_drag(id: isize, mode: DragMode, cards: &HashMap<isize, SceneCard>) -> RendererInput {
+    if ACTIVE_RESIZE.lock().unwrap().is_some() {
+        return RendererInput::RefreshRegion;
+    }
     let Some(card) = cards.get(&id) else {
         return RendererInput::RefreshRegion;
     };
-    let mut targets = match mode {
+    let mut target_ids = match mode {
         DragMode::One => vec![id],
         DragMode::Group => card.controls.group_ids.clone(),
         DragMode::All => cards.keys().copied().collect(),
     };
+    if target_ids.is_empty() {
+        target_ids.push(id);
+    }
+    let targets = target_ids
+        .into_iter()
+        .filter_map(|target| {
+            let mut start_rect = RECT::default();
+            unsafe { GetWindowRect(HWND(target as *mut std::ffi::c_void), &mut start_rect) }
+                .ok()?;
+            Some(DragTarget {
+                id: target,
+                start_rect,
+                live_native: cards
+                    .get(&target)
+                    .is_some_and(|card| card.external_navigation),
+            })
+        })
+        .collect::<Vec<_>>();
     if targets.is_empty() {
-        targets.push(id);
+        return RendererInput::RefreshRegion;
     }
     let click_outcome = match mode {
         DragMode::One => DragOutcome::CloseOne,
@@ -197,26 +242,32 @@ pub(super) fn set_external_drag(active: bool) {
 }
 
 pub(super) fn is_dragging() -> bool {
-    EXTERNAL_DRAG.load(Ordering::SeqCst) || ACTIVE_DRAG.lock().unwrap().is_some()
+    EXTERNAL_DRAG.load(Ordering::SeqCst)
+        || ACTIVE_DRAG.lock().unwrap().is_some()
+        || ACTIVE_RESIZE.lock().unwrap().is_some()
 }
 
-unsafe fn move_targets(targets: &[isize], dx: i32, dy: i32) {
+unsafe fn place_targets(targets: &[DragTarget], dx: i32, dy: i32, live_only: bool) {
     unsafe {
-        let Ok(mut batch) = BeginDeferWindowPos(targets.len() as i32) else {
+        let selected = targets
+            .iter()
+            .filter(|target| !live_only || target.live_native)
+            .collect::<Vec<_>>();
+        if selected.is_empty() {
+            return;
+        }
+        let Ok(mut batch) = BeginDeferWindowPos(selected.len() as i32) else {
             return;
         };
-        for target in targets {
-            let hwnd = HWND(*target as *mut std::ffi::c_void);
-            let mut rect = RECT::default();
-            if GetWindowRect(hwnd, &mut rect).is_err() {
-                continue;
-            }
+        for target in selected {
+            let hwnd = HWND(target.id as *mut std::ffi::c_void);
+            let (x, y) = translated_origin(target.start_rect, dx, dy);
             batch = DeferWindowPos(
                 batch,
                 hwnd,
                 None,
-                rect.left + dx,
-                rect.top + dy,
+                x,
+                y,
                 0,
                 0,
                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
@@ -227,19 +278,34 @@ unsafe fn move_targets(targets: &[isize], dx: i32, dy: i32) {
     }
 }
 
+fn translated_origin(rect: RECT, dx: i32, dy: i32) -> (i32, i32) {
+    (rect.left.saturating_add(dx), rect.top.saturating_add(dy))
+}
+
 fn finish_drag_with_offset(dx: i32, dy: i32) -> Option<ChildEvent> {
     let drag = ACTIVE_DRAG.lock().unwrap().take()?;
-    let outcome = if dx.saturating_mul(dx) + dy.saturating_mul(dy) < 25 {
+    let moved_distance = dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy));
+    let outcome = if moved_distance < 25 {
+        unsafe { place_targets(&drag.targets, 0, 0, true) };
         drag.click_outcome
     } else {
-        unsafe { move_targets(&drag.targets, dx, dy) };
+        unsafe { place_targets(&drag.targets, dx, dy, false) };
         DragOutcome::Moved
     };
+    let targets = drag.targets.iter().map(|target| target.id).collect();
     Some(ChildEvent::DragFinished {
         id: drag.id,
-        targets: drag.targets,
+        targets,
         outcome,
     })
+}
+
+fn preview_drag_from_message(message: &serde_json::Value) -> RendererInput {
+    let (dx, dy) = drag_offset(message);
+    if let Some(drag) = ACTIVE_DRAG.lock().unwrap().as_ref() {
+        unsafe { place_targets(&drag.targets, dx, dy, true) };
+    }
+    RendererInput::Handled
 }
 
 fn finish_drag_from_message(message: &serde_json::Value) -> RendererInput {
@@ -260,10 +326,123 @@ fn drag_offset(message: &serde_json::Value) -> (i32, i32) {
     (coordinate("dx"), coordinate("dy"))
 }
 
+fn begin_resize(
+    id: isize,
+    message: &serde_json::Value,
+    cards: &HashMap<isize, SceneCard>,
+) -> RendererInput {
+    if ACTIVE_DRAG.lock().unwrap().is_some() || ACTIVE_RESIZE.lock().unwrap().is_some() {
+        return RendererInput::RefreshRegion;
+    }
+    if !cards.get(&id).is_some_and(|card| card.visible) {
+        return RendererInput::RefreshRegion;
+    }
+    let Some(edge) = message
+        .get("edge")
+        .and_then(|value| value.as_str())
+        .and_then(ResizeEdge::parse)
+    else {
+        return RendererInput::RefreshRegion;
+    };
+    *ACTIVE_RESIZE.lock().unwrap() = Some(ActiveResize { id, edge });
+    BUTTON_REGIONS.lock().unwrap().clear();
+    RendererInput::EventAndRefresh(ChildEvent::DragStarted)
+}
+
+fn finish_resize_from_message(message: &serde_json::Value) -> RendererInput {
+    let Some(resize) = ACTIVE_RESIZE.lock().unwrap().take() else {
+        return RendererInput::RefreshRegion;
+    };
+    let (dx, dy) = drag_offset(message);
+    unsafe { resize_target(resize.id, resize.edge, dx, dy) };
+    RendererInput::EventAndRefresh(ChildEvent::DragFinished {
+        id: resize.id,
+        targets: vec![resize.id],
+        outcome: DragOutcome::Moved,
+    })
+}
+
+impl ResizeEdge {
+    fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "n" => Self::new(true, false, false, false),
+            "s" => Self::new(false, true, false, false),
+            "e" => Self::new(false, false, true, false),
+            "w" => Self::new(false, false, false, true),
+            "ne" => Self::new(true, false, true, false),
+            "nw" => Self::new(true, false, false, true),
+            "se" => Self::new(false, true, true, false),
+            "sw" => Self::new(false, true, false, true),
+            _ => return None,
+        })
+    }
+
+    const fn new(north: bool, south: bool, east: bool, west: bool) -> Self {
+        Self {
+            north,
+            south,
+            east,
+            west,
+        }
+    }
+}
+
+fn resized_rect(mut rect: RECT, edge: ResizeEdge, dx: i32, dy: i32) -> RECT {
+    if edge.west {
+        rect.left = rect.left.saturating_add(dx).min(
+            rect.right
+                .saturating_sub(super::super::event_handler::MIN_WINDOW_WIDTH),
+        );
+    }
+    if edge.east {
+        rect.right = rect.right.saturating_add(dx).max(
+            rect.left
+                .saturating_add(super::super::event_handler::MIN_WINDOW_WIDTH),
+        );
+    }
+    if edge.north {
+        rect.top = rect.top.saturating_add(dy).min(
+            rect.bottom
+                .saturating_sub(super::super::event_handler::MIN_WINDOW_HEIGHT),
+        );
+    }
+    if edge.south {
+        rect.bottom = rect.bottom.saturating_add(dy).max(
+            rect.top
+                .saturating_add(super::super::event_handler::MIN_WINDOW_HEIGHT),
+        );
+    }
+    rect
+}
+
+unsafe fn resize_target(id: isize, edge: ResizeEdge, dx: i32, dy: i32) {
+    unsafe {
+        let hwnd = HWND(id as *mut std::ffi::c_void);
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            return;
+        }
+        let rect = resized_rect(rect, edge, dx, dy);
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{button_action, drag_offset, interactive_regions, update_regions};
+    use super::{
+        ResizeEdge, button_action, drag_offset, interactive_regions, resized_rect,
+        translated_origin, update_regions,
+    };
     use crate::overlay::result::scene_compositor::protocol::{ButtonAction, ChildEvent, SceneRect};
+    use windows::Win32::Foundation::RECT;
 
     #[test]
     fn renderer_actions_become_typed_parent_events() {
@@ -295,6 +474,17 @@ mod tests {
             (i32::MAX, i32::MIN)
         );
         assert_eq!(drag_offset(&serde_json::json!({})), (0, 0));
+        let rect = RECT {
+            left: 500,
+            top: -200,
+            right: 900,
+            bottom: 100,
+        };
+        assert_eq!(translated_origin(rect, 75, -25), (575, -225));
+        assert_eq!(
+            translated_origin(rect, i32::MAX, i32::MIN),
+            (i32::MAX, i32::MIN)
+        );
     }
 
     #[test]
@@ -314,5 +504,29 @@ mod tests {
             }]
         );
         update_regions(&serde_json::json!({ "scale": 1.0, "regions": [] }));
+    }
+
+    #[test]
+    fn compositor_resize_edges_preserve_the_opposite_edge_and_native_minimum() {
+        let rect = RECT {
+            left: 100,
+            top: 200,
+            right: 500,
+            bottom: 500,
+        };
+        let resized = resized_rect(rect, ResizeEdge::parse("nw").unwrap(), 80, 50);
+        assert_eq!((resized.left, resized.top), (180, 250));
+        assert_eq!((resized.right, resized.bottom), (500, 500));
+
+        let minimum = resized_rect(rect, ResizeEdge::parse("se").unwrap(), -10_000, -10_000);
+        assert_eq!(
+            minimum.right - minimum.left,
+            crate::overlay::result::event_handler::MIN_WINDOW_WIDTH
+        );
+        assert_eq!(
+            minimum.bottom - minimum.top,
+            crate::overlay::result::event_handler::MIN_WINDOW_HEIGHT
+        );
+        assert!(ResizeEdge::parse("center").is_none());
     }
 }

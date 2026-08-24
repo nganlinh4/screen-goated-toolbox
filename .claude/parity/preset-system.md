@@ -59,6 +59,14 @@
 - Permission-gated image/audio paths fail before capture, explain the required Android permission, and preserve retry state.
 - Image presets support continuous relaunch. Non-image continuous mode remains a documented gap.
 - Result windows are session-owned, precreated in loading state, multi-window, and support markdown streaming or raw HTML according to block render mode.
+- Raw HTML is a document lifecycle, not a Markdown DOM update. A complete raw
+  document (including one harmless outer `html`/`htm` code fence) is normalized,
+  loaded once, and remains authoritative: the host must never replace its body
+  through the generic Markdown `innerHTML` updater after load. Authored CSS,
+  animations, scripts, and interaction state remain owned by that document;
+  host integration is limited to overlay interaction, navigation, diagnostics,
+  visibility, and lifecycle bridges.
+- Interactive raw-HTML presets choose controls appropriate to the generated experience: keyboard, pointer, touch, or a combination. The built-in Make a Game prompt must not impose a mouse-only design; it requires visible control instructions and keyboard activation after the player clicks or taps the result.
 - The result-control badge identifies the endpoint that actually produced the current result after retry/fallback, formatted as provider display name plus the complete API model name; non-model results have no badge.
 - Android result and mini-app WebViews follow [the shared Android overlay rendering contract](../../parity-fixtures/android-webview-overlays/rendering-contract.json): each overlay window owns hardware acceleration and its WebView composes directly without a persistent offscreen hardware layer.
 - Reuse Windows markdown fitting/theme/font/table and button-canvas contracts. Preserve text selection, one-finger window drag, two-finger bidirectional content scroll, navigation recovery, and result geometry ownership.
@@ -150,9 +158,15 @@
   claim. Recorded token-budget reset metadata may defer a request before network
   I/O when the known remaining budget cannot admit it. Provider error bodies and
   structural `retry-after` headers remain in the classified failure instead of
-  being reduced to a status code. Non-streaming interactive calls use ten times
-  catalog median latency, clamped to ten through thirty seconds; streaming calls
-  do not use that whole-call deadline.
+  being reduced to a status code. Presentation streaming and transport streaming
+  are separate: a final-only Markdown or raw-HTML result may still consume a
+  streaming provider response internally for liveness without exposing partial
+  content. Streaming HTTP calls have independent response-start and progress-idle
+  deadlines and no whole-response deadline while bytes keep arriving.
+  Non-streaming interactive calls use a structural hard budget derived from the
+  encoded request size and the endpoint's output-token allowance, clamped from one
+  to fifteen minutes. Catalog benchmark latency is presentation/ranking evidence;
+  it never defines a request's whole-call deadline.
 - OpenRouter ordinary text, refine, vision, and recorder-subtitle requests
   apply catalog reasoning policy through OpenRouter's nested
   `reasoning: { effort: "none" }` field. `reasoning_effort` is not an

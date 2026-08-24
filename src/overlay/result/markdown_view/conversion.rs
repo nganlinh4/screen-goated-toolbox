@@ -4,8 +4,8 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 
 use super::css::{MARKDOWN_CSS, get_compositor_font_style, get_font_style, get_theme_css};
 use super::html_utils::{
-    escape_html_text, inject_gridjs, inject_render_diagnostics, inject_scrollbar_css,
-    inject_storage_polyfill, normalize_html_content,
+    escape_html_text, inject_gridjs, inject_render_diagnostics, inject_result_surface_css,
+    inject_scrollbar_css, inject_storage_polyfill, normalize_html_content,
 };
 
 const INTERACTIVE_WORD_WRAP_CHAR_LIMIT: usize = 6000;
@@ -147,8 +147,9 @@ fn markdown_to_html_with_font_style(
         let with_storage = inject_storage_polyfill(&raw_html);
         let with_grid = inject_gridjs(&with_storage);
         let with_scrollbar = inject_scrollbar_css(&with_grid);
+        let with_surface = inject_result_surface_css(&with_scrollbar);
         return inject_render_diagnostics(
-            &with_scrollbar,
+            &with_surface,
             markdown.len(),
             markdown.trim().len(),
             "raw_html",
@@ -320,6 +321,8 @@ mod tests {
 
         assert!(html.contains("body{font-family:serif}"));
         assert!(html.contains("window.gameReady=true"));
+        assert!(html.contains("data-sgt-result-surface=\"1\""));
+        assert!(html.contains(":where(html, body) { width: 100%; height: 100%; margin: 0; }"));
         assert!(!html.contains("Google Sans Flex"));
         assert!(!html.contains("html:not(.sgt-font-ready) body"));
     }

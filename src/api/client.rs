@@ -4,6 +4,9 @@ use std::time::Duration;
 use ureq::http::HeaderMap;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
+const STREAM_RESPONSE_START_TIMEOUT: Duration = Duration::from_secs(120);
+const STREAM_PROGRESS_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+
 fn platform_tls_config() -> TlsConfig {
     TlsConfig::builder()
         .provider(TlsProvider::NativeTls)
@@ -46,6 +49,35 @@ fn build_download_agent_with_read_timeout(read_timeout: Duration) -> ureq::Agent
         .into()
 }
 
+fn build_stream_agent(http_status_as_error: bool) -> ureq::Agent {
+    build_stream_agent_with_timeouts(
+        http_status_as_error,
+        STREAM_RESPONSE_START_TIMEOUT,
+        STREAM_PROGRESS_IDLE_TIMEOUT,
+    )
+}
+
+fn build_stream_agent_with_timeouts(
+    http_status_as_error: bool,
+    response_start_timeout: Duration,
+    progress_idle_timeout: Duration,
+) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .user_agent(concat!(
+            env!("CARGO_PKG_NAME"),
+            "/",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .timeout_connect(Some(Duration::from_secs(30)))
+        .timeout_send_request(Some(Duration::from_secs(30)))
+        .timeout_recv_response(Some(response_start_timeout))
+        .timeout_recv_body(Some(progress_idle_timeout))
+        .http_status_as_error(http_status_as_error)
+        .tls_config(platform_tls_config())
+        .build()
+        .into()
+}
+
 /// Apply a tighter end-to-end budget to one request without changing the
 /// shared agent's defaults for unrelated long-running work.
 pub fn with_request_timeout<B>(
@@ -67,17 +99,15 @@ pub static UREQ_AGENT: LazyLock<ureq::Agent> =
 pub static UREQ_RESPONSE_AGENT: LazyLock<ureq::Agent> =
     LazyLock::new(|| build_agent(Duration::from_secs(120), false));
 
-/// Agent for streaming (SSE) requests. In ureq 3.x `timeout_global` includes body
-/// reads, so a reasoning / search-grounded LLM stream that legitimately runs past
-/// 120s was being force-aborted mid-response on the shared agent. Streaming calls
-/// use this longer cap (matching the help-assistant agent) instead.
-pub static UREQ_STREAM_AGENT: LazyLock<ureq::Agent> =
-    LazyLock::new(|| build_agent(Duration::from_secs(900), true));
+/// Agent for streaming (SSE) requests. Response start and each body-read stall are
+/// bounded independently; there is no whole-response deadline while bytes keep
+/// arriving.
+pub static UREQ_STREAM_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| build_stream_agent(true));
 
 /// Streaming agent that preserves HTTP error responses for bounded provider
 /// diagnostics while retaining the long-lived SSE timeout.
 pub static UREQ_STREAM_RESPONSE_AGENT: LazyLock<ureq::Agent> =
-    LazyLock::new(|| build_agent(Duration::from_secs(900), false));
+    LazyLock::new(|| build_stream_agent(false));
 
 /// Download agent with bounded connection/header phases and a 30-second idle
 /// body-read timeout, but no whole-body deadline. Large verified files may take
@@ -122,6 +152,50 @@ mod download_agent_tests {
         let error = reader.read(&mut [0_u8; 1]).unwrap_err();
         assert!(started.elapsed() < Duration::from_millis(200));
         assert!(error.to_string().to_ascii_lowercase().contains("timeout"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn streaming_progress_can_outlive_one_idle_window() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            stream.flush().unwrap();
+            for _ in 0..5 {
+                std::thread::sleep(Duration::from_millis(25));
+                stream.write_all(b"1\r\nx\r\n").unwrap();
+                stream.flush().unwrap();
+            }
+            stream.write_all(b"0\r\n\r\n").unwrap();
+        });
+
+        let agent = super::build_stream_agent_with_timeouts(
+            true,
+            Duration::from_millis(50),
+            Duration::from_millis(45),
+        );
+        let started = Instant::now();
+        let response = agent
+            .get(format!("http://{address}/stream"))
+            .call()
+            .unwrap();
+        let mut body = String::new();
+        response
+            .into_body()
+            .into_reader()
+            .read_to_string(&mut body)
+            .unwrap();
+
+        assert_eq!(body, "xxxxx");
+        assert!(started.elapsed() > Duration::from_millis(100));
         server.join().unwrap();
     }
 }

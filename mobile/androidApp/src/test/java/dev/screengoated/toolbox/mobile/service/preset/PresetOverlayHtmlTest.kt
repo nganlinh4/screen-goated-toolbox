@@ -5,6 +5,8 @@ import dev.screengoated.toolbox.mobile.preset.PresetExecutionCapability
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowState
+import dev.screengoated.toolbox.mobile.preset.surfaceStreamingEnabled
+import dev.screengoated.toolbox.mobile.preset.transportStreamingEnabled
 import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import java.io.File
@@ -128,6 +130,14 @@ class PresetOverlayHtmlTest {
         assertEquals("body_level_markdown_content", markdownView["dom_contract"]!!.jsonPrimitive.content)
         assertEquals("markdown_plus_raw_html", markdownView["render_mode"]!!.jsonPrimitive.content)
         assertTrue(markdownView["raw_html_supported"]!!.jsonPrimitive.boolean)
+        assertEquals(
+            "loaded_document_is_never_replaced_by_generic_body_inner_html",
+            markdownView["raw_html_document_authority"]!!.jsonPrimitive.content,
+        )
+        assertEquals(
+            "inline_scripts_execute_once_during_document_load_and_keep_live_state",
+            markdownView["raw_html_script_lifecycle"]!!.jsonPrimitive.content,
+        )
         assertTrue(markdownView["gridjs_enabled_for_tables"]!!.jsonPrimitive.boolean)
         assertEquals(2000, canvas["linger_ms"]!!.jsonPrimitive.int)
         assertTrue(html.contains("{{FIT_SCRIPT}}"))
@@ -161,6 +171,33 @@ class PresetOverlayHtmlTest {
         assertTrue(js.contains("document.addEventListener('dragstart'"))
         assertTrue(js.contains("window.ipc.postMessage('result_ready')"))
         assertFalse(js.contains("plainText"))
+    }
+
+    @Test
+    fun makeGameAllowsGameAppropriateInput() {
+        val fixture = fixture("parity-fixtures/preset-system/result-overlay.json")
+        val contract = fixture["interactive_html"]!!.jsonObject
+        val preset = DefaultPresets.all.first { it.id == "preset_make_game" }
+        val prompt = preset.blocks.first().prompt
+
+        assertEquals("preset_make_game", contract["preset_id"]!!.jsonPrimitive.content)
+        assertEquals(
+            "game_appropriate_keyboard_pointer_touch_or_combination",
+            contract["input_policy"]!!.jsonPrimitive.content,
+        )
+        assertTrue(contract["visible_control_instructions"]!!.jsonPrimitive.boolean)
+        assertFalse(contract["mouse_only_constraint"]!!.jsonPrimitive.boolean)
+        assertTrue(prompt.contains("keyboard, mouse/pointer, touch, or a combination"))
+        assertTrue(prompt.contains("after the player clicks or taps the game"))
+        assertFalse(prompt.contains("ONLY MOUSE CONTROLS"))
+        assertFalse(prompt.contains("no keyboard required"))
+        val model = requireNotNull(
+            dev.screengoated.toolbox.mobile.preset.PresetModelCatalog.getById(
+                preset.blocks.first().model,
+            ),
+        )
+        assertTrue(model.transportStreamingEnabled())
+        assertFalse(preset.blocks.first().surfaceStreamingEnabled())
     }
 
     @Test
@@ -199,8 +236,34 @@ class PresetOverlayHtmlTest {
         assertTrue(script.contains("__SGT_RESULT_INTERACTION_INSTALLED__"))
         assertTrue(script.contains("sgt-result-hosted-page-style"))
         assertTrue(script.contains("""window.configureResultWindow("result:test")"""))
-        assertTrue(script.contains("overflow-y: auto;"))
-        assertTrue(script.contains("overflow-x: auto;"))
+        assertTrue(script.contains("scrollbar-width: none"))
+        assertFalse(script.contains("backdrop-filter: blur(18px)"))
+    }
+
+    @Test
+    fun rawHtmlNormalizationRemovesOnlyTransportDecoration() {
+        val fenced = """
+            ```html
+            <!doctype html><html><body><button>Play</button><script>window.ready=true</script></body></html>
+            ```
+        """.trimIndent()
+        val normalized = requireNotNull(normalizePresetHtmlContent(fenced))
+
+        assertTrue(normalized.startsWith("<!doctype html>"))
+        assertTrue(normalized.contains("window.ready=true"))
+        assertFalse(normalized.contains("```"))
+        assertEquals(null, normalizePresetHtmlContent("Use `<button>` in Markdown."))
+    }
+
+    @Test
+    fun hostedRawHtmlCssDoesNotOverrideTheGeneratedExperience() {
+        val css = presetHostedRawPageCss(isDark = true)
+
+        assertTrue(css.contains(".sgt-selection-action"))
+        assertFalse(css.contains("backdrop-filter: blur(18px)"))
+        assertFalse(css.contains("body[data-sgt-result-hosted='1'] {\n    border:"))
+        assertFalse(css.contains("body *"))
+        assertFalse(css.contains("touch-action: manipulation !important"))
     }
 
     @Test

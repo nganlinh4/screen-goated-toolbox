@@ -92,7 +92,8 @@ function ensureCard(id) {
     visible: false,
     navigationDepth: 0,
     navigationUrls: [],
-    refining: false, processingEffect: 'standard', streamingEnabled: true,
+    refining: false, navigationLoading: false,
+    processingEffect: 'standard', streamingEnabled: true,
     contentRevision: 0, revision: 0, resizeFit: 0,
     awaitingSettledReveal: false, settledRevealRevision: 0,
     pendingSettledPaint: null,
@@ -110,6 +111,7 @@ function ensureCard(id) {
       reportCardDiagnostic(id, entry, phase, { error: error });
     }
   });
+  entry.resizeRuntime = window.__SGT_CARD_RESIZE__.attach(entry);
   function activateIsolatedBridge() {
     if (entry.mode !== 'isolated') return;
     if (entry.ready || entry.navigationDepth !== 0) return;
@@ -137,7 +139,7 @@ function ensureCard(id) {
   shadow.addEventListener('click', function(event) {
     const path = event.composedPath ? event.composedPath() : [];
     const anchor = path.find(node => node && node.tagName === 'A' && node.href);
-    if (!anchor || anchor.target === '_blank' || event.defaultPrevented) return;
+    if (!anchor || event.defaultPrevented) return;
     if (!/^https?:\/\//i.test(anchor.href)) return;
     event.preventDefault();
     navigateTo(entry, anchor.href);
@@ -436,17 +438,24 @@ function applyContentModel(entry, model, type) {
   entry.streaming = type !== 'finalize';
   entry.streamingEnabled = Boolean(model.streaming_enabled);
   entry.refining = Boolean(model.refining);
+  entry.navigationLoading = Boolean(model.navigation_loading);
   entry.processingEffect = model.processing_effect === 'minimal' ? 'minimal' : 'standard';
-  entry.card.dataset.processing = entry.refining ? 'true' : 'false';
+  const processing = entry.refining || entry.navigationLoading;
+  entry.card.dataset.processing = processing ? 'true' : 'false';
   entry.card.dataset.processingEffect = entry.processingEffect;
-  entry.processing.setState(entry.refining, entry.processingEffect);
+  entry.processing.setState(processing, entry.processingEffect);
   if (type === 'finalize') entry.contentPhase = 'finalized';
   else if (entry.contentPhase !== 'finalized') entry.contentPhase = 'streaming';
   const nextDocument = model.document === undefined ? null : model.document;
   const surfaceChanged = documentKey(entry.document) !== documentKey(nextDocument);
   if (surfaceChanged) entry.pendingContent = null;
   const settleBeforeReveal = type === 'finalize' && !entry.streamingEnabled;
-  if (model.native_document === true) {
+  if (entry.navigationLoading) {
+    entry.pendingContent = null; entry.mode = 'navigation-loading';
+    entry.directHost.hidden = true; entry.frame.hidden = true;
+    return;
+  }
+  if (model.external_navigation === true) {
     entry.pendingContent = null; entry.document = nextDocument; entry.mode = 'native';
     entry.directHost.hidden = true; entry.frame.hidden = true;
     activateCard(entry, becameVisible); return;
@@ -507,6 +516,7 @@ function removeCard(id) {
   cancelActiveFit(entry);
   clearTimeout(entry.resizeFit);
   entry.directRuntime.destroy();
+  entry.resizeRuntime.destroy();
   entry.processing.destroy();
   if (entry.commandPort) entry.commandPort.close();
   entry.card.remove();

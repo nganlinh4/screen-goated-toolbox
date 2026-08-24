@@ -29,11 +29,21 @@ body{font-family:'Google Sans Flex';user-select:none}
 @keyframes sgt-processing-scan{to{transform:translate3d(0,var(--sgt-scan-travel,0px),0)}}
 @media (prefers-reduced-motion:reduce){.processing-scan{animation:none!important}}
 .region-backdrop{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:0}
-.direct-host,.result-frame{position:relative;z-index:1;display:block;width:100%;height:100%;border:0;background:transparent;user-select:text}
+.direct-host,.result-frame{position:absolute;inset:0;z-index:1;display:block;width:100%;height:100%;border:0;background:transparent;user-select:text}
+.result-frame{border-radius:inherit;clip-path:inset(0 round var(--sgt-box-radius,__SGT_BOX_RADIUS_PX__px))}
+.direct-host[hidden],.result-frame[hidden]{display:none!important}
 .result-card[data-presentation="text_only"] .direct-host,.result-card[data-presentation="text_only"] .result-frame{user-select:text;cursor:text}
+.resize-handle{position:absolute;z-index:4;touch-action:none;user-select:none}
+.resize-handle[data-edge="n"],.resize-handle[data-edge="s"]{left:8px;right:8px;height:6px;cursor:ns-resize}
+.resize-handle[data-edge="n"]{top:0}.resize-handle[data-edge="s"]{bottom:0}
+.resize-handle[data-edge="e"],.resize-handle[data-edge="w"]{top:8px;bottom:8px;width:6px;cursor:ew-resize}
+.resize-handle[data-edge="e"]{right:0}.resize-handle[data-edge="w"]{left:0}
+.resize-handle[data-edge="nw"],.resize-handle[data-edge="ne"],.resize-handle[data-edge="sw"],.resize-handle[data-edge="se"]{width:10px;height:10px}
+.resize-handle[data-edge="nw"]{left:0;top:0;cursor:nwse-resize}.resize-handle[data-edge="ne"]{right:0;top:0;cursor:nesw-resize}
+.resize-handle[data-edge="sw"]{left:0;bottom:0;cursor:nesw-resize}.resize-handle[data-edge="se"]{right:0;bottom:0;cursor:nwse-resize}
 </style></head><body><span class="font-prewarm" aria-hidden="true">SGT</span>
 <main id="scene"></main><aside id="button-container"></aside>
-<script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DOM_PATCH_RUNTIME__</script><script>__SGT_REVEAL_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script><script>__SGT_PROCESSING_RUNTIME__</script>
+<script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DOM_PATCH_RUNTIME__</script><script>__SGT_REVEAL_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script><script>__SGT_PROCESSING_RUNTIME__</script><script>__SGT_RESIZE_RUNTIME__</script>
 <script>window.__SGT_RUN_FIT__ = function(streaming) { __SGT_FIT_RUNTIME__ };
 __SGT_SCENE_RUNTIME__
 __SGT_HOST_COMMAND_RUNTIME__

@@ -20,7 +20,9 @@ pub struct SceneCard {
     pub body: String,
     pub document: Option<String>,
     #[serde(default)]
-    pub native_document: bool,
+    pub external_navigation: bool,
+    #[serde(default)]
+    pub navigation_loading: bool,
     pub refining: bool,
     #[serde(default)]
     pub processing_effect: ResultProcessingEffect,
@@ -128,6 +130,8 @@ pub struct SceneStream {
     pub document: Option<String>,
     pub refining: bool,
     #[serde(default)]
+    pub navigation_loading: bool,
+    #[serde(default)]
     pub processing_effect: ResultProcessingEffect,
     pub background: String,
     pub opacity: u8,
@@ -144,6 +148,8 @@ pub struct SceneFinalize {
     pub body: String,
     pub document: Option<String>,
     pub refining: bool,
+    #[serde(default)]
+    pub navigation_loading: bool,
     #[serde(default)]
     pub processing_effect: ResultProcessingEffect,
     pub background: String,
@@ -349,7 +355,8 @@ mod tests {
                 },
                 body: "<p>line one</p>".to_string(),
                 document: Some("<p>line one</p>\n<script>const x = `quoted`;</script>".to_string()),
-                native_document: true,
+                external_navigation: true,
+                navigation_loading: false,
                 refining: false,
                 processing_effect: ResultProcessingEffect::Standard,
                 background: "#112233".to_string(),
@@ -375,7 +382,7 @@ mod tests {
 
         assert_eq!(decoded, command);
         assert!(!encoded.contains('\n'));
-        assert!(encoded.contains("\"native_document\":true"));
+        assert!(encoded.contains("\"external_navigation\":true"));
     }
 
     #[test]
@@ -415,6 +422,7 @@ mod tests {
                 body: "<p>latest words</p>".to_string(),
                 document: None,
                 refining: false,
+                navigation_loading: false,
                 processing_effect: ResultProcessingEffect::Standard,
                 background: "#112233".to_string(),
                 opacity: 75,
@@ -441,6 +449,7 @@ mod tests {
                 body: "<p>final body</p>".to_string(),
                 document: Some("<html><body><p>final body</p></body></html>".to_string()),
                 refining: false,
+                navigation_loading: false,
                 processing_effect: ResultProcessingEffect::Standard,
                 background: "#112233".to_string(),
                 opacity: 90,

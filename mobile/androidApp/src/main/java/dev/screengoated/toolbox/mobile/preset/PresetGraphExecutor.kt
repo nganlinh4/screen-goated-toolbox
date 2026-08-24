@@ -263,15 +263,9 @@ internal class PresetGraphExecutor(
         val block = preset.blocks[index]
         val blockBuffer = StringBuilder()
         val resultWindowId = PresetResultWindowId(sessionId = sessionId, blockIdx = index)
-        val actualStreamingEnabled = if (block.renderMode == "markdown") {
-            false
-        } else {
-            block.streamingEnabled
-        }
         val shouldSurfaceStreaming =
             shouldSurfaceOverlay &&
-                actualStreamingEnabled &&
-                !block.requestsHtmlOutput()
+                block.surfaceStreamingEnabled()
         val retryChainKind = retryChainKindForBlockType(block.blockType)
             ?.takeUnless { PresetModelCatalog.isNonLlm(block.model) }
         var currentModelId = block.model
@@ -454,7 +448,8 @@ internal class PresetGraphExecutor(
                     apiKeys = attemptApiKeys,
                     uiLanguage = uiLanguage(),
                     searchLabel = preset.name(uiLanguage()),
-                    streamingEnabled = if (block.renderMode == "markdown") false else block.streamingEnabled,
+                    streamingEnabled = requireNotNull(PresetModelCatalog.getById(modelId))
+                        .transportStreamingEnabled(),
                     targetLanguage = block.gtxTargetLanguage(),
                     onChunk = onChunk,
                 )
@@ -506,7 +501,8 @@ internal class PresetGraphExecutor(
                     imageBytes = imageBytes,
                     apiKeys = attemptApiKeys,
                     uiLanguage = uiLanguage(),
-                    streamingEnabled = if (block.renderMode == "markdown") false else block.streamingEnabled,
+                    streamingEnabled = requireNotNull(PresetModelCatalog.getById(modelId))
+                        .transportStreamingEnabled(),
                     onChunk = onChunk,
                 )
             },

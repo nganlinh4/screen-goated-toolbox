@@ -65,6 +65,14 @@ internal fun topologicalOrder(
 
 internal val supportedMarkdownRenderModes = setOf("markdown", "markdown_stream")
 
+internal fun PresetModelDescriptor.transportStreamingEnabled(): Boolean =
+    provider != PresetModelProvider.GOOGLE_GTX &&
+        provider != PresetModelProvider.TAALAS &&
+        !(provider == PresetModelProvider.GROQ && fullName.startsWith("groq/compound"))
+
+internal fun dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock.surfaceStreamingEnabled(): Boolean =
+    streamingEnabled && renderMode != "markdown" && !requestsHtmlOutput()
+
 internal fun dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock.resolvePrompt(): String {
     var resolved = prompt
     languageVars.forEach { (key, value) ->

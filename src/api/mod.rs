@@ -31,6 +31,14 @@ pub const NVIDIA_CHAT_COMPLETIONS_URL: &str =
 
 pub const WIPE_SIGNAL: &str = "\x00WIPE\x00";
 
+/// Whether an endpoint exposes incremental response bytes that can drive the
+/// shared progress-idle watchdog. This is a transport capability, independent
+/// of whether the caller presents partial output.
+pub fn endpoint_supports_progress_streaming(provider: &str, api_model: &str) -> bool {
+    !(matches!(provider, "google-gtx" | "taalas")
+        || provider == "groq" && api_model.starts_with("groq/compound"))
+}
+
 /// Lowest-latency thinking policy for ordinary model calls.
 pub fn gemini_thinking_config(model: &str) -> Option<serde_json::Value> {
     match crate::model_config::ordinary_reasoning_policy("google", model) {
@@ -279,5 +287,29 @@ mod tests {
 
         assert_eq!(payload["reasoning"]["effort"], "none");
         assert!(payload.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn progress_streaming_is_transport_capability_not_presentation_policy() {
+        assert!(super::endpoint_supports_progress_streaming(
+            "google",
+            "gemini-3.5-flash-lite"
+        ));
+        assert!(super::endpoint_supports_progress_streaming(
+            "nvidia",
+            "nvidia/nemotron-3.5-lightning-30b-a3b"
+        ));
+        assert!(!super::endpoint_supports_progress_streaming(
+            "groq",
+            "groq/compound-mini"
+        ));
+        assert!(!super::endpoint_supports_progress_streaming(
+            "google-gtx",
+            "translate.googleapis.com/gtx"
+        ));
+        assert!(!super::endpoint_supports_progress_streaming(
+            "taalas",
+            "llama-3.1-8b"
+        ));
     }
 }

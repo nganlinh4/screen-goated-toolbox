@@ -108,8 +108,13 @@
   }
 
   function setDragActive(active) {
+    const wasActive = nativeDrag;
     nativeDrag = Boolean(active);
-    if (nativeDrag) hideControlsForDrag();
+    if (nativeDrag) {
+      hideControlsForDrag();
+    } else if (wasActive || controlsHiddenForDrag) {
+      rebuild();
+    }
   }
 
   function tryPulseCompletion(key) {

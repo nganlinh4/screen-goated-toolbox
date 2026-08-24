@@ -180,6 +180,7 @@ pub struct WindowState {
 
     // Web Browsing State
     pub is_browsing: bool, // True when user has navigated away from initial content
+    pub is_navigation_loading: bool, // Native page stays hidden until its top-level load finishes
     pub navigation_depth: usize, // How many pages deep from initial content (0 = at result)
     pub max_navigation_depth: usize, // Max depth reached (to know if forward is possible)
     // Speaker/TTS state

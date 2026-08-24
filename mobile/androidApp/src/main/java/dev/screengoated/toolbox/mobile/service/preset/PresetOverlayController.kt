@@ -7,6 +7,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
+import dev.screengoated.toolbox.mobile.model.normalizedResultOverlayOpacityPercent
 import dev.screengoated.toolbox.mobile.preset.PresetExecutionState
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
@@ -150,7 +151,9 @@ internal class PresetOverlayController(
             onMicRequested = ::launchDefaultMicPreset,
             ttsRuntimeService = ttsRuntimeService,
             ttsSettingsSnapshotProvider = ttsSettingsSnapshotProvider,
-            overlayOpacityProvider = { uiPreferencesProvider().overlayOpacityPercent.coerceIn(10, 100) },
+            overlayOpacityProvider = {
+                uiPreferencesProvider().overlayOpacityPercent.normalizedResultOverlayOpacityPercent()
+            },
         )
         inputModule = PresetOverlayInputModule(
             context = context,

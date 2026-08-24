@@ -15,11 +15,21 @@ mod budget;
 mod cooldown;
 
 #[cfg(not(feature = "recorder-worker"))]
-const INTERACTIVE_TIMEOUT_MULTIPLIER: u64 = 10;
+const INTERACTIVE_STARTUP_ALLOWANCE_MS: u64 = 30_000;
 #[cfg(not(feature = "recorder-worker"))]
-const MIN_INTERACTIVE_TIMEOUT_MS: u64 = 10_000;
+const INTERACTIVE_REQUEST_BYTES_PER_SECOND: u64 = 16_384;
 #[cfg(not(feature = "recorder-worker"))]
-const MAX_INTERACTIVE_TIMEOUT_MS: u64 = 30_000;
+const MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS: u64 = 120_000;
+#[cfg(not(feature = "recorder-worker"))]
+const MIN_INTERACTIVE_OUTPUT_TOKENS_PER_SECOND: u64 = 16;
+#[cfg(not(feature = "recorder-worker"))]
+const DEFAULT_TEXT_OUTPUT_TOKENS: u64 = 4_096;
+#[cfg(not(feature = "recorder-worker"))]
+const DEFAULT_VISION_OUTPUT_TOKENS: u64 = 2_048;
+#[cfg(not(feature = "recorder-worker"))]
+const MIN_INTERACTIVE_TIMEOUT_MS: u64 = 60_000;
+#[cfg(not(feature = "recorder-worker"))]
+const MAX_INTERACTIVE_TIMEOUT_MS: u64 = 900_000;
 const UNBENCHMARKED_FEED_QUALITY_TIER: u8 = 4;
 
 #[cfg(feature = "recorder-worker")]
@@ -76,26 +86,56 @@ fn minimum_vision_request_tokens(provider: &str, api_model: &str) -> Option<u32>
 }
 
 #[cfg(not(feature = "recorder-worker"))]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct InteractiveRequestWorkload {
+    pub encoded_request_bytes: u64,
+}
+
+#[cfg(not(feature = "recorder-worker"))]
 pub fn interactive_request_timeout(
     model_id: &str,
     config: &Config,
     streaming_enabled: bool,
+    workload: InteractiveRequestWorkload,
 ) -> Option<Duration> {
     if streaming_enabled {
         return None;
     }
 
-    let typical_latency_ms = get_model_by_id_with_custom(model_id, &config.custom_models)
-        .and_then(|model| model.typical_latency_ms);
-    Some(benchmark_derived_timeout(typical_latency_ms))
+    let model = get_model_by_id_with_custom(model_id, &config.custom_models);
+    let output_tokens = model
+        .as_ref()
+        .map(|model| match model.model_type {
+            ModelType::Vision => {
+                crate::model_config::vision_request_profile(&model.provider, &model.full_name)
+                    .max_output_tokens
+                    .map(u64::from)
+                    .unwrap_or(DEFAULT_VISION_OUTPUT_TOKENS)
+            }
+            ModelType::Text | ModelType::Audio => DEFAULT_TEXT_OUTPUT_TOKENS,
+        })
+        .unwrap_or(DEFAULT_TEXT_OUTPUT_TOKENS);
+    Some(workload_derived_timeout(
+        workload.encoded_request_bytes,
+        output_tokens,
+    ))
 }
 
 #[cfg(not(feature = "recorder-worker"))]
-fn benchmark_derived_timeout(typical_latency_ms: Option<u32>) -> Duration {
-    let timeout_ms = typical_latency_ms
-        .map(u64::from)
-        .map(|latency| latency.saturating_mul(INTERACTIVE_TIMEOUT_MULTIPLIER))
-        .unwrap_or(MAX_INTERACTIVE_TIMEOUT_MS)
+fn workload_derived_timeout(encoded_request_bytes: u64, output_tokens: u64) -> Duration {
+    let request_seconds = encoded_request_bytes
+        .saturating_add(INTERACTIVE_REQUEST_BYTES_PER_SECOND - 1)
+        / INTERACTIVE_REQUEST_BYTES_PER_SECOND;
+    let request_allowance_ms = request_seconds
+        .saturating_mul(1_000)
+        .min(MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS);
+    let output_ms = output_tokens
+        .saturating_mul(1_000)
+        .saturating_add(MIN_INTERACTIVE_OUTPUT_TOKENS_PER_SECOND - 1)
+        / MIN_INTERACTIVE_OUTPUT_TOKENS_PER_SECOND;
+    let timeout_ms = INTERACTIVE_STARTUP_ALLOWANCE_MS
+        .saturating_add(request_allowance_ms)
+        .saturating_add(output_ms)
         .clamp(MIN_INTERACTIVE_TIMEOUT_MS, MAX_INTERACTIVE_TIMEOUT_MS);
     Duration::from_millis(timeout_ms)
 }
