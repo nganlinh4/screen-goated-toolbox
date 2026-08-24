@@ -577,7 +577,7 @@ foreach ($archName in $selectedArchs) {
     $env:CMAKE_CXX_FLAGS = Join-NativeReleaseFlags $previousCmakeCxxFlags $nativeReleaseFlags
     $cargoExitCode = 0
     try {
-        cargo build --release --target $targetTriple
+        cargo build --release --locked --target $targetTriple
         $cargoExitCode = $LASTEXITCODE
     }
     finally {

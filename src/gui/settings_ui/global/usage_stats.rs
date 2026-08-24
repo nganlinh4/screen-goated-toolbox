@@ -223,7 +223,7 @@ fn render_provider_section(
     egui::Frame::new()
         .fill(blend(theme.dialog_surface(), accent, 0.035))
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             blend(theme.card_stroke().color, accent, 0.24),
         ))
         .corner_radius(egui::CornerRadius::same(9))

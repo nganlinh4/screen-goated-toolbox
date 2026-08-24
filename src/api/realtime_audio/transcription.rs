@@ -411,11 +411,9 @@ fn run_realtime_transcription(
         preset.audio_source == "device" && tts_enabled && selected_pid.is_some();
     let using_device_loopback = preset.audio_source == "device" && !tts_enabled;
 
-    let _stream: Option<cpal::Stream>;
-
     let dummy_pause = Arc::new(AtomicBool::new(false));
 
-    if using_per_app_capture {
+    let _stream = if using_per_app_capture {
         #[cfg(target_os = "windows")]
         {
             let selected_pid = selected_pid.unwrap_or_default();
@@ -426,25 +424,25 @@ fn run_realtime_transcription(
                 dummy_pause.clone(),
             )?;
         }
-        _stream = None;
+        None
     } else if using_device_loopback {
-        _stream = Some(start_device_loopback_capture_resilient(
+        Some(start_device_loopback_capture_resilient(
             audio_buffer.clone(),
             stop_signal.clone(),
             dummy_pause.clone(),
-        )?);
+        )?)
     } else if preset.audio_source == "device" && tts_enabled {
         crate::log_info!(
             "[RealtimeGeminiLiveHealth] no-capture reason=app-selection-cancelled source=device tts_enabled=true"
         );
         return Ok(());
     } else {
-        _stream = Some(start_mic_capture_resilient(
+        Some(start_mic_capture_resilient(
             audio_buffer.clone(),
             stop_signal.clone(),
             dummy_pause.clone(),
-        )?);
-    }
+        )?)
+    };
 
     // Start translation thread if needed
     // NOTE: Translation thread is now spawned in `start_realtime_transcription`

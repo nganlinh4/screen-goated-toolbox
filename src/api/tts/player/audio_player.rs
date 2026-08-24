@@ -312,7 +312,9 @@ impl AudioPlayer {
         let speed_ratio = effective_speed as f64 / 100.0;
 
         let input_samples: Vec<i16> = audio_data
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect();
 
@@ -358,7 +360,9 @@ impl AudioPlayer {
             .load(Ordering::Relaxed) as f32
             / 100.0;
         let output_samples = audio_data
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .flat_map(|chunk| {
                 let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
                 let scaled = (sample as f32 * vol).clamp(-32768.0, 32767.0) as i16;

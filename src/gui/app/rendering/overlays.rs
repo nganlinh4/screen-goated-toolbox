@@ -86,7 +86,7 @@ impl SettingsApp {
         let pulse = (time * 2.5).sin() as f32 * 0.2_f32 + 0.8_f32;
         let border_alpha = (255.0_f32 * content_opacity * pulse) as u8;
         let border_color = egui::Color32::from_white_alpha(border_alpha);
-        let stroke = egui::Stroke::new(3.0, border_color);
+        let stroke = egui::Stroke::new(3.0_f32, border_color);
 
         let dash_length = 12.0;
         let gap_length = 8.0;
@@ -126,7 +126,7 @@ impl SettingsApp {
         painter.rect_stroke(
             file_rect,
             8.0_f32,
-            egui::Stroke::new(3.0, element_color),
+            egui::Stroke::new(3.0_f32, element_color),
             egui::StrokeKind::Middle,
         );
 
@@ -136,7 +136,7 @@ impl SettingsApp {
         let arrow_start = arrow_center - egui::vec2(0.0, arrow_len * 0.5);
         let arrow_end = arrow_center + egui::vec2(0.0, arrow_len * 0.5);
 
-        let arrow_stroke = egui::Stroke::new(4.0, element_color);
+        let arrow_stroke = egui::Stroke::new(4.0_f32, element_color);
         painter.line_segment([arrow_start, arrow_end], arrow_stroke);
 
         let arrow_head_size = 10.0;

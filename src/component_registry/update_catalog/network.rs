@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::io::Read;
 
 use anyhow::{Context, Result, bail};
@@ -50,7 +51,7 @@ pub(super) fn fetch_highest_compatible(minimum_sequence: u64) -> Result<Candidat
         .filter_map(|asset| parse_catalog_name(&asset.name).map(|parts| (parts, asset.clone())))
         .filter(|((sequence, _), _)| *sequence >= minimum_sequence)
         .collect::<Vec<_>>();
-    catalogs.sort_by(|left, right| right.0.0.cmp(&left.0.0));
+    catalogs.sort_by_key(|candidate| Reverse(candidate.0.0));
     for ((sequence, digest_prefix), catalog_asset) in catalogs {
         let stem = catalog_asset.name.trim_end_matches(".json");
         let signature_name = format!("{stem}.sig");

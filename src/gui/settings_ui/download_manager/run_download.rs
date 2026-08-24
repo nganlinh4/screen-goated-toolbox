@@ -117,7 +117,7 @@ fn prepare_tool(
             *status.lock().unwrap() = InstallStatus::Installed;
             Ok(component)
         }
-        Err(error) if cancel.load(Ordering::Relaxed) => {
+        Err(_error) if cancel.load(Ordering::Relaxed) => {
             *status.lock().unwrap() = InstallStatus::Missing;
             Err("Cancelled".to_string())
         }

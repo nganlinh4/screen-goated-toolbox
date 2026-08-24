@@ -179,7 +179,7 @@ pub(super) fn capture_virtual() -> Result<Capture> {
     }
 
     let mut rgb = Vec::with_capacity((w as usize) * (h as usize) * 3);
-    for px in bgra.chunks_exact(4) {
+    for px in bgra.as_chunks::<4>().0 {
         rgb.push(px[2]); // R
         rgb.push(px[1]); // G
         rgb.push(px[0]); // B
@@ -225,7 +225,7 @@ fn region_avg(rgb: &image::RgbImage, x: i32, y: i32, w: i32, h: i32) -> u32 {
         }
         yy += step;
     }
-    if n == 0 { 255 } else { (sum / n) as u32 }
+    sum.checked_div(n).map_or(255, |average| average as u32)
 }
 
 /// When the FOREGROUND window's region in the GDI capture is near-black (GDI missed
@@ -448,7 +448,7 @@ pub(super) fn target_fingerprint_matches(left: &[u8], right: &[u8]) -> bool {
     }
     let mut total_delta = 0_u64;
     let mut changed_samples = 0_usize;
-    for (left_rgb, right_rgb) in left.chunks_exact(3).zip(right.chunks_exact(3)) {
+    for (left_rgb, right_rgb) in left.as_chunks::<3>().0.iter().zip(right.as_chunks::<3>().0) {
         let delta = left_rgb
             .iter()
             .zip(right_rgb)
@@ -533,9 +533,14 @@ mod view_tests {
         assert!(target_fingerprint_matches(&baseline, &noisy));
 
         let mut changed = baseline.clone();
-        changed.chunks_exact_mut(3).take(200).for_each(|pixel| {
-            pixel.copy_from_slice(&[220, 20, 160]);
-        });
+        changed
+            .as_chunks_mut::<3>()
+            .0
+            .iter_mut()
+            .take(200)
+            .for_each(|pixel| {
+                pixel.copy_from_slice(&[220, 20, 160]);
+            });
         assert!(!target_fingerprint_matches(&baseline, &changed));
     }
 }

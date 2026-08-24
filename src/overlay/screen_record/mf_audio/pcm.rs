@@ -19,7 +19,7 @@ fn pcm8_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
 
 fn pcm16_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut floats = Vec::with_capacity((bytes.len() / 2) * 4);
-    for chunk in bytes.chunks_exact(2) {
+    for chunk in bytes.as_chunks::<2>().0 {
         let sample = i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / i16::MAX as f32;
         floats.extend_from_slice(&sample.clamp(-1.0, 1.0).to_le_bytes());
     }
@@ -28,7 +28,7 @@ fn pcm16_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
 
 fn pcm24_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut floats = Vec::with_capacity((bytes.len() / 3) * 4);
-    for chunk in bytes.chunks_exact(3) {
+    for chunk in bytes.as_chunks::<3>().0 {
         let sample =
             ((chunk[2] as i32) << 24 | (chunk[1] as i32) << 16 | (chunk[0] as i32) << 8) >> 8;
         let normalized = sample as f32 / 8_388_608.0;
@@ -39,7 +39,7 @@ fn pcm24_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
 
 fn pcm32_bytes_to_f32le_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut floats = Vec::with_capacity(bytes.len());
-    for chunk in bytes.chunks_exact(4) {
+    for chunk in bytes.as_chunks::<4>().0 {
         let sample =
             i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f32 / i32::MAX as f32;
         floats.extend_from_slice(&sample.clamp(-1.0, 1.0).to_le_bytes());

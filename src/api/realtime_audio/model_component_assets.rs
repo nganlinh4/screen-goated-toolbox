@@ -28,11 +28,11 @@ pub(super) fn ensure_model(
         .then(|| crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(title, message));
     let last_percent = Cell::new(u32::MAX);
     let result = crate::component_registry::models::ensure(kind, &stop, |done, total| {
-        let percent = if total == 0 {
-            0
-        } else {
-            ((done.saturating_mul(100) / total).min(100)) as u32
-        };
+        let percent = done
+            .saturating_mul(100)
+            .checked_div(total)
+            .unwrap_or(0)
+            .min(100) as u32;
         if last_percent.replace(percent) == percent {
             return;
         }

@@ -189,6 +189,10 @@ fn listen_loop() {
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "tungstenite fixes the handshake callback's HTTP error response type"
+)]
 fn handle_conn(stream: TcpStream) -> anyhow::Result<()> {
     stream.set_read_timeout(Some(READ_TICK))?;
     // Origin gate (defense-in-depth; the bootstrap / durable proof is the real one):

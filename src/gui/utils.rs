@@ -290,7 +290,7 @@ pub fn is_admin_startup_pointing_to_current_exe() -> bool {
 
 fn rgba_to_bgra(data: &[u8]) -> Vec<u8> {
     let mut bgra = data.to_vec();
-    for chunk in bgra.chunks_exact_mut(4) {
+    for chunk in bgra.as_chunks_mut::<4>().0 {
         chunk.swap(0, 2); // Swap R and B
     }
     bgra

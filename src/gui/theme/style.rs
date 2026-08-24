@@ -69,7 +69,7 @@ impl AppTheme {
             Color32::from_rgba_unmultiplied(48, 100, 190, 70),
         );
         v.selection.stroke = Stroke::new(
-            1.0,
+            1.0_f32,
             theme.pick(
                 Color32::from_rgb(150, 185, 255),
                 Color32::from_rgb(40, 90, 180),
@@ -79,7 +79,7 @@ impl AppTheme {
         // Windows / popups / menus: rounded with soft elevation.
         v.window_fill = theme.dialog_surface();
         v.window_stroke = Stroke::new(
-            1.0,
+            1.0_f32,
             theme.pick(
                 Color32::from_rgb(58, 64, 78),
                 Color32::from_rgb(228, 230, 236),
@@ -108,8 +108,8 @@ impl AppTheme {
 
         // Interactive widget states with Material state layers.
         let radius = CornerRadius::same(10);
-        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, hairline); // separators / groups
-        v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, text);
+        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, hairline); // separators / groups
+        v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, text);
         v.widgets.noninteractive.corner_radius = radius;
         for (state, t) in [
             (&mut v.widgets.inactive, 0.0_f32),
@@ -120,16 +120,16 @@ impl AppTheme {
             let fill = blend(control, text, t);
             state.weak_bg_fill = fill;
             state.bg_fill = fill;
-            state.fg_stroke = Stroke::new(1.0, text);
+            state.fg_stroke = Stroke::new(1.0_f32, text);
             state.corner_radius = radius;
         }
         v.widgets.inactive.bg_stroke = Stroke::NONE;
-        v.widgets.hovered.bg_stroke = Stroke::new(1.0, blend(control, text, 0.20));
+        v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, blend(control, text, 0.20));
         v.widgets.hovered.expansion = 1.0;
-        v.widgets.active.bg_stroke = Stroke::new(1.0, theme.accent_fill());
+        v.widgets.active.bg_stroke = Stroke::new(1.0_f32, theme.accent_fill());
         v.widgets.active.expansion = 1.0;
         v.widgets.open.bg_stroke = Stroke::new(
-            1.0,
+            1.0_f32,
             theme.pick(
                 Color32::from_rgb(70, 76, 90),
                 Color32::from_rgb(205, 208, 216),

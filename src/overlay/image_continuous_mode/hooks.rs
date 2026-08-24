@@ -168,12 +168,10 @@ pub(super) unsafe extern "system" fn mouse_hook_proc(
                 }
             }
 
-            WM_MOUSEWHEEL => {
-                if RIGHT_DOWN.load(Ordering::SeqCst) {
-                    let delta = ((mouse_struct.mouseData >> 16) as i16) as i32;
-                    logic::handle_zoom(delta, pt);
-                    return LRESULT(1);
-                }
+            WM_MOUSEWHEEL if RIGHT_DOWN.load(Ordering::SeqCst) => {
+                let delta = ((mouse_struct.mouseData >> 16) as i16) as i32;
+                logic::handle_zoom(delta, pt);
+                return LRESULT(1);
             }
 
             _ => {}

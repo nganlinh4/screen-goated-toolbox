@@ -194,7 +194,9 @@ fn map_provider_events(events: Vec<ProviderEvent>) -> Result<Vec<ServerEvent>> {
                     }
                     ServerEvent::Audio(
                         bytes
-                            .chunks_exact(2)
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
                             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
                             .collect(),
                     )

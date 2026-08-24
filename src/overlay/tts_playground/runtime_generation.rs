@@ -407,7 +407,9 @@ fn decode_audio_16k_mono(path: &str) -> Result<Vec<i16>, String> {
     let mut samples = Vec::new();
     while let Some((bytes, _)) = decoder.read_samples()? {
         let floats = bytes
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
             .collect::<Vec<_>>();
         for frame in floats.chunks(channels) {

@@ -99,7 +99,7 @@ index 961546d..e3dad16 100644
 +                        for p in &mut pts {
 +                            *p = cr.center() + rot * (*p - cr.center());
 +                        }
-+                        let stroke = Stroke::new(1.6, stroke_color);
++                        let stroke = Stroke::new(1.6_f32, stroke_color);
 +                        ui.painter().line_segment([pts[0], pts[1]], stroke);
 +                        ui.painter().line_segment([pts[1], pts[2]], stroke);
 +                    }

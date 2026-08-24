@@ -1,6 +1,7 @@
 /target
 /target-focus-test/
-Cargo.lock
+**/Cargo.lock
+!/Cargo.lock
 !/native/recorder_worker/Cargo.lock
 /native/recorder_worker/target/
 /native/recorder_protocol/target/

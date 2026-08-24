@@ -19,7 +19,7 @@ fn get_all_active_window_rects() -> Vec<RECT> {
 
     // Lock WINDOW_STATES to get all tracked overlay windows
     if let Ok(states) = WINDOW_STATES.lock() {
-        for (&hwnd_key, _state) in states.iter() {
+        for &hwnd_key in states.keys() {
             let hwnd = HWND(hwnd_key as *mut std::ffi::c_void);
             unsafe {
                 // Verify window is still valid and VISIBLE

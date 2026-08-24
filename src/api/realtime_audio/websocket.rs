@@ -79,7 +79,9 @@ pub fn send_audio_chunk(
 /// the S2S batch pipeline and the Gemini Translate narration socket reader.
 pub fn pcm_bytes_to_i16(bytes: &[u8]) -> Vec<i16> {
     bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect()
 }

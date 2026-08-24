@@ -107,15 +107,11 @@ pub(crate) fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
         if lines == 0 {
             return None;
         }
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
             pixel[3] = 255;
         }
-        let image = image::RgbaImage::from_raw(
-            target_width as u32,
-            target_height as u32,
-            pixels,
-        )?;
+        let image = image::RgbaImage::from_raw(target_width as u32, target_height as u32, pixels)?;
         let mut jpeg = Vec::new();
         image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 75)
             .encode_image(&image::DynamicImage::ImageRgba8(image))

@@ -197,7 +197,7 @@ pub fn render_minimal_overlay(ctx: &egui::Context) {
                             crate::gui::theme::space::CARD,
                             crate::gui::theme::space::GAP,
                         ))
-                        .stroke(egui::Stroke::new(1.0, border))
+                        .stroke(egui::Stroke::new(1.0_f32, border))
                         .corner_radius(egui::CornerRadius::same(12)),
                 )
                 .show_inside(ctx, |ui| {

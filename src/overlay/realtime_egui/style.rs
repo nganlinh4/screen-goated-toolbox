@@ -55,7 +55,10 @@ pub(super) fn card_frame(theme: &RealtimeEguiTheme) -> egui::Frame {
         ))
         .corner_radius(egui::CornerRadius::same(10))
         .fill(theme.surface)
-        .stroke(egui::Stroke::new(1.0, theme.border.gamma_multiply(0.55)))
+        .stroke(egui::Stroke::new(
+            1.0_f32,
+            theme.border.gamma_multiply(0.55),
+        ))
 }
 
 pub(super) fn pill_frame(theme: &RealtimeEguiTheme) -> egui::Frame {
@@ -63,7 +66,10 @@ pub(super) fn pill_frame(theme: &RealtimeEguiTheme) -> egui::Frame {
         .inner_margin(egui::Margin::same(crate::gui::theme::space::TIGHT))
         .corner_radius(egui::CornerRadius::same(14))
         .fill(theme.control)
-        .stroke(egui::Stroke::new(1.0, theme.border.gamma_multiply(0.45)))
+        .stroke(egui::Stroke::new(
+            1.0_f32,
+            theme.border.gamma_multiply(0.45),
+        ))
 }
 
 pub(super) fn compact_button(
@@ -78,9 +84,9 @@ pub(super) fn compact_button(
         theme.control
     };
     let stroke = if active {
-        egui::Stroke::new(1.0, theme.primary.gamma_multiply(0.85))
+        egui::Stroke::new(1.0_f32, theme.primary.gamma_multiply(0.85))
     } else {
-        egui::Stroke::new(1.0, theme.border.gamma_multiply(0.35))
+        egui::Stroke::new(1.0_f32, theme.border.gamma_multiply(0.35))
     };
     let response = ui.add(
         egui::Button::new(
@@ -97,7 +103,7 @@ pub(super) fn compact_button(
         ui.painter().rect_stroke(
             response.rect.expand(1.0),
             egui::CornerRadius::same(13),
-            egui::Stroke::new(1.0, theme.control_hover),
+            egui::Stroke::new(1.0_f32, theme.control_hover),
             egui::StrokeKind::Outside,
         );
     }
@@ -121,7 +127,7 @@ pub(super) fn render_combo(
     ui.painter().rect_stroke(
         response.rect,
         egui::CornerRadius::same(14),
-        egui::Stroke::new(1.0, theme.border.gamma_multiply(0.35)),
+        egui::Stroke::new(1.0_f32, theme.border.gamma_multiply(0.35)),
         egui::StrokeKind::Inside,
     );
     response
@@ -141,7 +147,7 @@ pub(super) fn split_panel_frame(
         ))
         .corner_radius(egui::CornerRadius::same(10))
         .fill(theme.surface.gamma_multiply(0.78))
-        .stroke(egui::Stroke::new(1.0, theme.border.gamma_multiply(0.3)));
+        .stroke(egui::Stroke::new(1.0_f32, theme.border.gamma_multiply(0.3)));
 
     let rect = ui
         .allocate_exact_size(egui::vec2(width, min_height), egui::Sense::hover())

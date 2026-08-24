@@ -171,7 +171,7 @@ fn resize_rgba_square(
 
 #[cfg(target_os = "windows")]
 fn harden_alpha_edges(rgba: &mut [u8]) {
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         let alpha = px[3];
         if alpha <= 8 {
             px[0] = 0;
@@ -434,7 +434,7 @@ fn render_cursor_rgba(path: &Path, target_size: u32) -> Result<Vec<u8>, String> 
         let bytes =
             std::slice::from_raw_parts(bits as *const u8, (size_i32 * size_i32 * 4) as usize);
         let mut rgba = Vec::with_capacity(bytes.len());
-        for px in bytes.chunks_exact(4) {
+        for px in bytes.as_chunks::<4>().0 {
             rgba.push(px[2]);
             rgba.push(px[1]);
             rgba.push(px[0]);

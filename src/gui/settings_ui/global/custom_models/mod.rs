@@ -338,7 +338,7 @@ fn render_user_model_row(
     egui::Frame::new()
         .fill(wash(theme, accent, if dark { 0.12 } else { 0.09 }))
         .stroke(Stroke::new(
-            1.0,
+            1.0_f32,
             wash(theme, accent, if dark { 0.42 } else { 0.40 }),
         ))
         .corner_radius(CornerRadius::same(10))

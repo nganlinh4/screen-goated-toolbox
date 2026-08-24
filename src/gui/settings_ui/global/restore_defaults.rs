@@ -260,7 +260,7 @@ fn category_row(
 
     let changed = egui::Frame::new()
         .fill(fill)
-        .stroke(egui::Stroke::new(1.0, stroke_color))
+        .stroke(egui::Stroke::new(1.0_f32, stroke_color))
         .corner_radius(9.0)
         .inner_margin(egui::Margin::symmetric(
             crate::gui::theme::space::EDGE,

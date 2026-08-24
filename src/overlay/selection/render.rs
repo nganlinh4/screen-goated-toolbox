@@ -113,7 +113,7 @@ unsafe fn extract_crop_from_hbitmap_internal(
         );
 
         // BGR -> RGB correction
-        for chunk in buffer.chunks_exact_mut(4) {
+        for chunk in buffer.as_chunks_mut::<4>().0 {
             chunk.swap(0, 2);
             chunk[3] = 255;
         }

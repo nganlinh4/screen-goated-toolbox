@@ -43,7 +43,7 @@ impl AppTheme {
     /// Hairline border around cards.
     pub fn card_stroke(&self) -> Stroke {
         Stroke::new(
-            1.0,
+            1.0_f32,
             self.pick(Color32::from_gray(50), Color32::from_gray(210)),
         )
     }
@@ -380,7 +380,7 @@ impl AppTheme {
             .corner_radius(CornerRadius::same(16))
             .inner_margin(Margin::same(space::DIALOG))
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 self.pick(
                     Color32::from_rgb(58, 64, 78),
                     Color32::from_rgb(228, 230, 236),

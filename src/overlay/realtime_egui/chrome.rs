@@ -88,7 +88,10 @@ fn panel_header_frame(theme: &RealtimeEguiTheme) -> egui::Frame {
         ))
         .corner_radius(egui::CornerRadius::same(8))
         .fill(theme.header)
-        .stroke(egui::Stroke::new(1.0, theme.border.gamma_multiply(0.45)))
+        .stroke(egui::Stroke::new(
+            1.0_f32,
+            theme.border.gamma_multiply(0.45),
+        ))
 }
 
 pub(super) fn render_device_warning(
@@ -100,7 +103,10 @@ pub(super) fn render_device_warning(
         .inner_margin(egui::Margin::symmetric(crate::gui::theme::space::EDGE, crate::gui::theme::space::TIGHT))
         .corner_radius(egui::CornerRadius::same(8))
         .fill(theme.warning.gamma_multiply(0.12))
-        .stroke(egui::Stroke::new(1.0, theme.warning.gamma_multiply(0.45)))
+        .stroke(egui::Stroke::new(
+            1.0_f32,
+            theme.warning.gamma_multiply(0.45),
+        ))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 let (icon_rect, _) =

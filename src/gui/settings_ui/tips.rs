@@ -295,7 +295,7 @@ fn render_tip_note(ui: &mut egui::Ui, theme: &AppTheme, text: &str) {
     let frame = egui::Frame::new()
         .fill(blend(theme.dialog_surface(), theme.warning(), 0.035))
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             blend(theme.dialog_surface(), theme.on_surface_variant(), 0.24),
         ))
         .corner_radius(egui::CornerRadius::same(9))

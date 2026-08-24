@@ -29,12 +29,12 @@ impl StartupBuffer {
             return None;
         }
         self.started = true;
-        Some(self.samples.drain(..).collect())
+        Some(std::mem::take(&mut self.samples))
     }
 
     fn finish(&mut self) -> VecDeque<f32> {
         self.started = false;
-        self.samples.drain(..).collect()
+        std::mem::take(&mut self.samples)
     }
 }
 

@@ -176,7 +176,7 @@ pub fn render_alpha(path: &Path, pixels: u32) -> Result<Vec<u8>, String> {
         &mut pixmap.as_mut(),
     );
     let mut alpha = Vec::with_capacity((pixels * pixels) as usize);
-    for rgba in pixmap.data().chunks_exact(4) {
+    for rgba in pixmap.data().as_chunks::<4>().0 {
         if rgba[0] != rgba[3] || rgba[1] != rgba[3] || rgba[2] != rgba[3] {
             return Err(format!(
                 "icon {} must render as a white alpha mask",

@@ -322,8 +322,8 @@ struct S2sVisualText {
 
 fn split_s2s_visuals(items: &BTreeMap<u64, String>) -> S2sVisualText {
     let mut segments = items
-        .iter()
-        .filter_map(|(_, value)| {
+        .values()
+        .filter_map(|value| {
             let trimmed = value.trim();
             if trimmed.is_empty() {
                 None

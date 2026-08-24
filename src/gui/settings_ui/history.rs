@@ -78,11 +78,11 @@ pub fn render_history_panel(
                         let visuals = ui.visuals_mut();
                         visuals.extreme_bg_color = egui::Color32::from_gray(242);
                         visuals.widgets.inactive.bg_stroke =
-                            egui::Stroke::new(1.0, egui::Color32::from_gray(220));
+                            egui::Stroke::new(1.0_f32, egui::Color32::from_gray(220));
                         visuals.widgets.hovered.bg_stroke =
-                            egui::Stroke::new(1.0, egui::Color32::from_gray(200));
+                            egui::Stroke::new(1.0_f32, egui::Color32::from_gray(200));
                         visuals.widgets.active.bg_stroke =
-                            egui::Stroke::new(1.0, egui::Color32::from_gray(180));
+                            egui::Stroke::new(1.0_f32, egui::Color32::from_gray(180));
                     }
                     ui.add(
                         egui::TextEdit::singleline(search_query)

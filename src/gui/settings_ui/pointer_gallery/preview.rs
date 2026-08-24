@@ -256,7 +256,7 @@ pub(super) fn render_status_label(ui: &mut egui::Ui, status: &CollectionStatus, 
 fn render_preview_placeholder(ui: &mut egui::Ui, icon_size: f32, file_name: &str) {
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(icon_size, icon_size), egui::Sense::hover());
-    let stroke = egui::Stroke::new(1.0, ui.visuals().weak_text_color().gamma_multiply(0.35));
+    let stroke = egui::Stroke::new(1.0_f32, ui.visuals().weak_text_color().gamma_multiply(0.35));
     ui.painter()
         .rect_stroke(rect.shrink(0.5), 2.0, stroke, egui::StrokeKind::Inside);
     response.on_hover_text(file_name);
@@ -471,7 +471,7 @@ fn cursor_file_to_color_image(path: &Path, ani_step: u32, size: i32) -> Option<e
 
         let bytes = std::slice::from_raw_parts(bits as *const u8, (size * size * 4) as usize);
         let mut rgba = Vec::with_capacity(bytes.len());
-        for px in bytes.chunks_exact(4) {
+        for px in bytes.as_chunks::<4>().0 {
             rgba.push(px[2]);
             rgba.push(px[1]);
             rgba.push(px[0]);
