@@ -5,7 +5,7 @@
 # AGP version across a composite build, and that included build is outside
 # mobile/ (must not be modified). Standalone lint is pinned separately.
 agp = "8.10.0"
-kotlin = "2.2.21"
+kotlin = "2.4.10"
 compose-bom = "2026.04.01"
 compose-material3 = "1.5.0-alpha18"
 activity-compose = "1.13.0"

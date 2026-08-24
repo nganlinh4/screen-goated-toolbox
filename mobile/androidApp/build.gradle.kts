@@ -268,31 +268,25 @@ val generatePresetOverlayAssets by tasks.registering {
     }
 }
 
-val generatePresetModelCatalog by tasks.registering {
+val generatePresetModelCatalog by tasks.registering(Exec::class) {
     val repoRoot = rootProject.projectDir.parentFile
     val manifestSource = repoRoot.resolve("catalog/model_catalog.json")
     val generator = repoRoot.resolve("scripts/generate_android_preset_model_catalog.py")
     inputs.file(manifestSource)
     inputs.file(generator)
-    outputs.dir(generatedPresetModelCatalogSources)
-
-    doLast {
-        val outputFile = generatedPresetModelCatalogSources.get()
-            .asFile
-            .resolve("dev/screengoated/toolbox/mobile/preset/GeneratedPresetModelCatalogData.kt")
-
-        providers.exec {
-            commandLine(
-                "py",
-                "-3",
-                generator.absolutePath,
-                "--manifest-source",
-                manifestSource.absolutePath,
-                "--preset-output",
-                outputFile.absolutePath,
-            )
-        }.result.get().assertNormalExitValue()
-    }
+    val outputFile = generatedPresetModelCatalogSources.get()
+        .asFile
+        .resolve("dev/screengoated/toolbox/mobile/preset/GeneratedPresetModelCatalogData.kt")
+    outputs.file(outputFile)
+    commandLine(
+        "py",
+        "-3",
+        generator.absolutePath,
+        "--manifest-source",
+        manifestSource.absolutePath,
+        "--preset-output",
+        outputFile.absolutePath,
+    )
 }
 
 val generateModelFeedTrustAssets by tasks.registering {
@@ -308,7 +302,7 @@ val generateModelFeedTrustAssets by tasks.registering {
     }
 }
 
-val generatePhoneControlContract by tasks.registering {
+val generatePhoneControlContract by tasks.registering(Exec::class) {
     val repoRoot = rootProject.projectDir.parentFile
     val catalogSource = repoRoot.resolve("src/overlay/computer_control/phone_control_catalog.json")
     val promptSource = repoRoot.resolve("src/overlay/computer_control/uia_task/prompt_core.txt")
@@ -324,22 +318,18 @@ val generatePhoneControlContract by tasks.registering {
         orbSource,
         generator,
     )
-    outputs.dir(generatedPhoneControlContract)
-    doLast {
-        val outputRoot = generatedPhoneControlContract.get().asFile
-        providers.exec {
-            commandLine(
-                "py", "-3", generator.absolutePath,
-                "--catalog-source", catalogSource.absolutePath,
-                "--prompt-source", promptSource.absolutePath, "--prompt-output", outputRoot.resolve("assets/phone_control/prompt_core.txt").absolutePath,
-                "--authority-source", authoritySource.absolutePath, "--authority-output", outputRoot.resolve("assets/phone_control/authority-matrix.json").absolutePath,
-                "--orb-contract-source", orbContractSource.absolutePath, "--orb-contract-output", outputRoot.resolve("assets/phone_control/orb-contract.json").absolutePath,
-                "--orb-source", orbSource.absolutePath, "--orb-output", outputRoot.resolve("assets/phone_control/orb.html").absolutePath,
-                "--kotlin-output", outputRoot.resolve("kotlin/dev/screengoated/toolbox/mobile/phonecontrol/GeneratedPhoneControlContract.kt").absolutePath,
-                "--asset-output", outputRoot.resolve("assets/phone_control/catalog.json").absolutePath,
-            )
-        }.result.get().assertNormalExitValue()
-    }
+    val outputRoot = generatedPhoneControlContract.get().asFile
+    outputs.dir(outputRoot)
+    commandLine(
+        "py", "-3", generator.absolutePath,
+        "--catalog-source", catalogSource.absolutePath,
+        "--prompt-source", promptSource.absolutePath, "--prompt-output", outputRoot.resolve("assets/phone_control/prompt_core.txt").absolutePath,
+        "--authority-source", authoritySource.absolutePath, "--authority-output", outputRoot.resolve("assets/phone_control/authority-matrix.json").absolutePath,
+        "--orb-contract-source", orbContractSource.absolutePath, "--orb-contract-output", outputRoot.resolve("assets/phone_control/orb-contract.json").absolutePath,
+        "--orb-source", orbSource.absolutePath, "--orb-output", outputRoot.resolve("assets/phone_control/orb.html").absolutePath,
+        "--kotlin-output", outputRoot.resolve("kotlin/dev/screengoated/toolbox/mobile/phonecontrol/GeneratedPhoneControlContract.kt").absolutePath,
+        "--asset-output", outputRoot.resolve("assets/phone_control/catalog.json").absolutePath,
+    )
 }
 android {
     namespace = "dev.screengoated.toolbox.mobile"

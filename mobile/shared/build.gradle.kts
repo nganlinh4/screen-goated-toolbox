@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.Exec
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -9,58 +10,46 @@ plugins {
 val generatedLiveModelCatalogSources = layout.buildDirectory.dir("generated/liveModelCatalog")
 val generatedPresetDefaultModelsSources = layout.buildDirectory.dir("generated/presetDefaultModels")
 
-val generateLiveModelCatalog by tasks.registering {
+val generateLiveModelCatalog by tasks.registering(Exec::class) {
     val repoRoot = rootProject.projectDir.parentFile
     val manifestSource = repoRoot.resolve("catalog/model_catalog.json")
     val generator = repoRoot.resolve("scripts/generate_android_preset_model_catalog.py")
     inputs.file(manifestSource)
     inputs.file(generator)
-    outputs.dir(generatedLiveModelCatalogSources)
-
-    doLast {
-        val outputFile = generatedLiveModelCatalogSources.get()
-            .asFile
-            .resolve("dev/screengoated/toolbox/mobile/shared/live/GeneratedLiveModelCatalog.kt")
-
-        providers.exec {
-            commandLine(
-                "py",
-                "-3",
-                generator.absolutePath,
-                "--manifest-source",
-                manifestSource.absolutePath,
-                "--live-output",
-                outputFile.absolutePath,
-            )
-        }.result.get().assertNormalExitValue()
-    }
+    val outputFile = generatedLiveModelCatalogSources.get()
+        .asFile
+        .resolve("dev/screengoated/toolbox/mobile/shared/live/GeneratedLiveModelCatalog.kt")
+    outputs.file(outputFile)
+    commandLine(
+        "py",
+        "-3",
+        generator.absolutePath,
+        "--manifest-source",
+        manifestSource.absolutePath,
+        "--live-output",
+        outputFile.absolutePath,
+    )
 }
 
-val generatePresetDefaultModels by tasks.registering {
+val generatePresetDefaultModels by tasks.registering(Exec::class) {
     val repoRoot = rootProject.projectDir.parentFile
     val manifestSource = repoRoot.resolve("catalog/model_catalog.json")
     val generator = repoRoot.resolve("scripts/generate_android_preset_model_catalog.py")
     inputs.file(manifestSource)
     inputs.file(generator)
-    outputs.dir(generatedPresetDefaultModelsSources)
-
-    doLast {
-        val outputFile = generatedPresetDefaultModelsSources.get()
-            .asFile
-            .resolve("dev/screengoated/toolbox/mobile/shared/preset/GeneratedPresetDefaultModels.kt")
-
-        providers.exec {
-            commandLine(
-                "py",
-                "-3",
-                generator.absolutePath,
-                "--manifest-source",
-                manifestSource.absolutePath,
-                "--preset-defaults-output",
-                outputFile.absolutePath,
-            )
-        }.result.get().assertNormalExitValue()
-    }
+    val outputFile = generatedPresetDefaultModelsSources.get()
+        .asFile
+        .resolve("dev/screengoated/toolbox/mobile/shared/preset/GeneratedPresetDefaultModels.kt")
+    outputs.file(outputFile)
+    commandLine(
+        "py",
+        "-3",
+        generator.absolutePath,
+        "--manifest-source",
+        manifestSource.absolutePath,
+        "--preset-defaults-output",
+        outputFile.absolutePath,
+    )
 }
 
 kotlin {
