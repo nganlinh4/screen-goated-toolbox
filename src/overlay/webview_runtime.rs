@@ -18,12 +18,18 @@ static CONTEXTS_FAILED: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Profile {
     Common,
+    #[cfg(not(feature = "recorder-worker"))]
     CreationDebug,
+    #[cfg(not(feature = "recorder-worker"))]
     ResultNavigation,
+    #[cfg(not(feature = "recorder-worker"))]
     ResultCompositor,
+    #[cfg(not(feature = "recorder-worker"))]
     StatusCompositor,
+    #[cfg(not(feature = "recorder-worker"))]
     RealtimeCompositor,
     Recorder,
+    #[cfg(not(feature = "recorder-worker"))]
     ComputerControlOrb,
 }
 
@@ -31,12 +37,18 @@ impl Profile {
     pub(crate) const fn directory(self) -> &'static str {
         match self {
             Self::Common => "common",
+            #[cfg(not(feature = "recorder-worker"))]
             Self::CreationDebug => "creation-debug",
+            #[cfg(not(feature = "recorder-worker"))]
             Self::ResultNavigation => "result-navigation",
+            #[cfg(not(feature = "recorder-worker"))]
             Self::ResultCompositor => "result-compositor",
+            #[cfg(not(feature = "recorder-worker"))]
             Self::StatusCompositor => "status-compositor",
+            #[cfg(not(feature = "recorder-worker"))]
             Self::RealtimeCompositor => "realtime-compositor",
             Self::Recorder => "screen-recorder-worker",
+            #[cfg(not(feature = "recorder-worker"))]
             Self::ComputerControlOrb => "cc-orb",
         }
     }
@@ -89,6 +101,7 @@ pub(crate) fn data_dir(profile: Profile) -> PathBuf {
     data_dir_named(Some(profile.directory()))
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn creation_profile() -> Profile {
     if creation_debug_browser_args().is_some() {
         Profile::CreationDebug
@@ -97,6 +110,7 @@ pub(crate) fn creation_profile() -> Profile {
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn creation_debug_browser_args() -> Option<(u16, String)> {
     let port = std::env::var("SGT_CREATION_WEBVIEW2_DEBUG_PORT")
         .ok()
@@ -154,7 +168,7 @@ pub(crate) fn snapshot() -> Snapshot {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::*;
 

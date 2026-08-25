@@ -180,7 +180,7 @@ fn apply_narration_group_result(
                 );
                 let alignment_mode = split.mode.to_string();
                 let take_id = format!("{job_id}-{}", group.id);
-                for (item, range) in group.items.iter().zip(split.ranges.into_iter()) {
+                for (item, range) in group.items.iter().zip(split.ranges) {
                     let result = SubtitleNarrationResult {
                         subtitle_id: item.id.clone(),
                         text: item.text.clone(),

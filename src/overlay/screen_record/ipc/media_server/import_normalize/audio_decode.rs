@@ -1,18 +1,18 @@
 use std::fs::File;
 use std::path::Path;
 
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::audio::{Channels, Layout};
-use symphonia::core::codecs::CODEC_TYPE_NULL;
-use symphonia::core::codecs::CODEC_TYPE_OPUS;
-use symphonia::core::codecs::CodecRegistry;
-use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::audio::{Channels, Position};
+use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
+use symphonia::core::codecs::audio::{
+    AudioCodecParameters, AudioDecoder, AudioDecoderOptions, CODEC_ID_NULL_AUDIO,
+};
+use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-use symphonia::core::units::TimeBase;
+use symphonia::core::units::{TimeBase, Timestamp};
 use symphonia_adapter_libopus::OpusDecoder;
 use windows::Win32::Media::MediaFoundation::*;
 
@@ -51,7 +51,7 @@ impl ImportAudioDecoder {
 
 pub(super) struct SymphoniaImportAudioDecoder {
     format: Box<dyn FormatReader>,
-    decoder: Box<dyn symphonia::core::codecs::Decoder>,
+    decoder: Box<dyn AudioDecoder>,
     track_id: u32,
     sample_rate: u32,
     channels: u32,
@@ -73,32 +73,36 @@ impl SymphoniaImportAudioDecoder {
             hint.with_extension(ext);
         }
 
-        let probed = symphonia::default::get_probe()
-            .format(
+        let format = symphonia::default::get_probe()
+            .probe(
                 &hint,
                 mss,
-                &FormatOptions::default(),
-                &MetadataOptions::default(),
+                FormatOptions::default(),
+                MetadataOptions::default(),
             )
             .map_err(|e| format!("Symphonia probe: {e}"))?;
 
-        let format = probed.format;
         let track = select_symphonia_audio_track(format.tracks())
             .ok_or_else(|| "Symphonia: no decodable audio track found".to_string())?;
 
         let track_id = track.id;
-        let mut codec_params = track.codec_params.clone();
+        let mut codec_params = track
+            .codec_params
+            .as_ref()
+            .and_then(|params| params.audio())
+            .cloned()
+            .ok_or_else(|| "Symphonia: selected track has no audio parameters".to_string())?;
         backfill_opus_codec_params(file_path, &mut codec_params);
-        let time_base = codec_params.time_base;
+        let time_base = track.time_base;
         let next_pts_100ns = time_base
-            .map(|time_base| symphonia_timestamp_to_100ns(time_base, codec_params.start_ts))
+            .map(|time_base| symphonia_timestamp_to_100ns(time_base, track.start_ts))
             .unwrap_or(0);
 
         let mut codec_registry = CodecRegistry::new();
         symphonia::default::register_enabled_codecs(&mut codec_registry);
-        codec_registry.register_all::<OpusDecoder>();
+        codec_registry.register_audio_decoder::<OpusDecoder>();
         let decoder = codec_registry
-            .make(&codec_params, &DecoderOptions::default())
+            .make_audio_decoder(&codec_params, &AudioDecoderOptions::default())
             .map_err(|e| format!("Symphonia decoder init: {e}"))?;
 
         let mut decoder = Self {
@@ -108,6 +112,7 @@ impl SymphoniaImportAudioDecoder {
             sample_rate: codec_params.sample_rate.unwrap_or(0),
             channels: codec_params
                 .channels
+                .as_ref()
                 .map(|channels| channels.count() as u32)
                 .unwrap_or(0),
             time_base,
@@ -150,7 +155,8 @@ impl SymphoniaImportAudioDecoder {
     fn decode_next_sample(&mut self) -> Result<Option<(Vec<u8>, i64)>, String> {
         loop {
             let packet = match self.format.next_packet() {
-                Ok(packet) => packet,
+                Ok(Some(packet)) => packet,
+                Ok(None) => return Ok(None),
                 Err(SymphoniaError::IoError(ref error))
                     if error.kind() == std::io::ErrorKind::UnexpectedEof =>
                 {
@@ -160,13 +166,13 @@ impl SymphoniaImportAudioDecoder {
                 Err(error) => return Err(format!("Symphonia next_packet: {error}")),
             };
 
-            if packet.track_id() != self.track_id {
+            if packet.track_id != self.track_id {
                 continue;
             }
 
             let packet_timestamp_100ns = self
                 .time_base
-                .map(|time_base| symphonia_timestamp_to_100ns(time_base, packet.ts()));
+                .map(|time_base| symphonia_timestamp_to_100ns(time_base, packet.pts));
 
             let decoded = match self.decoder.decode(&packet) {
                 Ok(decoded) => decoded,
@@ -180,18 +186,16 @@ impl SymphoniaImportAudioDecoder {
                 Err(error) => return Err(format!("Symphonia decode: {error}")),
             };
 
-            let spec = *decoded.spec();
+            let spec = decoded.spec();
             if self.sample_rate == 0 {
-                self.sample_rate = spec.rate;
+                self.sample_rate = spec.rate();
             }
             if self.channels == 0 {
-                self.channels = spec.channels.count() as u32;
+                self.channels = spec.channels().count() as u32;
             }
 
-            let mut sample_buffer = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
-            sample_buffer.copy_interleaved_ref(decoded);
-
-            let samples = sample_buffer.samples();
+            let mut samples = vec![0_f32; decoded.samples_interleaved()];
+            decoded.copy_to_slice_interleaved(&mut samples);
             if samples.is_empty() {
                 continue;
             }
@@ -204,7 +208,7 @@ impl SymphoniaImportAudioDecoder {
             self.next_pts_100ns = timestamp_100ns + duration_100ns;
 
             return Ok(Some((
-                bytemuck::cast_slice(samples).to_vec(),
+                bytemuck::cast_slice(&samples).to_vec(),
                 timestamp_100ns,
             )));
         }
@@ -227,27 +231,33 @@ pub(super) fn probe_audio_duration_seconds(path: &Path) -> Result<f64, String> {
         hint.with_extension(ext);
     }
 
-    let probed = symphonia::default::get_probe()
-        .format(
+    let format = symphonia::default::get_probe()
+        .probe(
             &hint,
             mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
+            FormatOptions::default(),
+            MetadataOptions::default(),
         )
         .map_err(|e| format!("Symphonia probe: {e}"))?;
 
-    let track = select_symphonia_audio_track(probed.format.tracks())
+    let track = select_symphonia_audio_track(format.tracks())
         .ok_or_else(|| "Symphonia: no decodable audio track found".to_string())?;
 
-    let params = &track.codec_params;
-    if let (Some(n_frames), Some(sr)) = (params.n_frames, params.sample_rate)
-        && sr > 0
+    let params = track
+        .codec_params
+        .as_ref()
+        .and_then(|params| params.audio());
+    if let (Some(n_frames), Some(sr)) = (
+        track.num_frames,
+        params.and_then(|parameters| parameters.sample_rate),
+    ) && sr > 0
     {
         return Ok(n_frames as f64 / sr as f64);
     }
-    if let (Some(time_base), Some(n_frames)) = (params.time_base, params.n_frames) {
-        let time = time_base.calc_time(n_frames);
-        return Ok(time.seconds as f64 + time.frac);
+    if let (Some(time_base), Some(duration)) = (track.time_base, track.duration)
+        && let Some(time) = time_base.calc_duration(duration)
+    {
+        return Ok(time.as_secs_f64());
     }
 
     Err("Symphonia: cannot determine audio duration".to_string())
@@ -301,9 +311,8 @@ pub(super) fn open_import_audio_decoder(
     }
 }
 
-fn symphonia_timestamp_to_100ns(time_base: TimeBase, timestamp: u64) -> i64 {
-    let time = time_base.calc_time(timestamp);
-    (time.seconds as i64 * 10_000_000) + (time.frac * 10_000_000.0).round() as i64
+fn symphonia_timestamp_to_100ns(time_base: TimeBase, timestamp: Timestamp) -> i64 {
+    (time_base.calc_time_saturating(timestamp).as_nanos() / 100) as i64
 }
 
 fn select_symphonia_audio_track(
@@ -312,25 +321,30 @@ fn select_symphonia_audio_track(
     tracks
         .iter()
         .find(|track| {
-            let params = &track.codec_params;
-            params.codec != CODEC_TYPE_NULL
-                && (params.sample_rate.is_some()
-                    || params.channels.is_some()
-                    || params.channel_layout.is_some()
-                    || params.codec == CODEC_TYPE_OPUS)
+            track
+                .codec_params
+                .as_ref()
+                .and_then(|params| params.audio())
+                .is_some_and(|params| {
+                    params.codec != CODEC_ID_NULL_AUDIO
+                        && (params.sample_rate.is_some()
+                            || params.channels.is_some()
+                            || params.codec == CODEC_ID_OPUS)
+                })
         })
         .or_else(|| {
-            tracks
-                .iter()
-                .find(|track| track.codec_params.codec != CODEC_TYPE_NULL)
+            tracks.iter().find(|track| {
+                track
+                    .codec_params
+                    .as_ref()
+                    .and_then(|params| params.audio())
+                    .is_some_and(|params| params.codec != CODEC_ID_NULL_AUDIO)
+            })
         })
 }
 
-fn backfill_opus_codec_params(
-    file_path: &str,
-    codec_params: &mut symphonia::core::codecs::CodecParameters,
-) {
-    if codec_params.codec != CODEC_TYPE_OPUS {
+fn backfill_opus_codec_params(file_path: &str, codec_params: &mut AudioCodecParameters) {
+    if codec_params.codec != CODEC_ID_OPUS {
         return;
     }
 
@@ -349,26 +363,13 @@ fn backfill_opus_codec_params(
         return;
     };
 
-    match channel_count {
-        1 => {
-            codec_params
-                .with_channels(Layout::Mono.into_channels())
-                .with_channel_layout(Layout::Mono);
-        }
-        2 => {
-            codec_params
-                .with_channels(Layout::Stereo.into_channels())
-                .with_channel_layout(Layout::Stereo);
-        }
-        count if count > 0 => {
-            let mut channels = Channels::empty();
-            for index in 0..count.min(32) {
-                channels |= Channels::from_bits_truncate(1u32 << index);
-            }
-            codec_params.with_channels(channels);
-        }
-        _ => {}
-    }
+    let channels = match channel_count {
+        1 => Channels::Positioned(Position::FRONT_CENTER),
+        2 => Channels::Positioned(Position::FRONT_LEFT | Position::FRONT_RIGHT),
+        count if count > 0 => Channels::Discrete(count.into()),
+        _ => return,
+    };
+    codec_params.with_channels(channels);
 }
 
 fn opus_channel_count_from_extra_data(extra_data: Option<&[u8]>) -> Option<u8> {

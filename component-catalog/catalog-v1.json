@@ -50,10 +50,18 @@
       "removable": true
     },
     {
+      "id": "screen-recorder",
+      "displayName": "Screen Recorder",
+      "kind": "sidecar",
+      "capabilities": ["screen_recorder_ui", "screen_recording"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
       "id": "recorder-web",
       "displayName": "Screen Recorder interface",
       "kind": "web-assets",
-      "capabilities": ["screen_recorder_ui"],
+      "capabilities": [],
       "dependencies": [],
       "removable": true
     },
@@ -61,7 +69,7 @@
       "id": "recorder-worker",
       "displayName": "Screen Recorder engine",
       "kind": "sidecar",
-      "capabilities": ["screen_recording"],
+      "capabilities": [],
       "dependencies": ["recorder-web"],
       "removable": true
     },

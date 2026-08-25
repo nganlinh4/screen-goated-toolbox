@@ -42,9 +42,11 @@ pub use profile::PresetProfile;
 
 pub use restore_defaults::RestoreDefaultsSelection;
 
+pub use result_overlay::default_result_overlay_opacity_percent;
+#[cfg(not(feature = "recorder-worker"))]
 pub use result_overlay::{
     MAX_RESULT_OVERLAY_OPACITY_PERCENT, MIN_RESULT_OVERLAY_OPACITY_PERCENT,
-    default_result_overlay_opacity_percent, normalize_result_overlay_opacity_percent,
+    normalize_result_overlay_opacity_percent,
 };
 
 #[cfg(feature = "recorder-worker")]

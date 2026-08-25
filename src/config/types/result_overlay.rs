@@ -1,11 +1,14 @@
 pub const DEFAULT_RESULT_OVERLAY_OPACITY_PERCENT: u8 = 90;
+#[cfg(not(feature = "recorder-worker"))]
 pub const MIN_RESULT_OVERLAY_OPACITY_PERCENT: u8 = 10;
+#[cfg(not(feature = "recorder-worker"))]
 pub const MAX_RESULT_OVERLAY_OPACITY_PERCENT: u8 = 100;
 
 pub fn default_result_overlay_opacity_percent() -> u8 {
     DEFAULT_RESULT_OVERLAY_OPACITY_PERCENT
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub fn normalize_result_overlay_opacity_percent(value: u8) -> u8 {
     value.clamp(
         MIN_RESULT_OVERLAY_OPACITY_PERCENT,
@@ -13,7 +16,7 @@ pub fn normalize_result_overlay_opacity_percent(value: u8) -> u8 {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::*;
     use crate::config::Config;

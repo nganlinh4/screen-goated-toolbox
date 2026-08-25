@@ -235,7 +235,7 @@ fn next_video_frame_in_presentation_order(
             None => *eof_reached = true,
         }
     }
-    reorder_queue.sort_by(|left, right| right.pts_100ns.cmp(&left.pts_100ns));
+    reorder_queue.sort_by_key(|frame| std::cmp::Reverse(frame.pts_100ns));
     Ok(reorder_queue.pop())
 }
 
@@ -328,10 +328,7 @@ fn drain_audio_until(context: StitchAudioDrain<'_>, target_100ns: i64) -> Result
         clip_timeline_start_100ns,
         audio_cursor_100ns,
     } = context;
-    loop {
-        let Some((pcm, timestamp_100ns)) = pending_audio.take() else {
-            break;
-        };
+    while let Some((pcm, timestamp_100ns)) = pending_audio.take() {
         let source_time_sec = timestamp_100ns as f64 / 10_000_000.0;
         if source_time_sec >= clip_trim_start_sec + clip_duration_sec {
             *pending_audio = Some((pcm, timestamp_100ns));

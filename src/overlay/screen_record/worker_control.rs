@@ -136,6 +136,14 @@ fn handle(command: Command) -> Result<serde_json::Value> {
             super::queue_subtitle_drop_action(path);
             Ok(serde_json::json!({ "status": "queued" }))
         }
+        Command::DecodeAudio {
+            input_path,
+            output_path,
+        } => {
+            require_regular_input(Path::new(&input_path), MAX_MEDIA_INPUT_BYTES)?;
+            super::worker_audio_decode::decode(&input_path, &output_path)?;
+            Ok(serde_json::json!({ "status": "complete" }))
+        }
         Command::NotifyAudioReleased { reason } => {
             super::notify_external_audio_capture_released(&reason);
             Ok(serde_json::json!({ "status": "scheduled" }))

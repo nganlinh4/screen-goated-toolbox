@@ -77,8 +77,10 @@ impl ChunkReader {
                     return Ok(None);
                 };
                 let samples = pcm
-                    .chunks_exact(4)
-                    .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|bytes| f32::from_le_bytes(*bytes))
                     .collect();
                 Ok(Some(DecodedAudioChunk {
                     samples,

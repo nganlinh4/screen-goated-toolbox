@@ -448,9 +448,11 @@ impl GpuCompositor {
         Ok(())
     }
 
-    fn copy_slot_into_vec(&self, slot: usize, out: &mut Vec<u8>) {
+    fn copy_slot_into_vec(&self, slot: usize, out: &mut Vec<u8>) -> Result<(), String> {
         let buffer_slice = self.output_buffers[slot].slice(..);
-        let data = buffer_slice.get_mapped_range();
+        let data = buffer_slice
+            .get_mapped_range()
+            .map_err(|error| format!("GPU mapped range unavailable: {error}"))?;
         let unpadded = self.width * 4;
         if self.padded_bytes_per_row == unpadded {
             out.clear();
@@ -464,6 +466,7 @@ impl GpuCompositor {
         }
         drop(data);
         self.output_buffers[slot].unmap();
+        Ok(())
     }
 
     fn drain_next_readback(&mut self, out: &mut Vec<u8>, blocking: bool) -> Result<bool, String> {
@@ -504,7 +507,7 @@ impl GpuCompositor {
 
         self.readback_receivers[slot] = None;
         let _ = self.pending_readbacks.pop_front();
-        self.copy_slot_into_vec(slot, out);
+        self.copy_slot_into_vec(slot, out)?;
         Ok(true)
     }
 

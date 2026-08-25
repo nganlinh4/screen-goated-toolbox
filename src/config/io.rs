@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[cfg(not(feature = "recorder-worker"))]
 use std::sync::LazyLock;
 
-use crate::config::config::Config;
+use crate::config::Config;
 use crate::config::preset::{Preset, ProcessingBlock, get_default_presets};
 use crate::model_config::{ModelType, get_model_by_id_with_custom, model_is_non_llm};
 

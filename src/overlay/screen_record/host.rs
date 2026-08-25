@@ -2,9 +2,10 @@
 
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
+use std::{fmt::Write as _, io::Read as _};
 
 use serde::Serialize;
-use sgt_recorder_protocol::{Command, VideoDropAction};
+use sgt_recorder_protocol::{Command, MAX_DECODED_AUDIO_BYTES, VideoDropAction};
 
 pub(crate) mod bg_download;
 mod host_launcher;
@@ -37,6 +38,15 @@ static PENDING_AUDIO_DROPS: LazyLock<Mutex<Vec<AudioDropAction>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
 static PENDING_SUBTITLE_DROPS: LazyLock<Mutex<Vec<SubtitleDropAction>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
+const MAX_DECODED_WAV_BYTES: u64 = MAX_DECODED_AUDIO_BYTES + 4_096;
+
+struct DecodedAudioOutput(PathBuf);
+
+impl Drop for DecodedAudioOutput {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
 
 pub fn show_screen_record() {
     host_launcher::launch_in_background(Command::Show);
@@ -125,6 +135,41 @@ pub fn notify_external_audio_capture_released(reason: &str) {
 
 pub fn cleanup_on_app_exit() {
     host_launcher::shutdown();
+}
+
+pub(crate) fn decode_audio_with_optional_worker(path: &std::path::Path) -> Option<Vec<u8>> {
+    let input = std::fs::canonicalize(path).ok()?;
+    let input_metadata = std::fs::symlink_metadata(&input).ok()?;
+    if !input_metadata.is_file() {
+        return None;
+    }
+    let workspace = crate::component_registry::worker_workspace(
+        crate::component_registry::recorder::WORKER_ID,
+    )
+    .ok()?;
+    let mut random = [0_u8; 16];
+    getrandom::fill(&mut random).ok()?;
+    let mut token = String::with_capacity(random.len() * 2);
+    for byte in random {
+        write!(token, "{byte:02x}").ok()?;
+    }
+    let output = DecodedAudioOutput(workspace.join(format!("audio-decode-{token}.wav")));
+    host_launcher::run_headless(Command::DecodeAudio {
+        input_path: input.to_str()?.to_string(),
+        output_path: output.0.to_str()?.to_string(),
+    })
+    .ok()?;
+
+    let metadata = std::fs::symlink_metadata(&output.0).ok()?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_DECODED_WAV_BYTES {
+        return None;
+    }
+    let file = std::fs::File::open(&output.0).ok()?;
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(MAX_DECODED_WAV_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 == metadata.len()).then_some(bytes)
 }
 
 pub(crate) fn stop_for_component_removal() -> anyhow::Result<impl Drop> {

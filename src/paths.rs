@@ -86,6 +86,7 @@ pub fn app_local_data_dir() -> PathBuf {
 
 /// The user's Downloads directory. Creation results are user-owned, so callers
 /// must surface an unavailable OS folder instead of falling back to app data.
+#[cfg(not(feature = "recorder-worker"))]
 pub fn user_downloads_dir() -> Result<PathBuf, String> {
     dirs::download_dir()
         .or_else(|| dirs::home_dir().map(|home| home.join("Downloads")))

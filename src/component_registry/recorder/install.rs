@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use anyhow::{Context, Result, anyhow, bail};
 
 use super::{
-    MAX_COMPONENT_FILES, RecorderDelivery, WORKER_ID, owned_file, receipt, recovery, staging,
-    validate_install, validate_status, version_root,
+    MAX_COMPONENT_FILES, RecorderDelivery, WEB_ID, WORKER_ID, owned_file, receipt, recovery,
+    staging, validate_install, validate_status, version_root,
 };
 use crate::component_registry::RemovalOutcome;
 use crate::component_registry::receipt::{file_matches, is_reparse_point};
@@ -17,22 +17,23 @@ use crate::component_registry::receipt::{file_matches, is_reparse_point};
 static INSTALL_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static INSTALL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-pub(super) fn ensure_pair(
-    web: &'static RecorderDelivery,
-    worker: &'static RecorderDelivery,
+pub(super) fn ensure_group(
+    deliveries: &[&'static RecorderDelivery],
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<()> {
-    if validate_status(web).is_ok() && validate_status(worker).is_ok() {
+    if deliveries
+        .iter()
+        .all(|delivery| validate_status(delivery).is_ok())
+    {
         return Ok(());
     }
 
-    repair_pair(web, worker, cancelled, on_progress)
+    repair_group(deliveries, cancelled, on_progress)
 }
 
-pub(super) fn repair_pair(
-    web: &'static RecorderDelivery,
-    worker: &'static RecorderDelivery,
+pub(super) fn repair_group(
+    deliveries: &[&'static RecorderDelivery],
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<()> {
@@ -40,27 +41,30 @@ pub(super) fn repair_pair(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    let worker_failure = validate_install(worker)
-        .err()
-        .map(|error| format!("{error:#}"));
-    let web_failure = validate_install(web)
-        .err()
-        .map(|error| format!("{error:#}"));
-    if let Some(reason) = worker_failure.as_deref() {
-        recovery::quarantine_invalid(worker, reason)?;
+    let failures = deliveries
+        .iter()
+        .filter_map(|delivery| {
+            validate_install(delivery)
+                .err()
+                .map(|error| (*delivery, format!("{error:#}")))
+        })
+        .collect::<Vec<_>>();
+    let web_failed = failures.iter().any(|(entry, _)| entry.id == WEB_ID);
+    let worker_failed = failures.iter().any(|(entry, _)| entry.id == WORKER_ID);
+    if web_failed && !worker_failed {
+        clear_component(WORKER_ID)?;
     }
-    if let Some(reason) = web_failure.as_deref() {
-        // A valid worker receipt depends on recorder-web and intentionally
-        // blocks its removal, so repair the dependent first.
-        if worker_failure.is_none() {
-            clear_component(WORKER_ID)?;
+    for (delivery, reason) in failures.iter().rev() {
+        if version_root(delivery).is_ok_and(|root| root.exists()) {
+            recovery::quarantine_invalid(delivery, reason)?;
         }
-        recovery::quarantine_invalid(web, reason)?;
     }
 
-    let total = web.size_bytes.saturating_add(worker.size_bytes);
+    let total = deliveries.iter().fold(0_u64, |sum, delivery| {
+        sum.saturating_add(delivery.size_bytes)
+    });
     let mut completed = 0_u64;
-    for delivery in [web, worker] {
+    for delivery in deliveries.iter().copied() {
         if validate_install(delivery).is_ok() {
             completed = completed.saturating_add(delivery.size_bytes);
             on_progress(completed, total);

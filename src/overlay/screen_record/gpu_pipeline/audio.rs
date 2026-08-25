@@ -49,8 +49,8 @@ pub(super) fn apply_audio_volume_envelope(
             .iter()
             .all(|point| (point.volume.clamp(0.0, 1.0) - constant_volume as f64).abs() < 0.0001)
         {
-            for chunk in pcm.chunks_exact_mut(4) {
-                let sample = f32::from_le_bytes(chunk.try_into().unwrap());
+            for chunk in pcm.as_chunks_mut::<4>().0 {
+                let sample = f32::from_le_bytes(*chunk);
                 chunk.copy_from_slice(&(sample * constant_volume).clamp(-1.0, 1.0).to_le_bytes());
             }
             return;

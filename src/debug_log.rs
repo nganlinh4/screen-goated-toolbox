@@ -31,6 +31,7 @@ const LOG_WRITE_MUTEX: &str = "Local\\ScreenGoatedToolboxSessionLogWrite-v1";
 #[cfg(windows)]
 const LOG_WRITE_WAIT_MS: u32 = 5_000;
 
+#[cfg(not(feature = "recorder-worker"))]
 static STDOUT_RESERVED_FOR_PROTOCOL: LazyLock<bool> =
     LazyLock::new(|| stdout_reserved_for_protocol(std::env::args_os().skip(1)));
 
@@ -63,6 +64,7 @@ pub fn print_line(msg: &str) {
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 fn stdout_reserved_for_protocol(arguments: impl Iterator<Item = std::ffi::OsString>) -> bool {
     arguments
         .filter_map(|argument| argument.into_string().ok())
@@ -377,7 +379,7 @@ macro_rules! log_info {
     };
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};

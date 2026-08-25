@@ -79,6 +79,7 @@
     { "id": "creation-3d-web", "mode": "before-open", "checkHours": 24, "group": "creation-ui" },
     { "id": "prompt-dj-web", "mode": "before-open", "checkHours": 24, "group": "prompt-dj-ui" },
     { "id": "tts-playground-web", "mode": "before-open", "checkHours": 24, "group": "tts-playground-ui" },
+    { "id": "screen-recorder", "mode": "before-open", "checkHours": 24, "group": "recorder" },
     { "id": "recorder-web", "mode": "before-open", "checkHours": 24, "group": "recorder" },
     { "id": "recorder-worker", "mode": "before-open", "checkHours": 24, "group": "recorder" },
     { "id": "screen-text-detector", "mode": "before-session", "checkHours": 24, "group": "screen-translate" },

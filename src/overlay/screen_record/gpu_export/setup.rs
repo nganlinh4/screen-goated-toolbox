@@ -77,6 +77,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
         .ok()
     };
@@ -113,6 +114,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
                     power_preference: wgpu::PowerPreference::None,
                     compatible_surface: None,
                     force_fallback_adapter: true,
+                    apply_limit_buckets: false,
                 },
             ))
             .ok();
@@ -231,7 +233,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[wgpu::VertexBufferLayout {
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &[
@@ -246,7 +248,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
                         format: wgpu::VertexFormat::Float32x2,
                     },
                 ],
-            }],
+            })],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
@@ -272,7 +274,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[wgpu::VertexBufferLayout {
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &[
@@ -287,7 +289,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
                         format: wgpu::VertexFormat::Float32x2,
                     },
                 ],
-            }],
+            })],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
@@ -375,7 +377,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         vertex: wgpu::VertexState {
             module: &overlay_shader_module,
             entry_point: Some("vs_main"),
-            buffers: &[wgpu::VertexBufferLayout {
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<OverlayVertex>() as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &[
@@ -395,7 +397,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
                         format: wgpu::VertexFormat::Float32,
                     },
                 ],
-            }],
+            })],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
@@ -437,7 +439,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         vertex: wgpu::VertexState {
             module: &webcam_shader_module,
             entry_point: Some("vs_main"),
-            buffers: &[wgpu::VertexBufferLayout {
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &[
@@ -452,7 +454,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
                         format: wgpu::VertexFormat::Float32x2,
                     },
                 ],
-            }],
+            })],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {

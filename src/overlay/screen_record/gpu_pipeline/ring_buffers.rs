@@ -73,7 +73,13 @@ pub(super) unsafe fn import_shared_handle_into_wgpu(
         view_formats: &[],
     };
 
-    Ok(unsafe { device.create_texture_from_hal::<wgpu::hal::api::Dx12>(hal_texture, &desc) })
+    Ok(unsafe {
+        device.create_texture_from_hal::<wgpu::hal::api::Dx12>(
+            hal_texture,
+            &desc,
+            wgpu::TextureUses::UNKNOWN,
+        )
+    })
 }
 
 /// Try to create a GPU output ring (shared VRAM textures imported into wgpu).

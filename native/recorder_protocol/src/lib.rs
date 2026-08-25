@@ -8,6 +8,7 @@ pub const MAX_JSON_BYTES: usize = 256 * 1024;
 pub const MAX_REQUEST_LINE_BYTES: usize = MAX_JSON_BYTES + 1;
 pub const MAX_SCRIPT_BYTES: usize = 128 * 1024;
 pub const MAX_PATH_BYTES: usize = 32 * 1024;
+pub const MAX_DECODED_AUDIO_BYTES: u64 = 512 * 1024 * 1024;
 pub const RESPONSE_PREFIX: &str = "SGT_RECORDER_IPC ";
 pub const MAX_RESPONSE_LINE_BYTES: usize = RESPONSE_PREFIX.len() + MAX_JSON_BYTES + 1;
 
@@ -39,6 +40,10 @@ pub enum Command {
     },
     QueueSubtitleDrop {
         path: String,
+    },
+    DecodeAudio {
+        input_path: String,
+        output_path: String,
     },
     NotifyAudioReleased {
         reason: String,
@@ -129,6 +134,13 @@ impl Command {
             Self::QueueVideoDrop { path, .. }
             | Self::QueueAudioDrop { path }
             | Self::QueueSubtitleDrop { path } => validate_path(path)?,
+            Self::DecodeAudio {
+                input_path,
+                output_path,
+            } => {
+                validate_path(input_path)?;
+                validate_path(output_path)?;
+            }
             Self::NotifyAudioReleased { reason } => validate_text(reason, 1024, "reason")?,
             Self::ExportReplay { path, runs, .. } => {
                 validate_path(path)?;
@@ -237,6 +249,26 @@ mod tests {
         assert_eq!(
             MAX_RESPONSE_LINE_BYTES,
             RESPONSE_PREFIX.len() + MAX_JSON_BYTES + 1
+        );
+    }
+
+    #[test]
+    fn audio_decode_requires_both_bounded_paths() {
+        assert!(
+            Command::DecodeAudio {
+                input_path: "C:\\input.ogg".to_string(),
+                output_path: "C:\\output.wav".to_string(),
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            Command::DecodeAudio {
+                input_path: String::new(),
+                output_path: "C:\\output.wav".to_string(),
+            }
+            .validate()
+            .is_err()
         );
     }
 }

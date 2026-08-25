@@ -283,7 +283,7 @@ pub(crate) fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
             return None;
         }
 
-        for chunk in pixels.chunks_exact_mut(4) {
+        for chunk in pixels.as_chunks_mut::<4>().0 {
             chunk.swap(0, 2);
             chunk[3] = 255;
         }
@@ -378,7 +378,7 @@ pub(super) fn capture_monitor_thumbnail(x: i32, y: i32, width: i32, height: i32)
         if lines == 0 {
             return None;
         }
-        for chunk in pixels.chunks_exact_mut(4) {
+        for chunk in pixels.as_chunks_mut::<4>().0 {
             chunk.swap(0, 2); // BGRA → RGBA
             chunk[3] = 255;
         }

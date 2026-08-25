@@ -4,6 +4,7 @@
 mod decoder;
 #[cfg(feature = "recorder-worker")]
 mod encoder;
+#[cfg(feature = "recorder-worker")]
 #[path = "mf_audio_symphonia.rs"]
 mod mf_audio_symphonia;
 mod pcm;

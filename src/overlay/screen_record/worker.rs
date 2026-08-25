@@ -10,6 +10,7 @@ mod startup_trace;
 mod webview_setup;
 mod window_proc;
 mod worker_control;
+mod worker_audio_decode;
 
 use crate::win_types::HwndWrapper;
 use serde::{Deserialize, Serialize};

@@ -122,7 +122,7 @@ pub fn generate_thumbnails(
             let thumb_result = (|| -> Result<String, String> {
                 let raw = unsafe { std::slice::from_raw_parts(data_ptr, length as usize) };
                 let mut rgba = raw.to_vec();
-                for px in rgba.chunks_exact_mut(4) {
+                for px in rgba.as_chunks_mut::<4>().0 {
                     px.swap(0, 2); // BGRA -> RGBA
                 }
 
@@ -274,7 +274,7 @@ pub fn generate_thumbnails_at_times(
             let thumb_result = (|| -> Result<String, String> {
                 let raw = unsafe { std::slice::from_raw_parts(data_ptr, length as usize) };
                 let mut rgba = raw.to_vec();
-                for px in rgba.chunks_exact_mut(4) {
+                for px in rgba.as_chunks_mut::<4>().0 {
                     px.swap(0, 2);
                 }
 

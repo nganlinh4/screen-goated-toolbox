@@ -79,7 +79,7 @@ impl AudioStream {
                 .map_err(|e| format!("SetInputMediaType audio: {e}"))?;
         }
 
-        println!(
+        crate::log_info!(
             "[AudioStream] Added AAC stream idx={}, {}Hz {}ch @ {}kbps",
             stream_index, config.sample_rate, config.channels, config.bitrate_kbps
         );

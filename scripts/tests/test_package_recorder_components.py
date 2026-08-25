@@ -28,8 +28,8 @@ class RecorderPackageContractTests(unittest.TestCase):
             source.write_text("console.log('stable');\n", encoding="utf-8")
             files = [("assets/index.js", source)]
 
-            first = MODULE.package(REPO, output, "recorder-web", "1.0.0", files)
-            second = MODULE.package(REPO, output, "recorder-web", "1.0.0", files)
+            first = MODULE.package(REPO, output, "screen-recorder", "1.0.0", files)
+            second = MODULE.package(REPO, output, "screen-recorder", "1.0.0", files)
 
             self.assertEqual(first["asset"], second["asset"])
             self.assertEqual(first["sha256"], second["sha256"])
@@ -37,9 +37,9 @@ class RecorderPackageContractTests(unittest.TestCase):
 
     def test_unchanged_payload_reuses_verified_asset_name(self) -> None:
         current = {
-            "id": "recorder-web",
+            "id": "screen-recorder",
             "version": "5.5.0",
-            "asset": "recorder-web-5.5.0-aaaaaaaaaaaaaaaa.zip",
+            "asset": "screen-recorder-5.5.0-aaaaaaaaaaaaaaaa.zip",
             "assetPath": "generated.zip",
             "sizeBytes": 12,
             "sha256": "a" * 64,
@@ -49,7 +49,7 @@ class RecorderPackageContractTests(unittest.TestCase):
         verified = dict(current)
         verified.update(
             version="5.4.3",
-            asset="recorder-web-5.4.3-aaaaaaaaaaaaaaaa.zip",
+            asset="screen-recorder-5.4.3-aaaaaaaaaaaaaaaa.zip",
             downloadUrl="https://example.invalid/recorder.zip",
         )
 
@@ -71,7 +71,7 @@ class RecorderPackageContractTests(unittest.TestCase):
                 MODULE.package(
                     REPO,
                     output,
-                    "recorder-web",
+                    "screen-recorder",
                     "1.0.0",
                     [("../escape.txt", source)],
                 )

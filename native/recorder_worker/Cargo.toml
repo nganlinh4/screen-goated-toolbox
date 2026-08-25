@@ -43,18 +43,19 @@ urlencoding = "2.1"
 isolang = { package = "sgt-language-catalog", path = "../language_catalog" }
 unicode-normalization = "0.1"
 encoding_rs = "0.8"
-eframe = { version = "0.34", default-features = false, features = ["wgpu_no_default_features"] }
+eframe = { version = "0.36", default-features = false, features = ["wgpu_no_default_features"] }
 egui-snarl = { path = "../../libs/egui-snarl", features = ["serde"] }
 tray-icon = "0.24.1"
 cpal = "0.18"
 hound = "3.5"
 wasapi = "0.23"
-symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm", "isomp4", "aiff", "vorbis", "adpcm", "mkv"] }
-symphonia-adapter-libopus = "0.2.6"
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm", "isomp4", "aiff", "vorbis", "adpcm", "mkv"] }
+symphonia-adapter-libopus = "0.3"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
-wry = "0.55"
+wry = "0.56"
 raw-window-handle = "0.6"
 windows-core = "0.62"
+webview2-com = "0.39"
 sgt-local-asr-protocol = { path = "../local_asr_protocol" }
 sgt-recorder-protocol = { path = "../recorder_protocol" }
 ringbuf = "0.5"
@@ -63,9 +64,9 @@ tiny_http = "0.12"
 parking_lot = "0.12"
 crossbeam-queue = "0.3"
 libloading = "0.8"
-resvg = { version = "0.47", default-features = false }
+resvg = { version = "0.48", default-features = false }
 tiny-skia = "0.12"
-wgpu = { version = "29", default-features = false, features = ["std", "dx12", "wgsl"] }
+wgpu = { version = "30", default-features = false, features = ["std", "dx12", "wgsl"] }
 pollster = "0.4"
 bytemuck = { version = "1.25", features = ["derive"] }
 
@@ -122,23 +123,6 @@ features = [
     "Graphics_DirectX_Direct3D11",
 ]
 
-[target.'cfg(target_os = "windows")'.dependencies]
-webview2-com = "0.38.2"
-windows061 = { package = "windows", version = "0.61.3", features = [
-    "Win32_Foundation",
-    "Win32_System_Com",
-    "Win32_System_WinRT",
-    "Win32_System_LibraryLoader",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_UI_HiDpi",
-    "Win32_Graphics_Gdi",
-    "Win32_Graphics_DirectComposition",
-    "Win32_Graphics_Direct3D",
-    "Win32_Graphics_Direct3D11",
-    "Win32_Graphics_Dxgi",
-    "Win32_Graphics_Dxgi_Common",
-] }
 
 [profile.release]
 opt-level = "z"
@@ -156,3 +140,4 @@ egui-wgpu = { path = "../../third_party/egui-wgpu" }
 egui-scale = { path = "../../libs/egui-scale" }
 windows-capture = { path = "../../third_party/windows-capture" }
 wgpu-hal = { path = "../../third_party/wgpu-hal" }
+wry = { path = "../../third_party/wry" }

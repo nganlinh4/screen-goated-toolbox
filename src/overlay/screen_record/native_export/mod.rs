@@ -63,9 +63,9 @@ impl Drop for ExportActiveGuard {
 }
 
 pub fn cancel_export() {
-    println!("[Cancel] Setting EXPORT_CANCELLED flag");
+    crate::log_info!("[Cancel] Setting EXPORT_CANCELLED flag");
     EXPORT_CANCELLED.store(true, Ordering::SeqCst);
-    println!("[Cancel] Cancellation signaled");
+    crate::log_info!("[Cancel] Cancellation signaled");
 }
 
 pub fn get_default_export_dir() -> String {

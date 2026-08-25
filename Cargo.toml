@@ -60,9 +60,7 @@ tray-icon = "0.24.1"
 cpal = "0.18"
 hound = "3.5"
 wasapi = "0.23"
-symphonia = { version = "0.6", default-features = false, features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm", "isomp4", "aiff", "vorbis", "adpcm"] }
-symphonia-adapter-libopus = "0.3"
-
+symphonia = { version = "0.6", default-features = false, features = ["mp3"] }
 # Markdown Rendering
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 wry = "0.56"

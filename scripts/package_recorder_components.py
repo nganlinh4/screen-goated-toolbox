@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create deterministic, independently removable Windows recorder packages."""
+"""Create the deterministic, independently removable Windows recorder bundle."""
 
 from __future__ import annotations
 
@@ -438,20 +438,16 @@ def main() -> int:
     required = {"index.html", "assets/index.js", "assets/index.css"}
     if not required.issubset({relative for relative, _ in web_files}):
         raise RuntimeError("recorder web build is missing required entry files")
-    components = [
-        package(repo, output, "recorder-web", version, web_files),
-        package(
-            repo,
-            output,
-            "recorder-worker",
-            version,
-            [
-                ("bin/x64/sgt-recorder-worker.exe", worker),
-                ("licenses/THIRD-PARTY-LICENSES.json", worker_licenses),
-                ("licenses/THIRD-PARTY-NOTICES.txt", notice),
-            ],
-        ),
-    ]
+    bundle_files = [(f"web/{relative}", source) for relative, source in web_files]
+    bundle_files.extend(
+        [
+            ("bin/x64/sgt-recorder-worker.exe", worker),
+            ("licenses/worker/THIRD-PARTY-LICENSES.json", worker_licenses),
+            ("licenses/worker/THIRD-PARTY-NOTICES.txt", notice),
+        ]
+    )
+    bundle_files.sort()
+    components = [package(repo, output, "screen-recorder", version, bundle_files)]
     descriptor: dict[str, object] = {
         "schemaVersion": 1,
         "architecture": "x64",

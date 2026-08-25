@@ -10,6 +10,11 @@ const WORKER_FILES: &[&str] = &[
     "licenses/THIRD-PARTY-LICENSES.json",
     "licenses/THIRD-PARTY-NOTICES.txt",
 ];
+const BUNDLE_WORKER_FILES: &[&str] = &[
+    "bin/x64/sgt-recorder-worker.exe",
+    "licenses/worker/THIRD-PARTY-LICENSES.json",
+    "licenses/worker/THIRD-PARTY-NOTICES.txt",
+];
 const MAX_WEB_FILES: usize = 512;
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
@@ -20,13 +25,18 @@ pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
         "missing verified recorder delivery: {}",
         configured.display()
     );
-    let generated = delivery_source(&configured, selected.channel);
+    let require_bundle = std::env::var("PROFILE").is_ok_and(|profile| profile == "release");
+    let generated = delivery_source(&configured, selected.channel, require_bundle);
     let output = out_dir.join("recorder_delivery.rs");
     fs::write(&output, generated)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));
 }
 
-fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChannel) -> String {
+fn delivery_source(
+    path: &Path,
+    channel: crate::delivery_channel::DeliveryChannel,
+    require_bundle: bool,
+) -> String {
     let raw = fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     let value: Value = serde_json::from_str(&raw)
@@ -47,10 +57,9 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
         .get("components")
         .and_then(Value::as_array)
         .unwrap_or_else(|| panic!("{} is missing components", path.display()));
-    assert_eq!(
-        components.len(),
-        2,
-        "{} must deliver both recorder components",
+    assert!(
+        matches!(components.len(), 1 | 2),
+        "{} must deliver one recorder bundle or the complete legacy pair",
         path.display()
     );
 
@@ -62,7 +71,7 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
             .unwrap_or_else(|| panic!("{} contains an invalid component", path.display()));
         let id = required_string(component, "id", path);
         assert!(
-            matches!(id, "recorder-web" | "recorder-worker") && seen.insert(id),
+            matches!(id, "screen-recorder" | "recorder-web" | "recorder-worker") && seen.insert(id),
             "{} contains an unsupported or repeated component {id}",
             path.display()
         );
@@ -131,6 +140,13 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
                     path.display()
                 );
             }
+            if id == "screen-recorder" && relative.starts_with("bin/") {
+                assert!(
+                    BUNDLE_WORKER_FILES.contains(&relative),
+                    "{} recorder bundle contains unexpected binary inventory {relative}",
+                    path.display()
+                );
+            }
             let file_size = required_u64(file, "sizeBytes", path);
             file_total = file_total
                 .checked_add(file_size)
@@ -150,6 +166,22 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
                 );
             }
         }
+        if id == "screen-recorder" {
+            for required in [
+                "web/index.html",
+                "web/assets/index.js",
+                "web/assets/index.css",
+                "bin/x64/sgt-recorder-worker.exe",
+                "licenses/worker/THIRD-PARTY-LICENSES.json",
+                "licenses/worker/THIRD-PARTY-NOTICES.txt",
+            ] {
+                assert!(
+                    seen_files.contains(required),
+                    "{} recorder bundle is missing {required}",
+                    path.display()
+                );
+            }
+        }
         assert_eq!(
             file_total,
             unpacked_size_bytes,
@@ -160,7 +192,17 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
             "    RecorderDelivery {{ id: {id:?}, version: {version:?}, asset: {asset:?}, download_url: {download_url:?}, size_bytes: {size_bytes}, sha256: {digest:?}, unpacked_size_bytes: {unpacked_size_bytes}, files: &[\n{file_source}        ] }},\n"
         ));
     }
-    assert_eq!(seen.len(), 2);
+    assert!(
+        seen == HashSet::from(["screen-recorder"])
+            || seen == HashSet::from(["recorder-web", "recorder-worker"]),
+        "{} recorder delivery mixes incompatible package layouts",
+        path.display()
+    );
+    assert!(
+        !require_bundle || seen == HashSet::from(["screen-recorder"]),
+        "{} release builds require the consolidated recorder delivery",
+        path.display()
+    );
     source.push_str("];\n");
     source
 }

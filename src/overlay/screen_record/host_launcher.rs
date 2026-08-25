@@ -46,6 +46,7 @@ static DISPATCHER: LazyLock<mpsc::Sender<DispatchMessage>> = LazyLock::new(|| {
     sender
 });
 const NORMAL_TIMEOUT: Duration = Duration::from_secs(15);
+const CODEC_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const REMOVAL_STOP_TIMEOUT: Duration = Duration::from_secs(17);
 const HEADLESS_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 const DROP_WAIT: Duration = Duration::from_millis(500);
@@ -221,7 +222,11 @@ fn dispatch_interactive(session: &mut Option<WorkerSession>, command: Command) -
 
 fn dispatch_headless(command: Command) -> Result<serde_json::Value> {
     let mut session = None;
-    let result = request_with_capability_retry(&mut session, command, HEADLESS_TIMEOUT);
+    let timeout = match &command {
+        Command::DecodeAudio { .. } => CODEC_TIMEOUT,
+        _ => HEADLESS_TIMEOUT,
+    };
+    let result = request_with_capability_retry(&mut session, command, timeout);
     if let Some(session) = session.as_mut() {
         let _ = session.request(Command::Shutdown, NORMAL_TIMEOUT);
     }

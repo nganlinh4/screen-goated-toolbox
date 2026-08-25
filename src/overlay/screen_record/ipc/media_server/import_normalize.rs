@@ -236,7 +236,7 @@ fn next_video_frame_in_presentation_order(
             None => *eof_reached = true,
         }
     }
-    reorder_queue.sort_by(|left, right| right.pts_100ns.cmp(&left.pts_100ns));
+    reorder_queue.sort_by_key(|frame| std::cmp::Reverse(frame.pts_100ns));
     Ok(reorder_queue.pop())
 }
 

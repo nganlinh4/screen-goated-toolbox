@@ -85,6 +85,25 @@ fn recorder_does_not_resolve_optional_tools_during_open() {
 }
 
 #[test]
+fn feature_invocation_installs_before_spawning_and_continues_automatically() {
+    let source = include_str!("../host_launcher.rs");
+    let launch = source.find("fn launch(").unwrap();
+    let install = source[launch..]
+        .find("ensure_ready_with_badge(cancelled)?")
+        .unwrap();
+    let spawn = source[launch..].find("ProcessCommand::new").unwrap();
+    assert!(install < spawn);
+    assert!(!source[launch..launch + spawn].contains("downloaded tools"));
+}
+
+#[test]
+fn consolidated_recorder_retires_legacy_packages_after_launch() {
+    let source = include_str!("../../../component_registry/recorder.rs");
+    assert!(source.contains("retire_legacy_split_installations();"));
+    assert!(source.contains("for id in [BUNDLE_ID, WORKER_ID, WEB_ID]"));
+}
+
+#[test]
 fn recorder_holds_deferred_capability_for_the_worker_lifetime() {
     let source = include_str!("../host_launcher.rs");
     assert!(source.contains("DeferredFfmpeg::prepare"));

@@ -1,13 +1,13 @@
-use parking_lot::Mutex;
-
 use super::super::mf_decode;
+#[cfg(feature = "recorder-worker")]
+use parking_lot::Mutex;
+#[cfg(feature = "recorder-worker")]
 use super::mf_audio_symphonia::SymphoniaAudioDecoder;
 use super::pcm::pcm_integer_bytes_to_f32le_bytes;
 use windows::Win32::Media::MediaFoundation::*;
 
 /// MF-based audio decoder that outputs PCM float samples.
 pub struct MfAudioDecoder {
-    #[cfg(feature = "recorder-worker")]
     sample_rate: u32,
     channels: u32,
     backend: AudioDecoderBackend,
@@ -15,6 +15,7 @@ pub struct MfAudioDecoder {
 
 enum AudioDecoderBackend {
     Mf(MfBackend),
+    #[cfg(feature = "recorder-worker")]
     Symphonia(Mutex<SymphoniaAudioDecoder>),
 }
 
@@ -71,13 +72,14 @@ impl MfAudioDecoder {
             allow_fallback_to_native_pcm,
         ) {
             Ok(decoder) => Ok(decoder),
+            #[cfg(feature = "recorder-worker")]
             Err(mf_error) => {
                 let symphonia_decoder =
                     SymphoniaAudioDecoder::new(file_path, target_sample_rate, target_channels)
                         .map_err(|symphonia_error| {
                             format!("{mf_error}; Symphonia fallback: {symphonia_error}")
                         })?;
-                println!(
+                crate::log_info!(
                     "[MfAudioDecoder] Media Foundation unavailable, using Symphonia fallback: {}",
                     mf_error
                 );
@@ -88,6 +90,8 @@ impl MfAudioDecoder {
                     backend: AudioDecoderBackend::Symphonia(Mutex::new(symphonia_decoder)),
                 })
             }
+            #[cfg(not(feature = "recorder-worker"))]
+            Err(mf_error) => Err(mf_error),
         }
     }
 
@@ -156,13 +160,12 @@ impl MfAudioDecoder {
                 .map_err(|e| format!("GetUINT32 NUM_CHANNELS: {e}"))?
         };
 
-        println!(
+        crate::log_info!(
             "[MfAudioDecoder] Opened: {}Hz, {} channels, {:?}",
             sample_rate, channels, output_format
         );
 
         Ok(Self {
-            #[cfg(feature = "recorder-worker")]
             sample_rate,
             channels,
             backend: AudioDecoderBackend::Mf(MfBackend {
@@ -178,6 +181,7 @@ impl MfAudioDecoder {
     /// Returns `(pcm_data, timestamp_100ns)`.
     pub fn read_samples(&self) -> Result<Option<(Vec<u8>, i64)>, String> {
         match &self.backend {
+            #[cfg(feature = "recorder-worker")]
             AudioDecoderBackend::Symphonia(decoder) => decoder.lock().read_samples(),
             AudioDecoderBackend::Mf(backend) => read_samples_mf(backend),
         }
@@ -187,12 +191,12 @@ impl MfAudioDecoder {
     #[cfg(feature = "recorder-worker")]
     pub fn seek(&self, position_100ns: i64) -> Result<(), String> {
         match &self.backend {
+            #[cfg(feature = "recorder-worker")]
             AudioDecoderBackend::Symphonia(decoder) => decoder.lock().seek(position_100ns),
             AudioDecoderBackend::Mf(backend) => seek_mf(backend, position_100ns),
         }
     }
 
-    #[cfg(feature = "recorder-worker")]
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }

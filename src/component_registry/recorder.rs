@@ -18,10 +18,12 @@ mod recovery;
 mod staging;
 mod update;
 
+pub(crate) const BUNDLE_ID: &str = "screen-recorder";
 pub(crate) const WEB_ID: &str = "recorder-web";
 pub(crate) const WORKER_ID: &str = "recorder-worker";
 const ARCHITECTURE: &str = "x64";
 const WORKER_PATH: &str = "bin/x64/sgt-recorder-worker.exe";
+const BUNDLE_WEB_PATH: &str = "web";
 const MAX_COMPONENT_FILES: usize = 512;
 const MAX_VERIFICATION_WORKERS: usize = 8;
 
@@ -56,22 +58,21 @@ pub(crate) fn ensure_ready(
     on_progress: impl Fn(u64, u64),
 ) -> Result<RecorderComponents> {
     let _mutation = super::acquire_mutation_guard()?;
-    let web = delivery(WEB_ID)?;
-    let worker = delivery(WORKER_ID)?;
+    let deliveries = delivery_group()?;
 
     // A healthy install is the normal case, and acquisition already proves every
     // owned byte. Probing it first keeps the open path to a single pass over the
     // inventories instead of restating them before hashing them.
-    if let Ok(components) = acquire_verified_components(web, worker) {
+    if let Ok(components) = acquire_verified_components(&deliveries) {
         return Ok(components);
     }
 
-    install::ensure_pair(web, worker, cancelled, on_progress)?;
-    match acquire_verified_components(web, worker) {
+    install::ensure_group(&deliveries, cancelled, on_progress)?;
+    match acquire_verified_components(&deliveries) {
         Ok(components) => Ok(components),
         Err(first_error) => {
-            install::repair_pair(web, worker, cancelled, |_, _| {})?;
-            acquire_verified_components(web, worker).map_err(|retry_error| {
+            install::repair_group(&deliveries, cancelled, |_, _| {})?;
+            acquire_verified_components(&deliveries).map_err(|retry_error| {
                 anyhow::anyhow!(
                     "recorder verification failed before and after repair: {first_error:#}; {retry_error:#}"
                 )
@@ -81,41 +82,46 @@ pub(crate) fn ensure_ready(
 }
 
 fn acquire_verified_components(
-    web: &'static RecorderDelivery,
-    worker: &'static RecorderDelivery,
+    deliveries: &[&'static RecorderDelivery],
 ) -> Result<RecorderComponents> {
-    // Reserve both components before hashing. Removal cannot begin after these
-    // leases are acquired, and the file handles below prevent write/delete
-    // races for every byte in both exact inventories.
-    let web_lease = super::acquire(WEB_ID)?;
-    let worker_lease = match super::acquire(WORKER_ID) {
-        Ok(lease) => lease,
-        Err(error) => {
-            drop(web_lease);
-            return Err(error);
-        }
-    };
-    let web_root = version_root(web)?;
-    let worker_root = version_root(worker)?;
-    let mut files = lock_component_files(&web_root, web.files)?;
-    match lock_component_files(&worker_root, worker.files) {
-        Ok(mut worker_files) => files.append(&mut worker_files),
-        Err(error) => {
-            drop(worker_lease);
-            drop(web_lease);
-            return Err(error);
-        }
+    let mut leases = Vec::with_capacity(deliveries.len());
+    for delivery in deliveries {
+        leases.push(super::acquire(delivery.id)?);
     }
-    validate_exact_tree(&web_root, web.files)?;
-    validate_exact_tree(&worker_root, worker.files)?;
+    let mut files = Vec::new();
+    let mut roots = Vec::with_capacity(deliveries.len());
+    for delivery in deliveries {
+        let root = version_root(delivery)?;
+        files.extend(lock_component_files(&root, delivery.files)?);
+        validate_exact_tree(&root, delivery.files)?;
+        roots.push((delivery.id, root));
+    }
+    let bundle_root = roots
+        .iter()
+        .find_map(|(id, root)| (*id == BUNDLE_ID).then_some(root));
+    let web_root = bundle_root.map_or_else(
+        || component_root(&roots, WEB_ID),
+        |root| Ok(root.join(BUNDLE_WEB_PATH)),
+    )?;
+    let worker_root = bundle_root.map_or_else(
+        || component_root(&roots, WORKER_ID),
+        |root| Ok(root.clone()),
+    )?;
     let worker_path = resolve_owned_path(&worker_root, Path::new(WORKER_PATH))?;
     validate_x64_pe(&worker_path)?;
     Ok(RecorderComponents {
         web_root,
         worker_path,
-        _leases: vec![web_lease, worker_lease],
+        _leases: leases,
         _files: files,
     })
+}
+
+fn component_root(roots: &[(&str, PathBuf)], id: &str) -> Result<PathBuf> {
+    roots
+        .iter()
+        .find_map(|(candidate, root)| (*candidate == id).then(|| root.clone()))
+        .ok_or_else(|| anyhow::anyhow!("Screen Recorder component root is unavailable"))
 }
 
 pub(crate) fn refresh_catalog_after_open() {
@@ -123,22 +129,40 @@ pub(crate) fn refresh_catalog_after_open() {
         crate::task_runtime::TaskClass::Io,
         "recorder-catalog-refresh",
         || {
-            super::update_catalog::refresh_for_use(WEB_ID, "before-open");
+            super::update_catalog::refresh_for_use(BUNDLE_ID, "before-open");
+            retire_legacy_split_installations();
         },
     );
+}
+
+fn retire_legacy_split_installations() {
+    if delivery(BUNDLE_ID).is_err() {
+        return;
+    }
+    for id in [WORKER_ID, WEB_ID] {
+        match super::request_remove(id) {
+            Ok(RemovalOutcome::Missing | RemovalOutcome::Removed) => {}
+            Ok(outcome) => crate::log_info!(
+                "[ScreenRecord] retired component cleanup deferred id={id} outcome={outcome:?}"
+            ),
+            Err(error) => crate::log_info!(
+                "[ScreenRecord] retired component cleanup failed id={id} error={error:#}"
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
 mod startup_path_tests {
     #[test]
-    fn normal_open_hashes_each_component_inventory_once() {
+    fn normal_open_hashes_each_delivery_inventory_once() {
         let source = include_str!("recorder.rs");
         let start = source.find("fn acquire_verified_components(").unwrap();
         let end = source
             .find("pub(crate) fn refresh_catalog_after_open()")
             .unwrap();
         let acquisition = &source[start..end];
-        assert_eq!(acquisition.matches("lock_component_files(").count(), 2);
+        assert_eq!(acquisition.matches("lock_component_files(").count(), 1);
         assert!(!acquisition.contains("validate_install("));
     }
 
@@ -149,7 +173,7 @@ mod startup_path_tests {
         let end = source.find("fn acquire_verified_components(").unwrap();
         let ready = &source[start..end];
         let acquire = ready.find("acquire_verified_components(").unwrap();
-        let install = ready.find("install::ensure_pair(").unwrap();
+        let install = ready.find("install::ensure_group(").unwrap();
         assert!(
             acquire < install,
             "a healthy install must be acquired before any restating install pass"
@@ -189,29 +213,33 @@ pub(crate) fn download_title() -> String {
 }
 
 pub(crate) fn is_installed() -> bool {
-    let (Ok(web), Ok(worker)) = (delivery(WEB_ID), delivery(WORKER_ID)) else {
-        return false;
-    };
-    validate_status(web).is_ok() && validate_status(worker).is_ok()
+    delivery_group().is_ok_and(|deliveries| {
+        deliveries
+            .iter()
+            .all(|delivery| validate_status(delivery).is_ok())
+    })
 }
 
 pub(crate) fn delivery_available() -> bool {
-    delivery(WEB_ID).is_ok() && delivery(WORKER_ID).is_ok()
+    delivery_group().is_ok()
 }
 
 pub(crate) fn installed_size() -> u64 {
-    [WEB_ID, WORKER_ID]
-        .into_iter()
-        .filter_map(|id| delivery(id).ok())
-        .filter(|entry| validate_status(entry).is_ok())
-        .map(|entry| entry.unpacked_size_bytes)
-        .sum()
+    delivery_group().map_or(0, |deliveries| {
+        deliveries
+            .into_iter()
+            .filter(|entry| validate_status(entry).is_ok())
+            .map(|entry| entry.unpacked_size_bytes)
+            .sum()
+    })
 }
 
 pub(crate) fn remove_all() -> Result<()> {
     let _worker_shutdown = crate::overlay::screen_record::stop_for_component_removal()?;
-    remove_one(WORKER_ID)?;
-    remove_one(WEB_ID)
+    for id in [BUNDLE_ID, WORKER_ID, WEB_ID] {
+        remove_one(id)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn purge_all_recorded_recoveries() -> Result<Vec<recovery::CleanupOutcome>> {
@@ -351,6 +379,13 @@ fn delivery(id: &str) -> Result<&'static RecorderDelivery> {
         .iter()
         .find(|entry| entry.id == id)
         .ok_or_else(|| anyhow::anyhow!("Screen Recorder download contract is unavailable"))
+}
+
+fn delivery_group() -> Result<Vec<&'static RecorderDelivery>> {
+    if let Ok(bundle) = delivery(BUNDLE_ID) {
+        return Ok(vec![bundle]);
+    }
+    Ok(vec![delivery(WEB_ID)?, delivery(WORKER_ID)?])
 }
 
 fn version_root(delivery: &RecorderDelivery) -> Result<PathBuf> {
@@ -551,7 +586,7 @@ fn receipt(delivery: &RecorderDelivery) -> ComponentReceipt {
 #[cfg(test)]
 mod acceptance_tests {
     #[test]
-    fn tracked_delivery_contains_recorder_web_and_worker() {
+    fn tracked_delivery_contains_a_complete_recorder_group() {
         assert!(super::delivery_available());
     }
 

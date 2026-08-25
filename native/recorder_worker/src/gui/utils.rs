@@ -11,7 +11,7 @@ fn create_icon(bytes: &[u8], width: i32, height: i32) -> Option<HANDLE> {
         image::imageops::FilterType::Lanczos3,
     );
     let mut pixels = image.to_rgba8().into_raw();
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     let mask = vec![0_u8; ((width * height) / 8) as usize];

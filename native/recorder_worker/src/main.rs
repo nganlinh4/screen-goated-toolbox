@@ -6,7 +6,6 @@ mod api;
 mod atomic_json;
 #[path = "../../../src/component_registry/mod.rs"]
 mod component_registry;
-#[path = "../../../src/config/mod.rs"]
 mod config;
 #[path = "../../../src/crypto.rs"]
 mod crypto;
@@ -16,16 +15,17 @@ mod gui;
 mod initialization;
 #[path = "../../../src/lang_detect.rs"]
 mod lang_detect;
-#[path = "../../../src/model_feed.rs"]
-mod model_feed;
 #[path = "../../../src/model_config.rs"]
 mod model_config;
+#[path = "../../../src/model_feed.rs"]
+mod model_feed;
 mod overlay;
 #[path = "../../../src/paths.rs"]
 mod paths;
 #[path = "../../../src/retry_model_chain.rs"]
 mod retry_model_chain;
 mod runtime_support;
+mod task_runtime;
 #[path = "../../../src/unpack_dlls.rs"]
 mod unpack_dlls;
 mod usage_stats;
