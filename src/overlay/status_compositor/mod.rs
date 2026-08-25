@@ -5,6 +5,7 @@ mod input;
 mod mailbox;
 mod parent;
 pub(crate) mod protocol;
+mod region;
 pub(crate) mod smoke;
 
 use protocol::{HostCommand, NotificationScene, PhysicalRect, ProgressScene, RecordingScene};
@@ -42,13 +43,9 @@ pub(crate) fn run_child() -> anyhow::Result<()> {
     child::run()
 }
 
-pub(crate) fn warmup() {
-    parent::warmup();
-}
-
 pub(crate) fn update_theme(is_dark: bool) {
     parent::SNAPSHOT.lock().unwrap().is_dark = is_dark;
-    parent::send(HostCommand::Theme { is_dark });
+    parent::send_if_running(HostCommand::Theme { is_dark });
 }
 
 pub(crate) fn recording_prepare(rect: PhysicalRect) {

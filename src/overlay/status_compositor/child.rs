@@ -21,7 +21,7 @@ static SCRIPT_RESYNC_PENDING: AtomicBool = AtomicBool::new(false);
 static REGISTER_CLASS: Once = Once::new();
 static COMMANDS: LazyLock<Mutex<CommandBuffer>> =
     LazyLock::new(|| Mutex::new(CommandBuffer::default()));
-static SCENE: LazyLock<Mutex<StatusSnapshot>> =
+pub(super) static SCENE: LazyLock<Mutex<StatusSnapshot>> =
     LazyLock::new(|| Mutex::new(StatusSnapshot::default()));
 static STDOUT: LazyLock<Mutex<std::io::Stdout>> = LazyLock::new(|| Mutex::new(std::io::stdout()));
 
@@ -94,6 +94,7 @@ fn create_window() -> anyhow::Result<HWND> {
             None,
         )?;
         SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA)?;
+        super::region::initialize(hwnd);
         Ok(hwnd)
     }
 }
@@ -232,6 +233,7 @@ fn drain_commands(hwnd: HWND) {
         return;
     }
     let commands = COMMANDS.lock().unwrap().drain();
+    let mut scene_changed = false;
     for command in commands {
         if matches!(command, HostCommand::Shutdown) {
             unsafe {
@@ -240,9 +242,13 @@ fn drain_commands(hwnd: HWND) {
             return;
         }
         apply_native_state(&command);
+        scene_changed = true;
         if let Ok(json) = serde_json::to_string(&command) {
             execute_script(&format!("window.applyStatusCommand({json});"));
         }
+    }
+    if scene_changed {
+        super::region::update(hwnd, &SCENE.lock().unwrap());
     }
 }
 
@@ -299,7 +305,10 @@ fn apply_native_state(command: &HostCommand) {
         }
         HostCommand::ImageBadgeHide => scene.selection.image_visible = false,
         HostCommand::SelectionCapture { visible, .. } => scene.selection.capture_visible = *visible,
-        HostCommand::NotificationAdd { rect, .. } => scene.notification_rect = *rect,
+        HostCommand::NotificationAdd { rect, notification } => {
+            scene.notification_rect = *rect;
+            scene.notifications.push(notification.clone());
+        }
         HostCommand::Shutdown => {}
     }
     let recording = scene.recording.clone();
@@ -332,25 +341,23 @@ pub(super) fn handle_renderer_message(body: &str) {
         RENDERER_READY.store(true, Ordering::SeqCst);
         let value = HOST_HWND.load(Ordering::SeqCst);
         if value != 0 {
-            unsafe {
-                let hwnd = HWND(value as *mut std::ffi::c_void);
-                let display = super::display_metrics(hwnd);
-                execute_script(&format!(
-                    "window.statusDisplayChanged({{x:{},y:{},width:{},height:{},scale:{}}});",
-                    display.x, display.y, display.width, display.height, display.scale
-                ));
-                drain_commands(hwnd);
-                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                let _ = SetWindowPos(
-                    hwnd,
-                    Some(HWND_TOPMOST),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                );
-            }
+            let hwnd = HWND(value as *mut std::ffi::c_void);
+            let display = super::display_metrics(hwnd);
+            execute_script(&format!(
+                "window.statusDisplayChanged({{x:{},y:{},width:{},height:{},scale:{}}});",
+                display.x, display.y, display.width, display.height, display.scale
+            ));
+            drain_commands(hwnd);
+            super::region::update(hwnd, &SCENE.lock().unwrap());
+        }
+    } else if let ChildEvent::NotificationFinished { through_id } = &event {
+        let mut scene = SCENE.lock().unwrap();
+        scene
+            .notifications
+            .retain(|notification| notification.id > *through_id);
+        let value = HOST_HWND.load(Ordering::SeqCst);
+        if value != 0 {
+            super::region::update(HWND(value as *mut std::ffi::c_void), &scene);
         }
     }
     emit_event(event);

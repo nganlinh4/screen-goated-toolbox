@@ -109,6 +109,16 @@ pub(super) fn send(command: HostCommand) {
     signal_delivery();
 }
 
+/// Update an already-running renderer without turning a passive state change
+/// into an overlay-host startup. A later start receives the same value through
+/// the authoritative snapshot.
+pub(super) fn send_if_running(command: HostCommand) {
+    if LIVE_GENERATION.load(Ordering::SeqCst) == 0 || PROCESS.lock().unwrap().is_none() {
+        return;
+    }
+    send(command);
+}
+
 pub(super) fn wait_for_capture(request_id: u64, timeout: Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {

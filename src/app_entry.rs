@@ -117,7 +117,6 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         // Begin the only result renderer as early as possible and overlap its
         // WebView/font bootstrap with the rest of application startup.
         crate::overlay::result::scene_compositor::warmup();
-        crate::overlay::status_compositor::warmup();
     }
 
     crate::log_info!("Ensuring context menu entry...");
