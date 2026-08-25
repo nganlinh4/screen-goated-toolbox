@@ -152,6 +152,7 @@ mod tests {
         assert!(document.contains("Unified result controls did not initialize"));
         assert!(document.contains("hideControlsForDrag"));
         assert!(document.contains("releaseDragPreview"));
+        assert!(document.contains("hasReleasedDragPreview"));
         assert!(document.contains("awaitingDragSettle = true"));
         assert!(document.contains("style.visibility = 'hidden'"));
         assert!(document.contains("window.clearResultDragControlPreview?.();"));

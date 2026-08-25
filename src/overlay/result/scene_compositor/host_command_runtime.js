@@ -6,8 +6,11 @@ window.applyHostCommand = function(command) {
   } else if (command.type === 'upsert') upsertCard(command.card);
   else if (command.type === 'stream') streamCard(command.card);
   else if (command.type === 'finalize') finalizeCard(command.card);
-  else if (command.type === 'geometry' || command.type === 'drag_settled') {
+  else if (command.type === 'geometry') {
     for (const card of command.cards) updateGeometry(card);
+  } else if (command.type === 'drag_settled') {
+    const preservePreview = window.__SGT_BUTTON_SCENE__?.hasReleasedDragPreview?.() === true;
+    if (!preservePreview) for (const card of command.cards) updateGeometry(card);
   } else if (command.type === 'theme') applyTheme(command.theme);
   else if (command.type === 'raise') {
     const entry = cards.get(String(command.id));

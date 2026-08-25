@@ -127,12 +127,15 @@
     }
   }
 
-  function releaseDragPreview() {
+  function releaseDragPreview(pointerX, pointerY) {
     if (!nativeDrag) return;
     nativeDrag = false;
     awaitingDragSettle = true;
     document.getElementById('button-container').style.visibility = '';
     controlsHiddenForDrag = false;
+    if (Number.isFinite(pointerX) && Number.isFinite(pointerY)) {
+      window.updateCursorPosition?.(pointerX, pointerY);
+    }
   }
 
   function tryPulseCompletion(key) {
@@ -178,6 +181,7 @@
     clearClickableRegions: clearClickableRegions,
     setDragActive: setDragActive,
     releaseDragPreview: releaseDragPreview,
+    hasReleasedDragPreview: function() { return awaitingDragSettle; },
     pulseCompletion: pulseCompletion
   };
 })();

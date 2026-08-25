@@ -75,14 +75,18 @@ fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() 
     assert!(hiding.contains("clearClickableRegions()"));
     assert!(hiding.contains("style.visibility = 'hidden'"));
     assert!(pointer.contains("group.style.translate = offset"));
-    assert!(pointer.contains("window.__SGT_BUTTON_SCENE__?.releaseDragPreview()"));
+    assert!(pointer.contains("window.__SGT_BUTTON_SCENE__?.releaseDragPreview("));
     let released = controls
-        .split("function releaseDragPreview()")
+        .split("function releaseDragPreview(pointerX, pointerY)")
         .nth(1)
         .unwrap();
     assert!(released.contains("awaitingDragSettle = true"));
     assert!(released.contains("style.visibility = ''"));
+    assert!(released.contains("window.updateCursorPosition?.(pointerX, pointerY)"));
     assert!(!released.contains("clearResultDragControlPreview"));
+    let host_commands = include_str!("host_command_runtime.js");
+    assert!(host_commands.contains("hasReleasedDragPreview?.() === true"));
+    assert!(host_commands.contains("if (!preservePreview)"));
     let settled = controls.find("command.type === 'drag_settled'").unwrap();
     let merge = controls[settled..].find("mergeCard(card)").unwrap();
     let reveal = controls[settled..].find("setDragActive(false)").unwrap();
