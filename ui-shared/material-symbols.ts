@@ -5,6 +5,7 @@ import close from "./material-symbols/close.svg?raw";
 import compareArrows from "./material-symbols/compare_arrows.svg?raw";
 import deleteIcon from "./material-symbols/delete.svg?raw";
 import deployedCode from "./material-symbols/deployed_code.svg?raw";
+import download from "./material-symbols/download.svg?raw";
 import drawCollage from "./material-symbols/draw_collage.svg?raw";
 import edit from "./material-symbols/edit.svg?raw";
 import fitScreen from "./material-symbols/fit_screen.svg?raw";
@@ -33,6 +34,7 @@ export const MATERIAL_SYMBOLS = {
   compareArrows,
   delete: deleteIcon,
   deployedCode,
+  download,
   drawCollage,
   edit,
   fitScreen,

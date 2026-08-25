@@ -65,11 +65,7 @@ internal class FavoriteBubbleHtmlBuilder {
             PresetType.TEXT_SELECT -> WINDOWS_TEXT_SELECT_ICON to if (isDark) "#55ff88" else "#388e3c"
             PresetType.TEXT_INPUT -> WINDOWS_TEXT_TYPE_ICON to if (isDark) "#55ff88" else "#388e3c"
             PresetType.MIC -> {
-                if (preset.preset.audioProcessingMode == "realtime") {
-                    WINDOWS_REALTIME_ICON to if (isDark) "#ff5555" else "#d32f2f"
-                } else {
-                    WINDOWS_MIC_ICON to if (isDark) "#ffaa33" else "#f57c00"
-                }
+                WINDOWS_MIC_ICON to if (isDark) "#ffaa33" else "#f57c00"
             }
             PresetType.DEVICE_AUDIO -> WINDOWS_DEVICE_ICON to if (isDark) "#ffaa33" else "#f57c00"
         }
@@ -101,5 +97,3 @@ private const val WINDOWS_MIC_ICON =
     """<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M9.875 13.125Q9 12.25 9 11V5q0-1.25.875-2.125T12 2t2.125.875T15 5v6q0 1.25-.875 2.125T12 14t-2.125-.875M11 21v-3.075q-2.6-.35-4.3-2.325T5 11h2q0 2.075 1.463 3.538T12 16t3.538-1.463T17 11h2q0 2.625-1.7 4.6T13 17.925V21z"/></svg>"""
 private const val WINDOWS_DEVICE_ICON =
     """<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19q-.825 0-1.412-.587T8 17V3q0-.825.588-1.412T10 1h9q.825 0 1.413.588T21 3v14q0 .825-.587 1.413T19 19zm4.5-11.5q.625 0 1.063-.437T16 6t-.437-1.062T14.5 4.5t-1.062.438T13 6t.438 1.063T14.5 7.5m0 8.5q1.45 0 2.475-1.025T18 12.5t-1.025-2.475T14.5 9t-2.475 1.025T11 12.5t1.025 2.475T14.5 16m0-2q-.625 0-1.062-.437T13 12.5t.438-1.062T14.5 11t1.063.438T16 12.5t-.437 1.063T14.5 14m1.5 9H6q-.825 0-1.412-.587T4 21V5h2v16h10z"/></svg>"""
-private const val WINDOWS_REALTIME_ICON =
-    """<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M7 18V6h2v12zm4 4V2h2v20zm-8-8v-4h2v4zm12 4V6h2v12zm4-4v-4h2v4z"/></svg>"""

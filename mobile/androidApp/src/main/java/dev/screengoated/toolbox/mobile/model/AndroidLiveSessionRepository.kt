@@ -38,7 +38,6 @@ class AndroidLiveSessionRepository(
     private val historyRepository: HistoryRepository,
 ) {
     private var persistedConfig = normalizeConfig(settingsStore.loadConfig())
-    private var transientSessionConfigActive = false
     private val mutableApiKey = MutableStateFlow(settingsStore.loadApiKey())
     private val mutableGroqApiKey = MutableStateFlow(settingsStore.loadGroqApiKey())
     private val mutableOpenRouterApiKey = MutableStateFlow(settingsStore.loadOpenRouterApiKey())
@@ -85,28 +84,10 @@ class AndroidLiveSessionRepository(
         if (patch.targetLanguage != null && patch.targetLanguage != previousLanguage) {
             store.clearTranslationHistory()
         }
-        if (!transientSessionConfigActive) {
-            persistedConfig = state.value.config
-            settingsStore.saveConfig(persistedConfig)
-        }
+        persistedConfig = state.value.config
+        settingsStore.saveConfig(persistedConfig)
         refreshPermissions()
     }
-
-    fun applyTransientSessionConfig(config: LiveSessionConfig) {
-        transientSessionConfigActive = true
-        store.hydrate(config, permissionEvaluator.evaluate(context, config, overlaySupported))
-    }
-
-    fun clearTransientSessionConfig() {
-        if (!transientSessionConfigActive) {
-            return
-        }
-        transientSessionConfigActive = false
-        val permissions = permissionEvaluator.evaluate(context, persistedConfig, overlaySupported)
-        store.hydrate(persistedConfig, permissions)
-    }
-
-    fun isTransientSessionConfigActive(): Boolean = transientSessionConfigActive
 
     fun updateApiKey(apiKey: String) {
         mutableApiKey.value = apiKey

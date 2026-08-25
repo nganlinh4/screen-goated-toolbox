@@ -156,6 +156,14 @@ impl AppTheme {
             Color32::from_rgb(20, 116, 148),
         )
     }
+
+    /// Live Translate footer launcher — clear signal blue.
+    pub fn launch_live_translate(&self) -> Color32 {
+        self.pick(
+            Color32::from_rgb(77, 171, 247),
+            Color32::from_rgb(37, 99, 235),
+        )
+    }
     /// TTS Playground footer launcher — warm amber (dark) / terracotta (light).
     pub fn launch_tts(&self) -> Color32 {
         self.pick(

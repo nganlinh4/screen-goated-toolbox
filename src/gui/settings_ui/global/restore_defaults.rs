@@ -407,6 +407,9 @@ fn apply_selected_config_defaults_from(
         let screen_translate_hotkeys = config.screen_translate.hotkeys.clone();
         config.screen_translate = defaults.screen_translate.clone();
         config.screen_translate.hotkeys = screen_translate_hotkeys;
+        let live_translate_hotkeys = config.live_translate.hotkeys.clone();
+        config.live_translate = defaults.live_translate.clone();
+        config.live_translate.hotkeys = live_translate_hotkeys;
         let legacy_hotkey = config.translation_gummy.hotkey.clone();
         let hotkeys = config.translation_gummy.hotkeys.clone();
         config.translation_gummy = defaults.translation_gummy.clone();

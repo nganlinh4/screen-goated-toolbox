@@ -3,6 +3,7 @@ mod badge;
 mod desktop_settings;
 mod download;
 mod global_settings;
+mod live_translate;
 mod managed_tools;
 mod model_catalog;
 mod overlay;
@@ -25,6 +26,7 @@ pub use badge::BadgeLocaleText;
 pub use desktop_settings::DesktopSettingsLocaleText;
 pub use download::DownloadLocaleText;
 pub use global_settings::GlobalSettingsLocaleText;
+pub use live_translate::LiveTranslateLocaleText;
 pub use managed_tools::ManagedToolsLocaleText;
 pub use model_catalog::ModelCatalogLocaleText;
 pub use overlay::OverlayLocaleText;
@@ -70,6 +72,7 @@ impl LocaleText {
                     GlobalHotkeyOwner::ScreenTranslate => {
                         self.screen_translate.screen_translate_title
                     }
+                    GlobalHotkeyOwner::LiveTranslate => self.live_translate.live_translate_title,
                     GlobalHotkeyOwner::TranslationGummy => {
                         self.translation_gummy.translation_gummy_title
                     }

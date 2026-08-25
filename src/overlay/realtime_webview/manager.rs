@@ -1,6 +1,6 @@
 //! Parent-side lifecycle for the isolated realtime compositor.
 
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -11,15 +11,16 @@ use super::layout;
 use super::protocol::{CardSettings, RealtimeScene};
 use super::state::*;
 use crate::APP;
-use crate::api::realtime_audio::start_realtime_transcription;
+use crate::api::realtime_audio::{RealtimeSessionPlan, start_realtime_transcription};
+use crate::config::LiveTranslateInterface;
 
-static PENDING_REALTIME_START_PRESET: AtomicIsize = AtomicIsize::new(-1);
+static PENDING_REALTIME_START: AtomicBool = AtomicBool::new(false);
 static RELAY_STARTING: AtomicBool = AtomicBool::new(false);
 static RELAY_READY: AtomicBool = AtomicBool::new(false);
 static REGISTER_RELAY_CLASS: std::sync::Once = std::sync::Once::new();
 
-fn session_transition_in_progress(pending_preset: isize, stopping: bool) -> bool {
-    pending_preset >= 0 || stopping
+fn session_transition_in_progress(pending_start: bool, stopping: bool) -> bool {
+    pending_start || stopping
 }
 
 pub fn is_realtime_overlay_active() -> bool {
@@ -29,7 +30,7 @@ pub fn is_realtime_overlay_active() -> bool {
         return true;
     }
     if session_transition_in_progress(
-        PENDING_REALTIME_START_PRESET.load(Ordering::SeqCst),
+        PENDING_REALTIME_START.load(Ordering::SeqCst),
         REALTIME_SESSION_STOPPING.load(Ordering::SeqCst),
     ) {
         return true;
@@ -44,7 +45,7 @@ pub fn stop_realtime_overlay() {
         crate::overlay::realtime_egui::stop_minimal_overlay();
         return;
     }
-    PENDING_REALTIME_START_PRESET.store(-1, Ordering::SeqCst);
+    PENDING_REALTIME_START.store(false, Ordering::SeqCst);
     super::controller::stop_runtime_flags();
     let hwnd = relay_hwnd();
     if hwnd.is_invalid() {
@@ -56,22 +57,17 @@ pub fn stop_realtime_overlay() {
     }
 }
 
-pub fn show_realtime_overlay(preset_idx: usize) {
-    if crate::overlay::realtime_egui::recently_stopped_minimal(preset_idx) {
+pub fn show_realtime_overlay() {
+    if crate::overlay::realtime_egui::recently_stopped_minimal() {
         return;
     }
     let mode = APP
         .lock()
         .ok()
-        .and_then(|app| {
-            app.config
-                .presets
-                .get(preset_idx)
-                .map(|preset| preset.realtime_window_mode.clone())
-        })
+        .map(|app| app.config.live_translate.interface)
         .unwrap_or_default();
-    if mode == "minimal" {
-        crate::overlay::realtime_egui::show_realtime_egui_overlay(preset_idx);
+    if mode == LiveTranslateInterface::Minimal {
+        crate::overlay::realtime_egui::show_realtime_egui_overlay();
         return;
     }
     if crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst) {
@@ -87,7 +83,7 @@ pub fn show_realtime_overlay(preset_idx: usize) {
             return;
         }
     }
-    PENDING_REALTIME_START_PRESET.store(preset_idx as isize, Ordering::SeqCst);
+    PENDING_REALTIME_START.store(true, Ordering::SeqCst);
     ensure_relay();
     post_pending_start();
 }
@@ -180,7 +176,7 @@ unsafe extern "system" fn relay_window_proc(
 ) -> LRESULT {
     unsafe {
         if message == WM_APP_REALTIME_START {
-            handle_start_overlay(wparam.0);
+            handle_start_overlay();
             return LRESULT(0);
         }
         super::wndproc::realtime_wnd_proc(hwnd, message, wparam, lparam)
@@ -191,26 +187,20 @@ fn post_pending_start() {
     if !RELAY_READY.load(Ordering::SeqCst) {
         return;
     }
-    let preset = PENDING_REALTIME_START_PRESET.load(Ordering::SeqCst);
-    if preset < 0 {
+    if !PENDING_REALTIME_START.load(Ordering::SeqCst) {
         return;
     }
     let hwnd = relay_hwnd();
     if !hwnd.is_invalid() {
         unsafe {
-            let _ = PostMessageW(
-                Some(hwnd),
-                WM_APP_REALTIME_START,
-                WPARAM(preset as usize),
-                LPARAM(0),
-            );
+            let _ = PostMessageW(Some(hwnd), WM_APP_REALTIME_START, WPARAM(0), LPARAM(0));
         }
     }
 }
 
 fn relay_failed(reason: &str) {
     RELAY_STARTING.store(false, Ordering::SeqCst);
-    PENDING_REALTIME_START_PRESET.store(-1, Ordering::SeqCst);
+    PENDING_REALTIME_START.store(false, Ordering::SeqCst);
     crate::log_info!("[RealtimeCompositor] parent relay failed: {reason}");
 }
 
@@ -218,9 +208,9 @@ fn relay_hwnd() -> HWND {
     unsafe { std::ptr::addr_of!(REALTIME_HWND).read() }
 }
 
-fn handle_start_overlay(preset_idx: usize) {
-    if PENDING_REALTIME_START_PRESET
-        .compare_exchange(preset_idx as isize, -1, Ordering::SeqCst, Ordering::SeqCst)
+fn handle_start_overlay() {
+    if PENDING_REALTIME_START
+        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
         return;
@@ -230,13 +220,6 @@ fn handle_start_overlay(preset_idx: usize) {
             return;
         }
     }
-    let Some(mut preset) = APP
-        .lock()
-        .ok()
-        .and_then(|app| app.config.presets.get(preset_idx).cloned())
-    else {
-        return;
-    };
     let session_config = super::controller::load_session_config();
     let (translation_size, transcription_size) = {
         let app = APP.lock().unwrap();
@@ -246,13 +229,11 @@ fn handle_start_overlay(preset_idx: usize) {
         )
     };
     super::controller::reset_runtime_for_new_session();
-    let target_language = resolve_target_language(&preset, &session_config.target_language);
+    let target_language = resolve_target_language(&session_config.target_language);
     let mut active_config = session_config;
     active_config.target_language.clone_from(&target_language);
     super::controller::apply_session_config(&active_config);
-    preset.audio_source = active_config.audio_source.clone();
-
-    let has_translation = preset.blocks.len() > 1;
+    let has_translation = true;
     let layout = initial_layout(transcription_size, translation_size, has_translation);
     MIC_VISIBLE.store(true, Ordering::SeqCst);
     TRANS_VISIBLE.store(has_translation, Ordering::SeqCst);
@@ -277,7 +258,11 @@ fn handle_start_overlay(preset_idx: usize) {
     let hwnd = relay_hwnd();
     let translation_hwnd = has_translation.then_some(hwnd);
     start_realtime_transcription(
-        preset,
+        RealtimeSessionPlan {
+            audio_source: active_config.audio_source,
+            target_language: active_config.target_language,
+            has_translation,
+        },
         current_stop_signal(),
         hwnd,
         translation_hwnd,
@@ -285,25 +270,11 @@ fn handle_start_overlay(preset_idx: usize) {
     );
 }
 
-fn resolve_target_language(preset: &crate::config::Preset, configured: &str) -> String {
+fn resolve_target_language(configured: &str) -> String {
     if !configured.is_empty() {
         return configured.to_string();
     }
-    preset
-        .blocks
-        .get(1)
-        .and_then(|block| {
-            if !block.selected_language.is_empty() {
-                Some(block.selected_language.clone())
-            } else {
-                block
-                    .language_vars
-                    .get("language")
-                    .cloned()
-                    .or_else(|| block.language_vars.get("language1").cloned())
-            }
-        })
-        .unwrap_or_else(|| "English".to_string())
+    "English".to_string()
 }
 
 fn initial_layout(
@@ -354,9 +325,9 @@ mod tests {
 
     #[test]
     fn pending_or_stopping_session_remains_available_to_the_toggle() {
-        assert!(session_transition_in_progress(0, false));
-        assert!(session_transition_in_progress(-1, true));
-        assert!(!session_transition_in_progress(-1, false));
+        assert!(session_transition_in_progress(true, false));
+        assert!(session_transition_in_progress(false, true));
+        assert!(!session_transition_in_progress(false, false));
     }
 
     #[test]

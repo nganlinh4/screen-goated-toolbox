@@ -1,5 +1,4 @@
 use super::state::{RealtimeState, TranscriptionMethod};
-use crate::config::Preset;
 use anyhow::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -67,7 +66,6 @@ fn load_parakeet_model_with_repair(
 
 /// Wrapper for the existing Realtime Overlay functionality
 pub fn run_parakeet_transcription(
-    _preset: Preset,
     stop_signal: Arc<AtomicBool>,
     dummy_pause_signal: Arc<AtomicBool>,
     full_audio_buffer: Option<Arc<Mutex<Vec<i16>>>>,

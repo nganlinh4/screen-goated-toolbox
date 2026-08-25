@@ -23,7 +23,6 @@ import dev.screengoated.toolbox.mobile.preset.resolvePrompt
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.service.ScreenshotCaptureFailureReason
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
-import dev.screengoated.toolbox.mobile.service.LiveTranslateService
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
@@ -38,11 +37,6 @@ import kotlin.math.roundToInt
 
 // Audio-launch flow extracted from PresetOverlayController.
 internal fun PresetOverlayController.launchAudioPreset(resolved: ResolvedPreset) {
-    if (resolved.preset.audioProcessingMode == "realtime") {
-        onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
-        launchRealtimeAudioPreset(resolved)
-        return
-    }
     val foregroundMode = if (resolved.preset.audioSource == "device") {
         PresetAudioForegroundMode.MEDIA_PROJECTION
     } else {
@@ -133,38 +127,3 @@ internal fun PresetOverlayController.requiresAccessibilityForAudioAutoPaste(reso
     return resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.MIC ||
         resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.DEVICE_AUDIO
 }
-
-internal fun PresetOverlayController.launchRealtimeAudioPreset(resolved: ResolvedPreset) {
-    val phase = appContainer.repository.state.value.phase
-    val activeRealtimePresetId = appContainer.audioPresetLaunchStore.activeRealtimePresetId()
-    if (
-        activeRealtimePresetId == resolved.preset.id &&
-        appContainer.repository.isTransientSessionConfigActive() &&
-        phase in setOf(
-            dev.screengoated.toolbox.mobile.shared.live.SessionPhase.STARTING,
-            dev.screengoated.toolbox.mobile.shared.live.SessionPhase.LISTENING,
-            dev.screengoated.toolbox.mobile.shared.live.SessionPhase.TRANSLATING,
-        )
-    ) {
-        LiveTranslateService.stop(context)
-        appContainer.audioPresetLaunchStore.setActiveRealtimePresetId(null)
-        return
-    }
-    appContainer.audioPresetLaunchStore.set(
-        AudioPresetLaunchRequest(
-            presetId = resolved.preset.id,
-            kind = AudioPresetLaunchKind.REALTIME,
-        ),
-    )
-    context.startActivity(
-        Intent(context, MainActivity::class.java).apply {
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP,
-            )
-            putExtra(MainActivity.EXTRA_RESUME_PENDING_AUDIO_PRESET, true)
-        },
-    )
-}
-

@@ -1,0 +1,16 @@
+pub struct LiveTranslateLocaleText {
+    pub live_translate_title: &'static str,
+    pub live_translate_btn: &'static str,
+    pub live_translate_intro: &'static str,
+    pub live_translate_input_title: &'static str,
+    pub live_translate_translation_title: &'static str,
+    pub live_translate_display_title: &'static str,
+    pub live_translate_interface: &'static str,
+    pub live_translate_interface_standard: &'static str,
+    pub live_translate_interface_minimal: &'static str,
+    pub live_translate_font_size: &'static str,
+    pub live_translate_hotkey_label: &'static str,
+    pub live_translate_hotkey_unset: &'static str,
+    pub live_translate_start: &'static str,
+    pub live_translate_stop: &'static str,
+}

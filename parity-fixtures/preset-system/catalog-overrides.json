@@ -99,14 +99,6 @@
       }
     },
     {
-      "name": "realtime_audio_preset_is_repository_executable",
-      "preset_id": "preset_realtime_audio_translate",
-      "expected_execution": {
-        "supported": true,
-        "reason": null
-      }
-    },
-    {
       "name": "html_output_text_input_is_repository_executable",
       "preset_id": "preset_make_game",
       "expected_execution": {

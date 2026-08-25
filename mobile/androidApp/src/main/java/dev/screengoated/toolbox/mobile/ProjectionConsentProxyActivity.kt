@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchKind
 import dev.screengoated.toolbox.mobile.service.BubbleService
 import dev.screengoated.toolbox.mobile.service.LiveTranslateService
 
@@ -21,37 +20,10 @@ class ProjectionConsentProxyActivity : ComponentActivity() {
             appContainer.repository.rememberProjectionConsent(result.resultCode, result.data)
             when (intent?.getStringExtra(EXTRA_FLOW)) {
                 FLOW_RESUME_CAPTURE_PRESET -> BubbleService.resumePendingAudioPreset(this)
-                FLOW_RESUME_REALTIME_PRESET -> {
-                    val pending = appContainer.audioPresetLaunchStore.peek()
-                    if (pending?.kind != AudioPresetLaunchKind.REALTIME) {
-                        appContainer.audioPresetLaunchStore.clear()
-                    } else {
-                        val resolved = appContainer.presetRepository.getResolvedPreset(pending.presetId)
-                        if (resolved == null) {
-                            appContainer.audioPresetLaunchStore.clear()
-                            Toast.makeText(
-                                this,
-                                uiLocalized().getString(R.string.projection_realtime_preset_unavailable),
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        } else {
-                            appContainer.repository.applyTransientSessionConfig(
-                                resolved.preset.toRealtimeSessionConfig(
-                                    fallback = appContainer.repository.currentConfig(),
-                                ),
-                            )
-                            appContainer.audioPresetLaunchStore.setActiveRealtimePresetId(resolved.preset.id)
-                            appContainer.audioPresetLaunchStore.clear()
-                            LiveTranslateService.start(this)
-                        }
-                    }
-                }
                 else -> LiveTranslateService.start(this)
             }
         } else {
-            if (intent?.getStringExtra(EXTRA_FLOW) == FLOW_RESUME_CAPTURE_PRESET ||
-                intent?.getStringExtra(EXTRA_FLOW) == FLOW_RESUME_REALTIME_PRESET
-            ) {
+            if (intent?.getStringExtra(EXTRA_FLOW) == FLOW_RESUME_CAPTURE_PRESET) {
                 appContainer.audioPresetLaunchStore.clear()
             }
             Toast.makeText(
@@ -88,7 +60,6 @@ class ProjectionConsentProxyActivity : ComponentActivity() {
         private const val EXTRA_FLOW = "dev.screengoated.toolbox.mobile.extra.PROJECTION_FLOW"
         private const val FLOW_START_SESSION = "start_session"
         private const val FLOW_RESUME_CAPTURE_PRESET = "resume_capture_preset"
-        private const val FLOW_RESUME_REALTIME_PRESET = "resume_realtime_preset"
 
         fun startSessionIntent(context: Context): Intent {
             return Intent(context, ProjectionConsentProxyActivity::class.java)
@@ -102,10 +73,5 @@ class ProjectionConsentProxyActivity : ComponentActivity() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
         }
 
-        fun resumeRealtimePresetIntent(context: Context): Intent {
-            return Intent(context, ProjectionConsentProxyActivity::class.java)
-                .putExtra(EXTRA_FLOW, FLOW_RESUME_REALTIME_PRESET)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-        }
     }
 }

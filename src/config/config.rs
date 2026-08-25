@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
     AdaptiveModelPriority, CustomModelDefinition, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT,
-    EdgeTtsSettings, Hotkey, KokoroSettings, MagpieSettings, ModelPriorityChains,
-    PendingPresetModelUpdate, PresetProfile, RestoreDefaultsSelection, ScreenTranslateSettings,
-    StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings, ThemeMode,
-    TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    EdgeTtsSettings, Hotkey, KokoroSettings, LiveTranslateSettings, MagpieSettings,
+    ModelPriorityChains, PendingPresetModelUpdate, PresetProfile, RestoreDefaultsSelection,
+    ScreenTranslateSettings, StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings,
+    ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
     VieneuSettings, VoxtralSettings, default_result_overlay_opacity_percent,
     default_tts_language_conditions, get_system_ui_language,
 };
@@ -467,6 +467,10 @@ pub struct Config {
     /// Settings for the in-place Screen Translate mini app.
     #[serde(default = "default_screen_translate_settings")]
     pub screen_translate: ScreenTranslateSettings,
+
+    /// Launcher-owned settings for the Live Translate mini app.
+    #[serde(default)]
+    pub live_translate: LiveTranslateSettings,
 }
 
 fn default_screen_record_hotkeys() -> Vec<Hotkey> {
@@ -575,6 +579,7 @@ impl Default for Config {
             screen_record_window_size: default_screen_record_window_size(),
             translation_gummy: default_translation_gummy_settings(),
             screen_translate: default_screen_translate_settings(),
+            live_translate: LiveTranslateSettings::default(),
         }
     }
 }

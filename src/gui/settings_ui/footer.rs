@@ -27,6 +27,7 @@ pub(crate) fn footer_minimum_window_width(content_width: f32) -> f32 {
 pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggles<'_>) -> f32 {
     let FooterToggles {
         show_computer_control,
+        show_live_translate,
         show_screen_translate,
         show_pointer_gallery,
         show_translation_gummy,
@@ -95,6 +96,19 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
                     computer_control_response.rect,
                 );
             });
+
+            if compact_filled_icon_button(
+                ui,
+                Icon::Rtt,
+                text.live_translate.live_translate_btn,
+                theme.launch_live_translate(),
+                btn_text,
+                6,
+            )
+            .clicked()
+            {
+                *show_live_translate = true;
+            }
 
             if compact_filled_icon_button(
                 ui,
@@ -256,6 +270,7 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
 
 pub struct FooterToggles<'a> {
     pub show_computer_control: &'a mut bool,
+    pub show_live_translate: &'a mut bool,
     pub show_screen_translate: &'a mut bool,
     pub show_pointer_gallery: &'a mut bool,
     pub show_translation_gummy: &'a mut bool,
@@ -299,6 +314,7 @@ mod tests {
             AppTheme::apply_global_style(&context, false);
             let text = LocaleText::get(language);
             let mut show_computer_control = false;
+            let mut show_live_translate = false;
             let mut show_screen_translate = false;
             let mut show_pointer_gallery = false;
             let mut show_translation_gummy = false;
@@ -320,6 +336,7 @@ mod tests {
                                 &text,
                                 FooterToggles {
                                     show_computer_control: &mut show_computer_control,
+                                    show_live_translate: &mut show_live_translate,
                                     show_screen_translate: &mut show_screen_translate,
                                     show_pointer_gallery: &mut show_pointer_gallery,
                                     show_translation_gummy: &mut show_translation_gummy,

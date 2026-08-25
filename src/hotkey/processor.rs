@@ -45,6 +45,17 @@ pub unsafe extern "system" fn hotkey_proc(
 
 /// Handle a hotkey message.
 fn handle_hotkey(id: i32) {
+    if (crate::hotkey::LIVE_TRANSLATE_HOTKEY_ID..crate::hotkey::SCREEN_TRANSLATE_HOTKEY_ID)
+        .contains(&id)
+    {
+        if overlay::is_realtime_overlay_active() {
+            overlay::stop_realtime_overlay();
+        } else {
+            overlay::show_realtime_overlay();
+        }
+        return;
+    }
+
     if (crate::hotkey::SCREEN_TRANSLATE_HOTKEY_ID..crate::hotkey::COMPUTER_CONTROL_HOTKEY_ID)
         .contains(&id)
     {
@@ -275,34 +286,7 @@ fn get_preset_context(id: i32, preset_idx: usize) -> (String, String, bool, Stri
 
 /// Handle audio preset hotkey.
 fn handle_audio_preset(preset_idx: usize) {
-    let is_realtime = {
-        if let Ok(app) = APP.lock() {
-            if preset_idx < app.config.presets.len() {
-                app.config.presets[preset_idx].audio_processing_mode == "realtime"
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    };
-
-    if is_realtime {
-        let is_minimal_active =
-            overlay::realtime_egui::MINIMAL_ACTIVE.load(std::sync::atomic::Ordering::SeqCst);
-        let is_webview_active = overlay::is_realtime_overlay_active();
-
-        if is_webview_active {
-            overlay::stop_realtime_overlay();
-        } else if !is_minimal_active {
-            if overlay::realtime_egui::recently_stopped_minimal(preset_idx) {
-                return;
-            }
-            std::thread::spawn(move || {
-                overlay::show_realtime_overlay(preset_idx);
-            });
-        }
-    } else if overlay::is_recording_overlay_active() {
+    if overlay::is_recording_overlay_active() {
         overlay::stop_recording_and_submit();
     } else {
         std::thread::spawn(move || {

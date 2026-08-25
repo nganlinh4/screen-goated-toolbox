@@ -83,6 +83,7 @@ const AUDIO: &[&str] = &[
 const SHORTCUTS: &[&str] = &[
     "screen_record_window_size",
     "screen_translate",
+    "live_translate",
     "translation_gummy",
 ];
 const LOCAL_DATA: &[&str] = &["clear_webview_on_startup"];
@@ -288,6 +289,16 @@ fn each_category_resets_only_its_owned_fields() {
                     assert_eq!(
                         actual[*key],
                         serde_json::to_value(expected_screen_translate).unwrap(),
+                        "unexpected policy for {key}"
+                    );
+                    continue;
+                }
+                if *key == "live_translate" {
+                    let mut expected_live_translate = defaults.live_translate.clone();
+                    expected_live_translate.hotkeys = config.live_translate.hotkeys.clone();
+                    assert_eq!(
+                        actual[*key],
+                        serde_json::to_value(expected_live_translate).unwrap(),
                         "unexpected policy for {key}"
                     );
                     continue;
@@ -534,6 +545,8 @@ fn non_default_config() -> Config {
     config.translation_gummy.guide_seen = true;
     config.screen_translate.target_language = "Korean".to_string();
     config.screen_translate.hotkeys = vec![Hotkey::new(9, "Translate", 10)];
+    config.live_translate.interface = crate::config::LiveTranslateInterface::Minimal;
+    config.live_translate.hotkeys = vec![Hotkey::new(11, "Live", 12)];
     config
 }
 

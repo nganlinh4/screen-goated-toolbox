@@ -197,16 +197,16 @@ val downloaderRuntimeDeliveryManifest = projectDir.resolve("delivery/downloader-
 val downloaderLauncherSourceRoot = rootProject.projectDir.resolve("../../youtubedl-android")
 val downloaderLauncherContract = linkedMapOf(
     "library/src/main/jniLibs/arm64-v8a/libpython.so" to Pair(
-        5_688L,
-        "1925b8bac20eb935888e86e28e121d3875a5080a823c8f0f6b669142900bdaa8",
+        5_744L,
+        "8184bd26986955434996a971f73af9e878ee50a7b2a14609c9af7cfc70e7ad58",
     ),
     "ffmpeg/src/main/jniLibs/arm64-v8a/libffmpeg.so" to Pair(
-        5_488L,
-        "d978afc3e7354ac00ebe947b5388391bc00e5a66a0ce075dba4b359fe6abaf23",
+        5_336L,
+        "3441cea3739fe72553fbd51bb15a8f949ac8bb15cf9d1aab53d9637b3b4b30cb",
     ),
     "ffmpeg/src/main/jniLibs/arm64-v8a/libffprobe.so" to Pair(
-        5_560L,
-        "82e407f0fc95152bc1d4a713f6b2b680fe8678bf5b929a3b35d765fdf36cb8e4",
+        5_376L,
+        "dba2b6cd18cd32bd12b55db17cb20db29a8ee72a33c998921846f4ec2d03a70a",
     ),
 )
 

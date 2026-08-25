@@ -9,7 +9,6 @@ pub use catalog::ZipformerLanguage;
 
 use super::state::SharedRealtimeState;
 use super::utils::update_overlay_text;
-use crate::config::Preset;
 use anyhow::{Result, anyhow};
 use std::ffi::CString;
 use std::sync::{
@@ -273,7 +272,6 @@ fn build_recognizer_config(
 }
 
 pub fn run_sherpa_transcription(
-    _preset: Preset,
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
     state: SharedRealtimeState,

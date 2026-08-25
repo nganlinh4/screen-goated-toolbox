@@ -59,13 +59,13 @@ pub struct Preset {
     #[serde(default = "default_audio_source")]
     pub audio_source: String,
 
-    /// Audio processing mode: "record_then_process" or "realtime"
-    #[serde(default = "default_audio_processing_mode")]
-    pub audio_processing_mode: String,
-
-    /// Realtime window mode: "standard" (webview) or "minimal" (egui)
-    #[serde(default = "default_realtime_window_mode")]
-    pub realtime_window_mode: String,
+    /// Legacy launcher preference read only while migrating the removed realtime preset.
+    #[serde(
+        rename = "realtime_window_mode",
+        default = "default_realtime_window_mode",
+        skip_serializing
+    )]
+    pub legacy_realtime_window_mode: String,
 
     /// Video capture method
     #[serde(default)]
@@ -151,10 +151,6 @@ fn default_audio_source() -> String {
     "mic".to_string()
 }
 
-fn default_audio_processing_mode() -> String {
-    "record_then_process".to_string()
-}
-
 fn default_realtime_window_mode() -> String {
     "standard".to_string()
 }
@@ -178,8 +174,7 @@ impl Default for Preset {
             preset_type: "image".to_string(),
             text_input_mode: "select".to_string(),
             audio_source: "mic".to_string(),
-            audio_processing_mode: "record_then_process".to_string(),
-            realtime_window_mode: "standard".to_string(),
+            legacy_realtime_window_mode: "standard".to_string(),
             video_capture_method: "region".to_string(),
             auto_paste: false,
             auto_paste_newline: false,
@@ -309,12 +304,6 @@ impl PresetBuilder {
     /// Enable auto-stop recording on silence
     pub fn auto_stop(mut self) -> Self {
         self.preset.auto_stop_recording = true;
-        self
-    }
-
-    /// Enable realtime audio processing
-    pub fn realtime(mut self) -> Self {
-        self.preset.audio_processing_mode = "realtime".to_string();
         self
     }
 

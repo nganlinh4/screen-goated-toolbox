@@ -23,7 +23,6 @@
     <string name="bubble_start_failed">Không thể khởi động SGT bubble.</string>
     <string name="bubble_panel_open_failed">Không thể mở bảng điều khiển bong bóng.</string>
     <string name="help_assistant_overlay_permission_required">Cần quyền lớp phủ để sử dụng Trợ lý Trợ giúp.</string>
-    <string name="projection_realtime_preset_unavailable">Preset âm thanh thời gian thực được yêu cầu hiện không khả dụng.</string>
     <string name="projection_audio_consent_cancelled">Đã hủy đồng ý thu âm thanh thiết bị.</string>
     <string name="projection_unavailable">MediaProjection không khả dụng trên thiết bị này.</string>
     <string name="dj_playback_channel_name">Phát nhạc DJ</string>

@@ -9,7 +9,6 @@
 - Windows record-then-process runtime: [src/api/audio/recording.rs](../../src/api/audio/recording.rs)
 - Windows audio provider routing: [src/api/audio/transcription.rs](../../src/api/audio/transcription.rs), [src/api/audio/gemini_live.rs](../../src/api/audio/gemini_live.rs)
 - Windows audio result/media templates: [src/overlay/process/pipeline.rs](../../src/overlay/process/pipeline.rs), [src/overlay/process/chain/templates.rs](../../src/overlay/process/chain/templates.rs)
-- Windows realtime overlay/runtime: [src/overlay/realtime_webview/manager.rs](../../src/overlay/realtime_webview/manager.rs), [src/overlay/realtime_egui/mod.rs](../../src/overlay/realtime_egui/mod.rs)
 
 ## Behavior Contract
 - Android audio presets launch from the bubble runtime, not from the main inspector screen.
@@ -30,14 +29,13 @@
 - The canonical `preset_transcribe` audio block should keep a generic transcription prompt in the default graph so alternate supported audio models inherit an instruction even though Whisper remains the default model.
 - `gemini-live-audio` and `parakeet-local` stream partial transcript updates during capture and hand the final transcript into the first Android `AUDIO` block without forcing a second full transcription pass.
 - When a streamed audio preset has `autoPaste = true`, Android incrementally injects transcript deltas into the currently focused editable target during capture and suppresses the final preset-level auto-paste to avoid double insertion.
-- Realtime audio presets use the existing Android live-translate service through a transient preset-backed session config. The user’s saved launcher config must be restored after the session ends.
+- Realtime audio is not a preset operation. Live Translate is launched only through its official mini-app entry, while audio presets remain record-then-process workflows.
 - Device-audio presets use inline permission/MediaProjection handoff through the app, then resume the pending preset launch automatically.
 - The bubble host must temporarily promote itself into `microphone` or `mediaProjection` foreground-service mode before starting preset audio capture, then restore normal bubble mode after stop/cancel/failure.
 
 ## Failure And Recovery
 - Missing `RECORD_AUDIO` permission or missing MediaProjection consent must route through the app permission flow instead of leaving the preset on a placeholder toast.
 - Missing provider keys should surface as execution errors on the preset result path rather than crashing the bubble runtime.
-- Realtime preset stop must clear the transient preset override and the tracked active realtime preset id.
 - Capture failures must retain the concrete error detail for logging instead of collapsing everything into a generic preset toast.
 - Preset auto-speak uses the dedicated auto-speak TTS consumer and retries one first-use playback failure before surfacing a user-visible error.
 - Gemma 4 is not currently an audio-input model family in this app; do not expose it in audio transcription pickers or routing paths.

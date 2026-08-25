@@ -398,6 +398,7 @@ function finishLocalResultDrag(event) {
         action: 'result_drag_finish', hwnd: drag.hwnd,
         dx: Math.round(drag.dx * scale), dy: Math.round(drag.dy * scale)
     }));
+    window.__SGT_BUTTON_SCENE__?.releaseDragPreview();
     activeResultDragPreview = null;
     setResultDraggingCursor(false);
 }

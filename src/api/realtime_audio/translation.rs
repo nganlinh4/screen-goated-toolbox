@@ -11,7 +11,6 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::APP;
-use crate::config::Preset;
 
 use super::state::{SharedRealtimeState, TranslationRequest};
 use super::utils::{refresh_transcription_window, update_translation_text};
@@ -33,7 +32,7 @@ fn is_gemini_s2s_selected() -> bool {
 
 /// Translation loop using the centralized realtime translation provider model.
 pub fn run_translation_loop(
-    preset: Preset,
+    initial_target_language: String,
     stop_signal: Arc<AtomicBool>,
     translation_hwnd_send: crate::win_types::SendHwnd,
     state: SharedRealtimeState,
@@ -49,11 +48,6 @@ pub fn run_translation_loop(
         return;
     }
 
-    let translation_block = match preset.blocks.get(1) {
-        Some(b) => b.clone(),
-        None => return,
-    };
-
     let mut target_language = {
         let from_ui = crate::overlay::realtime_webview::NEW_TARGET_LANGUAGE
             .lock()
@@ -67,15 +61,10 @@ pub fn run_translation_loop(
             });
 
         from_ui.unwrap_or_else(|| {
-            if !translation_block.selected_language.is_empty() {
-                translation_block.selected_language.clone()
+            if initial_target_language.is_empty() {
+                "English".to_string()
             } else {
-                translation_block
-                    .language_vars
-                    .get("language")
-                    .cloned()
-                    .or_else(|| translation_block.language_vars.get("language1").cloned())
-                    .unwrap_or_else(|| "English".to_string())
+                initial_target_language
             }
         })
     };

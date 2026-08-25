@@ -221,13 +221,10 @@ class MainActivity : ComponentActivity() {
         val state = viewModel.sessionState.value
         // Only Gemini-backed transcription needs a key: the on-device engines never call
         // out, and translation always falls back to the keyless GTX provider.
-        val transcriptionModelId = when {
-            pendingAudioPreset == null -> state.config.transcriptionProvider.id
-            pendingAudioPreset.kind == AudioPresetLaunchKind.REALTIME ->
-                pendingResolvedPreset?.preset?.toRealtimeSessionConfig(state.config)
-                    ?.transcriptionProvider?.id
-                    ?: state.config.transcriptionProvider.id
-            else -> null
+        val transcriptionModelId = if (pendingAudioPreset == null) {
+            state.config.transcriptionProvider.id
+        } else {
+            null
         }
         val requiresGeminiApiKey = transcriptionModelId != null &&
             !RealtimeModelIds.isOfflineTranscriptionModelId(transcriptionModelId)
@@ -243,7 +240,7 @@ class MainActivity : ComponentActivity() {
             if (!state.permissions.recordAudioGranted) {
                 add(android.Manifest.permission.RECORD_AUDIO)
             }
-            if (pendingAudioPreset?.kind != AudioPresetLaunchKind.CAPTURE &&
+            if (pendingAudioPreset == null &&
                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
                 !state.permissions.notificationsGranted
             ) {
@@ -266,7 +263,7 @@ class MainActivity : ComponentActivity() {
                 permissionLauncher.launch(missingRuntimePermissions.toTypedArray())
             }
 
-            pendingAudioPreset?.kind != AudioPresetLaunchKind.CAPTURE &&
+            pendingAudioPreset == null &&
                 state.config.displayMode == DisplayMode.OVERLAY &&
                 BuildConfig.OVERLAY_SUPPORTED &&
                 !state.permissions.overlayGranted -> {
@@ -281,10 +278,10 @@ class MainActivity : ComponentActivity() {
             effectiveSourceMode == SourceMode.DEVICE &&
                 !hasProjectionConsent -> {
                 pendingStart = false
-                val intent = when (pendingAudioPreset?.kind) {
-                    AudioPresetLaunchKind.CAPTURE -> ProjectionConsentProxyActivity.resumeCapturePresetIntent(this)
-                    AudioPresetLaunchKind.REALTIME -> ProjectionConsentProxyActivity.resumeRealtimePresetIntent(this)
-                    else -> ProjectionConsentProxyActivity.startSessionIntent(this)
+                val intent = if (pendingAudioPreset != null) {
+                    ProjectionConsentProxyActivity.resumeCapturePresetIntent(this)
+                } else {
+                    ProjectionConsentProxyActivity.startSessionIntent(this)
                 }
                 startActivity(intent)
             }
@@ -292,30 +289,9 @@ class MainActivity : ComponentActivity() {
             else -> {
                 pendingStart = false
                 if (resumePendingAudioPreset && pendingAudioPreset != null) {
-                    when (pendingAudioPreset.kind) {
-                        AudioPresetLaunchKind.CAPTURE -> {
-                            BubbleService.resumePendingAudioPreset(this)
-                            resumePendingAudioPreset = false
-                            return
-                        }
-                        AudioPresetLaunchKind.REALTIME -> {
-                            val resolved = appContainer.presetRepository.getResolvedPreset(pendingAudioPreset.presetId)
-                            if (resolved == null) {
-                                appContainer.audioPresetLaunchStore.clear()
-                                viewModel.fail("The requested realtime audio preset is unavailable.")
-                                return
-                            }
-                            appContainer.repository.applyTransientSessionConfig(
-                                resolved.preset.toRealtimeSessionConfig(
-                                    fallback = appContainer.repository.currentConfig(),
-                                ),
-                            )
-                            appContainer.audioPresetLaunchStore.setActiveRealtimePresetId(resolved.preset.id)
-                            viewModel.startSession(this)
-                            appContainer.audioPresetLaunchStore.clear()
-                        }
-                    }
+                    BubbleService.resumePendingAudioPreset(this)
                     resumePendingAudioPreset = false
+                    return
                 } else {
                     viewModel.startSession(this)
                 }
@@ -386,43 +362,4 @@ class MainActivity : ComponentActivity() {
             MobileShellSection.SETTINGS.name,
         ).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
-}
-
-internal fun dev.screengoated.toolbox.mobile.shared.preset.Preset.toRealtimeSessionConfig(
-    fallback: LiveSessionConfig,
-): LiveSessionConfig {
-    val transcriptionBlock = blocks.firstOrNull { it.blockType == BlockType.AUDIO }
-    val translationBlock = blocks.firstOrNull { it.blockType == BlockType.TEXT }
-    val sourceMode = if (audioSource == "device") SourceMode.DEVICE else SourceMode.MIC
-    val targetLanguage = transcriptionBlock?.languageVars?.get("language1")
-        ?: translationBlock?.languageVars?.get("language1")
-        ?: fallback.targetLanguage
-    val transcriptionProvider = when (
-        PresetModelCatalog.getById(transcriptionBlock?.model.orEmpty())?.provider
-    ) {
-        PresetModelProvider.PARAKEET -> RealtimeModelIds.defaultTranscriptionProvider(
-            RealtimeModelIds.TRANSCRIPTION_MOONSHINE,
-        )
-        PresetModelProvider.GEMINI_LIVE -> RealtimeModelIds.defaultTranscriptionProvider(
-            PresetModelCatalog.getById(transcriptionBlock?.model.orEmpty())?.id.orEmpty(),
-        )
-        else -> RealtimeModelIds.defaultTranscriptionProvider()
-    }
-    val translationProvider = translationBlock?.let {
-        when (it.model) {
-            RealtimeModelIds.TRANSLATION_GTX -> RealtimeModelIds.translationProviderDescriptor(
-                RealtimeModelIds.TRANSLATION_GTX,
-            )
-            else -> RealtimeModelIds.translationProviderDescriptor(
-                RealtimeModelIds.TRANSLATION_LLM,
-            )
-        }
-    } ?: fallback.translationProvider
-
-    return fallback.copy(
-        sourceMode = sourceMode,
-        targetLanguage = targetLanguage,
-        transcriptionProvider = transcriptionProvider,
-        translationProvider = translationProvider,
-    )
 }

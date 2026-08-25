@@ -248,9 +248,6 @@ fun PresetEditorScreen(
                     if (editState.showControllerUi || editState.isMaster) {
                         MasterDescriptionSection(lang = lang)
                     }
-                    if (editState.audioProcessingMode == "realtime") {
-                        RealtimeDescriptionSection(lang = lang)
-                    }
                 }
                 // Right column: Node graph + Processing chain
                 Column(
@@ -259,7 +256,7 @@ fun PresetEditorScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    if (!editState.showControllerUi && !editState.isMaster && editState.audioProcessingMode != "realtime") {
+                    if (!editState.showControllerUi && !editState.isMaster) {
                         NodeGraphSection(
                             editState = editState,
                             lang = lang,
@@ -309,10 +306,7 @@ fun PresetEditorScreen(
                 if (editState.showControllerUi || editState.isMaster) {
                     MasterDescriptionSection(lang = lang)
                 }
-                if (editState.audioProcessingMode == "realtime") {
-                    RealtimeDescriptionSection(lang = lang)
-                }
-                if (!editState.showControllerUi && !editState.isMaster && editState.audioProcessingMode != "realtime") {
+                if (!editState.showControllerUi && !editState.isMaster) {
                     NodeGraphSection(
                         editState = editState,
                         lang = lang,

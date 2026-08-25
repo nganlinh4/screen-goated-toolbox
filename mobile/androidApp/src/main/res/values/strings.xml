@@ -23,7 +23,6 @@
     <string name="bubble_start_failed">SGT bubble could not start.</string>
     <string name="bubble_panel_open_failed">Bubble panel failed to open.</string>
     <string name="help_assistant_overlay_permission_required">Overlay permission is required for Help Assistant.</string>
-    <string name="projection_realtime_preset_unavailable">The requested realtime audio preset is unavailable.</string>
     <string name="projection_audio_consent_cancelled">Device audio capture consent was cancelled.</string>
     <string name="projection_unavailable">MediaProjection is unavailable on this device.</string>
     <string name="dj_playback_channel_name">DJ Playback</string>

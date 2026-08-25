@@ -83,16 +83,12 @@ pub fn render_preset_editor(
                 ui.add_space(10.0);
 
                 // Controller checkbox with subtle styling
-                // Hide for realtime audio presets (they always use the realtime overlay)
-                let is_realtime_audio =
-                    preset.preset_type == "audio" && preset.audio_processing_mode == "realtime";
-                if !is_realtime_audio
-                    && ui
-                        .checkbox(
-                            &mut preset.show_controller_ui,
-                            text.global_settings.controller_checkbox_label,
-                        )
-                        .clicked()
+                if ui
+                    .checkbox(
+                        &mut preset.show_controller_ui,
+                        text.global_settings.controller_checkbox_label,
+                    )
+                    .clicked()
                 {
                     if !preset.show_controller_ui && preset.blocks.is_empty() {
                         preset
@@ -274,92 +270,11 @@ pub fn render_preset_editor(
                     {
                         changed = true;
                     }
-                } else if preset.preset_type == "audio" && !preset.show_controller_ui {
-                    ui.label(text.preset_editor.audio_mode_label);
-
-                    let mode_record = text.preset_editor.audio_mode_record_then_process;
-                    let mode_realtime = text.preset_editor.audio_mode_realtime;
-
-                    let selected_mode_text = if preset.audio_processing_mode == "realtime" {
-                        mode_realtime
-                    } else {
-                        mode_record
-                    };
-
-                    crate::gui::widgets::combo("audio_operation_mode_combo")
-                        .selected_text(selected_mode_text)
-                        .show_ui(ui, |ui| {
-                            if ui
-                                .selectable_value(
-                                    &mut preset.audio_processing_mode,
-                                    "record_then_process".to_string(),
-                                    mode_record,
-                                )
-                                .clicked()
-                            {
-                                changed = true;
-                            }
-                            if ui
-                                .selectable_value(
-                                    &mut preset.audio_processing_mode,
-                                    "realtime".to_string(),
-                                    mode_realtime,
-                                )
-                                .clicked()
-                            {
-                                changed = true;
-                            }
-                        });
                 }
             });
 
-            // Row 2.5: Realtime Interface
-            if preset.preset_type == "audio"
-                && preset.audio_processing_mode == "realtime"
-                && !preset.show_controller_ui
-            {
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.label(text.preset_editor.realtime_interface_label);
-
-                    let mode_standard = text.preset_editor.realtime_interface_standard;
-                    let mode_minimal = text.preset_editor.realtime_interface_minimal;
-
-                    let selected_window_mode = if preset.realtime_window_mode == "minimal" {
-                        mode_minimal
-                    } else {
-                        mode_standard
-                    };
-
-                    crate::gui::widgets::combo("realtime_window_mode_combo")
-                        .selected_text(selected_window_mode)
-                        .show_ui(ui, |ui| {
-                            if ui
-                                .selectable_value(
-                                    &mut preset.realtime_window_mode,
-                                    "standard".to_string(),
-                                    mode_standard,
-                                )
-                                .clicked()
-                            {
-                                changed = true;
-                            }
-                            if ui
-                                .selectable_value(
-                                    &mut preset.realtime_window_mode,
-                                    "minimal".to_string(),
-                                    mode_minimal,
-                                )
-                                .clicked()
-                            {
-                                changed = true;
-                            }
-                        });
-                });
-            }
-
-            // Row 3: Audio source (if applicable) - Hide if Realtime mode
-            if preset.preset_type == "audio" && preset.audio_processing_mode != "realtime" {
+            // Row 3: Audio source (if applicable)
+            if preset.preset_type == "audio" {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.label(text.preset_basics.audio_source_label);
@@ -510,10 +425,8 @@ pub fn render_preset_editor(
     }
 
     // --- PROCESSING CHAIN UI ---
-    // Hide nodegraph when controller UI is enabled OR when in Realtime mode (no graph needed)
-    if !(preset.show_controller_ui
-        || preset.preset_type == "audio" && preset.audio_processing_mode == "realtime")
-    {
+    // Hide the node graph when controller UI is enabled.
+    if !preset.show_controller_ui {
         // Frame the node graph like the cards above it (same fill, border and
         // radius) so it reads as one consistent surface — not a panel with a
         // mismatched padded band around the canvas.
@@ -544,12 +457,7 @@ pub fn render_preset_editor(
                 });
         });
     } else {
-        render_controller_mode_description(
-            ui,
-            &config.ui_language,
-            &preset.preset_type,
-            &preset.audio_processing_mode,
-        );
+        render_controller_mode_description(ui, &config.ui_language);
     }
 
     // Apply Logic Updates (Radio Button Sync & Auto Paste)

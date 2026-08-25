@@ -77,8 +77,6 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
 
     override fun onDestroy() {
         runtime.stop()
-        repository.clearTransientSessionConfig()
-        (application as SgtMobileApplication).appContainer.audioPresetLaunchStore.setActiveRealtimePresetId(null)
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -114,8 +112,6 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
         runtime.stop()
         repository.commitPendingLiveHistory()
         repository.stop()
-        repository.clearTransientSessionConfig()
-        (application as SgtMobileApplication).appContainer.audioPresetLaunchStore.setActiveRealtimePresetId(null)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

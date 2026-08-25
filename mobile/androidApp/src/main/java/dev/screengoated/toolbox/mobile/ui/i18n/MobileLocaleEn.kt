@@ -101,6 +101,8 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 generate = "Generate model",
                 generateAgain = "Generate again",
                 separate = "Separate parts",
+                download = "Download version",
+                refinement = englishCreation3dRefinementLocale(),
                 modelReady = "Model ready",
                 partsReady = "Parts ready",
                 geometryStats = "{} vertices · {} faces",

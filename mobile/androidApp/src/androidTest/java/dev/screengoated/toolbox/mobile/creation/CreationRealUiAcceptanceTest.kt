@@ -7,7 +7,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Rect
 import android.net.Uri
 import android.os.Environment
 import android.os.SystemClock
@@ -17,10 +16,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -32,7 +28,6 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import java.io.File
 import java.util.UUID
-import java.util.regex.Pattern
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -296,12 +291,6 @@ class CreationRealUiAcceptanceTest {
             expectedReferenceSha256,
         )
         val history = awaitCommittedHistory(tool, acceptedCase, startedAt)
-        compose.waitUntil(timeoutMillis = 10_000) {
-            compose.onAllNodesWithTag("creation-selected-stage-done")
-                .fetchSemanticsNodes(atLeastOneRootRequired = false)
-                .isNotEmpty()
-        }
-        compose.onNodeWithTag("creation-selected-stage-done").assertExists()
         val output = snapshotOutput(history.outputPath)
         assertTrue("Committed result does not exist", outputExists(history.outputPath))
         validate(output)
@@ -320,6 +309,12 @@ class CreationRealUiAcceptanceTest {
         } else {
             null
         }
+        compose.waitUntil(timeoutMillis = 10_000) {
+            compose.onAllNodesWithTag("creation-selected-stage-done")
+                .fetchSemanticsNodes(atLeastOneRootRequired = false)
+                .isNotEmpty()
+        }
+        compose.onNodeWithTag("creation-selected-stage-done").assertExists()
         val delivery = CreationAcceptanceAttestation.selectedRuntime(context)
         val arguments = InstrumentationRegistry.getArguments()
         assertEquals(
@@ -396,7 +391,9 @@ class CreationRealUiAcceptanceTest {
         while (SystemClock.elapsedRealtime() < deadline) {
             val child = CreationJobJournal(context).load().firstOrNull { record ->
                 record.ownerId == ownerId &&
-                    record.request.operation == "segment" &&
+                    record.request.operation == "refine" &&
+                    record.request.refinementKind == "separate_detailed" &&
+                    record.request.parentRevisionId == baseRecord.request.dispatchId &&
                     record.request.previousOutputPath == baseHistory.outputPath
             }
             if (child != null) {
@@ -554,37 +551,7 @@ class CreationRealUiAcceptanceTest {
                 .fetchSemanticsNodes(atLeastOneRootRequired = false).size
 
     private fun selectInputFromSystemPicker(uri: Uri) {
-        val displayName = context.contentResolver.query(
-            uri,
-            arrayOf(MediaStore.Images.Media.DISPLAY_NAME),
-            null,
-            null,
-            null,
-        )!!.use { cursor ->
-            check(cursor.moveToFirst())
-            cursor.getString(0)
-        }
-        val bounds = clickPickerTile(displayName)
-        device.waitForIdle(1_000)
-        confirmPickerSelectionIfPresent()
-        if (!waitForCreationAppForeground(3_000)) {
-            val recoveredIntoApp = recoverUnresponsiveSystemPicker() &&
-                waitForCreationAppForeground(5_000)
-            if (!recoveredIntoApp) {
-                clickPickerTile(displayName)
-                device.waitForIdle(1_000)
-                confirmPickerSelectionIfPresent()
-            }
-        }
-        if (!waitForCreationAppForeground(10_000) &&
-            recoverUnresponsiveSystemPicker()
-        ) {
-            waitForCreationAppForeground(10_000)
-        }
-        check(waitForCreationAppForeground(20_000)) {
-            "Creation app did not regain focus after choosing the quality-control image; " +
-                "foreground package=${device.currentPackageName}, tileBounds=$bounds"
-        }
+        CreationSystemPickerDriver(context, device).select(uri)
         compose.waitUntil(timeoutMillis = 10_000) {
             runCatching {
                 compose.onAllNodesWithTag("creation-root")
@@ -595,67 +562,9 @@ class CreationRealUiAcceptanceTest {
         compose.onNodeWithTag("creation-root").assertExists()
     }
 
-    private fun waitForCreationAppForeground(timeoutMillis: Long): Boolean {
-        val deadline = SystemClock.elapsedRealtime() + timeoutMillis
-        while (SystemClock.elapsedRealtime() < deadline) {
-            if (device.currentPackageName == context.packageName) return true
-            SystemClock.sleep(100)
-        }
-        return device.currentPackageName == context.packageName
-    }
-
-    private fun clickPickerTile(displayName: String): Rect {
-        val description = By.desc(Pattern.compile("^${Pattern.quote(displayName)},.*"))
-        val text = By.text(displayName)
-        val deadline = SystemClock.elapsedRealtime() + 60_000
-        while (SystemClock.elapsedRealtime() < deadline) {
-            val target = device.findObject(description) ?: device.findObject(text)
-            if (target != null) {
-                try {
-                    val bounds = target.visibleBounds
-                    if (!bounds.isEmpty) {
-                        target.longClick()
-                        return bounds
-                    }
-                } catch (_: StaleObjectException) {
-                    // The picker replaces thumbnail nodes while their previews are decoded.
-                }
-            }
-            SystemClock.sleep(250)
-        }
-        error("System picker did not show a stable, visible quality-control image tile")
-    }
-
-    private fun confirmPickerSelectionIfPresent() {
-        val selectAction = device.wait(
-            Until.findObject(By.res(SYSTEM_PICKER_PACKAGE, "action_menu_select")),
-            5_000,
-        )
-        if (selectAction != null) {
-            selectAction.click()
-            device.waitForIdle(1_000)
-            return
-        }
-        val labels = listOf("Open", "Select", "Add", "Done")
-        val confirmation = labels.firstNotNullOfOrNull { label ->
-            device.wait(Until.findObject(By.text(label)), 2_000)
-        }
-        confirmation?.click()
-        device.waitForIdle(1_000)
-    }
-
-    private fun recoverUnresponsiveSystemPicker(): Boolean {
-        val wait = device.wait(Until.findObject(By.res("android", "aerr_wait")), 3_000)
-            ?: return false
-        wait.click()
-        device.waitForIdle(2_000)
-        return true
-    }
-
     private companion object {
         const val ACCEPTANCE_EVIDENCE_PREFIX = "SGT_CREATION_ACCEPTANCE_EVIDENCE"
         const val INPUT_NAME_PREFIX = "sgt-creation-qc-"
-        const val SYSTEM_PICKER_PACKAGE = "com.google.android.documentsui"
         const val QUALITY_CONTROL_OWNER_PREFIX = "quality-control-"
         const val WORKER_WEBVIEW_DIRECTORY_PREFIX = "app_webview_sgt_creation_"
         const val ACCEPTANCE_POLL_INTERVAL_MS = 500L

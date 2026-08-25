@@ -150,8 +150,10 @@ mod tests {
         assert!(document.contains("sgt-controls-theme-css"));
         assert!(document.contains("window.__SGT_BUTTON_SCENE__"));
         assert!(document.contains("Unified result controls did not initialize"));
+        assert!(document.contains("hideControlsForDrag"));
+        assert!(document.contains("releaseDragPreview"));
+        assert!(document.contains("awaitingDragSettle = true"));
         assert!(document.contains("style.visibility = 'hidden'"));
-        assert!(document.contains("else if (wasActive || controlsHiddenForDrag)"));
         assert!(document.contains("window.clearResultDragControlPreview?.();"));
         assert!(!document.contains("window.updateWindows({});"));
         assert!(document.contains("setPointerCapture(e.pointerId)"));

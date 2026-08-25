@@ -25,8 +25,6 @@ data class PresetOverride(
     val promptMode: String? = null,
     val textInputMode: String? = null,
     val audioSource: String? = null,
-    val audioProcessingMode: String? = null,
-    val realtimeWindowMode: String? = null,
     val videoCaptureMethod: String? = null,
     val autoPaste: Boolean? = null,
     val autoPasteNewline: Boolean? = null,
@@ -51,8 +49,6 @@ data class PresetOverride(
             promptMode == null &&
             textInputMode == null &&
             audioSource == null &&
-            audioProcessingMode == null &&
-            realtimeWindowMode == null &&
             videoCaptureMethod == null &&
             autoPaste == null &&
             autoPasteNewline == null &&
@@ -80,8 +76,6 @@ fun Preset.applyOverride(override: PresetOverride): Preset {
         promptMode = override.promptMode ?: promptMode,
         textInputMode = override.textInputMode ?: textInputMode,
         audioSource = override.audioSource ?: audioSource,
-        audioProcessingMode = override.audioProcessingMode ?: audioProcessingMode,
-        realtimeWindowMode = override.realtimeWindowMode ?: realtimeWindowMode,
         videoCaptureMethod = override.videoCaptureMethod ?: videoCaptureMethod,
         autoPaste = override.autoPaste ?: autoPaste,
         autoPasteNewline = override.autoPasteNewline ?: autoPasteNewline,
@@ -102,8 +96,7 @@ fun Preset.toFullOverride(): PresetOverride {
         nameEn = nameEn, nameVi = nameVi, nameKo = nameKo,
         presetType = presetType, blocks = blocks, blockConnections = blockConnections,
         promptMode = promptMode, textInputMode = textInputMode,
-        audioSource = audioSource, audioProcessingMode = audioProcessingMode,
-        realtimeWindowMode = realtimeWindowMode, videoCaptureMethod = videoCaptureMethod,
+        audioSource = audioSource, videoCaptureMethod = videoCaptureMethod,
         autoPaste = autoPaste, autoPasteNewline = autoPasteNewline,
         hideRecordingUi = hideRecordingUi, continuousInput = continuousInput,
         autoStopRecording = autoStopRecording, hotkeys = hotkeys,
@@ -124,8 +117,6 @@ fun Preset.toOverrideComparedTo(canonical: Preset): PresetOverride {
         promptMode = promptMode.takeIf { it != canonical.promptMode },
         textInputMode = textInputMode.takeIf { it != canonical.textInputMode },
         audioSource = audioSource.takeIf { it != canonical.audioSource },
-        audioProcessingMode = audioProcessingMode.takeIf { it != canonical.audioProcessingMode },
-        realtimeWindowMode = realtimeWindowMode.takeIf { it != canonical.realtimeWindowMode },
         videoCaptureMethod = videoCaptureMethod.takeIf { it != canonical.videoCaptureMethod },
         autoPaste = autoPaste.takeIf { it != canonical.autoPaste },
         autoPasteNewline = autoPasteNewline.takeIf { it != canonical.autoPasteNewline },

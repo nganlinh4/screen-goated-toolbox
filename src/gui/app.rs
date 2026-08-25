@@ -56,6 +56,7 @@ impl eframe::App for SettingsApp {
             self.update_hotkey_recording(ctx);
             self.update_computer_control_hotkey_recording(ctx);
             self.update_screen_translate_hotkey_recording(ctx);
+            self.update_live_translate_hotkey_recording(ctx);
             self.handle_events(ctx);
             self.handle_close_request(ctx);
         }

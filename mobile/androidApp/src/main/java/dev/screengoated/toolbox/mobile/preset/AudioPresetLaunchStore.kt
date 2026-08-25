@@ -2,7 +2,6 @@ package dev.screengoated.toolbox.mobile.preset
 
 enum class AudioPresetLaunchKind {
     CAPTURE,
-    REALTIME,
 }
 
 data class AudioPresetLaunchRequest(
@@ -13,8 +12,6 @@ data class AudioPresetLaunchRequest(
 class AudioPresetLaunchStore {
     @Volatile
     private var pendingRequest: AudioPresetLaunchRequest? = null
-    @Volatile
-    private var activeRealtimePresetId: String? = null
 
     fun set(request: AudioPresetLaunchRequest) {
         pendingRequest = request
@@ -32,9 +29,4 @@ class AudioPresetLaunchStore {
         pendingRequest = null
     }
 
-    fun setActiveRealtimePresetId(presetId: String?) {
-        activeRealtimePresetId = presetId
-    }
-
-    fun activeRealtimePresetId(): String? = activeRealtimePresetId
 }

@@ -344,14 +344,9 @@ pub fn render_sidebar(
 
 /// Icon standing for a preset's modality and input mode.
 fn preset_type_icon(preset: &Preset) -> Icon {
-    if preset.id == "preset_realtime_audio_translate" {
-        return Icon::Rtt;
-    }
     match preset.preset_type.as_str() {
         "audio" => {
-            if preset.audio_processing_mode == "realtime" {
-                Icon::Realtime
-            } else if preset.audio_source == "device" {
+            if preset.audio_source == "device" {
                 Icon::Speaker
             } else {
                 Icon::Microphone

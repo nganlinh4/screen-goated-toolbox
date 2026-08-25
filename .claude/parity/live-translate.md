@@ -1,6 +1,7 @@
 # Live Translate Parity
 
 ## Canonical Source
+- Windows footer launcher and egui preflight modal: [src/gui/settings_ui/footer.rs](../../src/gui/settings_ui/footer.rs), [src/gui/app/rendering/live_translate.rs](../../src/gui/app/rendering/live_translate.rs)
 - Windows entry UI shell: [src/overlay/realtime_html.rs](../../src/overlay/realtime_html.rs)
 - Windows realtime HTML styling: [src/overlay/html_components/css_main.rs](../../src/overlay/html_components/css_main.rs)
 - Windows realtime HTML behavior: [src/overlay/html_components/js_main.rs](../../src/overlay/html_components/js_main.rs)
@@ -17,6 +18,9 @@
 - Cross-platform Gemini Live lifecycle contract: [gemini-live-session.md](gemini-live-session.md)
 
 ## Behavior Contract
+- Live Translate is an official mini app, not a preset. Its Windows footer launcher opens an egui preflight modal and its Android launcher remains an app-carousel entry. Neither platform publishes Live Translate in the unified preset catalog, preset editor, preset wheel, or preset favorites.
+- The preflight surface owns the persistent session choices: audio source, transcription provider/language, target language, translation provider, overlay interface, font size, and global hotkeys. Start/Stop acts on the one Live Translate session identity and never resolves a mutable preset index.
+- Legacy Windows `preset_realtime_audio_translate` rows are removed from every profile during config migration. Their unique hotkeys are promoted to the global Live Translate hotkey list and the active profile's interface choice wins.
 - Transcript is append-only. Incoming Gemini Live transcription chunks are appended to `full_transcript`; they are not treated as full replacements.
 - Translation never retranslates the whole transcript. It only works on the untranslated tail starting at `last_committed_pos`.
 - Translation request dispatch is interval-gated like Windows. The runtime checks for new translation work on a `1500ms` cadence rather than opening a new provider request on every transcript delta.
@@ -42,6 +46,7 @@
   - `translation_model=text-llm`
   - `transcription_model=gemini-3.5-translate`
   - `font_size=16`
+  - `interface=standard`
 - Realtime overlay contract:
   - transcription pane header shows the live waveform canvas, not a fake activity stub
   - translation pane has no title text in the header
@@ -136,7 +141,7 @@
 
 ## Deviations
 - None for the live-translate state machine.
-- Android launcher UI surfaces BYOK entry, a session power button, and a Windows-style global TTS settings modal trigger. The launcher should not replace that modal with a simplified realtime Read settings card.
+- Android launcher UI surfaces BYOK entry, a session power button, and a Windows-style global TTS settings modal trigger. Android uses its existing app-carousel presentation instead of the Windows egui preflight modal, and must not duplicate Live Translate in the preset catalog. The launcher should not replace the TTS modal with a simplified realtime Read settings card.
 - The Android launcher `Voice Settings` modal follows the Windows global TTS settings structure:
   - method radio row for Gemini Live, Edge TTS, and Google Translate
   - Gemini section with reading speed, per-language accent conditions, and the Gemini voice grid

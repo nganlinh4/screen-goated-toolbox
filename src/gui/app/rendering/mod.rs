@@ -3,6 +3,7 @@
 
 mod computer_control;
 mod footer;
+mod live_translate;
 mod overlays;
 mod preset_model_update;
 mod screen_translate;

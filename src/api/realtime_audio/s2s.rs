@@ -34,8 +34,6 @@ use crate::api::tts::TTS_MANAGER;
 #[cfg(not(feature = "recorder-worker"))]
 use crate::api::tts::types::AudioEvent;
 #[cfg(not(feature = "recorder-worker"))]
-use crate::config::Preset;
-#[cfg(not(feature = "recorder-worker"))]
 use crate::overlay::realtime_webview::SELECTED_APP_PID;
 #[cfg(not(feature = "recorder-worker"))]
 use crate::overlay::realtime_webview::{

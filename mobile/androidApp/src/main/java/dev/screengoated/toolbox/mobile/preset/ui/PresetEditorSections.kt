@@ -124,22 +124,18 @@ internal fun HeaderSection(
         }
     }
 
-    // Controller toggle — separate card, hidden for realtime audio
-    val isRealtimeAudio = editState.presetType.editorGroup() == EditorTypeGroup.AUDIO &&
-        editState.audioProcessingMode == "realtime"
-    if (!isRealtimeAudio) {
-        SectionCard {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SectionLabel(localized(lang, "Controller", "Bộ điều khiển", "컨트롤러"))
-                Spacer(Modifier.weight(1f))
-                Switch(
-                    checked = editState.showControllerUi,
-                    onCheckedChange = onControllerToggled,
-                )
-            }
+    // Controller toggle — separate card
+    SectionCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionLabel(localized(lang, "Controller", "Bộ điều khiển", "컨트롤러"))
+            Spacer(Modifier.weight(1f))
+            Switch(
+                checked = editState.showControllerUi,
+                onCheckedChange = onControllerToggled,
+            )
         }
     }
 }
@@ -234,49 +230,22 @@ internal fun AudioModeSelectors(
     controllerOn: Boolean = false,
     onUpdate: (Preset) -> Unit,
 ) {
-    val isRealtime = editState.audioProcessingMode == "realtime"
-
-    // Audio source — hidden for realtime (always device audio)
-    if (!isRealtime) {
-        val isMic = editState.presetType == PresetType.MIC || editState.audioSource == "mic"
-        TogglePair(
-            label = localized(lang, "Audio Source", "Nguồn", "오디오 소스"),
-            optionA = localized(lang, "Microphone", "Microphone", "마이크"),
-            optionB = localized(lang, "Device Audio", "Âm thanh máy tính", "컴퓨터 오디오"),
-            isB = !isMic,
-            iconA = R.drawable.ms_mic,
-            iconB = R.drawable.ms_speaker_phone,
-            onChanged = { isDevice ->
-                val newType = if (isDevice) PresetType.DEVICE_AUDIO else PresetType.MIC
-                val newSource = if (isDevice) "device" else "mic"
-                onUpdate(editState.copy(presetType = newType, audioSource = newSource))
-            },
-        )
-    }
-
-    if (controllerOn) return
-
-    // Processing mode
+    val isMic = editState.presetType == PresetType.MIC || editState.audioSource == "mic"
     TogglePair(
-        label = localized(lang, "Mode", "Phương thức", "작동 방식"),
-        optionA = localized(lang, "Record then Process", "Thu âm rồi xử lý", "녹음 후 처리"),
-        optionB = localized(lang, "Realtime Processing", "Xử lý thời gian thực", "실시간 처리"),
-        isB = isRealtime,
-        onChanged = { isRealtimeMode ->
-            if (isRealtimeMode) {
-                onUpdate(editState.copy(
-                    presetType = PresetType.DEVICE_AUDIO,
-                    audioSource = "device",
-                    audioProcessingMode = "realtime",
-                ))
-            } else {
-                onUpdate(editState.copy(audioProcessingMode = "record_then_process"))
-            }
+        label = localized(lang, "Audio Source", "Nguồn", "오디오 소스"),
+        optionA = localized(lang, "Microphone", "Microphone", "마이크"),
+        optionB = localized(lang, "Device Audio", "Âm thanh máy tính", "컴퓨터 오디오"),
+        isB = !isMic,
+        iconA = R.drawable.ms_mic,
+        iconB = R.drawable.ms_speaker_phone,
+        onChanged = { isDevice ->
+            val newType = if (isDevice) PresetType.DEVICE_AUDIO else PresetType.MIC
+            val newSource = if (isDevice) "device" else "mic"
+            onUpdate(editState.copy(presetType = newType, audioSource = newSource))
         },
     )
 
-    // Auto-stop and other options hidden for realtime
-    if (isRealtime) return
+    if (controllerOn) return
 
     SwitchRow(
         label = localized(lang, "Auto-stop recording", "Tự động dừng ghi", "자동 녹음 중지"),
@@ -372,48 +341,6 @@ internal fun MasterDescriptionSection(lang: String) {
     }
 }
 
-@Composable
-internal fun RealtimeDescriptionSection(lang: String) {
-    SectionCard {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painterResource(R.drawable.ms_audio_file),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.width(8.dp))
-                SectionLabel(
-                    localized(lang,
-                        "Realtime Audio Processing",
-                        "Xử lý âm thanh (Thời gian thực)",
-                        "실시간 오디오 처리",
-                    ),
-                )
-            }
-
-            Text(
-                localized(
-                    lang,
-                    "This mode provides real-time transcription and translation.\n" +
-                        "Gemini API key is required, works best on audio with clear speech like podcasts!\n\n" +
-                        "You can adjust font size, audio source, and translation language directly in the result window.",
-                    "Chế độ này cung cấp phụ đề và dịch thuật trực tiếp theo thời gian thực.\n" +
-                        "Mã API của Gemini là bắt buộc, tính năng chỉ hoạt động tốt trên âm thanh có lời nói to rõ như podcast!\n\n" +
-                        "Bạn có thể điều chỉnh cỡ chữ, nguồn âm thanh và ngôn ngữ dịch ngay trong cửa sổ kết quả.",
-                    "이 모드는 실시간 자막 및 번역을 제공합니다.\n" +
-                        "Gemini API 키가 필수이며, 명확한 음성이 있는 팟캐스트 같은 오디오에서 잘 작동합니다!\n\n" +
-                        "결과 창에서 글꼴 크기, 오디오 소스, 번역 언어를 직접 조정할 수 있습니다.",
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
 // =============================================================================
 // Reusable components
 // =============================================================================
-

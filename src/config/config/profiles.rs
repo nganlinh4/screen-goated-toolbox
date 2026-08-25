@@ -5,6 +5,7 @@ use crate::config::types::PresetProfile;
 pub enum GlobalHotkeyOwner {
     ScreenRecord,
     ScreenTranslate,
+    LiveTranslate,
     TranslationGummy,
     ComputerControl,
 }
@@ -166,6 +167,15 @@ impl Config {
             }
         }
 
+        for h in &self.live_translate.hotkeys {
+            if h.code == vk && h.modifiers == mods {
+                return Some(HotkeyConflict::Global {
+                    owner: GlobalHotkeyOwner::LiveTranslate,
+                    hotkey_name: h.name.clone(),
+                });
+            }
+        }
+
         for h in &self.computer_control_hotkeys {
             if h.code == vk && h.modifiers == mods {
                 return Some(HotkeyConflict::Global {
@@ -239,6 +249,26 @@ mod tests {
             Some(HotkeyConflict::Preset {
                 hotkey_name: "Ctrl + A".to_string(),
                 preset_name: "Editing".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn live_translate_hotkeys_participate_in_global_conflict_checks() {
+        let hotkey = Hotkey::new(0x76, "F7", 0);
+        let config = Config {
+            live_translate: crate::config::types::LiveTranslateSettings {
+                hotkeys: vec![hotkey.clone()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(
+            config.check_hotkey_conflict(hotkey.code, hotkey.modifiers, None),
+            Some(HotkeyConflict::Global {
+                owner: GlobalHotkeyOwner::LiveTranslate,
+                hotkey_name: "F7".to_string(),
             })
         );
     }

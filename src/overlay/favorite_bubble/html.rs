@@ -287,8 +287,6 @@ pub fn get_favorite_presets_html(presets: &[Preset], lang: &str, is_dark: bool) 
     let icon_text_select = r#"<svg width="20" height="20" viewBox="0 -960 960 960" fill="currentColor"><path d="M250-200q-21 0-35.5-14.5T200-250q0-21 14.5-35.5T250-300h110l120-360H370q-21 0-35.5-14.5T320-710q0-21 14.5-35.5T370-760h300q21 0 35.5 14.5T720-710q0 21-14.5 35.5T670-660h-90L460-300h90q21 0 35.5 14.5T600-250q0 21-14.5 35.5T550-200H250Z"/></svg>"#;
     let icon_mic = r#"<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M9.875 13.125Q9 12.25 9 11V5q0-1.25.875-2.125T12 2t2.125.875T15 5v6q0 1.25-.875 2.125T12 14t-2.125-.875M11 21v-3.075q-2.6-.35-4.3-2.325T5 11h2q0 2.075 1.463 3.538T12 16t3.538-1.463T17 11h2q0 2.625-1.7 4.6T13 17.925V21z"/></svg>"#;
     let icon_device = r#"<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19q-.825 0-1.412-.587T8 17V3q0-.825.588-1.412T10 1h9q.825 0 1.413.588T21 3v14q0 .825-.587 1.413T19 19zm4.5-11.5q.625 0 1.063-.437T16 6t-.437-1.062T14.5 4.5t-1.062.438T13 6t.438 1.063T14.5 7.5m0 8.5q1.45 0 2.475-1.025T18 12.5t-1.025-2.475T14.5 9t-2.475 1.025T11 12.5t1.025 2.475T14.5 16m0-2q-.625 0-1.062-.437T13 12.5t.438-1.062T14.5 11t1.063.438T16 12.5t-.437 1.063T14.5 14m1.5 9H6q-.825 0-1.412-.587T4 21V5h2v16h10z"/></svg>"#;
-    let icon_realtime = r#"<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M7 18V6h2v12zm4 4V2h2v20zm-8-8v-4h2v4zm12 4V6h2v12zm4-4v-4h2v4z"/></svg>"#;
-
     for (idx, preset) in presets.iter().enumerate() {
         if preset.is_favorite && !preset.is_upcoming {
             let name = if preset.id.starts_with("preset_") {
@@ -299,10 +297,7 @@ pub fn get_favorite_presets_html(presets: &[Preset], lang: &str, is_dark: bool) 
 
             let (icon_svg, color_hex) = match preset.preset_type.as_str() {
                 "audio" => {
-                    if preset.audio_processing_mode == "realtime" {
-                        // Realtime/Live: Red
-                        (icon_realtime, if is_dark { "#ff5555" } else { "#d32f2f" })
-                    } else if preset.audio_source == "device" {
+                    if preset.audio_source == "device" {
                         // Device/Speaker: Orange
                         (icon_device, if is_dark { "#ffaa33" } else { "#f57c00" })
                     } else {

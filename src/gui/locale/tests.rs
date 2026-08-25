@@ -73,7 +73,7 @@ fn public_field_names(source: &str) -> Vec<&str> {
 }
 
 #[test]
-fn locale_root_contains_only_the_seventeen_typed_sections() {
+fn locale_root_contains_only_the_eighteen_typed_sections() {
     let LocaleText {
         locale_code: _,
         badge: _,
@@ -87,6 +87,7 @@ fn locale_root_contains_only_the_seventeen_typed_sections() {
         tts_settings: _,
         tts_advanced: _,
         realtime: _,
+        live_translate: _,
         screen_translate: _,
         shell: _,
         translation_gummy: _,
@@ -110,6 +111,7 @@ fn locale_root_contains_only_the_seventeen_typed_sections() {
             "tts_settings",
             "tts_advanced",
             "realtime",
+            "live_translate",
             "screen_translate",
             "shell",
             "translation_gummy",
@@ -134,6 +136,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         ("tts_settings", include_str!("tts_settings.rs"), 29),
         ("tts_advanced", include_str!("tts_advanced.rs"), 35),
         ("realtime", include_str!("realtime.rs"), 32),
+        ("live_translate", include_str!("live_translate.rs"), 14),
         ("screen_translate", include_str!("screen_translate.rs"), 19),
         ("shell", include_str!("shell.rs"), 47),
         (
@@ -158,13 +161,14 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 545);
+    assert_eq!(owners.len(), 559);
     assert_eq!(owners["cancel_label"], "preset_basics");
     assert_eq!(owners["favorites_keep_open"], "shell");
     assert_eq!(owners["image_creator_btn"], "shell");
     assert_eq!(owners["download"], "auxiliary");
     assert_eq!(owners["managed_tools"], "auxiliary");
     assert_eq!(owners["realtime_app_loading"], "realtime");
+    assert_eq!(owners["live_translate_title"], "live_translate");
 }
 
 #[test]

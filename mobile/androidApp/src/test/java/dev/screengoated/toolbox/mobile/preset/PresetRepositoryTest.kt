@@ -169,27 +169,13 @@ class PresetRepositoryTest {
     }
 
     @Test
-    fun realtimeAudioPresetIsSupported() {
-        val repository = createRepository(InMemoryPresetOverrideStore())
-
-        val resolved = requireNotNull(repository.getResolvedPreset("preset_realtime_audio_translate"))
-
-        assertTrue(resolved.executionCapability.supported)
-        assertFalse(resolved.placeholderReasons.contains(PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY))
-    }
-
-    @Test
-    fun deviceAudioBuiltInsKeepWindowsSourceAndRealtimeFlags() {
-        val realtimePreset = requireNotNull(
-            DefaultPresetLookup.byId("preset_realtime_audio_translate"),
-        )
+    fun deviceAudioBuiltInsKeepWindowsSource() {
         val deviceRecordPreset = requireNotNull(
             DefaultPresetLookup.byId("preset_record_device"),
         )
 
-        assertEquals("device", realtimePreset.audioSource)
-        assertEquals("realtime", realtimePreset.audioProcessingMode)
         assertEquals("device", deviceRecordPreset.audioSource)
+        assertEquals(null, DefaultPresetLookup.byId("preset_realtime_audio_translate"))
     }
 
     @Test
@@ -339,13 +325,12 @@ class PresetRepositoryTest {
         assertTrue(graphExecutor.contains("(input as? PresetInput.Audio)?.isStreamingResult == true"))
 
         val realtimeContract = fixture.getValue("realtime_contract").jsonObject
-        assertEquals("transient_live_service_override", realtimeContract.getValue("launch_path").jsonPrimitive.content)
-        assertTrue(realtimeContract.getValue("restore_saved_config_on_stop").jsonPrimitive.boolean)
-        assertTrue(overlayController.contains("launchRealtimeAudioPreset"))
-        assertTrue(overlayController.contains("isTransientSessionConfigActive()"))
-        assertTrue(overlayController.contains("setActiveRealtimePresetId"))
-        assertTrue(overlayController.contains("LiveTranslateService.stop(context)"))
-        assertTrue(overlayController.contains("MainActivity.EXTRA_RESUME_PENDING_AUDIO_PRESET"))
+        assertFalse(realtimeContract.getValue("preset_operation_supported").jsonPrimitive.boolean)
+        assertEquals(
+            "live-translate-mini-app",
+            realtimeContract.getValue("official_launcher").jsonPrimitive.content,
+        )
+        assertFalse(overlayController.contains("launchRealtimeAudioPreset"))
 
         val launchContract = fixture.getValue("android_launch_contract").jsonObject
         assertEquals(

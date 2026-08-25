@@ -88,6 +88,22 @@ pub fn public_entry(entry: &ResultHistoryEntry) -> ResultHistoryView {
     ResultHistoryView::from(entry)
 }
 
+pub(crate) fn validated_companion_path(
+    entry: &ResultHistoryEntry,
+) -> Result<Option<PathBuf>, String> {
+    let Some(companion) = companion::from_entry(entry) else {
+        return Ok(None);
+    };
+    let inspected = inspect_delivery_artifact(&companion.path)?;
+    if inspected.size_bytes != companion.size_bytes
+        || inspected.sha256 != companion.sha256
+        || inspected.file_identity != companion.file_identity
+    {
+        return Err("Result companion changed before export.".to_string());
+    }
+    Ok(Some(PathBuf::from(companion.path)))
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PendingCleanup {

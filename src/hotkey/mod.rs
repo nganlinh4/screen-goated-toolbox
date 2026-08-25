@@ -31,11 +31,13 @@ pub const WM_UNREGISTER_HOTKEYS: u32 = WM_USER + 103;
 pub const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
 pub const COMPUTER_CONTROL_HOTKEY_ID: i32 = 9700;
 pub const SCREEN_TRANSLATE_HOTKEY_ID: i32 = 9600;
+pub const LIVE_TRANSLATE_HOTKEY_ID: i32 = 9500;
 pub const TRANSLATION_GUMMY_HOTKEY_ID: i32 = 9800;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HotkeyRegistrationGroup {
     Preset(usize),
+    LiveTranslate,
     ScreenTranslate,
     ComputerControl,
     ScreenRecord,
@@ -46,6 +48,7 @@ impl HotkeyRegistrationGroup {
     fn log_name(self) -> String {
         match self {
             Self::Preset(index) => format!("preset[{index}]"),
+            Self::LiveTranslate => "live_translate".to_string(),
             Self::ScreenTranslate => "screen_translate".to_string(),
             Self::ComputerControl => "computer_control".to_string(),
             Self::ScreenRecord => "screen_record".to_string(),
@@ -171,6 +174,19 @@ pub fn register_all_hotkeys(hwnd: HWND) {
         );
     }
 
+    for (idx, hotkey) in app.config.live_translate.hotkeys.iter().enumerate() {
+        if idx >= 100 || [0x04, 0x05, 0x06].contains(&hotkey.code) {
+            continue;
+        }
+        register_and_track(
+            hwnd,
+            HotkeyRegistrationGroup::LiveTranslate,
+            LIVE_TRANSLATE_HOTKEY_ID + idx as i32,
+            hotkey,
+            &mut registered_ids,
+        );
+    }
+
     // Register Global Screen Record Hotkeys (IDs: 9900-9999)
     for (idx, sr_hotkey) in app.config.screen_record_hotkeys.iter().enumerate() {
         if idx >= 100 {
@@ -290,6 +306,15 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                     }
 
                     // Check global app hotkeys.
+                    if found_id.is_none() {
+                        for (idx, hk) in app.config.live_translate.hotkeys.iter().enumerate() {
+                            if hk.code == vk && hk.modifiers == mods {
+                                found_id = Some(LIVE_TRANSLATE_HOTKEY_ID + idx as i32);
+                                break;
+                            }
+                        }
+                    }
+
                     if found_id.is_none() {
                         for (idx, hk) in app
                             .config

@@ -111,6 +111,8 @@ data class Creation3dLocale(
     val generate: String,
     val generateAgain: String,
     val separate: String,
+    val download: String,
+    val refinement: Creation3dRefinementLocale,
     val modelReady: String,
     val partsReady: String,
     val geometryStats: String,
@@ -124,6 +126,27 @@ data class Creation3dLocale(
     val toonOutline: String,
     val partColors: String,
     val previewUnavailable: String,
+)
+
+data class Creation3dRefinementLocale(
+    val title: String,
+    val separation: String,
+    val simple: String,
+    val balanced: String,
+    val detailed: String,
+    val optimize: String,
+    val triangle: String,
+    val quad: String,
+    val targetFaces: String,
+    val materials: String,
+    val pbr: String,
+    val rig: String,
+    val animation: String,
+    val idle: String,
+    val walk: String,
+    val run: String,
+    val jump: String,
+    val wave: String,
 )
 
 data class CreationSvgLocale(

@@ -101,6 +101,8 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 generate = "Tạo mô hình",
                 generateAgain = "Tạo lại",
                 separate = "Tách bộ phận",
+                download = "Tải phiên bản",
+                refinement = vietnameseCreation3dRefinementLocale(),
                 modelReady = "Mô hình đã sẵn sàng",
                 partsReady = "Các bộ phận đã sẵn sàng",
                 geometryStats = "{} đỉnh · {} mặt",

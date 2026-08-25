@@ -1,5 +1,13 @@
 {
   "version": 1,
+  "launcher": {
+    "productSurface": "official-mini-app",
+    "windowsEntry": "footer-egui-preflight",
+    "androidEntry": "apps-carousel",
+    "presetCatalogEntry": false,
+    "stableSessionIdentity": true,
+    "interfaceDefault": "standard"
+  },
   "defaults": {
     "audioSource": "device",
     "targetLanguage": "Vietnamese",

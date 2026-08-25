@@ -144,10 +144,6 @@ internal class PresetExecutionCapabilityResolver {
                 reason = PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY,
             )
         }
-        if (preset.audioProcessingMode == "realtime") {
-            return resolveRealtimeAudioCapability(preset)
-        }
-
         val unsupportedAudioModel = preset.blocks.firstOrNull { block ->
             block.blockType == BlockType.AUDIO && !isAudioModelSupported(block.model)
         }
@@ -170,31 +166,6 @@ internal class PresetExecutionCapabilityResolver {
             return PresetExecutionCapability(
                 supported = false,
                 reason = PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY,
-            )
-        }
-        return PresetExecutionCapability(supported = true)
-    }
-
-    private fun resolveRealtimeAudioCapability(preset: Preset): PresetExecutionCapability {
-        val realtimeBlocks = preset.blocks.filter { it.blockType != BlockType.INPUT_ADAPTER }
-        if (realtimeBlocks.isEmpty() || realtimeBlocks.size > 2) {
-            return PresetExecutionCapability(
-                supported = false,
-                reason = PresetPlaceholderReason.NON_TEXT_GRAPH_NOT_READY,
-            )
-        }
-        val audioBlock = realtimeBlocks.firstOrNull()
-        if (audioBlock?.blockType != BlockType.AUDIO || !isAudioModelSupported(audioBlock.model)) {
-            return PresetExecutionCapability(
-                supported = false,
-                reason = PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY,
-            )
-        }
-        val translationBlock = realtimeBlocks.getOrNull(1)
-        if (translationBlock != null && (translationBlock.blockType != BlockType.TEXT || !isTextModelSupported(translationBlock.model))) {
-            return PresetExecutionCapability(
-                supported = false,
-                reason = PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY,
             )
         }
         return PresetExecutionCapability(supported = true)

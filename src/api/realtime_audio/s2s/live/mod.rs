@@ -8,7 +8,7 @@ mod text_state;
 use continuous::run_live_translate_continuous;
 
 pub fn run_gemini_live_s2s(
-    preset: Preset,
+    audio_source: String,
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
     translation_hwnd: Option<HWND>,
@@ -21,7 +21,7 @@ pub fn run_gemini_live_s2s(
         settings.mode.log_tag(),
         settings.model,
         settings.target_language,
-        preset.audio_source
+        audio_source
     );
     apply_tts_speed_for_s2s(&settings.speed);
     let audio_buffer = Arc::new(Mutex::new(Vec::<i16>::new()));
@@ -29,7 +29,7 @@ pub fn run_gemini_live_s2s(
     let selected_pid = SELECTED_APP_PID.load(Ordering::SeqCst);
     let mut per_app_capture_stop: Option<Arc<AtomicBool>> = None;
     let mut per_app_initial_pid: Option<u32> = None;
-    let _stream = if preset.audio_source == "device" {
+    let _stream = if audio_source == "device" {
         let selected_pid = if selected_pid == 0 {
             crate::overlay::realtime_webview::app_selection::show_audio_app_selector_overlay();
             wait_for_selected_app(stop_signal.clone(), session_id)

@@ -8,7 +8,6 @@ use super::state::{SharedRealtimeState, TranscriptionMethod};
 use super::transcript_state::MonotonicTranscriptState;
 use super::utils::update_overlay_text;
 use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
-use crate::config::Preset;
 use anyhow::Result;
 use std::sync::{
     Arc, Mutex,
@@ -33,7 +32,6 @@ pub enum Qwen3ModelVariant {
 }
 
 pub fn run_qwen3_transcription_variant(
-    _preset: Preset,
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
     state: SharedRealtimeState,

@@ -97,10 +97,6 @@ fn should_show_preset(preset: &Preset, filter_type: &str, filter_mode: Option<&s
         return false;
     }
 
-    if filter_type == "audio" && preset.audio_processing_mode == "realtime" {
-        return false;
-    }
-
     if let Some(mode) = filter_mode {
         match filter_type {
             "text" => preset.text_input_mode == mode,

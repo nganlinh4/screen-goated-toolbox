@@ -1,7 +1,7 @@
 package dev.screengoated.toolbox.mobile.shared.preset
 
 /**
- * Device-audio presets (4).
+ * Device-audio presets (3).
  *
  * Split out of [DefaultPresets] to keep each category file focused. The list is
  * re-exported via [DefaultPresets] so the public API is unchanged. Block helpers
@@ -25,24 +25,6 @@ internal val defaultDeviceAudioPresets: List<Preset> = listOf(
             textBlock(
                 DEFAULT_TEXT_MODEL_ID,
                 "Translate to {language1}. Output ONLY the translation.",
-                "language1" to "Vietnamese",
-            ),
-        ),
-    ),
-
-    Preset(
-        id = "preset_realtime_audio_translate",
-        nameEn = "Live Translate",
-        nameVi = "D\u1ecbch cabin",
-        nameKo = "\uc2e4\uc2dc\uac04 \uc74c\uc131 \ubc88\uc5ed",
-        presetType = PresetType.DEVICE_AUDIO,
-        audioSource = "device",
-        audioProcessingMode = "realtime",
-        blocks = listOf(
-            audioBlock(PRESET_AUDIO_TRANSCRIBE_MODEL_ID),
-            textBlock(
-                DEFAULT_TEXT_MODEL_ID,
-                "",
                 "language1" to "Vietnamese",
             ),
         ),

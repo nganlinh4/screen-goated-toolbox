@@ -54,7 +54,7 @@ fn authored_html_acceptance_is_captured_from_the_shared_compositor() {
 }
 
 #[test]
-fn drag_completion_reveals_controls_only_after_committed_geometry_is_applied() {
+fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() {
     let child = include_str!("child.rs");
     let controls = include_str!("button_scene_runtime.js");
     let pointer = crate::overlay::result::button_canvas::document_script();
@@ -65,6 +65,24 @@ fn drag_completion_reveals_controls_only_after_committed_geometry_is_applied() {
     assert!(
         !resize.contains("active = null;\n    window.__SGT_BUTTON_SCENE__?.setDragActive(false)")
     );
+    let hiding = controls
+        .split("function hideControlsForDrag()")
+        .nth(1)
+        .unwrap()
+        .split("function rebuild()")
+        .next()
+        .unwrap();
+    assert!(hiding.contains("clearClickableRegions()"));
+    assert!(hiding.contains("style.visibility = 'hidden'"));
+    assert!(pointer.contains("group.style.translate = offset"));
+    assert!(pointer.contains("window.__SGT_BUTTON_SCENE__?.releaseDragPreview()"));
+    let released = controls
+        .split("function releaseDragPreview()")
+        .nth(1)
+        .unwrap();
+    assert!(released.contains("awaitingDragSettle = true"));
+    assert!(released.contains("style.visibility = ''"));
+    assert!(!released.contains("clearResultDragControlPreview"));
     let settled = controls.find("command.type === 'drag_settled'").unwrap();
     let merge = controls[settled..].find("mergeCard(card)").unwrap();
     let reveal = controls[settled..].find("setDragActive(false)").unwrap();

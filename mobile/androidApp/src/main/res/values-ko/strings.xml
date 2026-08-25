@@ -23,7 +23,6 @@
     <string name="bubble_start_failed">SGT 버블을 시작할 수 없습니다.</string>
     <string name="bubble_panel_open_failed">버블 패널을 열지 못했습니다.</string>
     <string name="help_assistant_overlay_permission_required">도움말 어시스턴트를 사용하려면 오버레이 권한이 필요합니다.</string>
-    <string name="projection_realtime_preset_unavailable">요청한 실시간 오디오 프리셋을 사용할 수 없습니다.</string>
     <string name="projection_audio_consent_cancelled">기기 오디오 캡처 동의가 취소되었습니다.</string>
     <string name="projection_unavailable">이 기기에서는 MediaProjection을 사용할 수 없습니다.</string>
     <string name="dj_playback_channel_name">DJ 재생</string>

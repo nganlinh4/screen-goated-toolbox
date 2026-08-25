@@ -10,6 +10,7 @@
 mod custom_models;
 mod enums;
 mod hotkey;
+mod live_translate;
 mod model_priority;
 mod preset_model_update;
 mod profile;
@@ -20,6 +21,7 @@ mod translation_gummy;
 mod tts;
 
 // Re-export all types for easy access
+pub use live_translate::{LiveTranslateInterface, LiveTranslateSettings};
 pub use screen_translate::ScreenTranslateSettings;
 pub use translation_gummy::TranslationGummySettings;
 #[cfg(not(feature = "recorder-worker"))]

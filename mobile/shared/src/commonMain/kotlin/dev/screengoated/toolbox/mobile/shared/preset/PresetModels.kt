@@ -51,8 +51,6 @@ data class Preset(
     val promptMode: String = "fixed",
     val textInputMode: String = "type",
     val audioSource: String = "mic",
-    val audioProcessingMode: String = "record_then_process",
-    val realtimeWindowMode: String = "standard",
     val videoCaptureMethod: String = "region",
     val autoPaste: Boolean = false,
     val autoPasteNewline: Boolean = false,

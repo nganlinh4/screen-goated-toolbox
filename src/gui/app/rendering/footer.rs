@@ -80,6 +80,7 @@ impl SettingsApp {
                     &text,
                     FooterToggles {
                         show_computer_control: &mut self.show_computer_control_dialog,
+                        show_live_translate: &mut self.show_live_translate_dialog,
                         show_screen_translate: &mut self.show_screen_translate_dialog,
                         show_pointer_gallery: &mut self.pointer_gallery.show_window,
                         show_translation_gummy: &mut self.show_translation_gummy,
@@ -100,6 +101,7 @@ impl SettingsApp {
             &mut self.selected_tips_category,
         );
         self.render_computer_control_dialog(ctx, &text);
+        self.render_live_translate_dialog(ctx, &text);
         self.render_screen_translate_dialog(ctx, &text);
 
         // Pointer Gallery Window

@@ -101,6 +101,8 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 generate = "모델 생성",
                 generateAgain = "다시 생성",
                 separate = "파트 분리",
+                download = "버전 다운로드",
+                refinement = koreanCreation3dRefinementLocale(),
                 modelReady = "모델 준비 완료",
                 partsReady = "파트 준비 완료",
                 geometryStats = "정점 {}개 · 면 {}개",

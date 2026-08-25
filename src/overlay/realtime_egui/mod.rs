@@ -4,22 +4,20 @@ mod style;
 mod ui;
 
 use crate::APP;
-use crate::api::realtime_audio::start_realtime_transcription;
+use crate::api::realtime_audio::{RealtimeSessionPlan, start_realtime_transcription};
 use crate::overlay::realtime_webview::controller;
 use crate::overlay::realtime_webview::state::*;
 use eframe::egui;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 pub static MINIMAL_ACTIVE: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
 pub static MINIMAL_STOPPING: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
-pub static MINIMAL_PRESET_IDX: LazyLock<AtomicUsize> = LazyLock::new(|| AtomicUsize::new(0));
 static UI_STATE: LazyLock<Mutex<RealtimeUiState>> =
     LazyLock::new(|| Mutex::new(RealtimeUiState::default()));
 static USER_REQUESTED_CLOSE: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
-static LAST_MINIMAL_STOP: LazyLock<Mutex<Option<(usize, Instant)>>> =
-    LazyLock::new(|| Mutex::new(None));
+static LAST_MINIMAL_STOP: LazyLock<Mutex<Option<Instant>>> = LazyLock::new(|| Mutex::new(None));
 
 pub(super) struct RealtimeUiState {
     pub font_size: f32,
@@ -47,7 +45,7 @@ impl Default for RealtimeUiState {
     }
 }
 
-pub fn show_realtime_egui_overlay(preset_idx: usize) {
+pub fn show_realtime_egui_overlay() {
     if MINIMAL_ACTIVE.load(Ordering::SeqCst)
         || MINIMAL_STOPPING.load(Ordering::SeqCst)
         || unsafe { IS_ACTIVE }
@@ -61,25 +59,9 @@ pub fn show_realtime_egui_overlay(preset_idx: usize) {
     USER_REQUESTED_CLOSE.store(false, Ordering::SeqCst);
 
     MINIMAL_ACTIVE.store(true, Ordering::SeqCst);
-    MINIMAL_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
-
-    let app = APP.lock().unwrap();
-    let preset = app.config.presets[preset_idx].clone();
-    drop(app);
-
     let mut session_config = controller::load_session_config();
-    if session_config.target_language.is_empty() && preset.blocks.len() > 1 {
-        let trans_block = &preset.blocks[1];
-        session_config.target_language = if !trans_block.selected_language.is_empty() {
-            trans_block.selected_language.clone()
-        } else {
-            trans_block
-                .language_vars
-                .get("language")
-                .cloned()
-                .or_else(|| trans_block.language_vars.get("language1").cloned())
-                .unwrap_or_else(|| "English".to_string())
-        };
+    if session_config.target_language.is_empty() {
+        session_config.target_language = "English".to_string();
     }
     controller::apply_session_config(&session_config);
 
@@ -94,11 +76,12 @@ pub fn show_realtime_egui_overlay(preset_idx: usize) {
         ui_state.committed_segments.clear();
     }
 
-    let mut final_preset = preset.clone();
-    final_preset.audio_source = session_config.audio_source;
-
     start_realtime_transcription(
-        final_preset,
+        RealtimeSessionPlan {
+            audio_source: session_config.audio_source,
+            target_language: session_config.target_language,
+            has_translation: true,
+        },
         current_stop_signal(),
         windows::Win32::Foundation::HWND::default(),
         Some(windows::Win32::Foundation::HWND::default()),
@@ -118,7 +101,7 @@ pub fn stop_minimal_overlay() {
     }
 
     if let Ok(mut stopped_at) = LAST_MINIMAL_STOP.lock() {
-        *stopped_at = Some((MINIMAL_PRESET_IDX.load(Ordering::SeqCst), Instant::now()));
+        *stopped_at = Some(Instant::now());
     }
     controller::stop_runtime_flags();
     MINIMAL_ACTIVE.store(false, Ordering::SeqCst);
@@ -135,14 +118,12 @@ pub fn stop_minimal_overlay() {
     }
 }
 
-pub fn recently_stopped_minimal(preset_idx: usize) -> bool {
+pub fn recently_stopped_minimal() -> bool {
     LAST_MINIMAL_STOP
         .lock()
         .ok()
         .and_then(|stopped_at| *stopped_at)
-        .map(|(stopped_preset_idx, stopped_at)| {
-            stopped_preset_idx == preset_idx && stopped_at.elapsed() < Duration::from_millis(2000)
-        })
+        .map(|stopped_at| stopped_at.elapsed() < Duration::from_millis(2000))
         .unwrap_or(false)
 }
 
@@ -161,10 +142,9 @@ pub fn render_minimal_overlay(ctx: &egui::Context) {
         .lock()
         .map(|a| a.config.ui_language.clone())
         .unwrap_or_else(|_| "en".to_string());
-    let title = crate::gui::settings_ui::get_localized_preset_name(
-        "preset_realtime_audio_translate",
-        &ui_language,
-    );
+    let title = crate::gui::locale::LocaleText::get(&ui_language)
+        .live_translate
+        .live_translate_title;
 
     ctx.show_viewport_immediate(
         egui::ViewportId::from_hash_of("minimal_realtime_overlay"),

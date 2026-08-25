@@ -5,6 +5,7 @@ mod badge;
 mod desktop_settings;
 mod download;
 mod global_settings;
+mod live_translate;
 mod managed_tools;
 mod model_catalog;
 mod overlay;
@@ -34,6 +35,7 @@ pub fn get() -> LocaleText {
         tts_settings: tts_settings::get(),
         tts_advanced: tts_advanced::get(),
         realtime: realtime::get(),
+        live_translate: live_translate::get(),
         screen_translate: screen_translate::get(),
         shell: shell::get(),
         translation_gummy: translation_gummy::get(),

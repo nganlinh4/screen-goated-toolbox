@@ -53,8 +53,8 @@
     }
   ],
   "realtime_contract": {
-    "launch_path": "transient_live_service_override",
-    "restore_saved_config_on_stop": true
+    "preset_operation_supported": false,
+    "official_launcher": "live-translate-mini-app"
   },
   "android_launch_contract": {
     "audio_autopaste_without_accessibility": "gate_before_capture_and_open_accessibility_settings",

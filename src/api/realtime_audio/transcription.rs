@@ -13,7 +13,6 @@ use windows::Win32::Foundation::*;
 use crate::APP;
 use crate::api::gemini_live::ready_session::{ConnectedLiveSocket, OpenOptions, ReadyLiveSession};
 use crate::api::gemini_live::setup::{LiveSetupBuilder, MediaResolution, TranscriptionMode};
-use crate::config::Preset;
 use crate::model_config::{
     normalize_realtime_transcription_model_id, realtime_transcription_api_model,
 };
@@ -25,6 +24,13 @@ use super::capture::{
 };
 use super::state::SharedRealtimeState;
 use super::translation::run_translation_loop;
+
+#[derive(Clone, Debug)]
+pub struct RealtimeSessionPlan {
+    pub audio_source: String,
+    pub target_language: String,
+    pub has_translation: bool,
+}
 
 fn open_ready_session(
     api_key: &str,
@@ -71,7 +77,7 @@ fn wait_for_selected_audio_app(stop_signal: &Arc<AtomicBool>) -> Option<u32> {
 
 /// Start realtime audio transcription
 pub fn start_realtime_transcription(
-    preset: Preset,
+    plan: RealtimeSessionPlan,
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
     translation_hwnd: Option<HWND>,
@@ -84,7 +90,7 @@ pub fn start_realtime_transcription(
 
     std::thread::spawn(move || {
         transcription_thread_entry(
-            preset,
+            plan,
             stop_signal,
             overlay_send,
             translation_send,
@@ -95,17 +101,17 @@ pub fn start_realtime_transcription(
 }
 
 fn should_run_text_translation_loop(
-    preset: &Preset,
+    has_translation: bool,
     translation_hwnd: Option<HWND>,
     trans_model: &str,
 ) -> bool {
     translation_hwnd.is_some()
-        && preset.blocks.len() > 1
+        && has_translation
         && !crate::model_config::is_gemini_live_s2s_model_id(trans_model)
 }
 
 fn spawn_text_translation_loop(
-    preset: Preset,
+    target_language: String,
     stop_signal: Arc<AtomicBool>,
     translation_send: crate::win_types::SendHwnd,
     state: SharedRealtimeState,
@@ -116,12 +122,12 @@ fn spawn_text_translation_loop(
         trans_model
     );
     std::thread::spawn(move || {
-        run_translation_loop(preset, stop_signal, translation_send, state);
+        run_translation_loop(target_language, stop_signal, translation_send, state);
     });
 }
 
 fn transcription_thread_entry(
-    preset: Preset,
+    plan: RealtimeSessionPlan,
     stop_signal: Arc<AtomicBool>,
     overlay_send: crate::win_types::SendHwnd,
     translation_send: Option<crate::win_types::SendHwnd>,
@@ -136,7 +142,7 @@ fn transcription_thread_entry(
         TRANSCRIPTION_MODEL_CHANGE,
     };
 
-    let mut current_preset = preset;
+    let mut audio_source = plan.audio_source;
     let mut freeze_on_next_restart = false;
     let mut text_translation_loop_active = false;
 
@@ -168,11 +174,11 @@ fn transcription_thread_entry(
         };
 
         let wants_text_translation =
-            should_run_text_translation_loop(&current_preset, hwnd_translation, &trans_model);
+            should_run_text_translation_loop(plan.has_translation, hwnd_translation, &trans_model);
         if wants_text_translation && !text_translation_loop_active {
             if let Some(t_send) = translation_send {
                 spawn_text_translation_loop(
-                    current_preset.clone(),
+                    plan.target_language.clone(),
                     stop_signal.clone(),
                     t_send,
                     state.clone(),
@@ -212,7 +218,6 @@ fn transcription_thread_entry(
         let result = if trans_model == "parakeet" {
             let dummy_pause = Arc::new(AtomicBool::new(false));
             super::parakeet::run_parakeet_transcription(
-                current_preset.clone(),
                 stop_signal.clone(),
                 dummy_pause,
                 None,
@@ -222,7 +227,6 @@ fn transcription_thread_entry(
             )
         } else if trans_model == crate::model_config::QWEN3_ASR_0_6B_MODEL_ID {
             super::qwen3::run_qwen3_transcription_variant(
-                current_preset.clone(),
                 stop_signal.clone(),
                 hwnd_overlay,
                 state.clone(),
@@ -230,7 +234,6 @@ fn transcription_thread_entry(
             )
         } else if trans_model == crate::model_config::QWEN3_ASR_1_7B_MODEL_ID {
             super::qwen3::run_qwen3_transcription_variant(
-                current_preset.clone(),
                 stop_signal.clone(),
                 hwnd_overlay,
                 state.clone(),
@@ -238,7 +241,6 @@ fn transcription_thread_entry(
             )
         } else if trans_model == "zipformer" {
             super::sherpa_onnx::run_sherpa_transcription(
-                current_preset.clone(),
                 stop_signal.clone(),
                 hwnd_overlay,
                 state.clone(),
@@ -246,7 +248,7 @@ fn transcription_thread_entry(
             )
         } else if crate::model_config::is_gemini_live_s2s_model_id(&trans_model) {
             super::s2s::run_gemini_live_s2s(
-                current_preset.clone(),
+                audio_source.clone(),
                 stop_signal.clone(),
                 hwnd_overlay,
                 hwnd_translation,
@@ -255,7 +257,7 @@ fn transcription_thread_entry(
             )
         } else {
             run_realtime_transcription(
-                current_preset.clone(),
+                audio_source.clone(),
                 stop_signal.clone(),
                 hwnd_overlay,
                 hwnd_translation,
@@ -309,7 +311,7 @@ fn transcription_thread_entry(
             // println!("Changing audio source to: {}", new_source);
             let mut app = APP.lock().unwrap();
             app.config.realtime_audio_source = new_source.clone();
-            current_preset.audio_source = new_source.clone();
+            audio_source.clone_from(&new_source);
             // Save config? Optional, but UI should sync.
         }
 
@@ -358,7 +360,7 @@ fn is_stale_session(session_id: u64) -> bool {
 }
 
 fn run_realtime_transcription(
-    preset: Preset,
+    audio_source: String,
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
     _translation_hwnd: Option<HWND>,
@@ -395,7 +397,7 @@ fn run_realtime_transcription(
     use crate::overlay::realtime_webview::REALTIME_TTS_ENABLED;
     let tts_enabled = REALTIME_TTS_ENABLED.load(Ordering::SeqCst);
     let selected_pid = SELECTED_APP_PID.load(Ordering::SeqCst);
-    let selected_pid = if preset.audio_source == "device" && tts_enabled && selected_pid == 0 {
+    let selected_pid = if audio_source == "device" && tts_enabled && selected_pid == 0 {
         crate::log_info!(
             "[RealtimeGeminiLiveHealth] app-selection-required source=device tts_enabled=true"
         );
@@ -407,9 +409,8 @@ fn run_realtime_transcription(
         None
     };
 
-    let using_per_app_capture =
-        preset.audio_source == "device" && tts_enabled && selected_pid.is_some();
-    let using_device_loopback = preset.audio_source == "device" && !tts_enabled;
+    let using_per_app_capture = audio_source == "device" && tts_enabled && selected_pid.is_some();
+    let using_device_loopback = audio_source == "device" && !tts_enabled;
 
     let dummy_pause = Arc::new(AtomicBool::new(false));
 
@@ -431,7 +432,7 @@ fn run_realtime_transcription(
             stop_signal.clone(),
             dummy_pause.clone(),
         )?)
-    } else if preset.audio_source == "device" && tts_enabled {
+    } else if audio_source == "device" && tts_enabled {
         crate::log_info!(
             "[RealtimeGeminiLiveHealth] no-capture reason=app-selection-cancelled source=device tts_enabled=true"
         );

@@ -158,19 +158,6 @@ pub fn create_audio_presets() -> Vec<Preset> {
             ])
             .build(),
 
-        // Live Translate - Realtime translation
-        PresetBuilder::new("preset_realtime_audio_translate", "Live Translate")
-            .audio_device()
-            .realtime()
-            .blocks(vec![
-                BlockBuilder::audio(PRESET_AUDIO_TRANSCRIBE_MODEL_ID)
-                    .build(),
-                BlockBuilder::text(DEFAULT_TEXT_MODEL_ID)
-                    .language("Vietnamese")
-                    .build(),
-            ])
-            .build(),
-
         // Thu âm máy - Input Adapter Only
         PresetBuilder::new("preset_record_device", "Record Device")
             .audio_device()

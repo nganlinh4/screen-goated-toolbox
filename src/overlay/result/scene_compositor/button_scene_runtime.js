@@ -2,6 +2,7 @@
   const models = new Map();
   let externalDrag = false;
   let nativeDrag = false;
+  let awaitingDragSettle = false;
   let controlsHiddenForDrag = false;
   const completionPulseTokens = new Map();
   const completedCards = new Set();
@@ -38,7 +39,7 @@
       hideControlsForDrag();
       return;
     }
-    if (nativeDrag) return;
+    if (nativeDrag || awaitingDragSettle) return;
     const restoreControlsAfterLayout = controlsHiddenForDrag;
     const scale = window.devicePixelRatio || 1;
     const windows = {};
@@ -77,7 +78,7 @@
     } else if (command.type === 'stream' || command.type === 'finalize') {
       mergeCard(command.card);
     } else if (command.type === 'geometry') {
-      if (!nativeDrag) window.clearResultDragControlPreview?.();
+      if (!nativeDrag && !awaitingDragSettle) window.clearResultDragControlPreview?.();
       for (const card of command.cards || []) mergeCard(card);
     } else if (command.type === 'drag_settled') {
       for (const card of command.cards || []) mergeCard(card);
@@ -114,13 +115,24 @@
 
   function setDragActive(active) {
     const wasActive = nativeDrag;
+    const wasAwaitingSettle = awaitingDragSettle;
     nativeDrag = Boolean(active);
     if (nativeDrag) {
+      awaitingDragSettle = false;
       hideControlsForDrag();
-    } else if (wasActive || controlsHiddenForDrag) {
+    } else if (wasActive || wasAwaitingSettle || controlsHiddenForDrag) {
+      awaitingDragSettle = false;
       window.clearResultDragControlPreview?.();
       rebuild();
     }
+  }
+
+  function releaseDragPreview() {
+    if (!nativeDrag) return;
+    nativeDrag = false;
+    awaitingDragSettle = true;
+    document.getElementById('button-container').style.visibility = '';
+    controlsHiddenForDrag = false;
   }
 
   function tryPulseCompletion(key) {
@@ -165,6 +177,7 @@
     rebuild: rebuild,
     clearClickableRegions: clearClickableRegions,
     setDragActive: setDragActive,
+    releaseDragPreview: releaseDragPreview,
     pulseCompletion: pulseCompletion
   };
 })();

@@ -308,7 +308,7 @@ pub(super) fn reference_transcription_preset() -> crate::config::Preset {
         }],
         preset_type: "audio".to_string(),
         audio_source: "mic".to_string(),
-        audio_processing_mode: "record_then_process".to_string(),
+        legacy_realtime_window_mode: "standard".to_string(),
         ..crate::config::Preset::default()
     }
 }
