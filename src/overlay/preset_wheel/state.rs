@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize};
 use std::sync::{LazyLock, Mutex, Once};
 
 use windows::Win32::UI::WindowsAndMessaging::WM_USER;
-use wry::{WebContext, WebView};
+use wry::WebView;
 
 pub(crate) static REGISTER_WHEEL_CLASS: Once = Once::new();
 pub(crate) static REGISTER_OVERLAY_CLASS: Once = Once::new();
@@ -33,7 +33,7 @@ pub(crate) static PENDING_POS: LazyLock<Mutex<(i32, i32)>> = LazyLock::new(|| Mu
 
 thread_local! {
     pub(crate) static WHEEL_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
-    pub(crate) static WHEEL_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
+    pub(crate) static WHEEL_WEB_CONTEXT: RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone, Debug)]

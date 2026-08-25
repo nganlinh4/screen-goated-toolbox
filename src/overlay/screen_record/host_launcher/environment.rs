@@ -41,7 +41,9 @@ pub(super) fn recorder_webview_data_dir(configured: Option<OsString>) -> Result<
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .unwrap_or_else(|| {
-            crate::overlay::get_shared_webview_data_dir(Some(super::RECORDER_WEBVIEW_PROFILE))
+            crate::overlay::webview_runtime::data_dir(
+                crate::overlay::webview_runtime::Profile::Recorder,
+            )
         });
     std::fs::create_dir_all(&selected)
         .with_context(|| format!("create recorder WebView profile '{}'", selected.display()))?;

@@ -63,47 +63,52 @@ pub fn trigger_ollama_model_scan() {
         *last_scan = std::time::Instant::now();
     }
 
-    std::thread::spawn(move || {
-        if let Ok(ollama_models) = crate::api::ollama::fetch_ollama_models_with_caps(&base_url) {
-            let mut new_models = Vec::new();
+    crate::task_runtime::spawn_detached(
+        crate::task_runtime::TaskClass::Interactive,
+        "ollama-model-scan",
+        move || {
+            if let Ok(ollama_models) = crate::api::ollama::fetch_ollama_models_with_caps(&base_url)
+            {
+                let mut new_models = Vec::new();
 
-            for ollama_model in ollama_models {
-                let model_id = format!(
-                    "ollama-{}",
-                    ollama_model.name.replace(":", "-").replace("/", "-")
-                );
-                let display_name = format!("{} (Local)", ollama_model.name);
+                for ollama_model in ollama_models {
+                    let model_id = format!(
+                        "ollama-{}",
+                        ollama_model.name.replace(":", "-").replace("/", "-")
+                    );
+                    let display_name = format!("{} (Local)", ollama_model.name);
 
-                if ollama_model.has_vision {
-                    new_models.push(discovered_model(
-                        format!("{}-vision", model_id),
-                        ollama_model.name.clone(),
-                        display_name.clone(),
-                        ModelType::Vision,
-                    ));
-                    new_models.push(discovered_model(
-                        model_id,
-                        ollama_model.name,
-                        display_name,
-                        ModelType::Text,
-                    ));
-                } else {
-                    new_models.push(discovered_model(
-                        model_id,
-                        ollama_model.name,
-                        display_name,
-                        ModelType::Text,
-                    ));
+                    if ollama_model.has_vision {
+                        new_models.push(discovered_model(
+                            format!("{}-vision", model_id),
+                            ollama_model.name.clone(),
+                            display_name.clone(),
+                            ModelType::Vision,
+                        ));
+                        new_models.push(discovered_model(
+                            model_id,
+                            ollama_model.name,
+                            display_name,
+                            ModelType::Text,
+                        ));
+                    } else {
+                        new_models.push(discovered_model(
+                            model_id,
+                            ollama_model.name,
+                            display_name,
+                            ModelType::Text,
+                        ));
+                    }
+                }
+
+                if let Ok(mut cache) = MODEL_CACHE.lock() {
+                    *cache = new_models;
                 }
             }
 
-            if let Ok(mut cache) = MODEL_CACHE.lock() {
-                *cache = new_models;
-            }
-        }
-
-        SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
-    });
+            SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
+        },
+    );
 }
 
 fn discovered_model(

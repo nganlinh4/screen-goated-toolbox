@@ -9,28 +9,29 @@ mod tests;
 
 use arguments::StartupArgs;
 use single_instance::InstanceOutcome;
+use std::process::ExitCode;
 
-pub(crate) fn run() -> eframe::Result<()> {
+pub(crate) fn run() -> eframe::Result<ExitCode> {
     if crate::overlay::realtime_webview::is_child_process() {
         if let Err(error) = crate::overlay::realtime_webview::run_child() {
             eprintln!("realtime compositor failed: {error:#}");
             std::process::exit(1);
         }
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     if crate::overlay::status_compositor::is_child_process() {
         if let Err(error) = crate::overlay::status_compositor::run_child() {
             eprintln!("status compositor failed: {error:#}");
             std::process::exit(1);
         }
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     if crate::overlay::result::scene_compositor::is_child_process() {
         if let Err(error) = crate::overlay::result::scene_compositor::run_child() {
             eprintln!("result compositor failed: {error:#}");
             std::process::exit(1);
         }
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     crate::component_registry::embedded_catalog();
 
@@ -88,7 +89,7 @@ pub(crate) fn run() -> eframe::Result<()> {
     // desktop singleton.
     let primary_instance = match single_instance::acquire(&startup_args, isolated_ui_test) {
         InstanceOutcome::Primary(instance) => instance,
-        InstanceOutcome::SecondaryNotified => return Ok(()),
+        InstanceOutcome::SecondaryNotified => return Ok(ExitCode::SUCCESS),
     };
     let _single_instance_mutex = primary_instance.guard;
     if primary_instance.owns_activation {
@@ -165,13 +166,17 @@ pub(crate) fn run() -> eframe::Result<()> {
     }
 
     if result_compositor_smoke {
-        std::process::exit(crate::overlay::result::smoke::run());
+        return Ok(smoke_exit_code(crate::overlay::result::smoke::run()));
     }
     if status_compositor_smoke {
-        std::process::exit(crate::overlay::status_compositor::smoke::run());
+        return Ok(smoke_exit_code(
+            crate::overlay::status_compositor::smoke::run(),
+        ));
     }
     if realtime_compositor_smoke {
-        std::process::exit(crate::overlay::realtime_webview::smoke::run());
+        return Ok(smoke_exit_code(
+            crate::overlay::realtime_webview::smoke::run(),
+        ));
     }
 
     settings_window::run(
@@ -181,5 +186,14 @@ pub(crate) fn run() -> eframe::Result<()> {
         screen_translate_ui_test_image,
         screen_translate_lab_queue,
         pending_file_path,
-    )
+    )?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn smoke_exit_code(code: i32) -> ExitCode {
+    if code == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }

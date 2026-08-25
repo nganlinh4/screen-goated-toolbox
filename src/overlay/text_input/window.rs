@@ -18,7 +18,7 @@ use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
-use wry::{Rect, WebContext, WebViewBuilder};
+use wry::{Rect, WebViewBuilder};
 
 pub fn internal_create_window_loop() {
     unsafe {
@@ -215,8 +215,9 @@ pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<()
     TEXT_INPUT_WEB_CONTEXT.with(|ctx| {
         if ctx.borrow().is_none() {
             // Consolidate all minor overlays to 'common' to share one browser process and keep RAM at ~80MB
-            let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-            *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+            *ctx.borrow_mut() = Some(crate::overlay::webview_runtime::create_context(
+                crate::overlay::webview_runtime::Profile::Common,
+            ));
         }
     });
 

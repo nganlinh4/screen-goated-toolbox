@@ -2,8 +2,15 @@ import groovy.json.JsonSlurper
 
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.androidx.baselineprofile)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.serialization)
+}
+
+baselineProfile {
+    dexLayoutOptimization = true
+    automaticGenerationDuringBuild = false
+    mergeIntoMain = true
 }
 
 fun extractCargoPackageVersion(cargoToml: File): String {
@@ -255,6 +262,12 @@ android {
             )
             signingConfig = signingConfigs.getByName("release")
         }
+        create("benchmarkRelease") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        create("nonMinifiedRelease") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
     }
 
     compileOptions {
@@ -356,6 +369,7 @@ tasks.matching {
 
 dependencies {
     implementation(project(":shared"))
+    "baselineProfile"(project(":baselineprofile"))
 
     implementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -371,6 +385,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
+    implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.browser)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)

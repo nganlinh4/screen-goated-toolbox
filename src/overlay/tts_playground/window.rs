@@ -14,7 +14,7 @@ use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{HSTRING, PCWSTR, w};
-use wry::{Rect, WebContext, WebViewBuilder};
+use wry::{Rect, WebViewBuilder};
 
 pub(super) fn show() {
     unsafe {
@@ -243,9 +243,9 @@ unsafe fn internal_create_loop() {
     super::WEB_CONTEXT.with(|context| {
         let mut context_ref = context.borrow_mut();
         if context_ref.is_none() {
-            *context_ref = Some(WebContext::new(Some(
-                crate::overlay::get_shared_webview_data_dir(Some("common")),
-            )));
+            *context_ref = Some(crate::overlay::webview_runtime::create_context(
+                crate::overlay::webview_runtime::Profile::Common,
+            ));
         }
 
         let webview_result = {

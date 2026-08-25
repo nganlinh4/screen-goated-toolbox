@@ -61,8 +61,9 @@ pub fn create_realtime_webview(
 
     REALTIME_WEB_CONTEXT.with(|slot| {
         if slot.borrow().is_none() {
-            let data_dir = crate::overlay::get_shared_webview_data_dir(Some("realtime-compositor"));
-            *slot.borrow_mut() = Some(wry::WebContext::new(Some(data_dir)));
+            *slot.borrow_mut() = Some(crate::overlay::webview_runtime::create_context(
+                crate::overlay::webview_runtime::Profile::RealtimeCompositor,
+            ));
         }
     });
 

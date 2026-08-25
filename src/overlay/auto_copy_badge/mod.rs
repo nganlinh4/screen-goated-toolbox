@@ -13,7 +13,7 @@ use windows::Win32::Foundation::*;
 #[cfg(feature = "recorder-worker")]
 use windows::Win32::UI::WindowsAndMessaging::*;
 #[cfg(feature = "recorder-worker")]
-use wry::{WebContext, WebView};
+use wry::WebView;
 
 #[path = "../auto_copy_badge_html.rs"]
 mod html;
@@ -87,7 +87,7 @@ pub(super) static ACTIVE_PROGRESS: LazyLock<Mutex<Option<ProgressNotification>>>
 #[cfg(feature = "recorder-worker")]
 thread_local! {
     pub(super) static BADGE_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
-    pub(super) static BADGE_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
+    pub(super) static BADGE_WEB_CONTEXT: RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> = const { RefCell::new(None) };
 }
 
 // Dimensions

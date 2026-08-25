@@ -96,6 +96,12 @@ finally {
 # --- Copy APK ---
 $builtApk = "$mobileDir\androidApp\build\outputs\apk\full\release\androidApp-full-release.apk"
 if (Test-Path $builtApk) {
+    & py -3 "$mobileDir\scripts\verify_android_performance_artifact.py" `
+        --apk $builtApk `
+        --contract "$repoRoot\scripts\performance-contract.json"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Android performance artifact verification failed"
+    }
     if (Test-Path $outputApkPath) { Remove-Item $outputApkPath }
     Copy-Item $builtApk $outputApkPath
     $apkSize = [Math]::Round((Get-Item $outputApkPath).Length / 1MB, 2)

@@ -25,7 +25,7 @@ const WM_APP_UPDATE_SETTINGS: u32 = WM_USER + 102;
 // Thread-local storage for WebView
 thread_local! {
     static PDJ_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
-    static PDJ_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
+    static PDJ_WEB_CONTEXT: std::cell::RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> = const { std::cell::RefCell::new(None) };
     static PDJ_ASSET_PACK: std::cell::RefCell<Option<crate::component_registry::web_assets::WebAssetPack>> = const { std::cell::RefCell::new(None) };
 }
 

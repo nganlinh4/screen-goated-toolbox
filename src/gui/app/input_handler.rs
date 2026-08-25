@@ -15,6 +15,7 @@ use crate::overlay::preset_wheel::{
 use crate::overlay::process::pipeline::{
     start_processing_pipeline, start_processing_pipeline_parallel, start_text_processing,
 };
+use crate::task_runtime::{TaskClass, spawn_detached};
 use eframe::egui;
 use image::{ImageBuffer, Rgba};
 use std::path::Path;
@@ -104,7 +105,7 @@ fn process_image_content(img: ImageBuffer<Rgba<u8>, Vec<u8>>) {
         let rect = get_screen_rect_at_cursor();
 
         // Spawn processing in background thread
-        std::thread::spawn(move || {
+        spawn_detached(TaskClass::Io, "dropped-image-pipeline", move || {
             start_processing_pipeline(img, rect, config, preset);
         });
     }
@@ -136,7 +137,7 @@ fn process_text_content(text: String) {
             .unwrap_or_default();
 
         // Spawn processing in background thread
-        std::thread::spawn(move || {
+        spawn_detached(TaskClass::Io, "dropped-text-pipeline", move || {
             start_text_processing(text, rect, config, preset, localized_name, cancel_hotkey);
         });
     }
@@ -184,7 +185,7 @@ fn process_text_parallel(rx: mpsc::Receiver<Option<String>>) {
             .map(|h| h.name.clone())
             .unwrap_or_default();
 
-        std::thread::spawn(move || {
+        spawn_detached(TaskClass::Interactive, "dropped-text-receive", move || {
             if let Ok(Some(text)) = rx.recv() {
                 start_text_processing(text, rect, config, preset, localized_name, cancel_hotkey);
             }
@@ -199,7 +200,7 @@ fn process_audio_parallel_with_preset(rx: mpsc::Receiver<Option<Vec<u8>>>, prese
         app.config.presets[preset_idx].clone()
     };
 
-    std::thread::spawn(move || {
+    spawn_detached(TaskClass::Interactive, "dropped-audio-receive", move || {
         if let Ok(Some(wav_data)) = rx.recv() {
             crate::api::audio::process_audio_file_request(preset, wav_data);
         }
@@ -211,7 +212,7 @@ fn open_video_in_screen_record(path: &Path, action: &str) {
     let action = action.to_string();
     crate::overlay::screen_record::queue_video_drop_action(path, action);
     crate::overlay::screen_record::show_screen_record();
-    std::thread::spawn(move || {
+    spawn_detached(TaskClass::Io, "video-drop-dispatch", move || {
         let script = "window.dispatchEvent(new CustomEvent('sgt-video-drop-pending'));".to_string();
         for _ in 0..80 {
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -261,7 +262,7 @@ fn open_audio_paths_in_screen_record(paths: &[std::path::PathBuf]) {
         crate::overlay::screen_record::queue_audio_drop_action(path.to_string_lossy().to_string());
     }
     crate::overlay::screen_record::show_screen_record();
-    std::thread::spawn(move || {
+    spawn_detached(TaskClass::Io, "audio-drop-dispatch", move || {
         let script = "window.dispatchEvent(new CustomEvent('sgt-audio-drop-pending'));".to_string();
         for _ in 0..80 {
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -276,7 +277,7 @@ fn open_audio_paths_in_screen_record(paths: &[std::path::PathBuf]) {
 fn open_subtitle_in_screen_record(path: &Path) {
     crate::overlay::screen_record::queue_subtitle_drop_action(path.to_string_lossy().to_string());
     crate::overlay::screen_record::show_screen_record();
-    std::thread::spawn(move || {
+    spawn_detached(TaskClass::Io, "subtitle-drop-dispatch", move || {
         let script =
             "window.dispatchEvent(new CustomEvent('sgt-subtitle-drop-pending'));".to_string();
         for _ in 0..80 {
@@ -335,7 +336,7 @@ fn process_audio_path(path: &Path) {
         Some(preset_idx) => {
             let path_clone = path.to_path_buf();
             let (tx, rx) = mpsc::channel();
-            std::thread::spawn(move || {
+            spawn_detached(TaskClass::Cpu, "dropped-audio-load", move || {
                 let _ = tx.send(load_audio_file(&path_clone));
             });
             process_audio_parallel_with_preset(rx, preset_idx);
@@ -362,7 +363,7 @@ pub fn process_file_path(path: &Path) {
     } else if is_image_extension(ext) {
         crate::log_info!("Type detected: IMAGE");
         let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
+        spawn_detached(TaskClass::Cpu, "dropped-image-load", move || {
             // Read file bytes directly (preserves original format e.g. JPEG)
             if let Ok(bytes) = std::fs::read(&path_clone)
                 && let Ok(img) = image::load_from_memory(&bytes)
@@ -380,7 +381,7 @@ pub fn process_file_path(path: &Path) {
         crate::log_info!("Type detected: TEXT (Default)");
         // Default to Text (covers text files and unknown extensions)
         let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
+        spawn_detached(TaskClass::Io, "dropped-text-load", move || {
             let _ = tx.send(load_text_file(&path_clone));
         });
         process_text_parallel(rx);
@@ -422,7 +423,7 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
         // If path is not available, use existing byte handling (already threaded but serial load->process)
         else if let Ok(bytes) = file.bytes() {
             let bytes_clone = bytes;
-            std::thread::spawn(move || {
+            spawn_detached(TaskClass::Cpu, "dropped-bytes-decode", move || {
                 // Try to interpret as image first
                 if let Ok(img) = image::load_from_memory(&bytes_clone) {
                     let rgba = img.to_rgba8();

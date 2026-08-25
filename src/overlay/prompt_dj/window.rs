@@ -8,7 +8,7 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
-use wry::{Rect, WebContext, WebViewBuilder};
+use wry::{Rect, WebViewBuilder};
 
 use crate::win_types::SendHwnd;
 
@@ -215,8 +215,9 @@ pub(super) unsafe fn internal_create_pdj_loop() {
 
         PDJ_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
-                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-                *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+                *ctx.borrow_mut() = Some(crate::overlay::webview_runtime::create_context(
+                    crate::overlay::webview_runtime::Profile::Common,
+                ));
             }
         });
 

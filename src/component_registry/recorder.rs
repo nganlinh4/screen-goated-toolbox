@@ -119,9 +119,13 @@ fn acquire_verified_components(
 }
 
 pub(crate) fn refresh_catalog_after_open() {
-    std::thread::spawn(|| {
-        super::update_catalog::refresh_for_use(WEB_ID, "before-open");
-    });
+    crate::task_runtime::spawn_detached(
+        crate::task_runtime::TaskClass::Io,
+        "recorder-catalog-refresh",
+        || {
+            super::update_catalog::refresh_for_use(WEB_ID, "before-open");
+        },
+    );
 }
 
 #[cfg(test)]

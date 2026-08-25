@@ -127,6 +127,39 @@ target or feature set differs. Do not use a release build as routine
 validation; release packaging enables LTO/stripping and rebuilds every
 packaged frontend.
 
+### Windows performance profiles
+
+The normal `release` profile remains the compact shipping baseline. It uses
+size optimization, fat LTO, one codegen unit, and symbol stripping. The
+comparison lanes are explicit so an optimization cannot silently add megabytes
+to every download:
+
+```powershell
+.\scripts\windows-performance.ps1 -Action Compare
+```
+
+`release-compact` reproduces the shipping optimizer and `release-perf` is the
+speed-first upper bound. The script runs the result, status, and realtime
+compositor restart corpus, records elapsed time/working set/thread peaks under
+the bounded development cache, hashes both binaries, and enforces
+`scripts/performance-contract.json`.
+
+For a profile-guided candidate, install Rust's matching LLVM tools once and
+train the balanced profile on the same compositor corpus:
+
+```powershell
+rustup component add llvm-tools-preview
+.\scripts\windows-performance.ps1 -Action TrainPgo
+```
+
+The report, merged profile, and optimized executable stay under
+`%LOCALAPPDATA%\SGT-Development\cache\performance`; raw counters and Cargo
+targets are removed after validation. A release can consume that
+exact generated profile with `build.ps1 -PgoProfile <absolute-profdata-path>`;
+the release wrapper refuses profiles from any other directory. Compare the PGO
+artifact before selecting it. PGO is compiler- and source-specific, never a
+floating input.
+
 ## Frontend development
 
 Each frontend owns its `package.json`. Typical loop:
@@ -204,6 +237,28 @@ Android uses JDK 17 and Android SDK platform/build tools configured by Gradle. W
 cd mobile
 .\gradlew.bat :androidApp:testFullDebugUnitTest --console=plain
 ```
+
+Android startup and common shell movement have a dedicated Baseline/Startup
+Profile producer plus Macrobenchmark. Normal builds do not run a device or
+generate profiles automatically:
+
+```powershell
+cd mobile
+.\gradlew.bat :androidApp:generateBaselineProfile --no-parallel --max-workers=1 --console=plain
+.\gradlew.bat :baselineprofile:connectedFullBenchmarkReleaseAndroidTest --console=plain
+```
+
+An emulator can generate the profiles, but run Macrobenchmark measurements on a
+controlled physical device; AndroidX intentionally rejects emulator performance
+numbers. The benchmark records cold startup and frame timing both without
+compilation and with the packaged Baseline Profile, while the generated Startup
+Profile lets R8 optimize DEX layout for the same critical journey. Generation
+merges both shipping flavors into one profile. Keep the connected flavor tasks
+serialized because they install the same package identity on one device.
+
+The mobile release wrapper also requires the compiled profile entries in the
+Full APK and enforces both the APK and profile byte budgets from
+`scripts/performance-contract.json`.
 
 Run the Play suite instead for Play-only delivery work. Run both flavor suites
 at cross-flavor and release checkpoints. Assemble a debug APK only when it is

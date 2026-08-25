@@ -101,8 +101,9 @@ fn deferred_ffmpeg_resolution_is_visible_and_clears_before_capture() {
 
 #[test]
 fn recorder_worker_owns_a_distinct_webview_profile() {
-    assert_eq!(RECORDER_WEBVIEW_PROFILE, "screen-recorder-worker");
-    assert_ne!(RECORDER_WEBVIEW_PROFILE, "common");
+    let profile = crate::overlay::webview_runtime::Profile::Recorder.directory();
+    assert_eq!(profile, "screen-recorder-worker");
+    assert_ne!(profile, "common");
 }
 
 #[test]

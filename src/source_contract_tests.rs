@@ -125,3 +125,45 @@ fn graph_wheel_zoom_yields_to_open_popups() {
         "both wheel and native zoom input must yield to graph-node dropdowns"
     );
 }
+
+#[test]
+fn webview_contexts_use_the_canonical_runtime() {
+    let overlay_root = manifest_path("src/overlay");
+    let owner = overlay_root.join("webview_runtime.rs");
+    let mut sources = Vec::new();
+    rust_sources_below(&overlay_root, &mut sources);
+
+    for path in sources {
+        if path == owner {
+            continue;
+        }
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        assert!(
+            !source.contains("WebContext::new"),
+            "{} bypasses overlay::webview_runtime",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn migrated_background_jobs_stay_on_the_bounded_runtime() {
+    for relative in [
+        "src/updater.rs",
+        "src/component_registry/external_tools.rs",
+        "src/component_registry/recorder.rs",
+        "src/component_registry/update_catalog.rs",
+        "src/component_registry/vc_runtime.rs",
+        "src/component_registry/web_assets.rs",
+        "src/gui/app/input_handler.rs",
+        "src/model_config/ollama.rs",
+    ] {
+        let source = read_source(relative);
+        assert!(source.contains("task_runtime::"));
+        assert!(
+            !source.contains("thread::spawn(") && !source.contains("std::thread::spawn("),
+            "{relative} reintroduced an unbounded one-shot task"
+        );
+    }
+}

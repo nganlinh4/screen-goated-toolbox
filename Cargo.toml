@@ -146,6 +146,18 @@ strip = "symbols"
 debug = 1
 panic = "unwind"
 
+[profile.release-compact]
+inherits = "release"
+opt-level = "z"
+
+[profile.release-perf]
+inherits = "release"
+opt-level = 3
+
+[profile.release-balanced]
+inherits = "release"
+opt-level = "s"
+
 [profile.dev]
 # Keep panic backtraces (file:line) but drop bulky symbol data to shrink target/.
 debug = "line-tables-only"

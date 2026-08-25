@@ -70,12 +70,16 @@ pub(crate) fn refresh_in_background() {
         activate(catalog);
         super::external_tools::schedule_periodic_updates();
     }
-    std::thread::spawn(|| match refresh_now() {
-        Ok(_) => super::external_tools::schedule_periodic_updates(),
-        Err(error) => {
-            crate::log_info!("[Component updates] Catalog refresh skipped: {error:#}")
-        }
-    });
+    crate::task_runtime::spawn_detached(
+        crate::task_runtime::TaskClass::Io,
+        "component-catalog-refresh",
+        || match refresh_now() {
+            Ok(_) => super::external_tools::schedule_periodic_updates(),
+            Err(error) => {
+                crate::log_info!("[Component updates] Catalog refresh skipped: {error:#}")
+            }
+        },
+    );
 }
 
 pub(crate) fn refresh_now() -> Result<u64> {

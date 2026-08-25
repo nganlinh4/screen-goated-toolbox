@@ -16,7 +16,7 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
-use wry::{Rect, WebContext, WebView, WebViewBuilder};
+use wry::{Rect, WebView, WebViewBuilder};
 
 const WM_DRAIN_COMMANDS: u32 = WM_APP + 91;
 const INPUT_TIMER_ID: usize = 1;
@@ -30,7 +30,7 @@ static STDOUT: LazyLock<Mutex<std::io::Stdout>> = LazyLock::new(|| Mutex::new(st
 
 thread_local! {
     pub(super) static WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
-    static WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
+    static WEB_CONTEXT: RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> = const { RefCell::new(None) };
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -112,14 +112,15 @@ fn create_webview(hwnd: HWND) -> anyhow::Result<WebView> {
     } else {
         "result-compositor"
     };
-    let data_dir = crate::paths::app_sgt_dir()
-        .join("webview_data")
-        .join(profile);
+    let data_dir = crate::overlay::webview_runtime::data_dir_named(Some(profile));
     let wrapper = HwndWrapper(hwnd);
     let isolated_origin = super::isolated_server::start()?;
     let compositor_html = compositor_document(&isolated_origin);
     WEB_CONTEXT.with(|slot| {
-        *slot.borrow_mut() = Some(WebContext::new(Some(data_dir)));
+        *slot.borrow_mut() = Some(crate::overlay::webview_runtime::create_context_at(
+            crate::overlay::webview_runtime::Profile::ResultCompositor,
+            data_dir,
+        ));
         let mut context = slot.borrow_mut();
         WebViewBuilder::new_with_web_context(context.as_mut().unwrap())
             .with_bounds(Rect {

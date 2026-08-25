@@ -69,7 +69,9 @@ pub(super) fn build_host(hwnd: HWND) -> windows::core::Result<DcompHost> {
         let root: IDCompositionVisual = device.CreateVisual()?;
         target.SetRoot(&root)?;
 
-        let user_data = crate::overlay::get_shared_webview_data_dir(Some("status-compositor"));
+        let user_data = crate::overlay::webview_runtime::data_dir(
+            crate::overlay::webview_runtime::Profile::StatusCompositor,
+        );
         let user_data = windows::core::HSTRING::from(user_data.to_string_lossy().as_ref());
         let environment = {
             let (sender, receiver) = std::sync::mpsc::channel();

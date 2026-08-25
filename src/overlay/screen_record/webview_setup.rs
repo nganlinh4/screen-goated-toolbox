@@ -14,7 +14,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::*;
 #[cfg(windows)]
 use wry::WebViewBuilderExtWindows;
-use wry::{Rect, WebContext, WebViewBuilder};
+use wry::{Rect, WebViewBuilder};
 
 use crate::win_types::SendHwnd;
 
@@ -167,9 +167,16 @@ pub(super) unsafe fn internal_create_sr_loop() {
                     .ok()
                     .filter(|value| !value.trim().is_empty())
                     .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| crate::overlay::get_shared_webview_data_dir(Some("common")));
+                    .unwrap_or_else(|| {
+                        crate::overlay::webview_runtime::data_dir(
+                            crate::overlay::webview_runtime::Profile::Recorder,
+                        )
+                    });
                 crate::log_info!("[ScreenRecord] WebView data dir: {}", data_dir.display());
-                *ctx.borrow_mut() = Some(WebContext::new(Some(data_dir)));
+                *ctx.borrow_mut() = Some(crate::overlay::webview_runtime::create_context_at(
+                    crate::overlay::webview_runtime::Profile::Recorder,
+                    data_dir,
+                ));
             }
         });
 

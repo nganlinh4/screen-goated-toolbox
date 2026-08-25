@@ -19,7 +19,7 @@ use std::sync::{
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::{Rect, WebContext, WebView};
+use wry::{Rect, WebView};
 
 static REGISTER_POPUP_CLASS: Once = Once::new();
 static POPUP_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -45,7 +45,7 @@ const WM_APP_UPDATE_THEME: u32 = WM_APP + 2;
 thread_local! {
     static POPUP_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
     // Shared WebContext for this thread using common data directory
-    static POPUP_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
+    static POPUP_WEB_CONTEXT: RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> = const { RefCell::new(None) };
 }
 
 const BASE_POPUP_WIDTH: i32 = 240;

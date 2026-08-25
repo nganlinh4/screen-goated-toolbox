@@ -189,64 +189,69 @@ pub(crate) fn start_install() -> bool {
         return false;
     }
     PROGRESS_BASIS_POINTS.store(0, Ordering::Relaxed);
-    std::thread::spawn(|| {
-        let language = crate::APP
-            .lock()
-            .map(|app| app.config.ui_language.clone())
-            .unwrap_or_else(|_| "en".to_string());
-        let component_name = crate::gui::locale::LocaleText::get(&language)
-            .auxiliary
-            .managed_tools
-            .tool_vc_runtime
-            .to_string();
-        let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&component_name);
-        let result = ensure_component(|downloaded, total| {
-            badge.report(downloaded, total);
-            let basis_points = downloaded
-                .saturating_mul(10_000)
-                .checked_div(total.max(1))
-                .unwrap_or(0)
-                .min(10_000) as u32;
-            PROGRESS_BASIS_POINTS.store(basis_points, Ordering::Relaxed);
-        })
-        .map(|support| {
-            crate::log_info!(
-                "[Components] VC runtime support ready at {}",
-                support.bin_dir().display()
-            );
-        });
-        let mut notice = LAST_NOTICE
-            .lock()
-            .unwrap_or_else(|value| value.into_inner());
-        *notice = result.as_ref().err().map(ToString::to_string);
-        drop(notice);
-        INSTALLING.store(false, Ordering::Release);
-        let locale = crate::overlay::auto_copy_badge::locale_text();
-        match result {
-            Ok(()) => {
-                let title = crate::overlay::auto_copy_badge::format_locale(
-                    locale.component_installed_fmt,
-                    &[("name", &component_name)],
+    crate::task_runtime::spawn_detached(
+        crate::task_runtime::TaskClass::Io,
+        "vc-runtime-install",
+        || {
+            let language = crate::APP
+                .lock()
+                .map(|app| app.config.ui_language.clone())
+                .unwrap_or_else(|_| "en".to_string());
+            let component_name = crate::gui::locale::LocaleText::get(&language)
+                .auxiliary
+                .managed_tools
+                .tool_vc_runtime
+                .to_string();
+            let badge =
+                crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&component_name);
+            let result = ensure_component(|downloaded, total| {
+                badge.report(downloaded, total);
+                let basis_points = downloaded
+                    .saturating_mul(10_000)
+                    .checked_div(total.max(1))
+                    .unwrap_or(0)
+                    .min(10_000) as u32;
+                PROGRESS_BASIS_POINTS.store(basis_points, Ordering::Relaxed);
+            })
+            .map(|support| {
+                crate::log_info!(
+                    "[Components] VC runtime support ready at {}",
+                    support.bin_dir().display()
                 );
-                crate::overlay::auto_copy_badge::show_detailed_notification(
-                    &title,
-                    &component_name,
-                    crate::overlay::auto_copy_badge::NotificationType::Success,
-                );
+            });
+            let mut notice = LAST_NOTICE
+                .lock()
+                .unwrap_or_else(|value| value.into_inner());
+            *notice = result.as_ref().err().map(ToString::to_string);
+            drop(notice);
+            INSTALLING.store(false, Ordering::Release);
+            let locale = crate::overlay::auto_copy_badge::locale_text();
+            match result {
+                Ok(()) => {
+                    let title = crate::overlay::auto_copy_badge::format_locale(
+                        locale.component_installed_fmt,
+                        &[("name", &component_name)],
+                    );
+                    crate::overlay::auto_copy_badge::show_detailed_notification(
+                        &title,
+                        &component_name,
+                        crate::overlay::auto_copy_badge::NotificationType::Success,
+                    );
+                }
+                Err(error) => {
+                    let title = crate::overlay::auto_copy_badge::format_locale(
+                        locale.component_install_failed_fmt,
+                        &[("name", &component_name)],
+                    );
+                    crate::overlay::auto_copy_badge::show_detailed_notification(
+                        &title,
+                        &error.to_string(),
+                        crate::overlay::auto_copy_badge::NotificationType::Error,
+                    );
+                }
             }
-            Err(error) => {
-                let title = crate::overlay::auto_copy_badge::format_locale(
-                    locale.component_install_failed_fmt,
-                    &[("name", &component_name)],
-                );
-                crate::overlay::auto_copy_badge::show_detailed_notification(
-                    &title,
-                    &error.to_string(),
-                    crate::overlay::auto_copy_badge::NotificationType::Error,
-                );
-            }
-        }
-    });
+        },
+    );
     true
 }
 

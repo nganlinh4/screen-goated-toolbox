@@ -64,6 +64,7 @@ pub mod realtime_webview; // New WebView2-based with smooth scrolling
 pub mod tray_popup; // Custom non-blocking tray popup menu
 pub(crate) mod webview_diagnostics;
 pub(crate) mod webview_init;
+pub(crate) mod webview_runtime;
 pub mod window_selector;
 
 pub use recording::{
@@ -82,20 +83,6 @@ pub static GLOBAL_WEBVIEW_MUTEX: LazyLock<std::sync::Mutex<()>> =
 pub use realtime_webview::{
     is_realtime_overlay_active, show_realtime_overlay, stop_realtime_overlay,
 };
-
-/// Get a WebView2 data directory path.
-/// If subdir is provided, returns a component-specific folder to avoid file-lock contention.
-pub fn get_shared_webview_data_dir(subdir: Option<&str>) -> std::path::PathBuf {
-    let mut path = std::env::var_os("SGT_CREATION_WEBVIEW2_DATA_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| crate::paths::app_sgt_dir().join("webview_data"));
-    if let Some(s) = subdir {
-        path.push(s);
-    }
-    // Ensure the directory exists
-    let _ = std::fs::create_dir_all(&path);
-    path
-}
 
 /// Clear WebView permissions (MIDI, etc.) by removing the webview_data directory.
 /// The directory will be recreated on next WebView initialization.

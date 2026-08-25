@@ -30,7 +30,13 @@ def require_repo_or_managed_cache(repo: Path, path: Path, label: str) -> Path:
         raise ValueError(
             f"{label} must stay inside the repository or managed dev cache"
         ) from error
-    if not relative.parts or relative.parts[0] not in {"cargo", "packages", "evidence", "staging"}:
+    if not relative.parts or relative.parts[0] not in {
+        "cargo",
+        "packages",
+        "evidence",
+        "performance",
+        "staging",
+    }:
         raise ValueError(f"{label} is outside an allowed managed-cache area")
     return resolved
 

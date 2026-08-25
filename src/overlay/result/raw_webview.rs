@@ -12,7 +12,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetLayeredWindowAttributes,
     SetWindowLongPtrW, SetWindowPos, WM_APP, WS_CLIPCHILDREN,
 };
-use wry::{PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
+use wry::{PageLoadEvent, Rect, WebView, WebViewBuilder};
 
 pub(super) const WM_SYNC: u32 = WM_APP + 241;
 pub(super) const WM_NAVIGATE: u32 = WM_APP + 242;
@@ -31,7 +31,7 @@ struct RawView {
 
 thread_local! {
     static VIEWS: RefCell<HashMap<isize, RawView>> = RefCell::new(HashMap::new());
-    static CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
+    static CONTEXT: RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> = const { RefCell::new(None) };
 }
 
 pub(super) fn request_sync(hwnd: HWND) {
@@ -101,9 +101,9 @@ fn build_navigation(hwnd: HWND, page_url: &str) -> anyhow::Result<WebView> {
     CONTEXT.with(|context| {
         let mut context = context.borrow_mut();
         if context.is_none() {
-            *context = Some(WebContext::new(Some(
-                crate::overlay::get_shared_webview_data_dir(Some("result-navigation")),
-            )));
+            *context = Some(crate::overlay::webview_runtime::create_context(
+                crate::overlay::webview_runtime::Profile::ResultNavigation,
+            ));
         }
         WebViewBuilder::new_with_web_context(context.as_mut().unwrap())
             .with_bounds(bounds)

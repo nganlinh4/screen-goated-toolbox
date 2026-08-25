@@ -24,7 +24,6 @@ use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::WebContext;
 
 use crate::component_registry::web_assets::WebAssetComponent;
 use crate::win_types::SendHwnd;
@@ -45,7 +44,7 @@ pub(super) static REMOVAL_REQUESTED: AtomicBool = AtomicBool::new(false);
 thread_local! {
     pub(super) static WEBVIEW: std::cell::RefCell<Option<wry::WebView>> =
         const { std::cell::RefCell::new(None) };
-    pub(super) static WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> =
+    pub(super) static WEB_CONTEXT: std::cell::RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> =
         const { std::cell::RefCell::new(None) };
     pub(super) static ASSET_PACK: std::cell::RefCell<Option<crate::component_registry::web_assets::WebAssetPack>> =
         const { std::cell::RefCell::new(None) };

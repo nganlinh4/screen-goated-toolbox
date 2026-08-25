@@ -33,6 +33,7 @@ mod screen_capture;
 #[cfg(test)]
 mod source_contract_tests;
 mod startup_launch;
+mod task_runtime;
 mod unpack_dlls;
 mod updater;
 mod usage_stats;
@@ -49,7 +50,7 @@ pub const MIN_WINDOW_HEIGHT: f32 = 720.0;
 pub const WINDOW_WIDTH: f32 = MIN_WINDOW_WIDTH;
 pub const WINDOW_HEIGHT: f32 = MIN_WINDOW_HEIGHT;
 
-fn main() -> eframe::Result<()> {
+fn main() -> eframe::Result<std::process::ExitCode> {
     app_entry::run()
 }
 

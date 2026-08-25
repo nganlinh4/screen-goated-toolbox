@@ -49,7 +49,6 @@ const NORMAL_TIMEOUT: Duration = Duration::from_secs(15);
 const REMOVAL_STOP_TIMEOUT: Duration = Duration::from_secs(17);
 const HEADLESS_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 const DROP_WAIT: Duration = Duration::from_millis(500);
-const RECORDER_WEBVIEW_PROFILE: &str = "screen-recorder-worker";
 
 enum DispatchMessage {
     Interactive(Command),

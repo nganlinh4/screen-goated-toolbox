@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::{LazyLock, Mutex, Once};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::WM_USER;
-use wry::WebContext;
 
 // --- REGISTRATION ---
 pub static REGISTER_INPUT_CLASS: Once = Once::new();
@@ -49,5 +48,5 @@ pub static PENDING_TEXT: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mute
 // --- THREAD LOCAL ---
 thread_local! {
     pub static TEXT_INPUT_WEBVIEW: RefCell<Option<wry::WebView>> = const { RefCell::new(None) };
-    pub static TEXT_INPUT_WEB_CONTEXT: RefCell<Option<WebContext>> = const { RefCell::new(None) };
+    pub static TEXT_INPUT_WEB_CONTEXT: RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> = const { RefCell::new(None) };
 }

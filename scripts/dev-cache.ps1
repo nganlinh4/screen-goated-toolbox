@@ -126,6 +126,7 @@ $known = @{
     Evidence = Join-Path $root "evidence"
     Staging = Join-Path $root "staging"
     Runtime = Join-Path $root "runtime"
+    Performance = Join-Path $root "performance"
 }
 
 if ($Action -eq "Path") {
@@ -186,6 +187,15 @@ Get-ChildItem -LiteralPath $releaseRoot -Directory -Force -ErrorAction SilentlyC
     }
 
 Get-ChildItem -LiteralPath $known.Evidence -Directory -Force -ErrorAction SilentlyContinue |
+    ForEach-Object {
+        $candidates.Add([pscustomobject]@{
+            Path = $_.FullName
+            LastWriteUtc = Get-NewestWriteTime $_.FullName
+            Protected = $false
+        })
+    }
+
+Get-ChildItem -LiteralPath $known.Performance -Directory -Force -ErrorAction SilentlyContinue |
     ForEach-Object {
         $candidates.Add([pscustomobject]@{
             Path = $_.FullName

@@ -21,7 +21,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
 use windows::core::w;
-use wry::{Rect, WebContext, WebViewBuilder};
+use wry::{Rect, WebViewBuilder};
 
 pub(super) const WM_REFRESH_PANEL: u32 = WM_APP + 42;
 
@@ -109,8 +109,9 @@ pub(super) fn create_panel_webview(panel_hwnd: HWND) {
 
     PANEL_WEB_CONTEXT.with(|ctx| {
         if ctx.borrow().is_none() {
-            let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-            *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+            *ctx.borrow_mut() = Some(crate::overlay::webview_runtime::create_context(
+                crate::overlay::webview_runtime::Profile::Common,
+            ));
         }
     });
 

@@ -8,7 +8,7 @@ use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::core::*;
-use wry::{Rect, WebContext, WebViewBuilder};
+use wry::{Rect, WebViewBuilder};
 
 pub fn warmup() {
     // Prevent multiple warmup threads from spawning (like preset_wheel)
@@ -82,8 +82,9 @@ fn internal_create_window_loop() {
         BADGE_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
                 // Consolidate all minor overlays to 'common' to share one browser process and keep RAM at ~80MB
-                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-                *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+                *ctx.borrow_mut() = Some(crate::overlay::webview_runtime::create_context(
+                    crate::overlay::webview_runtime::Profile::Common,
+                ));
             }
         });
         // Stagger start to avoid global WebView2 init lock contention

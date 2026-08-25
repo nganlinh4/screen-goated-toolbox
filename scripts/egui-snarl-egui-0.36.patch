@@ -52,7 +52,7 @@ diff --git a/src/ui.rs b/src/ui.rs
          self.id_salt = Id::new(id_salt);
          self
      }
-@@ -2619,5 +2619,11 @@ impl<T> Snarl<T> {
+@@ -2619,5 +2619,10 @@ impl<T> Snarl<T> {
      /// Render [`Snarl`] using given viewer and style into the [`Ui`].
      #[inline]
 -    pub fn show<V>(&mut self, viewer: &mut V, style: &SnarlStyle, id_salt: impl Hash, ui: &mut Ui)
@@ -62,8 +62,8 @@ diff --git a/src/ui.rs b/src/ui.rs
 +        style: &SnarlStyle,
 +        id_salt: impl Hash + std::fmt::Debug,
 +        ui: &mut Ui,
-+    )
-     where
++    ) where
+-    where
          V: SnarlViewer<T>,
 diff --git a/src/ui/state.rs b/src/ui/state.rs
 --- a/src/ui/state.rs

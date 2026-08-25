@@ -262,29 +262,36 @@ pub(crate) fn schedule_periodic_updates() {
     if !should_check {
         return;
     }
-    std::thread::spawn(|| {
-        if !matches!(
-            current_status(ExternalTool::Ffmpeg),
-            ExternalToolStatus::Missing
-        ) || !has_prior_managed_install(ExternalTool::Ffmpeg)
-        {
-            return;
-        }
-        let name = localized_tool_name(ExternalTool::Ffmpeg);
-        let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&name);
-        let cancelled = AtomicBool::new(false);
-        let result = ensure(ExternalTool::Ffmpeg, &cancelled, |event| {
-            report_badge_event(&badge, &name, event);
-        });
-        badge.finish();
-        match result {
-            Ok(component) => {
-                drop(component);
-                notify_periodic_update(&name, None);
+    if let Err(error) = crate::task_runtime::spawn_with_timeout(
+        crate::task_runtime::TaskClass::Maintenance,
+        "external-tool-periodic-update",
+        std::time::Duration::from_secs(10 * 60),
+        |_| {
+            if !matches!(
+                current_status(ExternalTool::Ffmpeg),
+                ExternalToolStatus::Missing
+            ) || !has_prior_managed_install(ExternalTool::Ffmpeg)
+            {
+                return;
             }
-            Err(error) => notify_periodic_update(&name, Some(&error)),
-        }
-    });
+            let name = localized_tool_name(ExternalTool::Ffmpeg);
+            let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&name);
+            let cancelled = AtomicBool::new(false);
+            let result = ensure(ExternalTool::Ffmpeg, &cancelled, |event| {
+                report_badge_event(&badge, &name, event);
+            });
+            badge.finish();
+            match result {
+                Ok(component) => {
+                    drop(component);
+                    notify_periodic_update(&name, None);
+                }
+                Err(error) => notify_periodic_update(&name, Some(&error)),
+            }
+        },
+    ) {
+        crate::log_info!("[ExternalTools] periodic_update_not_queued error={error:#}");
+    }
 }
 
 pub(crate) fn remove(tool: ExternalTool) -> Result<RemovalOutcome> {

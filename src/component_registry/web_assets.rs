@@ -130,21 +130,25 @@ pub(crate) fn launch_when_ready(component: WebAssetComponent, launch: fn()) {
             return;
         }
     }
-    std::thread::spawn(move || {
-        super::update_catalog::refresh_for_use(component.id(), "before-open");
-        let result = download(component, Arc::new(AtomicBool::new(false)), true);
-        INSTALLING
-            .lock()
-            .unwrap_or_else(|value| value.into_inner())
-            .remove(component.id());
-        match result {
-            Ok(()) => launch(),
-            Err(error) => {
-                crate::log_info!("[Web assets] {}: {error}", component.id());
-                notify_install_error(component, &error);
+    crate::task_runtime::spawn_detached(
+        crate::task_runtime::TaskClass::Io,
+        "web-asset-install",
+        move || {
+            super::update_catalog::refresh_for_use(component.id(), "before-open");
+            let result = download(component, Arc::new(AtomicBool::new(false)), true);
+            INSTALLING
+                .lock()
+                .unwrap_or_else(|value| value.into_inner())
+                .remove(component.id());
+            match result {
+                Ok(()) => launch(),
+                Err(error) => {
+                    crate::log_info!("[Web assets] {}: {error}", component.id());
+                    notify_install_error(component, &error);
+                }
             }
-        }
-    });
+        },
+    );
 }
 
 pub(crate) fn is_installed(component: WebAssetComponent) -> bool {

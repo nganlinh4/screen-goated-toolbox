@@ -31,6 +31,9 @@ const LOG_WRITE_MUTEX: &str = "Local\\ScreenGoatedToolboxSessionLogWrite-v1";
 #[cfg(windows)]
 const LOG_WRITE_WAIT_MS: u32 = 5_000;
 
+static STDOUT_RESERVED_FOR_PROTOCOL: LazyLock<bool> =
+    LazyLock::new(|| stdout_reserved_for_protocol(std::env::args_os().skip(1)));
+
 static LOG_SENDER: LazyLock<Sender<String>> = LazyLock::new(|| {
     let (sender, receiver) = channel();
     std::thread::Builder::new()
@@ -48,6 +51,9 @@ pub fn print_line(msg: &str) {
 
     #[cfg(not(feature = "recorder-worker"))]
     {
+        if *STDOUT_RESERVED_FOR_PROTOCOL {
+            return;
+        }
         #[cfg(windows)]
         if write_console_line(msg) {
             return;
@@ -55,6 +61,12 @@ pub fn print_line(msg: &str) {
         let mut stdout = std::io::stdout().lock();
         let _ = writeln!(stdout, "{msg}");
     }
+}
+
+fn stdout_reserved_for_protocol(arguments: impl Iterator<Item = std::ffi::OsString>) -> bool {
+    arguments
+        .filter_map(|argument| argument.into_string().ok())
+        .any(|argument| argument.starts_with("--internal-") && argument.ends_with("-compositor"))
 }
 
 #[cfg(all(windows, not(feature = "recorder-worker")))]
@@ -371,6 +383,19 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn internal_compositors_keep_stdout_exclusive_to_protocol_frames() {
+        assert!(stdout_reserved_for_protocol(
+            ["--internal-result-compositor".into()].into_iter()
+        ));
+        assert!(stdout_reserved_for_protocol(
+            ["--internal-status-compositor".into()].into_iter()
+        ));
+        assert!(!stdout_reserved_for_protocol(
+            ["--result-compositor-smoke".into()].into_iter()
+        ));
+    }
 
     struct TestDir(PathBuf);
 

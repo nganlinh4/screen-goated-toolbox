@@ -8,7 +8,7 @@ use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::{Rect, WebContext, WebViewBuilder};
+use wry::{Rect, WebViewBuilder};
 
 use super::html::generate_html;
 use super::{SelectorCallbacks, SelectorEntry, SelectorOwner, SelectorText};
@@ -22,7 +22,7 @@ static SELECTOR_OWNER: AtomicU8 = AtomicU8::new(0);
 thread_local! {
     static SELECTOR_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> =
         const { std::cell::RefCell::new(None) };
-    static SELECTOR_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> =
+    static SELECTOR_WEB_CONTEXT: std::cell::RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -232,8 +232,9 @@ pub fn show_selector(
 
         SELECTOR_WEB_CONTEXT.with(|context| {
             if context.borrow().is_none() {
-                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-                *context.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+                *context.borrow_mut() = Some(crate::overlay::webview_runtime::create_context(
+                    crate::overlay::webview_runtime::Profile::Common,
+                ));
             }
         });
 

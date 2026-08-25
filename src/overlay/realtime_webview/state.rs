@@ -150,7 +150,7 @@ pub static mut IS_ACTIVE: bool = false;
 thread_local! {
     pub static REALTIME_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
     // Shared WebContext for this thread using common data directory
-    pub static REALTIME_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = const { std::cell::RefCell::new(None) };
+    pub static REALTIME_WEB_CONTEXT: std::cell::RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]

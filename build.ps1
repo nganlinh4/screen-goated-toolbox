@@ -1,3 +1,7 @@
+param(
+    [string]$PgoProfile
+)
+
 if ($env:SGT_COMPONENT_DELIVERY_CHANNEL -eq "staging" -or
     -not [string]::IsNullOrWhiteSpace($env:SGT_STAGING_DELIVERY_ROOT)) {
     throw "Release builds cannot use mutable staging component delivery. Start a clean shell."
@@ -477,6 +481,25 @@ $releaseRustFlags = @(
     "link-arg=/Brepro",
     "--remap-path-prefix=$workspaceRoot=/sgt"
 )
+$rustProfile = "release"
+if (-not [string]::IsNullOrWhiteSpace($PgoProfile)) {
+    $resolvedPgoProfile = [IO.Path]::GetFullPath($PgoProfile)
+    $allowedPgoRoot = ([IO.Path]::GetFullPath(
+        (Join-Path $developmentCache "performance")
+    )).TrimEnd('\') + '\'
+    if (-not $resolvedPgoProfile.StartsWith($allowedPgoRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $resolvedPgoProfile -PathType Leaf) -or
+        (Get-Item -LiteralPath $resolvedPgoProfile).Length -eq 0) {
+        throw "-PgoProfile must name a generated profile below $allowedPgoRoot"
+    }
+    $rustProfile = "release-balanced"
+    $releaseRustFlags += @(
+        "-C",
+        "profile-use=$resolvedPgoProfile",
+        "-C",
+        "llvm-args=-pgo-warn-missing-function"
+    )
+}
 $cargoHome = if ($env:CARGO_HOME) {
     [IO.Path]::GetFullPath($env:CARGO_HOME).TrimEnd('\')
 }
@@ -559,7 +582,7 @@ function Assert-ReleaseBinaryPrivacy {
 # =============================================================================
 foreach ($archName in $selectedArchs) {
     $targetTriple = $targetMap[$archName]
-    $targetDir = "target/$targetTriple/release"
+    $targetDir = "target/$targetTriple/$rustProfile"
     $exePathRelease = Join-Path $targetDir "screen-goated-toolbox.exe"
     $outputExeName = "ScreenGoatedToolbox_v$version.exe"
     $outputPath = Join-Path $targetDir $outputExeName
@@ -567,7 +590,7 @@ foreach ($archName in $selectedArchs) {
 
     Write-Host ""
     Write-Host "=== Building ScreenGoatedToolbox v$version ($archName) ===" -ForegroundColor Cyan
-    Write-Host "Using 'release' profile (LTO + stripped)..." -ForegroundColor Gray
+    Write-Host "Using '$rustProfile' profile (LTO + stripped)..." -ForegroundColor Gray
     Write-Host "Remapping private build paths in release metadata..." -ForegroundColor Gray
     $nativeReleaseFlags = Get-NativeReleaseFlags
     $env:CARGO_ENCODED_RUSTFLAGS = $encodedReleaseRustFlags
@@ -577,7 +600,7 @@ foreach ($archName in $selectedArchs) {
     $env:CMAKE_CXX_FLAGS = Join-NativeReleaseFlags $previousCmakeCxxFlags $nativeReleaseFlags
     $cargoExitCode = 0
     try {
-        cargo build --release --locked --target $targetTriple
+        cargo build --profile $rustProfile --locked --target $targetTriple
         $cargoExitCode = $LASTEXITCODE
     }
     finally {

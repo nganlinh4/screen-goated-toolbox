@@ -7,7 +7,6 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc::Sender};
-use std::thread;
 use std::time::Duration;
 
 const MAX_INSTALLER_BYTES: u64 = 1024 * 1024 * 1024;
@@ -122,6 +121,8 @@ pub enum UpdateStatus {
 pub struct Updater {
     tx: Sender<UpdateStatus>,
     selection: Arc<Mutex<UpdateSelection>>,
+    check_task: Mutex<Option<crate::task_runtime::TaskTicket>>,
+    download_task: Mutex<Option<crate::task_runtime::TaskTicket>>,
 }
 
 impl Updater {
@@ -129,10 +130,13 @@ impl Updater {
         Self {
             tx,
             selection: Arc::new(Mutex::new(UpdateSelection::default())),
+            check_task: Mutex::new(None),
+            download_task: Mutex::new(None),
         }
     }
 
     pub fn check_for_updates(&self) {
+        replace_task(&self.check_task, None);
         let tx = self.tx.clone();
         let selection = Arc::clone(&self.selection);
         let generation = {
@@ -144,25 +148,45 @@ impl Updater {
             let _ = tx.send(UpdateStatus::Checking);
             generation
         };
-        thread::spawn(move || match latest_candidate() {
-            Ok(candidate) => {
-                let current = env!("CARGO_PKG_VERSION");
-                match bump_is_greater(current, &candidate.version) {
-                    Ok(true) => {
-                        let status = UpdateStatus::UpdateAvailable {
-                            version: candidate.version.to_string(),
-                            body: candidate.body.clone(),
-                        };
-                        publish_check_result(&selection, generation, &tx, status, Some(candidate));
-                    }
-                    Ok(false) => {
-                        publish_check_result(
-                            &selection,
-                            generation,
-                            &tx,
-                            UpdateStatus::UpToDate(current.to_string()),
-                            None,
-                        );
+        let queued = crate::task_runtime::spawn(
+            crate::task_runtime::TaskClass::Interactive,
+            "update-check",
+            move |context| {
+                crate::log_info!("[Updater] check_started task={}", context.id());
+                match latest_candidate() {
+                    Ok(candidate) => {
+                        let current = env!("CARGO_PKG_VERSION");
+                        match bump_is_greater(current, &candidate.version) {
+                            Ok(true) => {
+                                let status = UpdateStatus::UpdateAvailable {
+                                    version: candidate.version.to_string(),
+                                    body: candidate.body.clone(),
+                                };
+                                publish_check_result(
+                                    &selection,
+                                    generation,
+                                    &tx,
+                                    status,
+                                    Some(candidate),
+                                );
+                            }
+                            Ok(false) => {
+                                publish_check_result(
+                                    &selection,
+                                    generation,
+                                    &tx,
+                                    UpdateStatus::UpToDate(current.to_string()),
+                                    None,
+                                );
+                            }
+                            Err(error) => publish_check_result(
+                                &selection,
+                                generation,
+                                &tx,
+                                UpdateStatus::Error(error.to_string()),
+                                None,
+                            ),
+                        }
                     }
                     Err(error) => publish_check_result(
                         &selection,
@@ -172,18 +196,16 @@ impl Updater {
                         None,
                     ),
                 }
-            }
-            Err(error) => publish_check_result(
-                &selection,
-                generation,
-                &tx,
-                UpdateStatus::Error(error.to_string()),
-                None,
-            ),
-        });
+            },
+        );
+        match queued {
+            Ok(ticket) => replace_task(&self.check_task, Some(ticket)),
+            Err(error) => send_error(&self.tx, error),
+        }
     }
 
     pub fn perform_update(&self) {
+        replace_task(&self.download_task, None);
         let tx = self.tx.clone();
         let candidate = self
             .selection
@@ -195,12 +217,36 @@ impl Updater {
             return;
         };
         let _ = tx.send(UpdateStatus::Downloading);
-        thread::spawn(move || match download_and_stage(candidate) {
-            Ok(staged) => {
-                let _ = tx.send(UpdateStatus::UpdatedAndRestartRequired(staged));
-            }
-            Err(error) => send_error(&tx, error),
-        });
+        let queued = crate::task_runtime::spawn(
+            crate::task_runtime::TaskClass::Io,
+            "update-download",
+            move |context| {
+                crate::log_info!("[Updater] download_started task={}", context.id());
+                match download_and_stage(candidate) {
+                    Ok(staged) => {
+                        let _ = tx.send(UpdateStatus::UpdatedAndRestartRequired(staged));
+                    }
+                    Err(error) => send_error(&tx, error),
+                }
+            },
+        );
+        match queued {
+            Ok(ticket) => replace_task(&self.download_task, Some(ticket)),
+            Err(error) => send_error(&self.tx, error),
+        }
+    }
+}
+
+fn replace_task(
+    slot: &Mutex<Option<crate::task_runtime::TaskTicket>>,
+    replacement: Option<crate::task_runtime::TaskTicket>,
+) {
+    if let Ok(mut current) = slot.lock() {
+        if let Some(task) = current.take() {
+            crate::log_info!("[Updater] cancelling_superseded task={}", task.id());
+            task.cancel();
+        }
+        *current = replacement;
     }
 }
 

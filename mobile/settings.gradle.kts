@@ -30,6 +30,7 @@ includeBuild("../../youtubedl-android") {
 }
 
 include(":androidApp")
+include(":baselineprofile")
 include(":shared")
 include(":feature_asr_ort")
 include(":feature_asr_moonshine")

@@ -90,7 +90,9 @@ pub(super) fn build_host(hwnd: HWND) -> windows::core::Result<DcompHost> {
         // options; this raw environment passes different options than wry's, so sharing "common" fails
         // with ERROR_INVALID_STATE (0x8007139F). A private folder sidesteps the constraint entirely.
         let init = crate::overlay::webview_init::acquire("computer-control-orb");
-        let user_data = crate::overlay::get_shared_webview_data_dir(Some("cc-orb"));
+        let user_data = crate::overlay::webview_runtime::data_dir(
+            crate::overlay::webview_runtime::Profile::ComputerControlOrb,
+        );
         let user_data = windows::core::HSTRING::from(user_data.to_string_lossy().as_ref());
         let environment = {
             let (tx, rx) = std::sync::mpsc::channel();

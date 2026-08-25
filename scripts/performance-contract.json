@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "windows": {
+    "shippingProfile": "release",
+    "comparisonRuns": 3,
+    "maxShippingBinaryBytes": 34603008,
+    "maxPerfSizeRatio": 1.4,
+    "maxPgoSizeRatio": 1.1,
+    "maxPerfLatencyRatio": 1.1,
+    "smokeTimeoutSeconds": 75,
+    "requiredSmokes": [
+      "result-compositor-smoke",
+      "status-compositor-smoke",
+      "realtime-compositor-smoke"
+    ]
+  },
+  "android": {
+    "baselineProfileRequired": true,
+    "startupProfileRequired": true,
+    "macrobenchmarkIterations": 5,
+    "maxShippingArtifactBytes": 62914560,
+    "maxEmbeddedProfileBytes": 1572864
+  }
+}

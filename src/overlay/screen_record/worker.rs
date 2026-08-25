@@ -18,7 +18,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Once, OnceLock};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::WebContext;
 
 use crate::win_types::SendHwnd;
 
@@ -62,7 +61,7 @@ static mut IS_INITIALIZING: bool = false;
 
 thread_local! {
     static SR_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
-    static SR_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = const { std::cell::RefCell::new(None) };
+    static SR_WEB_CONTEXT: std::cell::RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> = const { std::cell::RefCell::new(None) };
 }
 
 pub static SERVER_PORT: LazyLock<std::sync::atomic::AtomicU16> =
