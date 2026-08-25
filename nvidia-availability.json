@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-08-24T22:46:47Z",
+ "generatedAt": "2026-08-25T01:55:00Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -18,7 +18,7 @@
    "id": "nvidia/nemotron-3-nano-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 357,
+   "p50_ms": 353,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -28,6 +28,14 @@
    "modality": "text",
    "p50_ms": 393,
    "success_rate": 1.0,
+   "runs": 24
+  },
+  {
+   "id": "mistralai/mistral-nemotron",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 420,
+   "success_rate": 0.542,
    "runs": 24
   },
   {
@@ -42,7 +50,7 @@
    "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
    "control": "effort-none",
    "modality": "vision",
-   "p50_ms": 484,
+   "p50_ms": 476,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -58,8 +66,8 @@
    "id": "minimaxai/minimax-m3",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 663,
-   "success_rate": 0.667,
+   "p50_ms": 637,
+   "success_rate": 0.708,
    "runs": 24
   },
   {
@@ -106,7 +114,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 1165,
+   "p50_ms": 1281,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -114,16 +122,32 @@
    "id": "meta/llama-3.2-90b-vision-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2064,
+   "p50_ms": 1827,
    "success_rate": 0.958,
+   "runs": 24
+  },
+  {
+   "id": "nvidia/nvidia-nemotron-nano-9b-v2",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 4137,
+   "success_rate": 0.917,
+   "runs": 24
+  },
+  {
+   "id": "stepfun-ai/step-3.7-flash",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 4452,
+   "success_rate": 0.583,
    "runs": 24
   },
   {
    "id": "moonshotai/kimi-k3",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 7347,
-   "success_rate": 0.25,
+   "p50_ms": 6370,
+   "success_rate": 0.292,
    "runs": 24
   }
  ]
