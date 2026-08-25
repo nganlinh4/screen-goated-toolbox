@@ -18,6 +18,7 @@ const BUNDLE_WORKER_FILES: &[&str] = &[
 const MAX_WEB_FILES: usize = 512;
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
+    println!("cargo:rerun-if-env-changed=SGT_NONSHIPPING_PERFORMANCE_BUILD");
     let selected = crate::delivery_channel::select(manifest_dir, DEFAULT_MANIFEST);
     let configured = selected.path;
     assert!(
@@ -25,11 +26,32 @@ pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
         "missing verified recorder delivery: {}",
         configured.display()
     );
-    let require_bundle = std::env::var("PROFILE").is_ok_and(|profile| profile == "release");
+    let release_profile = std::env::var("PROFILE").is_ok_and(|profile| profile == "release");
+    let require_bundle = release_profile && !nonshipping_performance_build(out_dir);
     let generated = delivery_source(&configured, selected.channel, require_bundle);
     let output = out_dir.join("recorder_delivery.rs");
     fs::write(&output, generated)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));
+}
+
+fn nonshipping_performance_build(out_dir: &Path) -> bool {
+    if std::env::var("SGT_NONSHIPPING_PERFORMANCE_BUILD").as_deref() != Ok("1") {
+        return false;
+    }
+    let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") else {
+        return false;
+    };
+    let performance_root = Path::new(&local_app_data)
+        .join("SGT-Development")
+        .join("cache")
+        .join("performance");
+    let Ok(out_dir) = out_dir.canonicalize() else {
+        return false;
+    };
+    let Ok(performance_root) = performance_root.canonicalize() else {
+        return false;
+    };
+    out_dir.starts_with(performance_root)
 }
 
 fn delivery_source(

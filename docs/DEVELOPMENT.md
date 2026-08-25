@@ -156,9 +156,9 @@ The report, merged profile, and optimized executable stay under
 `%LOCALAPPDATA%\SGT-Development\cache\performance`; raw counters and Cargo
 targets are removed after validation. A release can consume that
 exact generated profile with `build.ps1 -PgoProfile <absolute-profdata-path>`;
-the release wrapper refuses profiles from any other directory. Compare the PGO
-artifact before selecting it. PGO is compiler- and source-specific, never a
-floating input.
+the release wrapper verifies its retained report, exact bytes, Rust toolchain,
+and source fingerprint. Compare the PGO artifact before selecting it. Any source
+or toolchain change requires retraining; PGO is never a floating input.
 
 ## Frontend development
 

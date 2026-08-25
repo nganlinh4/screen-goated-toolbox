@@ -101,7 +101,9 @@ pub fn configure_fonts(ctx: &egui::Context) {
     let product_font_name = "google_sans_flex";
     fonts.font_data.insert(
         product_font_name.to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(crate::assets::GOOGLE_SANS_FLEX)),
+        std::sync::Arc::new(egui::FontData::from_static(
+            crate::assets::GOOGLE_SANS_FLEX_EGUI,
+        )),
     );
 
     let viet_font_name = "segoe_ui";

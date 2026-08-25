@@ -306,8 +306,8 @@ mod tests {
 
         assert!(html.contains("Google Sans Flex"));
         assert!(html.contains("html:not(.sgt-font-ready) body"));
-        assert_eq!(html.matches("data:font/ttf;base64,").count(), 1);
-        assert!(!html.contains("data:font/woff;base64,"));
+        assert_eq!(html.matches("data:font/woff2;base64,").count(), 1);
+        assert!(!html.contains("data:font/ttf;base64,"));
     }
 
     #[test]
@@ -334,7 +334,7 @@ mod tests {
         assert!(rendered.isolated_document.is_none());
         assert!(rendered.body.contains("<strong>"));
         assert!(!rendered.body.contains("<!DOCTYPE html>"));
-        assert!(!rendered.body.contains("/font.ttf"));
+        assert!(!rendered.body.contains("/font.woff2"));
     }
 
     #[test]

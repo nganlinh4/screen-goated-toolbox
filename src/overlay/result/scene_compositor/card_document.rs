@@ -42,7 +42,7 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
             "__SGT_SURFACE_RUNTIME__",
             include_str!("surface_runtime.js"),
         )
-        .replace("__SGT_FONT_FACE__", &super::font::face_css("/font.ttf"))
+        .replace("__SGT_FONT_FACE__", &super::font::face_css("/font.woff2"))
         .replace(
             "__SGT_BUTTON_CSS__",
             crate::overlay::result::button_canvas::document_css(),
@@ -112,7 +112,7 @@ mod tests {
         assert!(document.contains("window.__SGT_CREATE_REVEAL_RUNTIME__"));
         assert!(document.contains("window.__SGT_RUN_FIT__"));
         assert!(document.contains("attachShadow"));
-        assert!(document.contains("src:url('/font.ttf')"));
+        assert!(document.contains("src:url('/font.woff2')"));
         assert!(!document.contains("Segoe UI"));
         assert!(!document.contains("__SGT_FONT_FACE__"));
         assert!(!document.contains("__SGT_BOX_RADIUS_PX__"));

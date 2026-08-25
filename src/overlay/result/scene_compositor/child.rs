@@ -139,10 +139,10 @@ fn create_webview(hwnd: HWND) -> anyhow::Result<WebView> {
                         "no-store",
                     );
                 }
-                if path == "/font.ttf" {
+                if path == "/font.woff2" {
                     return super::web_response::compositor_response(
                         200,
-                        "font/ttf",
+                        "font/woff2",
                         Cow::Borrowed(super::font::bytes()),
                         "public, max-age=31536000, immutable",
                     );

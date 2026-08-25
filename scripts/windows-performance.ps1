@@ -19,6 +19,7 @@ $performanceRoot = Join-Path $cacheRoot "performance"
 $targetTriple = "x86_64-pc-windows-msvc"
 New-Item -ItemType Directory -Path $performanceRoot -Force | Out-Null
 $transientTargets = [Collections.Generic.List[string]]::new()
+. (Join-Path $PSScriptRoot "source-fingerprint.ps1")
 
 if ($Runs -lt 1 -or $Runs -gt 20) {
     throw "Runs must be between 1 and 20."
@@ -33,7 +34,9 @@ function Invoke-CargoBuild {
 
     $savedTarget = $env:CARGO_TARGET_DIR
     $savedFlags = $env:CARGO_ENCODED_RUSTFLAGS
+    $savedNonshipping = $env:SGT_NONSHIPPING_PERFORMANCE_BUILD
     try {
+        $env:SGT_NONSHIPPING_PERFORMANCE_BUILD = "1"
         if ($TargetDirectory) { $env:CARGO_TARGET_DIR = $TargetDirectory }
         else { Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue }
         if ($EncodedRustFlags) { $env:CARGO_ENCODED_RUSTFLAGS = $EncodedRustFlags }
@@ -49,6 +52,10 @@ function Invoke-CargoBuild {
         else { $env:CARGO_TARGET_DIR = $savedTarget }
         if ($null -eq $savedFlags) { Remove-Item Env:CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue }
         else { $env:CARGO_ENCODED_RUSTFLAGS = $savedFlags }
+        if ($null -eq $savedNonshipping) {
+            Remove-Item Env:SGT_NONSHIPPING_PERFORMANCE_BUILD -ErrorAction SilentlyContinue
+        }
+        else { $env:SGT_NONSHIPPING_PERFORMANCE_BUILD = $savedNonshipping }
     }
 }
 
@@ -259,9 +266,47 @@ function Get-ArtifactRecord {
     }
 }
 
+function Remove-OrphanedPerformanceTargets {
+    $targetRoot = Join-Path $performanceRoot "t"
+    if (-not (Test-Path -LiteralPath $targetRoot -PathType Container)) { return }
+    try {
+        $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    }
+    catch {
+        Write-Warning "Could not inspect process command lines; orphan cleanup is disabled: $_"
+        return
+    }
+    $cutoff = [DateTime]::UtcNow.AddMinutes(-15)
+    foreach ($directory in @(Get-ChildItem -LiteralPath $targetRoot -Directory -Force)) {
+        if ($directory.LastWriteTimeUtc -ge $cutoff) { continue }
+        $needle = $directory.FullName.ToLowerInvariant()
+        $inUse = $processes | Where-Object {
+            ([string]$_.CommandLine).ToLowerInvariant().Contains($needle) -or
+            ([string]$_.ExecutablePath).ToLowerInvariant().StartsWith($needle)
+        } | Select-Object -First 1
+        if (-not $inUse) {
+            Remove-TransientTarget -Path $directory.FullName
+        }
+    }
+}
+
+function Assert-SourceFingerprint {
+    param(
+        [Parameter(Mandatory = $true)][string]$Expected,
+        [Parameter(Mandatory = $true)][string]$Phase
+    )
+
+    $actual = Get-SgtSourceFingerprint -RepoRoot $repoRoot
+    if ($actual -ne $Expected) {
+        throw "Source changed during $Phase; expected $Expected, found $actual. Discarding mixed-source performance evidence."
+    }
+}
+
 Push-Location $repoRoot
 try {
+    Remove-OrphanedPerformanceTargets
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $sourceFingerprint = Get-SgtSourceFingerprint -RepoRoot $repoRoot
     if ($Action -eq "TrainPgo") {
         $sysroot = (rustc --print sysroot).Trim()
         $llvmProfdata = Join-Path $sysroot "lib\rustlib\x86_64-pc-windows-msvc\bin\llvm-profdata.exe"
@@ -301,6 +346,7 @@ try {
         $generateFlags = $generateFlags -join $separator
         Invoke-CargoBuild -Profile release-balanced -TargetDirectory $instrumentedTarget `
             -EncodedRustFlags $generateFlags
+        Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "the instrumented PGO build"
         $instrumentedExe = Join-Path $instrumentedTarget `
             "$targetTriple\release-balanced\screen-goated-toolbox.exe"
         $savedProfileFile = $env:LLVM_PROFILE_FILE
@@ -316,6 +362,7 @@ try {
                 $env:LLVM_PROFILE_FILE = $savedProfileFile
             }
         }
+        Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "PGO training"
         $mergedProfile = Join-Path $workLane "m.profdata"
         $rawFiles = @(Get-ChildItem -LiteralPath $rawProfiles -Filter "*.profraw" -File)
         if ($rawFiles.Count -eq 0) { throw "The training corpus produced no PGO profiles." }
@@ -329,14 +376,17 @@ try {
         $useFlags = $useFlags -join $separator
         Invoke-CargoBuild -Profile release-balanced -TargetDirectory $optimizedTarget `
             -EncodedRustFlags $useFlags
+        Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "the optimized PGO build"
         $pgoExe = Join-Path $optimizedTarget `
             "$targetTriple\release-balanced\screen-goated-toolbox.exe"
         $validation = Invoke-SmokeCorpus -Build "pgo" -Executable $pgoExe
+        Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "PGO validation"
         $candidateExe = Join-Path $lane "screen-goated-toolbox-pgo.exe"
         $retainedProfile = Join-Path $lane "merged.profdata"
         Copy-Item -LiteralPath $pgoExe -Destination $candidateExe
         Copy-Item -LiteralPath $mergedProfile -Destination $retainedProfile
         $artifact = Get-ArtifactRecord -Build "pgo" -Executable $candidateExe
+        $profileArtifact = Get-SgtFileIdentity -Path $retainedProfile
         $contract = Get-Content -LiteralPath (Join-Path $PSScriptRoot "performance-contract.json") `
             -Raw | ConvertFrom-Json
         $maxPgoBytes = [long]($contract.windows.maxShippingBinaryBytes *
@@ -345,13 +395,15 @@ try {
             throw "PGO binary is $($artifact.bytes) bytes; contract allows $maxPgoBytes."
         }
         $payload = [ordered]@{
-            schemaVersion = 1
+            schemaVersion = 2
             generatedAt = (Get-Date).ToUniversalTime().ToString("o")
             rustc = (rustc -vV) -join "`n"
+            sourceFingerprint = $sourceFingerprint
             artifact = $artifact
             training = $training
             validation = $validation
             profile = $retainedProfile
+            profileArtifact = $profileArtifact
         }
         $report = Join-Path $lane "pgo-report.json"
         $payload | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $report -Encoding utf8
@@ -368,7 +420,9 @@ try {
         $transientTargets.Add($compareLane)
         $transientTargets.Add($compareTarget)
         Invoke-CargoBuild -Profile release-compact -TargetDirectory $compareTarget
+        Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "the compact build"
         Invoke-CargoBuild -Profile release-perf -TargetDirectory $compareTarget
+        Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "the performance build"
     }
     $artifactRoot = if ($compareTarget) { $compareTarget } else { Join-Path $repoRoot "target" }
     $compactExe = Join-Path $artifactRoot `
@@ -386,10 +440,12 @@ try {
     $measurements = @()
     $measurements += Invoke-SmokeCorpus -Build "compact" -Executable $compactExe
     $measurements += Invoke-SmokeCorpus -Build "perf" -Executable $perfExe
+    Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "the comparison corpus"
     $payload = [ordered]@{
         schemaVersion = 1
         generatedAt = (Get-Date).ToUniversalTime().ToString("o")
         rustc = (rustc -vV) -join "`n"
+        sourceFingerprint = $sourceFingerprint
         artifacts = $artifacts
         measurements = $measurements
     }

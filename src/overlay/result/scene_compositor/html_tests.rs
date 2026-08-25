@@ -122,7 +122,7 @@ fn finalized_cards_reject_late_stream_updates() {
 #[test]
 fn renderer_readiness_is_gated_on_the_single_bundled_font() {
     let document = super::super::card_document::compositor_document("http://127.0.0.1:32123");
-    assert!(document.contains("src:url('/font.ttf')"));
+    assert!(document.contains("src:url('/font.woff2')"));
     assert!(!document.contains("Segoe UI"));
     assert!(document.contains("document.fonts.load"));
     assert!(document.contains("type: 'font_ready'"));

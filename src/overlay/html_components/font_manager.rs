@@ -1,6 +1,6 @@
 //! Shared local-page host and product-font contract for WebView surfaces.
 //!
-//! Serves HTML pages and the original Google Sans Flex variable face from the same
+//! Serves HTML pages and the full-axis Google Sans Flex web face from the same
 //! local HTTP origin, avoiding CORS and private-network restrictions.
 
 use sha2::{Digest, Sha256};
@@ -19,7 +19,7 @@ const PAGE_MAX_BYTES: usize = 32 * 1024 * 1024;
 const PAGE_MAX_IDLE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 #[cfg(not(feature = "recorder-worker"))]
-static PRODUCT_FONT_TTF: &[u8] = crate::assets::GOOGLE_SANS_FLEX;
+static PRODUCT_FONT_WOFF2: &[u8] = crate::assets::GOOGLE_SANS_FLEX_WEB;
 #[cfg(not(feature = "recorder-worker"))]
 static FONT_ROUTE_TOKEN: LazyLock<Option<String>> = LazyLock::new(|| {
     let mut bytes = [0u8; 16];
@@ -270,16 +270,16 @@ fn serve_product_font(
     }
     let headers = format!(
         "HTTP/1.1 200 OK\r\n\
-         Content-Type: font/ttf\r\n\
+         Content-Type: font/woff2\r\n\
          Content-Length: {}\r\n\
          {cors_headers}\
          Cache-Control: max-age=3600\r\n\
          Connection: close\r\n\r\n",
-        PRODUCT_FONT_TTF.len()
+        PRODUCT_FONT_WOFF2.len()
     );
     stream.write_all(headers.as_bytes())?;
     if method != "HEAD" {
-        stream.write_all(PRODUCT_FONT_TTF)?;
+        stream.write_all(PRODUCT_FONT_WOFF2)?;
     }
     Ok(true)
 }
@@ -339,7 +339,7 @@ pub fn get_font_css() -> String {
             font-weight: 1 1000;
             font-stretch: 25% 151%;
             font-display: swap;
-            src: url('{font_url}') format('truetype');
+            src: url('{font_url}') format('woff2');
         }}
     "#
     )
@@ -425,8 +425,8 @@ mod tests {
 
     #[cfg(not(feature = "recorder-worker"))]
     #[test]
-    fn windows_webviews_use_the_original_product_font_bytes() {
-        assert_eq!(PRODUCT_FONT_TTF, crate::assets::GOOGLE_SANS_FLEX);
+    fn windows_webviews_use_the_full_axis_web_font_bytes() {
+        assert_eq!(PRODUCT_FONT_WOFF2, crate::assets::GOOGLE_SANS_FLEX_WEB);
     }
 
     #[cfg(not(feature = "recorder-worker"))]
@@ -459,7 +459,7 @@ mod tests {
             .unwrap()
             + 4;
         assert!(response.starts_with(b"HTTP/1.1 200 OK\r\n"));
-        assert_eq!(&response[body_offset..], PRODUCT_FONT_TTF);
+        assert_eq!(&response[body_offset..], PRODUCT_FONT_WOFF2);
     }
 
     #[cfg(not(feature = "recorder-worker"))]
@@ -520,7 +520,9 @@ mod tests {
     fn recorder_accepts_only_the_parent_font_route_contract() {
         let valid =
             "http://127.0.0.1:43129/font/0123456789abcdef0123456789abcdef/GoogleSansFlex.ttf?v=abc";
-        assert!(child_product_font_css(valid).unwrap().contains(valid));
+        let css = child_product_font_css(valid).unwrap();
+        assert!(css.contains(valid));
+        assert!(css.contains("format('truetype')"));
         for raw in [
             "https://127.0.0.1:43129/font/0123456789abcdef0123456789abcdef/GoogleSansFlex.ttf?v=abc",
             "http://localhost:43129/font/0123456789abcdef0123456789abcdef/GoogleSansFlex.ttf?v=abc",

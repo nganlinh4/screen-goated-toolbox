@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import brotli
 from fontTools import __version__ as fonttools_version
 from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
@@ -14,6 +15,7 @@ REGULAR_OUTPUT = ROOT / "assets" / "GoogleSansFlex-Regular.woff"
 BOLD_OUTPUT = ROOT / "assets" / "GoogleSansFlex-Bold.woff"
 UI_VARIABLE_OUTPUT = ROOT / "assets" / "GoogleSansFlex-UI.woff"
 SHELL_OUTPUT = ROOT / "assets" / "GoogleSansFlex-Shell.ttf"
+WEB_OUTPUT = ROOT / "assets" / "GoogleSansFlex-Web.woff2"
 ANDROID_COMPOSE_OUTPUT = (
     ROOT / "mobile" / "androidApp" / "src" / "main" / "res" / "font" / "google_sans_flex.ttf"
 )
@@ -21,6 +23,7 @@ ANDROID_WEB_OUTPUT = (
     ROOT / "mobile" / "androidApp" / "src" / "main" / "assets" / "GoogleSansFlex.woff"
 )
 PINNED_FONTTOOLS = "4.61.1"
+PINNED_BROTLI = "1.1.0"
 # Result fitting animates only width and weight. Pin the remaining axes to the
 # product's stable delivery values before WOFF compression instead of shipping
 # variation data that no rendered card needs to select.
@@ -35,6 +38,13 @@ def source_font() -> TTFont:
 def save_woff(font: TTFont, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     font.flavor = "woff"
+    font.save(output, reorderTables=True)
+    print(f"Wrote {output.relative_to(ROOT)} ({output.stat().st_size} bytes)")
+
+
+def save_woff2(font: TTFont, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    font.flavor = "woff2"
     font.save(output, reorderTables=True)
     print(f"Wrote {output.relative_to(ROOT)} ({output.stat().st_size} bytes)")
 
@@ -106,16 +116,28 @@ def build_shell() -> None:
     save_ttf(font, SHELL_OUTPUT)
 
 
+def build_web() -> None:
+    font = source_font()
+    actual_axes = tuple(axis.axisTag for axis in font["fvar"].axes)
+    expected_axes = ("opsz", "wdth", "wght", "GRAD", "ROND", "slnt")
+    if actual_axes != expected_axes:
+        raise SystemExit(f"unexpected web font axes: {actual_axes}")
+    save_woff2(font, WEB_OUTPUT)
+
+
 def main() -> None:
     if fonttools_version != PINNED_FONTTOOLS:
         raise SystemExit(
             f"fonttools {PINNED_FONTTOOLS} is required; found {fonttools_version}"
         )
+    if brotli.__version__ != PINNED_BROTLI:
+        raise SystemExit(f"brotli {PINNED_BROTLI} is required; found {brotli.__version__}")
     build_variable()
     build_static(400, REGULAR_OUTPUT)
     build_static(700, BOLD_OUTPUT)
     build_product_ui()
     build_shell()
+    build_web()
 
 
 if __name__ == "__main__":

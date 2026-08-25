@@ -2,6 +2,8 @@ param(
     [string]$PgoProfile
 )
 
+. (Join-Path $PSScriptRoot "scripts\pgo-profile-contract.ps1")
+
 if ($env:SGT_COMPONENT_DELIVERY_CHANNEL -eq "staging" -or
     -not [string]::IsNullOrWhiteSpace($env:SGT_STAGING_DELIVERY_ROOT)) {
     throw "Release builds cannot use mutable staging component delivery. Start a clean shell."
@@ -483,15 +485,8 @@ $releaseRustFlags = @(
 )
 $rustProfile = "release"
 if (-not [string]::IsNullOrWhiteSpace($PgoProfile)) {
-    $resolvedPgoProfile = [IO.Path]::GetFullPath($PgoProfile)
-    $allowedPgoRoot = ([IO.Path]::GetFullPath(
-        (Join-Path $developmentCache "performance")
-    )).TrimEnd('\') + '\'
-    if (-not $resolvedPgoProfile.StartsWith($allowedPgoRoot, [StringComparison]::OrdinalIgnoreCase) -or
-        -not (Test-Path -LiteralPath $resolvedPgoProfile -PathType Leaf) -or
-        (Get-Item -LiteralPath $resolvedPgoProfile).Length -eq 0) {
-        throw "-PgoProfile must name a generated profile below $allowedPgoRoot"
-    }
+    $resolvedPgoProfile = Assert-SgtPgoProfile -Profile $PgoProfile `
+        -DevelopmentCache $developmentCache -RepoRoot $PSScriptRoot
     $rustProfile = "release-balanced"
     $releaseRustFlags += @(
         "-C",
