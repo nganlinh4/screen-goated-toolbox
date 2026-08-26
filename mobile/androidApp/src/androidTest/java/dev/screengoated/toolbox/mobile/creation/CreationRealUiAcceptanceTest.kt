@@ -33,6 +33,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -40,6 +41,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -109,23 +111,11 @@ class CreationRealUiAcceptanceTest {
     }
 
     @Test
-    fun imageTo3dFastGeneratesValidatedGlb() {
-        runImageCase(
-            "3d-fast",
-            CreationTool.IMAGE_TO_3D,
-            "creation-mode-fast",
-            CreationGenerationMode.FAST,
-        ) {
-            CreationArtifactValidator.validateGlb(it)
-        }
-    }
-
-    @Test
     fun imageTo3dQualityGeneratesValidatedGlb() {
         runImageCase(
             "3d-quality",
             CreationTool.IMAGE_TO_3D,
-            "creation-mode-quality",
+            null,
             CreationGenerationMode.QUALITY,
             expectedAutoSegment = true,
         ) {
@@ -204,7 +194,7 @@ class CreationRealUiAcceptanceTest {
     private fun runImageCase(
         caseName: String,
         tool: CreationTool,
-        settingTag: String,
+        settingTag: String?,
         expectedGenerationMode: CreationGenerationMode?,
         expectedAutoSegment: Boolean = false,
         validate: (File) -> Unit,
@@ -222,13 +212,15 @@ class CreationRealUiAcceptanceTest {
             }
             compose.onNodeWithTag("creation-selected-input").assertExists()
             compose.onNodeWithTag("creation-selected-stage-draft").assertExists()
-            val setting = compose.onNodeWithTag(settingTag)
-                .assertExists()
-                .performScrollTo()
-                .assertIsDisplayed()
-                .assertIsEnabled()
-            setting.performClick()
-            if (expectedGenerationMode != null) setting.assertIsOn()
+            settingTag?.let { tag ->
+                val setting = compose.onNodeWithTag(tag)
+                    .assertExists()
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                setting.performClick()
+                if (expectedGenerationMode != null) setting.assertIsOn()
+            }
             if (expectedAutoSegment) {
                 compose.onNodeWithTag("creation-auto-separate")
                     .assertExists()
@@ -302,7 +294,10 @@ class CreationRealUiAcceptanceTest {
             outputSize(history.outputPath),
         )
         val segmented = if (expectedAutoSegment) {
-            validateBaseQuadCompanion(history, history.outputPath, artifactSha256)
+            assertNull(
+                "A separation-compatible triangle base published a quad companion",
+                history.metadata["download"],
+            )
             awaitAutomaticSegmentation(
                 ownerId, acceptedCase, history, history.outputPath, artifactSha256,
             )
@@ -359,27 +354,6 @@ class CreationRealUiAcceptanceTest {
         )
     }
 
-    private fun validateBaseQuadCompanion(
-        history: CreationHistoryEntry,
-        basePath: String,
-        baseSha256: String,
-    ) {
-        assertEquals(false, history.metadata["isSegmented"]?.jsonPrimitive?.booleanOrNull)
-        val download = requireNotNull(history.metadata["download"]?.jsonObject)
-        val companionPath = requireNotNull(download["path"]?.jsonPrimitive?.contentOrNull)
-        val companion = snapshotOutput(companionPath)
-        assertTrue("Committed FBX companion does not exist", outputExists(companionPath))
-        assertEquals(
-            outputDisplayName(basePath).substringBeforeLast('.'),
-            outputDisplayName(companionPath).substringBeforeLast('.'),
-        )
-        assertTrue(companion.readBytes().take(FBX_MAGIC.size).toByteArray().contentEquals(FBX_MAGIC))
-        assertEquals(history.companionCommittedSize, outputSize(companionPath))
-        assertEquals(history.companionCommittedSha256, outputSha256(companionPath))
-        assertTrue("Base GLB disappeared while validating its companion", outputExists(basePath))
-        assertEquals(baseSha256, outputSha256(basePath))
-    }
-
     private fun awaitAutomaticSegmentation(
         ownerId: String,
         baseRecord: CreationJournalRecord,
@@ -405,6 +379,14 @@ class CreationRealUiAcceptanceTest {
                     .firstOrNull { it.dispatchId == child.request.dispatchId }
                     ?.let { history ->
                         assertEquals(true, history.metadata["isSegmented"]?.jsonPrimitive?.booleanOrNull)
+                        assertTrue(
+                            "Segmented result advertised an unsupported action",
+                            history.metadata["supportedActions"]?.jsonArray?.isEmpty() == true,
+                        )
+                        assertTrue(
+                            "Segmented result retained an unavailable continuation",
+                            history.metadata["availableActions"]?.jsonArray?.isEmpty() == true,
+                        )
                         val result = snapshotOutput(history.outputPath)
                         assertTrue(
                             "Segmented result does not exist",
@@ -569,7 +551,6 @@ class CreationRealUiAcceptanceTest {
         const val WORKER_WEBVIEW_DIRECTORY_PREFIX = "app_webview_sgt_creation_"
         const val ACCEPTANCE_POLL_INTERVAL_MS = 500L
         const val MAXIMUM_CASE_RUNTIME_MS = 2L * 60 * 60 * 1_000
-        val FBX_MAGIC = "Kaydara FBX Binary  \u0000".toByteArray(Charsets.US_ASCII)
         val TERMINAL_FAILURE_STAGES = setOf("failed", "cancelled")
     }
 

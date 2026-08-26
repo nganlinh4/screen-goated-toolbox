@@ -8,7 +8,7 @@ mod storage_scan;
 use storage_scan::*;
 
 const FREE_SPACE_RESERVE_BYTES: u64 = 1024 * 1024 * 1024;
-const MAX_RELATIVE_FREE_RESERVE_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+const MAX_RELATIVE_FREE_RESERVE_BYTES: u64 = FREE_SPACE_RESERVE_BYTES;
 const FREE_PRESSURE_HIGH_BYTES: u64 = 512 * 1024 * 1024;
 const FREE_PRESSURE_LOW_BYTES: u64 = 1024 * 1024 * 1024;
 const MANAGED_HIGH_WATERMARK_BYTES: u64 = MAX_MANAGED_ARTIFACT_BYTES * 9 / 10;
@@ -211,7 +211,7 @@ fn volume_capacity(path: &Path) -> Result<(u64, u64), String> {
 }
 
 fn free_reserve_bytes(total_bytes: u64) -> u64 {
-    FREE_SPACE_RESERVE_BYTES.max((total_bytes / 50).min(MAX_RELATIVE_FREE_RESERVE_BYTES))
+    FREE_SPACE_RESERVE_BYTES.max((total_bytes / 100).min(MAX_RELATIVE_FREE_RESERVE_BYTES))
 }
 
 fn managed_root() -> Result<PathBuf, String> {

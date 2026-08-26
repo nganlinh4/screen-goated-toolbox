@@ -31,6 +31,18 @@ fn planner_preserves_free_reserve_and_managed_cap() {
 }
 
 #[test]
+fn free_reserve_is_bounded_for_large_volumes() {
+    assert_eq!(
+        free_reserve_bytes(64 * 1024 * 1024 * 1024),
+        FREE_SPACE_RESERVE_BYTES
+    );
+    assert_eq!(
+        free_reserve_bytes(2 * 1024 * 1024 * 1024 * 1024),
+        FREE_SPACE_RESERVE_BYTES,
+    );
+}
+
+#[test]
 fn planner_accounts_parallel_reservations_and_rejects_protected_shortfall() {
     let mut constrained = budget();
     constrained.available_bytes = FREE_SPACE_RESERVE_BYTES + 150;
