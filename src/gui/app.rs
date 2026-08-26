@@ -104,9 +104,6 @@ impl eframe::App for SettingsApp {
             // Overlays
             self.render_fade_overlay(ctx);
 
-            // Render Minimal Mode Overlay (Realtime)
-            crate::overlay::realtime_egui::render_minimal_overlay(ctx);
-
             // Computer Control's UI is the transparent "orb" overlay (its own WebView window,
             // driven from the runtime thread) — nothing to render in egui here.
         }

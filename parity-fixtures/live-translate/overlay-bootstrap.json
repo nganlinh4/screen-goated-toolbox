@@ -6,7 +6,8 @@
     "androidEntry": "apps-carousel",
     "presetCatalogEntry": false,
     "stableSessionIdentity": true,
-    "interfaceDefault": "standard"
+    "windowsOverlay": "webview2-only",
+    "nativeEguiOverlay": false
   },
   "defaults": {
     "audioSource": "device",
@@ -31,7 +32,6 @@
       "fontSize"
     ],
     "preflightOnlyPersistentControls": [
-      "interface",
       "hotkeys"
     ],
     "sessionOnlyControls": [

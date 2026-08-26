@@ -88,6 +88,4 @@ pub use types::{
 pub use types::{StepAudioReferenceVoice, TtsPlaygroundMode};
 
 // Translation Gummy
-#[cfg(not(feature = "recorder-worker"))]
-pub use types::LiveTranslateInterface;
 pub use types::TranslationGummySettings;

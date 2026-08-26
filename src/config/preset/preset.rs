@@ -59,14 +59,6 @@ pub struct Preset {
     #[serde(default = "default_audio_source")]
     pub audio_source: String,
 
-    /// Legacy launcher preference read only while migrating the removed realtime preset.
-    #[serde(
-        rename = "realtime_window_mode",
-        default = "default_realtime_window_mode",
-        skip_serializing
-    )]
-    pub legacy_realtime_window_mode: String,
-
     /// Video capture method
     #[serde(default)]
     pub video_capture_method: String,
@@ -151,10 +143,6 @@ fn default_audio_source() -> String {
     "mic".to_string()
 }
 
-fn default_realtime_window_mode() -> String {
-    "standard".to_string()
-}
-
 fn default_true() -> bool {
     true
 }
@@ -174,7 +162,6 @@ impl Default for Preset {
             preset_type: "image".to_string(),
             text_input_mode: "select".to_string(),
             audio_source: "mic".to_string(),
-            legacy_realtime_window_mode: "standard".to_string(),
             video_capture_method: "region".to_string(),
             auto_paste: false,
             auto_paste_newline: false,

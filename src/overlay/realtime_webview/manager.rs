@@ -12,7 +12,6 @@ use super::protocol::{CardSettings, RealtimeScene};
 use super::state::*;
 use crate::APP;
 use crate::api::realtime_audio::{RealtimeSessionPlan, start_realtime_transcription};
-use crate::config::LiveTranslateInterface;
 
 static PENDING_REALTIME_START: AtomicBool = AtomicBool::new(false);
 static RELAY_STARTING: AtomicBool = AtomicBool::new(false);
@@ -24,11 +23,6 @@ fn session_transition_in_progress(pending_start: bool, stopping: bool) -> bool {
 }
 
 pub fn is_realtime_overlay_active() -> bool {
-    if crate::overlay::realtime_egui::MINIMAL_ACTIVE.load(Ordering::SeqCst)
-        || crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst)
-    {
-        return true;
-    }
     if session_transition_in_progress(
         PENDING_REALTIME_START.load(Ordering::SeqCst),
         REALTIME_SESSION_STOPPING.load(Ordering::SeqCst),
@@ -39,12 +33,6 @@ pub fn is_realtime_overlay_active() -> bool {
 }
 
 pub fn stop_realtime_overlay() {
-    if crate::overlay::realtime_egui::MINIMAL_ACTIVE.load(Ordering::SeqCst)
-        || crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst)
-    {
-        crate::overlay::realtime_egui::stop_minimal_overlay();
-        return;
-    }
     PENDING_REALTIME_START.store(false, Ordering::SeqCst);
     super::controller::stop_runtime_flags();
     let hwnd = relay_hwnd();
@@ -58,21 +46,6 @@ pub fn stop_realtime_overlay() {
 }
 
 pub fn show_realtime_overlay() {
-    if crate::overlay::realtime_egui::recently_stopped_minimal() {
-        return;
-    }
-    let mode = APP
-        .lock()
-        .ok()
-        .map(|app| app.config.live_translate.interface)
-        .unwrap_or_default();
-    if mode == LiveTranslateInterface::Minimal {
-        crate::overlay::realtime_egui::show_realtime_egui_overlay();
-        return;
-    }
-    if crate::overlay::realtime_egui::MINIMAL_STOPPING.load(Ordering::SeqCst) {
-        return;
-    }
     let capability = crate::runtime_support::require_webview2("Realtime overlay");
     if !capability.is_supported() {
         crate::runtime_support::notify_capability_issue(&capability);

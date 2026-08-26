@@ -259,7 +259,6 @@ mod tests {
         let config = Config {
             live_translate: crate::config::types::LiveTranslateSettings {
                 hotkeys: vec![hotkey.clone()],
-                ..Default::default()
             },
             ..Default::default()
         };

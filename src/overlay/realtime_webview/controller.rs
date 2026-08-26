@@ -168,15 +168,6 @@ pub fn set_font_size(font_size: u32) {
     persist_overlay_control(move |config| config.realtime_font_size = font_size);
 }
 
-pub fn set_visibility(transcription_visible: bool, translation_visible: bool) -> bool {
-    MIC_VISIBLE.store(transcription_visible, Ordering::SeqCst);
-    TRANS_VISIBLE.store(translation_visible, Ordering::SeqCst);
-    if !translation_visible {
-        crate::api::tts::TTS_MANAGER.stop();
-    }
-    !transcription_visible && !translation_visible
-}
-
 pub fn set_tts_enabled(requested_enabled: bool) {
     if crate::model_config::is_gemini_live_s2s_model_id(&load_session_config().transcription_model)
     {

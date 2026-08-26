@@ -15,9 +15,7 @@ pub fn update_overlay_text(hwnd: HWND, text: &str) {
     if let Ok(mut display) = REALTIME_DISPLAY_TEXT.lock() {
         *display = text.to_string();
     }
-    if hwnd.is_invalid() {
-        request_realtime_egui_repaint();
-    } else {
+    if !hwnd.is_invalid() {
         unsafe {
             let _ = PostMessageW(Some(hwnd), WM_REALTIME_UPDATE, WPARAM(0), LPARAM(0));
         }
@@ -28,30 +26,9 @@ pub fn update_translation_text(hwnd: HWND, text: &str) {
     if let Ok(mut display) = TRANSLATION_DISPLAY_TEXT.lock() {
         *display = text.to_string();
     }
-    if hwnd.is_invalid() {
-        request_realtime_egui_repaint();
-    } else {
+    if !hwnd.is_invalid() {
         unsafe {
             let _ = PostMessageW(Some(hwnd), WM_TRANSLATION_UPDATE, WPARAM(0), LPARAM(0));
-        }
-    }
-}
-
-pub fn request_realtime_egui_repaint() {
-    #[cfg(feature = "recorder-worker")]
-    return;
-
-    #[cfg(not(feature = "recorder-worker"))]
-    {
-        use std::sync::atomic::Ordering;
-
-        if !crate::overlay::realtime_egui::MINIMAL_ACTIVE.load(Ordering::SeqCst) {
-            return;
-        }
-        if let Ok(guard) = crate::gui::GUI_CONTEXT.lock()
-            && let Some(ctx) = guard.as_ref()
-        {
-            ctx.request_repaint();
         }
     }
 }
@@ -135,8 +112,6 @@ pub fn refresh_transcription_window() {
                 WPARAM(0),
                 LPARAM(0),
             );
-        } else {
-            request_realtime_egui_repaint();
         }
     }
 }

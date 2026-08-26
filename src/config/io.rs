@@ -155,13 +155,11 @@ fn migrate_live_translate_launcher(config: &mut Config) {
     const LEGACY_ID: &str = "preset_realtime_audio_translate";
 
     let mut migrated_hotkeys = std::mem::take(&mut config.live_translate.hotkeys);
-    let mut active_interface = None;
     remove_live_translate_launcher(
         &mut config.presets,
         &mut config.active_preset_idx,
         LEGACY_ID,
         &mut migrated_hotkeys,
-        Some(&mut active_interface),
     );
     for profile in &mut config.preset_profiles {
         remove_live_translate_launcher(
@@ -169,13 +167,9 @@ fn migrate_live_translate_launcher(config: &mut Config) {
             &mut profile.active_preset_idx,
             LEGACY_ID,
             &mut migrated_hotkeys,
-            None,
         );
     }
     config.live_translate.hotkeys = migrated_hotkeys;
-    if let Some(interface) = active_interface {
-        config.live_translate.interface = interface;
-    }
 }
 
 fn remove_live_translate_launcher(
@@ -183,17 +177,9 @@ fn remove_live_translate_launcher(
     active_idx: &mut usize,
     legacy_id: &str,
     migrated_hotkeys: &mut Vec<crate::config::Hotkey>,
-    mut active_interface: Option<&mut Option<crate::config::LiveTranslateInterface>>,
 ) {
     while let Some(idx) = presets.iter().position(|preset| preset.id == legacy_id) {
         let legacy = presets.remove(idx);
-        if let Some(interface) = active_interface.as_deref_mut() {
-            *interface = Some(if legacy.legacy_realtime_window_mode == "minimal" {
-                crate::config::LiveTranslateInterface::Minimal
-            } else {
-                crate::config::LiveTranslateInterface::Standard
-            });
-        }
         for hotkey in legacy.hotkeys {
             if !migrated_hotkeys.iter().any(|existing| {
                 existing.code == hotkey.code && existing.modifiers == hotkey.modifiers

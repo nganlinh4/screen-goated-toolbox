@@ -19,9 +19,9 @@
 
 ## Behavior Contract
 - Live Translate is an official mini app, not a preset. Its Windows footer launcher opens an egui preflight modal and its Android launcher remains an app-carousel entry. Neither platform publishes Live Translate in the unified preset catalog, preset editor, preset wheel, or preset favorites.
-- The preflight surface owns the persistent session choices: audio source, transcription provider/language, target language, translation provider, overlay interface, font size, and global hotkeys. Start/Stop acts on the one Live Translate session identity and never resolves a mutable preset index.
-- Windows global app config is the single source of truth for persistent controls shared by the preflight modal and a running overlay. Overlay changes to audio source, transcription provider/language, target language, translation provider, or font size must persist, wake egui, and appear in an already-open or later-reopened preflight modal before that modal can save. Interface and hotkeys remain preflight-owned; pane visibility and TTS runtime controls remain session-only.
-- Legacy Windows `preset_realtime_audio_translate` rows are removed from every profile during config migration. Their unique hotkeys are promoted to the global Live Translate hotkey list and the active profile's interface choice wins.
+- The preflight surface owns the persistent session choices: audio source, transcription provider/language, target language, translation provider, font size, and global hotkeys. Start/Stop acts on the one Live Translate session identity and never resolves a mutable preset index.
+- Windows global app config is the single source of truth for persistent controls shared by the preflight modal and a running overlay. Overlay changes to audio source, transcription provider/language, target language, translation provider, or font size must persist, wake egui, and appear in an already-open or later-reopened preflight modal before that modal can save. Hotkeys remain preflight-owned; pane visibility and TTS runtime controls remain session-only.
+- Legacy Windows `preset_realtime_audio_translate` rows are removed from every profile during config migration. Their unique hotkeys are promoted to the global Live Translate hotkey list; obsolete interface values are ignored.
 - Transcript is append-only. Incoming Gemini Live transcription chunks are appended to `full_transcript`; they are not treated as full replacements.
 - Translation never retranslates the whole transcript. It only works on the untranslated tail starting at `last_committed_pos`.
 - Translation request dispatch is interval-gated like Windows. The runtime checks for new translation work on a `1500ms` cadence rather than opening a new provider request on every transcript delta.
@@ -47,8 +47,8 @@
   - `translation_model=text-llm`
   - `transcription_model=gemini-3.5-translate`
   - `font_size=16`
-  - `interface=standard`
 - Realtime overlay contract:
+  - Windows has one runtime presentation: the WebView2 compositor. The native egui realtime overlay and its Standard/Minimal selector do not exist; egui remains only the launcher preflight surface.
   - transcription pane header shows the live waveform canvas, not a fake activity stub
   - translation pane has no title text in the header
   - Google Sans Flex, blur/backdrop treatment, chunked text rendering, and bottom-follow autoscroll match the Windows web overlay

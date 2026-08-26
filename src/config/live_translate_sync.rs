@@ -29,12 +29,11 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::Config;
-    use crate::config::{Hotkey, LiveTranslateInterface};
+    use crate::config::Hotkey;
 
     #[test]
     fn overlay_controls_sync_without_clobbering_preflight_or_unrelated_settings() {
         let mut modal = Config::default();
-        modal.live_translate.interface = LiveTranslateInterface::Minimal;
         modal.live_translate.hotkeys = vec![Hotkey::new(7, "Live Translate", 3)];
         modal.ui_language = "ko".to_string();
 
@@ -45,7 +44,6 @@ mod tests {
         overlay.realtime_transcription_model = "zipformer".to_string();
         overlay.realtime_transcription_language = "ja".to_string();
         overlay.realtime_font_size = 32;
-        overlay.live_translate.interface = LiveTranslateInterface::Standard;
         overlay.live_translate.hotkeys.clear();
         overlay.ui_language = "vi".to_string();
 
@@ -56,10 +54,6 @@ mod tests {
         assert_eq!(modal.realtime_transcription_model, "zipformer");
         assert_eq!(modal.realtime_transcription_language, "ja");
         assert_eq!(modal.realtime_font_size, 32);
-        assert_eq!(
-            modal.live_translate.interface,
-            LiveTranslateInterface::Minimal
-        );
         assert_eq!(modal.live_translate.hotkeys.len(), 1);
         assert_eq!(modal.ui_language, "ko");
         assert!(!modal.sync_live_translate_overlay_controls_from(&overlay));

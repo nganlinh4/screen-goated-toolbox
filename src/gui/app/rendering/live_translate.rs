@@ -1,5 +1,4 @@
 use super::super::types::SettingsApp;
-use crate::config::LiveTranslateInterface;
 use crate::gui::icons::{self, Icon};
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::{model_selector, node_graph};
@@ -259,35 +258,6 @@ impl SettingsApp {
             text.live_translate.live_translate_display_title,
             |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(text.live_translate.live_translate_interface);
-                    crate::gui::widgets::combo("live_translate_interface")
-                        .selected_text(match self.config.live_translate.interface {
-                            LiveTranslateInterface::Standard => {
-                                text.live_translate.live_translate_interface_standard
-                            }
-                            LiveTranslateInterface::Minimal => {
-                                text.live_translate.live_translate_interface_minimal
-                            }
-                        })
-                        .show_ui(ui, |ui| {
-                            changed |= ui
-                                .selectable_value(
-                                    &mut self.config.live_translate.interface,
-                                    LiveTranslateInterface::Standard,
-                                    text.live_translate.live_translate_interface_standard,
-                                )
-                                .clicked();
-                            changed |= ui
-                                .selectable_value(
-                                    &mut self.config.live_translate.interface,
-                                    LiveTranslateInterface::Minimal,
-                                    text.live_translate.live_translate_interface_minimal,
-                                )
-                                .clicked();
-                        });
-                });
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
                     ui.label(text.live_translate.live_translate_font_size);
                     changed |= ui
                         .add(egui::Slider::new(
@@ -392,9 +362,6 @@ impl SettingsApp {
         self.config.realtime_font_size = defaults.realtime_font_size;
         self.config.realtime_audio_source = defaults.realtime_audio_source;
         self.config.realtime_target_language = defaults.realtime_target_language;
-        self.config
-            .live_translate
-            .restore_defaults_preserving_hotkeys();
         self.save_and_sync();
     }
 

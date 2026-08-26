@@ -545,7 +545,6 @@ fn non_default_config() -> Config {
     config.translation_gummy.guide_seen = true;
     config.screen_translate.target_language = "Korean".to_string();
     config.screen_translate.hotkeys = vec![Hotkey::new(9, "Translate", 10)];
-    config.live_translate.interface = crate::config::LiveTranslateInterface::Minimal;
     config.live_translate.hotkeys = vec![Hotkey::new(11, "Live", 12)];
     config
 }

@@ -1,6 +1,6 @@
 use super::migrate_config;
 use crate::config::types::PresetProfile;
-use crate::config::{Config, Hotkey, LiveTranslateInterface, Preset};
+use crate::config::{Config, Hotkey, Preset};
 
 #[test]
 fn migrate_config_moves_live_translate_out_of_every_profile() {
@@ -9,11 +9,10 @@ fn migrate_config_moves_live_translate_out_of_every_profile() {
         name: id.to_string(),
         ..Default::default()
     };
-    let legacy = |hotkeys: Vec<Hotkey>, interface: &str| Preset {
+    let legacy = |hotkeys: Vec<Hotkey>| Preset {
         id: "preset_realtime_audio_translate".to_string(),
         name: "Live Translate".to_string(),
         hotkeys,
-        legacy_realtime_window_mode: interface.to_string(),
         ..Default::default()
     };
 
@@ -24,20 +23,16 @@ fn migrate_config_moves_live_translate_out_of_every_profile() {
     let first = PresetProfile::new_default(
         vec![
             normal("before"),
-            legacy(vec![existing.clone(), profile_key.clone()], "standard"),
+            legacy(vec![existing.clone(), profile_key.clone()]),
             normal("after"),
         ],
         2,
     );
     let second = PresetProfile::new_default(
-        vec![
-            legacy(vec![second_profile_key.clone()], "standard"),
-            normal("second"),
-        ],
+        vec![legacy(vec![second_profile_key.clone()]), normal("second")],
         0,
     );
     let mut active_mirror = first.presets.clone();
-    active_mirror[1].legacy_realtime_window_mode = "minimal".to_string();
     active_mirror[1].hotkeys.push(mirror_only.clone());
     let mut config = Config {
         presets: active_mirror,
@@ -45,7 +40,6 @@ fn migrate_config_moves_live_translate_out_of_every_profile() {
         preset_profiles: vec![first, second],
         live_translate: crate::config::types::LiveTranslateSettings {
             hotkeys: vec![existing.clone()],
-            ..Default::default()
         },
         ..Default::default()
     };
@@ -71,10 +65,6 @@ fn migrate_config_moves_live_translate_out_of_every_profile() {
         config.live_translate.hotkeys,
         vec![existing, profile_key, mirror_only, second_profile_key]
     );
-    assert_eq!(
-        config.live_translate.interface,
-        LiveTranslateInterface::Minimal
-    );
 }
 
 #[test]
@@ -87,11 +77,11 @@ fn default_presets_do_not_include_live_translate() {
 }
 
 #[test]
-fn preset_schema_does_not_serialize_live_translate_options() {
-    let preset = Preset {
-        legacy_realtime_window_mode: "minimal".to_string(),
-        ..Default::default()
-    };
+fn preset_schema_accepts_but_does_not_serialize_removed_live_translate_options() {
+    let mut legacy = serde_json::to_value(Preset::default()).unwrap();
+    legacy["audio_processing_mode"] = serde_json::json!("realtime");
+    legacy["realtime_window_mode"] = serde_json::json!("minimal");
+    let preset: Preset = serde_json::from_value(legacy).unwrap();
     let serialized = serde_json::to_value(preset).unwrap();
 
     assert!(serialized.get("audio_processing_mode").is_none());

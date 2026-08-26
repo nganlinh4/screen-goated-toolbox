@@ -7,7 +7,6 @@ use windows::Win32::Foundation::LPARAM;
 use windows::Win32::Foundation::WPARAM;
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-use super::utils::request_realtime_egui_repaint;
 use super::{REALTIME_RMS, WM_REALTIME_UPDATE, WM_VOLUME_UPDATE};
 use crate::overlay::realtime_webview::AUDIO_SOURCE_CHANGE;
 
@@ -95,16 +94,12 @@ pub fn run_parakeet_transcription(
                 s.append_transcript(&text);
             }
             // Notify overlay to update text
-            if let Some(h) = hwnd_overlay {
+            if let Some(h) = hwnd_overlay
+                && !h.is_invalid()
+            {
                 unsafe {
-                    if !h.is_invalid() {
-                        let _ = PostMessageW(Some(h), WM_REALTIME_UPDATE, WPARAM(0), LPARAM(0));
-                    } else {
-                        request_realtime_egui_repaint();
-                    }
+                    let _ = PostMessageW(Some(h), WM_REALTIME_UPDATE, WPARAM(0), LPARAM(0));
                 }
-            } else {
-                request_realtime_egui_repaint();
             }
         },
     )
@@ -281,13 +276,11 @@ where
                 }
             }
 
-            if let Some(hwnd) = overlay_hwnd_opt {
+            if let Some(hwnd) = overlay_hwnd_opt
+                && !hwnd.is_invalid()
+            {
                 unsafe {
-                    if !hwnd.is_invalid() {
-                        let _ = PostMessageW(Some(hwnd), WM_VOLUME_UPDATE, WPARAM(0), LPARAM(0));
-                    } else {
-                        request_realtime_egui_repaint();
-                    }
+                    let _ = PostMessageW(Some(hwnd), WM_VOLUME_UPDATE, WPARAM(0), LPARAM(0));
                 }
             }
 

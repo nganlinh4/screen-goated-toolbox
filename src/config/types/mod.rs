@@ -21,7 +21,7 @@ mod translation_gummy;
 mod tts;
 
 // Re-export all types for easy access
-pub use live_translate::{LiveTranslateInterface, LiveTranslateSettings};
+pub use live_translate::LiveTranslateSettings;
 pub use screen_translate::ScreenTranslateSettings;
 pub use translation_gummy::TranslationGummySettings;
 #[cfg(not(feature = "recorder-worker"))]
