@@ -16,6 +16,7 @@ impl SettingsApp {
             return;
         }
 
+        self.sync_live_translate_overlay_controls();
         let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
         let active = crate::overlay::is_realtime_overlay_active();
         let mut close_requested = false;
@@ -59,19 +60,25 @@ impl SettingsApp {
 
                 render_intro(ui, &theme, text);
                 ui.add_space(8.0);
-                ui.add_enabled_ui(!active, |ui| {
-                    let mut changed = false;
-                    changed |= self.render_live_translate_input(ui, &theme, text);
-                    ui.add_space(8.0);
-                    changed |= self.render_live_translate_output(ui, &theme, text);
-                    ui.add_space(8.0);
-                    changed |= self.render_live_translate_display(ui, &theme, text);
-                    if changed {
-                        self.save_and_sync();
-                    }
+                let mut changed = false;
+                ui.columns(2, |columns| {
+                    columns[0].add_enabled_ui(!active, |ui| {
+                        changed |= self.render_live_translate_input(ui, &theme, text);
+                    });
+                    columns[1].add_enabled_ui(!active, |ui| {
+                        changed |= self.render_live_translate_output(ui, &theme, text);
+                    });
                 });
                 ui.add_space(8.0);
-                self.render_live_translate_hotkeys(ui, &theme, text);
+                ui.columns(2, |columns| {
+                    columns[0].add_enabled_ui(!active, |ui| {
+                        changed |= self.render_live_translate_display(ui, &theme, text);
+                    });
+                    self.render_live_translate_hotkeys(&mut columns[1], &theme, text);
+                });
+                if changed {
+                    self.save_and_sync();
+                }
                 ui.add_space(12.0);
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -390,6 +397,13 @@ impl SettingsApp {
             .restore_defaults_preserving_hotkeys();
         self.save_and_sync();
     }
+
+    fn sync_live_translate_overlay_controls(&mut self) {
+        if let Ok(state) = self.app_state_ref.lock() {
+            self.config
+                .sync_live_translate_overlay_controls_from(&state.config);
+        }
+    }
 }
 
 fn section(
@@ -407,6 +421,7 @@ fn section(
             crate::gui::theme::space::GAP,
         ))
         .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             ui.label(egui::RichText::new(title).strong());
             ui.add_space(6.0);
             add_contents(ui);

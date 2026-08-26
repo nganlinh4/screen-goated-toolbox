@@ -171,6 +171,7 @@ impl SettingsApp {
         }
         self.config.sync_active_profile_from_presets();
 
+        let realtime_active = crate::overlay::is_realtime_overlay_active();
         let mut state = self.app_state_ref.lock().unwrap();
 
         // Pull fields that can be modified by external modules (tray popup, bubble panel)
@@ -179,6 +180,10 @@ impl SettingsApp {
         self.config.favorite_bubble_position = state.config.favorite_bubble_position;
         self.config.favorite_bubble_size = state.config.favorite_bubble_size;
         self.config.favorites_keep_open = state.config.favorites_keep_open;
+        if realtime_active {
+            self.config
+                .sync_live_translate_overlay_controls_from(&state.config);
+        }
         state.hotkeys_updated = true;
         state.config = self.config.clone();
         drop(state);

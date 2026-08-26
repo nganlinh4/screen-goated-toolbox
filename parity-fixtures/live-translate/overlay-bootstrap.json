@@ -20,6 +20,27 @@
     "ttsAutoSpeed": true,
     "ttsVolume": 100
   },
+  "settingsOwnership": {
+    "persistentSource": "global-app-config",
+    "overlayEditablePersistentControls": [
+      "audioSource",
+      "targetLanguage",
+      "translationModel",
+      "transcriptionModel",
+      "transcriptionLanguage",
+      "fontSize"
+    ],
+    "preflightOnlyPersistentControls": [
+      "interface",
+      "hotkeys"
+    ],
+    "sessionOnlyControls": [
+      "paneVisibility",
+      "ttsRuntime"
+    ],
+    "overlayChangeRefreshesOpenPreflight": true,
+    "preflightMayOverwriteNewerOverlayState": false
+  },
   "requiredModels": {
     "translationProviders": [
       "text-llm",

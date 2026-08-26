@@ -109,10 +109,7 @@ pub fn set_audio_source(source: &str) {
         clear_selected_app();
     }
 
-    if let Ok(mut app) = APP.lock() {
-        app.config.realtime_audio_source = source;
-        crate::config::save_config(&app.config);
-    }
+    persist_overlay_control(move |config| config.realtime_audio_source = source);
     AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
 }
 
@@ -120,10 +117,8 @@ pub fn set_target_language(language: &str) {
     if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
         *new_lang = language.to_string();
     }
-    if let Ok(mut app) = APP.lock() {
-        app.config.realtime_target_language = language.to_string();
-        crate::config::save_config(&app.config);
-    }
+    let language = language.to_string();
+    persist_overlay_control(move |config| config.realtime_target_language = language);
     LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
 }
 
@@ -135,10 +130,8 @@ pub fn set_translation_model(model: &str) {
     if let Ok(mut new_model) = NEW_TRANSLATION_MODEL.lock() {
         *new_model = model.to_string();
     }
-    if let Ok(mut app) = APP.lock() {
-        app.config.realtime_translation_model = model.to_string();
-        crate::config::save_config(&app.config);
-    }
+    let model = model.to_string();
+    persist_overlay_control(move |config| config.realtime_translation_model = model);
     TRANSLATION_MODEL_CHANGE.store(true, Ordering::SeqCst);
 }
 
@@ -148,10 +141,10 @@ pub fn set_transcription_model(model: &str) {
     if let Ok(mut new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
         *new_model = model.clone();
     }
-    if let Ok(mut app) = APP.lock() {
-        app.config.realtime_transcription_model = model.clone();
-        crate::config::save_config(&app.config);
-    }
+    persist_overlay_control({
+        let model = model.clone();
+        move |config| config.realtime_transcription_model = model
+    });
     TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
     if load_session_config().audio_source != "device" {
         return;
@@ -167,18 +160,12 @@ pub fn set_transcription_model(model: &str) {
 
 pub fn set_transcription_language(language: &str) {
     let language = normalize_transcription_language(language);
-    if let Ok(mut app) = APP.lock() {
-        app.config.realtime_transcription_language = language;
-        crate::config::save_config(&app.config);
-    }
+    persist_overlay_control(move |config| config.realtime_transcription_language = language);
     TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
 }
 
 pub fn set_font_size(font_size: u32) {
-    if let Ok(mut app) = APP.lock() {
-        app.config.realtime_font_size = font_size;
-        crate::config::save_config(&app.config);
-    }
+    persist_overlay_control(move |config| config.realtime_font_size = font_size);
 }
 
 pub fn set_visibility(transcription_visible: bool, translation_visible: bool) -> bool {
@@ -304,6 +291,18 @@ fn clear_selected_app() {
     SELECTED_APP_PID.store(0, Ordering::SeqCst);
     if let Ok(mut name) = SELECTED_APP_NAME.lock() {
         name.clear();
+    }
+}
+
+fn persist_overlay_control(update: impl FnOnce(&mut crate::config::Config)) {
+    if let Ok(mut app) = APP.lock() {
+        update(&mut app.config);
+        crate::config::save_config(&app.config);
+    }
+    if let Ok(context) = crate::gui::GUI_CONTEXT.lock()
+        && let Some(context) = context.as_ref()
+    {
+        context.request_repaint();
     }
 }
 
