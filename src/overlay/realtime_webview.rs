@@ -27,3 +27,7 @@ pub(crate) fn is_child_process() -> bool {
 pub(crate) fn run_child() -> anyhow::Result<()> {
     manager::run_child()
 }
+
+pub(crate) fn shutdown_for_exit() {
+    supervisor::shutdown_for_exit();
+}

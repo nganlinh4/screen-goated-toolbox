@@ -32,6 +32,10 @@ pub use parent::{
 pub(crate) use supervisor::{restart_and_wait, wait_until_ready};
 pub(crate) use sync_scheduler::queue_window_sync;
 
+pub(crate) fn shutdown_for_exit() {
+    supervisor::shutdown_for_exit();
+}
+
 pub(crate) const CHILD_FLAG: &str = "--internal-result-compositor";
 const OFFSCREEN_ACCEPTANCE_ENV: &str = "SGT_RESULT_COMPOSITOR_ACCEPTANCE_OFFSCREEN";
 

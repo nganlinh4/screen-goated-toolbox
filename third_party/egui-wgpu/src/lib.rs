@@ -18,6 +18,8 @@
 
 pub use wgpu;
 
+mod native_shader;
+
 /// Low-level painting of [`egui`](https://github.com/emilk/egui) on [`wgpu`].
 mod renderer;
 

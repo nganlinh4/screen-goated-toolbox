@@ -79,9 +79,15 @@ val generatePresetOverlayAssets by tasks.registering(Exec::class) {
         repoRoot.resolve("src/overlay/result/markdown_view/streaming/fit_impl/fit_font_script_part2.js"),
     )
     val cssSource = repoRoot.resolve("src/overlay/result/markdown_view/css.rs")
-    val buttonCanvasCssSource = repoRoot.resolve("src/overlay/result/button_canvas/css.rs")
-    val buttonCanvasJsSource = repoRoot.resolve("src/overlay/result/button_canvas/js.rs")
-    val buttonCanvasThemeSource = repoRoot.resolve("src/overlay/result/button_canvas/theme.rs")
+    val buttonCanvasCssSource = repoRoot.resolve(
+        "src/overlay/result/scene_compositor/control_surface/css.rs",
+    )
+    val buttonCanvasJsSource = repoRoot.resolve(
+        "src/overlay/result/scene_compositor/control_surface/runtime.rs",
+    )
+    val buttonCanvasThemeSource = repoRoot.resolve(
+        "src/overlay/result/scene_compositor/control_surface/theme.rs",
+    )
     val gridJsSource = repoRoot.resolve("src/overlay/html_components/grid_js.rs")
     val recordingUiSource = repoRoot.resolve("src/overlay/recording/ui.rs")
     val iconsSource = repoRoot.resolve("src/overlay/html_components/icons.rs")
@@ -299,8 +305,6 @@ android {
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
-            // okhttp 5's logging-interceptor and jspecify both ship this stub.
-            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
             // Orphaned Bouncy Castle resources retained through libadb's transitive
             // graph even though the corresponding providers are absent after R8.
             excludes += "/org/bouncycastle/pqc/crypto/picnic/lowmcL1.bin.properties"
@@ -382,7 +386,6 @@ dependencies {
     implementation(libs.androidx.graphics.shapes)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.profileinstaller)
@@ -396,12 +399,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
     implementation(libs.jsoup)
     implementation(libs.moonshine.voice)
     implementation(files("libs/sherpa-onnx-static-1.12.35.aar"))
-    implementation(libs.androidx.media3.session)
-    implementation(libs.androidx.media3.common)
     implementation(libs.commonmark)
     implementation(libs.commonmark.ext.gfm.tables)
     implementation(libs.commonmark.ext.gfm.strikethrough)

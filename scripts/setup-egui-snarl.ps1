@@ -64,5 +64,6 @@ foreach ($dependency in $contract.Dependencies) {
     }
 }
 
+& (Join-Path $PSScriptRoot "setup-size-patched-crates.ps1")
 & (Join-Path $PSScriptRoot "validate-egui-patches.ps1")
 Write-Host "Patched egui dependencies are ready."

@@ -107,9 +107,11 @@ pub enum Icon {
     // Section headers / status
     Key,
     Upgrade,
+    Check,
     CheckCircle,
     Warning,
     PottedPlant, // Donation section (Material Symbols potted_plant)
+    Logout,
 
     // Window Controls
     Minimize,
@@ -368,7 +370,7 @@ mod tests {
 
     #[test]
     fn generated_mapping_is_exhaustive_and_preserves_aliases() {
-        assert_eq!(ALL_ICONS.len(), 71);
+        assert_eq!(ALL_ICONS.len(), 73);
         let indices = ALL_ICONS
             .iter()
             .map(|icon| icon.sprite_index())

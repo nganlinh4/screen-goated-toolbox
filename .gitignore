@@ -46,6 +46,7 @@ screen-goated-toolbox-*.exe
 # Patched dependencies (cloned by scripts/setup-egui-snarl.ps1)
 libs/egui-snarl/
 libs/egui-scale/
+libs/epaint/
 
 # lang-detect cdylib build artifacts
 libs/lang-detect/target/

@@ -141,7 +141,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows::core::Result<DcompHost> {
 
         let controller: ICoreWebView2Controller = comp.cast()?;
         // DPI: composition hosting isn't DPI-aware by default. Match windowed WebView2 (and
-        // button_canvas) — bounds stay raw (physical) px, RasterizationScale = the monitor scale —
+        // result compositor) — bounds stay raw (physical) px, RasterizationScale = the monitor scale —
         // so the page reports LOGICAL px and the orbRegion → physical-region mapping lines up.
         if let Ok(c3) = controller.cast::<ICoreWebView2Controller3>() {
             let _ = c3.SetBoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS);

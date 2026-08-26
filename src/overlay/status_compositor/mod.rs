@@ -43,6 +43,10 @@ pub(crate) fn run_child() -> anyhow::Result<()> {
     child::run()
 }
 
+pub(crate) fn shutdown_for_exit() {
+    parent::shutdown_for_exit();
+}
+
 pub(crate) fn update_theme(is_dark: bool) {
     parent::SNAPSHOT.lock().unwrap().is_dark = is_dark;
     parent::send_if_running(HostCommand::Theme { is_dark });

@@ -5,15 +5,12 @@ import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
-import androidx.annotation.OptIn
-import androidx.media3.common.util.UnstableApi
 
 /**
  * JavaScript bridge injected into the DJ WebView.
  * Called from JS when playback state changes, so we can update
  * the native MediaSession / notification.
  */
-@OptIn(UnstableApi::class)
 class DjJsBridge(private val context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var serviceStarted = false
@@ -22,8 +19,9 @@ class DjJsBridge(private val context: Context) {
      * Called from JS: liveMusicHelper playback-state-changed event.
      * States: "playing", "loading", "paused", "stopped"
      *
-     * Only starts the service on first play, and only stops it on
-     * explicit "stopped". Pauses and loading stalls keep the service alive.
+     * Every active update is delivered through the service intent, so the
+     * first state cannot race service creation. Only explicit "stopped" ends
+     * the service; pauses and loading stalls keep it alive.
      */
     @JavascriptInterface
     fun onPlaybackStateChanged(state: String) {
@@ -31,16 +29,11 @@ class DjJsBridge(private val context: Context) {
             val wantsActive = state == "playing" || state == "loading" || state == "paused"
             DjWebViewHolder.updatePlaybackState(state == "playing" || state == "loading")
 
-            // Start service on first active state
-            if (wantsActive && !serviceStarted) {
-                serviceStarted = true
-                DjPlaybackService.start(context)
+            if (wantsActive) {
+                serviceStarted = DjPlaybackService.update(context, state)
             }
 
-            // Forward state to the virtual player (updates notification)
-            DjPlaybackService.playerRef?.updateFromWebView(state, null)
-
-            // Only kill service on explicit stop — never on pause/buffering
+            // Only kill the service on explicit stop — never on pause/buffering.
             if (state == "stopped" && serviceStarted) {
                 serviceStarted = false
                 DjPlaybackService.stop(context)
@@ -53,11 +46,13 @@ class DjJsBridge(private val context: Context) {
     fun onTitleChanged(title: String) {
         mainHandler.post {
             val currentState = if (DjWebViewHolder.isPlaying) "playing" else "paused"
-            DjPlaybackService.playerRef?.updateFromWebView(currentState, title)
+            if (serviceStarted) {
+                DjPlaybackService.update(context, currentState, title)
+            }
         }
     }
 
-    /** Wire notification controls -> WebView JS. */
+    /** Wire platform media-session controls to the WebView. */
     fun wireNotificationCallbacks(webView: WebView) {
         DjWebViewHolder.onPlayFromNotification = {
             mainHandler.post {

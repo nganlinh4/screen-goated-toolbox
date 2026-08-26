@@ -68,7 +68,10 @@ profiling.workspace = true
 thiserror.workspace = true
 type-map.workspace = true
 web-time.workspace = true
-wgpu = { workspace = true, features = ["wgsl"] }
+wgpu = { workspace = true }
+
+[build-dependencies]
+naga = { version = "30.0", default-features = false, features = ["hlsl-out", "wgsl-in"] }
 
 # Optional dependencies:
 

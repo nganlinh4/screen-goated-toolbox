@@ -6,7 +6,7 @@ default-run = "screen-goated-toolbox"
 
 [features]
 default = []
-recorder-worker = []
+recorder-worker = ["wgpu/wgsl"]
 
 [build-dependencies]
 winres = "0.1"
@@ -33,7 +33,7 @@ flate2 = "1.1"
 quick-xml = "0.38"
 
 # Image Processing
-image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }
+image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "webp"] }
 
 # Time
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
@@ -74,7 +74,7 @@ parking_lot = "0.12"
 libloading = "0.8"
 
 # GPU Rendering
-wgpu = { version = "30", default-features = false, features = ["std", "dx12", "wgsl"] }
+wgpu = { version = "30", default-features = false, features = ["std", "dx12"] }
 
 [dev-dependencies]
 resvg = { version = "0.48", default-features = false }
@@ -86,6 +86,7 @@ features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Controls",
     "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_System_LibraryLoader",
     "Win32_Graphics_Dwm",
@@ -162,6 +163,7 @@ debug = "line-tables-only"
 
 [patch.crates-io]
 egui-wgpu = { path = "third_party/egui-wgpu" }
+epaint = { path = "libs/epaint" }
 egui-scale = { path = "libs/egui-scale" }
 wgpu-hal = { path = "third_party/wgpu-hal" }
 wry = { path = "third_party/wry" }

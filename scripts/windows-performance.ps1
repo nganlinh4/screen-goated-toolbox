@@ -3,7 +3,8 @@ param(
     [string]$Action = "Compare",
     [switch]$SkipBuild,
     [int]$Runs = 3,
-    [int]$TimeoutSeconds = 75
+    [int]$TimeoutSeconds = 75,
+    [int]$BuildJobs = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,6 +25,9 @@ $transientTargets = [Collections.Generic.List[string]]::new()
 if ($Runs -lt 1 -or $Runs -gt 20) {
     throw "Runs must be between 1 and 20."
 }
+if ($BuildJobs -lt 1 -or $BuildJobs -gt 16) {
+    throw "BuildJobs must be between 1 and 16."
+}
 
 function Invoke-CargoBuild {
     param(
@@ -41,7 +45,7 @@ function Invoke-CargoBuild {
         else { Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue }
         if ($EncodedRustFlags) { $env:CARGO_ENCODED_RUSTFLAGS = $EncodedRustFlags }
         else { Remove-Item Env:CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue }
-        cargo build --locked --profile $Profile --target $targetTriple `
+        cargo build --locked --jobs $BuildJobs --profile $Profile --target $targetTriple `
             --bin screen-goated-toolbox
         if ($LASTEXITCODE -ne 0) {
             throw "Cargo profile '$Profile' failed with exit code $LASTEXITCODE."
@@ -99,7 +103,8 @@ function Save-SmokeFailure {
         [Parameter(Mandatory = $true)][string]$Build,
         [Parameter(Mandatory = $true)][string]$Smoke,
         [Parameter(Mandatory = $true)][int]$Run,
-        [Parameter(Mandatory = $true)][string]$Reason
+        [Parameter(Mandatory = $true)][string]$Reason,
+        [Parameter(Mandatory = $true)][string]$Executable
     )
 
     $failureId = [guid]::NewGuid().ToString("N").Substring(0, 8)
@@ -109,12 +114,15 @@ function Save-SmokeFailure {
     if (Test-Path -LiteralPath $sessionLog -PathType Leaf) {
         Copy-Item -LiteralPath $sessionLog -Destination (Join-Path $failureRoot "session.log")
     }
+    $retainedExecutable = Join-Path $failureRoot "screen-goated-toolbox.exe"
+    Copy-Item -LiteralPath $Executable -Destination $retainedExecutable
     [ordered]@{
         generatedAt = (Get-Date).ToUniversalTime().ToString("o")
         build = $Build
         smoke = $Smoke
         run = $Run
         reason = $Reason
+        executableSha256 = (Get-FileHash -LiteralPath $retainedExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $failureRoot "failure.json") `
         -Encoding utf8
     Write-Host "Smoke failure evidence: $failureRoot"
@@ -172,7 +180,8 @@ function Measure-Smoke {
             Stop-TestProcessTree -RootId $process.Id
             $reason = "timed out after $TimeoutSeconds seconds"
             Save-SmokeFailure -StateRoot $stateRoot -Build $Build `
-                -Smoke $Flag.TrimStart("-") -Run $Run -Reason $reason
+                -Smoke $Flag.TrimStart("-") -Run $Run -Reason $reason `
+                -Executable $Executable
             throw "$Build $Flag $reason."
         }
         $timer.Stop()
@@ -180,7 +189,7 @@ function Measure-Smoke {
         if ($process.ExitCode -ne 0) {
             Save-SmokeFailure -StateRoot $stateRoot -Build $Build `
                 -Smoke $Flag.TrimStart("-") -Run $Run `
-                -Reason "exit code $($process.ExitCode)"
+                -Reason "exit code $($process.ExitCode)" -Executable $Executable
             throw "$Build $Flag failed with exit code $($process.ExitCode)."
         }
         Start-Sleep -Milliseconds 200
@@ -421,28 +430,34 @@ try {
         $transientTargets.Add($compareTarget)
         Invoke-CargoBuild -Profile release-compact -TargetDirectory $compareTarget
         Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "the compact build"
+        Invoke-CargoBuild -Profile release-balanced -TargetDirectory $compareTarget
+        Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "the balanced build"
         Invoke-CargoBuild -Profile release-perf -TargetDirectory $compareTarget
         Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "the performance build"
     }
     $artifactRoot = if ($compareTarget) { $compareTarget } else { Join-Path $repoRoot "target" }
     $compactExe = Join-Path $artifactRoot `
         "$targetTriple\release-compact\screen-goated-toolbox.exe"
+    $balancedExe = Join-Path $artifactRoot `
+        "$targetTriple\release-balanced\screen-goated-toolbox.exe"
     $perfExe = Join-Path $artifactRoot "$targetTriple\release-perf\screen-goated-toolbox.exe"
-    foreach ($path in @($compactExe, $perfExe)) {
+    foreach ($path in @($compactExe, $balancedExe, $perfExe)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "Missing comparison artifact: $path"
         }
     }
     $artifacts = @(
         Get-ArtifactRecord -Build "compact" -Executable $compactExe
+        Get-ArtifactRecord -Build "balanced" -Executable $balancedExe
         Get-ArtifactRecord -Build "perf" -Executable $perfExe
     )
     $measurements = @()
     $measurements += Invoke-SmokeCorpus -Build "compact" -Executable $compactExe
+    $measurements += Invoke-SmokeCorpus -Build "balanced" -Executable $balancedExe
     $measurements += Invoke-SmokeCorpus -Build "perf" -Executable $perfExe
     Assert-SourceFingerprint -Expected $sourceFingerprint -Phase "the comparison corpus"
     $payload = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         generatedAt = (Get-Date).ToUniversalTime().ToString("o")
         rustc = (rustc -vV) -join "`n"
         sourceFingerprint = $sourceFingerprint
@@ -451,34 +466,8 @@ try {
     }
     $report = Join-Path $performanceRoot "windows-$stamp.json"
     $payload | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $report -Encoding utf8
-    $contract = Get-Content -LiteralPath (Join-Path $PSScriptRoot "performance-contract.json") `
-        -Raw | ConvertFrom-Json
-    $compact = $artifacts | Where-Object build -eq "compact"
-    $perf = $artifacts | Where-Object build -eq "perf"
-    if ($compact.bytes -gt $contract.windows.maxShippingBinaryBytes) {
-        throw "Compact binary is $($compact.bytes) bytes; contract allows $($contract.windows.maxShippingBinaryBytes)."
-    }
-    $sizeRatio = $perf.bytes / $compact.bytes
-    if ($sizeRatio -gt $contract.windows.maxPerfSizeRatio) {
-        throw "Perf/compact size ratio $([Math]::Round($sizeRatio, 3)) exceeds contract."
-    }
-    foreach ($smoke in $contract.windows.requiredSmokes) {
-        $compactSamples = @($measurements | Where-Object {
-            $_.build -eq "compact" -and $_.smoke -eq $smoke
-        } | Sort-Object elapsedMs)
-        $perfSamples = @($measurements | Where-Object {
-            $_.build -eq "perf" -and $_.smoke -eq $smoke
-        } | Sort-Object elapsedMs)
-        if ($compactSamples.Count -ne $Runs -or $perfSamples.Count -ne $Runs) {
-            throw "Missing samples for $smoke."
-        }
-        $middle = [Math]::Floor($Runs / 2)
-        $compactMedian = $compactSamples[$middle].elapsedMs
-        $perfMedian = $perfSamples[$middle].elapsedMs
-        if ($perfMedian -gt $compactMedian * $contract.windows.maxPerfLatencyRatio) {
-            throw "$smoke perf median ${perfMedian}ms regressed against compact ${compactMedian}ms."
-        }
-    }
+    & (Join-Path $PSScriptRoot "validate-windows-performance-report.ps1") `
+        -Report $report -ExpectedRuns $Runs
     Write-Host "Performance report: $report"
     $artifacts | Format-Table build, bytes, sha256 -AutoSize
 }

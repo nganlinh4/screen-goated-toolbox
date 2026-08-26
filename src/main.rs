@@ -20,6 +20,7 @@ pub mod gui;
 mod history;
 mod hotkey;
 mod icon_gen;
+mod image_decode;
 mod initialization;
 pub mod lang_detect;
 mod model_config;

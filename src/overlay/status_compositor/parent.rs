@@ -19,6 +19,10 @@ use windows::Win32::System::JobObjects::{
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
 use windows::core::PCWSTR;
 
+mod lifecycle;
+pub(super) use lifecycle::shutdown_for_exit;
+use lifecycle::{restart_now, start_watchdog};
+
 const HEARTBEAT_TIMEOUT_MS: u64 = 5_000;
 const STABLE_GENERATION_MS: u64 = 30_000;
 const INITIAL_RESTART_DELAY_MS: u64 = 250;
@@ -66,6 +70,7 @@ pub(super) static SNAPSHOT: LazyLock<Mutex<StatusSnapshot>> = LazyLock::new(|| {
     })
 });
 static PROCESS: LazyLock<Mutex<Option<RendererProcess>>> = LazyLock::new(|| Mutex::new(None));
+static DESIRED: AtomicBool = AtomicBool::new(true);
 static PENDING: LazyLock<Mutex<PendingDelivery>> =
     LazyLock::new(|| Mutex::new(PendingDelivery::default()));
 static SIGNAL: LazyLock<SyncSender<()>> = LazyLock::new(|| {
@@ -77,6 +82,7 @@ static SIGNAL: LazyLock<SyncSender<()>> = LazyLock::new(|| {
     sender
 });
 static STARTING: AtomicBool = AtomicBool::new(false);
+static TRANSITIONING: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static LIVE_GENERATION: AtomicU64 = AtomicU64::new(0);
 static LIVE_PID: AtomicU32 = AtomicU32::new(0);
@@ -94,6 +100,7 @@ static WATCHDOG: Once = Once::new();
 static MONOTONIC_EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 pub(super) fn warmup() {
+    DESIRED.store(true, Ordering::SeqCst);
     start_watchdog();
     PENDING.lock().unwrap().warmup = true;
     signal_delivery();
@@ -232,6 +239,9 @@ fn signal_delivery() {
 }
 
 fn ensure_process() -> ProcessState {
+    if !DESIRED.load(Ordering::SeqCst) {
+        return ProcessState::Unavailable;
+    }
     if LIVE_GENERATION.load(Ordering::SeqCst) != 0 && PROCESS.lock().unwrap().is_some() {
         return ProcessState::Running;
     }
@@ -460,29 +470,6 @@ fn handle_renderer_failure(generation: u64, kind: RendererFailureKind) {
     fail_generation(generation, kind.as_str(), true);
 }
 
-fn start_watchdog() {
-    WATCHDOG.call_once(|| {
-        std::thread::spawn(|| {
-            loop {
-                std::thread::sleep(Duration::from_secs(1));
-                let live = LIVE_GENERATION.load(Ordering::SeqCst);
-                if live == 0 {
-                    request_restart();
-                    continue;
-                }
-                let timeout = if READY_GENERATION.load(Ordering::SeqCst) == live {
-                    HEARTBEAT_TIMEOUT_MS
-                } else {
-                    15_000
-                };
-                if now_ms().saturating_sub(LAST_HEARTBEAT_MS.load(Ordering::SeqCst)) > timeout {
-                    fail_generation(live, "heartbeat timed out", true);
-                }
-            }
-        });
-    });
-}
-
 fn fail_live_renderer(reason: &str, terminate: bool) {
     let generation = LIVE_GENERATION.load(Ordering::SeqCst);
     if generation != 0 {
@@ -542,22 +529,6 @@ fn restart_delay_ms(failure: u32) -> u64 {
     INITIAL_RESTART_DELAY_MS
         .saturating_mul(1_u64 << shift)
         .min(MAX_RESTART_DELAY_MS)
-}
-
-fn restart_now() -> ProcessState {
-    let mut old = PROCESS.lock().unwrap().take();
-    if let Some(renderer) = old.as_mut() {
-        LIVE_GENERATION
-            .compare_exchange(renderer.generation, 0, Ordering::SeqCst, Ordering::SeqCst)
-            .ok();
-        LIVE_PID.store(0, Ordering::SeqCst);
-        READY_GENERATION.store(0, Ordering::SeqCst);
-        READY_SINCE_MS.store(0, Ordering::SeqCst);
-        let _ = renderer.child.kill();
-        let _ = renderer.child.wait();
-    }
-    drop(old);
-    ensure_process()
 }
 
 fn browser_arguments_with_software_fallback(existing: Option<OsString>) -> OsString {

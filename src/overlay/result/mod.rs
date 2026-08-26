@@ -305,19 +305,9 @@ pub(crate) fn control_action_text(hwnd: HWND) -> (String, bool) {
     (text, true)
 }
 
-/// Whether the last user-closed overlay batch can be restored.
-pub fn can_restore_last_closed() -> bool {
-    restore::can_restore_last_closed()
-}
-
 /// Cumulative recent restore counts for the tray submenu (up to 5 batches).
 pub fn recent_restore_option_counts() -> Vec<usize> {
     restore::recent_restore_option_counts()
-}
-
-/// Restore the last user-closed overlay batch.
-pub fn restore_last_closed() -> bool {
-    restore::restore_last_closed()
 }
 
 /// Restore the newest `batch_count` closed batches as one operation.

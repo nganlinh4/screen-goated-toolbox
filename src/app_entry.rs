@@ -165,28 +165,38 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
     }
 
     if result_compositor_smoke {
-        return Ok(smoke_exit_code(crate::overlay::result::smoke::run()));
+        let exit = smoke_exit_code(crate::overlay::result::smoke::run());
+        shutdown_compositors();
+        return Ok(exit);
     }
     if status_compositor_smoke {
-        return Ok(smoke_exit_code(
-            crate::overlay::status_compositor::smoke::run(),
-        ));
+        let exit = smoke_exit_code(crate::overlay::status_compositor::smoke::run());
+        shutdown_compositors();
+        return Ok(exit);
     }
     if realtime_compositor_smoke {
-        return Ok(smoke_exit_code(
-            crate::overlay::realtime_webview::smoke::run(),
-        ));
+        let exit = smoke_exit_code(crate::overlay::realtime_webview::smoke::run());
+        shutdown_compositors();
+        return Ok(exit);
     }
 
-    settings_window::run(
+    let result = settings_window::run(
         screen_record_wry_smoke,
         creation_ui_test,
         screen_translate_ui_test,
         screen_translate_ui_test_image,
         screen_translate_lab_queue,
         pending_file_path,
-    )?;
+    );
+    shutdown_compositors();
+    result?;
     Ok(ExitCode::SUCCESS)
+}
+
+fn shutdown_compositors() {
+    crate::overlay::result::scene_compositor::shutdown_for_exit();
+    crate::overlay::status_compositor::shutdown_for_exit();
+    crate::overlay::realtime_webview::shutdown_for_exit();
 }
 
 fn smoke_exit_code(code: i32) -> ExitCode {

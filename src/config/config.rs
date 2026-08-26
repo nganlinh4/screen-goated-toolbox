@@ -1,11 +1,12 @@
 //! Main Config struct definition.
 
+mod deserialize;
 mod preset_defaults;
 mod profiles;
 
 pub use profiles::{GlobalHotkeyOwner, HotkeyConflict};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
@@ -158,7 +159,7 @@ fn default_screen_translate_settings() -> ScreenTranslateSettings {
 // CONFIG STRUCT
 // ============================================================================
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug)]
 pub struct Config {
     // -------------------------------------------------------------------------
     // API Keys
@@ -495,8 +496,8 @@ impl Default for Config {
             // UI Settings
             theme_mode: ThemeMode::System,
             ui_language: get_system_ui_language(),
-            max_history_items: DEFAULT_HISTORY_LIMIT,
-            max_screen_record_projects: DEFAULT_PROJECTS_LIMIT,
+            max_history_items: default_history_limit(),
+            max_screen_record_projects: default_projects_limit(),
             max_screen_record_recent_uploads: default_screen_record_upload_limit(),
             cc_max_memory_items: default_cc_memory_limit(),
             favorite_overlay_opacity: default_result_overlay_opacity_percent(),
@@ -506,60 +507,58 @@ impl Default for Config {
 
             // Startup
             start_in_tray: false,
-            show_startup_animation: true,
+            show_startup_animation: default_show_startup_animation(),
             run_as_admin_on_startup: false,
             run_at_startup: false,
             authorized_startup_path: String::new(),
 
             // API Providers
-            use_groq: crate::model_config::DEFAULT_USE_GROQ,
-            use_gemini: crate::model_config::DEFAULT_USE_GEMINI,
-            use_openrouter: crate::model_config::DEFAULT_USE_OPENROUTER,
-            use_nvidia: crate::model_config::DEFAULT_USE_NVIDIA,
-            use_ollama: crate::model_config::DEFAULT_USE_OLLAMA,
-            model_priority_chains: ModelPriorityChains::default(),
+            use_groq: default_use_groq(),
+            use_gemini: default_use_gemini(),
+            use_openrouter: default_use_openrouter(),
+            use_nvidia: default_use_nvidia(),
+            use_ollama: default_use_ollama(),
+            model_priority_chains: default_model_priority_chains(),
             adaptive_model_priority: AdaptiveModelPriority::default(),
 
             // Ollama
-            ollama_base_url: "http://localhost:11434".to_string(),
+            ollama_base_url: default_ollama_base_url(),
             ollama_vision_model: String::new(),
             ollama_text_model: String::new(),
             custom_models: Vec::new(),
 
             // Realtime Audio
-            realtime_translation_model: crate::model_config::REALTIME_TRANSLATION_MODEL_LLM
-                .to_string(),
-            realtime_transcription_model: crate::model_config::DEFAULT_REALTIME_TRANSCRIPTION_MODEL
-                .to_string(),
-            realtime_transcription_language: "en".to_string(),
-            realtime_font_size: 16,
-            realtime_transcription_size: (500, 180),
-            realtime_translation_size: (500, 180),
+            realtime_translation_model: default_realtime_translation_model(),
+            realtime_transcription_model: default_realtime_transcription_model(),
+            realtime_transcription_language: default_realtime_transcription_language(),
+            realtime_font_size: default_realtime_font_size(),
+            realtime_transcription_size: default_realtime_window_size(),
+            realtime_translation_size: default_realtime_window_size(),
             realtime_audio_source: "device".to_string(),
-            realtime_target_language: "Vietnamese".to_string(),
+            realtime_target_language: default_realtime_target_language(),
 
             // TTS
-            tts_method: TtsMethod::GeminiLive,
-            tts_voice: "Aoede".to_string(),
-            tts_speed: "Fast".to_string(),
-            tts_gemini_live_model: crate::model_config::DEFAULT_GEMINI_LIVE_TTS_MODEL.to_string(),
+            tts_method: default_tts_method(),
+            tts_voice: default_tts_voice(),
+            tts_speed: default_tts_speed(),
+            tts_gemini_live_model: default_tts_gemini_live_model(),
             tts_output_device: String::new(),
             tts_language_conditions: default_tts_language_conditions(),
-            edge_tts_settings: EdgeTtsSettings::default(),
-            step_audio_settings: StepAudioSettings::default(),
-            step_audio_reference_voices: Vec::new(),
-            magpie_settings: MagpieSettings::default(),
-            kokoro_settings: KokoroSettings::default(),
-            supertonic_settings: SupertonicSettings::default(),
-            vieneu_settings: VieneuSettings::default(),
-            voxtral_settings: VoxtralSettings::default(),
-            tts_playground: TtsPlaygroundSettings::default(),
+            edge_tts_settings: default_edge_tts_settings(),
+            step_audio_settings: default_step_audio_settings(),
+            step_audio_reference_voices: default_step_audio_reference_voices(),
+            magpie_settings: default_magpie_settings(),
+            kokoro_settings: default_kokoro_settings(),
+            supertonic_settings: default_supertonic_settings(),
+            vieneu_settings: default_vieneu_settings(),
+            voxtral_settings: default_voxtral_settings(),
+            tts_playground: default_tts_playground_settings(),
 
             // Favorite Bubble
             show_favorite_bubble: false,
             favorite_bubble_position: None,
             favorites_keep_open: false,
-            favorite_bubble_size: 28,
+            favorite_bubble_size: default_bubble_size(),
 
             // Maintenance
             clear_webview_on_startup: false,

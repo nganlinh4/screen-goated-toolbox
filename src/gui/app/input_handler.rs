@@ -366,9 +366,9 @@ pub fn process_file_path(path: &Path) {
         spawn_detached(TaskClass::Cpu, "dropped-image-load", move || {
             // Read file bytes directly (preserves original format e.g. JPEG)
             if let Ok(bytes) = std::fs::read(&path_clone)
-                && let Ok(img) = image::load_from_memory(&bytes)
+                && let Ok((rgba, source_bytes)) = crate::image_decode::load_for_pipeline(bytes)
             {
-                let _ = tx.send(Some((img.to_rgba8(), bytes)));
+                let _ = tx.send(Some((rgba, source_bytes)));
                 return;
             }
             let _ = tx.send(None);
@@ -425,7 +425,7 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
             let bytes_clone = bytes;
             spawn_detached(TaskClass::Cpu, "dropped-bytes-decode", move || {
                 // Try to interpret as image first
-                if let Ok(img) = image::load_from_memory(&bytes_clone) {
+                if let Ok(img) = crate::image_decode::load_from_memory(&bytes_clone) {
                     let rgba = img.to_rgba8();
                     // For direct bytes drop, we also pass the bytes as "original"
                     process_image_content(rgba); // Fallback to serial for bytes-drop or update process_image_content?

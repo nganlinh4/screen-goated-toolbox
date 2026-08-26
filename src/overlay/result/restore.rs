@@ -55,10 +55,6 @@ struct RestoreBatchSnapshot {
 static RECENT_CLOSED_SNAPSHOTS: LazyLock<Mutex<VecDeque<RestoreBatchSnapshot>>> =
     LazyLock::new(|| Mutex::new(VecDeque::new()));
 
-pub fn can_restore_last_closed() -> bool {
-    !RECENT_CLOSED_SNAPSHOTS.lock().unwrap().is_empty()
-}
-
 pub fn recent_restore_option_counts() -> Vec<usize> {
     let history = RECENT_CLOSED_SNAPSHOTS.lock().unwrap();
     let mut cumulative = 0usize;
@@ -138,10 +134,6 @@ pub fn remember_last_closed(targets: &[HWND]) {
     while history.len() > MAX_RESTORE_HISTORY {
         history.pop_back();
     }
-}
-
-pub fn restore_last_closed() -> bool {
-    restore_recent(1)
 }
 
 pub fn restore_recent(batch_count: usize) -> bool {

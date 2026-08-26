@@ -42,8 +42,12 @@ source checkout, user output, or the lane used by the current command.
 Set `SGT_DEV_CACHE_ROOT` to relocate the cache. Use `-DevCacheLimitGiB` on
 `run-dev.ps1` only when the machine deliberately needs a different bound.
 
-`libs/egui-snarl` and `libs/egui-scale` are disposable checkouts reconstructed
-from the pinned revisions and patch list in `scripts/egui-patch-contract.ps1`.
+`libs/egui-snarl`, `libs/egui-scale`, and `libs/epaint` are disposable dependency
+trees reconstructed from pinned revisions or crates.io bytes and tracked patches.
+The epaint patch removes Vello's unreachable quality/f32 glyph pipeline; SGT's
+egui font rasterizer uses the speed/u8 pipeline exclusively. SGT-owned egui
+shaders are validated and translated at build time; WGPU retains its internal
+WGSL support because indirect draw and dispatch validation require it.
 Never make a product change directly in those ignored directories. Edit the
 tracked `.patch` file under `scripts/`, then run:
 
@@ -138,11 +142,17 @@ to every download:
 .\scripts\windows-performance.ps1 -Action Compare
 ```
 
-`release-compact` reproduces the shipping optimizer and `release-perf` is the
-speed-first upper bound. The script runs the result, status, and realtime
+`release-compact` reproduces the shipping optimizer, `release-balanced` tests
+the size-aware speed optimizer, and `release-perf` is the speed-first upper
+bound. The script runs the result, status, and realtime
 compositor restart corpus, records elapsed time/working set/thread peaks under
-the bounded development cache, hashes both binaries, and enforces
-`scripts/performance-contract.json`.
+the bounded development cache, hashes all three binaries, and enforces
+`scripts/performance-contract.json`. The compact lane is the shipping gate.
+Balanced and perf are measured candidates: their eligibility and rejection
+reasons are retained in the report, but an ineligible experiment cannot block
+an otherwise valid compact release. Optimized builds default to two Cargo jobs
+so concurrent fat-LTO compilers cannot exhaust ordinary developer machines;
+use `-BuildJobs 1` when other large builds are active.
 
 For a profile-guided candidate, install Rust's matching LLVM tools once and
 train the balanced profile on the same compositor corpus:
@@ -159,6 +169,24 @@ exact generated profile with `build.ps1 -PgoProfile <absolute-profdata-path>`;
 the release wrapper verifies its retained report, exact bytes, Rust toolchain,
 and source fingerprint. Compare the PGO artifact before selecting it. Any source
 or toolchain change requires retraining; PGO is never a floating input.
+
+Attribute retained release bytes before changing a dependency boundary:
+
+```powershell
+.\scripts\binary-ownership.ps1
+```
+
+The report combines Cargo/PE ownership with de-obfuscated Android DEX packages
+and APK entry groups. It stays in the bounded performance cache. The diagnostic
+Windows build is explicitly non-shipping and cannot relax the production
+component-delivery gate. To capture a focused ETW trace for one compositor:
+
+```powershell
+.\scripts\capture-windows-performance.ps1 -Smoke Result
+```
+
+WPR refuses to replace another active recording. Trace files stay outside the
+repository under the performance cache.
 
 ## Frontend development
 
@@ -250,11 +278,22 @@ cd mobile
 
 An emulator can generate the profiles, but run Macrobenchmark measurements on a
 controlled physical device; AndroidX intentionally rejects emulator performance
-numbers. The benchmark records cold startup and frame timing both without
-compilation and with the packaged Baseline Profile, while the generated Startup
-Profile lets R8 optimize DEX layout for the same critical journey. Generation
+numbers. The benchmark records cold startup, frame timing, and peak process
+memory both without compilation and with the packaged Baseline Profile. The
+generated Startup Profile contains only launch-to-ready code; scrolling and
+other common shell movement remain in the broader Baseline Profile. Generation
 merges both shipping flavors into one profile. Keep the connected flavor tasks
 serialized because they install the same package identity on one device.
+
+Use the repository wrapper to build and validate the APK, run the benchmark on
+one exact physical device, and enforce the startup/frame/memory contract:
+
+```powershell
+.\scripts\android-performance.ps1 -Serial <adb-serial>
+```
+
+`-AllowEmulatorDiagnostics` collects non-gating traces only; emulator timings
+never satisfy the release performance contract.
 
 The mobile release wrapper also requires the compiled profile entries in the
 Full APK and enforces both the APK and profile byte budgets from

@@ -24,19 +24,30 @@ pub use mpsc::channel as capture_channel;
 
 impl CaptureState {
     pub fn new(device: &wgpu::Device, surface_texture: &wgpu::Texture) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("texture_copy.wgsl"));
+        let vertex_shader = crate::native_shader::hlsl(
+            device,
+            "texture_copy_vs",
+            "vs_main",
+            include_str!(concat!(env!("OUT_DIR"), "/capture_vs.hlsl")),
+        );
+        let fragment_shader = crate::native_shader::hlsl(
+            device,
+            "texture_copy_fs",
+            "fs_main",
+            include_str!(concat!(env!("OUT_DIR"), "/capture_fs.hlsl")),
+        );
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("texture_copy"),
             layout: None,
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: &vertex_shader,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
                 buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
-                module: &shader,
+                module: &fragment_shader,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(surface_texture.format().into())],

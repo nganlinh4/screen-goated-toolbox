@@ -271,14 +271,38 @@ impl Renderer {
     ) -> Self {
         profiling::function_scope!();
 
-        let shader = wgpu::ShaderModuleDescriptor {
-            label: Some("egui"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("egui.wgsl"))),
-        };
-        let module = {
+        let vertex_module = {
             profiling::scope!("create_shader_module");
-            device.create_shader_module(shader)
+            crate::native_shader::hlsl(
+                device,
+                "egui_vs",
+                "vs_main",
+                include_str!(concat!(env!("OUT_DIR"), "/egui_vs.hlsl")),
+            )
         };
+        let fragment_entry = if output_color_format.is_srgb() {
+            log::warn!("Detected a linear (sRGBA aware) framebuffer {output_color_format:?}. egui prefers Rgba8Unorm or Bgra8Unorm");
+            "fs_main_linear_framebuffer"
+        } else {
+            "fs_main_gamma_framebuffer"
+        };
+        let fragment_source = if output_color_format.is_srgb() {
+            include_str!(concat!(
+                env!("OUT_DIR"),
+                "/fs_main_linear_framebuffer.hlsl"
+            ))
+        } else {
+            include_str!(concat!(
+                env!("OUT_DIR"),
+                "/fs_main_gamma_framebuffer.hlsl"
+            ))
+        };
+        let fragment_module = crate::native_shader::hlsl(
+            device,
+            "egui_fs",
+            fragment_entry,
+            fragment_source,
+        );
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("egui_uniform_buffer"),
@@ -374,7 +398,7 @@ impl Renderer {
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     entry_point: Some("vs_main"),
-                    module: &module,
+                    module: &vertex_module,
                     buffers: &[Some(wgpu::VertexBufferLayout {
                         array_stride: 5 * 4,
                         step_mode: wgpu::VertexStepMode::Vertex,
@@ -402,13 +426,8 @@ impl Renderer {
                 },
 
                 fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some(if output_color_format.is_srgb() {
-                        log::warn!("Detected a linear (sRGBA aware) framebuffer {output_color_format:?}. egui prefers Rgba8Unorm or Bgra8Unorm");
-                        "fs_main_linear_framebuffer"
-                    } else {
-                        "fs_main_gamma_framebuffer" // this is what we prefer
-                    }),
+                    module: &fragment_module,
+                    entry_point: Some(fragment_entry),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: output_color_format,
                         blend: Some(wgpu::BlendState {

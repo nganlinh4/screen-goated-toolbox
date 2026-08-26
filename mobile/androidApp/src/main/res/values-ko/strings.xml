@@ -9,6 +9,8 @@
     <string name="live_translate_notification_running">실시간 번역 실행 중</string>
     <string name="live_translate_notification_stopped">실시간 번역 중지됨</string>
     <string name="notification_action_stop">중지</string>
+    <string name="notification_action_play">재생</string>
+    <string name="notification_action_pause">일시중지</string>
     <string name="preset_audio_channel_name">SGT 프리셋 오디오</string>
     <string name="preset_audio_channel_description">프리셋 오디오 캡처용 포그라운드 알림</string>
     <string name="preset_audio_notification_title">SGT 오디오 프리셋</string>

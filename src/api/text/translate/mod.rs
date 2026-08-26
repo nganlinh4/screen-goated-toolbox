@@ -46,6 +46,16 @@ pub fn translate_text_streaming<F>(
 where
     F: FnMut(&str),
 {
+    translate_text_streaming_inner(request, &mut on_chunk)
+}
+
+/// Keep the provider router monomorphic. Callers still get a zero-cost generic
+/// boundary, while the large transport/provider match is emitted only once.
+#[inline(never)]
+fn translate_text_streaming_inner(
+    request: TranslateTextRequest<'_>,
+    mut on_chunk: &mut dyn FnMut(&str),
+) -> Result<String> {
     let TranslateTextRequest {
         groq_api_key,
         gemini_api_key,

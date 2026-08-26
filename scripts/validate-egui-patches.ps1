@@ -80,4 +80,5 @@ foreach ($dependency in $contract.Dependencies) {
     }
 }
 
+& (Join-Path $PSScriptRoot "validate-size-patched-crates.ps1")
 Write-Host "Pinned egui dependency checkouts exactly match their tracked patches."

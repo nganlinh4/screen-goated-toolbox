@@ -63,6 +63,7 @@ declare -A ICONS=(
   ["open_in_full"]="open_in_full"
   ["open_in_new"]="open_in_new"
   ["outline"]="border_style"
+  ["pause"]="pause"
   ["palette"]="palette"
   ["photo_camera"]="photo_camera"
   ["play_arrow"]="play_arrow"

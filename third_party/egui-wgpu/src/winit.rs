@@ -599,13 +599,9 @@ impl Painter {
         size: winit::dpi::PhysicalSize<u32>,
     ) -> Result<(), crate::WgpuError> {
         if self.render_state.is_none() {
-            let render_state = RenderState::create(
-                &self.config,
-                &self.instance,
-                Some(&surface),
-                self.options,
-            )
-            .await?;
+            let render_state =
+                RenderState::create(&self.config, &self.instance, Some(&surface), self.options)
+                    .await?;
             self.device_recovery = Self::device_recovery_signal(
                 &self.context,
                 &render_state.device,
@@ -1291,17 +1287,17 @@ mod device_recovery_tests {
         let patch = ColorImage::filled([2, 1], Color32::WHITE);
         let mut cache = ManagedTextureCache::default();
 
-        cache.apply(&TexturesDelta {
-            set: vec![(id, ImageDelta::full(base, TextureOptions::LINEAR))],
-            free: vec![],
-        });
-        cache.apply(&TexturesDelta {
-            set: vec![(
-                id,
-                ImageDelta::partial([1, 1], patch, TextureOptions::NEAREST),
-            )],
-            free: vec![],
-        });
+        let mut base_delta = TexturesDelta::default();
+        base_delta.push(id, ImageDelta::full(base, TextureOptions::LINEAR));
+        cache.apply(&base_delta);
+        base_delta.clear();
+        let mut patch_delta = TexturesDelta::default();
+        patch_delta.push(
+            id,
+            ImageDelta::partial([1, 1], patch, TextureOptions::NEAREST),
+        );
+        cache.apply(&patch_delta);
+        patch_delta.clear();
 
         let restored = cache.full_deltas();
         assert_eq!(restored.len(), 1);
@@ -1325,20 +1321,20 @@ mod device_recovery_tests {
     fn managed_texture_cache_drops_freed_textures() {
         let id = TextureId::Managed(3);
         let mut cache = ManagedTextureCache::default();
-        cache.apply(&TexturesDelta {
-            set: vec![(
-                id,
-                ImageDelta::full(
-                    ColorImage::filled([1, 1], Color32::WHITE),
-                    TextureOptions::LINEAR,
-                ),
-            )],
-            free: vec![],
-        });
-        cache.apply(&TexturesDelta {
-            set: vec![],
-            free: vec![id],
-        });
+        let mut create_delta = TexturesDelta::default();
+        create_delta.push(
+            id,
+            ImageDelta::full(
+                ColorImage::filled([1, 1], Color32::WHITE),
+                TextureOptions::LINEAR,
+            ),
+        );
+        cache.apply(&create_delta);
+        create_delta.clear();
+        let mut free_delta = TexturesDelta::default();
+        free_delta.free(id);
+        cache.apply(&free_delta);
+        free_delta.clear();
 
         assert!(cache.full_deltas().is_empty());
     }
@@ -1422,26 +1418,28 @@ mod device_recovery_tests {
                     false,
                     RendererOptions::default(),
                 ));
-                pollster::block_on(painter.set_window(egui::ViewportId::ROOT, Some(window)))
-                    .expect("failed to initialize recovery test surface");
+                pollster::block_on(
+                    painter.set_window(egui::ViewportId::ROOT, Some(Arc::clone(&window))),
+                )
+                .expect("failed to initialize recovery test surface");
 
                 let texture_id = TextureId::Managed(42);
+                let mut initial_texture_delta = TexturesDelta::default();
+                initial_texture_delta.push(
+                    texture_id,
+                    ImageDelta::full(
+                        ColorImage::filled([1, 1], Color32::WHITE),
+                        TextureOptions::LINEAR,
+                    ),
+                );
                 painter.paint_and_update_textures(
                     egui::ViewportId::ROOT,
                     1.0,
                     [0.0; 4],
                     &[],
-                    &TexturesDelta {
-                        set: vec![(
-                            texture_id,
-                            ImageDelta::full(
-                                ColorImage::filled([1, 1], Color32::WHITE),
-                                TextureOptions::LINEAR,
-                            ),
-                        )],
-                        free: vec![],
-                    },
+                    &mut initial_texture_delta,
                     vec![],
+                    &window,
                 );
 
                 let old_render_state = painter
@@ -1460,13 +1458,15 @@ mod device_recovery_tests {
                     "destroying the device did not trigger its loss callback"
                 );
 
+                let mut empty_texture_delta = TexturesDelta::default();
                 painter.paint_and_update_textures(
                     egui::ViewportId::ROOT,
                     1.0,
                     [0.0; 4],
                     &[],
-                    &TexturesDelta::default(),
+                    &mut empty_texture_delta,
                     vec![],
+                    &window,
                 );
 
                 let new_render_state = painter

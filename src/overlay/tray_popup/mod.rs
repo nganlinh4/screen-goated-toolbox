@@ -1,237 +1,148 @@
-// Tray Popup - Custom non-blocking popup window for tray icon menu
-// Replaces native Windows tray context menu to avoid blocking the main UI thread
+//! Native egui tray popup.
+//!
+//! The popup is a deferred viewport owned by the already-running settings renderer,
+//! so the first tray click never has to initialize another browser process.
 
-mod html;
-mod native_menu;
-mod render;
-mod window;
+mod data;
+mod layout;
+mod ui;
+mod win32;
 
-/// Material Symbols "check" glyph for the bubble-active checkmark. Centralized
-/// so the server-rendered HTML, the client-side toggle JS, and the window.rs
-/// update path all stay in sync (previously this string was triplicated).
-pub(super) const BUBBLE_CHECK_SVG: &str = r#"<svg class="check-icon" viewBox="0 0 24 24" fill="currentColor"><path d="m9.55 18l-5.7-5.7l1.425-1.425L9.55 15.15l9.175-9.175L20.15 7.4z"/></svg>"#;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
-use std::cell::RefCell;
-use std::sync::{
-    Once,
-    atomic::{AtomicIsize, Ordering},
-};
-use windows::Win32::Foundation::*;
-use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
-use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::{Rect, WebView};
+use eframe::egui;
 
-static REGISTER_POPUP_CLASS: Once = Once::new();
-static POPUP_HWND: AtomicIsize = AtomicIsize::new(0);
-static IGNORE_FOCUS_LOSS_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-static PENDING_SHOW_ANCHOR_X: AtomicIsize = AtomicIsize::new(0);
-static PENDING_SHOW_ANCHOR_Y: AtomicIsize = AtomicIsize::new(0);
-static HAS_PENDING_SHOW_ANCHOR: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+const VIEWPORT_TITLE: &str = "SGT Tray Quick Actions";
 
-// The tray WebView is initialized on first use, then retained while the app is running.
-static IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static IS_INITIALIZING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static INIT_START_TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-static SHOW_WHEN_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-// Flag to track if WebView has permanently failed to initialize
-static WEBVIEW_INIT_FAILED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static VISIBLE: AtomicBool = AtomicBool::new(false);
+static ANCHOR_X: AtomicI32 = AtomicI32::new(0);
+static ANCHOR_Y: AtomicI32 = AtomicI32::new(0);
+static GENERATION: AtomicU64 = AtomicU64::new(0);
 
-// Custom window messages
-const WM_APP_SHOW: u32 = WM_APP + 1;
-const WM_APP_UPDATE_THEME: u32 = WM_APP + 2;
-
-thread_local! {
-    static POPUP_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
-    // Shared WebContext for this thread using common data directory
-    static POPUP_WEB_CONTEXT: RefCell<Option<crate::overlay::webview_runtime::ManagedContext>> = const { RefCell::new(None) };
+fn viewport_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("sgt-native-tray-popup")
 }
 
-const BASE_POPUP_WIDTH: i32 = 240;
-const BASE_POPUP_HEIGHT: i32 = 186; // Base height at 100% scaling (96 DPI) - includes restore row
-const POPUP_SURFACE_INSET: i32 = 6;
-const RESTORE_FLYOUT_WIDTH: i32 = 236;
-const RESTORE_FLYOUT_GAP: i32 = 10;
-const RESTORE_FLYOUT_OPTION_HEIGHT: i32 = 28;
-const RESTORE_FLYOUT_VERTICAL_PADDING: i32 = 8;
-const RESTORE_FLYOUT_TOP_INSET: i32 = 6;
-const RESTORE_FLYOUT_PREFERRED_TOP: i32 = 100;
-
-/// Get DPI-scaled dimension
-fn get_scaled_dimension(base: i32) -> i32 {
-    let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForSystem() };
-    // Scale: 96 DPI = 100%, 120 DPI = 125%, 144 DPI = 150%, etc.
-    // Using 93 instead of 96 provides a small buffer (~3%) to ensure content fits comfortably
-    (base * dpi as i32) / 93
-}
-
-fn popup_window_dimensions() -> (i32, i32) {
-    let inset = get_scaled_dimension(POPUP_SURFACE_INSET);
-    let width = get_scaled_dimension(BASE_POPUP_WIDTH)
-        + inset * 2
-        + if crate::overlay::result::recent_restore_option_counts().is_empty() {
-            0
-        } else {
-            get_scaled_dimension(RESTORE_FLYOUT_GAP + RESTORE_FLYOUT_WIDTH)
-        };
-    let height = get_scaled_dimension(BASE_POPUP_HEIGHT) + inset * 2;
-    (width, height)
-}
-
-unsafe fn set_popup_bounds(hwnd: HWND, x: i32, y: i32) {
-    let (popup_width, popup_height) = popup_window_dimensions();
-    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-    let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-    let popup_x = x.max(0).min((screen_w - popup_width).max(0));
-    let popup_y = y.max(0).min((screen_h - popup_height).max(0));
-
-    POPUP_WEBVIEW.with(|cell| {
-        if let Some(webview) = cell.borrow().as_ref() {
-            let _ = webview.set_bounds(Rect {
-                position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
-                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                    popup_width as u32,
-                    popup_height as u32,
-                )),
-            });
-        }
-    });
-
-    unsafe {
-        let _ = SetWindowPos(
-            hwnd,
-            None,
-            popup_x,
-            popup_y,
-            popup_width,
-            popup_height,
-            SWP_NOZORDER,
-        );
-    }
-}
-
-// HWND wrapper for wry
-use crate::win_types::HwndWrapper;
-
-/// Show the tray popup at cursor position
-pub fn show_tray_popup() {
-    unsafe {
-        if !crate::runtime_support::webview2_runtime_installed() {
-            native_menu::show_native_context_menu();
-            return;
-        }
-
-        // Fallback to native menu if WebView failed completely
-        if WEBVIEW_INIT_FAILED.load(Ordering::SeqCst) {
-            native_menu::show_native_context_menu();
-            return;
-        }
-
-        let is_initializing = IS_INITIALIZING.load(Ordering::SeqCst);
-        let has_pending_anchor = HAS_PENDING_SHOW_ANCHOR.load(Ordering::SeqCst);
-
-        if !(is_initializing && has_pending_anchor) {
-            let mut pt = POINT::default();
-            if GetCursorPos(&mut pt).is_ok() {
-                PENDING_SHOW_ANCHOR_X.store(pt.x as isize, Ordering::SeqCst);
-                PENDING_SHOW_ANCHOR_Y.store(pt.y as isize, Ordering::SeqCst);
-                HAS_PENDING_SHOW_ANCHOR.store(true, Ordering::SeqCst);
-            }
-        }
-
-        if !IS_READY.load(Ordering::SeqCst) {
-            SHOW_WHEN_READY.store(true, Ordering::SeqCst);
-            ensure_tray_popup_initialized();
-            return;
-        }
-
-        let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
-        if hwnd_val == 0 {
-            IS_READY.store(false, Ordering::SeqCst);
-            SHOW_WHEN_READY.store(true, Ordering::SeqCst);
-            ensure_tray_popup_initialized();
-            return;
-        }
-
-        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-
-        // Check if window still valid logic...
-        if !IsWindow(Some(hwnd)).as_bool() {
-            IS_READY.store(false, Ordering::SeqCst);
-            POPUP_HWND.store(0, Ordering::SeqCst);
-            SHOW_WHEN_READY.store(true, Ordering::SeqCst);
-            ensure_tray_popup_initialized();
-            return;
-        }
-
-        // Check if already visible
-        if IsWindowVisible(hwnd).as_bool() {
-            hide_tray_popup();
-            return;
-        }
-
-        // Post message to show
-        let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
-    }
-}
-
-/// Hide the tray popup while retaining its on-demand-initialized window.
-pub fn hide_tray_popup() {
-    SHOW_WHEN_READY.store(false, Ordering::SeqCst);
-    let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
-    if hwnd_val != 0 {
-        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-        unsafe {
-            // Keep the initialized WebView for later tray clicks.
-            let _ = KillTimer(Some(hwnd), 888);
-            let _ = ShowWindow(hwnd, SW_HIDE);
-        }
-    }
-}
-
-pub fn update_theme(is_dark: bool) {
-    let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
-    if hwnd_val != 0 {
-        unsafe {
-            let _ = PostMessageW(
-                Some(HWND(hwnd_val as *mut std::ffi::c_void)),
-                WM_APP_UPDATE_THEME,
-                WPARAM(usize::from(is_dark)),
-                LPARAM(0),
-            );
-        }
-    }
-}
-
-fn ensure_tray_popup_initialized() {
-    // A hung WebView2 build cannot be safely duplicated. Keep the original attempt
-    // serialized; subsequent clicks can use the native fallback after the timeout.
-    unsafe {
-        let start_time = INIT_START_TIME.load(Ordering::SeqCst);
-        let now = windows::Win32::System::SystemInformation::GetTickCount64();
-        if start_time > 0 && (now - start_time) > 10000 {
-            SHOW_WHEN_READY.store(false, Ordering::SeqCst);
-            native_menu::show_native_context_menu();
-            return;
-        }
-    }
-
-    if IS_INITIALIZING
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
+fn request_gui_repaint() {
+    if let Ok(context) = crate::gui::GUI_CONTEXT.lock()
+        && let Some(context) = context.as_ref()
     {
+        context.request_repaint_of(egui::ViewportId::ROOT);
+    }
+}
+
+/// Toggle the popup at the cursor position captured by the tray event thread.
+pub fn show_tray_popup() {
+    if VISIBLE.load(Ordering::SeqCst) {
+        hide_tray_popup();
         return;
     }
 
-    unsafe {
-        INIT_START_TIME.store(
-            windows::Win32::System::SystemInformation::GetTickCount64(),
-            Ordering::SeqCst,
+    let anchor = win32::cursor_position();
+    crate::log_info!(
+        "[TrayPopup] native show requested anchor=({}, {})",
+        anchor.x,
+        anchor.y
+    );
+    ANCHOR_X.store(anchor.x, Ordering::SeqCst);
+    ANCHOR_Y.store(anchor.y, Ordering::SeqCst);
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    VISIBLE.store(true, Ordering::SeqCst);
+    request_gui_repaint();
+    std::thread::spawn(move || monitor_focus(generation));
+}
+
+fn monitor_focus(generation: u64) {
+    let grace_until = Instant::now() + Duration::from_millis(650);
+    loop {
+        std::thread::sleep(Duration::from_millis(100));
+        if !VISIBLE.load(Ordering::SeqCst) || GENERATION.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        if Instant::now() < grace_until {
+            continue;
+        }
+        let Some(window) = win32::popup_window() else {
+            continue;
+        };
+        if !win32::owns_foreground(window) {
+            hide_tray_popup();
+            return;
+        }
+    }
+}
+
+/// Close the native viewport. A later tray click creates it again without a WebView.
+pub fn hide_tray_popup() {
+    crate::log_info!("[TrayPopup] native hide requested");
+    VISIBLE.store(false, Ordering::SeqCst);
+    if let Ok(context) = crate::gui::GUI_CONTEXT.lock()
+        && let Some(context) = context.as_ref()
+    {
+        context.send_viewport_cmd_to(viewport_id(), egui::ViewportCommand::Close);
+        context.request_repaint_of(egui::ViewportId::ROOT);
+    }
+}
+
+/// Shared egui visuals update automatically; repaint an open popup immediately.
+pub fn update_theme(_is_dark: bool) {
+    if VISIBLE.load(Ordering::SeqCst) {
+        request_gui_repaint();
+    }
+}
+
+/// Register the child viewport from every root frame while the popup is open.
+pub fn render(context: &egui::Context) {
+    if !VISIBLE.load(Ordering::SeqCst) {
+        return;
+    }
+
+    let anchor = layout::PhysicalPoint {
+        x: ANCHOR_X.load(Ordering::SeqCst),
+        y: ANCHOR_Y.load(Ordering::SeqCst),
+    };
+    let generation = GENERATION.load(Ordering::SeqCst);
+    let option_count = data::restore_option_count();
+    let monitor = win32::monitor_metrics(anchor, context.zoom_factor());
+    let placement = layout::place(
+        anchor,
+        monitor.work_area,
+        monitor.pixels_per_point,
+        option_count,
+    );
+    if ui::begin_generation(generation) {
+        crate::log_info!(
+            "[TrayPopup] native viewport requested generation={} options={}",
+            generation,
+            option_count
         );
     }
 
-    std::thread::spawn(|| {
-        window::create_popup_window();
+    let builder = egui::ViewportBuilder::default()
+        .with_title(VIEWPORT_TITLE)
+        .with_position(placement.position_points)
+        .with_inner_size(placement.size_points)
+        .with_min_inner_size(placement.size_points)
+        .with_max_inner_size(placement.size_points)
+        .with_resizable(false)
+        .with_decorations(false)
+        .with_transparent(false)
+        .with_taskbar(false)
+        .with_close_button(false)
+        .with_minimize_button(false)
+        .with_maximize_button(false)
+        .with_always_on_top()
+        .with_active(true);
+
+    context.show_viewport_deferred(viewport_id(), builder, move |ui, _class| {
+        ui::render(ui, placement, generation);
     });
+    context.request_repaint_of(viewport_id());
+}
+
+pub(super) fn close_from_viewport(context: &egui::Context) {
+    VISIBLE.store(false, Ordering::SeqCst);
+    context.send_viewport_cmd(egui::ViewportCommand::Close);
+    request_gui_repaint();
 }

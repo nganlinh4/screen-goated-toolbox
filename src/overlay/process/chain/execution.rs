@@ -101,7 +101,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     // that declares a reliable floor is passed over below it, and the chain moves
     // to the next model on its own.
     let input_pixels = match context {
-        RefineContext::Image(bytes) => image::load_from_memory(bytes)
+        RefineContext::Image(bytes) => crate::image_decode::load_from_memory(bytes)
             .ok()
             .map(|image| image.width().saturating_mul(image.height())),
         _ => None,
@@ -311,8 +311,8 @@ fn execute_image_block(request: ExecuteImageBlockRequest<'_>) -> anyhow::Result<
         cancel_token,
     } = request;
     if let RefineContext::Image(img_data) = context {
-        let img = image::load_from_memory(img_data)
-            .expect("Failed to load png")
+        let img = crate::image_decode::load_from_memory(img_data)
+            .expect("Failed to load image")
             .to_rgba8();
 
         // Bridge: chain token → API-level AtomicBool

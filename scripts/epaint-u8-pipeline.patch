@@ -1,0 +1,11 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index e413f08..147862d 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -168,6 +168,5 @@ version = "0.1.0"
+ features = [
+     "std",
+     "u8_pipeline",
+-    "f32_pipeline",
+ ]
+ default-features = false

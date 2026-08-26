@@ -1,7 +1,7 @@
 //! Orb overlay window thread: creates the `WS_EX_NOREDIRECTIONBITMAP` /
 //! DirectComposition window (capture-excluded, transparent, click-through), builds the
 //! composition-hosted WebView2, hands it to the window proc, and pumps the message loop
-//! until the window is destroyed. Mirrors the `result::button_canvas` lifecycle but uses
+//! until the window is destroyed. Mirrors the result compositor lifecycle but uses
 //! DComp hosting (see `dcomp.rs`) instead of wry, which can't host WebView2 in
 //! composition mode.
 

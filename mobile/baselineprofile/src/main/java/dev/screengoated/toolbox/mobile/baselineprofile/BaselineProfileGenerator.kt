@@ -12,10 +12,21 @@ class BaselineProfileGenerator {
     val rule = BaselineProfileRule()
 
     @Test
-    fun generate() {
+    fun generateStartup() {
         rule.collect(
             packageName = TARGET_PACKAGE,
             includeInStartupProfile = true,
+        ) {
+            pressHome()
+            launchAndAwaitReady()
+        }
+    }
+
+    @Test
+    fun generateCriticalJourney() {
+        rule.collect(
+            packageName = TARGET_PACKAGE,
+            includeInStartupProfile = false,
         ) {
             pressHome()
             runCriticalUserJourney()

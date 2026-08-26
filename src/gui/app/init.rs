@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use tray_icon::{
-    MouseButton, TrayIconBuilder, TrayIconEvent,
+    MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
 };
 
@@ -158,10 +158,12 @@ impl SettingsApp {
                 match &event {
                     TrayIconEvent::Click {
                         button: MouseButton::Right,
+                        button_state: MouseButtonState::Up,
                         ..
                     } => {
                         // Handle right-click directly - show popup even when main window is hidden
                         crate::overlay::tray_popup::show_tray_popup();
+                        ctx_tray.request_repaint_of(egui::ViewportId::ROOT);
                     }
                     _ => {
                         // Other events go through the normal channel

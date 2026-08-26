@@ -43,6 +43,7 @@ pub(super) enum ProcessState {
 static PROCESS: LazyLock<Mutex<Option<RendererProcess>>> = LazyLock::new(|| Mutex::new(None));
 static DESIRED: AtomicBool = AtomicBool::new(false);
 static STARTING: AtomicBool = AtomicBool::new(false);
+static TRANSITIONING: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static LIVE_GENERATION: AtomicU64 = AtomicU64::new(0);
 static LIVE_PID: AtomicU32 = AtomicU32::new(0);
@@ -214,9 +215,16 @@ pub(super) fn write_command(command: &HostCommand) -> anyhow::Result<()> {
     let renderer = process
         .as_mut()
         .ok_or_else(|| anyhow::anyhow!("realtime compositor is unavailable"))?;
-    serde_json::to_writer(&mut renderer.stdin, command)?;
-    renderer.stdin.write_all(b"\n")?;
-    renderer.stdin.flush()?;
+    write_command_to(&mut renderer.stdin, command)
+}
+
+fn write_command_to(
+    writer: &mut BufWriter<ChildStdin>,
+    command: &HostCommand,
+) -> anyhow::Result<()> {
+    serde_json::to_writer(&mut *writer, command)?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
     Ok(())
 }
 
@@ -291,8 +299,15 @@ fn start_watchdog() {
                     continue;
                 }
                 let live = LIVE_GENERATION.load(Ordering::SeqCst);
-                if live == 0 {
+                if crate::overlay::compositor_process::watchdog_should_restart(
+                    DESIRED.load(Ordering::SeqCst),
+                    TRANSITIONING.load(Ordering::SeqCst),
+                    live,
+                ) {
                     super::parent::request_restart();
+                    continue;
+                }
+                if live == 0 {
                     continue;
                 }
                 let timeout = if READY_GENERATION.load(Ordering::SeqCst) == live {
@@ -374,6 +389,7 @@ fn restart_delay_ms(failure: u32) -> u64 {
 }
 
 pub(super) fn restart_now() -> ProcessState {
+    TRANSITIONING.store(true, Ordering::SeqCst);
     let mut old = PROCESS.lock().unwrap().take();
     if let Some(renderer) = old.as_mut() {
         LIVE_GENERATION
@@ -381,11 +397,26 @@ pub(super) fn restart_now() -> ProcessState {
             .ok();
         LIVE_PID.store(0, Ordering::SeqCst);
         READY_GENERATION.store(0, Ordering::SeqCst);
-        let _ = renderer.child.kill();
-        let _ = renderer.child.wait();
+        let _ = write_command_to(&mut renderer.stdin, &HostCommand::Shutdown);
+        crate::overlay::compositor_process::wait_for_exit_or_kill(&mut renderer.child);
     }
     drop(old);
-    ensure_process()
+    let state = ensure_process();
+    TRANSITIONING.store(false, Ordering::SeqCst);
+    state
+}
+
+pub(super) fn shutdown_for_exit() {
+    DESIRED.store(false, Ordering::SeqCst);
+    TRANSITIONING.store(true, Ordering::SeqCst);
+    let mut renderer = PROCESS.lock().unwrap().take();
+    LIVE_GENERATION.store(0, Ordering::SeqCst);
+    LIVE_PID.store(0, Ordering::SeqCst);
+    READY_GENERATION.store(0, Ordering::SeqCst);
+    if let Some(renderer) = renderer.as_mut() {
+        let _ = write_command_to(&mut renderer.stdin, &HostCommand::Shutdown);
+        crate::overlay::compositor_process::wait_for_exit_or_kill(&mut renderer.child);
+    }
 }
 
 fn browser_arguments_with_software_fallback(existing: Option<OsString>) -> OsString {

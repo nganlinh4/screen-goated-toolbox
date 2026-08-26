@@ -19,7 +19,7 @@ authors = [
     "embotech <opensource@embotech.com>",
     "Emil Ernerfeldt <emil.ernerfeldt@gmail.com>",
 ]
-build = false
+build = "build.rs"
 include = [
     "LICENSE-APACHE",
     "LICENSE-MIT",
@@ -126,7 +126,14 @@ version = "1.1"
 version = "30.0"
 features = [
     "std",
-    "wgsl",
+]
+default-features = false
+
+[build-dependencies.naga]
+version = "30.0"
+features = [
+    "hlsl-out",
+    "wgsl-in",
 ]
 default-features = false
 

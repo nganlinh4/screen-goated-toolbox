@@ -5,6 +5,7 @@
 use super::*;
 
 mod context_tools;
+mod native_tools;
 
 impl Brain {
     /// Execute one tool call (NOT `done`). Returns the action result JSON; polls
@@ -47,6 +48,11 @@ impl Brain {
             return self.finish_dispatch(action, name, args, result, t0);
         }
         if let Some(result) = self.dispatch_context_tool(name, args) {
+            return self.finish_dispatch(action, name, args, result, t0);
+        }
+        if let Some(result) =
+            self.dispatch_native_tool(name, args, cancel, action, authorize_repair_process)
+        {
             return self.finish_dispatch(action, name, args, result, t0);
         }
         let result = match name {
@@ -414,166 +420,6 @@ impl Brain {
                 let aborted = human_input::sleep_cancellable((secs * 1000.0) as u64, cancel);
                 json!({"ok": !aborted, "waited_seconds": secs})
             }
-            "type_text" | "key_combination" | "click_here" => {
-                if self.dry {
-                    json!({"ok": true, "note": "dry"})
-                } else {
-                    match guarded_direct_input_args(
-                        name,
-                        args.clone(),
-                        self.target.as_deref(),
-                        self.source_frame.as_ref(),
-                        self.keyboard_target_gate.refocus_required(),
-                    ) {
-                        Ok(guarded) => executor::execute_ex(name, &guarded, &self.profile, cancel),
-                        Err(error) => dispatch_telemetry::pre_dispatch_failure(error),
-                    }
-                }
-            }
-            "open_url" | "launch_app" => {
-                if self.dry {
-                    json!({"ok": true, "note": "dry"})
-                } else {
-                    executor::execute_ex(name, args, &self.profile, cancel)
-                }
-            }
-            "run_command" => {
-                self.dispatch_exact_process(args, cancel, action, authorize_repair_process)
-            }
-            "edit_text_file" => self.dispatch_text_edit(args, cancel, action),
-            "edit_text_file_structure" => self.dispatch_structural_edit(args, cancel, action),
-            "save_artifact" => self.dispatch_artifact_save(args, cancel, action),
-            "system_query" => super::super::system_query::query(args),
-            "list_files" => super::super::system_query::list_files(args),
-            "read_text_file" => executor::execute_ex(name, args, &self.profile, cancel),
-            "scroll" => {
-                // Real mouse-wheel scroll. Resolve where to scroll: a given grid
-                // cell, else the centre of the current view (the wheel acts on the
-                // window under that point).
-                let (mx, my) = args
-                    .get("cell")
-                    .and_then(Value::as_u64)
-                    .and_then(|c| self.grid.center_norm(c as u32))
-                    .unwrap_or((500.0, 500.0));
-                let (sx, sy) = self.view.to_screen_px(mx, my);
-                // executor scroll/drag take 0..1000 normalized, not screen px.
-                let (nx, ny) = executor::screen_to_norm(sx, sy);
-                let a = json!({
-                    "x": nx, "y": ny,
-                    "direction": args.get("direction").and_then(Value::as_str).unwrap_or("down"),
-                    "magnitude": args.get("amount").and_then(Value::as_f64).unwrap_or(5.0),
-                });
-                if self.dry {
-                    json!({"ok": true, "note": "dry"})
-                } else {
-                    match guarded_input_args(a, self.target.as_deref(), self.source_frame.as_ref())
-                    {
-                        Ok(guarded) => {
-                            executor::execute_ex("scroll", &guarded, &self.profile, cancel)
-                        }
-                        Err(error) => dispatch_telemetry::pre_dispatch_failure(error),
-                    }
-                }
-            }
-            "drag" => {
-                // Press at from_cell, glide, release at to_cell — for sliders,
-                // reordering, drawing, or click-drag selection. Zoom first for
-                // finer cells when precision matters.
-                let from = args
-                    .get("from_cell")
-                    .and_then(Value::as_u64)
-                    .and_then(|c| self.grid.center_norm(c as u32));
-                let to = args
-                    .get("to_cell")
-                    .and_then(Value::as_u64)
-                    .and_then(|c| self.grid.center_norm(c as u32));
-                match (from, to) {
-                    (Some((fx, fy)), Some((tx, ty))) => {
-                        // executor drag takes 0..1000 normalized, not screen px.
-                        let (fpx, fpy) = self.view.to_screen_px(fx, fy);
-                        let (tpx, tpy) = self.view.to_screen_px(tx, ty);
-                        let (sx, sy) = executor::screen_to_norm(fpx, fpy);
-                        let (dx, dy) = executor::screen_to_norm(tpx, tpy);
-                        let a = json!({"x": sx, "y": sy, "dest_x": dx, "dest_y": dy});
-                        if self.dry {
-                            json!({"ok": true, "note": "dry"})
-                        } else {
-                            match guarded_input_args(
-                                a,
-                                self.target.as_deref(),
-                                self.source_frame.as_ref(),
-                            ) {
-                                Ok(guarded) => {
-                                    executor::execute_ex("drag", &guarded, &self.profile, cancel)
-                                }
-                                Err(error) => dispatch_telemetry::pre_dispatch_failure(error),
-                            }
-                        }
-                    }
-                    _ => json!({"ok": false, "error": "drag needs from_cell and to_cell"}),
-                }
-            }
-            "focus_window" => {
-                let title = args.get("title").and_then(Value::as_str).unwrap_or("");
-                self.keyboard_target_gate.begin_focus_attempt();
-                match super::super::uia::raise_window_with_target(title) {
-                    Err(error) => window_error(error),
-                    Ok((raised, target)) => {
-                        self.keyboard_target_gate.record_focus_result(raised);
-                        std::thread::sleep(Duration::from_millis(200));
-                        if raised {
-                            // Re-frame on the newly focused window and discard stale anchors.
-                            self.whole_screen = false;
-                            self.zoomed = false;
-                            self.clear_anchors("focused_different_window");
-                        }
-                        let now = super::super::uia::pointer_context().0;
-                        json!({
-                            "ok": raised,
-                            "target": target,
-                            "foreground_now": now,
-                            "effect_verified": raised,
-                            "effect_may_have_occurred": true,
-                            "executed": raised.then_some(true),
-                            "note": if raised { "switched" } else { "BLOCKED: the resolved window did not become foreground. Do not repeat the same focus attempt blindly; use a non-foreground provider when one exposes the needed state, otherwise report the blocker." }
-                        })
-                    }
-                }
-            }
-            "list_windows" => {
-                json!({"ok": true, "windows": super::super::uia::list_windows()})
-            }
-            "read_clipboard" => {
-                json!({"ok": true, "text": super::super::clipboard::get_text()})
-            }
-            "minimize_window" => {
-                let title = args.get("title").and_then(Value::as_str).unwrap_or("");
-                match super::super::uia::minimize_window(title) {
-                    Err(error) => window_error(error),
-                    Ok(ok) => {
-                        std::thread::sleep(Duration::from_millis(200));
-                        json!({"ok": ok, "foreground_now": super::super::uia::pointer_context().0})
-                    }
-                }
-            }
-            "resize_window" => {
-                let title = args.get("title").and_then(Value::as_str).unwrap_or("");
-                let w = args.get("width").and_then(Value::as_i64).unwrap_or(0) as i32;
-                let h = args.get("height").and_then(Value::as_i64).unwrap_or(0) as i32;
-                match super::super::uia::resize_window(title, w, h) {
-                    Ok(ok) => json!({"ok": ok}),
-                    Err(error) => window_error(error),
-                }
-            }
-            "move_window" => {
-                let title = args.get("title").and_then(Value::as_str).unwrap_or("");
-                let x = args.get("x").and_then(Value::as_i64).unwrap_or(0) as i32;
-                let y = args.get("y").and_then(Value::as_i64).unwrap_or(0) as i32;
-                match super::super::uia::move_window(title, x, y) {
-                    Ok(ok) => json!({"ok": ok}),
-                    Err(error) => window_error(error),
-                }
-            }
             // Local artifact tools and installed MCP tools are dynamic-ish surfaces.
             _ => {
                 super::super::artifacts::dispatch_tool(name, args, &self.profile, cancel, self.dry)
@@ -583,12 +429,4 @@ impl Brain {
         };
         self.finish_dispatch(action, name, args, result, t0)
     }
-}
-
-fn window_error(error: super::super::uia::WindowError) -> Value {
-    json!({
-        "ok": false,
-        "code": error.code(),
-        "error": error.to_string(),
-    })
 }

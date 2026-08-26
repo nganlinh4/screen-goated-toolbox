@@ -1,24 +1,59 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "windows": {
     "shippingProfile": "release",
     "comparisonRuns": 3,
-    "maxShippingBinaryBytes": 34603008,
+    "maxShippingBinaryBytes": 31457280,
+    "maxBalancedSizeRatio": 1.1,
     "maxPerfSizeRatio": 1.4,
     "maxPgoSizeRatio": 1.1,
     "maxPerfLatencyRatio": 1.1,
+    "maxBalancedLatencyRatio": 1.1,
     "smokeTimeoutSeconds": 75,
     "requiredSmokes": [
       "result-compositor-smoke",
       "status-compositor-smoke",
       "realtime-compositor-smoke"
-    ]
+    ],
+    "absoluteBudgets": {
+      "result-compositor-smoke": {
+        "maxMedianElapsedMs": 8000,
+        "maxPeakWorkingSetBytes": 1153433600,
+        "maxPeakThreads": 480,
+        "maxPeakProcessCount": 18,
+        "maxMedianFirstPaintMs": 900,
+        "maxMedianFinalFitMs": 1000
+      },
+      "status-compositor-smoke": {
+        "maxMedianElapsedMs": 22000,
+        "maxPeakWorkingSetBytes": 1879048192,
+        "maxPeakThreads": 480,
+        "maxPeakProcessCount": 18
+      },
+      "realtime-compositor-smoke": {
+        "maxMedianElapsedMs": 8000,
+        "maxPeakWorkingSetBytes": 1073741824,
+        "maxPeakThreads": 480,
+        "maxPeakProcessCount": 18
+      }
+    }
   },
   "android": {
     "baselineProfileRequired": true,
     "startupProfileRequired": true,
     "macrobenchmarkIterations": 5,
-    "maxShippingArtifactBytes": 62914560,
-    "maxEmbeddedProfileBytes": 1572864
+    "maxShippingArtifactBytes": 10485760,
+    "maxEmbeddedProfileBytes": 1572864,
+    "maxDexBytes": 8388608,
+    "maxPrimaryDexBytes": 3407872,
+    "maxStartupToBaselineRuleRatio": 0.98,
+    "minStartupRuleOverlapRatio": 0.99,
+    "benchmark": {
+      "maxBaselineStartupRatio": 1.05,
+      "maxFrameDurationCpuP95Ms": 32.0,
+      "maxFrameOverrunP95Ms": 8.0,
+      "maxMemoryRssAnonKb": 524288.0,
+      "maxMemoryHeapSizeKb": 393216.0
+    }
   }
 }

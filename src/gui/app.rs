@@ -126,6 +126,10 @@ impl eframe::App for SettingsApp {
         if main_ui_ready {
             self.render_drop_overlay(ctx);
         }
+
+        // The tray popup is a native deferred viewport. Keep its registration
+        // outside `main_ui_ready` so opening it never restores the settings window.
+        crate::overlay::tray_popup::render(ctx);
     }
 
     fn on_exit(&mut self) {
