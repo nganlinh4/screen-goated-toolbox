@@ -3,14 +3,22 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-08-26T02:01:05Z",
+ "generatedAt": "2026-08-26T03:27:41Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
+  {
+   "id": "meta/llama-3.2-1b-instruct",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 271,
+   "success_rate": 0.667,
+   "runs": 24
+  },
   {
    "id": "meta/llama-3.1-8b-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 333,
+   "p50_ms": 341,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -23,10 +31,18 @@
    "runs": 24
   },
   {
-   "id": "nvidia/nemotron-mini-4b-instruct",
+   "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 409,
+   "p50_ms": 405,
+   "success_rate": 0.792,
+   "runs": 24
+  },
+  {
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 470,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -34,15 +50,15 @@
    "id": "mistralai/mistral-nemotron",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 454,
+   "p50_ms": 483,
    "success_rate": 0.625,
    "runs": 24
   },
   {
-   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
    "control": "effort-none",
-   "modality": "text",
-   "p50_ms": 457,
+   "modality": "vision",
+   "p50_ms": 486,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -50,15 +66,15 @@
    "id": "minimaxai/minimax-m3",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 486,
-   "success_rate": 0.833,
+   "p50_ms": 505,
+   "success_rate": 0.875,
    "runs": 24
   },
   {
-   "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-   "control": "effort-none",
+   "id": "meta/llama-3.2-11b-vision-instruct",
+   "control": "plain",
    "modality": "vision",
-   "p50_ms": 489,
+   "p50_ms": 630,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -67,14 +83,6 @@
    "control": "plain",
    "modality": "vision",
    "p50_ms": 662,
-   "success_rate": 1.0,
-   "runs": 24
-  },
-  {
-   "id": "meta/llama-3.2-11b-vision-instruct",
-   "control": "plain",
-   "modality": "vision",
-   "p50_ms": 680,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -90,7 +98,7 @@
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 837,
+   "p50_ms": 811,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -114,32 +122,16 @@
    "id": "moonshotai/kimi-k3",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 2029,
+   "p50_ms": 1811,
    "success_rate": 0.75,
-   "runs": 24
-  },
-  {
-   "id": "meta/llama-3.2-90b-vision-instruct",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 2080,
-   "success_rate": 0.917,
    "runs": 24
   },
   {
    "id": "stepfun-ai/step-3.7-flash",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 2583,
+   "p50_ms": 2053,
    "success_rate": 0.792,
-   "runs": 24
-  },
-  {
-   "id": "nvidia/nvidia-nemotron-nano-9b-v2",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 4276,
-   "success_rate": 0.875,
    "runs": 24
   }
  ]
