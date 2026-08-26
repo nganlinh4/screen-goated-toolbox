@@ -3,25 +3,9 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-08-26T07:11:29Z",
+ "generatedAt": "2026-08-26T09:05:31Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
-  {
-   "id": "meta/llama-3.2-1b-instruct",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 256,
-   "success_rate": 0.708,
-   "runs": 24
-  },
-  {
-   "id": "meta/llama-3.1-8b-instruct",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 341,
-   "success_rate": 1.0,
-   "runs": 24
-  },
   {
    "id": "nvidia/nemotron-3-nano-30b-a3b",
    "control": "effort-none",
@@ -31,11 +15,19 @@
    "runs": 24
   },
   {
-   "id": "nvidia/nemotron-mini-4b-instruct",
+   "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 409,
-   "success_rate": 0.958,
+   "p50_ms": 365,
+   "success_rate": 0.75,
+   "runs": 24
+  },
+  {
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 479,
+   "success_rate": 1.0,
    "runs": 24
   },
   {
@@ -47,35 +39,11 @@
    "runs": 24
   },
   {
-   "id": "nvidia/nemotron-3-super-120b-a12b",
-   "control": "effort-none",
-   "modality": "text",
-   "p50_ms": 484,
-   "success_rate": 1.0,
-   "runs": 24
-  },
-  {
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 594,
+   "p50_ms": 567,
    "success_rate": 1.0,
-   "runs": 24
-  },
-  {
-   "id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
-   "control": "plain",
-   "modality": "vision",
-   "p50_ms": 693,
-   "success_rate": 1.0,
-   "runs": 24
-  },
-  {
-   "id": "meta/llama-3.1-70b-instruct",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 705,
-   "success_rate": 0.917,
    "runs": 24
   },
   {
@@ -87,18 +55,10 @@
    "runs": 24
   },
   {
-   "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 817,
-   "success_rate": 0.917,
-   "runs": 24
-  },
-  {
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 1110,
+   "p50_ms": 1006,
    "success_rate": 0.917,
    "runs": 24
   },
