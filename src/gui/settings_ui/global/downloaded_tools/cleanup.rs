@@ -276,13 +276,8 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
             &mut attention_count,
         );
         record_result(
-            "Creation runtime",
-            crate::overlay::three_d_generator::remove_runtime(),
-            &mut attention_count,
-        );
-        record_result(
-            "3D Creation interface",
-            crate::overlay::three_d_generator::remove_web_assets(),
+            "Creation tools",
+            crate::overlay::three_d_generator::remove_product(),
             &mut attention_count,
         );
         record_result(
@@ -431,11 +426,6 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
         record_result(
             "VieNeu runtime",
             crate::api::realtime_audio::vieneu_runtime::remove_vieneu_runtime(),
-            &mut attention_count,
-        );
-        record_result(
-            "creation runtime",
-            crate::overlay::creation_runtime::remove_runtime(),
             &mut attention_count,
         );
         record_result(

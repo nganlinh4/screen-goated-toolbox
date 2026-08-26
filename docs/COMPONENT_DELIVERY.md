@@ -70,6 +70,10 @@ directory; worker builds share the package Cargo lane.
 ## Package boundaries
 
 - Keep every user-visible capability independently installable and removable.
+- Present one user-visible product as one Downloaded Tools lifecycle even when
+  its verified delivery currently uses multiple internal artifacts. First use
+  may prepare those artifacts concurrently, but status, repair, and removal
+  belong to the product and Clean All counts it once.
 - Share a dependency through an explicit reference, not by copying it into each
   feature package.
 - Do not combine optional capabilities into a single convenience bundle.

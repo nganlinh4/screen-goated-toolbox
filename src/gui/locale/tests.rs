@@ -175,7 +175,7 @@ fn locale_leaf_fields_have_one_section_owner() {
 fn downloaded_tools_progress_and_cards_are_localized() {
     assert_eq!(
         public_field_names(include_str!("managed_tools.rs")).len(),
-        149
+        151
     );
     let english = LocaleText::get("en");
     for code in ["en", "ko", "vi"] {
@@ -201,6 +201,8 @@ fn downloaded_tools_progress_and_cards_are_localized() {
             managed.tool_screen_translate_card,
             managed.tool_screen_translate_detector,
             managed.tool_desc_screen_translate_detector,
+            managed.tool_creation_payload,
+            managed.tool_desc_creation_product,
             managed.tool_creation_interface,
             managed.tool_prompt_dj_interface,
             managed.tool_tts_playground_interface,
@@ -226,6 +228,14 @@ fn downloaded_tools_progress_and_cards_are_localized() {
                 .managed_tools
                 .tool_screen_recorder_payload,
             english.auxiliary.managed_tools.tool_screen_recorder_payload
+        );
+        assert_ne!(
+            localized.auxiliary.managed_tools.tool_creation_payload,
+            english.auxiliary.managed_tools.tool_creation_payload
+        );
+        assert_ne!(
+            localized.auxiliary.managed_tools.tool_desc_creation_product,
+            english.auxiliary.managed_tools.tool_desc_creation_product
         );
         assert_ne!(
             localized.badge.preparing_component_fmt,

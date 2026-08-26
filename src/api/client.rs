@@ -179,7 +179,10 @@ mod download_agent_tests {
 
         let agent = super::build_stream_agent_with_timeouts(
             true,
-            Duration::from_millis(50),
+            // The response-start budget is not the invariant under test. Keep it
+            // comfortably above a saturated parallel test runner's scheduling
+            // delay while retaining the deliberately short body-idle window.
+            Duration::from_secs(2),
             Duration::from_millis(45),
         );
         let started = Instant::now();
