@@ -1,323 +1,330 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex, Once};
-use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::*;
+use std::time::{Duration, Instant};
+
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, PAINTSTRUCT};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::*;
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DefWindowProcW, DestroyWindow, KillTimer, RegisterClassW, SetTimer, WM_CLOSE,
+    WM_DESTROY, WM_PAINT, WM_TIMER, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
+};
+use windows::core::w;
 
-use super::types::{MAX_GLOW_BUFFER_DIM, ProcessingState};
+use super::surface::SurfaceSet;
 
-// --- PROCESSING WINDOW STATIC STATE ---
-static REGISTER_PROC_CLASS: Once = Once::new();
+const APPEAR_DURATION: Duration = Duration::from_millis(160);
+const APPEAR_INTERVAL_MS: u32 = 16;
 
-static PROC_STATES: LazyLock<Mutex<HashMap<isize, ProcessingState>>> =
+static REGISTER_CONTROLLER_CLASS: Once = Once::new();
+static STATES: LazyLock<Mutex<HashMap<isize, ProcessingState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-// --- WINDOW PROC FOR OVERLAY ---
-pub unsafe fn create_processing_window(rect: RECT, graphics_mode: String) -> HWND {
-    unsafe {
-        let instance = GetModuleHandleW(None).unwrap();
-        let class_name = w!("SGTProcessingOverlay");
+struct ProcessingState {
+    surfaces: SurfaceSet,
+    started_at: Instant,
+    fading: bool,
+    appearing: bool,
+    alpha: u8,
+    scheduler: FrameScheduler,
+}
 
-        REGISTER_PROC_CLASS.call_once(|| {
-            let wc = WNDCLASSW {
-                lpfnWndProc: Some(processing_wnd_proc),
-                hInstance: instance.into(),
-                hCursor: LoadCursorW(None, IDC_WAIT).unwrap(),
-                lpszClassName: class_name,
-                style: CS_HREDRAW | CS_VREDRAW,
-                hbrBackground: HBRUSH(std::ptr::null_mut()),
-                ..Default::default()
-            };
-            RegisterClassW(&wc);
-        });
+unsafe impl Send for ProcessingState {}
 
-        let w = (rect.right - rect.left).abs();
-        let h = (rect.bottom - rect.top).abs();
-        let pixels = (w as i64) * (h as i64);
-        let timer_interval = if pixels > 5_000_000 {
-            50
-        } else if pixels > 2_000_000 {
-            32
-        } else {
-            16
-        };
-
-        let hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
-            class_name,
-            w!("Processing"),
-            WS_POPUP,
-            rect.left,
-            rect.top,
-            w,
-            h,
-            None,
-            None,
-            Some(instance.into()),
-            None,
-        )
-        .unwrap_or_default();
-        let mut states = PROC_STATES.lock().unwrap();
-        states.insert(hwnd.0 as isize, ProcessingState::new(graphics_mode));
-        drop(states);
-        SetTimer(Some(hwnd), 1, timer_interval, None);
-        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-        hwnd
+impl ProcessingState {
+    fn new(surfaces: SurfaceSet) -> Self {
+        let scheduler = FrameScheduler::new(surfaces.pixel_count());
+        Self {
+            surfaces,
+            started_at: Instant::now(),
+            fading: false,
+            appearing: true,
+            alpha: 0,
+            scheduler,
+        }
     }
 }
 
-unsafe extern "system" fn processing_wnd_proc(
+fn appearance_alpha(elapsed: Duration) -> u8 {
+    let progress = (elapsed.as_secs_f32() / APPEAR_DURATION.as_secs_f32()).clamp(0.0, 1.0);
+    let eased = progress * progress * (3.0 - 2.0 * progress);
+    (eased * 255.0).round() as u8
+}
+
+#[derive(Clone, Debug)]
+struct FrameScheduler {
+    baseline_level: usize,
+    level: usize,
+    overload_count: u8,
+    relaxed_count: u16,
+}
+
+impl FrameScheduler {
+    const INTERVALS_MS: [u32; 4] = [16, 33, 50, 67];
+
+    fn new(pixel_count: usize) -> Self {
+        let baseline_level = match pixel_count {
+            0..=120_000 => 0,
+            120_001..=350_000 => 1,
+            350_001..=750_000 => 2,
+            _ => 3,
+        };
+        Self {
+            baseline_level,
+            level: baseline_level,
+            overload_count: 0,
+            relaxed_count: 0,
+        }
+    }
+
+    fn interval_ms(&self) -> u32 {
+        Self::INTERVALS_MS[self.level]
+    }
+
+    fn observe(&mut self, render_time: Duration) -> Option<u32> {
+        let previous = self.interval_ms();
+        let render_micros = render_time.as_micros();
+        let interval_micros = u128::from(previous) * 1000;
+        if render_micros * 4 >= interval_micros * 3 {
+            self.overload_count = self.overload_count.saturating_add(1);
+            self.relaxed_count = 0;
+            if self.overload_count >= 2 && self.level + 1 < Self::INTERVALS_MS.len() {
+                self.level += 1;
+                self.overload_count = 0;
+            }
+        } else if render_micros * 5 <= interval_micros {
+            self.overload_count = 0;
+            self.relaxed_count = self.relaxed_count.saturating_add(1);
+            if self.relaxed_count >= 90 && self.level > self.baseline_level {
+                self.level -= 1;
+                self.relaxed_count = 0;
+            }
+        } else {
+            self.overload_count = 0;
+            self.relaxed_count = 0;
+        }
+        (self.interval_ms() != previous).then(|| self.interval_ms())
+    }
+}
+
+pub unsafe fn create_processing_window(rect: RECT) -> HWND {
+    unsafe {
+        if rect.left >= rect.right || rect.top >= rect.bottom {
+            return HWND::default();
+        }
+        let module = match GetModuleHandleW(None) {
+            Ok(module) => module,
+            Err(_) => return HWND::default(),
+        };
+        REGISTER_CONTROLLER_CLASS.call_once(|| {
+            let class = WNDCLASSW {
+                lpfnWndProc: Some(controller_wnd_proc),
+                hInstance: module.into(),
+                lpszClassName: w!("SGTProcessingOverlayController"),
+                ..Default::default()
+            };
+            let _ = RegisterClassW(&class);
+        });
+        let controller = match CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            w!("SGTProcessingOverlayController"),
+            w!(""),
+            WS_POPUP,
+            rect.left,
+            rect.top,
+            0,
+            0,
+            None,
+            None,
+            Some(module.into()),
+            None,
+        ) {
+            Ok(hwnd) => hwnd,
+            Err(_) => return HWND::default(),
+        };
+        let Some(surfaces) = SurfaceSet::create(controller, module.into(), rect) else {
+            let _ = DestroyWindow(controller);
+            return HWND::default();
+        };
+        let state = ProcessingState::new(surfaces);
+        STATES.lock().unwrap().insert(controller.0 as isize, state);
+        SetTimer(Some(controller), 1, APPEAR_INTERVAL_MS, None);
+        controller
+    }
+}
+
+unsafe extern "system" fn controller_wnd_proc(
     hwnd: HWND,
-    msg: u32,
+    message: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
     unsafe {
-        match msg {
+        match message {
             WM_CLOSE => {
-                let mut states = PROC_STATES.lock().unwrap();
-                let state = states
-                    .entry(hwnd.0 as isize)
-                    .or_insert(ProcessingState::new("standard".to_string()));
-                if !state.is_fading_out {
-                    state.is_fading_out = true;
-                    if !state.timer_killed {
-                        let _ = KillTimer(Some(hwnd), 1);
-                        state.timer_killed = true;
-                        SetTimer(Some(hwnd), 2, 25, None);
-                    }
-                }
+                begin_fade(hwnd);
                 LRESULT(0)
             }
             WM_TIMER => {
-                let (should_destroy, anim_offset, alpha, is_fading) = {
-                    let mut states = PROC_STATES.lock().unwrap();
-                    let state = states
-                        .entry(hwnd.0 as isize)
-                        .or_insert(ProcessingState::new("standard".to_string()));
-                    let mut destroy_flag = false;
-                    if state.is_fading_out {
-                        if state.alpha > 20 {
-                            state.alpha -= 20;
-                        } else {
-                            state.alpha = 0;
-                            destroy_flag = true;
-                        }
-                    } else {
-                        state.animation_offset += 5.0;
-                        if state.animation_offset > 360.0 {
-                            state.animation_offset -= 360.0;
-                        }
-                    }
-                    (
-                        destroy_flag,
-                        state.animation_offset,
-                        state.alpha,
-                        state.is_fading_out,
-                    )
-                };
-                if should_destroy {
-                    let _ = KillTimer(Some(hwnd), 1);
-                    let _ = KillTimer(Some(hwnd), 2);
-                    let _ = DestroyWindow(hwnd);
-                    return LRESULT(0);
-                }
-
-                let mut rect = RECT::default();
-                let _ = GetWindowRect(hwnd, &mut rect);
-                let w = (rect.right - rect.left).abs();
-                let h = (rect.bottom - rect.top).abs();
-                if w > 0 && h > 0 {
-                    let mut states = PROC_STATES.lock().unwrap();
-                    let state = states.get_mut(&(hwnd.0 as isize)).unwrap();
-                    let scale_factor = if w > MAX_GLOW_BUFFER_DIM || h > MAX_GLOW_BUFFER_DIM {
-                        (MAX_GLOW_BUFFER_DIM as f32 / w as f32)
-                            .min(MAX_GLOW_BUFFER_DIM as f32 / h as f32)
-                            .min(1.0)
-                    } else {
-                        1.0
-                    };
-                    let buf_w = ((w as f32) * scale_factor).ceil() as i32;
-                    let buf_h = ((h as f32) * scale_factor).ceil() as i32;
-                    if state.cache_hbm.is_invalid()
-                        || state.scaled_w != buf_w
-                        || state.scaled_h != buf_h
-                    {
-                        state.cleanup();
-                        let screen_dc = GetDC(None);
-                        let bmi = BITMAPINFO {
-                            bmiHeader: BITMAPINFOHEADER {
-                                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                                biWidth: buf_w,
-                                biHeight: -buf_h,
-                                biPlanes: 1,
-                                biBitCount: 32,
-                                biCompression: BI_RGB.0,
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        };
-                        let res = CreateDIBSection(
-                            Some(screen_dc),
-                            &bmi,
-                            DIB_RGB_COLORS,
-                            &mut state.cache_bits,
-                            None,
-                            0,
-                        );
-                        ReleaseDC(None, screen_dc);
-                        if let Ok(hbm) = res {
-                            if !hbm.is_invalid() && !state.cache_bits.is_null() {
-                                state.cache_hbm = hbm;
-                                state.scaled_w = buf_w;
-                                state.scaled_h = buf_h;
-                            } else {
-                                return LRESULT(0);
-                            }
-                        } else {
-                            return LRESULT(0);
-                        }
-                    }
-                    if !is_fading && !state.cache_bits.is_null() {
-                        if state.graphics_mode == "minimal" {
-                            crate::overlay::paint_utils::draw_minimal_glow(
-                                state.cache_bits as *mut u32,
-                                state.scaled_w,
-                                state.scaled_h,
-                                scale_factor,
-                                anim_offset,
-                                1.0,
-                                true,
-                            );
-                        } else {
-                            crate::overlay::paint_utils::draw_direct_sdf_glow(
-                                state.cache_bits as *mut u32,
-                                state.scaled_w,
-                                state.scaled_h,
-                                scale_factor,
-                                anim_offset,
-                                1.0,
-                                true,
-                            );
-                        }
-                    }
-                    let screen_dc = GetDC(None);
-                    let needs_scaling = state.scaled_w != w || state.scaled_h != h;
-                    let (final_hbm, final_w, final_h) = if needs_scaling {
-                        let scaled_dc = CreateCompatibleDC(Some(screen_dc));
-                        SelectObject(scaled_dc, state.cache_hbm.into());
-                        let dest_bmi = BITMAPINFO {
-                            bmiHeader: BITMAPINFOHEADER {
-                                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                                biWidth: w,
-                                biHeight: -h,
-                                biPlanes: 1,
-                                biBitCount: 32,
-                                biCompression: BI_RGB.0,
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        };
-                        let mut dest_bits: *mut core::ffi::c_void = std::ptr::null_mut();
-                        let dest_hbm = CreateDIBSection(
-                            Some(screen_dc),
-                            &dest_bmi,
-                            DIB_RGB_COLORS,
-                            &mut dest_bits,
-                            None,
-                            0,
-                        );
-                        if let Ok(hbm) = dest_hbm {
-                            if !hbm.is_invalid() {
-                                let dest_dc = CreateCompatibleDC(Some(screen_dc));
-                                SelectObject(dest_dc, hbm.into());
-                                SetStretchBltMode(dest_dc, HALFTONE);
-                                let _ = StretchBlt(
-                                    dest_dc,
-                                    0,
-                                    0,
-                                    w,
-                                    h,
-                                    Some(scaled_dc),
-                                    0,
-                                    0,
-                                    state.scaled_w,
-                                    state.scaled_h,
-                                    SRCCOPY,
-                                );
-                                let _ = DeleteDC(scaled_dc);
-                                (Some((dest_dc, hbm)), w, h)
-                            } else {
-                                let _ = DeleteDC(scaled_dc);
-                                (None, state.scaled_w, state.scaled_h)
-                            }
-                        } else {
-                            let _ = DeleteDC(scaled_dc);
-                            (None, state.scaled_w, state.scaled_h)
-                        }
-                    } else {
-                        (None, w, h)
-                    };
-
-                    let (mem_dc, old_hbm, temp_res) = if let Some((dc, hbm)) = final_hbm {
-                        (dc, HGDIOBJ::default(), Some(hbm))
-                    } else {
-                        let dc = CreateCompatibleDC(Some(screen_dc));
-                        let old = SelectObject(dc, state.cache_hbm.into());
-                        (dc, old, None)
-                    };
-                    let pt_src = POINT { x: 0, y: 0 };
-                    let size = SIZE {
-                        cx: final_w,
-                        cy: final_h,
-                    };
-                    let blend = BLENDFUNCTION {
-                        BlendOp: AC_SRC_OVER as u8,
-                        BlendFlags: 0,
-                        SourceConstantAlpha: alpha,
-                        AlphaFormat: AC_SRC_ALPHA as u8,
-                    };
-                    let _ = UpdateLayeredWindow(
-                        hwnd,
-                        None,
-                        None,
-                        Some(&size),
-                        Some(mem_dc),
-                        Some(&pt_src),
-                        COLORREF(0),
-                        Some(&blend),
-                        ULW_ALPHA,
-                    );
-
-                    if temp_res.is_some() {
-                        let _ = DeleteDC(mem_dc);
-                        if let Some(hbm) = temp_res {
-                            let _ = DeleteObject(hbm.into());
-                        }
-                    } else {
-                        SelectObject(mem_dc, old_hbm);
-                        let _ = DeleteDC(mem_dc);
-                    }
-                    ReleaseDC(None, screen_dc);
-                }
+                render_timer(hwnd, wparam.0);
                 LRESULT(0)
             }
             WM_PAINT => {
-                let mut ps = PAINTSTRUCT::default();
-                BeginPaint(hwnd, &mut ps);
-                let _ = EndPaint(hwnd, &ps);
+                let mut paint = PAINTSTRUCT::default();
+                let _ = BeginPaint(hwnd, &mut paint);
+                let _ = EndPaint(hwnd, &paint);
                 LRESULT(0)
             }
             WM_DESTROY => {
-                let mut states = PROC_STATES.lock().unwrap();
-                if let Some(mut state) = states.remove(&(hwnd.0 as isize)) {
-                    state.cleanup();
-                }
+                STATES.lock().unwrap().remove(&(hwnd.0 as isize));
                 LRESULT(0)
             }
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+            _ => DefWindowProcW(hwnd, message, wparam, lparam),
+        }
+    }
+}
+
+unsafe fn begin_fade(hwnd: HWND) {
+    let mut states = STATES.lock().unwrap();
+    let Some(state) = states.get_mut(&(hwnd.0 as isize)) else {
+        drop(states);
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        return;
+    };
+    if !state.fading {
+        state.fading = true;
+        unsafe {
+            let _ = KillTimer(Some(hwnd), 1);
+            SetTimer(Some(hwnd), 2, 25, None);
+        }
+    }
+}
+
+unsafe fn render_timer(hwnd: HWND, timer_id: usize) {
+    let mut destroy = false;
+    let mut next_interval = None;
+    {
+        let mut states = STATES.lock().unwrap();
+        let Some(state) = states.get_mut(&(hwnd.0 as isize)) else {
+            return;
+        };
+        if timer_id == 2 || state.fading {
+            if state.alpha > 20 {
+                state.alpha -= 20;
+                unsafe {
+                    state
+                        .surfaces
+                        .present(state.started_at.elapsed(), state.alpha, false);
+                }
+            } else {
+                state.alpha = 0;
+                destroy = true;
+            }
+        } else {
+            let started = Instant::now();
+            let elapsed = state.started_at.elapsed();
+            if state.appearing {
+                state.alpha = appearance_alpha(elapsed);
+                if state.alpha == 255 {
+                    state.appearing = false;
+                    next_interval = Some(state.scheduler.interval_ms());
+                }
+            }
+            unsafe {
+                state.surfaces.present(elapsed, state.alpha, true);
+            }
+            if !state.appearing && next_interval.is_none() {
+                next_interval = state.scheduler.observe(started.elapsed());
+            }
+        }
+    }
+    if let Some(interval) = next_interval {
+        unsafe {
+            let _ = KillTimer(Some(hwnd), 1);
+            SetTimer(Some(hwnd), 1, interval, None);
+        }
+    }
+    if destroy {
+        unsafe {
+            let _ = KillTimer(Some(hwnd), 1);
+            let _ = KillTimer(Some(hwnd), 2);
+            let _ = DestroyWindow(hwnd);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        APPEAR_DURATION, FrameScheduler, STATES, appearance_alpha, create_processing_window,
+    };
+    use std::time::Duration;
+    use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DestroyWindow, IsWindow, SendMessageW, WM_TIMER,
+    };
+
+    #[test]
+    fn workload_selects_a_bounded_visual_frame_rate() {
+        assert_eq!(FrameScheduler::new(100_000).interval_ms(), 16);
+        assert_eq!(FrameScheduler::new(200_000).interval_ms(), 33);
+        assert_eq!(FrameScheduler::new(500_000).interval_ms(), 50);
+        assert_eq!(FrameScheduler::new(900_000).interval_ms(), 67);
+    }
+
+    #[test]
+    fn appearance_is_eased_monotonic_and_reaches_full_alpha() {
+        assert_eq!(appearance_alpha(Duration::ZERO), 0);
+        let quarter = appearance_alpha(APPEAR_DURATION / 4);
+        let middle = appearance_alpha(APPEAR_DURATION / 2);
+        let three_quarters = appearance_alpha(APPEAR_DURATION * 3 / 4);
+        assert!(quarter > 0 && quarter < middle);
+        assert!(middle < three_quarters && three_quarters < 255);
+        assert_eq!(appearance_alpha(APPEAR_DURATION), 255);
+    }
+
+    #[test]
+    fn sustained_overload_degrades_and_sustained_headroom_recovers() {
+        let mut scheduler = FrameScheduler::new(100_000);
+        assert_eq!(scheduler.observe(Duration::from_millis(15)), None);
+        assert_eq!(scheduler.observe(Duration::from_millis(15)), Some(33));
+        for _ in 0..89 {
+            assert_eq!(scheduler.observe(Duration::from_millis(1)), None);
+        }
+        assert_eq!(scheduler.observe(Duration::from_millis(1)), Some(16));
+    }
+
+    #[test]
+    fn real_offscreen_edge_surfaces_present_and_cleanup() {
+        for (index, (width, height)) in [(1, 1), (4000, 24), (24, 4000), (640, 360)]
+            .into_iter()
+            .enumerate()
+        {
+            let origin = 100_000 + index as i32 * 5_000;
+            let hwnd = unsafe {
+                create_processing_window(RECT {
+                    left: origin,
+                    top: 100_000,
+                    right: origin + width,
+                    bottom: 100_000 + height,
+                })
+            };
+            assert!(unsafe { IsWindow(Some(hwnd)).as_bool() });
+            assert!(
+                STATES
+                    .lock()
+                    .unwrap()
+                    .get(&(hwnd.0 as isize))
+                    .is_some_and(|state| state.surfaces.pixel_count() > 0)
+            );
+            unsafe {
+                let _ = SendMessageW(hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
+                let _ = DestroyWindow(hwnd);
+            }
+            assert!(!unsafe { IsWindow(Some(hwnd)).as_bool() });
+            assert!(!STATES.lock().unwrap().contains_key(&(hwnd.0 as isize)));
         }
     }
 }

@@ -34,7 +34,6 @@ fn test_card(streaming: bool) -> SceneCard {
         external_navigation: false,
         navigation_loading: false,
         refining: false,
-        processing_effect: Default::default(),
         background: "#ffffff".to_string(),
         opacity: 90,
         visible: true,

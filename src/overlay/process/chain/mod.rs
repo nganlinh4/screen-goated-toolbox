@@ -33,8 +33,7 @@ pub fn execute_chain_pipeline(
     let corrected_rect = get_rect_with_saved_geometry(&preset.id, rect);
 
     // 1. Create Processing Window (Gradient Glow)
-    let graphics_mode = config.graphics_mode.clone();
-    let processing_hwnd = unsafe { create_processing_window(corrected_rect, graphics_mode) };
+    let processing_hwnd = unsafe { create_processing_window(corrected_rect) };
     unsafe {
         let _ = SendMessageW(processing_hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
     }

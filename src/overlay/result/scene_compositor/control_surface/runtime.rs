@@ -1,4 +1,4 @@
-//! JavaScript for the result compositor's control layer.
+//! JavaScript for controls rendered by the shared result scene compositor.
 
 pub fn get_javascript() -> &'static str {
     r#"
@@ -234,10 +234,6 @@ function generateButtonsHTML(hwnd, state, isVertical) {
     const canGoForward = state.navDepth < state.maxNavDepth;
     const isBrowsing = state.isBrowsing || false;
     const hideClass = isBrowsing ? 'hidden' : '';
-
-    if (state.isEditing) {
-        return generateRefineInputHTML(hwnd, state);
-    }
 
     let buttons = '';
 
@@ -477,10 +473,13 @@ function updateWindows(windowsData) {
         const { opacityPercent, ...structuralState } = state;
         const isVertical = pos.direction === 'left' || pos.direction === 'right';
         const newStateStr = JSON.stringify(structuralState) + isVertical;
-        if (group.dataset.lastState !== newStateStr) {
+        const hasPersistentEditor = Boolean(
+            window.__SGT_REFINE_EDITOR__?.reconcile(group, hwnd, state));
+        if (!hasPersistentEditor && group.dataset.lastState !== newStateStr) {
             group.innerHTML = generateButtonsHTML(hwnd, state, isVertical);
-            group.dataset.lastState = newStateStr;
         }
+        group.dataset.lastState = newStateStr;
+        group.classList.toggle('proximity-pinned', hasPersistentEditor);
         const opacity = group.querySelector('.opacity-slider-inline');
         const opacityLabel = group.querySelector('.opacity-value-inline');
         if (opacity && opacityPercent != null) {
@@ -550,6 +549,8 @@ function updateWindows(windowsData) {
         lastVisibleState.delete(key);
         lastSentRegions.delete(key);
     });
+
+    window.__SGT_REFINE_EDITOR__?.settleFocusMode();
 
     updateButtonOpacity();
     if (container.querySelectorAll('.button-group').length === 0) {

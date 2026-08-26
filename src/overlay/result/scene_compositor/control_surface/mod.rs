@@ -2,11 +2,9 @@
 
 mod actions;
 mod css;
-mod js;
-mod js_refine;
+mod refine_runtime;
+mod runtime;
 mod theme;
-
-use windows::Win32::Foundation::HWND;
 
 pub(crate) fn document_css() -> &'static str {
     css::get_base_css()
@@ -41,7 +39,7 @@ pub(crate) fn document_script() -> String {
         "send": icon("send"), "opacity": icon("opacity"), "close": icon("close"),
     })
     .to_string();
-    [js::get_javascript(), js_refine::get_javascript()]
+    [runtime::get_javascript(), refine_runtime::get_javascript()]
         .concat()
         .replace("#L10N_JSON#", &l10n)
         .replace("#ICON_SVGS_JSON#", &icons)
@@ -51,50 +49,13 @@ pub(crate) fn theme_css(is_dark: bool) -> String {
     theme::get_canvas_theme_css(is_dark)
 }
 
-pub fn update_window_position(hwnd: HWND) {
-    crate::overlay::result::scene_compositor::sync_controls(hwnd);
-}
-
-pub fn update_canvas() {
-    crate::overlay::result::scene_compositor::sync_all_controls();
-}
-
-pub fn send_refine_text_update(hwnd: HWND, text: &str, is_insert: bool) {
-    crate::overlay::result::scene_compositor::set_refine_text(hwnd, text, is_insert);
-}
-
-pub fn is_dragging() -> bool {
-    crate::overlay::result::scene_compositor::is_dragging()
-}
-
-pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
-    crate::overlay::result::scene_compositor::is_point_over_result_window(x, y)
-}
-
-pub fn set_drag_mode(hwnd: HWND, active: bool) {
-    crate::overlay::result::scene_compositor::set_external_drag(hwnd, active);
-}
-
-pub(crate) fn handle_action(
-    id: isize,
-    action: crate::overlay::result::scene_compositor::protocol::ButtonAction,
-) {
-    actions::handle(id, action);
-}
-
-pub(crate) fn handle_drag_finished(
-    id: isize,
-    targets: &[isize],
-    outcome: crate::overlay::result::scene_compositor::protocol::DragOutcome,
-) {
-    actions::handle_drag_finished(id, targets, outcome);
-}
+pub(super) use actions::{handle as handle_action, handle_drag_finished};
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn result_cards_and_controls_own_exactly_one_webview_builder() {
-        let compositor = include_str!("../scene_compositor/child.rs");
+        let compositor = include_str!("../child.rs");
         let controls = include_str!("mod.rs");
 
         assert_eq!(compositor.matches("WebViewBuilder::").count(), 1);
@@ -104,7 +65,7 @@ mod tests {
 
     #[test]
     fn opacity_updates_preserve_the_active_slider_element() {
-        let script = super::js::get_javascript();
+        let script = super::runtime::get_javascript();
         let actions = include_str!("actions.rs");
 
         assert!(script.contains("const { opacityPercent, ...structuralState } = state;"));
@@ -115,8 +76,27 @@ mod tests {
     }
 
     #[test]
+    fn refinement_editor_is_persistent_typed_and_ime_aware() {
+        let controls = super::runtime::get_javascript();
+        let editor = super::refine_runtime::get_javascript();
+
+        assert!(controls.contains("const hasPersistentEditor"));
+        assert!(controls.contains("!hasPersistentEditor && group.dataset.lastState"));
+        assert!(controls.contains("classList.toggle('proximity-pinned', hasPersistentEditor)"));
+        assert!(!controls.contains("generateRefineInputHTML"));
+        assert!(editor.contains("group.replaceChildren(editor.bar)"));
+        assert!(editor.contains("request_refine_focus"));
+        assert!(editor.contains("nativeFocusGranted"));
+        assert!(editor.contains("update_refine_draft"));
+        assert!(editor.contains("compositionstart"));
+        assert!(editor.contains("compositionend"));
+        assert!(editor.contains("event.isComposing"));
+        assert!(editor.contains("input.setRangeText"));
+    }
+
+    #[test]
     fn model_badge_renders_immediately_left_of_the_opacity_control() {
-        let script = super::js::get_javascript();
+        let script = super::runtime::get_javascript();
         let css = super::document_css();
 
         let buttons = script

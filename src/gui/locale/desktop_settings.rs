@@ -5,8 +5,6 @@ pub struct DesktopSettingsLocaleText {
     pub admin_startup_on: &'static str,
     pub admin_startup_success: &'static str,
     pub admin_startup_fail: &'static str,
-    pub graphics_mode_standard: &'static str,
-    pub graphics_mode_minimal: &'static str,
     pub usage_statistics_title: &'static str,
     pub usage_statistics_tooltip: &'static str,
     pub usage_check_link: &'static str,

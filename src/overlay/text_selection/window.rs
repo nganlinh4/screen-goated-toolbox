@@ -273,7 +273,7 @@ pub fn internal_create_tag_thread() {
                         let our_pid = std::process::id();
 
                         let over_result_window =
-                            crate::overlay::result::button_canvas::is_point_over_result_window(
+                            crate::overlay::result::scene_compositor::is_point_over_result_window(
                                 pt.x, pt.y,
                             );
 
@@ -292,7 +292,7 @@ pub fn internal_create_tag_thread() {
                         let distance = dx + dy;
 
                         let is_canvas_dragging =
-                            crate::overlay::result::button_canvas::is_dragging();
+                            crate::overlay::result::scene_compositor::is_dragging();
 
                         let hwnd_under_mouse = WindowFromPoint(pt);
                         let mut release_pid: u32 = 0;

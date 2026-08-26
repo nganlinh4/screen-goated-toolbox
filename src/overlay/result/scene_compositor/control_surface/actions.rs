@@ -1,23 +1,53 @@
-use crate::overlay::result::scene_compositor::protocol::{ButtonAction, DragOutcome};
+use super::super::protocol::{ButtonAction, DragOutcome};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-pub(super) fn handle(id: isize, action: ButtonAction) {
+pub(in crate::overlay::result::scene_compositor) fn handle(id: isize, action: ButtonAction) {
     let hwnd = HWND(id as *mut std::ffi::c_void);
-    if !matches!(action, ButtonAction::SetOpacity { .. }) {
+    if !matches!(
+        action,
+        ButtonAction::SetOpacity { .. } | ButtonAction::UpdateRefineDraft { .. }
+    ) {
         crate::overlay::result::raise_window(hwnd);
     }
     match action {
-        ButtonAction::Copy => post(hwnd, super::super::event_handler::misc::WM_COPY_CLICK),
-        ButtonAction::Undo => post(hwnd, super::super::event_handler::misc::WM_UNDO_CLICK),
-        ButtonAction::Redo => post(hwnd, super::super::event_handler::misc::WM_REDO_CLICK),
-        ButtonAction::Edit => post(hwnd, super::super::event_handler::misc::WM_EDIT_CLICK),
-        ButtonAction::Download => post(hwnd, super::super::event_handler::misc::WM_DOWNLOAD_CLICK),
-        ButtonAction::Back => post(hwnd, super::super::event_handler::misc::WM_BACK_CLICK),
-        ButtonAction::Forward => post(hwnd, super::super::event_handler::misc::WM_FORWARD_CLICK),
-        ButtonAction::Speaker => post(hwnd, super::super::event_handler::misc::WM_SPEAKER_CLICK),
+        ButtonAction::Copy => post(
+            hwnd,
+            crate::overlay::result::event_handler::misc::WM_COPY_CLICK,
+        ),
+        ButtonAction::Undo => post(
+            hwnd,
+            crate::overlay::result::event_handler::misc::WM_UNDO_CLICK,
+        ),
+        ButtonAction::Redo => post(
+            hwnd,
+            crate::overlay::result::event_handler::misc::WM_REDO_CLICK,
+        ),
+        ButtonAction::Edit => post(
+            hwnd,
+            crate::overlay::result::event_handler::misc::WM_EDIT_CLICK,
+        ),
+        ButtonAction::Download => post(
+            hwnd,
+            crate::overlay::result::event_handler::misc::WM_DOWNLOAD_CLICK,
+        ),
+        ButtonAction::Back => post(
+            hwnd,
+            crate::overlay::result::event_handler::misc::WM_BACK_CLICK,
+        ),
+        ButtonAction::Forward => post(
+            hwnd,
+            crate::overlay::result::event_handler::misc::WM_FORWARD_CLICK,
+        ),
+        ButtonAction::Speaker => post(
+            hwnd,
+            crate::overlay::result::event_handler::misc::WM_SPEAKER_CLICK,
+        ),
         ButtonAction::SetOpacity { value } => {
             crate::overlay::result::scene_compositor::set_control_scope_opacity(hwnd, value)
+        }
+        ButtonAction::UpdateRefineDraft { text } => {
+            crate::overlay::result::refine::update_refine_draft(hwnd, &text)
         }
         ButtonAction::SubmitRefine { text } => {
             crate::overlay::result::trigger_refine_submit(hwnd, &text)
@@ -29,7 +59,11 @@ pub(super) fn handle(id: isize, action: ButtonAction) {
     }
 }
 
-pub(super) fn handle_drag_finished(id: isize, targets: &[isize], outcome: DragOutcome) {
+pub(in crate::overlay::result::scene_compositor) fn handle_drag_finished(
+    id: isize,
+    targets: &[isize],
+    outcome: DragOutcome,
+) {
     let hwnd = HWND(id as *mut std::ffi::c_void);
     match outcome {
         DragOutcome::Moved => {

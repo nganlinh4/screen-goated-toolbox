@@ -312,6 +312,22 @@ fn handle_renderer_event(body: &str) {
                 super::region::update(host, true);
                 return;
             }
+            super::button_input::RendererInput::FocusRefine { id } => {
+                if !super::acceptance_offscreen() {
+                    super::activation::focus_renderer(host);
+                }
+                evaluate_script(&format!(
+                    "window.__SGT_REFINE_EDITOR__?.nativeFocusGranted('{}');",
+                    id
+                ));
+                super::region::update(host, true);
+                return;
+            }
+            super::button_input::RendererInput::ReleaseRefineFocus => {
+                super::activation::restore_nonactivating_style(host);
+                super::region::update(host, true);
+                return;
+            }
             super::button_input::RendererInput::Event(event) => {
                 emit_event(event);
                 return;
@@ -448,7 +464,6 @@ fn apply_scene_state(command: &HostCommand) {
                 card.document.clone_from(&update.document);
                 card.refining = update.refining;
                 card.navigation_loading = update.navigation_loading;
-                card.processing_effect = update.processing_effect;
                 card.background.clone_from(&update.background);
                 card.opacity = update.opacity;
                 card.visible = update.visible;
@@ -462,7 +477,6 @@ fn apply_scene_state(command: &HostCommand) {
                 card.document.clone_from(&update.document);
                 card.refining = update.refining;
                 card.navigation_loading = update.navigation_loading;
-                card.processing_effect = update.processing_effect;
                 card.background.clone_from(&update.background);
                 card.opacity = update.opacity;
                 card.visible = update.visible;

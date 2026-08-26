@@ -1,10 +1,10 @@
-pub mod button_canvas;
 mod event_handler;
 pub(crate) mod latency;
 pub mod layout;
 pub mod markdown_view;
 mod raw_webview;
 mod refine;
+mod refine_session;
 mod restore;
 pub mod scene_compositor;
 pub(crate) mod smoke;
@@ -48,7 +48,9 @@ use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};
 // Helper to check if any window is currently refining/editing
 pub fn is_any_refine_active() -> bool {
     let states = WINDOW_STATES.lock().unwrap();
-    states.values().any(|s| s.is_editing)
+    states
+        .values()
+        .any(|state| state.refine_session.is_editing())
 }
 
 // Helper to get the parent HWND of the active refine session
@@ -56,21 +58,22 @@ pub fn get_active_refine_parent() -> Option<HWND> {
     let states = WINDOW_STATES.lock().unwrap();
     states
         .iter()
-        .find(|(_, s)| s.is_editing)
+        .find(|(_, state)| state.refine_session.is_editing())
         .map(|(hwnd, _)| HWND(*hwnd as *mut std::ffi::c_void))
 }
 
 // Helper to update refine text
 pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
-    // Only update internal state if overwriting (for consistency)
+    // An overwrite is already complete; insertion is resolved against the live DOM caret
+    // and returns through the typed draft update event.
     if !is_insert {
         let hwnd_key = hwnd.0 as isize;
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&hwnd_key) {
-            state.input_text = text.to_string();
+            state.refine_session.set_draft(text);
         }
     }
-    button_canvas::send_refine_text_update(hwnd, text, is_insert);
+    scene_compositor::set_refine_text(hwnd, text, is_insert);
 }
 
 /// Trigger copy action on a result window
@@ -94,7 +97,7 @@ pub fn trigger_copy(hwnd: HWND) {
         }
 
         // Update canvas to show success state
-        button_canvas::update_window_position(hwnd);
+        scene_compositor::sync_controls(hwnd);
 
         // Reset success flag after delay
         let hwnd_val = hwnd.0 as usize;
@@ -110,7 +113,7 @@ pub fn trigger_copy(hwnd: HWND) {
             let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
             unsafe {
                 if IsWindow(Some(hwnd)).as_bool() {
-                    button_canvas::update_window_position(hwnd);
+                    scene_compositor::sync_controls(hwnd);
                 }
             }
         });
@@ -153,7 +156,7 @@ pub fn trigger_undo(hwnd: HWND) {
         raw_webview::request_sync(hwnd);
 
         // Update canvas
-        button_canvas::update_window_position(hwnd);
+        scene_compositor::sync_controls(hwnd);
     }
 }
 
@@ -191,7 +194,7 @@ pub fn trigger_redo(hwnd: HWND) {
         });
         raw_webview::request_sync(hwnd);
 
-        button_canvas::update_window_position(hwnd);
+        scene_compositor::sync_controls(hwnd);
     }
 }
 
@@ -268,7 +271,7 @@ pub fn trigger_speaker(hwnd: HWND) {
         crate::log_info!("[TTS] ERROR: full_text is empty - nothing to speak");
     }
 
-    button_canvas::update_window_position(hwnd);
+    scene_compositor::sync_controls(hwnd);
 }
 
 pub(crate) fn control_action_text(hwnd: HWND) -> (String, bool) {

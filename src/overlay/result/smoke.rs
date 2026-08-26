@@ -179,7 +179,7 @@ pub(crate) fn run() -> i32 {
         }
         wait_for_navigation(hwnd, 1, true)
     });
-    let restarted = super::scene_compositor::restart_and_wait(Duration::from_secs(10));
+    let (refine_editor, restarted) = verify_refine_editor(&cards);
     let passed = rendered
         && raw_html_alive
         && raw_html_visible
@@ -187,6 +187,7 @@ pub(crate) fn run() -> i32 {
         && markdown_link_pixels
         && back_restored
         && forward_restored
+        && refine_editor
         && restarted;
     std::thread::sleep(Duration::from_millis(500));
     close_cards(&cards);
@@ -194,11 +195,63 @@ pub(crate) fn run() -> i32 {
         let _ = thread.join();
     }
     crate::debug_log::log_debug(&format!(
-        "[OverlaySmoke] status={} cards={card_count} fitted_cards={rendered} raw_html_alive={raw_html_alive} raw_html_visible={raw_html_visible} raw_html_pixels={raw_html_pixels} markdown_link_pixels={markdown_link_pixels} back_restored={back_restored} forward_restored={forward_restored} restart_restored={restarted}",
+        "[OverlaySmoke] status={} cards={card_count} fitted_cards={rendered} raw_html_alive={raw_html_alive} raw_html_visible={raw_html_visible} raw_html_pixels={raw_html_pixels} markdown_link_pixels={markdown_link_pixels} back_restored={back_restored} forward_restored={forward_restored} refine_editor={refine_editor} restart_restored={restarted}",
         if passed { "passed" } else { "failed" }
     ));
     std::thread::sleep(Duration::from_millis(150));
     if passed { 0 } else { 1 }
+}
+
+fn verify_refine_editor(cards: &[(HWND, String, std::thread::JoinHandle<()>)]) -> (bool, bool) {
+    let Some((hwnd, _, _)) = cards.get(1) else {
+        return (
+            true,
+            super::scene_compositor::restart_and_wait(Duration::from_secs(10)),
+        );
+    };
+    let hwnd = *hwnd;
+    super::trigger_edit(hwnd);
+    std::thread::sleep(Duration::from_millis(200));
+
+    const INITIAL: &str = "정리해 주세요 — viết ngắn lại";
+    const FIRST_INSERT: &str = " ✓";
+    const SECOND_INSERT: &str = " 재시작";
+    super::set_refine_text(hwnd, INITIAL, false);
+    std::thread::sleep(Duration::from_millis(100));
+    {
+        let mut states = WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+            state.copy_success = true;
+        }
+    }
+    super::scene_compositor::sync_controls(hwnd);
+    std::thread::sleep(Duration::from_millis(100));
+    super::set_refine_text(hwnd, FIRST_INSERT, true);
+    let first_roundtrip = wait_for_refine_draft(hwnd, &format!("{INITIAL}{FIRST_INSERT}"));
+
+    let restarted = super::scene_compositor::restart_and_wait(Duration::from_secs(10));
+    std::thread::sleep(Duration::from_millis(200));
+    super::set_refine_text(hwnd, SECOND_INSERT, true);
+    let second_roundtrip =
+        wait_for_refine_draft(hwnd, &format!("{INITIAL}{FIRST_INSERT}{SECOND_INSERT}"));
+    super::trigger_refine_cancel(hwnd);
+    (first_roundtrip && second_roundtrip, restarted)
+}
+
+fn wait_for_refine_draft(hwnd: HWND, expected: &str) -> bool {
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while std::time::Instant::now() < deadline {
+        if WINDOW_STATES
+            .lock()
+            .unwrap()
+            .get(&(hwnd.0 as isize))
+            .is_some_and(|state| state.refine_session.draft() == expected)
+        {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
 }
 
 fn interactive_acceptance_hold_ms() -> u64 {

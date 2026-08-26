@@ -236,7 +236,7 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
         // The frozen frame is opaque — at alpha=0 it matches live desktop exactly,
         // then dims smoothly as alpha increases. No visual discontinuity.
         if has_frozen && effective_alpha > 0 {
-            if IS_DRAGGING {
+            if selection_outline_visible(IS_DRAGGING, IS_SELECTION_COMMITTED) {
                 let rect_abs = RECT {
                     left: START_POS.x.min(CURR_POS.x),
                     top: START_POS.y.min(CURR_POS.y),
@@ -278,7 +278,7 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
             let bg_val = (effective_alpha as u32) << 24;
             pixels_u32.fill(bg_val);
 
-            if IS_DRAGGING {
+            if selection_outline_visible(IS_DRAGGING, IS_SELECTION_COMMITTED) {
                 let rect_abs = RECT {
                     left: START_POS.x.min(CURR_POS.x),
                     top: START_POS.y.min(CURR_POS.y),
@@ -340,6 +340,10 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
         let _ = DeleteDC(mem_dc);
         let _ = ReleaseDC(None, hdc_screen);
     }
+}
+
+fn selection_outline_visible(is_dragging: bool, is_committed: bool) -> bool {
+    is_dragging || is_committed
 }
 
 /// Draw anti-aliased rounded selection box using SDF
@@ -436,5 +440,17 @@ fn draw_rounded_selection_box(
 
             pixels_u32[idx] = (a << 24) | (c << 16) | (c << 8) | c;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::selection_outline_visible;
+
+    #[test]
+    fn committed_selection_keeps_its_outline_after_mouse_release() {
+        assert!(selection_outline_visible(true, false));
+        assert!(selection_outline_visible(false, true));
+        assert!(!selection_outline_visible(false, false));
     }
 }

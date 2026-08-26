@@ -65,7 +65,6 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
             state.full_text.clone(),
             state.is_refining,
             state.is_navigation_loading,
-            state.processing_effect,
             state.preset_prompt.clone(),
             state.input_text.clone(),
             state.bg_color,
@@ -82,10 +81,10 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         )
     };
 
-    let rendered = render_for_compositor(&snapshot.0, snapshot.1, &snapshot.4, &snapshot.5);
+    let rendered = render_for_compositor(&snapshot.0, snapshot.1, &snapshot.3, &snapshot.4);
     let body = rendered.body;
     let document = rendered.isolated_document.map(with_card_bridge);
-    let Some(geometry) = read_geometry(hwnd, requested_visible, snapshot.10) else {
+    let Some(geometry) = read_geometry(hwnd, requested_visible, snapshot.9) else {
         return;
     };
     claim_window_onboarding_pulse(hwnd_key);
@@ -104,22 +103,21 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         external_navigation: super::super::raw_webview::is_active(hwnd),
         navigation_loading: snapshot.2,
         refining: snapshot.1,
-        processing_effect: snapshot.3,
-        background: format!("#{:06x}", snapshot.6 & 0x00ff_ffff),
-        opacity: snapshot.7,
+        background: format!("#{:06x}", snapshot.5 & 0x00ff_ffff),
+        opacity: snapshot.6,
         visible: geometry.visible,
-        streaming: snapshot.8,
-        streaming_enabled: snapshot.9,
+        streaming: snapshot.7,
+        streaming_enabled: snapshot.8,
         stack_order,
         controls,
-        presentation: snapshot.10,
-        backdrop_data_url: snapshot.11,
-        foreground_color: snapshot.12,
-        preferred_font_size: snapshot.13,
-        source_replacement: snapshot.13.is_some(),
-        source_vertical: snapshot.14,
-        source_regions: snapshot.15,
-        source_segments: snapshot.16,
+        presentation: snapshot.9,
+        backdrop_data_url: snapshot.10,
+        foreground_color: snapshot.11,
+        preferred_font_size: snapshot.12,
+        source_replacement: snapshot.12.is_some(),
+        source_vertical: snapshot.13,
+        source_regions: snapshot.14,
+        source_segments: snapshot.15,
     };
 
     let previous = scenes.insert(hwnd_key, card.clone());
@@ -195,7 +193,6 @@ fn command_for_transition(
                     document: card.document.clone(),
                     refining: card.refining,
                     navigation_loading: card.navigation_loading,
-                    processing_effect: card.processing_effect,
                     background: card.background.clone(),
                     opacity: card.opacity,
                     visible: card.visible,
@@ -210,7 +207,6 @@ fn command_for_transition(
                     document: card.document.clone(),
                     refining: card.refining,
                     navigation_loading: card.navigation_loading,
-                    processing_effect: card.processing_effect,
                     background: card.background.clone(),
                     opacity: card.opacity,
                     visible: card.visible,
@@ -421,7 +417,7 @@ fn theme_command(is_dark: bool) -> SceneTheme {
         .collect();
     SceneTheme {
         css: crate::overlay::result::markdown_view::css::get_theme_css(is_dark),
-        controls_css: crate::overlay::result::button_canvas::theme_css(is_dark),
+        controls_css: super::control_surface::theme_css(is_dark),
         cards,
     }
 }
@@ -482,7 +478,7 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
             raise_window_id(id);
         }
         ChildEvent::ButtonAction { id, action } => {
-            crate::overlay::result::button_canvas::handle_action(id, action);
+            super::control_surface::handle_action(id, action);
         }
         ChildEvent::DragStarted => DRAGGING.store(true, Ordering::SeqCst),
         ChildEvent::DragFinished {
@@ -491,7 +487,7 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
             outcome,
         } => {
             DRAGGING.store(false, Ordering::SeqCst);
-            crate::overlay::result::button_canvas::handle_drag_finished(id, &targets, outcome);
+            super::control_surface::handle_drag_finished(id, &targets, outcome);
             if outcome == super::protocol::DragOutcome::Moved {
                 settle_drag_geometry(&targets);
             } else {
@@ -515,7 +511,7 @@ fn update_navigation_state(id: isize, depth: usize, max_depth: usize) {
             state.max_navigation_depth = max_depth;
             state.is_browsing = depth > 0;
             if state.is_browsing {
-                state.is_editing = false;
+                state.refine_session.cancel_edit();
             }
             true
         })

@@ -30,7 +30,8 @@ pub static mut MAG_INITIALIZED: bool = false;
 // --- CONFIGURATION CONSTANTS ---
 pub const FADE_TIMER_ID: usize = 2;
 pub const TARGET_OPACITY: u8 = 120;
-pub const FADE_STEP: u8 = 40;
+pub const FADE_IN_STEP: u8 = 40;
+pub const FADE_OUT_STEP: u8 = 12;
 
 // --- ZOOM CONSTANTS ---
 pub const ZOOM_STEP: f32 = 0.25;
@@ -44,6 +45,7 @@ pub static mut CURRENT_HOTKEY_ID: i32 = 0;
 pub static mut START_POS: POINT = POINT { x: 0, y: 0 };
 pub static mut CURR_POS: POINT = POINT { x: 0, y: 0 };
 pub static mut IS_DRAGGING: bool = false;
+pub static mut IS_SELECTION_COMMITTED: bool = false;
 pub static mut IS_FADING_OUT: bool = false;
 pub static mut CURRENT_ALPHA: u8 = 0;
 pub static SELECTION_OVERLAY_ACTIVE: AtomicBool = AtomicBool::new(false);

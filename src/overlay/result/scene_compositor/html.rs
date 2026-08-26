@@ -17,18 +17,8 @@ body{font-family:'Google Sans Flex';user-select:none}
 .processing-runner-glow,.processing-runner{stroke-linecap:round;stroke-linejoin:round}
 .processing-runner{opacity:.88}
 .processing-runner-glow{opacity:.3;filter:blur(1.5px)}
-.processing-scan{display:none;stroke:#00ff00;stroke-linecap:round;
-  filter:drop-shadow(0 0 2px #00ff00);transform:translate3d(0,0,0)}
 .result-card[data-processing="true"] .processing-aura{opacity:1}
 .result-card[data-surface="native"]{background:transparent!important;box-shadow:none!important}
-.result-card[data-processing-effect="minimal"] .processing-runner-glow,
-.result-card[data-processing-effect="minimal"] .processing-runner{display:none}
-.result-card[data-processing-effect="minimal"] .processing-scan{display:block;
-  animation:sgt-processing-scan .58s ease-in-out infinite alternate paused}
-.result-card[data-processing="true"][data-processing-effect="minimal"] .processing-scan{
-  animation-play-state:running;will-change:transform}
-@keyframes sgt-processing-scan{to{transform:translate3d(0,var(--sgt-scan-travel,0px),0)}}
-@media (prefers-reduced-motion:reduce){.processing-scan{animation:none!important}}
 .region-backdrop{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:0}
 .direct-host,.result-frame{position:absolute;inset:0;z-index:1;display:block;width:100%;height:100%;border:0;background:transparent;user-select:text}
 .result-frame{border-radius:inherit;clip-path:inset(0 round var(--sgt-box-radius,__SGT_BOX_RADIUS_PX__px))}

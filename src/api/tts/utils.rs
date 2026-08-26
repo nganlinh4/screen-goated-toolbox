@@ -36,7 +36,7 @@ pub fn clear_tts_loading_state(hwnd: isize) {
         }
 
         // Notify the unified result controls that state has changed.
-        crate::overlay::result::button_canvas::update_canvas();
+        crate::overlay::result::scene_compositor::sync_all_controls();
     }
 }
 
@@ -67,7 +67,7 @@ pub fn clear_tts_state(hwnd: isize) {
         }
 
         // Notify the unified result controls that state has changed.
-        crate::overlay::result::button_canvas::update_canvas();
+        crate::overlay::result::scene_compositor::sync_all_controls();
     }
 }
 

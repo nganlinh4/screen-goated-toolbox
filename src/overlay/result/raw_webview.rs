@@ -316,7 +316,7 @@ fn present_navigation(hwnd: HWND, loading: bool) {
         state.is_browsing = browsing;
         state.is_navigation_loading = browsing && loading;
         if state.is_browsing {
-            state.is_editing = false;
+            state.refine_session.cancel_edit();
         }
     }
     let active = browsing && !loading;

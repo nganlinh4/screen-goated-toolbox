@@ -77,13 +77,13 @@ pub unsafe extern "system" fn result_wnd_proc(
             }
             WM_ENTERSIZEMOVE => {
                 crate::overlay::result::raise_window(hwnd);
-                crate::overlay::result::button_canvas::set_drag_mode(hwnd, true);
+                crate::overlay::result::scene_compositor::set_external_drag(hwnd, true);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_EXITSIZEMOVE => {
                 save_window_geometry(hwnd, "WM_EXITSIZEMOVE");
-                crate::overlay::result::button_canvas::update_window_position(hwnd);
-                crate::overlay::result::button_canvas::set_drag_mode(hwnd, false);
+                crate::overlay::result::scene_compositor::sync_controls(hwnd);
+                crate::overlay::result::scene_compositor::set_external_drag(hwnd, false);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),

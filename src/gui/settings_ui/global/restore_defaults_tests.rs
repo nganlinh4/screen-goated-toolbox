@@ -37,7 +37,6 @@ const APP: &[&str] = &[
     "max_screen_record_projects",
     "max_screen_record_recent_uploads",
     "cc_max_memory_items",
-    "graphics_mode",
     "favorite_overlay_opacity",
     "start_in_tray",
     "show_startup_animation",
@@ -475,7 +474,6 @@ fn non_default_config() -> Config {
         max_screen_record_projects: defaults.max_screen_record_projects + 1,
         max_screen_record_recent_uploads: defaults.max_screen_record_recent_uploads + 1,
         cc_max_memory_items: defaults.cc_max_memory_items + 1,
-        graphics_mode: "minimal".to_string(),
         favorite_overlay_opacity: 42,
         pending_preset_model_update: Some(PendingPresetModelUpdate {
             target_version: "99.0.0".to_string(),

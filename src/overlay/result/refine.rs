@@ -1,23 +1,34 @@
 use windows::Win32::Foundation::HWND;
 
-use super::button_canvas;
+use super::refine_session::RefineSubmission;
 use super::state::WINDOW_STATES;
 
 /// Trigger edit/refine action
 pub fn trigger_edit(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
 
-    {
-        let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get_mut(&hwnd_key) {
-            state.is_editing = !state.is_editing;
-            if state.is_editing {
-                state.input_text.clear();
-            }
+    let mut states = WINDOW_STATES.lock().unwrap();
+    if let Some(state) = states.get_mut(&hwnd_key) {
+        if state.refine_session.is_editing() {
+            state.refine_session.cancel_edit();
+        } else {
+            state.refine_session.begin_edit();
         }
     }
+    drop(states);
 
-    button_canvas::update_window_position(hwnd);
+    super::scene_compositor::sync_controls(hwnd);
+}
+
+pub(crate) fn update_refine_draft(hwnd: HWND, text: &str) {
+    let changed = WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get_mut(&(hwnd.0 as isize))
+        .is_some_and(|state| state.refine_session.set_draft(text));
+    if changed {
+        super::scene_compositor::update_cached_refine_draft(hwnd, text);
+    }
 }
 
 pub fn trigger_refine_submit(hwnd: HWND, text: &str) {
@@ -29,31 +40,27 @@ pub fn trigger_refine_submit(hwnd: HWND, text: &str) {
 
     crate::overlay::input_history::add_to_history(text);
 
-    let mut should_trigger_refine = false;
-    {
+    let submission = (|| {
         let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get_mut(&hwnd_key) {
-            let text_to_refine = state.full_text.clone();
-            state.text_history.push(text_to_refine.clone());
-            state.redo_history.clear();
-            state.input_text = text_to_refine;
-            state.full_text = String::new();
-            should_trigger_refine = true;
-        }
-    }
-
-    if should_trigger_refine {
-        let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get_mut(&hwnd_key) {
-            state.is_editing = false;
-            state.is_refining = true;
-            state.is_streaming_active = true;
-        }
-        drop(states);
-        super::update_window_text(hwnd, "");
-        start_refinement(hwnd, text);
-    }
-    button_canvas::update_window_position(hwnd);
+        let state = states.get_mut(&hwnd_key)?;
+        let original_text = state.full_text.clone();
+        let submission = state
+            .refine_session
+            .begin_submit(original_text.clone(), text)?;
+        state.text_history.push(original_text.clone());
+        state.redo_history.clear();
+        state.input_text = original_text;
+        state.full_text.clear();
+        state.is_refining = true;
+        state.is_streaming_active = true;
+        Some(submission)
+    })();
+    let Some(submission) = submission else {
+        return;
+    };
+    super::update_window_text(hwnd, "");
+    start_refinement(hwnd, submission);
+    super::scene_compositor::sync_controls(hwnd);
 }
 
 pub fn trigger_refine_cancel(hwnd: HWND) {
@@ -61,39 +68,28 @@ pub fn trigger_refine_cancel(hwnd: HWND) {
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&hwnd_key) {
-            state.is_editing = false;
+            state.refine_session.cancel_edit();
         }
     }
-    button_canvas::update_window_position(hwnd);
+    super::scene_compositor::sync_controls(hwnd);
 }
 
-fn start_refinement(hwnd: HWND, user_prompt: &str) {
+fn start_refinement(hwnd: HWND, submission: RefineSubmission) {
     let hwnd_key = hwnd.0 as isize;
-    let (context_data, model_id, provider, streaming, preset_prompt, prev_text, chain_token) = {
-        let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(s) = states.get_mut(&hwnd_key) {
-            let prev = s.full_text.clone();
+    let (context_data, model_id, provider, streaming, chain_token) = {
+        let states = WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get(&hwnd_key) {
             (
-                s.context_data.clone(),
-                s.model_id.clone(),
-                s.provider.clone(),
-                s.streaming_enabled,
-                s.preset_prompt.clone(),
-                prev,
-                s.cancellation_token.clone(),
+                state.context_data.clone(),
+                state.model_id.clone(),
+                state.provider.clone(),
+                state.streaming_enabled,
+                state.cancellation_token.clone(),
             )
         } else {
             return;
         }
     };
-
-    let user_input = user_prompt.to_string();
-    let (final_prev_text, final_user_prompt) =
-        if prev_text.trim().is_empty() && !preset_prompt.is_empty() {
-            (user_input, preset_prompt)
-        } else {
-            (prev_text, user_input)
-        };
 
     let hwnd_val = hwnd.0 as usize;
     std::thread::spawn(move || {
@@ -124,8 +120,8 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
                 groq_api_key: &groq_key,
                 gemini_api_key: &gemini_key,
                 context: context_data,
-                previous_text: final_prev_text,
-                user_prompt: final_user_prompt,
+                previous_text: submission.original_text,
+                user_prompt: submission.instruction,
                 original_model_id: &model_id,
                 original_provider: &provider,
                 streaming_enabled: streaming,
@@ -144,6 +140,7 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
                     let mut states = WINDOW_STATES.lock().unwrap();
                     if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
                         state.is_refining = false;
+                        state.refine_session.mark_streaming();
                     }
                     first_chunk = false;
                 }
@@ -199,6 +196,7 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
             if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
                 state.is_refining = false;
                 state.is_streaming_active = false;
+                state.refine_session.finish();
             }
         }
         super::update_window_text(capture_hwnd, &final_text);

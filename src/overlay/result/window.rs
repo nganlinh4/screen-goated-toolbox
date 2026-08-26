@@ -6,8 +6,7 @@ use windows::core::*;
 
 use super::event_handler::result_wnd_proc;
 use super::state::{
-    RefineContext, ResultControlOptions, ResultPresentation, ResultProcessingEffect, WINDOW_STATES,
-    WindowState, WindowType,
+    RefineContext, ResultControlOptions, ResultPresentation, WINDOW_STATES, WindowState, WindowType,
 };
 
 pub const CHAIN_PALETTE: [u32; 5] = [
@@ -116,13 +115,10 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
 
         let width = (target_rect.right - target_rect.left).abs();
         let height = (target_rect.bottom - target_rect.top).abs();
-        let (favorite_overlay_opacity, processing_effect) = {
+        let favorite_overlay_opacity = {
             let app = crate::APP.lock().unwrap();
-            (
-                crate::config::types::normalize_result_overlay_opacity_percent(
-                    app.config.favorite_overlay_opacity,
-                ),
-                ResultProcessingEffect::from_graphics_mode(&app.config.graphics_mode),
+            crate::config::types::normalize_result_overlay_opacity_percent(
+                app.config.favorite_overlay_opacity,
             )
         };
 
@@ -153,7 +149,6 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
                 hwnd.0 as isize,
                 WindowState {
                     presentation: ResultPresentation::Standard,
-                    processing_effect,
                     control_options: None,
                     backdrop_data_url: None,
                     foreground_color: None,
@@ -162,7 +157,10 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
                     source_regions: Vec::new(),
                     source_segments: Vec::new(),
                     copy_success: false,
-                    is_editing: start_editing,
+                    refine_session: super::refine_session::RefineSession::restored(
+                        start_editing,
+                        String::new(),
+                    ),
                     context_data: context,
                     full_text: initial_text.clone(),
                     text_history: Vec::new(),
@@ -200,11 +198,6 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
         // The HWND owns geometry and resize hit-testing only. Rendering and
         // opacity belong exclusively to the scene compositor.
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 1, LWA_ALPHA);
-
-        if start_editing {
-            // Activate the geometry owner so the compositor refine input can take focus.
-            let _ = SetForegroundWindow(hwnd);
-        }
 
         hwnd
     }

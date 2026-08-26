@@ -407,60 +407,8 @@ pub fn render_global_settings(
 
             ui.add_space(8.0);
 
-            // Graphics Mode + Reset button on same row
+            // Force-quit remains available beside the app settings.
             ui.horizontal(|ui| {
-                let current_label = match config.ui_language.as_str() {
-                    "vi" => {
-                        if config.graphics_mode == "minimal" {
-                            "Tối giản"
-                        } else {
-                            "Tiêu chuẩn"
-                        }
-                    }
-                    "ko" => {
-                        if config.graphics_mode == "minimal" {
-                            "최소"
-                        } else {
-                            "표준"
-                        }
-                    }
-                    _ => {
-                        if config.graphics_mode == "minimal" {
-                            "Minimal"
-                        } else {
-                            "Standard"
-                        }
-                    }
-                };
-
-                crate::gui::widgets::combo("graphics_mode_combo")
-                    .selected_text(current_label)
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(
-                                config.graphics_mode == "standard",
-                                text.desktop_settings.graphics_mode_standard,
-                            )
-                            .clicked()
-                        {
-                            config.graphics_mode = "standard".to_string();
-                            changed = true;
-                        }
-                        if ui
-                            .selectable_label(
-                                config.graphics_mode == "minimal",
-                                text.desktop_settings.graphics_mode_minimal,
-                            )
-                            .clicked()
-                        {
-                            config.graphics_mode = "minimal".to_string();
-                            changed = true;
-                        }
-                    });
-
-                // Big gap to simulate right alignment
-                ui.add_space(40.0);
-
                 // Force Quit button — amber (less drastic than the red factory reset).
                 if crate::gui::widgets::filled_button(
                     ui,

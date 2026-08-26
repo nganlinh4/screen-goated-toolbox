@@ -94,7 +94,7 @@ function ensureCard(id) {
     navigationDepth: 0,
     navigationUrls: [],
     refining: false, navigationLoading: false, externalNavigation: false,
-    processingEffect: 'standard', streamingEnabled: true,
+    streamingEnabled: true,
     contentRevision: 0, revision: 0, resizeFit: 0,
     awaitingSettledReveal: false, settledRevealRevision: 0,
     pendingSettledPaint: null,
@@ -441,11 +441,9 @@ function applyContentModel(entry, model, type) {
   entry.refining = Boolean(model.refining);
   entry.navigationLoading = Boolean(model.navigation_loading);
   entry.externalNavigation = model.external_navigation === true;
-  entry.processingEffect = model.processing_effect === 'minimal' ? 'minimal' : 'standard';
   const processing = entry.refining || entry.navigationLoading;
   entry.card.dataset.processing = processing ? 'true' : 'false';
-  entry.card.dataset.processingEffect = entry.processingEffect;
-  entry.processing.setState(processing, entry.processingEffect);
+  entry.processing.setState(processing);
   if (type === 'finalize') entry.contentPhase = 'finalized';
   else if (entry.contentPhase !== 'finalized') entry.contentPhase = 'streaming';
   const nextDocument = model.document === undefined ? null : model.document;

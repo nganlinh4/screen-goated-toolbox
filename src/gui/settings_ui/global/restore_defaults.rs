@@ -356,7 +356,6 @@ fn apply_selected_config_defaults_from(
         config.max_screen_record_projects = defaults.max_screen_record_projects;
         config.max_screen_record_recent_uploads = defaults.max_screen_record_recent_uploads;
         config.cc_max_memory_items = defaults.cc_max_memory_items;
-        config.graphics_mode = defaults.graphics_mode.clone();
         config.favorite_overlay_opacity = defaults.favorite_overlay_opacity;
         config.start_in_tray = defaults.start_in_tray;
         config.show_startup_animation = defaults.show_startup_animation;

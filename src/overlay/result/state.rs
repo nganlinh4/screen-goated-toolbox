@@ -13,24 +13,6 @@ pub enum ResultPresentation {
     TextOnly,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ResultProcessingEffect {
-    #[default]
-    Standard,
-    Minimal,
-}
-
-impl ResultProcessingEffect {
-    pub fn from_graphics_mode(mode: &str) -> Self {
-        if mode == "minimal" {
-            Self::Minimal
-        } else {
-            Self::Standard
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResultControlOptions {
     pub anchor_rect: Option<[i32; 4]>,
@@ -133,7 +115,6 @@ pub enum RefineContext {
 
 pub struct WindowState {
     pub presentation: ResultPresentation,
-    pub processing_effect: ResultProcessingEffect,
     pub control_options: Option<ResultControlOptions>,
     pub backdrop_data_url: Option<String>,
     pub foreground_color: Option<String>,
@@ -143,8 +124,8 @@ pub struct WindowState {
     pub source_segments: Vec<String>,
     pub copy_success: bool,
 
-    // Edit Mode
-    pub is_editing: bool,            // Is the edit box open?
+    // Refinement editor state. The draft and lifecycle are canonical in Rust.
+    pub(crate) refine_session: super::refine_session::RefineSession,
     pub context_data: RefineContext, // Data needed for API call
     pub full_text: String,           // Current full text content
 

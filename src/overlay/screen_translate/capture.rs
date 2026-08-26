@@ -88,37 +88,31 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
     crate::overlay::result::latency::begin(&trace_id);
     let region_width = i32::try_from(region.width).context("selected region is too wide")?;
     let region_height = i32::try_from(region.height).context("selected region is too tall")?;
-    let (target_language, translation_model, translation_prompt, ui_language, graphics_mode) =
-        crate::APP
-            .lock()
-            .map(|app| {
-                (
-                    app.config.screen_translate.target_language.clone(),
-                    configured_translation_model(&app.config),
-                    app.config.screen_translate.translation_prompt.clone(),
-                    app.config.ui_language.clone(),
-                    app.config.graphics_mode.clone(),
-                )
-            })
-            .unwrap_or_else(|_| {
-                (
-                    "Vietnamese".to_string(),
-                    crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
-                    crate::config::types::ScreenTranslateSettings::default_prompt(),
-                    "en".to_string(),
-                    "standard".to_string(),
-                )
-            });
+    let (target_language, translation_model, translation_prompt, ui_language) = crate::APP
+        .lock()
+        .map(|app| {
+            (
+                app.config.screen_translate.target_language.clone(),
+                configured_translation_model(&app.config),
+                app.config.screen_translate.translation_prompt.clone(),
+                app.config.ui_language.clone(),
+            )
+        })
+        .unwrap_or_else(|_| {
+            (
+                "Vietnamese".to_string(),
+                crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
+                crate::config::types::ScreenTranslateSettings::default_prompt(),
+                "en".to_string(),
+            )
+        });
     let text = crate::gui::locale::LocaleText::get(&ui_language);
-    let processing = crate::overlay::process::ProcessingIndicator::show(
-        RECT {
-            left: region.left,
-            top: region.top,
-            right: region.left.saturating_add(region_width),
-            bottom: region.top.saturating_add(region_height),
-        },
-        graphics_mode,
-    )?;
+    let processing = crate::overlay::process::ProcessingIndicator::show(RECT {
+        left: region.left,
+        top: region.top,
+        right: region.left.saturating_add(region_width),
+        bottom: region.top.saturating_add(region_height),
+    })?;
     crate::overlay::result::latency::mark(&trace_id, "indicator_visible");
     let jpeg = encode_jpeg(&region.image)?;
     crate::overlay::result::latency::mark(&trace_id, "capture_encoded");

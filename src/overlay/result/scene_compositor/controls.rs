@@ -94,6 +94,14 @@ pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
     });
 }
 
+pub fn update_cached_refine_draft(hwnd: HWND, text: &str) {
+    if let Some(card) = SCENES.lock().unwrap().get_mut(&(hwnd.0 as isize))
+        && card.controls.is_editing
+    {
+        card.controls.input_text = text.to_string();
+    }
+}
+
 pub fn set_external_drag(hwnd: HWND, active: bool) {
     DRAGGING.store(active, Ordering::SeqCst);
     if active {
@@ -185,8 +193,8 @@ fn from_state(
         tts_loading: state.tts_loading,
         tts_speaking: state.tts_request_id != 0 && !state.tts_loading,
         is_browsing: state.is_browsing,
-        is_editing: state.is_editing,
-        input_text: state.input_text.clone(),
+        is_editing: state.refine_session.is_editing(),
+        input_text: state.refine_session.draft().to_string(),
         opacity_percent: state.opacity_percent,
         model_label: model_label(&state.model_id, &state.provider),
         group_ids: connected_ids(id, states),
@@ -248,7 +256,6 @@ mod tests {
     fn state(linked_windows: Vec<HWND>) -> WindowState {
         WindowState {
             presentation: crate::overlay::result::ResultPresentation::Standard,
-            processing_effect: Default::default(),
             control_options: None,
             backdrop_data_url: None,
             foreground_color: None,
@@ -257,7 +264,7 @@ mod tests {
             source_regions: Vec::new(),
             source_segments: Vec::new(),
             copy_success: false,
-            is_editing: false,
+            refine_session: crate::overlay::result::refine_session::RefineSession::default(),
             context_data: RefineContext::None,
             full_text: String::new(),
             text_history: Vec::new(),

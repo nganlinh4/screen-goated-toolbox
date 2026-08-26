@@ -57,7 +57,7 @@ fn authored_html_acceptance_is_captured_from_the_shared_compositor() {
 fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() {
     let child = include_str!("child.rs");
     let controls = include_str!("button_scene_runtime.js");
-    let pointer = crate::overlay::result::button_canvas::document_script();
+    let pointer = crate::overlay::result::scene_compositor::control_surface::document_script();
     let resize = include_str!("resize_runtime.js");
 
     assert!(!child.contains("ChildEvent::DragFinished { .. } =>"));

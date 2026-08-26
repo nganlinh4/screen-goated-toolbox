@@ -48,6 +48,7 @@ fn show_overlay(hotkey_id: i32) {
         CURRENT_ALPHA = 1; // Start at 1 to make the layered window hit-testable immediately
         IS_FADING_OUT = false;
         IS_DRAGGING = false;
+        IS_SELECTION_COMMITTED = false;
 
         // Reset zoom state
         ZOOM_LEVEL = 1.0;

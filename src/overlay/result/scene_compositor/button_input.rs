@@ -13,6 +13,8 @@ pub(super) enum RendererInput {
     Unhandled,
     Handled,
     RefreshRegion,
+    FocusRefine { id: isize },
+    ReleaseRefineFocus,
     Event(ChildEvent),
     EventAndRefresh(ChildEvent),
 }
@@ -72,6 +74,9 @@ pub(super) fn handle_renderer_message(
         update_regions(&message);
         return RendererInput::RefreshRegion;
     }
+    if action == "release_refine_focus" {
+        return RendererInput::ReleaseRefineFocus;
+    }
     let id = message
         .get("hwnd")
         .and_then(|value| value.as_str())
@@ -98,10 +103,7 @@ pub(super) fn handle_renderer_message(
     }
     match action {
         "interact" => RendererInput::Event(ChildEvent::Interaction { id }),
-        "request_focus" => {
-            super::activation::focus_renderer(host);
-            RendererInput::RefreshRegion
-        }
+        "request_refine_focus" => RendererInput::FocusRefine { id },
         "result_drag_start" => begin_drag(id, DragMode::One, cards),
         "result_group_drag_start" => begin_drag(id, DragMode::Group, cards),
         "result_all_drag_start" => begin_drag(id, DragMode::All, cards),
@@ -141,6 +143,7 @@ fn button_action(id: isize, name: &str, message: &serde_json::Value) -> Option<C
                 .clamp(10.0, 100.0)
                 .round() as u8,
         },
+        "update_refine_draft" => ButtonAction::UpdateRefineDraft { text: text() },
         "submit_refine" => ButtonAction::SubmitRefine { text: text() },
         "cancel_refine" => ButtonAction::CancelRefine,
         "history_up_refine" => ButtonAction::HistoryUpRefine { text: text() },
@@ -456,11 +459,32 @@ unsafe fn place_resized_target(resize: &ActiveResize, dx: i32, dy: i32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        ResizeEdge, button_action, drag_offset, interactive_regions, resized_rect,
-        translated_origin, update_regions,
+        RendererInput, ResizeEdge, button_action, drag_offset, handle_renderer_message,
+        interactive_regions, resized_rect, translated_origin, update_regions,
     };
     use crate::overlay::result::scene_compositor::protocol::{ButtonAction, ChildEvent, SceneRect};
     use windows::Win32::Foundation::RECT;
+
+    #[test]
+    fn refinement_focus_messages_use_an_explicit_child_contract() {
+        let cards = std::collections::HashMap::new();
+        assert_eq!(
+            handle_renderer_message(
+                r#"{"action":"request_refine_focus","hwnd":"42"}"#,
+                windows::Win32::Foundation::HWND::default(),
+                &cards,
+            ),
+            RendererInput::FocusRefine { id: 42 }
+        );
+        assert_eq!(
+            handle_renderer_message(
+                r#"{"action":"release_refine_focus","hwnd":"0"}"#,
+                windows::Win32::Foundation::HWND::default(),
+                &cards,
+            ),
+            RendererInput::ReleaseRefineFocus
+        );
+    }
 
     #[test]
     fn renderer_actions_become_typed_parent_events() {
@@ -473,6 +497,19 @@ mod tests {
             })
         );
         assert!(button_action(42, "unknown", &message).is_none());
+        assert_eq!(
+            button_action(
+                42,
+                "update_refine_draft",
+                &serde_json::json!({ "text": "shorter" })
+            ),
+            Some(ChildEvent::ButtonAction {
+                id: 42,
+                action: ButtonAction::UpdateRefineDraft {
+                    text: "shorter".to_string()
+                }
+            })
+        );
     }
 
     #[test]

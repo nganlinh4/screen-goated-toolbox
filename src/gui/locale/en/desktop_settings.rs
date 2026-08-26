@@ -8,8 +8,6 @@ pub(super) fn get() -> DesktopSettingsLocaleText {
         admin_startup_on: "Run as Administrator on startup",
         admin_startup_success: "Enabled: Will run as Admin on startup (Task Scheduler).",
         admin_startup_fail: "Error: Must run App as Admin to set this.",
-        graphics_mode_standard: "Standard (Gradient glow effect)",
-        graphics_mode_minimal: "Minimal for weak PC (Laser scan effect)",
         usage_statistics_title: "Usage Statistics",
         usage_statistics_tooltip: "Use a model at least once for accurate data",
         usage_check_link: "Check Usage",

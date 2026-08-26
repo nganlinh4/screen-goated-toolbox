@@ -167,7 +167,10 @@ pub unsafe extern "system" fn selection_wnd_proc(
                     }
 
                     if width > 10 && height > 10 {
-                        // Handle selection
+                        // Keep the final outline frozen during the selection-to-processing
+                        // handoff. The fade can repaint before the processing thread presents
+                        // its first frame; removing the outline here would expose that gap.
+                        IS_SELECTION_COMMITTED = true;
                         if let Some(result) = handle_selection(hwnd, rect) {
                             return result;
                         }
@@ -352,6 +355,7 @@ unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
         }
 
         if crate::overlay::continuous_mode::is_active() {
+            IS_SELECTION_COMMITTED = false;
             START_POS = POINT::default();
             CURR_POS = POINT::default();
             ZOOM_ALPHA_OVERRIDE = None;
@@ -491,8 +495,8 @@ unsafe fn handle_fade_timer(hwnd: HWND) {
     unsafe {
         let mut changed = false;
         if IS_FADING_OUT {
-            if CURRENT_ALPHA > FADE_STEP {
-                CURRENT_ALPHA -= FADE_STEP;
+            if CURRENT_ALPHA > FADE_OUT_STEP {
+                CURRENT_ALPHA -= FADE_OUT_STEP;
                 changed = true;
             } else {
                 CURRENT_ALPHA = 0;
@@ -503,7 +507,7 @@ unsafe fn handle_fade_timer(hwnd: HWND) {
             }
         } else if CURRENT_ALPHA < TARGET_OPACITY {
             CURRENT_ALPHA =
-                (CURRENT_ALPHA as u16 + FADE_STEP as u16).min(TARGET_OPACITY as u16) as u8;
+                (CURRENT_ALPHA as u16 + FADE_IN_STEP as u16).min(TARGET_OPACITY as u16) as u8;
             changed = true;
         } else {
             let _ = KillTimer(Some(hwnd), FADE_TIMER_ID);

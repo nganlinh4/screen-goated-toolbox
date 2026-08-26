@@ -5,49 +5,6 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-pub const MAX_GLOW_BUFFER_DIM: i32 = 1280;
-
-pub struct ProcessingState {
-    pub animation_offset: f32,
-    pub is_fading_out: bool,
-    pub alpha: u8,
-    pub cache_hbm: HBITMAP,
-    pub cache_bits: *mut core::ffi::c_void,
-    pub scaled_w: i32,
-    pub scaled_h: i32,
-    pub timer_killed: bool,
-    pub graphics_mode: String,
-}
-
-unsafe impl Send for ProcessingState {}
-unsafe impl Sync for ProcessingState {}
-
-impl ProcessingState {
-    pub fn new(graphics_mode: String) -> Self {
-        Self {
-            animation_offset: 0.0,
-            is_fading_out: false,
-            alpha: 255,
-            cache_hbm: HBITMAP::default(),
-            cache_bits: std::ptr::null_mut(),
-            scaled_w: 0,
-            scaled_h: 0,
-            timer_killed: false,
-            graphics_mode,
-        }
-    }
-
-    pub fn cleanup(&mut self) {
-        if !self.cache_hbm.is_invalid() {
-            unsafe {
-                let _ = DeleteObject(self.cache_hbm.into());
-            }
-            self.cache_hbm = HBITMAP::default();
-            self.cache_bits = std::ptr::null_mut();
-        }
-    }
-}
-
 // Per-chain window position tracking - ensures snake pattern only applies within the same chain
 // Key: chain_id (UUID string), Value: last window RECT for that chain
 static CHAIN_WINDOW_POSITIONS: LazyLock<Mutex<HashMap<String, RECT>>> =

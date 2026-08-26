@@ -1,4 +1,4 @@
-//! CSS styles for the result compositor's control layer.
+//! CSS for controls rendered by the shared result scene compositor.
 
 pub fn get_base_css() -> &'static str {
     r#"

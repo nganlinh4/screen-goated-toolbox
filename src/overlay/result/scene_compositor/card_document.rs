@@ -43,13 +43,10 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
             include_str!("surface_runtime.js"),
         )
         .replace("__SGT_FONT_FACE__", &super::font::face_css("/font.woff2"))
-        .replace(
-            "__SGT_BUTTON_CSS__",
-            crate::overlay::result::button_canvas::document_css(),
-        )
+        .replace("__SGT_BUTTON_CSS__", super::control_surface::document_css())
         .replace(
             "__SGT_BUTTON_SCRIPT__",
-            &crate::overlay::result::button_canvas::document_script(),
+            &super::control_surface::document_script(),
         )
         .replace(
             "__SGT_BUTTON_SCENE_RUNTIME__",

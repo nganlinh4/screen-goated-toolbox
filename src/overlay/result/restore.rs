@@ -1,4 +1,3 @@
-use super::button_canvas;
 use super::state::{ResultControlOptions, ResultPresentation, WINDOW_STATES, link_windows};
 use super::{
     RefineContext, ResultWindowParams, TextOnlyResultOptions, WindowType,
@@ -262,8 +261,10 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
                 state.full_text = window.full_text.clone();
                 state.text_history = window.text_history.clone();
                 state.redo_history = window.redo_history.clone();
-                state.input_text = window.input_text.clone();
-                state.is_editing = window.is_editing;
+                state.refine_session = super::refine_session::RefineSession::restored(
+                    window.is_editing,
+                    window.input_text.clone(),
+                );
                 state.is_refining = false;
                 state.is_streaming_active = false;
                 state.bg_color = window.bg_color;
@@ -285,7 +286,7 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOWNA);
         }
-        button_canvas::update_window_position(hwnd);
+        super::scene_compositor::sync_controls(hwnd);
 
         let _ = tx.send(Some(SendHwnd(hwnd)));
 
@@ -360,8 +361,8 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
             opacity_percent: state.opacity_percent,
             preset_id: state.preset_id.clone(),
             is_chain_root: state.is_chain_root,
-            is_editing: state.is_editing,
-            input_text: state.input_text.clone(),
+            is_editing: state.refine_session.is_editing(),
+            input_text: state.refine_session.draft().to_string(),
             linked_restore_ids: state
                 .linked_windows
                 .iter()

@@ -64,10 +64,7 @@ pub fn start_processing_pipeline(
 
                 let context = RefineContext::Image((*png_data).clone());
                 let config_clone = (*config).clone();
-                let graphics_mode = config_clone.graphics_mode.clone();
-
-                let processing_hwnd =
-                    unsafe { create_processing_window(screen_rect, graphics_mode) };
+                let processing_hwnd = unsafe { create_processing_window(screen_rect) };
                 unsafe {
                     let _ =
                         SendMessageW(processing_hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
@@ -105,8 +102,7 @@ pub fn start_processing_pipeline(
         return;
     }
 
-    let graphics_mode = config.graphics_mode.clone();
-    let processing_hwnd = unsafe { create_processing_window(screen_rect, graphics_mode) };
+    let processing_hwnd = unsafe { create_processing_window(screen_rect) };
     unsafe {
         let _ = SendMessageW(processing_hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
     }
@@ -162,8 +158,7 @@ pub fn start_processing_pipeline_parallel(
         return;
     }
 
-    let graphics_mode = config.graphics_mode.clone();
-    let processing_hwnd = unsafe { create_processing_window(screen_rect, graphics_mode) };
+    let processing_hwnd = unsafe { create_processing_window(screen_rect) };
     unsafe {
         let _ = SendMessageW(processing_hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
     }

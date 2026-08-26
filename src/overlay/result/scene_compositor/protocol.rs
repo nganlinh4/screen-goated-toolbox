@@ -1,6 +1,5 @@
 use crate::overlay::result::ResultPresentation;
 use crate::overlay::result::SourceReplacementRegion;
-use crate::overlay::result::state::ResultProcessingEffect;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -24,8 +23,6 @@ pub struct SceneCard {
     #[serde(default)]
     pub navigation_loading: bool,
     pub refining: bool,
-    #[serde(default)]
-    pub processing_effect: ResultProcessingEffect,
     pub background: String,
     pub opacity: u8,
     pub visible: bool,
@@ -131,8 +128,6 @@ pub struct SceneStream {
     pub refining: bool,
     #[serde(default)]
     pub navigation_loading: bool,
-    #[serde(default)]
-    pub processing_effect: ResultProcessingEffect,
     pub background: String,
     pub opacity: u8,
     pub visible: bool,
@@ -150,8 +145,6 @@ pub struct SceneFinalize {
     pub refining: bool,
     #[serde(default)]
     pub navigation_loading: bool,
-    #[serde(default)]
-    pub processing_effect: ResultProcessingEffect,
     pub background: String,
     pub opacity: u8,
     pub visible: bool,
@@ -186,6 +179,7 @@ pub enum ButtonAction {
     Forward,
     Speaker,
     SetOpacity { value: u8 },
+    UpdateRefineDraft { text: String },
     SubmitRefine { text: String },
     CancelRefine,
     HistoryUpRefine { text: String },
@@ -361,7 +355,6 @@ mod tests {
                 external_navigation: true,
                 navigation_loading: false,
                 refining: false,
-                processing_effect: ResultProcessingEffect::Standard,
                 background: "#112233".to_string(),
                 opacity: 85,
                 visible: true,
@@ -436,7 +429,6 @@ mod tests {
                 document: None,
                 refining: false,
                 navigation_loading: false,
-                processing_effect: ResultProcessingEffect::Standard,
                 background: "#112233".to_string(),
                 opacity: 75,
                 visible: true,
@@ -463,7 +455,6 @@ mod tests {
                 document: Some("<html><body><p>final body</p></body></html>".to_string()),
                 refining: false,
                 navigation_loading: false,
-                processing_effect: ResultProcessingEffect::Standard,
                 background: "#112233".to_string(),
                 opacity: 90,
                 visible: true,

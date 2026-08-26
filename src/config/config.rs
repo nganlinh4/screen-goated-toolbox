@@ -58,10 +58,6 @@ fn default_cc_memory_limit() -> usize {
     20
 }
 
-fn default_graphics_mode() -> String {
-    "standard".to_string()
-}
-
 fn default_show_startup_animation() -> bool {
     true
 }
@@ -222,10 +218,6 @@ pub struct Config {
     /// cap so the (numerous) normal history items can't evict CC conversations.
     #[serde(default = "default_cc_memory_limit")]
     pub cc_max_memory_items: usize,
-
-    /// Graphics mode: "standard" or "low"
-    #[serde(default = "default_graphics_mode")]
-    pub graphics_mode: String,
 
     /// Default opacity percentage for new result overlays
     #[serde(default = "default_result_overlay_opacity_percent")]
@@ -507,7 +499,6 @@ impl Default for Config {
             max_screen_record_projects: DEFAULT_PROJECTS_LIMIT,
             max_screen_record_recent_uploads: default_screen_record_upload_limit(),
             cc_max_memory_items: default_cc_memory_limit(),
-            graphics_mode: "standard".to_string(),
             favorite_overlay_opacity: default_result_overlay_opacity_percent(),
             result_controls_discovery_pulse_count: 0,
             restore_defaults_selection: RestoreDefaultsSelection::default(),

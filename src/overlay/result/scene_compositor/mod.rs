@@ -4,6 +4,7 @@ mod button_input;
 mod card_bridge;
 mod card_document;
 mod child;
+mod control_surface;
 mod controls;
 mod delivery;
 mod diagnostics;
@@ -22,6 +23,7 @@ mod webview_failure;
 pub use controls::{
     is_dragging, is_point_over_result_window, set_control_scope_opacity, set_external_drag,
     set_refine_text, sync as sync_controls, sync_all as sync_all_controls,
+    update_cached_refine_draft,
 };
 pub use parent::{
     go_back, go_forward, raise_window, register_window, remove_window, sync_geometry, sync_window,

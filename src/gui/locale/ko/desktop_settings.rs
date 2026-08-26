@@ -8,8 +8,6 @@ pub(super) fn get() -> DesktopSettingsLocaleText {
         admin_startup_on: "시작 시 관리자로 실행",
         admin_startup_success: "활성화됨: 시작 시 관리자 권한으로 실행됩니다 (작업 스케줄러).",
         admin_startup_fail: "오류: 이 설정은 관리자 권한으로 실행해야 변경 가능합니다.",
-        graphics_mode_standard: "표준 (그래디언트 글로우 효과)",
-        graphics_mode_minimal: "최소 (약한 컴퓨터용, 레이저 스캔 효과)",
         usage_statistics_title: "사용 통계",
         usage_statistics_tooltip: "정확한 데이터를 보려면 모델을 최소 한 번 사용하세요",
         usage_check_link: "사용량 확인",

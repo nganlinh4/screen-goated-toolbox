@@ -35,13 +35,10 @@ window.__SGT_CREATE_PROCESSING_AURA__ = function() {
     runner.setAttribute('stroke', 'url(#' + gradientId + ')');
     element.appendChild(runner);
   }
-  const scan = document.createElementNS(namespace, 'line');
-  scan.classList.add('processing-scan');
-  element.appendChild(scan);
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  let active = false; let effect = 'standard'; let running = false;
+  let active = false; let running = false;
   function syncMotion() {
-    const shouldRun = active && effect === 'standard' && !reducedMotion.matches;
+    const shouldRun = active && !reducedMotion.matches;
     if (shouldRun === running) return;
     running = shouldRun;
     if (shouldRun) motion.beginElement();
@@ -74,19 +71,12 @@ window.__SGT_CREATE_PROCESSING_AURA__ = function() {
     if (running) {
       motion.endElement(); motion.beginElement();
     }
-    const margin = 3 / scale;
-    scan.setAttribute('x1', String(margin));
-    scan.setAttribute('x2', String(Math.max(margin, width - margin)));
-    scan.setAttribute('y1', String(margin));
-    scan.setAttribute('y2', String(margin));
-    scan.setAttribute('stroke-width', String(stroke));
-    element.style.setProperty('--sgt-scan-travel', Math.max(0, height - margin * 2) + 'px');
   }
   return {
     element: element,
     resize: resize,
-    setState: function(nextActive, nextEffect) {
-      active = nextActive; effect = nextEffect; syncMotion();
+    setState: function(nextActive) {
+      active = nextActive; syncMotion();
     },
     destroy: function() {
       active = false; syncMotion();

@@ -11,7 +11,7 @@ pub struct ProcessingIndicator {
 }
 
 impl ProcessingIndicator {
-    pub fn show(rect: RECT, graphics_mode: String) -> Result<Self> {
+    pub fn show(rect: RECT) -> Result<Self> {
         if rect.left >= rect.right || rect.top >= rect.bottom {
             bail!("processing indicator rectangle is empty");
         }
@@ -19,7 +19,7 @@ impl ProcessingIndicator {
         let thread = std::thread::Builder::new()
             .name("sgt-processing-indicator".to_string())
             .spawn(move || {
-                let hwnd = unsafe { super::window::create_processing_window(rect, graphics_mode) };
+                let hwnd = unsafe { super::window::create_processing_window(rect) };
                 let raw = hwnd.0 as usize;
                 let _ = sender.send(raw);
                 if raw == 0 {

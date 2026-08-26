@@ -1,4 +1,4 @@
-//! Theme CSS for the result compositor's control layer.
+//! Theme CSS for controls rendered by the shared result scene compositor.
 
 /// Get theme-specific CSS variables
 pub fn get_canvas_theme_css(is_dark: bool) -> String {

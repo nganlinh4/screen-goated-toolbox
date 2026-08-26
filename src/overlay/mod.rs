@@ -22,7 +22,6 @@ pub mod image_continuous_mode; // Non-blocking image selection mode (right-click
 pub mod image_creator;
 pub mod image_to_svg;
 pub mod input_history; // Persistent input history for arrow up/down navigation
-pub mod paint_utils;
 pub mod preset_wheel;
 pub mod process;
 pub mod prompt_dj;

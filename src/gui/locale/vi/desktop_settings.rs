@@ -8,8 +8,6 @@ pub(super) fn get() -> DesktopSettingsLocaleText {
         admin_startup_on: "Chạy làm Admin khi khởi động",
         admin_startup_success: "Đã bật: Sẽ chạy Admin khi khởi động (Task Scheduler).",
         admin_startup_fail: "Lỗi: Cần chạy App bằng Admin để cài đặt tính năng này.",
-        graphics_mode_standard: "Tiêu chuẩn (Hiệu ứng gradient glow)",
-        graphics_mode_minimal: "Tối giản cho máy yếu (Hiệu ứng quét laser)",
         usage_statistics_title: "Thống kê sử dụng",
         usage_statistics_tooltip: "Dùng mô hình ít nhất một lần để hiện chính xác",
         usage_check_link: "Xem lượng dùng",
