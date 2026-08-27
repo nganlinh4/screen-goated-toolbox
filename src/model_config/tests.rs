@@ -206,6 +206,15 @@ fn live_translate_routing_comes_from_the_endpoint_profile() {
     assert!(!is_gemini_live_translate_model_id(
         GEMINI_LIVE_AUDIO_MODEL_ID_3_1
     ));
+    let transcribe_id = "google-gemini-3-5-transcribe-live-audio";
+    assert_eq!(
+        realtime_transcription_live_protocol(transcribe_id),
+        Some("live-transcribe")
+    );
+    assert_eq!(
+        realtime_transcription_api_model(transcribe_id),
+        "gemini-3.5-transcribe-live"
+    );
 }
 
 #[test]

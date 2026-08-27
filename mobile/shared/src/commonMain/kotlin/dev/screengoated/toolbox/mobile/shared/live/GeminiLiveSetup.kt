@@ -20,10 +20,12 @@ enum class GeminiLiveTranscriptionMode {
 
 data class GeminiLiveSetupSpec(
     val apiModel: String,
+    val responseModalities: List<String> = listOf("AUDIO"),
     val mediaResolution: GeminiLiveMediaResolution? = null,
     val voiceName: String? = null,
     val systemInstruction: String? = null,
     val transcriptionMode: GeminiLiveTranscriptionMode = GeminiLiveTranscriptionMode.NONE,
+    val inputAudioTranscriptionConfig: JsonObject = JsonObject(emptyMap()),
     val contextWindowCompression: Boolean = false,
     val reasoningOverride: GeminiLiveReasoningOverride? = null,
     val generationOverrides: JsonObject = JsonObject(emptyMap()),
@@ -60,7 +62,7 @@ fun buildGeminiLiveSetup(spec: GeminiLiveSetupSpec): JsonObject = buildJsonObjec
                 spec.transcriptionMode == GeminiLiveTranscriptionMode.INPUT ||
                 spec.transcriptionMode == GeminiLiveTranscriptionMode.BOTH
             ) {
-                put("inputAudioTranscription", buildJsonObject {})
+                put("inputAudioTranscription", spec.inputAudioTranscriptionConfig)
             }
             if (
                 spec.transcriptionMode == GeminiLiveTranscriptionMode.OUTPUT ||
@@ -80,7 +82,12 @@ fun buildGeminiLiveSetup(spec: GeminiLiveSetupSpec): JsonObject = buildJsonObjec
 
 private fun buildGenerationConfig(spec: GeminiLiveSetupSpec): JsonObject = buildJsonObject {
     spec.generationOverrides.forEach { (name, value) -> put(name, value) }
-    put("responseModalities", buildJsonArray { add(JsonPrimitive("AUDIO")) })
+    put(
+        "responseModalities",
+        buildJsonArray {
+            spec.responseModalities.forEach { modality -> add(JsonPrimitive(modality)) }
+        },
+    )
     val endpoint = GeneratedLiveModelCatalog.endpointProfile(spec.apiModel)
     endpoint?.maxOutputTokens?.let {
         put("maxOutputTokens", it)

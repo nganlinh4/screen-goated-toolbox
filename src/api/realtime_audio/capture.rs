@@ -20,6 +20,23 @@ fn request_device_reconnect(reason: &str) {
     DEVICE_RECONNECT_REQUESTED.store(true, Ordering::SeqCst);
 }
 
+fn handle_device_loopback_stream_error(error: cpal::Error) {
+    if stream_error_requires_reconnect(error.kind()) {
+        eprintln!("Audio stream error: {error}");
+        request_device_reconnect(&format!("stream error: {error}"));
+    }
+}
+
+fn stream_error_requires_reconnect(kind: cpal::ErrorKind) -> bool {
+    !matches!(
+        kind,
+        // CPAL reports a discontinuity on the first WASAPI loopback buffer as an
+        // xrun. The stream remains usable, so rebuilding it would repeat the
+        // same notification forever.
+        cpal::ErrorKind::Xrun | cpal::ErrorKind::DeviceChanged | cpal::ErrorKind::RealtimeDenied
+    )
+}
+
 #[cfg(target_os = "windows")]
 fn current_default_render_endpoint_id() -> Option<String> {
     unsafe {
@@ -239,10 +256,7 @@ pub fn start_device_loopback_capture(
 
     let stop_signal_audio = stop_signal.clone();
     let pause_signal_audio = pause_signal.clone();
-    let err_fn = |err| {
-        eprintln!("Audio stream error: {}", err);
-        request_device_reconnect(&format!("stream error: {err}"));
-    };
+    let err_fn = handle_device_loopback_stream_error;
 
     let stop_signal_monitor = stop_signal.clone();
     std::thread::spawn(move || {
@@ -547,4 +561,27 @@ fn retry_capture_stream(
 fn is_overlapped_io_pending_error(error: &anyhow::Error) -> bool {
     let detail = format!("{error:?}");
     detail.contains("os error 997") || detail.contains("Overlapped I/O operation is in progress")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recoverable_stream_notifications_do_not_request_device_reconnect() {
+        for kind in [
+            cpal::ErrorKind::Xrun,
+            cpal::ErrorKind::DeviceChanged,
+            cpal::ErrorKind::RealtimeDenied,
+        ] {
+            assert!(!stream_error_requires_reconnect(kind));
+        }
+    }
+
+    #[test]
+    fn fatal_stream_notification_requests_device_reconnect() {
+        assert!(stream_error_requires_reconnect(
+            cpal::ErrorKind::DeviceNotAvailable
+        ));
+    }
 }

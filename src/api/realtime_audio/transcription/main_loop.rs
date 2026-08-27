@@ -21,6 +21,41 @@ enum AudioMode {
     CatchUp,
 }
 
+#[derive(Default)]
+struct DedicatedTranscriptState {
+    committed: String,
+    interim: String,
+}
+
+impl DedicatedTranscriptState {
+    fn replace_interim(&mut self, text: &str) {
+        self.interim = text.to_string();
+    }
+
+    fn commit_final(&mut self, text: &str) {
+        if self.committed.is_empty() {
+            self.committed = text.trim_start().to_string();
+        } else if self
+            .committed
+            .chars()
+            .last()
+            .is_some_and(char::is_whitespace)
+            || text.chars().next().is_some_and(char::is_whitespace)
+        {
+            self.committed.push_str(text);
+        } else {
+            self.committed.push(' ');
+            self.committed.push_str(text);
+        }
+        self.interim.clear();
+    }
+
+    fn apply_to(&self, state: &mut crate::api::realtime_audio::state::RealtimeState) -> String {
+        state.set_transcript_segments(&self.committed, &self.interim);
+        state.display_transcript.clone()
+    }
+}
+
 impl AudioMode {
     fn as_str(self) -> &'static str {
         match self {
@@ -43,6 +78,10 @@ fn compute_i16_rms(samples: &[i16]) -> f32 {
     (sum_sq / samples.len() as f64).sqrt() as f32
 }
 
+fn uses_periodic_silence_cycle(uses_interim_transcripts: bool) -> bool {
+    !uses_interim_transcripts
+}
+
 pub(super) struct RealtimeMainLoop<'a> {
     pub(super) session: ReadyLiveSession,
     pub(super) audio_buffer: Arc<Mutex<Vec<i16>>>,
@@ -52,6 +91,8 @@ pub(super) struct RealtimeMainLoop<'a> {
     pub(super) gemini_live_model: &'a str,
     pub(super) gemini_api_key: &'a str,
     pub(super) capture_label: &'static str,
+    pub(super) reconnect_on_no_results: bool,
+    pub(super) uses_interim_transcripts: bool,
 }
 
 pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
@@ -64,6 +105,8 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
         gemini_live_model,
         gemini_api_key,
         capture_label,
+        reconnect_on_no_results,
+        uses_interim_transcripts,
     } = params;
     let mut last_send = Instant::now();
     let send_interval = Duration::from_millis(100);
@@ -90,6 +133,7 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
     let mut transcript_updates = 0u64;
     let mut transcript_chars = 0usize;
     let mut reconnect_count = 0u32;
+    let mut dedicated_transcript = DedicatedTranscriptState::default();
 
     while !stop_signal.load(Ordering::Relaxed) {
         if overlay_hwnd.0 != 0 as _ && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
@@ -109,24 +153,26 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
             }
         }
 
-        match audio_mode {
-            AudioMode::Normal => {
-                if mode_start.elapsed() >= NORMAL_DURATION {
-                    audio_mode = AudioMode::Silence;
-                    mode_start = Instant::now();
-                    silence_buffer.clear();
+        if uses_periodic_silence_cycle(uses_interim_transcripts) {
+            match audio_mode {
+                AudioMode::Normal => {
+                    if mode_start.elapsed() >= NORMAL_DURATION {
+                        audio_mode = AudioMode::Silence;
+                        mode_start = Instant::now();
+                        silence_buffer.clear();
+                    }
                 }
-            }
-            AudioMode::Silence => {
-                if mode_start.elapsed() >= SILENCE_DURATION {
-                    audio_mode = AudioMode::CatchUp;
-                    mode_start = Instant::now();
+                AudioMode::Silence => {
+                    if mode_start.elapsed() >= SILENCE_DURATION {
+                        audio_mode = AudioMode::CatchUp;
+                        mode_start = Instant::now();
+                    }
                 }
-            }
-            AudioMode::CatchUp => {
-                if silence_buffer.is_empty() {
-                    audio_mode = AudioMode::Normal;
-                    mode_start = Instant::now();
+                AudioMode::CatchUp => {
+                    if silence_buffer.is_empty() {
+                        audio_mode = AudioMode::Normal;
+                        mode_start = Instant::now();
+                    }
                 }
             }
         }
@@ -192,17 +238,35 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
 
         match session.poll() {
             Ok(LivePoll::Frame(frame)) => {
-                if let Some(transcript) = frame.input_transcript
-                    && !transcript.is_empty()
-                {
+                let transcript = if uses_interim_transcripts {
+                    match (frame.input_transcript, frame.interim_input_transcript) {
+                        (Some(text), _) => Some((text, true)),
+                        (None, Some(text)) => Some((text, false)),
+                        (None, None) => None,
+                    }
+                } else {
+                    frame.input_transcript.map(|text| (text, true))
+                };
+                if let Some((transcript, is_final)) = transcript {
                     last_transcription_time = Instant::now();
-                    active_samples_since_transcript = 0;
+                    if is_final {
+                        active_samples_since_transcript = 0;
+                    }
                     consecutive_empty_reads = 0;
                     transcript_updates += 1;
                     transcript_chars += transcript.chars().count();
                     let display_text = if let Ok(mut s) = state.lock() {
-                        s.append_transcript(&transcript);
-                        s.display_transcript.clone()
+                        if uses_interim_transcripts {
+                            if is_final {
+                                dedicated_transcript.commit_final(&transcript);
+                            } else {
+                                dedicated_transcript.replace_interim(&transcript);
+                            }
+                            dedicated_transcript.apply_to(&mut s)
+                        } else {
+                            s.append_transcript(&transcript);
+                            s.display_transcript.clone()
+                        }
                     } else {
                         String::new()
                     };
@@ -242,7 +306,8 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
             }
             Ok(LivePoll::Idle) => {
                 consecutive_empty_reads += 1;
-                if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
+                if reconnect_on_no_results
+                    && consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
                     && last_transcription_time.elapsed()
                         > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
                     && samples_to_ms(active_samples_since_transcript)
@@ -360,6 +425,101 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
 
 const ACTIVE_AUDIO_RMS_THRESHOLD: f32 = 0.004;
 const NO_RESULT_ACTIVE_AUDIO_THRESHOLD_MS: usize = 4_000;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dedicated_transcript_replaces_interim_and_commits_authoritative_text() {
+        let mut transcript = DedicatedTranscriptState::default();
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/gemini-transcribe-stream/events.json"
+        )))
+        .unwrap();
+        for event in fixture["events"].as_array().unwrap() {
+            let frame = crate::api::gemini_live::server_frame::parse_server_frame(
+                &event["payload"].to_string(),
+            )
+            .unwrap();
+            if let Some(final_text) = frame.input_transcript {
+                transcript.commit_final(&final_text);
+            } else if let Some(interim) = frame.interim_input_transcript {
+                transcript.replace_interim(&interim);
+            }
+        }
+        assert_eq!(transcript.committed, fixture["expectedCommitted"]);
+        assert_eq!(transcript.interim, fixture["expectedInterim"]);
+        transcript.commit_final("Bring the agenda.");
+        assert_eq!(
+            transcript.committed,
+            "Meet Wednesday at 2:00 PM. Bring the agenda."
+        );
+    }
+
+    #[test]
+    fn dedicated_interim_uses_sentence_boundaries_without_claiming_server_finality() {
+        let mut state = crate::api::realtime_audio::state::RealtimeState::new();
+        state.set_transcription_method(
+            crate::api::realtime_audio::state::TranscriptionMethod::GeminiTranscribe,
+        );
+        state.set_transcript_segments("", "Complete thought. uncertain words");
+        let interim = state.get_translation_request().unwrap();
+        assert_eq!(interim.finalized_source, "Complete thought.");
+        assert_eq!(interim.draft_source, " uncertain words");
+
+        state.set_transcript_segments("Corrected words without punctuation", "");
+        let final_request = state.get_translation_request().unwrap();
+        assert_eq!(
+            final_request.finalized_source,
+            "Corrected words without punctuation"
+        );
+        assert!(final_request.draft_source.is_empty());
+    }
+
+    #[test]
+    fn dedicated_punctuated_translation_rolls_back_after_interim_correction() {
+        let mut state = crate::api::realtime_audio::state::RealtimeState::new();
+        state.set_transcription_method(
+            crate::api::realtime_audio::state::TranscriptionMethod::GeminiTranscribe,
+        );
+        state.set_transcript_segments("", "Wrong day. trailing words");
+        let request = state.get_translation_request().unwrap();
+        assert!(state.apply_translation_result(&request, "Sai ngày.", "từ tiếp theo"));
+        assert_eq!(state.last_committed_pos, "Wrong day.".len());
+        assert_eq!(state.transcript_committed_pos, "Wrong day.".len());
+
+        state.set_transcript_segments("", "Wrong day. trailing words continue");
+        assert_eq!(state.transcript_committed_pos, "Wrong day.".len());
+
+        state.set_transcript_segments("", "Right day. trailing words");
+        assert_eq!(state.last_committed_pos, 0);
+        assert_eq!(state.transcript_committed_pos, 0);
+        assert!(state.committed_translation.is_empty());
+        assert!(state.uncommitted_translation.is_empty());
+    }
+
+    #[test]
+    fn dedicated_unpunctuated_translation_uses_bounded_silence_fallback() {
+        let mut state = crate::api::realtime_audio::state::RealtimeState::new();
+        state.set_transcription_method(
+            crate::api::realtime_audio::state::TranscriptionMethod::GeminiTranscribe,
+        );
+        state.set_transcript_segments("", "stable words without punctuation");
+        let request = state.get_translation_request().unwrap();
+        assert!(state.apply_translation_result(&request, "", "bản dịch ổn định"));
+        state.last_transcript_append_time = Instant::now() - Duration::from_millis(900);
+        state.last_translation_update_time = Instant::now() - Duration::from_millis(1_100);
+        assert!(state.should_force_commit_on_timeout());
+    }
+
+    #[test]
+    fn dedicated_transcription_streams_continuously_without_periodic_silence() {
+        assert!(!uses_periodic_silence_cycle(true));
+        assert!(uses_periodic_silence_cycle(false));
+    }
+}
 
 struct ReconnectContext<'a> {
     session: &'a mut ReadyLiveSession,

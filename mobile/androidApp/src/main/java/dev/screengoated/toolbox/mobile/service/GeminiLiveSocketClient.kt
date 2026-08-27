@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.service
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveMediaResolution
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSetupSpec
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveTranscriptionMode
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.buildGeminiLiveSetup
 import dev.screengoated.toolbox.mobile.shared.live.geminiLiveWebSocketRequest
 import dev.screengoated.toolbox.mobile.shared.live.parseGeminiLiveServerFrame
@@ -16,6 +17,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -43,8 +47,9 @@ class GeminiLiveSocketClient(
         apiKey: String,
         model: String,
         audioChunks: Flow<ShortArray>,
-        onTranscript: (String) -> Unit,
+        onTranscript: (String, Boolean) -> Unit,
     ) {
+        val isLiveTranscribe = isLiveTranscribeModel(model)
         val audioBuffer = LinkedBlockingDeque<ShortArray>()
         var silenceBuffer = mutableListOf<Short>()
         var audioMode = AudioMode.NORMAL
@@ -69,24 +74,26 @@ class GeminiLiveSocketClient(
             while (isActive && !collectJob.isCancelled) {
                 // Audio mode state machine transitions
                 val elapsed = System.currentTimeMillis() - modeStartMs
-                when (audioMode) {
-                    AudioMode.NORMAL -> {
-                        if (elapsed >= NORMAL_DURATION_MS) {
-                            audioMode = AudioMode.SILENCE
-                            modeStartMs = System.currentTimeMillis()
-                            silenceBuffer.clear()
+                if (!isLiveTranscribe) {
+                    when (audioMode) {
+                        AudioMode.NORMAL -> {
+                            if (elapsed >= NORMAL_DURATION_MS) {
+                                audioMode = AudioMode.SILENCE
+                                modeStartMs = System.currentTimeMillis()
+                                silenceBuffer.clear()
+                            }
                         }
-                    }
-                    AudioMode.SILENCE -> {
-                        if (elapsed >= SILENCE_DURATION_MS) {
-                            audioMode = AudioMode.CATCH_UP
-                            modeStartMs = System.currentTimeMillis()
+                        AudioMode.SILENCE -> {
+                            if (elapsed >= SILENCE_DURATION_MS) {
+                                audioMode = AudioMode.CATCH_UP
+                                modeStartMs = System.currentTimeMillis()
+                            }
                         }
-                    }
-                    AudioMode.CATCH_UP -> {
-                        if (silenceBuffer.isEmpty()) {
-                            audioMode = AudioMode.NORMAL
-                            modeStartMs = System.currentTimeMillis()
+                        AudioMode.CATCH_UP -> {
+                            if (silenceBuffer.isEmpty()) {
+                                audioMode = AudioMode.NORMAL
+                                modeStartMs = System.currentTimeMillis()
+                            }
                         }
                     }
                 }
@@ -149,7 +156,7 @@ class GeminiLiveSocketClient(
                         is LiveSocketEvent.Transcript -> {
                             lastTranscriptionMs = System.currentTimeMillis()
                             consecutiveEmptyPolls = 0
-                            onTranscript(event.text)
+                            onTranscript(event.text, event.isFinal)
                         }
                         is LiveSocketEvent.Error -> {
                             throw IOException(event.message)
@@ -172,7 +179,8 @@ class GeminiLiveSocketClient(
 
                 // Degradation detection: stalled connection
                 val timeSinceTranscription = System.currentTimeMillis() - lastTranscriptionMs
-                if (consecutiveEmptyPolls >= EMPTY_READ_CHECK_COUNT &&
+                if (!isLiveTranscribe &&
+                    consecutiveEmptyPolls >= EMPTY_READ_CHECK_COUNT &&
                     timeSinceTranscription > NO_RESULT_THRESHOLD_MS
                 ) {
                     session.socket.close(1000, "stalled")
@@ -203,7 +211,7 @@ class GeminiLiveSocketClient(
     )
 
     private sealed class LiveSocketEvent {
-        data class Transcript(val text: String) : LiveSocketEvent()
+        data class Transcript(val text: String, val isFinal: Boolean) : LiveSocketEvent()
         data class Error(val message: String) : LiveSocketEvent()
         data object Closed : LiveSocketEvent()
     }
@@ -280,7 +288,11 @@ class GeminiLiveSocketClient(
         }
 
         frame.inputTranscript?.let { transcript ->
-            events.offer(LiveSocketEvent.Transcript(transcript))
+            events.offer(LiveSocketEvent.Transcript(transcript, isFinal = true))
+            return
+        }
+        frame.interimInputTranscript?.let { transcript ->
+            events.offer(LiveSocketEvent.Transcript(transcript, isFinal = false))
             return
         }
     }
@@ -332,15 +344,29 @@ class GeminiLiveSocketClient(
         return true
     }
 
-    private fun buildSetupPayload(model: String): String {
+    internal fun buildSetupPayload(model: String): String {
+        val isLiveTranscribe = isLiveTranscribeModel(model)
         return buildGeminiLiveSetup(
             GeminiLiveSetupSpec(
                 apiModel = model,
-                mediaResolution = GeminiLiveMediaResolution.LOW,
+                responseModalities = if (isLiveTranscribe) listOf("TEXT") else listOf("AUDIO"),
+                mediaResolution = if (isLiveTranscribe) null else GeminiLiveMediaResolution.LOW,
                 transcriptionMode = GeminiLiveTranscriptionMode.INPUT,
+                inputAudioTranscriptionConfig = if (isLiveTranscribe) {
+                    buildJsonObject {
+                        put("languageCodes", buildJsonArray {})
+                        put("mode", "SMART")
+                    }
+                } else {
+                    buildJsonObject {}
+                },
             ),
         ).toString()
     }
+
+    private fun isLiveTranscribeModel(model: String): Boolean =
+        GeneratedLiveModelCatalog.endpointProfile(model)
+            ?.protocol == "live-transcribe"
 
     private companion object {
         private const val NORMAL_DURATION_MS = 20_000L

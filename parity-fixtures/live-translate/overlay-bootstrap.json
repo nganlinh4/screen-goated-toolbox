@@ -48,6 +48,7 @@
     ],
     "windowsTranscriptionProviders": [
       "google-gemini-3-5-live-translate-audio",
+      "google-gemini-3-5-transcribe-live-audio",
       "google-gemini-2-5-live-transcribe-audio",
       "google-gemini-3-1-live-transcribe-audio",
       "parakeet",
@@ -57,6 +58,7 @@
     ],
     "androidTranscriptionProviders": [
       "google-gemini-3-5-live-translate-audio",
+      "google-gemini-3-5-transcribe-live-audio",
       "google-gemini-2-5-live-transcribe-audio",
       "google-gemini-3-1-live-transcribe-audio",
       "parakeet",

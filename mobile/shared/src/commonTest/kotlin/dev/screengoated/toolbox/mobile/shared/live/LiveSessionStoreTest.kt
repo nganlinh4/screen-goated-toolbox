@@ -7,6 +7,95 @@ import kotlin.test.assertTrue
 
 class LiveSessionStoreTest {
     @Test
+    fun `Gemini Transcribe punctuation segments translation before authoritative final`() {
+        var state = LiveTranslateParity.reset(
+            transcriptionMethod = TranscriptionMethod.GEMINI_TRANSCRIBE,
+        )
+        state = LiveTranslateParity.setTranscriptSegments(
+            state = state,
+            committed = "",
+            draft = "Complete thought. uncertain words",
+            nowMs = 100,
+        )
+        val interim = requireNotNull(LiveTranslateParity.claimTranslationRequest(state))
+        assertEquals("Complete thought.", interim.finalizedSource)
+        assertEquals(" uncertain words", interim.draftSource)
+        state = LiveTranslateParity.applyTranslationResponse(
+            state = state,
+            request = interim,
+            response = TranslationResponse(
+                patches = listOf(
+                    TranslationPatch(
+                        sourceStart = interim.sourceStart,
+                        sourceEnd = interim.finalizedSourceEnd,
+                        state = "final",
+                        translation = "Ý hoàn chỉnh.",
+                    ),
+                    TranslationPatch(
+                        sourceStart = interim.draftSourceStart,
+                        sourceEnd = interim.sourceEnd,
+                        state = "draft",
+                        translation = "từ chưa chắc chắn",
+                    ),
+                ),
+            ),
+            nowMs = 150,
+        )
+        state = LiveTranslateParity.setTranscriptSegments(
+            state = state,
+            committed = "",
+            draft = "Complete thought. uncertain words continue",
+            nowMs = 175,
+        )
+        assertEquals("Complete thought.".length, state.transcriptCommittedPos)
+
+        state = LiveTranslateParity.setTranscriptSegments(
+            state = state,
+            committed = "Corrected words without punctuation",
+            draft = "",
+            nowMs = 200,
+        )
+        val finalRequest = requireNotNull(LiveTranslateParity.claimTranslationRequest(state))
+        assertEquals("Corrected words without punctuation", finalRequest.finalizedSource)
+        assertEquals("", finalRequest.draftSource)
+    }
+
+    @Test
+    fun `Gemini Transcribe unpunctuated translation uses bounded silence fallback`() {
+        var state = LiveTranslateParity.reset(
+            nowMs = 0,
+            transcriptionMethod = TranscriptionMethod.GEMINI_TRANSCRIBE,
+        )
+        state = LiveTranslateParity.setTranscriptSegments(
+            state = state,
+            committed = "",
+            draft = "stable words without punctuation",
+            nowMs = 100,
+        )
+        val request = requireNotNull(LiveTranslateParity.claimTranslationRequest(state))
+        state = LiveTranslateParity.applyTranslationResponse(
+            state = state,
+            request = request,
+            response = TranslationResponse(
+                patches = listOf(
+                    TranslationPatch(
+                        sourceStart = request.draftSourceStart,
+                        sourceEnd = request.sourceEnd,
+                        state = "draft",
+                        translation = "bản dịch ổn định",
+                    ),
+                ),
+            ),
+            nowMs = 200,
+        )
+
+        val (committed, didCommit) = LiveTranslateParity.forceCommitIfDue(state, nowMs = 1_301)
+        assertTrue(didCommit)
+        assertEquals("bản dịch ổn định", committed.committedTranslation)
+        assertEquals(request.sourceEnd, committed.lastCommittedPos)
+    }
+
+    @Test
     fun patch_updates_target_language_without_losing_defaults() {
         val store = LiveSessionStore()
 

@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "events": [
+    {
+      "payload": {
+        "serverContent": {
+          "interimInputTranscription": {
+            "text": "meet Tuesday"
+          }
+        }
+      },
+      "kind": "interim"
+    },
+    {
+      "payload": {
+        "serverContent": {
+          "interimInputTranscription": {
+            "text": "meet Wednesday at two"
+          }
+        }
+      },
+      "kind": "interim"
+    },
+    {
+      "payload": {
+        "serverContent": {
+          "inputTranscription": {
+            "text": "Meet Wednesday at 2:00 PM."
+          }
+        }
+      },
+      "kind": "final"
+    }
+  ],
+  "expectedCommitted": "Meet Wednesday at 2:00 PM.",
+  "expectedInterim": "",
+  "translationPolicy": {
+    "punctuatedInterim": "First complete sentence. trailing draft",
+    "expectedFinalizedSource": "First complete sentence.",
+    "extendedInterim": "First complete sentence. trailing draft continues",
+    "expectedDisplayCommittedSource": "First complete sentence.",
+    "authoritativeFinalWithoutPunctuation": "server finalized words",
+    "expectedTimeoutFallback": true
+  }
+}

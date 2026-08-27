@@ -15,6 +15,7 @@ use crate::api::gemini_live::ready_session::{ConnectedLiveSocket, OpenOptions, R
 use crate::api::gemini_live::setup::{LiveSetupBuilder, MediaResolution, TranscriptionMode};
 use crate::model_config::{
     normalize_realtime_transcription_model_id, realtime_transcription_api_model,
+    realtime_transcription_live_protocol,
 };
 use crate::overlay::realtime_webview::SELECTED_APP_PID;
 
@@ -37,10 +38,7 @@ fn open_ready_session(
     model: &str,
     cancelled: impl FnMut() -> bool,
 ) -> Result<ReadyLiveSession> {
-    let setup = LiveSetupBuilder::new(model)
-        .media_resolution(MediaResolution::Low)
-        .transcription(TranscriptionMode::Input)
-        .build();
+    let setup = build_realtime_transcription_setup(model);
     ConnectedLiveSocket::connect(api_key)?.activate_with(
         setup,
         OpenOptions {
@@ -49,6 +47,27 @@ fn open_ready_session(
         },
         cancelled,
     )
+}
+
+fn build_realtime_transcription_setup(model: &str) -> serde_json::Value {
+    let builder = LiveSetupBuilder::new(model).transcription(TranscriptionMode::Input);
+    if crate::model_config::live_endpoint_profile(model).and_then(|profile| profile.protocol)
+        == Some("live-transcribe")
+    {
+        builder
+            .generation_field("responseModalities", serde_json::json!(["TEXT"]))
+            .setup_field(
+                "inputAudioTranscription",
+                serde_json::json!({ "languageCodes": [], "mode": "SMART" }),
+            )
+            .build()
+    } else {
+        builder.media_resolution(MediaResolution::Low).build()
+    }
+}
+
+fn reconnect_on_no_results_for_protocol(protocol: Option<&str>) -> bool {
+    protocol != Some("live-transcribe")
 }
 
 fn setup_cancelled(stop_signal: &Arc<AtomicBool>) -> bool {
@@ -374,6 +393,9 @@ fn run_realtime_transcription(
         )
     };
     let gemini_live_model = realtime_transcription_api_model(&selected_model_id);
+    let live_protocol = realtime_transcription_live_protocol(&selected_model_id);
+    let reconnect_on_no_results = reconnect_on_no_results_for_protocol(live_protocol);
+    let uses_interim_transcripts = live_protocol == Some("live-transcribe");
 
     if gemini_api_key.trim().is_empty() {
         return Err(anyhow::anyhow!("NO_API_KEY:google"));
@@ -381,7 +403,11 @@ fn run_realtime_transcription(
 
     // Set transcription method to GeminiLive (uses delimiter-based segmentation)
     if let Ok(mut s) = state.lock() {
-        s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
+        s.set_transcription_method(if uses_interim_transcripts {
+            super::state::TranscriptionMethod::GeminiTranscribe
+        } else {
+            super::state::TranscriptionMethod::GeminiLive
+        });
     }
 
     let session = match open_ready_session(&gemini_api_key, &gemini_live_model, || {
@@ -466,8 +492,52 @@ fn run_realtime_transcription(
         gemini_live_model: &gemini_live_model,
         gemini_api_key: &gemini_api_key,
         capture_label,
+        reconnect_on_no_results,
+        uses_interim_transcripts,
     });
 
     drop(_stream);
     loop_result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_transcribe_setup_matches_shared_contract() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../parity-fixtures/gemini-transcribe-setup/live-transcribe.json"
+        ))
+        .expect("Gemini Transcribe setup fixture parses");
+
+        let actual = build_realtime_transcription_setup(
+            fixture["model"]
+                .as_str()
+                .expect("Gemini Transcribe fixture model is a string"),
+        );
+        assert_eq!(actual["setup"], fixture["setup"]);
+    }
+
+    #[test]
+    fn native_audio_transcription_keeps_audio_response_profile() {
+        let setup =
+            build_realtime_transcription_setup(crate::model_config::GEMINI_LIVE_API_MODEL_3_1);
+        assert_eq!(
+            setup["setup"]["generationConfig"]["responseModalities"],
+            serde_json::json!(["AUDIO"])
+        );
+        assert_eq!(
+            setup["setup"]["generationConfig"]["mediaResolution"],
+            "MEDIA_RESOLUTION_LOW"
+        );
+    }
+
+    #[test]
+    fn dedicated_transcription_uses_server_connection_state_for_reconnects() {
+        assert!(!reconnect_on_no_results_for_protocol(Some(
+            "live-transcribe"
+        )));
+        assert!(reconnect_on_no_results_for_protocol(Some("native-audio")));
+    }
 }

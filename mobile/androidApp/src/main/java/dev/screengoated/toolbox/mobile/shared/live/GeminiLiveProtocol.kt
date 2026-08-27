@@ -54,6 +54,7 @@ internal data class GeminiLiveServerFrame(
     val serverContentPresent: Boolean = false,
     val error: String? = null,
     val errorRetryable: Boolean = false,
+    val interimInputTranscript: String? = null,
     val inputTranscript: String? = null,
     val outputTranscript: String? = null,
     val contentParts: List<GeminiLiveContentPart> = emptyList(),
@@ -87,7 +88,7 @@ internal data class GeminiLiveServerFrame(
     val contentCount: Int
         get() = contentParts.count { it.text != null } +
             audioParts.size +
-            listOfNotNull(inputTranscript, outputTranscript).size
+            listOfNotNull(interimInputTranscript, inputTranscript, outputTranscript).size
 
     val hasPostSetupObservation: Boolean
         get() = serverContentPresent ||
@@ -180,6 +181,10 @@ internal fun parseGeminiLiveServerFrame(message: String): GeminiLiveServerFrame?
             serverContentPresent = root.containsKey("serverContent"),
             error = root["error"].geminiLiveErrorMessage(),
             errorRetryable = root["error"].geminiLiveErrorRetryable(),
+            interimInputTranscript = serverContent
+                ?.objectOrNull("interimInputTranscription")
+                ?.stringOrNull("text")
+                ?.takeIf(String::isNotBlank),
             inputTranscript = serverContent
                 ?.objectOrNull("inputTranscription")
                 ?.stringOrNull("text")

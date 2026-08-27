@@ -93,7 +93,7 @@
     another model attempt.
   - Android `text-llm` must reuse the same provider enabled/key availability checks as the preset retry chain before attempting a provider in the priority chain
   - `google-gtx` keeps the unofficial Google Translate endpoint and stays available without a key
-  - Windows transcription providers are exposed in this order: `gemini-3.5-translate`, `gemini-live-audio`, `gemini-live-audio-3.1`, `parakeet`, `qwen3-asr-0.6b`, `qwen3-asr-1.7b`, and `zipformer`
+  - Windows transcription providers are exposed in this order: Gemini Translate, Gemini Transcribe (`gemini-3.5-transcribe-live`), Gemini Live, Gemini S2S, Parakeet, Qwen3-ASR 0.6B, Qwen3-ASR 1.7B, and Zipformer
   - Android transcription providers expose the same cloud/S2S and Zipformer control surface, keep `parakeet` visible as unavailable, and additionally expose the documented Android-native Moonshine variants: `moonshine-tiny-streaming`, `moonshine-small-streaming`, and `moonshine-medium-streaming`
   - Legacy `gemini-live-s2s` remains a persisted-setting compatibility alias for `gemini-3.5-translate`; it is not a visible picker entry.
   - Android may mark Parakeet unavailable, but must not hide it, enable it in the picker, or pretend it is active
@@ -106,6 +106,7 @@
 - Gemini S2S first-audio retry and hard hedge timeouts scale with source audio length on both platforms, using the Windows grouped timeout formulas.
 - Gemini S2S display preserves the full accumulated source and target transcript on both platforms; it must not trim the committed display to only a recent window.
 - Gemini Translate continuous sockets execute the shared Gemini Live lifecycle reducer on both platforms: setup acknowledgement gates media and replay, recoverable socket failures schedule one generation-safe reconnect, bounded jitter/backoff resets only after meaningful server activity, server-idle recovery requires both elapsed silence and outbound chunk count, and long-lived sockets rotate only during a quiet safe gap. Health logs retain socket age / server idle / input idle / reconnect attempt counters.
+- Gemini Transcribe uses the dedicated `gemini-3.5-transcribe-live` endpoint on both platforms. Its setup requests text responses, automatic language detection, and `SMART` transcription, then continuously sends 16 kHz PCM in approximately 100 ms chunks only after setup acknowledgement. Healthy dedicated sessions must not inherit the legacy periodic silence injection or accelerated replay cycle. `interimInputTranscription` replaces the current draft hypothesis for immediate display; only authoritative `inputTranscription` finalizes and appends a transcription segment. Interim revisions must never be appended as duplicate transcript history. Translation segmentation may commit through the latest of the authoritative server-final boundary or a complete sentence delimiter in the current hypothesis, and the normal bounded silence fallback may flush a stable translated draft. The transcription pane's committed styling follows the furthest server-final or successfully translated source boundary and must not reset to all-draft styling when a later non-diverging interim arrives. A later interim correction before an already translated boundary must use the shared rollback path for both translation state and transcription styling. The dedicated stream reconnects only for transport/server failure rather than absence of finalized text.
 - Continuous Live Translate delivers content before applying an interruption from the same server frame. Playback admission is interruption-generation-safe: once stop completes, a previously dequeued stale audio chunk cannot restart output. Gemini Live tool effects are unsupported and must fail the session clearly rather than log and continue.
 - TTS Read behavior is part of the canonical overlay surface and must not be omitted from the control model
 - Android mobile uses a native overlay language picker window instead of relying on the embedded WebView `<select>` popup, because the control must remain usable inside detached overlay windows.
@@ -137,6 +138,8 @@
 - Shared overlay fixture: [parity-fixtures/live-translate/overlay-bootstrap.json](../../parity-fixtures/live-translate/overlay-bootstrap.json)
 - Shared Android WebView rendering fixture: [parity-fixtures/android-webview-overlays/rendering-contract.json](../../parity-fixtures/android-webview-overlays/rendering-contract.json)
 - Shared Gemini Live connection/recovery fixture: [parity-fixtures/gemini-live-session/lifecycle.json](../../parity-fixtures/gemini-live-session/lifecycle.json)
+- Shared Gemini Transcribe setup fixture: [parity-fixtures/gemini-transcribe-setup/live-transcribe.json](../../parity-fixtures/gemini-transcribe-setup/live-transcribe.json)
+- Shared Gemini Transcribe interim/final stream fixture: [parity-fixtures/gemini-transcribe-stream/events.json](../../parity-fixtures/gemini-transcribe-stream/events.json)
 - Kotlin parity tests must consume the shared fixture file.
 - Rust parity tests must consume the same shared fixture file or validate the same state transitions against `RealtimeState`.
 

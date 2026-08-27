@@ -15,6 +15,8 @@
     "gemini_live_s2s_model_id": "gemini-live-s2s",
     "gemini_live_translate_model_id": "google-gemini-3-5-live-translate-audio",
     "gemini_live_translate_api_model": "gemini-3.5-live-translate-preview",
+    "gemini_transcribe_model_id": "google-gemini-3-5-transcribe-live-audio",
+    "gemini_transcribe_api_model": "gemini-3.5-transcribe-live",
     "qwen3_asr_0_6b_model_id": "local-qwen-3-asr-600m-audio",
     "qwen3_asr_1_7b_model_id": "local-qwen-3-asr-1-7b-audio",
     "realtime_translation_model_llm": "text-llm",
@@ -80,6 +82,12 @@
       "replacement": null,
       "verified_at": "2026-08-19",
       "live_protocol": "live-translate"
+    },
+    "gemini-3.5-transcribe-live": {
+      "lifecycle": "stable",
+      "replacement": null,
+      "verified_at": "2026-08-27",
+      "live_protocol": "live-transcribe"
     },
     "qwen/qwen3.6-27b": {
       "lifecycle": "preview",
@@ -198,6 +206,7 @@
     "google-gemini-3-1-live-transcribe-audio",
     "google-gemini-3-5-live-translate-transcribe-audio",
     "google-gemini-3-5-live-translate-audio",
+    "google-gemini-3-5-transcribe-live-audio",
     "google-gtx-translate-text",
     "local-parakeet-120m-v1-audio",
     "local-qwen-3-asr-600m-audio",
@@ -221,6 +230,8 @@
     "google-gemini-3-5-live-translate-transcribe-audio": "google-gemini-3-5-live-translate-transcribe-audio",
     "google-gemini-3-5-live-translate-audio": "google-gemini-3-5-live-translate-audio",
     "gemini-3.5-live-translate-preview": "google-gemini-3-5-live-translate-audio",
+    "google-gemini-3-5-transcribe-live-audio": "google-gemini-3-5-transcribe-live-audio",
+    "gemini-3.5-transcribe-live": "google-gemini-3-5-transcribe-live-audio",
     "gemini-2.5-flash-native-audio-preview-12-2025": "google-gemini-2-5-live-transcribe-audio",
     "gemini-3.1-flash-live-preview": "google-gemini-3-1-live-transcribe-audio",
     "parakeet": "parakeet",
@@ -237,6 +248,7 @@
   "realtime_transcription_options": {
     "windows": [
       "google-gemini-3-5-live-translate-audio",
+      "google-gemini-3-5-transcribe-live-audio",
       "google-gemini-2-5-live-transcribe-audio",
       "google-gemini-3-1-live-transcribe-audio",
       "parakeet",
@@ -246,6 +258,7 @@
     ],
     "android": [
       "google-gemini-3-5-live-translate-audio",
+      "google-gemini-3-5-transcribe-live-audio",
       "google-gemini-2-5-live-transcribe-audio",
       "google-gemini-3-1-live-transcribe-audio",
       "parakeet",
@@ -734,6 +747,18 @@
       "name_vi": "GG Dịch live",
       "name_ko": "GG Live 번역",
       "name_en": "GG Live translation",
+      "quota_vi": "Không giới hạn",
+      "quota_ko": "무제한",
+      "quota_en": "Unlimited",
+      "intelligence_tier": 5,
+      "supports_search": false,
+      "search_tool_enabled_by_default": false,
+      "reasoning_policy": "live-profile"
+    },
+    "gemini-live:gemini-3.5-transcribe-live": {
+      "name_vi": "GG Live mới",
+      "name_ko": "GG 신규 Live",
+      "name_en": "GG New Live",
       "quota_vi": "Không giới hạn",
       "quota_ko": "무제한",
       "quota_en": "Unlimited",
@@ -1237,6 +1262,15 @@
       "enabled": true,
       "typical_latency_ms": 1200,
       "performance_source": "curated-2026-07-23:audio"
+    },
+    {
+      "id": "google-gemini-3-5-transcribe-live-audio",
+      "provider": "gemini-live",
+      "full_name": "gemini-3.5-transcribe-live",
+      "model_type": "Audio",
+      "enabled": true,
+      "typical_latency_ms": 1000,
+      "performance_source": "curated-2026-08-27:audio"
     },
     {
       "id": "google-gemini-2-5-live-custom-audio",

@@ -42,6 +42,7 @@ pub struct LiveServerFrame {
     pub server_content_present: bool,
     pub text_parts: Vec<LiveTextPart>,
     pub audio_chunks: Vec<Vec<u8>>,
+    pub interim_input_transcript: Option<String>,
     pub input_transcript: Option<String>,
     pub output_transcript: Option<String>,
     pub turn_complete: bool,
@@ -69,6 +70,7 @@ impl LiveServerFrame {
     pub fn content_count(&self) -> usize {
         self.text_parts.len()
             + self.audio_chunks.len()
+            + usize::from(self.interim_input_transcript.is_some())
             + usize::from(self.input_transcript.is_some())
             + usize::from(self.output_transcript.is_some())
     }
@@ -124,6 +126,7 @@ pub fn parse_server_frame(message: &str) -> serde_json::Result<LiveServerFrame> 
             == Some(true);
         frame.interrupted =
             server_content.get("interrupted").and_then(Value::as_bool) == Some(true);
+        frame.interim_input_transcript = transcription(server_content, "interimInputTranscription");
         frame.input_transcript = transcription(server_content, "inputTranscription");
         frame.output_transcript = transcription(server_content, "outputTranscription");
 
@@ -276,6 +279,7 @@ mod tests {
                     {"text": "visible"}
                 ]},
                 "inputTranscription": {"text": " heard "},
+                "interimInputTranscription": {"text": " hearing "},
                 "outputTranscription": {"text": " spoken "},
                 "interrupted": true,
                 "generationComplete": true
@@ -298,8 +302,9 @@ mod tests {
             ]
         );
         assert_eq!(frame.input_transcript.as_deref(), Some(" heard "));
+        assert_eq!(frame.interim_input_transcript.as_deref(), Some(" hearing "));
         assert_eq!(frame.output_transcript.as_deref(), Some(" spoken "));
-        assert_eq!(frame.content_count(), 6);
+        assert_eq!(frame.content_count(), 7);
         assert!(frame.interrupted);
         assert!(frame.generation_complete);
         assert!(!frame.turn_complete);

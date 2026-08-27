@@ -42,6 +42,7 @@ enum class SessionPhase {
 @Serializable
 enum class TranscriptionMethod {
     GEMINI_LIVE,
+    GEMINI_TRANSCRIBE,
     GEMINI_LIVE_S2S,
     PARAKEET,
     MOONSHINE,
@@ -121,6 +122,7 @@ data class LiveTextState(
     val frozenPrefix: String = "",
     val fullTranscript: String = "",
     val displayTranscript: String = "",
+    val transcriptCommittedPos: Int = 0,
     val lastCommittedPos: Int = 0,
     val lastProcessedLen: Int = 0,
     val committedTranslation: String = "",

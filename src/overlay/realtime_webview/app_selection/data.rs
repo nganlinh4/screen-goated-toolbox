@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 #[cfg(not(feature = "recorder-worker"))]
 use std::sync::{LazyLock, Mutex};
@@ -11,6 +11,9 @@ use windows::Win32::Media::Audio::{
 };
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+};
+use windows::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
@@ -39,8 +42,6 @@ pub struct AudioAppCandidate {
 #[derive(Clone, Debug)]
 struct AudioSessionCandidate {
     pid: u32,
-    process_name: String,
-    exe_path: Option<String>,
 }
 
 fn get_process_exe_path(pid: u32) -> Option<String> {
@@ -138,18 +139,7 @@ fn active_audio_session_candidates() -> Vec<AudioSessionCandidate> {
                 continue;
             }
 
-            let exe_path = get_process_exe_path(pid);
-            let process_name = exe_path
-                .as_deref()
-                .and_then(|path| Path::new(path).file_stem())
-                .and_then(|stem| stem.to_str())
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| format!("PID {pid}"));
-            sessions.push(AudioSessionCandidate {
-                pid,
-                process_name,
-                exe_path,
-            });
+            sessions.push(AudioSessionCandidate { pid });
         }
         sessions
     }
@@ -181,6 +171,45 @@ fn child_window_pids(hwnd: HWND) -> HashSet<u32> {
     pids
 }
 
+fn process_parent_map() -> HashMap<u32, u32> {
+    let mut parents = HashMap::new();
+    unsafe {
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return parents;
+        };
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                parents.insert(entry.th32ProcessID, entry.th32ParentProcessID);
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snapshot);
+    }
+    parents
+}
+
+fn is_same_process_tree_branch(
+    process_id: u32,
+    ancestor_id: u32,
+    parents: &HashMap<u32, u32>,
+) -> bool {
+    let mut current = process_id;
+    let mut visited = HashSet::new();
+    while current != 0 && visited.insert(current) {
+        if current == ancestor_id {
+            return true;
+        }
+        current = parents.get(&current).copied().unwrap_or_default();
+    }
+    false
+}
+
 fn hosted_child_exe_paths(hwnd: HWND, window_pid: u32) -> Vec<String> {
     let mut paths = Vec::new();
     let mut seen = HashSet::new();
@@ -197,44 +226,15 @@ fn hosted_child_exe_paths(hwnd: HWND, window_pid: u32) -> Vec<String> {
 
 fn resolve_capture_pid_for_window(
     window_pid: u32,
-    window_hwnd: HWND,
-    window_process_name: &str,
-    window_exe_path: Option<&str>,
     active_sessions: &[AudioSessionCandidate],
+    parents: &HashMap<u32, u32>,
 ) -> (u32, bool) {
-    if active_sessions
-        .iter()
-        .any(|session| session.pid == window_pid)
-    {
-        return (window_pid, true);
-    }
-
-    let child_pids = child_window_pids(window_hwnd);
-    for child_pid in child_pids {
-        if active_sessions
-            .iter()
-            .any(|session| session.pid == child_pid)
-        {
-            return (child_pid, true);
-        }
-    }
-
-    let normalized_window_name = normalize_process_match_key(window_process_name);
     for session in active_sessions {
-        if normalize_process_match_key(&session.process_name) == normalized_window_name {
-            return (session.pid, true);
+        if is_same_process_tree_branch(session.pid, window_pid, parents) {
+            return (window_pid, true);
         }
-    }
-
-    if let Some(window_exe_path) = window_exe_path
-        && let Some(window_parent) = Path::new(window_exe_path).parent()
-    {
-        for session in active_sessions {
-            if let Some(session_path) = session.exe_path.as_deref()
-                && Path::new(session_path).parent() == Some(window_parent)
-            {
-                return (session.pid, true);
-            }
+        if is_same_process_tree_branch(window_pid, session.pid, parents) {
+            return (session.pid, true);
         }
     }
 
@@ -243,16 +243,10 @@ fn resolve_capture_pid_for_window(
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn refresh_audio_capture_pid(candidate: &AudioAppCandidate) -> u32 {
-    let hwnd = HWND(candidate.window_hwnd as *mut std::ffi::c_void);
-    let exe_path = get_process_exe_path(candidate.pid);
     let active_sessions = active_audio_session_candidates();
-    let (capture_pid, resolved_audio) = resolve_capture_pid_for_window(
-        candidate.pid,
-        hwnd,
-        &candidate.process_name,
-        exe_path.as_deref(),
-        &active_sessions,
-    );
+    let parents = process_parent_map();
+    let (capture_pid, resolved_audio) =
+        resolve_capture_pid_for_window(candidate.pid, &active_sessions, &parents);
     if resolved_audio {
         if capture_pid != candidate.capture_pid {
             crate::log_info!(
@@ -295,20 +289,14 @@ pub fn refresh_selected_audio_capture_pid() -> Option<u32> {
     Some(refresh_audio_capture_pid(&candidate))
 }
 
-fn normalize_process_match_key(name: &str) -> String {
-    name.chars()
-        .filter(|ch| ch.is_ascii_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect()
-}
-
 pub fn enumerate_audio_app_candidates() -> Vec<AudioAppCandidate> {
     let mut apps: Vec<AudioAppCandidate> = Vec::new();
     let mut seen_pids: HashSet<u32> = HashSet::new();
     let active_sessions = active_audio_session_candidates();
+    let parents = process_parent_map();
 
     unsafe {
-        let mut callback_data = (&mut apps, &mut seen_pids, &active_sessions);
+        let mut callback_data = (&mut apps, &mut seen_pids, &active_sessions, &parents);
 
         extern "system" fn enum_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
             unsafe {
@@ -338,8 +326,9 @@ pub fn enumerate_audio_app_candidates() -> Vec<AudioAppCandidate> {
                         &mut Vec<AudioAppCandidate>,
                         &mut HashSet<u32>,
                         &Vec<AudioSessionCandidate>,
+                        &HashMap<u32, u32>,
                     ));
-                let (apps, seen_pids, active_sessions) = data;
+                let (apps, seen_pids, active_sessions, parents) = data;
                 if seen_pids.contains(&pid) {
                     return BOOL(1);
                 }
@@ -353,13 +342,8 @@ pub fn enumerate_audio_app_candidates() -> Vec<AudioAppCandidate> {
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| format!("PID {pid}"));
                 let (width, height) = get_window_size(hwnd);
-                let (capture_pid, resolved_audio) = resolve_capture_pid_for_window(
-                    pid,
-                    hwnd,
-                    &process_name,
-                    exe_path.as_deref(),
-                    active_sessions,
-                );
+                let (capture_pid, resolved_audio) =
+                    resolve_capture_pid_for_window(pid, active_sessions, parents);
                 if resolved_audio && capture_pid != pid {
                     crate::log_info!(
                         "[AppSelection] resolved window audio pid window_pid={} capture_pid={} name={}",
@@ -409,4 +393,32 @@ pub fn enumerate_audio_app_candidates() -> Vec<AudioAppCandidate> {
             .cmp(&right.display_name.to_lowercase())
     });
     apps
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(pid: u32) -> AudioSessionCandidate {
+        AudioSessionCandidate { pid }
+    }
+
+    #[test]
+    fn capture_resolution_uses_the_selected_window_process_tree() {
+        let parents = HashMap::from([(20, 10), (21, 20), (40, 30)]);
+        let sessions = vec![session(40), session(21)];
+        assert_eq!(
+            resolve_capture_pid_for_window(10, &sessions, &parents),
+            (10, true)
+        );
+    }
+
+    #[test]
+    fn capture_resolution_rejects_an_unrelated_same_app_instance() {
+        let parents = HashMap::from([(20, 10), (40, 30)]);
+        assert_eq!(
+            resolve_capture_pid_for_window(10, &[session(40)], &parents),
+            (10, false)
+        );
+    }
 }

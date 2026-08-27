@@ -38,6 +38,7 @@ object LiveTranslateParity {
             frozenPrefix = frozenPrefix,
             fullTranscript = "",
             displayTranscript = frozenPrefix,
+            transcriptCommittedPos = 0,
             lastCommittedPos = 0,
             lastProcessedLen = 0,
             committedTranslation = "",
@@ -89,11 +90,19 @@ object LiveTranslateParity {
         val newState = state.copy(
             fullTranscript = fullTranscript,
             displayTranscript = joinDisplayText(state.frozenPrefix, fullTranscript),
+            transcriptCommittedPos = committedPos.coerceAtMost(fullTranscript.length),
             lastTranscriptAppendAtMs = nowMs,
         )
 
-        return if (sharedPrefix < translationBoundary) {
-            rollbackTranslationTo(newState, sharedPrefix.coerceAtMost(fullTranscript.length))
+        val reconciled = if (sharedPrefix < translationBoundary) {
+            val rollbackPosition = if (
+                newState.transcriptionMethod == TranscriptionMethod.GEMINI_TRANSCRIBE
+            ) {
+                0
+            } else {
+                sharedPrefix.coerceAtMost(fullTranscript.length)
+            }
+            rollbackTranslationTo(newState, rollbackPosition)
         } else {
             if (state.uncommittedSourceStart > fullTranscript.length) {
                 clearUncommittedTranslation(newState)
@@ -105,6 +114,14 @@ object LiveTranslateParity {
                     ),
                 )
             }
+        }
+        return if (reconciled.transcriptionMethod == TranscriptionMethod.GEMINI_TRANSCRIBE) {
+            reconciled.copy(
+                transcriptCommittedPos = maxOf(committedPos, reconciled.lastCommittedPos)
+                    .coerceAtMost(fullTranscript.length),
+            )
+        } else {
+            reconciled
         }
     }
 
@@ -152,6 +169,7 @@ object LiveTranslateParity {
             transcriptionMethod = TranscriptionMethod.GEMINI_LIVE_S2S,
             fullTranscript = sourceFull,
             displayTranscript = joinDisplayText(state.frozenPrefix, sourceFull),
+            transcriptCommittedPos = sourceDraftStart,
             lastCommittedPos = sourceDraftStart,
             lastProcessedLen = sourceDraftStart,
             committedTranslation = targetCommitted,
@@ -284,14 +302,19 @@ object LiveTranslateParity {
 
         val sourceStart = state.lastCommittedPos
         val sourceEnd = state.fullTranscript.length
-        var splitIndex: Int? = null
+        var punctuatedLength = 0
         for (index in text.indices) {
             if (SENTENCE_DELIMITERS.contains(text[index])) {
-                splitIndex = index + 1
+                punctuatedLength = index + 1
             }
         }
-
-        val finalizedLength = splitIndex ?: 0
+        val finalizedLength = if (state.transcriptionMethod == TranscriptionMethod.GEMINI_TRANSCRIBE) {
+            val serverFinalizedLength =
+                (state.transcriptCommittedPos - sourceStart).coerceIn(0, text.length)
+            maxOf(serverFinalizedLength, punctuatedLength)
+        } else {
+            punctuatedLength
+        }
         val rawFinalizedSource = text.substring(0, finalizedLength)
         val rawDraftSource = text.substring(finalizedLength)
         val hasMeaningfulDraft = rawDraftSource.isNotBlank()

@@ -137,6 +137,7 @@
             'google-gemini-2-5-live-transcribe-audio': 'Gemini Live',
             'google-gemini-3-1-live-transcribe-audio': 'Gemini S2S',
             'google-gemini-3-5-live-translate-audio': 'Gemini Translate',
+            'google-gemini-3-5-transcribe-live-audio': 'Gemini Transcribe',
             'moonshine-tiny-streaming': 'Moonshine Tiny',
             'moonshine-small-streaming': 'Moonshine Small',
             'moonshine-medium-streaming': 'Moonshine Medium',

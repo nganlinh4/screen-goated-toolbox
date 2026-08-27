@@ -75,6 +75,7 @@ pub fn check_draft_commit(draft: &str, silence_ms: u64) -> Option<String> {
 pub enum TranscriptionMethod {
     #[default]
     GeminiLive,
+    GeminiTranscribe,
     Parakeet,
     Qwen3Local,
     SherpaZipformer,

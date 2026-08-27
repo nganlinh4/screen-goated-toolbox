@@ -49,10 +49,18 @@ impl RealtimeState {
     }
 
     fn sync_transcript_commit_pos_with_translation(&mut self) {
-        if self.transcription_method != TranscriptionMethod::Qwen3Local
-            && self.transcription_method != TranscriptionMethod::SherpaZipformer
-        {
-            self.transcript_committed_pos = self.last_committed_pos.min(self.full_transcript.len());
+        match self.transcription_method {
+            TranscriptionMethod::Qwen3Local | TranscriptionMethod::SherpaZipformer => {}
+            TranscriptionMethod::GeminiTranscribe => {
+                self.transcript_committed_pos = self
+                    .transcript_committed_pos
+                    .max(self.last_committed_pos)
+                    .min(self.full_transcript.len());
+            }
+            _ => {
+                self.transcript_committed_pos =
+                    self.last_committed_pos.min(self.full_transcript.len());
+            }
         }
     }
 
@@ -201,7 +209,7 @@ impl RealtimeState {
         let committed = Self::sanitize_transcript_segment(committed);
         let draft = Self::sanitize_transcript_segment(draft);
 
-        let (full_transcript, transcript_committed_pos) = if committed.is_empty() {
+        let (full_transcript, server_committed_pos) = if committed.is_empty() {
             (draft.trim_start().to_string(), 0)
         } else if draft.is_empty() {
             (committed.clone(), committed.len())
@@ -211,22 +219,24 @@ impl RealtimeState {
             (combined, pos)
         };
 
-        let transcript_committed_pos =
-            Self::clamp_to_char_boundary(&full_transcript, transcript_committed_pos);
+        let server_committed_pos =
+            Self::clamp_to_char_boundary(&full_transcript, server_committed_pos);
         let previous_transcript = self.full_transcript.clone();
         let translation_boundary = self.last_committed_pos.min(previous_transcript.len());
 
         self.full_transcript = full_transcript;
-        self.display_transcript = self.full_transcript.clone();
-        self.transcript_committed_pos = transcript_committed_pos;
+        self.update_display_transcript();
+        self.transcript_committed_pos = server_committed_pos;
         self.last_transcript_append_time = Instant::now();
 
         let shared_prefix = Self::shared_prefix_len(&previous_transcript, &self.full_transcript);
         if shared_prefix < translation_boundary {
-            // Partial rollback: keep translations up to the divergence point
-            // instead of nuking everything. Qwen3 makes minor formatting
-            // corrections (", " vs " , ") that shouldn't discard all translation.
-            if shared_prefix > 0 {
+            if self.transcription_method == TranscriptionMethod::GeminiTranscribe {
+                self.reset_translation_state();
+            } else if shared_prefix > 0 {
+                // Partial rollback: keep translations up to the divergence point
+                // instead of nuking everything. Qwen3 makes minor formatting
+                // corrections (", " vs " , ") that shouldn't discard all translation.
                 self.rollback_translation_to(shared_prefix);
             } else {
                 self.reset_translation_state();
@@ -240,6 +250,12 @@ impl RealtimeState {
             } else {
                 self.update_display_translation();
             }
+        }
+
+        if self.transcription_method == TranscriptionMethod::GeminiTranscribe {
+            self.transcript_committed_pos = server_committed_pos
+                .max(self.last_committed_pos)
+                .min(self.full_transcript.len());
         }
     }
 
@@ -442,16 +458,21 @@ impl RealtimeState {
         }
 
         let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
-
-        // Find the last delimiter in the chunk and include the delimiter length.
-        let mut split_idx: Option<usize> = None;
+        let mut punctuated_len = 0;
         for (i, c) in text.char_indices() {
             if sentence_delimiters.contains(&c) {
-                split_idx = Some(i + c.len_utf8());
+                punctuated_len = i + c.len_utf8();
             }
         }
-
-        let finalized_len = split_idx.unwrap_or(0);
+        let finalized_len = if self.transcription_method == TranscriptionMethod::GeminiTranscribe {
+            let server_finalized_len =
+                Self::clamp_to_char_boundary(&self.full_transcript, self.transcript_committed_pos)
+                    .saturating_sub(source_start)
+                    .min(text.len());
+            server_finalized_len.max(punctuated_len)
+        } else {
+            punctuated_len
+        };
         let raw_finalized_source = text[..finalized_len].to_string();
         let raw_draft_source = text[finalized_len..].to_string();
         let has_meaningful_draft = !raw_draft_source.trim().is_empty();

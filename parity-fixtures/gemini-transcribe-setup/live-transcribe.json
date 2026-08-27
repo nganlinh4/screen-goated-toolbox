@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "model": "gemini-3.5-transcribe-live",
+  "setup": {
+    "model": "models/gemini-3.5-transcribe-live",
+    "generationConfig": {
+      "responseModalities": [
+        "TEXT"
+      ]
+    },
+    "inputAudioTranscription": {
+      "languageCodes": [],
+      "mode": "SMART"
+    }
+  }
+}

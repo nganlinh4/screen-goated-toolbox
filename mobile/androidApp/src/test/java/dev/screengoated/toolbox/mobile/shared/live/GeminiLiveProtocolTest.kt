@@ -15,6 +15,26 @@ import org.junit.Test
 
 class GeminiLiveProtocolTest {
     @Test
+    fun `dedicated transcription distinguishes replaceable interim from final text`() {
+        val root = Json.parseToJsonElement(
+            File(repoRoot(), TRANSCRIBE_STREAM_FIXTURE_PATH).readText(),
+        ).jsonObject
+        val frames = root.getValue("events").jsonArray.map { event ->
+            requireNotNull(
+                parseGeminiLiveServerFrame(
+                    event.jsonObject.getValue("payload").toString(),
+                ),
+            )
+        }
+
+        assertEquals("meet Tuesday", frames[0].interimInputTranscript)
+        assertNull(frames[0].inputTranscript)
+        assertEquals("meet Wednesday at two", frames[1].interimInputTranscript)
+        assertEquals("Meet Wednesday at 2:00 PM.", frames[2].inputTranscript)
+        assertNull(frames[2].interimInputTranscript)
+    }
+
+    @Test
     fun `combined frame matches shared parity fixture`() {
         val root = Json.parseToJsonElement(File(repoRoot(), FIXTURE_PATH).readText()).jsonObject
         val case = root.getValue("combinedServerFrame").jsonObject
@@ -229,5 +249,7 @@ class GeminiLiveProtocolTest {
     private companion object {
         private const val FIXTURE_PATH =
             "parity-fixtures/preset-system/gemini-live-socket-protocol.json"
+        private const val TRANSCRIBE_STREAM_FIXTURE_PATH =
+            "parity-fixtures/gemini-transcribe-stream/events.json"
     }
 }

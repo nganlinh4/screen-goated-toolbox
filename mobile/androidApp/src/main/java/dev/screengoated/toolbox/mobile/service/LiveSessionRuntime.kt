@@ -10,6 +10,7 @@ import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.service.tts.RealtimeTtsCoordinator
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
@@ -217,6 +218,11 @@ class LiveSessionRuntime(
                 repository.setTranscriptionMethod(TranscriptionMethod.GEMINI_LIVE_S2S)
             } else if (useMoonshine) {
                 repository.setTranscriptionMethod(TranscriptionMethod.MOONSHINE)
+            } else if (
+                GeneratedLiveModelCatalog.endpointProfile(config.transcriptionProvider.model)
+                    ?.protocol == "live-transcribe"
+            ) {
+                repository.setTranscriptionMethod(TranscriptionMethod.GEMINI_TRANSCRIBE)
             } else {
                 repository.setTranscriptionMethod(TranscriptionMethod.GEMINI_LIVE)
             }
@@ -311,6 +317,9 @@ class LiveSessionRuntime(
         model: String,
     ) {
         withContext(Dispatchers.IO) {
+            val usesInterimTranscripts =
+                GeneratedLiveModelCatalog.endpointProfile(model)?.protocol == "live-transcribe"
+            val committedTranscript = StringBuilder()
             liveSocketClient.runSession(
                 apiKey = apiKey,
                 model = model,
@@ -318,15 +327,36 @@ class LiveSessionRuntime(
                     config = repository.currentConfig(),
                     onRms = { rms -> overlayController.updateVolume(rms) },
                 ),
-                onTranscript = { transcript ->
+                onTranscript = { transcript, isFinal ->
                     repository.markListening()
-                    repository.appendTranscript(
-                        text = transcript,
-                        nowMs = SystemClock.elapsedRealtime(),
-                    )
+                    if (usesInterimTranscripts) {
+                        if (isFinal) {
+                            appendTranscriptSegment(committedTranscript, transcript)
+                        }
+                        repository.setTranscriptSegments(
+                            committed = committedTranscript.toString(),
+                            draft = if (isFinal) "" else transcript,
+                            nowMs = SystemClock.elapsedRealtime(),
+                        )
+                    } else {
+                        repository.appendTranscript(
+                            text = transcript,
+                            nowMs = SystemClock.elapsedRealtime(),
+                        )
+                    }
                 },
             )
         }
+    }
+
+    private fun appendTranscriptSegment(target: StringBuilder, segment: String) {
+        if (target.isNotEmpty() &&
+            !target.last().isWhitespace() &&
+            segment.firstOrNull()?.isWhitespace() != true
+        ) {
+            target.append(' ')
+        }
+        target.append(segment.trimStart().takeIf { target.isEmpty() } ?: segment)
     }
 
 
