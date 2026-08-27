@@ -161,9 +161,9 @@ impl SettingsApp {
                         button_state: MouseButtonState::Up,
                         ..
                     } => {
-                        // Handle right-click directly - show popup even when main window is hidden
+                        // The persistent child has its own repaint target; do
+                        // not wake the settings root for tray-only interaction.
                         crate::overlay::tray_popup::show_tray_popup();
-                        ctx_tray.request_repaint_of(egui::ViewportId::ROOT);
                     }
                     _ => {
                         // Other events go through the normal channel

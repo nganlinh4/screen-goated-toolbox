@@ -79,7 +79,7 @@ pub(super) fn render(ui: &mut egui::Ui, placement: PopupPlacement, generation: u
     let context = ui.ctx().clone();
     if ui.input(|input| input.viewport().close_requested() || input.key_pressed(egui::Key::Escape))
     {
-        super::close_from_viewport(&context);
+        super::close_from_viewport(&context, "escape-or-window-close");
         return;
     }
 
@@ -105,9 +105,7 @@ pub(super) fn render(ui: &mut egui::Ui, placement: PopupPlacement, generation: u
 
         if runtime.prepared_generation != generation {
             runtime.prepared_generation = generation;
-            super::win32::apply_bounds_and_region(window, placement, runtime.restore_expanded);
             runtime.shaped_expanded = Some(runtime.restore_expanded);
-            super::win32::activate(window);
         } else if runtime.shaped_expanded != Some(runtime.restore_expanded) {
             super::win32::apply_bounds_and_region(window, placement, runtime.restore_expanded);
             runtime.shaped_expanded = Some(runtime.restore_expanded);
@@ -120,6 +118,11 @@ pub(super) fn render(ui: &mut egui::Ui, placement: PopupPlacement, generation: u
         return;
     }
     context.request_repaint_after(Duration::from_millis(50));
+}
+
+pub(super) fn prepaint(ui: &mut egui::Ui, placement: PopupPlacement) {
+    let snapshot = super::data::snapshot();
+    let _ = paint_popup(ui, placement, &snapshot, false);
 }
 
 fn update_flyout_state(
@@ -410,7 +413,7 @@ fn paint_card(painter: &egui::Painter, rect: egui::Rect, theme: AppTheme) {
         rect,
         egui::CornerRadius::same(8),
         theme.dialog_surface(),
-        theme.card_stroke(),
+        egui::Stroke::NONE,
         egui::StrokeKind::Inside,
     );
 }
@@ -470,23 +473,23 @@ fn activated(ui: &egui::Ui, response: &egui::Response) -> bool {
 fn perform_action(action: Action, context: &egui::Context) {
     match action {
         Action::Settings => {
-            super::close_from_viewport(context);
+            super::close_from_viewport(context, "open-settings");
             crate::gui::signal_restore_window();
         }
         Action::ToggleBubble => toggle_bubble(context),
         Action::StopTts => {
             crate::api::tts::TTS_MANAGER.stop();
-            super::close_from_viewport(context);
+            super::close_from_viewport(context, "stop-tts");
         }
         Action::Restore(batch_count) => {
-            super::close_from_viewport(context);
+            super::close_from_viewport(context, "restore-result");
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(60));
                 let _ = crate::overlay::result::restore_recent(batch_count);
             });
         }
         Action::Quit => {
-            super::close_from_viewport(context);
+            super::close_from_viewport(context, "quit");
             std::thread::spawn(|| {
                 std::thread::sleep(Duration::from_millis(50));
                 crate::gui::app::exit_app();

@@ -127,8 +127,8 @@ impl eframe::App for SettingsApp {
             self.render_drop_overlay(ctx);
         }
 
-        // The tray popup is a native deferred viewport. Keep its registration
-        // outside `main_ui_ready` so opening it never restores the settings window.
+        // Register the lightweight off-screen tray child while the root UI is
+        // available. Tray interactions later address only this child HWND.
         crate::overlay::tray_popup::render(ctx);
     }
 

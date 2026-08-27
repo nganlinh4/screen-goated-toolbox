@@ -26,7 +26,6 @@ pub(super) struct WorkArea {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PopupPlacement {
-    pub position_points: egui::Pos2,
     pub size_points: egui::Vec2,
     pub physical_position: PhysicalPoint,
     pub physical_size: [i32; 2],
@@ -71,7 +70,6 @@ pub(super) fn place(
     );
 
     PopupPlacement {
-        position_points: egui::pos2(x as f32 / pixels_per_point, y as f32 / pixels_per_point),
         size_points: logical_size,
         physical_position: PhysicalPoint { x, y },
         physical_size: [physical_width, physical_height],
