@@ -44,7 +44,6 @@ pub(super) fn localized_name(component: WebAssetComponent) -> String {
         .auxiliary
         .managed_tools;
     match component {
-        WebAssetComponent::Creation3d => managed.tool_creation_interface,
         WebAssetComponent::PromptDj => managed.tool_prompt_dj_interface,
         WebAssetComponent::TtsPlayground => managed.tool_tts_playground_interface,
     }

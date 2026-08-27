@@ -305,6 +305,23 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+# Windows installs the Creation interface and native engine as one physical,
+# receipt-owned archive. Rebuilding it proves both partitions still match the
+# exact immutable product contract consumed by the host.
+Write-Host "Packaging Windows Creation product..." -ForegroundColor Cyan
+$creationOutput = Join-Path $releasePackageRoot "sgt_creation_windows"
+Initialize-DeliveryOutput $creationOutput `
+    (Join-Path $trackedDeliveryRoot "creation-v1.json") `
+    "sgt_creation_windows.delivery.json"
+& (Join-Path $PSScriptRoot "scripts\build-creation-windows-pack.ps1") `
+    -OutputDir $creationOutput -CargoTargetDir $packageCargoTarget -RequireDelivery
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "FAILED: Windows Creation delivery is not release-ready." -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+$creationDelivery = Join-Path $creationOutput "sgt_creation_windows.delivery.json"
+Assert-TrackedDelivery $creationDelivery (Join-Path $trackedDeliveryRoot "creation-v1.json")
+
 # Build deterministic optional frontend packs and require read-back-verified delivery metadata.
 # This prevents a signed host from referencing an asset that has not reached the immutable release.
 Write-Host "Packaging optional frontend bundles..." -ForegroundColor Cyan

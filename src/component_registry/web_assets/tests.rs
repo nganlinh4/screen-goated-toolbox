@@ -39,7 +39,6 @@ fn write_zip(path: &Path, entry: &str) {
 #[test]
 fn supported_component_ids_are_present_in_the_signed_catalog() {
     for component in [
-        WebAssetComponent::Creation3d,
         WebAssetComponent::PromptDj,
         WebAssetComponent::TtsPlayground,
     ] {
@@ -54,35 +53,13 @@ fn supported_component_ids_are_present_in_the_signed_catalog() {
 
 #[test]
 fn tracked_delivery_contains_every_optional_interface() {
-    assert_eq!(WEB_ASSET_DELIVERIES.len(), 3);
+    assert_eq!(WEB_ASSET_DELIVERIES.len(), 2);
     for component in [
-        WebAssetComponent::Creation3d,
         WebAssetComponent::PromptDj,
         WebAssetComponent::TtsPlayground,
     ] {
         assert!(delivery(component).is_some());
     }
-}
-
-#[test]
-fn creation_web_receipt_does_not_block_runtime_removal() {
-    let delivery = WebAssetDelivery {
-        component: WebAssetComponent::Creation3d,
-        ..test_delivery()
-    };
-    let web_receipt = receipt(&delivery);
-    assert!(web_receipt.dependencies.is_empty());
-    let catalog_entry = super::super::embedded_catalog()
-        .components
-        .iter()
-        .find(|entry| entry.id == WebAssetComponent::Creation3d.id())
-        .unwrap();
-    assert!(
-        !catalog_entry
-            .dependencies
-            .iter()
-            .any(|dependency| dependency == "creation-3d-runtime")
-    );
 }
 
 #[test]

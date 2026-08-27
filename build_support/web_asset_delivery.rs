@@ -6,7 +6,6 @@ use serde_json::{Map, Value};
 
 const DEFAULT_MANIFEST: &str = "component-delivery/windows/web-assets-v1.json";
 const EXPECTED_COMPONENTS: &[(&str, &str)] = &[
-    ("creation-3d-web", "Creation3d"),
     ("prompt-dj-web", "PromptDj"),
     ("tts-playground-web", "TtsPlayground"),
 ];

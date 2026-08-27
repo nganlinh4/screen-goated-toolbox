@@ -74,6 +74,9 @@ directory; worker builds share the package Cargo lane.
   its verified delivery currently uses multiple internal artifacts. First use
   may prepare those artifacts concurrently, but status, repair, and removal
   belong to the product and Clean All counts it once.
+- Windows Creation is physically delivered as one `creation-windows` archive,
+  inventory, receipt, and removal unit. Its interface and native engine are
+  partitions of that product archive, not independently selectable components.
 - Share a dependency through an explicit reference, not by copying it into each
   feature package.
 - Do not combine optional capabilities into a single convenience bundle.

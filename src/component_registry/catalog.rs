@@ -27,6 +27,7 @@ pub(crate) struct ComponentDefinition {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum ComponentKind {
+    Product,
     WebAssets,
     Model,
     NativeRuntime,

@@ -2,6 +2,14 @@
   "schemaVersion": 1,
   "components": [
     {
+      "id": "creation-windows",
+      "displayName": "Creation",
+      "kind": "product",
+      "capabilities": ["image_to_3d", "image_to_svg", "image_creator", "image_to_3d_ui"],
+      "dependencies": [],
+      "removable": true
+    },
+    {
       "id": "creation-3d-runtime",
       "displayName": "Creation engine",
       "kind": "sidecar",

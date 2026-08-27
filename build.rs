@@ -1,7 +1,7 @@
 #[path = "build_support/computer_control_delivery.rs"]
 mod computer_control_delivery;
-#[path = "build_support/creation_runtime_delivery.rs"]
-mod creation_runtime_delivery;
+#[path = "build_support/creation_delivery.rs"]
+mod creation_delivery;
 #[path = "build_support/delivery_channel.rs"]
 mod delivery_channel;
 #[path = "build_support/external_tool_delivery.rs"]
@@ -45,7 +45,7 @@ fn main() {
         &model_manifest_path,
         &out_dir.join("model_catalog_generated.rs"),
     );
-    creation_runtime_delivery::generate(&manifest_dir, &out_dir);
+    creation_delivery::generate(&manifest_dir, &out_dir);
     icon_atlas::generate(&manifest_dir, &out_dir);
     computer_control_delivery::generate(&manifest_dir, &out_dir);
     external_tool_delivery::generate(&manifest_dir, &out_dir);
@@ -108,7 +108,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation/presentation.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation/vision.rs");
-    println!("cargo:rerun-if-changed=build_support/creation_runtime_delivery.rs");
+    println!("cargo:rerun-if-changed=build_support/creation_delivery.rs");
     println!("cargo:rerun-if-changed=build_support/delivery_channel.rs");
     println!("cargo:rerun-if-changed=build_support/icon_atlas.rs");
     println!("cargo:rerun-if-changed=build_support/computer_control_delivery.rs");

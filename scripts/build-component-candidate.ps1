@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet(
+        "creation",
         "web-assets",
         "recorder",
         "computer-control",
@@ -47,6 +48,13 @@ Remove-Item Env:SGT_STAGING_DELIVERY_ROOT -ErrorAction SilentlyContinue
 $manifestName = $null
 $trackedRelative = $null
 switch ($Component) {
+    "creation" {
+        & (Join-Path $PSScriptRoot "build-creation-windows-pack.ps1") `
+            -OutputDir $output -CargoTargetDir $cargoTarget `
+            -SkipNpmInstall:$SkipNpmInstall
+        $manifestName = "sgt_creation_windows.packages.json"
+        $trackedRelative = "component-delivery/windows/creation-v1.json"
+    }
     "web-assets" {
         $arguments = @{ OutputDir = $output }
         if ($SkipNpmInstall) { $arguments.SkipNpmInstall = $true }

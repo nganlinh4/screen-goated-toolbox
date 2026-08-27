@@ -122,11 +122,5 @@ fn start_product_removal(title: &'static str) {
 }
 
 fn product_installed_size() -> u64 {
-    [
-        crate::overlay::three_d_generator::web_assets_dir(),
-        crate::overlay::three_d_generator::runtime_bundle_dir(),
-    ]
-    .into_iter()
-    .map(|root| get_dir_size(&root))
-    .sum()
+    get_dir_size(&crate::overlay::three_d_generator::product_dir())
 }

@@ -76,12 +76,12 @@ and evidence into the bounded external cache:
 .\run-dev.ps1 -UseStagingDelivery
 ```
 
-Supported wrapper names are `web-assets`, `recorder`, `computer-control`,
+Supported wrapper names are `creation`, `web-assets`, `recorder`, `computer-control`,
 `local-asr`, `vc-runtime`, `qwen-runtime`, and `external-tools`. `-Select <id>`
 may update one component in a multi-component contract; repeat it when several
-components changed. Creation, Android native runtimes, and model packages use
-their subsystem packager, then call `scripts/component_release.py stage` with
-the generated package manifest and tracked contract.
+components changed. Android native runtimes and model packages use their
+subsystem packager, then call `scripts/component_release.py stage` with the
+generated package manifest and tracked contract.
 
 Staging is a real network install: the script verifies local bytes, uploads a
 content-addressed candidate, downloads it again, and writes its exact contract

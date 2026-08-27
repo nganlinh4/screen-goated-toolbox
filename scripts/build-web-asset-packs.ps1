@@ -49,7 +49,6 @@ function Build-Frontend {
 
 Push-Location $repoRoot
 try {
-    Build-Frontend -Name "3D Creation" -Project "3d-generator-ui"
     Build-Frontend -Name "PromptDJ" -Project "promptdj-midi" -Target "src\overlay\prompt_dj\dist"
     Build-Frontend -Name "TTS Playground" -Project "tts-playground-ui" -Target "src\overlay\tts_playground\dist"
     $packageArguments = @((Join-Path $PSScriptRoot "package_web_assets.py"))

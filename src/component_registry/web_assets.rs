@@ -27,7 +27,6 @@ static INSTALL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WebAssetComponent {
-    Creation3d,
     PromptDj,
     TtsPlayground,
 }
@@ -35,7 +34,6 @@ pub(crate) enum WebAssetComponent {
 impl WebAssetComponent {
     pub(crate) const fn id(self) -> &'static str {
         match self {
-            Self::Creation3d => "creation-3d-web",
             Self::PromptDj => "prompt-dj-web",
             Self::TtsPlayground => "tts-playground-web",
         }
@@ -43,7 +41,6 @@ impl WebAssetComponent {
 
     pub(crate) const fn display_name(self) -> &'static str {
         match self {
-            Self::Creation3d => "3D Creation interface",
             Self::PromptDj => "PromptDJ interface",
             Self::TtsPlayground => "TTS Playground interface",
         }
@@ -51,7 +48,7 @@ impl WebAssetComponent {
 
     const fn dependencies(self) -> &'static [&'static str] {
         match self {
-            Self::Creation3d | Self::PromptDj | Self::TtsPlayground => &[],
+            Self::PromptDj | Self::TtsPlayground => &[],
         }
     }
 }

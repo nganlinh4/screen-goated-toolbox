@@ -15,7 +15,6 @@ from pathlib import Path
 
 
 COMPONENTS = (
-    ("creation-3d-web", "src/overlay/three_d_generator/dist"),
     ("prompt-dj-web", "src/overlay/prompt_dj/dist"),
     ("tts-playground-web", "src/overlay/tts_playground/dist"),
 )

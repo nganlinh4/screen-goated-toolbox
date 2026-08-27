@@ -1,10 +1,15 @@
 {
   "schemaVersion": 1,
-  "sequence": 7,
+  "sequence": 8,
   "channel": "stable",
   "minHostVersion": "5.5.0",
   "maxHostVersionExclusive": "5.6.0",
   "contracts": [
+    {
+      "name": "windows-creation-v1",
+      "platform": "windows-x64",
+      "path": "component-delivery/windows/creation-v1.json"
+    },
     {
       "name": "windows-external-tools-v1",
       "platform": "windows-x64",
@@ -75,8 +80,7 @@
     { "id": "yt-dlp-x64", "mode": "typed-failure", "checkHours": 24, "group": "windows-downloader" },
     { "id": "deno-x64", "mode": "typed-failure", "checkHours": 24, "group": "windows-downloader" },
     { "id": "ffmpeg-x64", "mode": "periodic-idle", "checkHours": 168, "group": "windows-media" },
-    { "id": "creation-3d-runtime", "mode": "typed-failure", "checkHours": 24, "group": "creation-runtime" },
-    { "id": "creation-3d-web", "mode": "before-open", "checkHours": 24, "group": "creation-ui" },
+    { "id": "creation-windows", "mode": "before-open", "checkHours": 24, "group": "creation" },
     { "id": "prompt-dj-web", "mode": "before-open", "checkHours": 24, "group": "prompt-dj-ui" },
     { "id": "tts-playground-web", "mode": "before-open", "checkHours": 24, "group": "tts-playground-ui" },
     { "id": "screen-recorder", "mode": "before-open", "checkHours": 24, "group": "recorder" },

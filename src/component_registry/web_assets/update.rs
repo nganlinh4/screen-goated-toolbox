@@ -67,14 +67,14 @@ fn parse(value: serde_json::Value) -> Result<Vec<WebAssetDelivery>> {
     let contract: Contract = serde_json::from_value(value)?;
     if contract.schema_version != 1
         || contract.windows.architecture != super::ARCHITECTURE
-        || contract.windows.components.len() != 3
+        || contract.windows.components.len() != 2
     {
         bail!("signed web-asset contract header is invalid");
     }
     super::super::catalog::validate_identifier(&contract.version)?;
     let version = leak(contract.version);
     let mut seen = HashSet::new();
-    let mut deliveries = Vec::with_capacity(3);
+    let mut deliveries = Vec::with_capacity(2);
     for delivery in contract.windows.components {
         let component = component(&delivery.id)?;
         if !seen.insert(component.id())
@@ -125,7 +125,6 @@ fn parse(value: serde_json::Value) -> Result<Vec<WebAssetDelivery>> {
 
 fn component(id: &str) -> Result<WebAssetComponent> {
     match id {
-        "creation-3d-web" => Ok(WebAssetComponent::Creation3d),
         "prompt-dj-web" => Ok(WebAssetComponent::PromptDj),
         "tts-playground-web" => Ok(WebAssetComponent::TtsPlayground),
         _ => bail!("signed web-asset component is unknown"),

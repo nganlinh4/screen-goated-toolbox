@@ -6,6 +6,8 @@ mod catalog;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod computer_control;
 #[cfg(not(feature = "recorder-worker"))]
+pub(crate) mod creation;
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod external_tools;
 mod lease;
 pub(crate) mod local_asr;
@@ -91,7 +93,7 @@ pub(crate) fn ensure_component_parent(id: &str) -> anyhow::Result<std::path::Pat
     Ok(component)
 }
 
-#[cfg(not(feature = "recorder-worker"))]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 pub(crate) fn ensure_version_root(id: &str, version: &str) -> anyhow::Result<std::path::PathBuf> {
     catalog::validate_identifier(version)?;
     let version_root = ensure_component_parent(id)?.join(version);

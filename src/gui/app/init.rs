@@ -218,11 +218,6 @@ impl SettingsApp {
             }
         });
 
-        // App releases pin the compatible creation runtime. Refresh an existing
-        // install in the background, while preserving first-use installation.
-        // Each creation surface prepares only its own workspace when opened.
-        crate::overlay::creation_runtime::update_installed_runtime_in_background();
-
         // Detect initial system theme
         let system_dark = crate::gui::utils::is_system_in_dark_mode();
 
