@@ -158,7 +158,7 @@ fn paint_popup(
     let origin = ui.max_rect().min;
     let theme = AppTheme::from_ui(ui);
     let main = egui::Rect::from_min_size(origin, egui::vec2(MAIN_WIDTH, MAIN_HEIGHT));
-    paint_card(ui.painter(), main, theme);
+    paint_card(ui.painter(), main, theme, ui.visuals().dark_mode);
 
     let rows = [4.0, 38.0, 72.0, 106.0, 148.0];
     let mut action = None;
@@ -359,7 +359,7 @@ fn paint_flyout(
         flyout_min,
         egui::vec2(FLYOUT_WIDTH, placement.flyout_height),
     );
-    paint_card(ui.painter(), flyout, theme);
+    paint_card(ui.painter(), flyout, theme, ui.visuals().dark_mode);
     let mut action = None;
     let mut any_hovered = false;
 
@@ -408,12 +408,17 @@ fn paint_flyout(
     )
 }
 
-fn paint_card(painter: &egui::Painter, rect: egui::Rect, theme: AppTheme) {
+fn paint_card(painter: &egui::Painter, rect: egui::Rect, theme: AppTheme, dark_mode: bool) {
+    let outline = if dark_mode {
+        egui::Color32::from_gray(69)
+    } else {
+        egui::Color32::from_gray(220)
+    };
     painter.rect(
         rect,
         egui::CornerRadius::same(8),
         theme.dialog_surface(),
-        egui::Stroke::NONE,
+        egui::Stroke::new(1.0, outline),
         egui::StrokeKind::Inside,
     );
 }

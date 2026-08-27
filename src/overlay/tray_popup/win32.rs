@@ -1,7 +1,7 @@
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::Graphics::Dwm::{
-    DWMNCRP_DISABLED, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_NCRENDERING_POLICY,
-    DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+    DWMNCRP_ENABLED, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_NCRENDERING_POLICY,
+    DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
     DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
@@ -194,22 +194,18 @@ unsafe fn set_bounds_and_region(
     flags: SET_WINDOW_POS_FLAGS,
 ) {
     unsafe {
-        let _ = SetWindowPos(
-            window,
-            Some(HWND_TOPMOST),
-            x,
-            y,
-            placement.physical_size[0],
-            placement.physical_size[1],
-            flags,
-        );
         let scale = placement.physical_size[1] as f32 / MAIN_HEIGHT;
         let main_width = scale_value(MAIN_WIDTH, scale);
-        let main_height = scale_value(MAIN_HEIGHT, scale);
-        let radius = scale_value(16.0, scale).max(2);
-        let combined = CreateRoundRectRgn(0, 0, main_width + 1, main_height + 1, radius, radius);
-
+        let window_width = if expanded && placement.has_flyout() {
+            placement.physical_size[0]
+        } else {
+            main_width
+        };
         if expanded && placement.has_flyout() {
+            let main_height = scale_value(MAIN_HEIGHT, scale);
+            let radius = scale_value(16.0, scale).max(2);
+            let combined =
+                CreateRoundRectRgn(0, 0, main_width + 1, main_height + 1, radius, radius);
             let flyout_left = scale_value(MAIN_WIDTH + FLYOUT_GAP, scale);
             let flyout_top = scale_value(placement.flyout_top, scale);
             let flyout_right = flyout_left + scale_value(FLYOUT_WIDTH, scale);
@@ -224,11 +220,26 @@ unsafe fn set_bounds_and_region(
             );
             let _ = CombineRgn(Some(combined), Some(combined), Some(flyout), RGN_OR);
             let _ = DeleteObject(flyout.into());
+            // Windows owns `combined` after a successful SetWindowRgn call.
+            let _ = SetWindowRgn(window, Some(combined), false);
+        } else {
+            // HRGN masks have binary coverage and visibly staircase rounded
+            // corners. Let DWM apply its antialiased compositor mask while the
+            // popup contains only the main card.
+            let _ = SetWindowRgn(window, None, false);
         }
-
-        // Windows owns `combined` after a successful SetWindowRgn call.
-        let _ = SetWindowRgn(window, Some(combined), true);
-        disable_non_client_frame(window);
+        // Shape the retained surface before moving it onscreen. Redrawing the
+        // region after this move would invalidate the cached frame and make an
+        // immediate reveal wait for another compositor submission.
+        let _ = SetWindowPos(
+            window,
+            Some(HWND_TOPMOST),
+            x,
+            y,
+            window_width,
+            placement.physical_size[1],
+            flags,
+        );
     }
 }
 
@@ -274,13 +285,13 @@ unsafe fn configure_borderless_popup(window: HWND) {
             std::ptr::addr_of!(transitions_disabled).cast(),
             std::mem::size_of_val(&transitions_disabled) as u32,
         );
-        disable_non_client_frame(window);
+        configure_dwm_frame(window);
     }
 }
 
-fn disable_non_client_frame(window: HWND) {
+fn configure_dwm_frame(window: HWND) {
     unsafe {
-        let policy = DWMNCRP_DISABLED;
+        let policy = DWMNCRP_ENABLED;
         let _ = DwmSetWindowAttribute(
             window,
             DWMWA_NCRENDERING_POLICY,
@@ -294,7 +305,7 @@ fn disable_non_client_frame(window: HWND) {
             std::ptr::addr_of!(border_color).cast(),
             std::mem::size_of_val(&border_color) as u32,
         );
-        let corner_preference = DWMWCP_DONOTROUND;
+        let corner_preference = DWMWCP_ROUND;
         let _ = DwmSetWindowAttribute(
             window,
             DWMWA_WINDOW_CORNER_PREFERENCE,

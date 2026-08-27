@@ -202,11 +202,15 @@ pub fn render(context: &egui::Context) {
 }
 
 fn viewport_builder(placement: layout::PopupPlacement) -> egui::ViewportBuilder {
+    let main_size = egui::vec2(layout::MAIN_WIDTH, layout::MAIN_HEIGHT);
     egui::ViewportBuilder::default()
         .with_title(viewport_title())
         .with_position(egui::pos2(-32_000.0, -32_000.0))
-        .with_inner_size(placement.size_points)
-        .with_min_inner_size(placement.size_points)
+        // The ordinary window is only the main card, allowing DWM to
+        // antialias all four native corners. Win32 expands it temporarily when
+        // the restore flyout is open.
+        .with_inner_size(main_size)
+        .with_min_inner_size(main_size)
         .with_max_inner_size(placement.size_points)
         .with_resizable(false)
         // egui-winit maps `decorations(false)` to winit's Windows-only
@@ -308,5 +312,13 @@ mod tests {
         assert_eq!(builder.visible, Some(true));
         assert_eq!(builder.decorations, Some(true));
         assert_eq!(builder.position, Some(egui::pos2(-32_000.0, -32_000.0)));
+        assert_eq!(
+            builder.inner_size,
+            Some(egui::vec2(layout::MAIN_WIDTH, layout::MAIN_HEIGHT))
+        );
+        assert_eq!(
+            builder.min_inner_size,
+            Some(egui::vec2(layout::MAIN_WIDTH, layout::MAIN_HEIGHT))
+        );
     }
 }
