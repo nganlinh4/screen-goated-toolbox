@@ -12,6 +12,7 @@ pub struct RealtimeSessionConfig {
     pub target_language: String,
     pub translation_model: String,
     pub transcription_model: String,
+    pub custom_vocabulary: Vec<String>,
     pub transcription_language: String,
     pub font_size: u32,
 }
@@ -25,6 +26,7 @@ pub fn load_session_config() -> RealtimeSessionConfig {
         transcription_model: crate::model_config::normalize_realtime_transcription_model_id(
             &app.config.realtime_transcription_model,
         ),
+        custom_vocabulary: app.config.realtime_custom_vocabulary.clone(),
         transcription_language: normalize_transcription_language(
             &app.config.realtime_transcription_language,
         ),
@@ -77,6 +79,7 @@ pub fn reset_runtime_for_new_session() {
 }
 
 pub fn apply_session_config(config: &RealtimeSessionConfig) {
+    crate::api::realtime_audio::set_vocabulary(&config.custom_vocabulary.join("\n"));
     if let Ok(mut source) = NEW_AUDIO_SOURCE.lock() {
         *source = config.audio_source.clone();
     }
@@ -90,6 +93,12 @@ pub fn apply_session_config(config: &RealtimeSessionConfig) {
         *model = config.transcription_model.clone();
     }
     LANGUAGE_CHANGE.store(!config.target_language.is_empty(), Ordering::SeqCst);
+}
+
+pub fn set_custom_vocabulary(lines: &str) {
+    crate::api::realtime_audio::set_vocabulary(lines);
+    let vocabulary = crate::api::realtime_audio::vocabulary_snapshot().1;
+    persist_overlay_control(move |config| config.realtime_custom_vocabulary = vocabulary);
 }
 
 pub fn set_audio_source(source: &str) {

@@ -71,6 +71,10 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(fixture.requiredVisuals.androidRejectedPrimaryApplyCanTryFallback)
         assertTrue(fixture.requiredVisuals.androidForceCommitPrimesTranslationInterval)
         assertTrue(fixture.requiredVisuals.androidSkipsTranslationWhenPaneHidden)
+        assertEquals(
+            "temporary-ime-focus-restore-on-close",
+            fixture.requiredVisuals.vocabularyEditorFocusLifecycle,
+        )
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.ttsModalLocaleRefresh)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.downloadModalLocaleRefresh)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.s2sTooltipLocaleRefresh)
@@ -141,6 +145,7 @@ class LiveTranslateOverlayBootstrapTest {
         val runtimeModelsSource = loadRepoFile(TTS_RUNTIME_MODELS_PATH).readText()
         val audioTrackSource = loadRepoFile(AUDIO_TRACK_PLAYER_PATH).readText()
         val realtimeTtsCoordinatorSource = loadRepoFile(REALTIME_TTS_COORDINATOR_PATH).readText()
+        val dictionarySvg = loadRepoFile(DICTIONARY_SYMBOL_PATH).readText()
 
         fixture.requiredControls.transcriptionPane.forEach { control ->
             assertTrue("Missing transcription control: $control", activeControlSource(control, baseHtml, builderSource))
@@ -148,6 +153,20 @@ class LiveTranslateOverlayBootstrapTest {
         fixture.requiredControls.translationPane.forEach { control ->
             assertTrue("Missing translation control: $control", activeControlSource(control, baseHtml, builderSource))
         }
+        assertTrue(baseHtml.contains("id=\"custom-vocabulary-modal\""))
+        assertTrue(baseHtml.contains("id=\"custom-vocabulary-pills\""))
+        assertTrue(baseHtml.contains("id=\"custom-vocabulary-input\" type=\"text\""))
+        assertTrue(!mainJsSource.contains("window.prompt"))
+        assertTrue(mainJsSource.contains("customVocabularyAdd"))
+        assertTrue(!baseHtml.contains("custom-vocabulary-apply"))
+        assertTrue(!baseHtml.contains("custom-vocabulary-cancel"))
+        assertTrue(mainJsSource.contains("postMessage('textInputStart')"))
+        assertTrue(mainJsSource.contains("postMessage('textInputEnd')"))
+        assertTrue(paneWindowSource.contains("fun setTextInputActive(active: Boolean)"))
+        assertTrue(controllerSource.contains("message == \"textInputStart\""))
+        assertTrue(controllerSource.contains("message == \"textInputEnd\""))
+        assertTrue(builderSource.contains("materialSymbol(\"dictionary\")"))
+        assertTrue(dictionarySvg.contains("<svg"))
         assertEquals("Google Sans Flex", fixture.requiredVisuals.fontFamily)
         assertTrue(styleSource.contains("font-family: 'Google Sans Flex'"))
         assertEquals("absent", fixture.requiredVisuals.translationHeaderText)
@@ -275,6 +294,7 @@ class LiveTranslateOverlayBootstrapTest {
                 "androidRejectedPrimaryApplyCanTryFallback",
                 "androidForceCommitPrimesTranslationInterval",
                 "androidSkipsTranslationWhenPaneHidden",
+                "vocabularyEditorFocusLifecycle",
                 "targetLanguageChangeRestartsS2s",
                 "ttsDisplayedSpeedSource",
                 "localeUpdatePath",
@@ -326,6 +346,7 @@ class LiveTranslateOverlayBootstrapTest {
             "waveform-canvas" -> source.contains("id=\"volume-canvas\"")
             "audio-source-toggle" -> source.contains("id=\"mic-btn\"") && source.contains("id=\"device-btn\"")
             "transcription-model-toggle" -> source.contains("id=\"transcription-model-btn\"")
+            "custom-vocabulary-pill-editor" -> source.contains("id=\"custom-vocabulary-modal\"")
             "tts-read" -> source.contains("id=\"speak-btn\"")
             "translation-model-toggle" -> source.contains("id=\"translation-model-btn\"")
             "language-select" -> source.contains("id=\"language-select\"")
@@ -347,6 +368,8 @@ class LiveTranslateOverlayBootstrapTest {
             "mobile/androidApp/src/main/assets/realtime_overlay/main_part2.js"
         private const val OVERLAY_LOGIC_JS_PATH = "mobile/androidApp/src/main/assets/realtime_overlay/logic.js"
         private const val OVERLAY_STYLE_PATH = "mobile/androidApp/src/main/assets/realtime_overlay/style.css"
+        private const val DICTIONARY_SYMBOL_PATH =
+            "mobile/androidApp/src/main/assets/material-symbols/dictionary.svg"
         private const val OVERLAY_HTML_BUILDER_PATH =
             "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/overlay/RealtimeOverlayHtmlBuilder.kt"
         private const val OVERLAY_WEBVIEW_PATH =
@@ -431,6 +454,7 @@ private data class RequiredVisuals(
     val androidRejectedPrimaryApplyCanTryFallback: Boolean,
     val androidForceCommitPrimesTranslationInterval: Boolean,
     val androidSkipsTranslationWhenPaneHidden: Boolean,
+    val vocabularyEditorFocusLifecycle: String,
     val ttsModalLocaleRefresh: String,
     val downloadModalLocaleRefresh: String,
     val s2sTooltipLocaleRefresh: String,

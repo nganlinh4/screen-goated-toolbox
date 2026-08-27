@@ -157,6 +157,17 @@ class LiveSessionStoreTest {
     }
 
     @Test
+    fun custom_vocabulary_remains_in_config_across_unrelated_patches() {
+        val store = LiveSessionStore()
+        val terms = listOf("WebView2", "SGT")
+
+        store.updateConfig(LiveSessionPatch(customVocabulary = terms))
+        store.updateConfig(LiveSessionPatch(targetLanguage = "Korean"))
+
+        assertEquals(terms, store.state.value.config.customVocabulary)
+    }
+
+    @Test
     fun gemini_s2s_display_simulates_committed_and_draft_windows() {
         val store = LiveSessionStore()
 

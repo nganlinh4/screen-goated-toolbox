@@ -30,6 +30,7 @@ class LiveSessionStore(
                     targetLanguage = patch.targetLanguage ?: current.config.targetLanguage,
                     transcriptionLanguage = patch.transcriptionLanguage ?: current.config.transcriptionLanguage,
                     transcriptionProvider = patch.transcriptionProvider ?: current.config.transcriptionProvider,
+                    customVocabulary = patch.customVocabulary ?: current.config.customVocabulary,
                     translationProvider = patch.translationProvider ?: current.config.translationProvider,
                     authMode = patch.authMode ?: current.config.authMode,
                     engineKind = patch.engineKind ?: current.config.engineKind,

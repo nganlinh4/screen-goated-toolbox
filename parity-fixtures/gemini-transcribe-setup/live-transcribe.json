@@ -10,7 +10,9 @@
     },
     "inputAudioTranscription": {
       "languageCodes": [],
-      "mode": "SMART"
-    }
+      "mode": "SMART",
+      "customVocabulary": []
+    },
+    "sessionResumption": {}
   }
 }

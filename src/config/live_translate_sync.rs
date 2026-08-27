@@ -8,6 +8,7 @@ impl Config {
             || self.realtime_target_language != source.realtime_target_language
             || self.realtime_translation_model != source.realtime_translation_model
             || self.realtime_transcription_model != source.realtime_transcription_model
+            || self.realtime_custom_vocabulary != source.realtime_custom_vocabulary
             || self.realtime_transcription_language != source.realtime_transcription_language
             || self.realtime_font_size != source.realtime_font_size;
 
@@ -19,6 +20,8 @@ impl Config {
             .clone_from(&source.realtime_translation_model);
         self.realtime_transcription_model
             .clone_from(&source.realtime_transcription_model);
+        self.realtime_custom_vocabulary
+            .clone_from(&source.realtime_custom_vocabulary);
         self.realtime_transcription_language
             .clone_from(&source.realtime_transcription_language);
         self.realtime_font_size = source.realtime_font_size;
@@ -42,6 +45,7 @@ mod tests {
         overlay.realtime_target_language = "Japanese".to_string();
         overlay.realtime_translation_model = "google-gtx".to_string();
         overlay.realtime_transcription_model = "zipformer".to_string();
+        overlay.realtime_custom_vocabulary = vec!["Codex".to_string(), "WebView2".to_string()];
         overlay.realtime_transcription_language = "ja".to_string();
         overlay.realtime_font_size = 32;
         overlay.live_translate.hotkeys.clear();
@@ -52,10 +56,24 @@ mod tests {
         assert_eq!(modal.realtime_target_language, "Japanese");
         assert_eq!(modal.realtime_translation_model, "google-gtx");
         assert_eq!(modal.realtime_transcription_model, "zipformer");
+        assert_eq!(modal.realtime_custom_vocabulary, ["Codex", "WebView2"]);
         assert_eq!(modal.realtime_transcription_language, "ja");
         assert_eq!(modal.realtime_font_size, 32);
         assert_eq!(modal.live_translate.hotkeys.len(), 1);
         assert_eq!(modal.ui_language, "ko");
         assert!(!modal.sync_live_translate_overlay_controls_from(&overlay));
+    }
+
+    #[test]
+    fn custom_vocabulary_survives_config_round_trip() {
+        let config = Config {
+            realtime_custom_vocabulary: vec!["WebView2".to_string(), "SGT".to_string()],
+            ..Default::default()
+        };
+
+        let saved = serde_json::to_string(&config).unwrap();
+        let restored: Config = serde_json::from_str(&saved).unwrap();
+
+        assert_eq!(restored.realtime_custom_vocabulary, ["WebView2", "SGT"]);
     }
 }

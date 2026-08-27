@@ -44,6 +44,7 @@ internal data class OverlayPaneRuntimeSettings(
     val transcriptionModel: String,
     val transcriptionLanguage: String,
     val transcriptionLanguageName: String,
+    val customVocabulary: List<String>,
     val fontSize: Int,
     val isDark: Boolean,
     val localeJson: String,
@@ -238,6 +239,11 @@ internal class OverlayPaneHolder(
                 append(JSONObject.quote(settings.transcriptionLanguageName))
                 append(");")
             }
+            if (previousSettings?.customVocabulary != settings.customVocabulary) {
+                append("if(window.setCustomVocabulary) window.setCustomVocabulary(")
+                append(org.json.JSONArray(settings.customVocabulary).toString())
+                append(");")
+            }
             if (previousSettings?.fontSize != settings.fontSize) {
                 append("if(window.setFontSize) window.setFontSize(")
                 append(settings.fontSize)
@@ -285,6 +291,7 @@ internal fun overlayPaneRuntimeSettings(
         transcriptionLanguage = state.config.transcriptionLanguage.uppercase(),
         transcriptionLanguageName = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage
             .fromCode(state.config.transcriptionLanguage)?.displayName ?: state.config.transcriptionLanguage.uppercase(),
+        customVocabulary = GeminiTranscribeVocabulary.snapshot().entries,
         fontSize = fontSize,
         isDark = isDark,
         localeJson = overlayLocaleJson(uiLanguage),
@@ -310,6 +317,8 @@ private fun overlayLocaleJson(uiLanguage: String): String {
         put("llmLabel", overlay.llmLabel)
         put("gtxLabel", overlay.gtxLabel)
         put("transcriptionModelTitle", overlay.transcriptionModelTitle)
+        put("customVocabularyTitle", overlay.customVocabularyTitle)
+        put("customVocabularyPrompt", overlay.customVocabularyPrompt)
         put("translationModelTitle", overlay.translationModelTitle)
         put("transcriptionLanguageTitle", overlay.transcriptionLanguageTitle)
         put("targetLanguageTitle", overlay.targetLanguageTitle)

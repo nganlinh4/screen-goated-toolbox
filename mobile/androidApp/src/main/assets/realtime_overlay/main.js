@@ -33,6 +33,8 @@
             llmLabel: 'LLM',
             gtxLabel: 'Google Translate',
             transcriptionModelTitle: 'Transcription model',
+            customVocabularyTitle: 'Custom vocabulary',
+            customVocabularyPrompt: 'Type a term, then press Enter or +. You can also paste comma- or line-separated terms.',
             translationModelTitle: 'Translation model',
             transcriptionLanguageTitle: 'Transcription language',
             targetLanguageTitle: 'Target language',
@@ -51,6 +53,11 @@
             cancelText: 'Cancel',
         };
         let s2sMode = false;
+        let customVocabulary = [];
+
+        window.setCustomVocabulary = function(entries) {
+            customVocabulary = Array.isArray(entries) ? entries.slice() : [];
+        };
 
         function restoreControlsScroll(pinnedScrollLeft) {
             if (!controls) return;
@@ -218,6 +225,10 @@
             if (btn) btn.dataset.value = modelName;
             if (label) {
                 label.textContent = transcriptionModelLabel(modelName);
+            }
+            const vocabularyBtn = document.getElementById('custom-vocabulary-btn');
+            if (vocabularyBtn) {
+                vocabularyBtn.hidden = modelName !== 'google-gemini-3-5-transcribe-live-audio';
             }
             // Legacy
             const icons = document.querySelectorAll('.trans-model-icon');

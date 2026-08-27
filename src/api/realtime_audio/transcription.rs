@@ -1,6 +1,8 @@
 //! Main transcription loop for realtime audio
 
+pub(crate) mod dedicated;
 mod main_loop;
+mod reconnect;
 
 use anyhow::Result;
 use std::sync::{
@@ -36,9 +38,11 @@ pub struct RealtimeSessionPlan {
 fn open_ready_session(
     api_key: &str,
     model: &str,
+    vocabulary: &[String],
+    resumption_handle: Option<&str>,
     cancelled: impl FnMut() -> bool,
 ) -> Result<ReadyLiveSession> {
-    let setup = build_realtime_transcription_setup(model);
+    let setup = build_realtime_transcription_setup(model, vocabulary, resumption_handle);
     ConnectedLiveSocket::connect(api_key)?.activate_with(
         setup,
         OpenOptions {
@@ -49,17 +53,29 @@ fn open_ready_session(
     )
 }
 
-fn build_realtime_transcription_setup(model: &str) -> serde_json::Value {
+fn build_realtime_transcription_setup(
+    model: &str,
+    vocabulary: &[String],
+    resumption_handle: Option<&str>,
+) -> serde_json::Value {
     let builder = LiveSetupBuilder::new(model).transcription(TranscriptionMode::Input);
     if crate::model_config::live_endpoint_profile(model).and_then(|profile| profile.protocol)
         == Some("live-transcribe")
     {
+        let resumption = resumption_handle
+            .map(|handle| serde_json::json!({ "handle": handle }))
+            .unwrap_or_else(|| serde_json::json!({}));
         builder
             .generation_field("responseModalities", serde_json::json!(["TEXT"]))
             .setup_field(
                 "inputAudioTranscription",
-                serde_json::json!({ "languageCodes": [], "mode": "SMART" }),
+                serde_json::json!({
+                    "languageCodes": [],
+                    "mode": "SMART",
+                    "customVocabulary": vocabulary,
+                }),
             )
+            .setup_field("sessionResumption", resumption)
             .build()
     } else {
         builder.media_resolution(MediaResolution::Low).build()
@@ -410,9 +426,14 @@ fn run_realtime_transcription(
         });
     }
 
-    let session = match open_ready_session(&gemini_api_key, &gemini_live_model, || {
-        setup_cancelled(&stop_signal)
-    }) {
+    let (_, vocabulary) = dedicated::vocabulary_snapshot();
+    let session = match open_ready_session(
+        &gemini_api_key,
+        &gemini_live_model,
+        &vocabulary,
+        None,
+        || setup_cancelled(&stop_signal),
+    ) {
         Ok(session) => session,
         Err(_) if setup_cancelled(&stop_signal) => return Ok(()),
         Err(error) => return Err(error),
@@ -515,14 +536,19 @@ mod tests {
             fixture["model"]
                 .as_str()
                 .expect("Gemini Transcribe fixture model is a string"),
+            &[],
+            None,
         );
         assert_eq!(actual["setup"], fixture["setup"]);
     }
 
     #[test]
     fn native_audio_transcription_keeps_audio_response_profile() {
-        let setup =
-            build_realtime_transcription_setup(crate::model_config::GEMINI_LIVE_API_MODEL_3_1);
+        let setup = build_realtime_transcription_setup(
+            crate::model_config::GEMINI_LIVE_API_MODEL_3_1,
+            &[],
+            None,
+        );
         assert_eq!(
             setup["setup"]["generationConfig"]["responseModalities"],
             serde_json::json!(["AUDIO"])
@@ -530,6 +556,26 @@ mod tests {
         assert_eq!(
             setup["setup"]["generationConfig"]["mediaResolution"],
             "MEDIA_RESOLUTION_LOW"
+        );
+    }
+
+    #[test]
+    fn gemini_transcribe_setup_includes_vocabulary_and_resumption() {
+        let model = crate::model_config::realtime_transcription_api_model(
+            "google-gemini-3-5-transcribe-live-audio",
+        );
+        let setup = build_realtime_transcription_setup(
+            &model,
+            &["Screen Goated".to_string(), "WebView2".to_string()],
+            Some("resume-handle"),
+        );
+        assert_eq!(
+            setup["setup"]["inputAudioTranscription"]["customVocabulary"],
+            serde_json::json!(["Screen Goated", "WebView2"])
+        );
+        assert_eq!(
+            setup["setup"]["sessionResumption"]["handle"],
+            "resume-handle"
         );
     }
 

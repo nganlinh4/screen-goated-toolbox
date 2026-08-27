@@ -439,6 +439,8 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                     llmLabel = "LLM",
                     gtxLabel = "Google Dịch",
                     transcriptionModelTitle = "Mô hình phụ đề",
+                    customVocabularyTitle = "Từ vựng tùy chỉnh",
+                    customVocabularyPrompt = "Nhập một thuật ngữ rồi nhấn Enter hoặc +. Bạn cũng có thể dán các thuật ngữ cách nhau bằng dấu phẩy hoặc xuống dòng.",
                     translationModelTitle = "Mô hình dịch",
                     transcriptionLanguageTitle = "Ngôn ngữ phụ đề",
                     unavailableSuffix = "Không khả dụng",

@@ -4,8 +4,10 @@
 
 DRAWABLE_DIR="mobile/androidApp/src/main/res/drawable"
 WEB_ICON_DIR="ui-shared/material-symbols"
+ANDROID_WEB_ICON_DIR="mobile/androidApp/src/main/assets/material-symbols"
 mkdir -p "$DRAWABLE_DIR"
 mkdir -p "$WEB_ICON_DIR"
+mkdir -p "$ANDROID_WEB_ICON_DIR"
 
 # Map: compose_name -> material_symbols_name
 declare -A ICONS=(
@@ -31,6 +33,7 @@ declare -A ICONS=(
   ["delete"]="delete"
   ["deployed_code"]="deployed-code"
   ["description"]="description"
+  ["dictionary"]="dictionary"
   ["download"]="download"
   ["draw_collage"]="draw-collage"
   ["drag_indicator"]="drag_indicator"
@@ -129,8 +132,9 @@ for key in "${!ICONS[@]}"; do
   symbol_url="${symbol//_/-}"
   outfile="$DRAWABLE_DIR/ms_${key}.xml"
   webfile="$WEB_ICON_DIR/${key}.svg"
+  android_webfile="$ANDROID_WEB_ICON_DIR/${key}.svg"
 
-  if [ -f "$outfile" ] && [ -f "$webfile" ]; then
+  if [ -f "$outfile" ] && [ -f "$webfile" ] && [ -f "$android_webfile" ]; then
     echo "SKIP $key (exists)"
     continue
   fi
@@ -170,9 +174,13 @@ EOF
     printf '%s\n' "$svg" > "$webfile"
   fi
 
+  if [ ! -f "$android_webfile" ]; then
+    printf '%s\n' "$svg" > "$android_webfile"
+  fi
+
   count=$((count + 1))
   echo "OK   $key ($count/$total)"
 done
 
 echo ""
-echo "Downloaded $count icons to $DRAWABLE_DIR and $WEB_ICON_DIR"
+echo "Downloaded $count icons to $DRAWABLE_DIR, $WEB_ICON_DIR, and $ANDROID_WEB_ICON_DIR"

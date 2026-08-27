@@ -45,14 +45,14 @@ internal class RealtimeOverlayHtmlBuilder(
                 "TOGGLE_HEADER_TITLE" to locale.overlay.toggleHeaderTitle,
                 "CONTENT_COPY_SVG" to RealtimeOverlayIcons.CONTENT_COPY,
                 "REMOVE_SVG" to RealtimeOverlayIcons.REMOVE,
-                "ADD_SVG" to RealtimeOverlayIcons.ADD,
+                "ADD_SVG" to materialSymbol("add"),
                 "SUBTITLES_SVG" to RealtimeOverlayIcons.SUBTITLES,
                 "TRANSLATE_SVG" to RealtimeOverlayIcons.TRANSLATE,
                 "EXPAND_LESS_SVG" to RealtimeOverlayIcons.EXPAND_LESS,
                 "DOWNLOAD_SVG" to RealtimeOverlayIcons.DOWNLOAD,
                 "DOWNLOAD_TITLE" to locale.overlay.downloadingModelTitle,
                 "PLEASE_WAIT_TEXT" to locale.overlay.pleaseWaitText,
-                "CLOSE_SVG" to RealtimeOverlayIcons.CLOSE,
+                "CLOSE_SVG" to materialSymbol("close"),
                 "CANCEL_TEXT" to locale.overlay.cancelText,
                 "CANCEL_DOWNLOAD_TITLE" to locale.overlay.cancelText,
                 "VOLUME_UP_SVG" to RealtimeOverlayIcons.VOLUME_UP,
@@ -65,7 +65,9 @@ internal class RealtimeOverlayHtmlBuilder(
                 "AUTO_AWESOME_SVG" to RealtimeOverlayIcons.AUTO_AWESOME,
                 "BOLT_EN_SVG" to RealtimeOverlayIcons.BOLT_EN,
                 "SPEED_SVG" to RealtimeOverlayIcons.SPEED,
-                "LANGUAGE_SVG" to RealtimeOverlayIcons.LANGUAGE,
+                "DICTIONARY_SVG" to materialSymbol("dictionary"),
+                "CUSTOM_VOCABULARY_TITLE" to locale.overlay.customVocabularyTitle,
+                "CUSTOM_VOCABULARY_PROMPT" to locale.overlay.customVocabularyPrompt,
             )
             replacements.entries.fold(baseHtml) { html, (token, value) ->
                 html.replace("{{$token}}", value)
@@ -121,6 +123,9 @@ internal class RealtimeOverlayHtmlBuilder(
             <button class="model-dropdown" id="transcription-model-btn" type="button" title="${locale.overlay.transcriptionModelTitle}" data-value="">
                 <span id="transcription-model-label">--</span>
             </button>
+            <button class="ctrl-btn" id="custom-vocabulary-btn" type="button" title="${locale.overlay.customVocabularyTitle}" hidden>
+                <span class="inline-svg-icon">${materialSymbol("dictionary")}</span>
+            </button>
             <button class="trans-lang-badge greyed" id="trans-lang-badge" type="button" title="${locale.overlay.transcriptionLanguageTitle}" data-code="EN">EN</button>
             """.trimIndent()
         }
@@ -128,6 +133,10 @@ internal class RealtimeOverlayHtmlBuilder(
 
     private fun asset(name: String): String {
         return context.assets.open("realtime_overlay/$name").bufferedReader().use { it.readText() }
+    }
+
+    private fun materialSymbol(name: String): String {
+        return context.assets.open("material-symbols/$name.svg").bufferedReader().use { it.readText() }
     }
 
     private companion object {

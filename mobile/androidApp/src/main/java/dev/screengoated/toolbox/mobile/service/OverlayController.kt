@@ -48,6 +48,10 @@ class OverlayController(
     internal val stopTextToSpeech: () -> Unit,
     internal val ttsRuntimeService: TtsRuntimeService,
 ) {
+    init {
+        GeminiTranscribeVocabulary.replace(repository.currentConfig().customVocabulary)
+    }
+
     internal val windowManager = context.getSystemService(android.view.WindowManager::class.java)
     internal val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     internal val prefs = context.getSharedPreferences("sgt_overlay_window", Context.MODE_PRIVATE)
@@ -321,6 +325,19 @@ class OverlayController(
             message.startsWith("transcriptionModel:") -> updateTranscriptionModel(
                 message.removePrefix("transcriptionModel:"),
             )
+
+            message == "textInputStart" -> windowFor(paneId)?.setTextInputActive(true)
+            message == "textInputEnd" -> windowFor(paneId)?.setTextInputActive(false)
+
+            message.startsWith("customVocabulary:") -> runCatching {
+                java.net.URLDecoder.decode(
+                    message.removePrefix("customVocabulary:"),
+                    Charsets.UTF_8.name(),
+                )
+            }.onSuccess { decoded ->
+                val snapshot = GeminiTranscribeVocabulary.update(decoded)
+                repository.updateCustomVocabulary(snapshot.entries)
+            }
 
             message == "showTranscriptionLanguagePicker" -> showTranscriptionLanguagePicker()
             message == "showTranscriptionModelPicker" -> showTranscriptionModelPicker()

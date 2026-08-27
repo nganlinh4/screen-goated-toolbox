@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use super::dedicated::{compute_i16_rms, samples_to_ms, uses_periodic_silence_cycle};
+use super::reconnect::{ReconnectContext, try_reconnect};
 use crate::api::gemini_live::ready_session::{LivePoll, ReadyLiveSession};
 use crate::api::gemini_live::transport::is_recoverable_anyhow_socket_error;
 use crate::api::realtime_audio::state::SharedRealtimeState;
@@ -15,7 +17,7 @@ use crate::api::realtime_audio::{DEVICE_RECONNECT_REQUESTED, WM_VOLUME_UPDATE};
 
 /// Audio mode state machine for silence injection.
 #[derive(Clone, Copy, PartialEq)]
-enum AudioMode {
+pub(super) enum AudioMode {
     Normal,
     Silence,
     CatchUp,
@@ -66,22 +68,6 @@ impl AudioMode {
     }
 }
 
-fn samples_to_ms(samples: usize) -> usize {
-    samples.saturating_mul(1_000) / 16_000
-}
-
-fn compute_i16_rms(samples: &[i16]) -> f32 {
-    if samples.is_empty() {
-        return 0.0;
-    }
-    let sum_sq: f64 = samples.iter().map(|&s| (s as f64 / 32768.0).powi(2)).sum();
-    (sum_sq / samples.len() as f64).sqrt() as f32
-}
-
-fn uses_periodic_silence_cycle(uses_interim_transcripts: bool) -> bool {
-    !uses_interim_transcripts
-}
-
 pub(super) struct RealtimeMainLoop<'a> {
     pub(super) session: ReadyLiveSession,
     pub(super) audio_buffer: Arc<Mutex<Vec<i16>>>,
@@ -125,6 +111,10 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
     const EMPTY_READ_CHECK_COUNT: u32 = 50;
 
     let session_started = Instant::now();
+    let mut connection_started = Instant::now();
+    let (mut vocabulary_version, _) = super::dedicated::vocabulary_snapshot();
+    let mut resumption_handle: Option<String> = None;
+    let mut dedicated_vad = super::dedicated::HybridVad::default();
     let mut last_health_log = Instant::now();
     let mut sent_chunks = 0u64;
     let mut sent_samples = 0usize;
@@ -151,6 +141,39 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
             {
                 break;
             }
+        }
+
+        let current_vocabulary_version = super::dedicated::vocabulary_snapshot().0;
+        if uses_interim_transcripts
+            && (connection_started.elapsed() >= super::dedicated::ROTATE_AT
+                || current_vocabulary_version != vocabulary_version)
+            && dedicated_vad.is_safe_gap()
+        {
+            let reason = if current_vocabulary_version != vocabulary_version {
+                "vocabulary"
+            } else {
+                "rotation"
+            };
+            if !try_reconnect(ReconnectContext {
+                session: &mut session,
+                api_key: gemini_api_key,
+                model: gemini_live_model,
+                audio_buffer: &audio_buffer,
+                silence_buffer: &mut silence_buffer,
+                audio_mode: &mut audio_mode,
+                mode_start: &mut mode_start,
+                last_transcription_time: &mut last_transcription_time,
+                consecutive_empty_reads: &mut consecutive_empty_reads,
+                stop_signal: &stop_signal,
+                resumption_handle: &mut resumption_handle,
+            }) {
+                break;
+            }
+            vocabulary_version = current_vocabulary_version;
+            connection_started = Instant::now();
+            dedicated_vad.reset_connection();
+            reconnect_count += 1;
+            crate::log_info!("[RealtimeGeminiLiveHealth] reconnect-ok reason={reason}");
         }
 
         if uses_periodic_silence_cycle(uses_interim_transcripts) {
@@ -187,6 +210,12 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                     if !real_audio.is_empty() {
                         let is_active = compute_i16_rms(&real_audio) >= ACTIVE_AUDIO_RMS_THRESHOLD;
                         if send_audio(&mut session, &real_audio).is_err() {
+                            break;
+                        }
+                        if uses_interim_transcripts
+                            && dedicated_vad.observe(compute_i16_rms(&real_audio), Instant::now())
+                            && session.end_audio_stream().is_err()
+                        {
                             break;
                         }
                         sent_chunks += 1;
@@ -235,9 +264,22 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                 let _ = PostMessageW(Some(overlay_hwnd), WM_VOLUME_UPDATE, WPARAM(0), LPARAM(0));
             }
         }
+        if uses_interim_transcripts
+            && dedicated_vad.poll_end(Instant::now())
+            && session.end_audio_stream().is_err()
+        {
+            break;
+        }
 
         match session.poll() {
             Ok(LivePoll::Frame(frame)) => {
+                if let Some(update) = frame.session_resumption.as_ref()
+                    && update.resumable
+                    && let Some(handle) = update.handle.as_ref()
+                {
+                    resumption_handle = Some(handle.clone());
+                }
+                let should_rotate_for_go_away = uses_interim_transcripts && frame.go_away.is_some();
                 let transcript = if uses_interim_transcripts {
                     match (frame.input_transcript, frame.interim_input_transcript) {
                         (Some(text), _) => Some((text, true)),
@@ -274,6 +316,26 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                         update_overlay_text(overlay_hwnd, &display_text);
                     }
                 }
+                if should_rotate_for_go_away {
+                    if !try_reconnect(ReconnectContext {
+                        session: &mut session,
+                        api_key: gemini_api_key,
+                        model: gemini_live_model,
+                        audio_buffer: &audio_buffer,
+                        silence_buffer: &mut silence_buffer,
+                        audio_mode: &mut audio_mode,
+                        mode_start: &mut mode_start,
+                        last_transcription_time: &mut last_transcription_time,
+                        consecutive_empty_reads: &mut consecutive_empty_reads,
+                        stop_signal: &stop_signal,
+                        resumption_handle: &mut resumption_handle,
+                    }) {
+                        break;
+                    }
+                    connection_started = Instant::now();
+                    dedicated_vad.reset_connection();
+                    reconnect_count += 1;
+                }
             }
             Ok(LivePoll::PeerClosed(_)) => {
                 crate::log_info!(
@@ -293,11 +355,14 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                     last_transcription_time: &mut last_transcription_time,
                     consecutive_empty_reads: &mut consecutive_empty_reads,
                     stop_signal: &stop_signal,
+                    resumption_handle: &mut resumption_handle,
                 }) {
                     crate::log_info!("[RealtimeGeminiLiveHealth] reconnect-failed reason=close");
                     break;
                 }
                 reconnect_count += 1;
+                connection_started = Instant::now();
+                dedicated_vad.reset_connection();
                 crate::log_info!(
                     "[RealtimeGeminiLiveHealth] reconnect-ok reason=close count={} catchup_ms={}",
                     reconnect_count,
@@ -331,6 +396,7 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                         last_transcription_time: &mut last_transcription_time,
                         consecutive_empty_reads: &mut consecutive_empty_reads,
                         stop_signal: &stop_signal,
+                        resumption_handle: &mut resumption_handle,
                     }) {
                         crate::log_info!(
                             "[RealtimeGeminiLiveHealth] reconnect-failed reason=no-results"
@@ -338,6 +404,8 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                         break;
                     }
                     reconnect_count += 1;
+                    connection_started = Instant::now();
+                    dedicated_vad.reset_connection();
                     crate::log_info!(
                         "[RealtimeGeminiLiveHealth] reconnect-ok reason=no-results count={} catchup_ms={}",
                         reconnect_count,
@@ -370,6 +438,7 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                         last_transcription_time: &mut last_transcription_time,
                         consecutive_empty_reads: &mut consecutive_empty_reads,
                         stop_signal: &stop_signal,
+                        resumption_handle: &mut resumption_handle,
                     }) {
                         crate::log_info!(
                             "[RealtimeGeminiLiveHealth] reconnect-failed reason=socket-error error={}",
@@ -378,6 +447,8 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                         break;
                     }
                     reconnect_count += 1;
+                    connection_started = Instant::now();
+                    dedicated_vad.reset_connection();
                     crate::log_info!(
                         "[RealtimeGeminiLiveHealth] reconnect-ok reason=socket-error count={} catchup_ms={}",
                         reconnect_count,
@@ -425,6 +496,10 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
 
 const ACTIVE_AUDIO_RMS_THRESHOLD: f32 = 0.004;
 const NO_RESULT_ACTIVE_AUDIO_THRESHOLD_MS: usize = 4_000;
+
+fn send_audio(session: &mut ReadyLiveSession, samples: &[i16]) -> Result<()> {
+    session.send_audio_pcm(samples, 16_000)
+}
 
 #[cfg(test)]
 mod tests {
@@ -519,77 +594,4 @@ mod tests {
         assert!(!uses_periodic_silence_cycle(true));
         assert!(uses_periodic_silence_cycle(false));
     }
-}
-
-struct ReconnectContext<'a> {
-    session: &'a mut ReadyLiveSession,
-    api_key: &'a str,
-    model: &'a str,
-    audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
-    silence_buffer: &'a mut Vec<i16>,
-    audio_mode: &'a mut AudioMode,
-    mode_start: &'a mut Instant,
-    last_transcription_time: &'a mut Instant,
-    consecutive_empty_reads: &'a mut u32,
-    stop_signal: &'a Arc<AtomicBool>,
-}
-
-fn try_reconnect(context: ReconnectContext<'_>) -> bool {
-    let ReconnectContext {
-        session,
-        api_key,
-        model,
-        audio_buffer,
-        silence_buffer,
-        audio_mode,
-        mode_start,
-        last_transcription_time,
-        consecutive_empty_reads,
-        stop_signal,
-    } = context;
-    let mut reconnect_buffer: Vec<i16> = Vec::new();
-    let _ = session.close();
-
-    for _attempt in 1..=3 {
-        if reconnect_cancelled(stop_signal) {
-            return false;
-        }
-
-        {
-            let mut buf = audio_buffer.lock().unwrap();
-            reconnect_buffer.extend(std::mem::take(&mut *buf));
-        }
-
-        match super::open_ready_session(api_key, model, || reconnect_cancelled(stop_signal)) {
-            Ok(new_session) => {
-                {
-                    let mut buf = audio_buffer.lock().unwrap();
-                    reconnect_buffer.extend(std::mem::take(&mut *buf));
-                }
-                silence_buffer.clear();
-                silence_buffer.extend(reconnect_buffer);
-                *audio_mode = AudioMode::CatchUp;
-                *mode_start = Instant::now();
-                *session = new_session;
-                *last_transcription_time = Instant::now();
-                *consecutive_empty_reads = 0;
-                return true;
-            }
-            Err(_) => {
-                if reconnect_cancelled(stop_signal) {
-                    return false;
-                }
-                std::thread::sleep(Duration::from_millis(500));
-            }
-        }
-    }
-    false
-}
-
-fn reconnect_cancelled(stop_signal: &Arc<AtomicBool>) -> bool {
-    super::setup_cancelled(stop_signal) || DEVICE_RECONNECT_REQUESTED.load(Ordering::SeqCst)
-}
-
-fn send_audio(session: &mut ReadyLiveSession, samples: &[i16]) -> Result<()> {
-    session.send_audio_pcm(samples, 16_000)
 }

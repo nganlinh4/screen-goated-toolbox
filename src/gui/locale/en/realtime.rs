@@ -16,6 +16,8 @@ pub(super) fn get() -> RealtimeLocaleText {
         realtime_tooltip_microphone_input: "Microphone Input",
         realtime_tooltip_device_audio: "Device Audio",
         realtime_tooltip_transcription_model: "Transcription model",
+        realtime_tooltip_custom_vocabulary: "Custom vocabulary",
+        realtime_custom_vocabulary_prompt: "Type a term, then press Enter or +. You can also paste comma- or line-separated terms.",
         realtime_tooltip_transcription_language: "Transcription language",
         realtime_tooltip_translation_model: "Translation Model",
         realtime_tooltip_s2s_translation_model: "Gemini S2S uses the TTS Gemini Live model",

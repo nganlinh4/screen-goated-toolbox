@@ -441,6 +441,8 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                     llmLabel = "LLM",
                     gtxLabel = "Google 번역",
                     transcriptionModelTitle = "자막 모델",
+                    customVocabularyTitle = "사용자 지정 어휘",
+                    customVocabularyPrompt = "용어를 입력한 뒤 Enter 또는 +를 누르세요. 쉼표나 줄바꿈으로 구분한 용어를 붙여넣을 수도 있습니다.",
                     translationModelTitle = "번역 모델",
                     transcriptionLanguageTitle = "자막 언어",
                     unavailableSuffix = "사용 불가",

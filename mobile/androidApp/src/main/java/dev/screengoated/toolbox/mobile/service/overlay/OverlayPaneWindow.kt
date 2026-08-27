@@ -13,6 +13,7 @@ import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.view.animation.Interpolator
 import android.view.animation.OvershootInterpolator
+import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import android.widget.FrameLayout
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
@@ -91,6 +92,7 @@ internal class OverlayPaneWindow(
     )
 
     private var attached = false
+    private var textInputActive = false
 
     init {
         attachResizeGestureForwarder()
@@ -119,8 +121,49 @@ internal class OverlayPaneWindow(
         if (!attached) {
             return
         }
+        setTextInputActive(false)
         runCatching { windowManager.removeView(rootView) }
         attached = false
+    }
+
+    fun setTextInputActive(active: Boolean) {
+        if (textInputActive == active) {
+            return
+        }
+        textInputActive = active
+        layoutParams.flags = if (active) {
+            layoutParams.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+        } else {
+            layoutParams.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        layoutParams.softInputMode = if (active) {
+            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN or
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+        } else {
+            0
+        }
+        if (attached) {
+            runCatching { windowManager.updateViewLayout(rootView, layoutParams) }
+        }
+        webView.isFocusable = active
+        webView.isFocusableInTouchMode = active
+        val inputMethods = webView.context.getSystemService(InputMethodManager::class.java)
+        if (active) {
+            webView.post {
+                webView.requestFocusFromTouch()
+                webView.requestFocus()
+                webView.evaluateJavascript("window.focusCustomVocabularyInput?.();", null)
+                inputMethods?.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+            }
+            webView.postDelayed({
+                webView.evaluateJavascript("window.focusCustomVocabularyInput?.();", null)
+                inputMethods?.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+            }, 160L)
+        } else {
+            inputMethods?.hideSoftInputFromWindow(webView.windowToken, 0)
+            webView.clearFocus()
+            rootView.clearFocus()
+        }
     }
 
     fun destroy() {

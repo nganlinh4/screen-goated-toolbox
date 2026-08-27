@@ -39,7 +39,11 @@ pub(super) fn handle(hwnd: HWND, raw: &str) {
 }
 
 fn handle_card_message(hwnd: HWND, role: CardRole, body: &str, scale: f64) {
-    if body == "interactionStart" {
+    if body == "textInputStart" {
+        super::text_input_focus::begin(hwnd, role);
+    } else if body == "textInputEnd" {
+        super::text_input_focus::end(hwnd);
+    } else if body == "interactionStart" {
         layout::set_interaction_active(hwnd, true);
     } else if body == "interactionEnd" {
         layout::set_interaction_active(hwnd, false);
@@ -64,6 +68,7 @@ fn handle_card_message(hwnd: HWND, role: CardRole, body: &str, scale: f64) {
     } else if let Some(text) = body.strip_prefix("copyText:") {
         crate::overlay::utils::copy_to_clipboard(text, hwnd);
     } else if body == "close" {
+        super::text_input_focus::end(hwnd);
         unsafe {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }

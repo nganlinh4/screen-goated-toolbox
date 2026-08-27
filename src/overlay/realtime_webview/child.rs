@@ -164,11 +164,18 @@ unsafe extern "system" fn window_proc(
                 resize_host(hwnd);
                 LRESULT(0)
             }
+            WM_MOUSEACTIVATE => LRESULT(if super::text_input_focus::is_active() {
+                MA_ACTIVATE
+            } else {
+                MA_NOACTIVATE
+            } as isize),
             WM_CLOSE => {
+                super::text_input_focus::end(hwnd);
                 let _ = DestroyWindow(hwnd);
                 LRESULT(0)
             }
             WM_DESTROY => {
+                super::text_input_focus::end(hwnd);
                 PostQuitMessage(0);
                 LRESULT(0)
             }

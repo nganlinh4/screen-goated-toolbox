@@ -134,6 +134,16 @@
             updateTitleBySelector('.model-icon[data-value="text-llm"]', overlayLocale.llmLabel);
             updateTitleBySelector('.model-icon[data-value="google-gtx"]', overlayLocale.gtxLabel);
             updateTitleById('transcription-model-btn', overlayLocale.transcriptionModelTitle);
+            updateTitleById('custom-vocabulary-btn', overlayLocale.customVocabularyTitle);
+            updateTextNode('custom-vocabulary-modal-title', overlayLocale.customVocabularyTitle);
+            const vocabularyEntry = document.getElementById('custom-vocabulary-entry');
+            const vocabularyInput = document.getElementById('custom-vocabulary-input');
+            if (vocabularyEntry) vocabularyEntry.title = overlayLocale.customVocabularyPrompt;
+            if (vocabularyInput) {
+                vocabularyInput.setAttribute('aria-label', overlayLocale.customVocabularyPrompt);
+                vocabularyInput.placeholder = overlayLocale.customVocabularyPrompt;
+            }
+            updateTitleById('custom-vocabulary-add', overlayLocale.customVocabularyTitle);
             updateTitleById('trans-lang-badge', overlayLocale.transcriptionLanguageTitle);
             // Refresh the displayed picker label too, since its source switched to overlayLocale.
             const currentTranslationModelBtn = document.getElementById('translation-model-btn');
@@ -251,6 +261,108 @@
                 e.stopPropagation();
                 e.preventDefault();
                 if (window.ipc) window.ipc.postMessage('showTranscriptionModelPicker');
+            });
+        }
+
+        const customVocabularyBtn = document.getElementById('custom-vocabulary-btn');
+        const customVocabularyModal = document.getElementById('custom-vocabulary-modal');
+        const customVocabularyModalOverlay = document.getElementById('custom-vocabulary-modal-overlay');
+        const customVocabularyInput = document.getElementById('custom-vocabulary-input');
+        const customVocabularyPills = document.getElementById('custom-vocabulary-pills');
+        const customVocabularyPillClose = document.getElementById('custom-vocabulary-pill-close');
+        const customVocabularyAdd = document.getElementById('custom-vocabulary-add');
+
+        function normalizeCustomVocabulary(value) {
+            const seen = new Set();
+            return value.split(/\r?\n/)
+                .map(entry => entry.trim())
+                .filter(entry => entry && !seen.has(entry) && seen.add(entry))
+                .slice(0, 1000);
+        }
+
+        function closeCustomVocabularyEditor() {
+            if (!customVocabularyModal || !customVocabularyModal.classList.contains('show')) return;
+            if (customVocabularyModal) customVocabularyModal.classList.remove('show');
+            if (customVocabularyModalOverlay) customVocabularyModalOverlay.classList.remove('show');
+            if (window.ipc) window.ipc.postMessage('textInputEnd');
+        }
+
+        function renderCustomVocabularyPills() {
+            if (!customVocabularyPills) return;
+            customVocabularyPills.replaceChildren();
+            customVocabulary.forEach((entry, index) => {
+                const pill = document.createElement('span');
+                pill.className = 'custom-vocabulary-pill';
+                const label = document.createElement('span');
+                label.textContent = entry;
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'custom-vocabulary-pill-remove inline-svg-icon';
+                remove.setAttribute('aria-label', entry);
+                if (customVocabularyPillClose) remove.innerHTML = customVocabularyPillClose.innerHTML;
+                pill.append(label, remove);
+                remove.addEventListener('click', () => {
+                    customVocabulary.splice(index, 1);
+                    renderCustomVocabularyPills();
+                    postCustomVocabulary();
+                    customVocabularyInput.focus();
+                });
+                customVocabularyPills.appendChild(pill);
+            });
+            customVocabularyPills.scrollLeft = customVocabularyPills.scrollWidth;
+        }
+
+        function addCustomVocabularyTerms(value) {
+            const next = normalizeCustomVocabulary(
+                customVocabulary.concat(value.split(/[\r\n,]+/)).join('\n')
+            );
+            customVocabularyInput.value = '';
+            if (next.length === customVocabulary.length && next.every((entry, index) => entry === customVocabulary[index])) return;
+            customVocabulary = next;
+            renderCustomVocabularyPills();
+            postCustomVocabulary();
+        }
+
+        function postCustomVocabulary() {
+            if (window.ipc) {
+                window.ipc.postMessage('customVocabulary:' + encodeURIComponent(customVocabulary.join('\n')));
+            }
+        }
+
+        if (customVocabularyBtn && customVocabularyModal && customVocabularyModalOverlay && customVocabularyInput) {
+            installControlTapGuard(customVocabularyBtn);
+            customVocabularyBtn.addEventListener('pointerup', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                customVocabularyInput.value = '';
+                renderCustomVocabularyPills();
+                customVocabularyModal.classList.add('show');
+                customVocabularyModalOverlay.classList.add('show');
+                if (window.ipc) window.ipc.postMessage('textInputStart');
+                requestAnimationFrame(() => customVocabularyInput.focus());
+            });
+            window.focusCustomVocabularyInput = () => customVocabularyInput.focus();
+            customVocabularyModalOverlay.addEventListener('click', closeCustomVocabularyEditor);
+            if (customVocabularyAdd) customVocabularyAdd.addEventListener('click', () => addCustomVocabularyTerms(customVocabularyInput.value));
+            customVocabularyInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeCustomVocabularyEditor();
+                } else if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addCustomVocabularyTerms(customVocabularyInput.value);
+                } else if (e.key === 'Backspace' && !customVocabularyInput.value && customVocabulary.length) {
+                    customVocabulary.pop();
+                    renderCustomVocabularyPills();
+                    postCustomVocabulary();
+                }
+            });
+            customVocabularyInput.addEventListener('paste', (e) => {
+                const pasted = e.clipboardData && e.clipboardData.getData('text');
+                if (pasted && /[\r\n,]/.test(pasted)) {
+                    e.preventDefault();
+                    addCustomVocabularyTerms(pasted);
+                }
             });
         }
 

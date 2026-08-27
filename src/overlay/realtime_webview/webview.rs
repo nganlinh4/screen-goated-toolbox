@@ -232,6 +232,15 @@ fn run_card_script(role: CardRole, script: &str) {
     evaluate(&format!("window.runRealtimeCardScript?.({role},{script});"));
 }
 
+pub(super) fn focus_card_text_input(role: CardRole) {
+    REALTIME_WEBVIEW.with(|slot| {
+        if let Some(webview) = slot.borrow().as_ref() {
+            let _ = webview.focus();
+        }
+    });
+    run_card_script(role, "window.focusCustomVocabularyInput?.();");
+}
+
 fn run_all_cards_script(script: &str) {
     for role in [CardRole::Transcription, CardRole::Translation] {
         run_card_script(role, script);
@@ -271,6 +280,7 @@ fn show_for_layout(hwnd: HWND) {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
             );
         } else {
+            super::text_input_focus::end(hwnd);
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
     }
@@ -305,5 +315,13 @@ mod tests {
         let constructor = ["WebViewBuilder", "new_with_web_context"].join("::");
         assert_eq!(source.matches(&constructor).count(), 1);
         assert!(source.contains("compositor_document(&transcription, &translation)"));
+    }
+
+    #[test]
+    fn vocabulary_editor_requests_scoped_keyboard_focus() {
+        let source = include_str!("../html_components/js_main/vocabulary_editor.js");
+        assert!(source.contains("realtimePostMessage('textInputStart')"));
+        assert!(source.contains("realtimePostMessage('textInputEnd')"));
+        assert!(source.contains("window.focusCustomVocabularyInput"));
     }
 }

@@ -317,6 +317,7 @@ class LiveSessionRuntime(
         model: String,
     ) {
         withContext(Dispatchers.IO) {
+            GeminiTranscribeVocabulary.replace(repository.currentConfig().customVocabulary)
             val usesInterimTranscripts =
                 GeneratedLiveModelCatalog.endpointProfile(model)?.protocol == "live-transcribe"
             val committedTranscript = StringBuilder()

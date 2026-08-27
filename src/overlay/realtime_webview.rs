@@ -11,6 +11,7 @@ pub mod protocol;
 pub(crate) mod smoke;
 pub mod state;
 mod supervisor;
+mod text_input_focus;
 pub mod webview;
 mod webview_failure;
 pub mod wndproc;

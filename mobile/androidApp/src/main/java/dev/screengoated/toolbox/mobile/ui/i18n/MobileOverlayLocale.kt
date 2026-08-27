@@ -15,6 +15,8 @@ interface OverlayChromeText {
     val llmLabel: String
     val gtxLabel: String
     val transcriptionModelTitle: String
+    val customVocabularyTitle: String
+    val customVocabularyPrompt: String
     val translationModelTitle: String
     val transcriptionLanguageTitle: String
     val unavailableSuffix: String
@@ -54,6 +56,8 @@ data class OverlayChromeLocale(
     override val llmLabel: String,
     override val gtxLabel: String,
     override val transcriptionModelTitle: String,
+    override val customVocabularyTitle: String,
+    override val customVocabularyPrompt: String,
     override val translationModelTitle: String,
     override val transcriptionLanguageTitle: String,
     override val unavailableSuffix: String,

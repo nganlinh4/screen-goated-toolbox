@@ -57,6 +57,7 @@ const MODELS: &[&str] = &[
 const AUDIO: &[&str] = &[
     "realtime_translation_model",
     "realtime_transcription_model",
+    "realtime_custom_vocabulary",
     "realtime_transcription_language",
     "realtime_font_size",
     "realtime_transcription_size",
@@ -496,6 +497,7 @@ fn non_default_config() -> Config {
         custom_models: vec![Default::default()],
         realtime_translation_model: "translation-model".to_string(),
         realtime_transcription_model: "transcription-model".to_string(),
+        realtime_custom_vocabulary: vec!["saved term".to_string()],
         realtime_transcription_language: "fr".to_string(),
         realtime_font_size: 99,
         realtime_transcription_size: (901, 902),

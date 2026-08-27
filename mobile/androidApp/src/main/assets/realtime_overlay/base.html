@@ -32,6 +32,19 @@
             </div>
         </div>
     </div>
+    <div id="custom-vocabulary-modal-overlay"></div>
+    <div id="custom-vocabulary-modal" role="dialog" aria-modal="true" aria-labelledby="custom-vocabulary-modal-title">
+        <div class="custom-vocabulary-modal-title">
+            <span class="inline-svg-icon">{{DICTIONARY_SVG}}</span>
+            <span id="custom-vocabulary-modal-title">{{CUSTOM_VOCABULARY_TITLE}}</span>
+        </div>
+        <div class="custom-vocabulary-entry" id="custom-vocabulary-entry" title="{{CUSTOM_VOCABULARY_PROMPT}}">
+            <div id="custom-vocabulary-pills" role="group"></div>
+            <input id="custom-vocabulary-input" type="text" spellcheck="false" autocomplete="off" aria-label="{{CUSTOM_VOCABULARY_PROMPT}}" placeholder="{{CUSTOM_VOCABULARY_PROMPT}}">
+            <button type="button" id="custom-vocabulary-add" title="{{CUSTOM_VOCABULARY_TITLE}}" aria-label="{{CUSTOM_VOCABULARY_TITLE}}"><span class="inline-svg-icon">{{ADD_SVG}}</span></button>
+        </div>
+        <template id="custom-vocabulary-pill-close">{{CLOSE_SVG}}</template>
+    </div>
     <div id="download-modal-overlay"></div>
     <div id="download-modal">
         <div class="download-modal-title">

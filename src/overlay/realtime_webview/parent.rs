@@ -293,6 +293,12 @@ fn handle_card_input(role: CardRole, body: &str) {
     } else if let Some(language) = body.strip_prefix("transcriptionLanguage:") {
         super::controller::set_transcription_language(language);
         update_settings();
+    } else if let Some(encoded) = body.strip_prefix("customVocabulary:") {
+        if role == CardRole::Transcription
+            && let Ok(decoded) = urlencoding::decode(encoded)
+        {
+            super::controller::set_custom_vocabulary(&decoded);
+        }
     } else if let Some(enabled) = parse_toggle(body, "ttsEnabled:") {
         super::controller::set_tts_enabled(enabled);
         sync_tts();

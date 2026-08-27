@@ -173,6 +173,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 <select class="model-dropdown" id="transcription-model-select" title="{model_title}">
                     {options_html}
                 </select>
+                <span class="ctrl-btn" id="custom-vocabulary-btn" title="{vocabulary_title}" {vocabulary_hidden}><span class="inline-svg-icon">{vocabulary_svg}</span></span>
                 <select class="model-dropdown" id="transcription-lang-select" title="{language_title}" {trans_lang_disabled} {trans_lang_hidden}>
                     {trans_lang_html}
                 </select>
@@ -184,6 +185,16 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 mic_title = text.realtime.realtime_tooltip_microphone_input,
                 device_title = text.realtime.realtime_tooltip_device_audio,
                 model_title = text.realtime.realtime_tooltip_transcription_model,
+                vocabulary_title = text.realtime.realtime_tooltip_custom_vocabulary,
+                vocabulary_hidden = if crate::model_config::realtime_transcription_live_protocol(
+                    transcription_model
+                ) == Some("live-transcribe")
+                {
+                    ""
+                } else {
+                    "hidden"
+                },
+                vocabulary_svg = crate::overlay::html_components::icons::get_icon_svg("dictionary"),
                 language_title = text.realtime.realtime_tooltip_transcription_language,
                 options_html = options_html,
                 trans_lang_html = trans_lang_html,
@@ -326,6 +337,20 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         </div>
         <div id="resize-hint"><span class="inline-svg-icon" style="font-size: 20px;">{pip_svg}</span></div>
     </div>
+    <!-- Custom Vocabulary Modal -->
+    <div id="custom-vocabulary-modal-overlay"></div>
+    <div id="custom-vocabulary-modal" role="dialog" aria-modal="true" aria-labelledby="custom-vocabulary-modal-title">
+        <div class="custom-vocabulary-modal-title">
+            <span class="inline-svg-icon">{dictionary_svg}</span>
+            <span id="custom-vocabulary-modal-title">{vocabulary_title}</span>
+        </div>
+        <div class="custom-vocabulary-entry" title="{vocabulary_prompt}">
+            <div id="custom-vocabulary-pills" role="group"></div>
+            <input id="custom-vocabulary-input" type="text" spellcheck="false" autocomplete="off" aria-label="{vocabulary_prompt}" placeholder="{vocabulary_prompt}">
+            <button type="button" id="custom-vocabulary-add" title="{vocabulary_title}" aria-label="{vocabulary_title}"><span class="inline-svg-icon">{add_svg}</span></button>
+        </div>
+        <template id="custom-vocabulary-pill-close">{close_svg}</template>
+    </div>
     <!-- Download Modal -->
     <div id="download-modal-overlay"></div>
     <div id="download-modal">
@@ -381,6 +406,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     <script>
         {ipc_bootstrap}
         window.REALTIME_L10N = {l10n_json};
+        window.REALTIME_CUSTOM_VOCABULARY = {vocabulary_json};
         {js_content}
     </script>
 </body>
@@ -388,6 +414,9 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         css_content = css,
         js_content = js,
         l10n_json = l10n_json,
+        vocabulary_json =
+            serde_json::to_string(&crate::api::realtime_audio::vocabulary_snapshot().1)
+                .unwrap_or_else(|_| "[]".to_string()),
         ipc_bootstrap = ipc_bootstrap,
         is_s2s_attr = if is_s2s { "1" } else { "0" },
         is_live_translate_attr = if is_live_translate { "1" } else { "0" },
@@ -429,6 +458,9 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         apps_svg = crate::overlay::html_components::icons::get_icon_svg("apps"),
         download_svg = crate::overlay::html_components::icons::get_icon_svg("download"),
         close_svg = crate::overlay::html_components::icons::get_icon_svg("close"),
+        dictionary_svg = crate::overlay::html_components::icons::get_icon_svg("dictionary"),
+        vocabulary_title = text.realtime.realtime_tooltip_custom_vocabulary,
+        vocabulary_prompt = text.realtime.realtime_custom_vocabulary_prompt,
         cancel_text = text.preset_basics.cancel_label,
     )
 }

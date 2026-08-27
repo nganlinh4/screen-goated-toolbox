@@ -450,6 +450,132 @@ pub fn get(is_dark: bool) -> String {
         .download-cancel-btn .inline-svg-icon {{
             font-size: 14px;
         }}
+
+        /* Custom Vocabulary Modal */
+        #custom-vocabulary-modal {{
+            display: none;
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            width: min(440px, calc(100vw - 24px));
+            max-height: calc(100vh - 24px);
+            padding: 11px 12px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            background: {bg_color};
+            border: 1px solid {border_focus_color};
+            border-radius: 12px;
+            box-shadow: 0 8px 32px {shadow_lg}, 0 0 20px {shadow_sm};
+            color: {text_color};
+            z-index: 2147483647 !important;
+        }}
+        #custom-vocabulary-modal.show {{
+            display: block !important;
+            animation: modal-appear 0.2s ease-out;
+        }}
+        #custom-vocabulary-modal-overlay {{
+            display: none;
+            position: fixed !important;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 2147483646 !important;
+        }}
+        #custom-vocabulary-modal-overlay.show {{ display: block !important; }}
+        .custom-vocabulary-modal-title {{
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 8px;
+            color: {title_color_app};
+            font-size: 13px;
+            font-weight: 700;
+        }}
+        .custom-vocabulary-entry {{
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            width: 100%;
+            height: 34px;
+            padding: 4px 6px;
+            border: 1px solid {divider_color};
+            border-radius: 17px;
+            background: {slider_bg};
+            overflow: hidden;
+        }}
+        .custom-vocabulary-entry:focus-within {{
+            border-color: {title_color_app};
+            box-shadow: 0 0 0 2px {hover_bg};
+        }}
+        #custom-vocabulary-pills {{
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            min-width: 0;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }}
+        #custom-vocabulary-pills:empty {{ display: none; }}
+        #custom-vocabulary-pills::-webkit-scrollbar {{ display: none; }}
+        .custom-vocabulary-pill {{
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            max-width: 160px;
+            height: 24px;
+            padding: 0 7px 0 9px;
+            flex: 0 0 auto;
+            border: 1px solid {border_focus_color};
+            border-radius: 12px;
+            background: {hover_bg};
+            color: {text_color};
+            font: 600 10px 'Google Sans Flex', sans-serif;
+        }}
+        .custom-vocabulary-pill > span:first-child {{
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }}
+        .custom-vocabulary-pill-remove {{
+            width: 12px;
+            height: 12px;
+            padding: 0;
+            flex: 0 0 auto;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            opacity: 0.65;
+            cursor: pointer;
+        }}
+        #custom-vocabulary-input {{
+            min-width: 72px;
+            height: 24px;
+            padding: 0 3px;
+            flex: 1 0 90px;
+            border: 0;
+            outline: none;
+            background: transparent;
+            color: {text_color};
+            font: 11px/1 'Google Sans Flex', sans-serif;
+        }}
+        #custom-vocabulary-add {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            flex: 0 0 24px;
+            border: 1px solid {divider_color};
+            border-radius: 12px;
+            background: {title_color_app};
+            color: #071319;
+            cursor: pointer;
+        }}
+        #custom-vocabulary-add .inline-svg-icon {{
+            width: 15px;
+            height: 15px;
+        }}
     "###,
         bg_color = bg_color,
         text_color = text_color,

@@ -441,6 +441,8 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                     llmLabel = "LLM",
                     gtxLabel = "Google Translate",
                     transcriptionModelTitle = "Transcription model",
+                    customVocabularyTitle = "Custom vocabulary",
+                    customVocabularyPrompt = "Type a term, then press Enter or +. You can also paste comma- or line-separated terms.",
                     translationModelTitle = "Translation model",
                     transcriptionLanguageTitle = "Transcription language",
                     unavailableSuffix = "Unavailable",

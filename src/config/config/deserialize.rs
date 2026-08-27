@@ -74,6 +74,7 @@ impl<'de> Deserialize<'de> for Config {
         field!(custom_models);
         field!(realtime_translation_model);
         field!(realtime_transcription_model);
+        field!(realtime_custom_vocabulary);
         field!(realtime_transcription_language);
         field!(realtime_font_size);
         field!(realtime_transcription_size);

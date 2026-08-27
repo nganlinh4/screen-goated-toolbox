@@ -335,6 +335,10 @@ class AndroidLiveSessionRepository(
         )
     }
 
+    fun updateCustomVocabulary(entries: List<String>) {
+        updateConfig(LiveSessionPatch(customVocabulary = normalizeVocabulary(entries)))
+    }
+
     fun canStartSession(): Boolean = state.value.permissions.readyFor(state.value.config, overlaySupported)
 
     fun syncStoppedState() {
@@ -411,7 +415,17 @@ class AndroidLiveSessionRepository(
             translationProvider = RealtimeModelIds.translationProviderDescriptor(
                 RealtimeModelIds.normalizeTranslationModelId(config.translationProvider.id),
             ),
+            customVocabulary = normalizeVocabulary(config.customVocabulary),
         )
+    }
+
+    private fun normalizeVocabulary(entries: List<String>): List<String> {
+        return entries.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .take(1_000)
+            .toList()
     }
 
     private fun normalizeGlobalTtsSettings(settings: MobileGlobalTtsSettings): MobileGlobalTtsSettings {

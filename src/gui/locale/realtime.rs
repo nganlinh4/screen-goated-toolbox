@@ -13,6 +13,8 @@ pub struct RealtimeLocaleText {
     pub realtime_tooltip_microphone_input: &'static str,
     pub realtime_tooltip_device_audio: &'static str,
     pub realtime_tooltip_transcription_model: &'static str,
+    pub realtime_tooltip_custom_vocabulary: &'static str,
+    pub realtime_custom_vocabulary_prompt: &'static str,
     pub realtime_tooltip_transcription_language: &'static str,
     pub realtime_tooltip_translation_model: &'static str,
     pub realtime_tooltip_s2s_translation_model: &'static str,

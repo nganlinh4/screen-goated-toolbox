@@ -16,6 +16,8 @@ pub(super) fn get() -> RealtimeLocaleText {
         realtime_tooltip_microphone_input: "Microphone",
         realtime_tooltip_device_audio: "Âm thanh máy tính",
         realtime_tooltip_transcription_model: "Mô hình chép lời",
+        realtime_tooltip_custom_vocabulary: "Từ vựng tùy chỉnh",
+        realtime_custom_vocabulary_prompt: "Nhập một thuật ngữ rồi nhấn Enter hoặc +. Bạn cũng có thể dán các thuật ngữ cách nhau bằng dấu phẩy hoặc xuống dòng.",
         realtime_tooltip_transcription_language: "Ngôn ngữ chép lời",
         realtime_tooltip_translation_model: "Mô hình dịch",
         realtime_tooltip_s2s_translation_model: "Gemini S2S dùng mô hình TTS Gemini Live",

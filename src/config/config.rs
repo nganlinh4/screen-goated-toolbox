@@ -324,6 +324,10 @@ pub struct Config {
     #[serde(default = "default_realtime_transcription_model")]
     pub realtime_transcription_model: String,
 
+    /// Custom terms supplied to realtime transcription providers that support them.
+    #[serde(default)]
+    pub realtime_custom_vocabulary: Vec<String>,
+
     /// Language for realtime transcription (ISO code, e.g. "en", "es", "ja")
     #[serde(default = "default_realtime_transcription_language")]
     pub realtime_transcription_language: String,
@@ -530,6 +534,7 @@ impl Default for Config {
             // Realtime Audio
             realtime_translation_model: default_realtime_translation_model(),
             realtime_transcription_model: default_realtime_transcription_model(),
+            realtime_custom_vocabulary: Vec::new(),
             realtime_transcription_language: default_realtime_transcription_language(),
             realtime_font_size: default_realtime_font_size(),
             realtime_transcription_size: default_realtime_window_size(),

@@ -378,6 +378,7 @@ fn apply_selected_config_defaults_from(
     if selection.audio_settings {
         config.realtime_translation_model = defaults.realtime_translation_model.clone();
         config.realtime_transcription_model = defaults.realtime_transcription_model.clone();
+        config.realtime_custom_vocabulary = defaults.realtime_custom_vocabulary.clone();
         config.realtime_transcription_language = defaults.realtime_transcription_language.clone();
         config.realtime_font_size = defaults.realtime_font_size;
         config.realtime_transcription_size = defaults.realtime_transcription_size;

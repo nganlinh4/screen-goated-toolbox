@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "hybridVad": {
+    "speechRms": 0.015,
+    "trailingAudioMs": 180,
+    "endSilenceMs": 420,
+    "audioStreamEndPerTurn": 1
+  },
+  "session": {
+    "limitMs": 600000,
+    "rotateAtMs": 540000,
+    "sessionResumption": true,
+    "preserveTranscript": true,
+    "replayBufferedAudio": true
+  },
+  "customVocabulary": {
+    "maxEntries": 1000,
+    "recommendedEntries": 100,
+    "trim": true,
+    "dropEmpty": true,
+    "deduplicateInOrder": true,
+    "applyRequiresReconnect": true
+  }
+}

@@ -245,7 +245,7 @@ private fun overlayModalCss(isDark: Boolean): String {
         )
     }
     return """
-        #tts-modal, #download-modal {
+        #tts-modal, #download-modal, #custom-vocabulary-modal {
             display: none;
             position: fixed !important;
             top: 50% !important;
@@ -261,7 +261,7 @@ private fun overlayModalCss(isDark: Boolean): String {
             scrollbar-width: none;
             box-sizing: border-box;
         }
-        #tts-modal::-webkit-scrollbar, #download-modal::-webkit-scrollbar {
+        #tts-modal::-webkit-scrollbar, #download-modal::-webkit-scrollbar, #custom-vocabulary-modal::-webkit-scrollbar {
             display: none;
         }
         #tts-modal { padding: 16px 20px; }
@@ -278,20 +278,26 @@ private fun overlayModalCss(isDark: Boolean): String {
             min-width: min(200px, calc(100vw - 16px));
             z-index: 2147483647 !important;
         }
-        #tts-modal.show, #download-modal.show {
+        #custom-vocabulary-modal {
+            width: min(440px, calc(100vw - 24px));
+            padding: 11px 12px;
+            border: 1px solid ${modal.borderFocusColor};
+            z-index: 2147483647 !important;
+        }
+        #tts-modal.show, #download-modal.show, #custom-vocabulary-modal.show {
             display: block !important;
             animation: modal-appear 0.2s ease-out;
         }
-        #tts-modal-overlay, #download-modal-overlay {
+        #tts-modal-overlay, #download-modal-overlay, #custom-vocabulary-modal-overlay {
             display: none;
             position: fixed !important;
             inset: 0;
             background: rgba(0,0,0,0.35);
         }
-        #tts-modal-overlay.show, #download-modal-overlay.show {
+        #tts-modal-overlay.show, #download-modal-overlay.show, #custom-vocabulary-modal-overlay.show {
             display: block !important;
         }
-        #tts-modal-overlay, #download-modal-overlay {
+        #tts-modal-overlay, #download-modal-overlay, #custom-vocabulary-modal-overlay {
             z-index: 2147483646 !important;
         }
         @keyframes modal-appear {
@@ -308,6 +314,99 @@ private fun overlayModalCss(isDark: Boolean): String {
         }
         .tts-modal-title { color: #ff9633; }
         .download-modal-title { color: #00c8ff; }
+        .custom-vocabulary-modal-title {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 8px;
+            color: #00c8ff;
+            font-size: 13px;
+            font-weight: bold;
+        }
+        .custom-vocabulary-entry {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            width: 100%;
+            height: 34px;
+            padding: 4px 6px;
+            border: 1px solid ${modal.dividerColor};
+            border-radius: 17px;
+            background: ${modal.sliderBg};
+            overflow: hidden;
+        }
+        .custom-vocabulary-entry:focus-within {
+            border-color: #00c8ff;
+            box-shadow: 0 0 0 2px rgba(0, 200, 255, 0.12);
+        }
+        #custom-vocabulary-pills {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            min-width: 0;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        #custom-vocabulary-pills:empty { display: none; }
+        #custom-vocabulary-pills::-webkit-scrollbar { display: none; }
+        .custom-vocabulary-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            max-width: 160px;
+            height: 24px;
+            padding: 0 7px 0 9px;
+            flex: 0 0 auto;
+            border: 1px solid ${modal.borderFocusColor};
+            border-radius: 12px;
+            background: rgba(0, 200, 255, 0.12);
+            color: ${modal.textColor};
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .custom-vocabulary-pill > span:first-child {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .custom-vocabulary-pill-remove {
+            width: 12px;
+            height: 12px;
+            padding: 0;
+            flex: 0 0 auto;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            opacity: 0.65;
+        }
+        #custom-vocabulary-input {
+            min-width: 72px;
+            height: 24px;
+            padding: 0 3px;
+            flex: 1 0 90px;
+            border: 0;
+            outline: none;
+            background: transparent;
+            color: ${modal.textColor};
+            font-size: 11px;
+        }
+        #custom-vocabulary-add {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            flex: 0 0 24px;
+            border: 1px solid ${modal.dividerColor};
+            border-radius: 12px;
+            background: #00c8ff;
+            color: #071319;
+        }
+        #custom-vocabulary-add .inline-svg-icon {
+            width: 15px;
+            height: 15px;
+        }
         .tts-modal-row {
             display: flex;
             align-items: center;

@@ -39,7 +39,7 @@ internal fun overlayMobileShim(): String {
             const volumeSlider = document.getElementById('volume-slider');
             const volumeValue = document.getElementById('volume-value');
             const blockInteractive = target =>
-                !!(target.closest('#controls') || target.closest('#tts-modal') || target.closest('.language-btn'));
+                !!(target.closest('#controls') || target.closest('#tts-modal') || target.closest('#custom-vocabulary-modal') || target.closest('.language-btn'));
             let dragTouch = null;
             let resizeTouch = null; // {x, y, corner: 'bl'|'br'}
 
@@ -117,8 +117,8 @@ internal fun overlayMobileShim(): String {
             // Modals cover the whole window when it is small — keep drag/resize working on
             // their background (interactive controls inside the modal stay untouched)
             const blockModalInteractive = target =>
-                !!target.closest('input, button, select, .toggle-switch, .auto-toggle, .ctrl-btn');
-            ['tts-modal', 'download-modal'].forEach(id => {
+                !!target.closest('input, textarea, button, select, .toggle-switch, .auto-toggle, .ctrl-btn');
+            ['tts-modal', 'download-modal', 'custom-vocabulary-modal'].forEach(id => {
                 const modal = document.getElementById(id);
                 if (modal) attachMoveResize(modal, blockModalInteractive);
             });

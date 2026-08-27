@@ -2,8 +2,11 @@ mod tail;
 
 pub fn get(font_size: u32) -> String {
     let drag_runtime = include_str!("js_main/drag_runtime.js");
+    let vocabulary_editor = include_str!("js_main/vocabulary_editor.js");
     format!(
-        r###"        const container = document.getElementById('container');
+        r###"        {vocabulary_editor}
+
+        const container = document.getElementById('container');
         const viewport = document.getElementById('viewport');
         const content = document.getElementById('content');
         const header = document.getElementById('header');
@@ -14,6 +17,13 @@ pub fn get(font_size: u32) -> String {
         const fontIncrease = document.getElementById('font-increase');
         const resizeHint = document.getElementById('resize-hint');
         const copyBtn = document.getElementById('copy-btn');
+        const customVocabularyBtn = document.getElementById('custom-vocabulary-btn');
+        const customVocabularyModal = document.getElementById('custom-vocabulary-modal');
+        const customVocabularyModalOverlay = document.getElementById('custom-vocabulary-modal-overlay');
+        const customVocabularyInput = document.getElementById('custom-vocabulary-input');
+        const customVocabularyPills = document.getElementById('custom-vocabulary-pills');
+        const customVocabularyPillClose = document.getElementById('custom-vocabulary-pill-close');
+        const customVocabularyAdd = document.getElementById('custom-vocabulary-add');
 
         let currentFontSize = {font_size};
         let isResizing = false;
@@ -23,6 +33,21 @@ pub fn get(font_size: u32) -> String {
         let transVisible = true;
         let headerCollapsed = false;
         let isS2sMode = document.body && document.body.dataset.s2s === '1';
+        if (customVocabularyBtn && customVocabularyModal && customVocabularyModalOverlay && customVocabularyInput && customVocabularyPills) {{
+            installCustomVocabularyEditor({{
+                button: customVocabularyBtn,
+                modal: customVocabularyModal,
+                overlay: customVocabularyModalOverlay,
+                input: customVocabularyInput,
+                pills: customVocabularyPills,
+                pillClose: customVocabularyPillClose,
+                add: customVocabularyAdd,
+                initialEntries: window.REALTIME_CUSTOM_VOCABULARY,
+                onChange(entries) {{
+                    window.realtimePostMessage('customVocabulary:' + encodeURIComponent(entries.join('\n')));
+                }}
+            }});
+        }}
 
         // TTS Modal elements
         const speakBtn = document.getElementById('speak-btn');
@@ -91,6 +116,9 @@ pub fn get(font_size: u32) -> String {
                 '';
             const isLiveTranslate = isLiveTranslateTranscriptionModel(activeModel);
             isS2sMode = !!isS2s;
+            if (customVocabularyBtn) {{
+                customVocabularyBtn.hidden = activeModel !== 'google-gemini-3-5-transcribe-live-audio';
+            }}
             document.body.dataset.s2s = isS2s ? '1' : '0';
             document.body.dataset.liveTranslate = isLiveTranslate ? '1' : '0';
             if (isS2s) {{
@@ -195,12 +223,12 @@ pub fn get(font_size: u32) -> String {
         }}
 
         // Modals cover the whole window when it is small — let their background drag the window
-        ['tts-modal', 'app-modal', 'download-modal'].forEach(function(id) {{
+        ['tts-modal', 'app-modal', 'download-modal', 'custom-vocabulary-modal'].forEach(function(id) {{
             const modal = document.getElementById(id);
             if (!modal) return;
             modal.addEventListener('mousedown', function(e) {{
                 if (e.button !== 0) return;
-                if (e.target.closest('input, button, select, .toggle-switch, .ctrl-btn, .auto-toggle, .app-item')) return;
+                if (e.target.closest('input, textarea, button, select, .toggle-switch, .ctrl-btn, .auto-toggle, .app-item')) return;
                 beginCardDrag(e);
             }});
         }});
@@ -513,6 +541,19 @@ pub fn get(font_size: u32) -> String {
         check_svg = crate::overlay::html_components::icons::get_icon_svg("check"),
         copy_svg = crate::overlay::html_components::icons::get_icon_svg("content_copy"),
         drag_runtime = drag_runtime,
+        vocabulary_editor = vocabulary_editor,
         tail = tail::get()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn custom_vocabulary_editor_is_nonblocking() {
+        let source = super::get(16);
+        assert!(!source.contains("window.prompt"));
+        assert!(source.contains("custom-vocabulary-modal"));
+        assert!(source.contains("custom-vocabulary-pill"));
+        assert!(source.contains("customVocabularyAdd"));
+    }
 }

@@ -4,6 +4,8 @@ import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -19,6 +21,33 @@ class GeminiTranscribeSetupParityTest {
         ).jsonObject
 
         assertEquals(fixture.getValue("setup"), actual.getValue("setup"))
+    }
+
+    @Test
+    fun `custom vocabulary and resumption handle stay in setup`() {
+        val setup = Json.parseToJsonElement(
+            GeminiLiveSocketClient(OkHttpClient()).buildSetupPayload(
+                GeneratedLiveModelCatalog.GEMINI_TRANSCRIBE_API_MODEL,
+                vocabulary = listOf("Screen Goated", "WebView2"),
+                resumptionHandle = "resume-handle",
+            ),
+        ).jsonObject.getValue("setup").jsonObject
+
+        assertEquals(
+            listOf("Screen Goated", "WebView2"),
+            setup.getValue("inputAudioTranscription").jsonObject
+                .getValue("customVocabulary").jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            "resume-handle",
+            setup.getValue("sessionResumption").jsonObject.getValue("handle").jsonPrimitive.content,
+        )
+    }
+
+    @Test
+    fun `vocabulary normalizes lines and keeps first occurrence`() {
+        GeminiTranscribeVocabulary.update("  Alpha  \n\nBeta\nAlpha\n")
+        assertEquals(listOf("Alpha", "Beta"), GeminiTranscribeVocabulary.snapshot().entries)
     }
 
     private fun loadFixture(): File {
