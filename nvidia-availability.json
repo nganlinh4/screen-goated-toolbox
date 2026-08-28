@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-08-28T06:09:54Z",
+ "generatedAt": "2026-08-28T18:47:02Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3-nano-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 350,
+   "p50_ms": 348,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -18,7 +18,7 @@
    "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 377,
+   "p50_ms": 376,
    "success_rate": 0.625,
    "runs": 24
   },
@@ -34,7 +34,7 @@
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 483,
+   "p50_ms": 479,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -42,7 +42,7 @@
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 505,
+   "p50_ms": 500,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -58,7 +58,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 970,
+   "p50_ms": 1000,
    "success_rate": 0.792,
    "runs": 24
   },
@@ -66,24 +66,8 @@
    "id": "openai/gpt-oss-120b",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 1063,
-   "success_rate": 0.333,
-   "runs": 24
-  },
-  {
-   "id": "moonshotai/kimi-k3",
-   "control": "effort-none",
-   "modality": "text",
-   "p50_ms": 1715,
-   "success_rate": 0.833,
-   "runs": 24
-  },
-  {
-   "id": "stepfun-ai/step-3.7-flash",
-   "control": "plain",
-   "modality": "vision",
-   "p50_ms": 2717,
-   "success_rate": 0.917,
+   "p50_ms": 1035,
+   "success_rate": 0.375,
    "runs": 24
   }
  ]
