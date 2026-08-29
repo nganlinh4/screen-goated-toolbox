@@ -394,6 +394,7 @@ pub fn endpoint_is_offered(feed: &AvailabilityFeed, wanted: ModelType, full_name
 
 /// Projects one provider's dynamic inventory without disturbing any other
 /// catalog source. This is shared by every selector-producing catalog path.
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn project_provider_inventory(
     models: &mut Vec<crate::model_config::ModelConfig>,
     feed: &AvailabilityFeed,

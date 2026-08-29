@@ -56,6 +56,7 @@ fn mark_host_only_catalog_items(output: &Path) {
     let mut generated = std::fs::read_to_string(output).expect("read generated model catalog");
     for item in [
         "GEMINI_EMBEDDING_API_MODEL",
+        "GEMINI_TRANSCRIBE_BATCH_API_MODEL",
         "GEMINI_LIVE_API_MODEL_2_5",
         "GEMINI_LIVE_AUDIO_MODEL_ID_2_5",
         "GEMINI_LIVE_AUDIO_MODEL_ID_3_1",

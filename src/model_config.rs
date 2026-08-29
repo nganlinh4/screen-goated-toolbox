@@ -248,19 +248,23 @@ pub fn get_model_by_id_with_custom(
     custom_models: &[crate::config::types::CustomModelDefinition],
 ) -> Option<ModelConfig> {
     if let Some(model) = get_all_models().iter().find(|m| m.id == id) {
-        let mut model = model.clone();
+        let model = model.clone();
         #[cfg(not(feature = "recorder-worker"))]
-        if model.provider == "nvidia"
-            && crate::model_feed::store::cached().is_some_and(|feed| {
-                crate::model_feed::store::endpoint_is_offered(
-                    &feed,
-                    model.model_type,
-                    &model.full_name,
-                )
-            })
-        {
-            model.enabled = true;
-        }
+        let model = {
+            let mut model = model;
+            if model.provider == "nvidia"
+                && crate::model_feed::store::cached().is_some_and(|feed| {
+                    crate::model_feed::store::endpoint_is_offered(
+                        &feed,
+                        model.model_type,
+                        &model.full_name,
+                    )
+                })
+            {
+                model.enabled = true;
+            }
+            model
+        };
         return Some(model);
     }
 
