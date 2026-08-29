@@ -1,4 +1,18 @@
 {
+  "schemaVersion": 1,
+  "hostVersion": "5.5.1",
+  "version": "0.9.0",
+  "features": [
+    "image_to_3d",
+    "image_to_svg",
+    "image_creator"
+  ],
+  "windows": {
+    "asset": "sgt-creation-runtime-windows-x64-e63c6342e3977495.exe",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64-e63c6342e3977495.exe",
+    "sizeBytes": 2599424,
+    "sha256": "e63c6342e3977495ded47b9300ebdfad209ea767d4fe6926f8f76a973b1a4d8b"
+  },
   "android": {
     "entries": [
       {
@@ -29,19 +43,5 @@
       "sha256": "0224aa966e3a83785327a9c4f9f0168b151beb03a448344fb20d86464d8f9105",
       "sizeBytes": 1570298
     }
-  },
-  "features": [
-    "image_to_3d",
-    "image_to_svg",
-    "image_creator"
-  ],
-  "hostVersion": "5.5.1",
-  "schemaVersion": 1,
-  "version": "0.9.0",
-  "windows": {
-    "asset": "sgt-creation-runtime-windows-x64-026d4051d082a70b.exe",
-    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64-026d4051d082a70b.exe",
-    "sha256": "026d4051d082a70b3db9c2a28f66745b23a9eb57530f63674a557013c62f361c",
-    "sizeBytes": 2501632
   }
 }

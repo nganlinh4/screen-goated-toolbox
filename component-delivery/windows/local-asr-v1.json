@@ -4,13 +4,13 @@
     "architecture": "x64",
     "components": [
       {
-        "asset": "local-asr-worker-1.0.0-3c71367af2e2e97e.zip",
-        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/local-asr-worker-1.0.0-3c71367af2e2e97e.zip",
+        "asset": "local-asr-worker-1.0.0-daff203ae059a80b.zip",
+        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/local-asr-worker-1.0.0-daff203ae059a80b.zip",
         "files": [
           {
             "path": "bin/x64/sgt-local-asr-worker.exe",
-            "sha256": "bb5769dac6040c68947cb125738bddcd025961cc467d3cd80c1f488753297361",
-            "sizeBytes": 2552320
+            "sha256": "39df3d02effdfdfc47bf15cb100338f7e024e07c46f2c9a3d912af5149b895a7",
+            "sizeBytes": 2527744
           },
           {
             "path": "licenses/parakeet-rs-LICENSE.txt",
@@ -19,9 +19,9 @@
           }
         ],
         "id": "local-asr-worker",
-        "sha256": "3c71367af2e2e97ef076f6719ca9b14bc7f7c8d6a0bb405bfd2f557a6f7fa288",
-        "sizeBytes": 1039143,
-        "unpackedSizeBytes": 2553387,
+        "sha256": "daff203ae059a80b8441d4d1455c2798a17bea5689f541c369959d718cc9ec26",
+        "sizeBytes": 1031329,
+        "unpackedSizeBytes": 2528811,
         "version": "1.0.0"
       },
       {

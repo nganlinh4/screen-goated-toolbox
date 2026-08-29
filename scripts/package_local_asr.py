@@ -101,6 +101,15 @@ def validate_file(path: Path, expected_size: int, expected_sha: str) -> None:
         raise ValueError(f"file identity mismatch: {path}")
 
 
+def normalized_text_bytes(path: Path, expected_size: int, expected_sha: str) -> bytes:
+    if not path.is_file() or path.is_symlink():
+        raise ValueError(f"required regular file is missing: {path}")
+    data = path.read_bytes().replace(b"\r\n", b"\n")
+    if b"\r" in data or len(data) != expected_size or hashlib.sha256(data).hexdigest() != expected_sha:
+        raise ValueError(f"text file identity mismatch after line-ending normalization: {path}")
+    return data
+
+
 def validate_x64_pe(path: Path) -> None:
     with path.open("rb") as stream:
         dos = stream.read(64)
@@ -200,10 +209,13 @@ def main() -> int:
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     validate_x64_pe(args.worker_exe)
-    validate_file(args.parakeet_license, *PARAKEET_LICENSE)
 
     with tempfile.TemporaryDirectory(prefix="sgt-local-asr-") as temporary:
         runtime_root = Path(temporary)
+        normalized_license = runtime_root / "parakeet-rs-LICENSE.txt"
+        normalized_license.write_bytes(
+            normalized_text_bytes(args.parakeet_license, *PARAKEET_LICENSE)
+        )
         extract_runtime(args.onnx_package, args.directml_package, runtime_root)
         worker = package_component(
             args.output_dir,
@@ -211,7 +223,7 @@ def main() -> int:
             WORKER_VERSION,
             [
                 ("bin/x64/sgt-local-asr-worker.exe", args.worker_exe),
-                ("licenses/parakeet-rs-LICENSE.txt", args.parakeet_license),
+                ("licenses/parakeet-rs-LICENSE.txt", normalized_license),
             ],
         )
         runtime = package_component(

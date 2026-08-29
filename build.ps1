@@ -1,24 +1,15 @@
-param(
-    [string]$PgoProfile
-)
-
-. (Join-Path $PSScriptRoot "scripts\pgo-profile-contract.ps1")
-
 if ($env:SGT_COMPONENT_DELIVERY_CHANNEL -eq "staging" -or
     -not [string]::IsNullOrWhiteSpace($env:SGT_STAGING_DELIVERY_ROOT)) {
     throw "Release builds cannot use mutable staging component delivery. Start a clean shell."
 }
-
 # Validate the full dependency trees, not just marker lines. Invalid disposable checkouts are
 # recreated exclusively from the pinned revisions and tracked patches.
 & (Join-Path $PSScriptRoot "scripts\ensure-egui-dependencies.ps1")
-
 # --- Build PromptDJ Frontend ---
 Write-Host "Building PromptDJ Frontend..." -ForegroundColor Cyan
 $pdjDir = Join-Path $PSScriptRoot "promptdj-midi"
 $pdjDist = Join-Path $pdjDir "dist"
 $pdjTargetDist = Join-Path $PSScriptRoot "src\overlay\prompt_dj\dist"
-
 Push-Location $pdjDir
 try {
     if (-not (Test-Path "node_modules")) {
@@ -37,7 +28,6 @@ try {
 finally {
     Pop-Location
 }
-
 if (Test-Path $pdjDist) {
     if (-not (Test-Path $pdjTargetDist)) {
         New-Item -ItemType Directory -Path $pdjTargetDist -Force | Out-Null
@@ -49,13 +39,11 @@ else {
     Write-Host "FAILED: PromptDJ build did not produce dist folder." -ForegroundColor Red
     exit 1
 }
-
 # --- Build Translation Gummy Frontend ---
 Write-Host "Building Translation Gummy Frontend..." -ForegroundColor Cyan
 $brDir = Join-Path $PSScriptRoot "translation-gummy-ui"
 $brDist = Join-Path $brDir "dist"
 $brTargetDist = Join-Path $PSScriptRoot "src\overlay\translation_gummy\dist"
-
 Push-Location $brDir
 try {
     if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\\.bin\\vite.cmd")) {
@@ -74,7 +62,6 @@ try {
 finally {
     Pop-Location
 }
-
 if (Test-Path $brDist) {
     if (-not (Test-Path $brTargetDist)) {
         New-Item -ItemType Directory -Path $brTargetDist -Force | Out-Null
@@ -86,76 +73,10 @@ else {
     Write-Host "FAILED: Translation Gummy build did not produce dist folder." -ForegroundColor Red
     exit 1
 }
-
-# --- Build Screen Record Frontend ---
-Write-Host "Building Screen Record Frontend..." -ForegroundColor Cyan
-$srDir = Join-Path $PSScriptRoot "screen-record"
-$srDist = Join-Path $srDir "dist"
-
-Push-Location $srDir
-try {
-    if (-not (Test-Path "node_modules")) {
-        npm install
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "FAILED: Screen Record npm install failed." -ForegroundColor Red
-            exit 1
-        }
-    }
-    npm run build
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "FAILED: Screen Record build failed." -ForegroundColor Red
-        exit 1
-    }
-}
-finally {
-    Pop-Location
-}
-
-if (Test-Path $srDist) {
-    Write-Host "Screen Record frontend is ready for external packaging." -ForegroundColor Green
-}
-else {
-    Write-Host "FAILED: Screen Record build did not produce dist folder." -ForegroundColor Red
-    exit 1
-}
-
-# --- Build 3D Generator Frontend ---
-Write-Host "Building 3D Generator Frontend..." -ForegroundColor Cyan
-$gen3dDir = Join-Path $PSScriptRoot "3d-generator-ui"
-$gen3dTargetDist = Join-Path $PSScriptRoot "src\overlay\three_d_generator\dist"
-
-Push-Location $gen3dDir
-try {
-    if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\\.bin\\vite.cmd")) {
-        npm install
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "FAILED: 3D Generator npm install failed." -ForegroundColor Red
-            exit 1
-        }
-    }
-    npm run build
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "FAILED: 3D Generator build failed." -ForegroundColor Red
-        exit 1
-    }
-}
-finally {
-    Pop-Location
-}
-
-if (Test-Path $gen3dTargetDist) {
-    Write-Host "3D Generator assets synchronized." -ForegroundColor Green
-}
-else {
-    Write-Host "FAILED: 3D Generator build did not produce dist folder." -ForegroundColor Red
-    exit 1
-}
-
 # --- Build Image to SVG Frontend ---
 Write-Host "Building Image to SVG Frontend..." -ForegroundColor Cyan
 $svgDir = Join-Path $PSScriptRoot "image-to-svg-ui"
 $svgTargetDist = Join-Path $PSScriptRoot "src\overlay\image_to_svg\dist"
-
 Push-Location $svgDir
 try {
     if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\.bin\vite.cmd")) {
@@ -174,7 +95,6 @@ try {
 finally {
     Pop-Location
 }
-
 if (Test-Path $svgTargetDist) {
     Write-Host "Image to SVG assets synchronized." -ForegroundColor Green
 }
@@ -501,17 +421,6 @@ $releaseRustFlags = @(
     "--remap-path-prefix=$workspaceRoot=/sgt"
 )
 $rustProfile = "release"
-if (-not [string]::IsNullOrWhiteSpace($PgoProfile)) {
-    $resolvedPgoProfile = Assert-SgtPgoProfile -Profile $PgoProfile `
-        -DevelopmentCache $developmentCache -RepoRoot $PSScriptRoot
-    $rustProfile = "release-balanced"
-    $releaseRustFlags += @(
-        "-C",
-        "profile-use=$resolvedPgoProfile",
-        "-C",
-        "llvm-args=-pgo-warn-missing-function"
-    )
-}
 $cargoHome = if ($env:CARGO_HOME) {
     [IO.Path]::GetFullPath($env:CARGO_HOME).TrimEnd('\')
 }

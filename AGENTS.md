@@ -31,10 +31,19 @@
 
 ## Verify
 
-- Rust: `cargo test`; `cargo clippy --all-targets -- -D warnings`.
-- Format: `cargo fmt`; inspect `git diff --check`.
-- Windows targets: `scripts/validate-windows-targets.ps1` when target-sensitive.
-- Frontend: run package typecheck/tests named in subsystem README.
+- Verification commands are development and CI work, not release or packaging
+  work. Run the narrowest relevant check while implementing, and run broader
+  suites once at a development checkpoint when the changed subsystem requires
+  them.
+- Rust development checkpoint: `cargo test`; `cargo clippy --all-targets -- -D warnings`.
+- Development hygiene: `cargo fmt`; inspect `git diff --check`.
+- Target-sensitive development: `scripts/validate-windows-targets.ps1`.
+- Frontend development: run package typecheck/tests named in subsystem README.
+- A request to build, package, draft, or release never authorizes rerunning
+  development tests, lint, target validators, performance comparisons, binary
+  ownership reports, browser/provider investigations, UI harnesses, or evidence
+  capture. Follow `docs/RELEASING.md` and validate only release inputs, delivery
+  contracts, canonical artifacts, and final artifact smoke behavior.
 - Docs: verify every path/command against current tree. Do not edit vendored upstream docs unless SGT owns overlay note.
 - Real UI acceptance is complete only after the repaired build succeeds
   end-to-end and its committed artifact is validated. After each failure,
