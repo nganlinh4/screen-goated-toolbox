@@ -21,6 +21,7 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 *.sh text eol=lf
+*.config text eol=lf
 
 # Windows-native scripts should keep CRLF.
 *.bat text eol=crlf
@@ -48,6 +49,6 @@
 /3d-generator-ui/viewer-dist/** -whitespace
 /component-notices/** -whitespace
 /mobile/native/**/assets/third_party/** -whitespace
-/mobile/native/sherpa-runtime/*.patch -whitespace
+/mobile/native/sherpa-runtime/*.patch text eol=lf -whitespace
 /scripts/*.patch text eol=lf -whitespace
 /third_party/parakeet-rs/LICENSE text eol=lf
