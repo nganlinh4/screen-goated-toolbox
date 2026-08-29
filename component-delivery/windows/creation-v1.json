@@ -4,7 +4,7 @@
     "image_to_svg",
     "image_creator"
   ],
-  "hostVersion": "5.5.0",
+  "hostVersion": "5.5.1",
   "runtimeVersion": "0.9.0",
   "schemaVersion": 1,
   "version": "5.5.0",
