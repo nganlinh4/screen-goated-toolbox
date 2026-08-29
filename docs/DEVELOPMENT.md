@@ -76,6 +76,10 @@ and evidence into the bounded external cache:
 .\run-dev.ps1 -UseStagingDelivery
 ```
 
+For Creation frontend work, the second command is sufficient: after building
+the frontend, `run-dev.ps1` compares every packaged web file with the local
+staging contract and rebuilds/stages Creation only when the bytes differ.
+
 Supported wrapper names are `creation`, `web-assets`, `recorder`, `computer-control`,
 `local-asr`, `vc-runtime`, `qwen-runtime`, and `external-tools`. `-Select <id>`
 may update one component in a multi-component contract; repeat it when several
@@ -124,8 +128,9 @@ days. For support, request only `session.log`.
 After the active frontend assets exist, direct `cargo run` is valid, but
 `run-dev.ps1` is preferred because it applies the bounded cache and delivery
 channel invariants. Optional mini-app source changes are not visible merely
-because a frontend `dist/` changed: package and stage the affected component,
-then launch with `-UseStagingDelivery`.
+because a frontend `dist/` changed. Creation is synchronized by
+`run-dev.ps1 -UseStagingDelivery`; package and stage other affected components
+before launching with that switch.
 Do not run `cargo check` again after successful all-target Clippy unless the
 target or feature set differs. Do not use a release build as routine
 validation; release packaging enables LTO/stripping and rebuilds every

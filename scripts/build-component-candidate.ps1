@@ -17,6 +17,7 @@ param(
     [string]$CacheRoot,
     [ValidateRange(5, 200)]
     [int]$CacheLimitGiB = 28,
+    [switch]$SkipCacheMaintenance,
     [switch]$SkipNpmInstall
 )
 
@@ -32,10 +33,12 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($cargoTarget)) {
     throw "Could not resolve the package Cargo cache"
 }
 $resolvedCache = Split-Path -Parent (Split-Path -Parent $cargoTarget)
-& $cacheScript -Action Prune -CacheRoot $resolvedCache -MaxGiB $CacheLimitGiB `
-    -ProtectLane package -Apply
-if ($LASTEXITCODE -ne 0) {
-    throw "Development cache maintenance failed"
+if (-not $SkipCacheMaintenance) {
+    & $cacheScript -Action Prune -CacheRoot $resolvedCache -MaxGiB $CacheLimitGiB `
+        -ProtectLane package -Apply
+    if ($LASTEXITCODE -ne 0) {
+        throw "Development cache maintenance failed"
+    }
 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
