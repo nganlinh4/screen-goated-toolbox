@@ -1,0 +1,528 @@
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { LatestOnlyLane } from "./latest-only-lane";
+import { modelGeometryStats, prepareSegmentedGeometry } from "./segmented-geometry";
+import { EdgeShader } from "./viewer-edge-shader";
+import { createViewerMaterialSet, type ViewerMaterialSet } from "./viewer-materials";
+
+export type ShadingMode = "original" | "toon" | "parts";
+export type ModelStats = {
+  vertices: number;
+  faces: number;
+  /// Set for a quad model, whose faces are polygons rather than triangles.
+  polygons?: number;
+  quads?: number;
+};
+
+/// Set by the runtime on the primitive that carries the source file's
+/// original face loops. A quad model is delivered as a triangulated surface
+/// plus these loops, because glTF cannot express a quad face directly.
+const QUAD_WIREFRAME_MARKER = "sgtQuadWireframe";
+
+const PART_PALETTE = [0x23b99f, 0xf2bd55, 0x5f9fe8, 0xe77958, 0x9a7bd4, 0x66b878, 0xd16d9e, 0x4db2c8];
+const MAX_MODEL_ASSET_BYTES = 100 * 1024 * 1024;
+
+export class ModelViewer {
+  private renderer: THREE.WebGLRenderer;
+  private scene = new THREE.Scene();
+  private camera = new THREE.PerspectiveCamera(34, 1, 0.01, 100);
+  private controls: OrbitControls;
+  private composer: EffectComposer;
+  private edgePass: ShaderPass;
+  private metadataTarget: THREE.WebGLRenderTarget;
+  private metadataMaterial: THREE.ShaderMaterial;
+  private metadataIds = new WeakMap<THREE.Object3D, number>();
+  private result: THREE.Group | null = null;
+  private idleObject: THREE.Group;
+  private grid = new THREE.GridHelper(4, 20, 0x23b99f, 0x42504f);
+  private startedAt = performance.now();
+  private modelBlend = 0;
+  private hasSegmentedParts = false;
+  private resizeObserver: ResizeObserver;
+  private shading: ShadingMode = "toon";
+  private outline = true;
+  private wireframe = false;
+  private quadEdges: THREE.LineSegments[] = [];
+  private contentRevision = 0;
+  private modelLoads = new LatestOnlyLane<THREE.Group>();
+  private frameRequest = 0;
+  private interacting = false;
+  private interactionListener?: (active: boolean) => void;
+  private theme: "light" | "dark" = "dark";
+  private disposed = false;
+  private hemisphere = new THREE.HemisphereLight(0xe5fbf5, 0x1a2524, 2.15);
+  private key = new THREE.DirectionalLight(0xf5fff9, 3.2);
+  private rim = new THREE.DirectionalLight(0x54c9b3, 2.0);
+
+  constructor(private canvas: HTMLCanvasElement, private container: HTMLElement) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.setPixelRatio(this.pixelRatio());
+    this.camera.position.set(0, 0.1, 3.4);
+
+    this.controls = new OrbitControls(this.camera, this.canvas);
+    // Direct manipulation must stop at mouse-up so consecutive drags never
+    // compete with residual camera momentum.
+    this.controls.enableDamping = false;
+    this.controls.enablePan = true;
+    this.controls.minDistance = 0.7;
+    this.controls.maxDistance = 10;
+    this.controls.autoRotateSpeed = 1.15;
+    this.controls.enabled = false;
+    this.controls.addEventListener("start", () => {
+      this.interacting = true;
+      this.interactionListener?.(true);
+      this.requestRender();
+    });
+    this.controls.addEventListener("change", () => this.requestRender());
+    this.controls.addEventListener("end", () => {
+      this.interacting = false;
+      this.interactionListener?.(false);
+      this.requestRender();
+    });
+
+    this.key.position.set(3, 4, 5);
+    this.rim.position.set(-4, 1, -2);
+    this.scene.add(this.hemisphere, this.key, this.rim);
+    this.grid.position.y = -0.82;
+    this.grid.visible = false;
+    this.scene.add(this.grid);
+
+    const renderTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: true });
+    renderTarget.samples = Math.min(2, this.renderer.capabilities.maxSamples);
+    this.composer = new EffectComposer(this.renderer, renderTarget);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.edgePass = new ShaderPass(EdgeShader);
+    this.composer.addPass(this.edgePass);
+    this.composer.addPass(new OutputPass());
+
+    this.metadataTarget = new THREE.WebGLRenderTarget(1, 1, {
+      depthBuffer: true,
+      depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+    });
+    this.metadataTarget.texture.colorSpace = THREE.NoColorSpace;
+    this.metadataMaterial = new THREE.ShaderMaterial({
+      uniforms: { uSurfaceId: { value: 0 } },
+      vertexShader: `
+        varying vec3 vViewNormal;
+        void main() {
+          vViewNormal = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uSurfaceId;
+        varying vec3 vViewNormal;
+        void main() {
+          if (uSurfaceId <= 0.0) discard;
+          gl_FragColor = vec4(normalize(vViewNormal) * 0.5 + 0.5, uSurfaceId);
+        }
+      `,
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: true,
+    });
+    this.metadataMaterial.onBeforeRender = (_renderer, _scene, _camera, _geometry, object) => {
+      this.metadataMaterial.uniforms.uSurfaceId.value = this.metadataIds.get(object) || 0;
+    };
+
+    this.idleObject = this.createIdleObject();
+    this.scene.add(this.idleObject);
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(container);
+    this.setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+    this.resize();
+    this.requestRender();
+  }
+
+  onInteractionChange(listener: (active: boolean) => void) {
+    this.interactionListener = listener;
+  }
+
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.cancelPendingModelLoad();
+    if (this.frameRequest) cancelAnimationFrame(this.frameRequest);
+    this.frameRequest = 0;
+    this.resizeObserver.disconnect();
+    this.interactionListener = undefined;
+    this.controls.dispose();
+    this.clearResult();
+    this.disposeGroup(this.idleObject);
+    this.grid.geometry.dispose();
+    const gridMaterials = Array.isArray(this.grid.material)
+      ? this.grid.material
+      : [this.grid.material];
+    gridMaterials.forEach((material) => material.dispose());
+    (this.scene.userData.toonGradient as THREE.Texture | undefined)?.dispose();
+    this.metadataMaterial.dispose();
+    this.metadataTarget.dispose();
+    this.composer.dispose();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
+  }
+
+  private pixelRatio() {
+    return Math.min(1.5, Math.max(1, window.devicePixelRatio));
+  }
+
+  private createIdleObject() {
+    const group = new THREE.Group();
+    const geometry = new THREE.IcosahedronGeometry(0.68, 3);
+    group.add(
+      new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0x23b99f, size: 0.018, transparent: true, opacity: 0.7 })),
+      new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x66817c, wireframe: true, transparent: true, opacity: 0.2 })),
+    );
+    group.position.y = 0.12;
+    return group;
+  }
+
+  setTheme(theme: "light" | "dark") {
+    this.theme = theme;
+    const background = theme === "light" ? 0xf3f7f6 : 0x141918;
+    this.scene.background = new THREE.Color(background);
+    this.renderer.setClearColor(background, 1);
+    this.edgePass.uniforms.uInk.value.set(theme === "light" ? 0x203b36 : 0x07120f);
+    this.hemisphere.color.set(theme === "light" ? 0xffffff : 0xdffbf4);
+    this.hemisphere.groundColor.set(theme === "light" ? 0x9bacaa : 0x14211f);
+    this.key.color.set(theme === "light" ? 0xfffdf5 : 0xf3fff9);
+    this.rim.color.set(theme === "light" ? 0x169b84 : 0x54c9b3);
+    this.requestRender();
+  }
+
+  showIdle() {
+    this.cancelPendingModelLoad();
+    this.clearResult();
+    this.idleObject.visible = true;
+    this.controls.enabled = false;
+    this.camera.position.set(0, 0.1, 3.4);
+    this.camera.lookAt(0, 0, 0);
+    this.requestRender();
+  }
+
+  cancelPendingModelLoad() {
+    ++this.contentRevision;
+    this.modelLoads.invalidate();
+  }
+
+  async setModel(dataUrl: string, segmented: boolean): Promise<ModelStats | null> {
+    const revision = ++this.contentRevision;
+    const object = await this.modelLoads.run(
+      (signal) => this.loadModel(dataUrl, signal),
+      (stale) => this.disposeGroup(stale),
+    );
+    if (!object) return null;
+    if (revision !== this.contentRevision) {
+      this.disposeGroup(object);
+      return null;
+    }
+    try {
+      this.idleObject.visible = false;
+      prepareSegmentedGeometry(object, segmented);
+      const stats = modelGeometryStats(object);
+      const box = new THREE.Box3().setFromObject(object);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      object.position.sub(center);
+      object.scale.setScalar(1.55 / Math.max(size.x, size.y, size.z, 0.001));
+      object.updateMatrixWorld(true);
+
+      this.adoptQuadEdges(object);
+
+      let meshIndex = 0;
+      object.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const originals = Array.isArray(child.material) ? child.material : [child.material];
+        const set = createViewerMaterialSet(
+          originals,
+          PART_PALETTE[meshIndex % PART_PALETTE.length],
+          this.toonGradient(),
+        );
+        child.userData.viewerMaterials = set;
+        this.metadataIds.set(child, ((meshIndex % 254) + 1) / 255);
+        child.castShadow = false;
+        child.receiveShadow = false;
+        meshIndex += 1;
+      });
+
+      this.disposeGroup(this.result);
+      const root = new THREE.Group();
+      root.add(object);
+      this.result = root;
+      this.scene.add(root);
+      this.hasSegmentedParts = segmented && meshIndex > 1;
+      this.shading = this.hasSegmentedParts ? "parts" : "toon";
+      this.applyMaterials();
+      this.modelBlend = 0;
+      this.controls.enabled = true;
+      this.resize();
+      this.fitView();
+      this.requestRender();
+      return stats;
+    } catch (error) {
+      this.disposeGroup(object);
+      throw error;
+    }
+  }
+
+  private async loadModel(dataUrl: string, signal: AbortSignal) {
+    const response = await fetch(dataUrl, { cache: "no-store", signal });
+    if (!response.ok) throw new Error("Model preview was unavailable");
+    const declared = Number(response.headers.get("content-length") || 0);
+    if (
+      declared !== 0
+      && (!Number.isSafeInteger(declared) || declared < 20 || declared > MAX_MODEL_ASSET_BYTES)
+    ) {
+      throw new Error("Model preview exceeded its size limit");
+    }
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength < 20 || bytes.byteLength > MAX_MODEL_ASSET_BYTES) {
+      throw new Error("Model preview exceeded its size limit");
+    }
+    if (signal.aborted) throw new Error("Model preview was superseded");
+    return (await new GLTFLoader().parseAsync(bytes, "")).scene;
+  }
+
+  private toonGradient() {
+    const cached = this.scene.userData.toonGradient as THREE.DataTexture | undefined;
+    if (cached) return cached;
+    const texture = new THREE.DataTexture(new Uint8Array([72, 132, 194, 255]), 4, 1, THREE.RedFormat);
+    texture.minFilter = THREE.NearestFilter;
+    texture.magFilter = THREE.NearestFilter;
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.needsUpdate = true;
+    this.scene.userData.toonGradient = texture;
+    return texture;
+  }
+
+  setShading(mode: ShadingMode) {
+    if (mode === "parts" && !this.hasSegmentedParts) return;
+    this.shading = mode;
+    this.applyMaterials();
+    this.requestRender();
+  }
+
+  getShading() { return this.shading; }
+  hasParts() { return this.hasSegmentedParts; }
+
+  setOutline(enabled: boolean) {
+    this.outline = enabled;
+    this.edgePass.uniforms.uStrength.value = enabled ? 0.92 : 0;
+    this.resize();
+    this.requestRender();
+  }
+
+  setAutoRotate(enabled: boolean) {
+    this.controls.autoRotate = enabled;
+    this.requestRender();
+  }
+
+  setGrid(enabled: boolean) {
+    this.grid.visible = enabled && Boolean(this.result);
+    this.requestRender();
+  }
+
+  setWireframe(enabled: boolean) {
+    this.wireframe = enabled;
+    this.applyMaterials();
+    this.requestRender();
+  }
+
+  fitView() {
+    if (!this.result) return;
+    const box = new THREE.Box3().setFromObject(this.result);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const radius = Math.max(size.x, size.y, size.z) * 0.62;
+    const distance = Math.max(1.7, radius / Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)) * 1.12);
+    this.controls.target.copy(center);
+    this.camera.position.set(center.x + distance * 0.12, center.y + distance * 0.04, center.z + distance);
+    this.camera.near = Math.max(0.001, distance / 1000);
+    this.camera.far = distance * 50;
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
+    this.requestRender();
+  }
+
+  private applyMaterials() {
+    this.result?.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      const set = child.userData.viewerMaterials as ViewerMaterialSet | undefined;
+      if (!set) return;
+      child.material = set[this.shading];
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      materials.forEach((material) => {
+        // A quad model ships its own face loops. Drawing three.js' triangle
+        // wireframe on top of that would show a diagonal through every quad,
+        // which is not the mesh the file describes.
+        if ("wireframe" in material) {
+          (material as THREE.MeshBasicMaterial).wireframe = this.wireframe && !this.hasQuadEdges();
+        }
+        material.transparent = true;
+        material.opacity = this.modelBlend;
+        material.needsUpdate = true;
+      });
+    });
+    this.quadEdges.forEach((edges) => {
+      edges.visible = this.wireframe;
+      const material = edges.material as THREE.LineBasicMaterial;
+      material.opacity = this.modelBlend;
+      material.needsUpdate = true;
+    });
+    this.edgePass.uniforms.uStrength.value = this.outline ? 0.92 : 0;
+  }
+
+  hasQuadEdges() { return this.quadEdges.length > 0; }
+
+  /// The runtime marks the primitive holding the source file's face loops.
+  /// Rendering those instead of a triangle wireframe is what makes a quad read
+  /// as one face, matching the mesh the download actually contains.
+  private adoptQuadEdges(object: THREE.Group) {
+    this.quadEdges = [];
+    object.traverse((child) => {
+      if (!(child instanceof THREE.LineSegments)) return;
+      if (child.userData?.[QUAD_WIREFRAME_MARKER] !== true) return;
+      const replacement = new THREE.LineBasicMaterial({
+        color: 0x12161a,
+        transparent: true,
+        opacity: 0,
+        depthTest: true,
+      });
+      const previous = Array.isArray(child.material) ? child.material : [child.material];
+      previous.forEach((material) => material.dispose());
+      child.material = replacement;
+      child.renderOrder = 2;
+      child.visible = false;
+      this.quadEdges.push(child);
+    });
+  }
+
+  private clearResult() {
+    this.disposeGroup(this.result);
+    this.result = null;
+    this.quadEdges = [];
+    this.hasSegmentedParts = false;
+    this.grid.visible = false;
+    this.modelBlend = 0;
+    this.resize();
+  }
+
+  private disposeGroup(group: THREE.Group | null) {
+    if (!group) return;
+    this.scene.remove(group);
+    const disposed = new Set<THREE.Material>();
+    const disposedTextures = new Set<THREE.Texture>();
+    const sharedGradient = this.scene.userData.toonGradient as THREE.Texture | undefined;
+    group.traverse((child) => {
+      if (!(child instanceof THREE.Mesh || child instanceof THREE.Points
+        || child instanceof THREE.LineSegments)) return;
+      child.geometry?.dispose();
+      const set = child.userData.viewerMaterials as ViewerMaterialSet | undefined;
+      const materials = set
+        ? [set.original, set.toon, set.parts].flatMap((entry) => Array.isArray(entry) ? entry : [entry])
+        : (Array.isArray(child.material) ? child.material : [child.material]);
+      materials.forEach((material) => {
+        if (!disposed.has(material)) {
+          disposed.add(material);
+          Object.values(material).forEach((value) => {
+            if (
+              value instanceof THREE.Texture &&
+              value !== sharedGradient &&
+              !disposedTextures.has(value)
+            ) {
+              disposedTextures.add(value);
+              value.dispose();
+            }
+          });
+          material.dispose();
+        }
+      });
+    });
+  }
+
+  private resize() {
+    const width = Math.max(1, this.container.clientWidth);
+    const height = Math.max(1, this.container.clientHeight);
+    const pixelRatio = this.pixelRatio();
+    this.renderer.setPixelRatio(pixelRatio);
+    this.renderer.setSize(width, height, false);
+    this.composer.setPixelRatio(pixelRatio);
+    this.composer.setSize(width, height);
+    const edgeEnabled = this.outline && Boolean(this.result);
+    this.edgePass.enabled = edgeEnabled;
+    this.metadataTarget.setSize(
+      edgeEnabled ? width * pixelRatio : 1,
+      edgeEnabled ? height * pixelRatio : 1,
+    );
+    this.edgePass.uniforms.uTexel.value.set(0.78 / (width * pixelRatio), 0.78 / (height * pixelRatio));
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this.requestRender();
+  }
+
+  private renderMetadata() {
+    const previousTarget = this.renderer.getRenderTarget();
+    const previousOverride = this.scene.overrideMaterial;
+    const previousColor = this.renderer.getClearColor(new THREE.Color());
+    const previousAlpha = this.renderer.getClearAlpha();
+    this.scene.overrideMaterial = this.metadataMaterial;
+    this.renderer.setRenderTarget(this.metadataTarget);
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.clear(true, true, true);
+    this.renderer.render(this.scene, this.camera);
+    this.scene.overrideMaterial = previousOverride;
+    this.renderer.setRenderTarget(previousTarget);
+    this.renderer.setClearColor(previousColor, previousAlpha);
+    this.edgePass.uniforms.tMetadata.value = this.metadataTarget.texture;
+    this.edgePass.uniforms.tDepth.value = this.metadataTarget.depthTexture;
+  }
+
+  private requestRender = () => {
+    if (!this.disposed && !this.frameRequest && document.visibilityState === "visible") {
+      this.frameRequest = requestAnimationFrame(this.animate);
+    }
+  };
+
+  private animate = (now = performance.now()) => {
+    this.frameRequest = 0;
+    if (document.visibilityState !== "visible") return;
+    const time = (now - this.startedAt) / 1000;
+    if (this.idleObject.visible) {
+      this.idleObject.rotation.x = time * 0.08;
+      this.idleObject.rotation.y = time * 0.14;
+      this.idleObject.position.y = 0.1 + Math.sin(time * 0.9) * 0.025;
+    }
+    if (this.result && this.modelBlend < 1) {
+      this.modelBlend = Math.min(1, this.modelBlend + 0.025);
+      const eased = 1 - Math.pow(1 - this.modelBlend, 3);
+      this.result.scale.setScalar(0.82 + eased * 0.18);
+      this.result.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        materials.forEach((material) => { material.opacity = eased; });
+      });
+    }
+    const controlsChanged = this.controls.update();
+    const edgeEnabled = this.outline && Boolean(this.result) && !this.interacting;
+    this.edgePass.enabled = edgeEnabled;
+    if (edgeEnabled) this.renderMetadata();
+    this.composer.render();
+    if (
+      this.idleObject.visible
+      || this.modelBlend < 1
+      || this.controls.autoRotate
+      || this.interacting
+      || controlsChanged
+    ) {
+      this.requestRender();
+    }
+  };
+}

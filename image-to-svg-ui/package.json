@@ -1,0 +1,23 @@
+{
+  "name": "image-to-svg-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "postinstall": "node ../scripts/ensure-rolldown-native.mjs",
+    "prebuild": "node ../scripts/ensure-rolldown-native.mjs",
+    "build": "tsc --noEmit && vite build",
+    "test": "node --test ../ui-shared/creation-history-order.test.ts src/async-asset-cache.test.ts src/explicit-submission.test.ts src/poll-presentation.test.ts src/queue-dispatch.test.ts src/settings-control.test.ts src/svg-asset-loader.test.ts src/svg-canvas-input.test.ts src/svg-display-policy.test.ts src/svg-security.test.ts",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "terser": "^5.50.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-linux-x64-gnu": "1.2.5",
+    "@rolldown/binding-win32-x64-msvc": "1.2.5"
+  }
+}

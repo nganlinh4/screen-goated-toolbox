@@ -1,0 +1,27 @@
+{
+  "name": "3d-generator-ui",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "postinstall": "node ../scripts/ensure-rolldown-native.mjs",
+    "prebuild": "node ../scripts/ensure-rolldown-native.mjs",
+    "build": "tsc --noEmit && vite build && vite build --config viewer.vite.config.ts",
+    "build:viewer": "tsc --noEmit && vite build --config viewer.vite.config.ts",
+    "test": "node --test ../ui-shared/creation-history-order.test.ts src/automatic-segmentation.test.ts src/durable-dispatch.test.ts src/image-preview-cache.test.ts src/latest-only-lane.test.ts src/model-display.test.ts src/progress-policy.test.ts src/queue-view-contract.test.ts src/recovery-settings.test.ts src/refinement-policy.test.ts src/result-files.test.ts src/segmented-geometry.test.ts src/submission-policy.test.ts src/viewer-document-contract.test.ts src/viewer-materials.test.ts",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/three": "^0.183.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-linux-x64-gnu": "1.2.5",
+    "@rolldown/binding-win32-x64-msvc": "1.2.5"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  }
+}

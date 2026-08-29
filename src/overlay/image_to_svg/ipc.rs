@@ -1,0 +1,222 @@
+use serde::Deserialize;
+use serde_json::{Value, json};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, SW_MINIMIZE, ShowWindow, WM_CLOSE};
+
+#[derive(Deserialize)]
+struct IpcEnvelope {
+    #[serde(default)]
+    id: String,
+    cmd: String,
+    #[serde(default)]
+    args: Value,
+}
+
+pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
+    let envelope: IpcEnvelope = match serde_json::from_str(body) {
+        Ok(envelope) => envelope,
+        Err(error) => {
+            eprintln!("[image-to-svg] invalid ipc: {error}");
+            return;
+        }
+    };
+    if envelope.cmd == "read_image_preview" {
+        if let Err(error) = request_image_preview(hwnd, &envelope) {
+            send_reply(&envelope.id, Err(error));
+        }
+        return;
+    }
+    send_reply(&envelope.id, dispatch(hwnd, &envelope.cmd, &envelope.args));
+}
+
+fn request_image_preview(hwnd: HWND, envelope: &IpcEnvelope) -> Result<(), String> {
+    let path = envelope
+        .args
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "path is required".to_string())?;
+    let max_edge = envelope
+        .args
+        .get("maxEdge")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok());
+    crate::overlay::creation_preview::request_async_preview(
+        hwnd,
+        super::WM_APP_PREVIEW_REPLY,
+        envelope.id.clone(),
+        path.to_string(),
+        max_edge,
+    )
+}
+
+pub(super) fn flush_preview_replies(hwnd: HWND) {
+    let replies = crate::overlay::creation_preview::take_async_replies(hwnd);
+    super::WEBVIEW.with(|slot| {
+        if let Some(webview) = slot.borrow().as_ref() {
+            for script in replies {
+                let _ = webview.evaluate_script(&script);
+            }
+        }
+    });
+}
+
+fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
+    match cmd {
+        "pick_images" => {
+            crate::overlay::three_d_generator::file_dialogs::pick_images_dialog().map(|paths| {
+                Value::Array(
+                    paths
+                        .into_iter()
+                        .map(|path| Value::String(path.to_string_lossy().to_string()))
+                        .collect(),
+                )
+            })
+        }
+        "pick_output_dir" => {
+            crate::overlay::three_d_generator::file_dialogs::pick_output_dir_dialog().map(|path| {
+                path.map(|value| Value::String(value.to_string_lossy().to_string()))
+                    .unwrap_or(Value::Null)
+            })
+        }
+        "default_output_dir" => Ok(Value::String(
+            super::runtime::default_output_dir()?
+                .to_string_lossy()
+                .to_string(),
+        )),
+        "image_preview_url" => crate::overlay::creation_preview_protocol::issue_from_args(args),
+        "image_asset_url" => {
+            crate::overlay::creation_preview_protocol::issue_source_image_from_args(args)
+        }
+        "svg_asset_url" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "path is required".to_string())?;
+            super::runtime::issue_static_asset(path)
+        }
+        "start_job" => {
+            let request: super::runtime::StartJobRequest =
+                serde_json::from_value(args.clone()).map_err(|error| error.to_string())?;
+            serde_json::to_value(super::runtime::start_job(request)?)
+                .map_err(|error| error.to_string())
+        }
+        "prepare_runtime" => Ok(Value::String(super::runtime::prepare_runtime())),
+        "runtime_preparation_status" => {
+            Ok(Value::String(super::runtime::runtime_preparation_status()))
+        }
+        "cancel_job" => {
+            let job_id = args.get("jobId").and_then(Value::as_str);
+            serde_json::to_value(super::runtime::cancel_job(job_id))
+                .map_err(|error| error.to_string())
+        }
+        "job_statuses" => {
+            serde_json::to_value(super::runtime::job_statuses()).map_err(|error| error.to_string())
+        }
+        "history_results" => {
+            let entries = crate::overlay::generation_history::list("svg")?;
+            serde_json::to_value(crate::overlay::generation_history::public_entries(&entries))
+                .map_err(|error| error.to_string())
+        }
+        "rename_history_result" => {
+            let id = args
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "id is required".to_string())?;
+            let new_name = args
+                .get("newName")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "newName is required".to_string())?;
+            let previous = crate::overlay::generation_history::list("svg")?
+                .into_iter()
+                .find(|entry| entry.id == id)
+                .ok_or_else(|| "Result is no longer in history.".to_string())?;
+            let updated = crate::overlay::generation_history::rename("svg", id, new_name)?;
+            super::runtime::remap_result_path(&previous.output_path, &updated.output_path);
+            serde_json::to_value(crate::overlay::generation_history::public_entry(&updated))
+                .map_err(|error| error.to_string())
+        }
+        "delete_history_result" => {
+            let id = args
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "id is required".to_string())?;
+            let previous = crate::overlay::generation_history::list("svg")?
+                .into_iter()
+                .find(|entry| entry.id == id)
+                .ok_or_else(|| "Result is no longer in history.".to_string())?;
+            crate::overlay::generation_history::delete("svg", id)?;
+            super::runtime::forget_result_path(&previous.output_path);
+            Ok(Value::Null)
+        }
+        "delete_all_history_results" => {
+            let previous = crate::overlay::generation_history::list("svg")?;
+            let deleted = crate::overlay::generation_history::delete_all("svg")?;
+            for entry in previous {
+                super::runtime::forget_result_path(&entry.output_path);
+            }
+            Ok(Value::from(deleted as u64))
+        }
+        "read_asset" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "path is required".to_string())?;
+            super::runtime::read_asset(path)
+        }
+        "save_svg_edits" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "path is required".to_string())?;
+            let svg = args
+                .get("svg")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "svg is required".to_string())?;
+            super::runtime::save_svg_edits(path, svg)
+        }
+        "open_output" => {
+            let path = args.get("path").and_then(Value::as_str);
+            super::runtime::open_output(path)?;
+            Ok(Value::Null)
+        }
+        "close_window" => {
+            unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    WM_CLOSE,
+                    windows::Win32::Foundation::WPARAM(0),
+                    windows::Win32::Foundation::LPARAM(0),
+                );
+            }
+            Ok(Value::Null)
+        }
+        "minimize_window" => {
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_MINIMIZE);
+            }
+            Ok(Value::Null)
+        }
+        "start_drag" => {
+            crate::overlay::utils::begin_window_drag(hwnd);
+            Ok(Value::Null)
+        }
+        _ => Err(format!("unknown cmd: {cmd}")),
+    }
+}
+
+fn send_reply(id: &str, result: Result<Value, String>) {
+    if id.is_empty() {
+        return;
+    }
+    let payload = match result {
+        Ok(value) => json!({ "id": id, "result": value }),
+        Err(_error) => json!({ "id": id, "error": "operation_failed" }),
+    };
+    let script =
+        format!("window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {payload} }}));");
+    super::WEBVIEW.with(|slot| {
+        if let Some(webview) = slot.borrow().as_ref() {
+            let _ = webview.evaluate_script(&script);
+        }
+    });
+}

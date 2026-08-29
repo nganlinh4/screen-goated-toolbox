@@ -1,0 +1,302 @@
+{
+  "schema": "sgt.creation.image",
+  "fixtureVersion": 66,
+  "tool": "image",
+  "jobIdPrefix": "image_",
+  "operation": "create_image",
+  "releaseAvailability": {
+    "enabled": false,
+    "entryVisible": false,
+    "entryBehavior": "hidden",
+    "startsSurface": false,
+    "startsReadiness": false,
+    "preservesPreparedCapacity": true,
+    "platforms": ["windows", "android_full", "android_play"],
+    "packaging": "optional_content_addressed_runtime",
+    "compiledHostCode": true,
+    "embeddedFrontendAssets": true,
+    "runtimeCapabilityDelivered": true
+  },
+  "maximumParallelJobs": 2,
+  "maximumJobRuntimeMs": 7200000,
+  "request": {
+    "required": [
+      "jobId",
+      "dispatchId",
+      "ownerId",
+      "tool",
+      "operation",
+      "imagePaths",
+      "prompt",
+      "outputPath",
+      "outputName"
+    ],
+    "prompt": {
+      "trimmed": true,
+      "minimumCharacters": 1,
+      "maximumCharacters": 4000
+    },
+    "references": {
+      "minimum": 0,
+      "maximum": 20,
+      "ordered": true,
+      "frozenBeforeQueue": true,
+      "maximumBytesPerReference": 26214400,
+      "maximumAggregateBytes": 104857600,
+      "maximumDimensionPixels": 32768,
+      "maximumDecodedPixelsPerReference": 64000000,
+      "supportedMimeTypes": ["image/png", "image/jpeg", "image/webp"],
+      "streamedOrPathBased": true,
+      "repeatedBase64Copies": false
+    },
+    "frozenBeforeQueue": true,
+    "multipleInputsCreateIndependentJobs": false,
+    "oneSessionCreatesOneJob": true,
+    "plusCreatesEmptySession": true
+  },
+  "submission": {
+    "primaryActionScope": "selected_session",
+    "submitsOtherSessions": false,
+    "explicitSubmissionCreatesFreshJobId": true,
+    "explicitSubmissionCreatesFreshDispatchId": true,
+    "equalContentDoesNotReusePriorJob": true,
+    "explicitPressCapturedSynchronously": true,
+    "rapidPressesCreateDistinctJobs": true,
+    "lateStartResponseCannotStealNewerSelection": true
+  },
+  "readiness": {
+    "stateIsProductLevel": true,
+    "acceptedJobsRemainQueuedUntilCapacityIsAvailable": true,
+    "maximumParallelJobsEnforced": true,
+    "toolCapacityIsIsolated": true,
+    "failureDoesNotExposeImplementationState": true
+  },
+  "surfaceActivity": {
+    "firstPaintPrecedesReadinessRequest": true,
+    "idleJobStatusPolling": false,
+    "idleHistoryPolling": false,
+    "idleReadinessPolling": false,
+    "jobStatusPollingScope": "accepted_or_recovered_work",
+    "estimatedProgressTickScope": "active_work",
+    "historyRefreshTriggers": ["surface_open", "focus", "history_mutation", "terminal_transition"]
+  },
+  "publicStages": [
+    "queued",
+    "preparing",
+    "uploading",
+    "generating",
+    "finalizing",
+    "done",
+    "failed",
+    "cancelled"
+  ],
+  "referenceUpload": {
+    "actionableSemanticControlRequired": true,
+    "visibleUploadSurfaceRequired": true,
+    "hiddenImplementationInputEligible": true,
+    "disconnectedOrDisabledInputRejected": true,
+    "semanticallyUnownedInputRejected": true,
+    "ambiguousInputRankingRejected": true,
+    "localActivationRetryIsBounded": true,
+    "activationRetryDoesNotNavigateOrSubmit": true,
+    "visibleRetainedReferenceControlRequired": true,
+    "selectedFileInputAloneIsInsufficient": true,
+    "asynchronousRetentionWaitIsBounded": true,
+    "retentionWaitIsIndependentFromControlDiscovery": true,
+    "allRequestedReferencesRetainedBeforeSubmission": true,
+    "duplicateReferenceNamesRequireRetainedMultiplicity": true,
+    "aggregateRetentionWaitFitsWithinJobDeadline": true,
+    "safeInformationalDialogsReconciledDuringRetentionWait": true
+  },
+  "publicCopyPolicy": {
+    "vocabulary": "feature_only",
+    "implementationDetailsVisible": false,
+    "rawImplementationErrorsVisible": false,
+    "referenceUploadCopyRequiresReferences": true
+  },
+  "artifact": {
+    "extensions": [
+      "png"
+    ],
+    "mimeTypes": [
+      "image/png"
+    ],
+    "minimumBytes": 32,
+    "maximumBytes": 67108864,
+    "maximumDimensionPixels": 32768,
+    "maximumDecodedPixels": 64000000,
+    "requiresDecodedDimensions": true,
+    "requiresPositiveWidth": true,
+    "requiresPositiveHeight": true,
+    "atomicWrite": true
+  },
+  "historyFields": [
+    "dispatchId",
+    "tool",
+    "operation",
+    "sourceImagePath",
+    "sourceImagePaths",
+    "prompt",
+    "outputPath",
+    "outputName",
+    "mimeType",
+    "width",
+    "height",
+    "createdAtMs"
+  ],
+  "history": {
+    "presentationOrder": "newest_session_first",
+    "singleDeleteRequiresConfirmation": false,
+    "deleteAllRequiresConfirmation": true,
+    "deleteAllScope": "current_tool_saved_results"
+  },
+  "delivery": {
+    "key": "dispatchId",
+    "durableStages": [
+      "validated",
+      "publication_prepared",
+      "published",
+      "history_committed"
+    ],
+    "replayIsIdempotent": true,
+    "generationIsNotRepeatedDuringReplay": true,
+    "publicationIsNotDuplicatedDuringReplay": true,
+    "terminalIntentClearsOnlyAfterHistoryCommit": true,
+    "ambiguousPublishedArtifactProtected": true,
+    "renameIsTransactional": true,
+    "crashCutpointsCovered": true
+  },
+  "recovery": {
+    "durableIntentRecordedBeforeSubmit": true,
+    "acceptedRequestResumedWithoutResubmit": true,
+    "workerCleanupPrecedesRecoveryRedispatch": true,
+    "replayMatchesOnlySameDispatchId": true,
+    "unknownSubmissionFailsClosed": true
+  },
+  "presentation": {
+    "matchesSharedCreationExperience": true,
+    "fontFamily": "Google Sans Flex",
+    "fontRoundedAxis": 100,
+    "iconFamily": "Material Symbols Rounded",
+    "iconFill": 1,
+    "appSpecificTheme": false,
+    "lightAndDark": true,
+    "reducedMotion": true,
+    "transparentCanvas": true,
+    "preserveSourceIntrinsicRatio": true,
+    "textOnlyResultUsesOutputOnlyLayout": true,
+    "multipleReferenceOrderVisibleAsFilenames": true,
+    "multiReferenceCanvasShowsFirstSourceAndCount": true,
+    "multiReferenceResultShowsOutputAndCount": true,
+    "focusedInputSurvivesStatusRefresh": true,
+    "imeCompositionSurvivesStatusRefresh": true,
+    "sharedIconCatalog": true,
+    "unchangedStatusRefreshPreservesSessionList": true,
+    "hoveredSelectionTargetSurvivesStatusRefresh": true,
+    "pointerSequenceSurvivesStatusRefresh": true,
+    "singleClickStartsSubmission": true,
+    "queueOwnsOverflow": true,
+    "primaryActionRemainsReachable": true,
+    "estimatedProgress": {
+      "usesRuntimeEstimate": true,
+      "usesElapsedTimeCurve": true,
+      "monotonic": true,
+      "maximumBeforeCompletion": 0.94,
+      "completionRatio": 1.0,
+      "showsLocalizedEta": true
+    },
+    "previewMemory": {
+      "surfaceRetainsOriginalImageBytes": false,
+      "hydrationBlocksSessionActions": false,
+      "decodeBlocksInteractionThread": false,
+      "selectedPreviewUsesPlatformImageDecoder": true,
+      "selectedPreviewTransformsOnInteractionThread": false,
+      "persistentPreviewCache": false,
+      "queueRowsDecodeArtwork": false,
+      "historyRowsDecodeArtwork": false,
+      "referenceListDecodesArtwork": false,
+      "maximumSelectedRasterPreviews": 2
+    }
+  },
+  "behavior": {
+    "cancellationIsMonotonic": true,
+    "lateSuccessCannotPublishAfterCancellation": true,
+    "retryCreatesNewJob": true,
+    "retryPreservesPreviousResult": true,
+    "closeReleasesOwnerExecutionResources": true,
+    "closeDestroysProductSurface": true,
+    "failureRemainsBoundToJob": true,
+    "multipleSessionsPerOwnerSupported": true,
+    "closeCancelsOnlyOwnerJobs": true
+  },
+  "storageRetention": {
+    "defaultHistoryEntries": 50,
+    "minimumHistoryEntries": 10,
+    "maximumHistoryEntries": 200,
+    "usesSharedUserHistoryLimit": true,
+    "maximumManagedBytesAcrossCreationTools": 4294967296,
+    "minimumFreeSpaceReserveBytes": 1073741824,
+    "pruneBeforeManagedAdmission": true,
+    "admissionReservesMaximumResultAndReferenceBytes": true,
+    "protectedBytesFailAdmissionBeforeDispatch": true,
+    "defaultDestination": "managed_creation_library",
+    "defaultResultsAreRetentionManaged": true,
+    "explicitExternalDestinationIsExport": true,
+    "exportedResultsAutoDeleted": false,
+    "newestResultPerToolProtected": true,
+    "pruneDeletesManagedArtifact": true,
+    "pruneIsAtomicAndPathConfined": true,
+    "artifactDigestRecorded": true,
+    "legacyHistoryOwnershipMigration": "leave_unmanaged_without_startup_hashing",
+    "externallyModifiedArtifactProtected": true,
+    "liveAndRecoveryArtifactsProtected": true,
+    "orphanedImportedReferencesDeleted": true,
+    "userOwnedSourceHandlePreferred": true,
+    "historyRetainsFullImportedBytes": false,
+    "jobMaterializationLifetime": "queued_running_recovery",
+    "terminalMaterializationDeletedAfterHistoryCommit": true,
+    "presentationUsesBoundedDerivative": true,
+    "revokedSourceRequiresReselection": true,
+    "thumbnailIsNeverGenerationInput": true,
+    "pruneBeforeAdmission": true
+  },
+  "publicBoundary": {
+    "containsProductContractOnly": true,
+    "productCapabilitiesOnly": true,
+    "implementationDetailsVisible": false
+  },
+  "distribution": {
+    "fullSupported": true,
+    "playSupported": true,
+    "behaviorIdentical": true,
+    "featureSetIdentical": true,
+    "integrityValidatedBeforeUse": true
+  },
+  "qualityControl": {
+    "realUiPlatforms": ["windows", "android_full", "android_play"],
+    "cases": [],
+    "disabledReleaseCase": "hidden_entry",
+    "availabilityGateSupersedesGenerationWhileDisabled": true,
+    "disabledReleaseProvesSurfaceNotStarted": true,
+    "disabledReleaseProvesReadinessNotStarted": true,
+    "promptEnteredThroughProductSurface": true,
+    "promptAcceptedByEditorStateBeforeSubmit": true,
+    "semanticEditorReplacementBeforeCommitIsReacquired": true,
+    "terminalStateRequired": true,
+    "committedArtifactValidated": true,
+    "terminalFailureEvidenceRequired": true,
+    "consequentialTransitionUsesRealControlInteraction": true,
+    "intermediateNavigationIsNotReadinessProof": true,
+    "transientPreparationRetryIsBounded": true,
+    "transientPreparationRetryUsesFreshCapacity": true,
+    "acceptedRequestIsNotRepeatedByPreparationRetry": true,
+    "exhaustedPreparationFailsWaitingJobsOnce": true,
+    "exhaustedPreparationDoesNotRestartAutomatically": true,
+    "laterExplicitSubmissionStartsFreshPreparation": true
+  },
+  "locales": {
+    "en": "Create/edit image",
+    "ko": "이미지 생성/편집",
+    "vi": "Tạo/edit ảnh"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "image-creator-ui",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "postinstall": "node ../scripts/ensure-rolldown-native.mjs",
+    "prebuild": "node ../scripts/ensure-rolldown-native.mjs",
+    "build": "tsc --noEmit && vite build",
+    "test": "node --test ../ui-shared/creation-history-order.test.ts src/history-actions.test.ts src/preview-policy.test.ts src/previewStore.test.ts src/submission.test.ts",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "terser": "^5.50.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-linux-x64-gnu": "1.2.5",
+    "@rolldown/binding-win32-x64-msvc": "1.2.5"
+  }
+}

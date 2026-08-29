@@ -1,0 +1,273 @@
+{
+  "schemaVersion": 44,
+  "tool": "image-to-svg",
+  "releaseAvailability": {
+    "enabled": true,
+    "entryVisible": true,
+    "entryBehavior": "open_surface",
+    "startsSurface": true,
+    "startsReadiness": true,
+    "preservesPreparedCapacity": true,
+    "platforms": ["windows", "android_full", "android_play"],
+    "packaging": "optional_content_addressed_runtime",
+    "compiledHostCode": true,
+    "embeddedFrontendAssets": true,
+    "runtimeCapabilityDelivered": true
+  },
+  "states": [
+    "draft",
+    "queued",
+    "preparing",
+    "generating",
+    "finalizing",
+    "done",
+    "failed",
+    "cancelled"
+  ],
+  "models": {
+    "simple": {
+      "selectable": true
+    },
+    "detail": {
+      "selectable": true
+    }
+  },
+  "transparentBackground": {
+    "default": "opaque",
+    "modes": {
+      "auto": "capability_decides",
+      "transparent": "remove_background",
+      "opaque": "keep_background"
+    },
+    "capturedPerSubmission": true,
+    "preservedThroughRecovery": true,
+    "recordedInHistory": true
+  },
+  "limits": {
+    "maximumParallelJobs": 2,
+    "maximumJobRuntimeMs": 7200000,
+    "maximumHistoryEntries": 200
+  },
+  "readiness": {
+    "stateIsProductLevel": true,
+    "acceptedJobsRemainQueuedUntilCapacityIsAvailable": true,
+    "maximumParallelJobsEnforced": true,
+    "toolCapacityIsIsolated": true,
+    "failureDoesNotExposeImplementationState": true
+  },
+  "surfaceActivity": {
+    "firstPaintPrecedesReadinessRequest": true,
+    "idleJobStatusPolling": false,
+    "idleHistoryPolling": false,
+    "idleReadinessPolling": false,
+    "jobStatusPollingScope": "accepted_or_recovered_work",
+    "estimatedProgressTickScope": "active_work",
+    "historyRefreshTriggers": ["surface_open", "focus", "history_mutation", "terminal_transition"]
+  },
+  "input": {
+    "minimumImagesPerJob": 1,
+    "maximumImagesPerJob": 1,
+    "multiplePickerImagesCreateIndependentSessions": true,
+    "maximumPickerBatchImages": 100,
+    "maximumBytesPerImage": 26214400,
+    "maximumPickerAggregateBytes": 536870912,
+    "maximumDimensionPixels": 32768,
+    "maximumDecodedPixelsPerImage": 64000000,
+    "supportedMimeTypes": ["image/png", "image/jpeg", "image/webp"]
+  },
+  "sourceRetention": {
+    "userOwnedSourceHandlePreferred": true,
+    "historyRetainsFullImportedBytes": false,
+    "jobMaterializationLifetime": "queued_running_recovery",
+    "terminalMaterializationDeletedAfterHistoryCommit": true,
+    "presentationUsesBoundedDerivative": true,
+    "revokedSourceRequiresReselection": true,
+    "thumbnailIsNeverGenerationInput": true,
+    "pruneBeforeAdmission": true
+  },
+  "submission": {
+    "primaryActionScope": "selected_session",
+    "submitsOtherSessions": false,
+    "explicitSubmissionCreatesFreshDispatchId": true,
+    "equalContentDoesNotReusePriorDispatch": true,
+    "explicitPressCapturedSynchronously": true,
+    "rapidEligiblePressesCreateDistinctJobs": true,
+    "activeJobDisablesPrimaryAction": true,
+    "lateStartResponseCannotStealNewerSelection": true,
+    "terminalSessionCanBeRerun": true,
+    "rerunPreservesPreviousOutput": true
+  },
+  "viewer": {
+    "preserveIntrinsicRatio": true,
+    "completeSafeStaticPresentationRendered": true,
+    "renderGroupsSymbolsUseText": true,
+    "renderGradientsPatternsClipMasks": true,
+    "rejectUnboundedFilters": true,
+    "renderBoundedEmbeddedRaster": true,
+    "rejectScriptsEventsForeignObject": true,
+    "rejectXmlProcessingInstructions": true,
+    "rejectExternalNetworkAndFileReferences": true,
+    "requireCanonicalSvgNamespace": true,
+    "allowEmbeddedRasterOnlyOnImageHref": true,
+    "rejectNavigationAndHostBridgeAccess": true,
+    "pathSelection": {
+      "stationaryPrimaryPressSelectsGeometry": true,
+      "pointerCaptureBeginsAfterPanThreshold": true,
+      "captureCannotRetargetSelection": true,
+      "panDoesNotChangeSelection": true
+    },
+    "editableSurfaceActivation": "explicit",
+    "selectionBuildsEditableSurface": false,
+    "selectionTransfersEditableDocument": false,
+    "staticPresentationAnimatesIndividualPaths": false,
+    "editableShapes": ["path", "rect", "circle", "ellipse", "polygon", "polyline", "line"],
+    "unsupportedEditingRemainsRendered": true,
+    "maximumEditableDocumentBytes": 2097152,
+    "maximumEditableGeometryElements": 5000,
+    "overEditBudgetStillRendersFullPresentation": true,
+    "overEditBudgetDisablesEditing": true,
+    "maximumDocumentBytes": 12582912,
+    "maximumDocumentElements": 50000,
+    "maximumExpandedElementOccurrences": 50000,
+    "maximumExpandedReferenceOccurrences": 100000,
+    "maximumDocumentAttributes": 250000,
+    "maximumDocumentDepth": 128,
+    "maximumPathCommands": 250000,
+    "maximumGeometryNumbers": 1000000,
+    "maximumCoordinateMagnitude": 10000000,
+    "maximumLocalReferenceEdges": 100000,
+    "maximumLocalReferenceDepth": 64,
+    "maximumLocalIdentifierBytes": 512,
+    "rejectDuplicateLocalIdentifiers": true,
+    "rejectCyclicLocalReferences": true,
+    "rejectEncodedLocalReferenceAliases": true,
+    "allowStylesheetLocalReferences": false,
+    "rejectCssMotion": true,
+    "allowedEmbeddedRasterMimeTypes": ["image/png", "image/jpeg"],
+    "maximumEmbeddedRasterCharacters": 2800000,
+    "maximumEmbeddedRasterPixels": 16000000,
+    "maximumTotalEmbeddedRasterPixels": 32000000,
+    "totalEmbeddedRasterPixelsCountEveryOccurrence": true,
+    "localReferenceExpansionPreservesMultiplicity": true,
+    "localReferenceExpansionChargesReferencedRasterOccurrences": true,
+    "boundedDocumentBytes": true,
+    "boundedNodeAndAttributeCount": true,
+    "boundedEmbeddedRasterBytes": true,
+    "boundedUndoMemory": true,
+    "undoUsesDeltasOrCheckpoints": true
+  },
+  "previewMemory": {
+    "surfaceRetainsOriginalImageBytes": false,
+    "hydrationBlocksSessionActions": false,
+    "decodeBlocksInteractionThread": false,
+    "selectedPreviewUsesPlatformImageDecoder": true,
+    "selectedPreviewTransformsOnInteractionThread": false,
+    "persistentPreviewCache": false,
+    "queueRowsDecodeArtwork": false,
+    "historyRowsDecodeArtwork": false,
+    "sourceSettingDecodesArtwork": false,
+    "maximumSelectedRasterPreviews": 1
+  },
+  "presentation": {
+    "iconFamily": "Material Symbols Rounded",
+    "iconFill": 1,
+    "sharedIconCatalog": true,
+    "progressPreview": "none",
+    "unchangedStatusRefreshPreservesSessionList": true,
+    "hoveredSelectionTargetSurvivesStatusRefresh": true,
+    "pointerSequenceSurvivesStatusRefresh": true,
+    "queueOwnsOverflow": true,
+    "primaryActionRemainsReachable": true
+  },
+  "history": {
+    "presentationOrder": "newest_session_first",
+    "singleDeleteRequiresConfirmation": false,
+    "deleteAllRequiresConfirmation": true,
+    "deleteAllScope": "current_tool_saved_results",
+    "requireExistingOutput": true,
+    "dispatchIdentityRecorded": true,
+    "renameMutatesOutput": true,
+    "renameIsTransactional": true,
+    "deleteMutatesOutput": true,
+    "defaultEntries": 50,
+    "minimumEntries": 10,
+    "maximumEntries": 200,
+    "usesSharedUserHistoryLimit": true,
+    "maximumManagedBytesAcrossCreationTools": 4294967296,
+    "minimumFreeSpaceReserveBytes": 1073741824,
+    "pruneBeforeManagedAdmission": true,
+    "admissionReservesMaximumResultBytes": true,
+    "protectedBytesFailAdmissionBeforeDispatch": true,
+    "defaultDestination": "downloads",
+    "defaultResultsAreUserOwned": true,
+    "defaultResultsAreRetentionManaged": false,
+    "selectedDestinationIsUserOwned": true,
+    "resultsAutoDeleted": false,
+    "legacyManagedResultsKeepExistingRetention": true,
+    "legacyAcceptedManagedDestinationsRemainFrozen": true,
+    "newestResultPerToolProtected": true,
+    "pruneDeletesManagedArtifact": true,
+    "pruneIsAtomicAndPathConfined": true,
+    "artifactDigestRecorded": true,
+    "legacyHistoryOwnershipMigration": "leave_unmanaged_without_startup_hashing",
+    "externallyModifiedArtifactProtected": true,
+    "liveAndRecoveryArtifactsProtected": true
+  },
+  "delivery": {
+    "key": "dispatchId",
+    "durableStages": [
+      "validated",
+      "publication_prepared",
+      "published",
+      "history_committed"
+    ],
+    "replayIsIdempotent": true,
+    "generationIsNotRepeatedDuringReplay": true,
+    "publicationIsNotDuplicatedDuringReplay": true,
+    "terminalIntentClearsOnlyAfterHistoryCommit": true,
+    "ambiguousPublishedArtifactProtected": true,
+    "crashCutpointsCovered": true
+  },
+  "hostLifecycle": {
+    "cancelWinsOverLateSuccess": true,
+    "multipleSessionsPerOwnerSupported": true,
+    "closeCancelsOnlyOwnerJobs": true,
+    "closeReleasesOwnerExecutionResources": true,
+    "closeDestroysProductSurface": true
+  },
+  "recovery": {
+    "intentRecordedBeforeSubmit": true,
+    "replayMatchesOnlySameDispatchId": true,
+    "acceptedJobResumedWithoutResubmit": true,
+    "workerCleanupPrecedesRecoveryRedispatch": true,
+    "unknownSubmissionFailsClosed": true,
+    "preparationRetriesAreBounded": true,
+    "retryUsesFreshExecutionState": true,
+    "uncleanWorkspaceIsQuarantined": true,
+    "transientCapacityFailureIsCapabilityScoped": true,
+    "temporaryCapacityPauseWaitIsBounded": true,
+    "recoveryStorageCannotPermanentlyBlockPreparation": true,
+    "inactivePreparationStateReclaimedBeforeAdmission": true,
+    "liveAndAcceptedRecoveryStateProtected": true
+  },
+  "publicBoundary": {
+    "containsProductContractOnly": true,
+    "productModesOnly": true,
+    "implementationDetailsVisible": false
+  },
+  "distribution": {
+    "fullSupported": true,
+    "playSupported": true,
+    "behaviorIdentical": true,
+    "featureSetIdentical": true,
+    "integrityValidatedBeforeUse": true
+  },
+  "qualityControl": {
+    "realUiPlatforms": ["windows", "android_full", "android_play"],
+    "cases": ["simple"],
+    "sourceSelectedThroughProductSurface": true,
+    "terminalStateRequired": true,
+    "committedArtifactValidated": true,
+    "terminalFailureEvidenceRequired": true
+  }
+}
