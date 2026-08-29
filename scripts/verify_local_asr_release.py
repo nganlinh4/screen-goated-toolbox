@@ -38,18 +38,27 @@ def hash_remote(url: str, maximum: int) -> tuple[int, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--packages",
-        type=Path,
-        default=Path("local-runtime-bundles/sgt_local_asr/sgt_local_asr.packages.json"),
-    )
+    inputs = parser.add_mutually_exclusive_group()
+    inputs.add_argument("--packages", type=Path)
+    inputs.add_argument("--contract", type=Path)
     parser.add_argument(
         "--output",
         type=Path,
         default=Path("local-runtime-bundles/sgt_local_asr/sgt_local_asr.delivery.json"),
     )
     args = parser.parse_args()
-    packages = json.loads(args.packages.read_text(encoding="utf-8"))
+    if args.contract is not None:
+        contract = json.loads(args.contract.read_text(encoding="utf-8"))
+        packages = {
+            "schemaVersion": contract.get("schemaVersion"),
+            "architecture": contract.get("windows", {}).get("architecture"),
+            "components": contract.get("windows", {}).get("components", []),
+        }
+    else:
+        packages_path = args.packages or Path(
+            "local-runtime-bundles/sgt_local_asr/sgt_local_asr.packages.json"
+        )
+        packages = json.loads(packages_path.read_text(encoding="utf-8"))
     if packages.get("schemaVersion") != 1 or packages.get("architecture") != "x64":
         raise ValueError("unsupported local-ASR packages manifest")
     expected = {entry["asset"]: entry for entry in packages["components"]}

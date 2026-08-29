@@ -343,19 +343,15 @@ Assert-TrackedDelivery $qwenRuntimeDelivery (Join-Path $trackedDeliveryRoot "qwe
 $localAsrOutput = Join-Path $releasePackageRoot "sgt_local_asr"
 New-Item -ItemType Directory -Path $localAsrOutput -Force | Out-Null
 $localAsrDelivery = Join-Path $localAsrOutput "sgt_local_asr.delivery.json"
-$localAsrPackages = Join-Path $localAsrOutput "sgt_local_asr.packages.json"
-if (-not (Test-Path -LiteralPath $localAsrPackages -PathType Leaf)) {
-    $localAsrPackages = Join-Path $PSScriptRoot `
-        "local-runtime-bundles\sgt_local_asr\sgt_local_asr.packages.json"
-}
+$trackedLocalAsrDelivery = Join-Path $trackedDeliveryRoot "local-asr-v1.json"
 Write-Host "Reading back local ASR component delivery..." -ForegroundColor Cyan
 & py -3 (Join-Path $PSScriptRoot "scripts\verify_local_asr_release.py") `
-    --packages $localAsrPackages --output $localAsrDelivery
+    --contract $trackedLocalAsrDelivery --output $localAsrDelivery
 if ($LASTEXITCODE -ne 0) {
     Write-Host "FAILED: local ASR delivery is not release-ready." -ForegroundColor Red
     exit $LASTEXITCODE
 }
-Assert-TrackedDelivery $localAsrDelivery (Join-Path $trackedDeliveryRoot "local-asr-v1.json")
+Assert-TrackedDelivery $localAsrDelivery $trackedLocalAsrDelivery
 
 # Build the standalone recorder worker and reproduce both recorder packages.
 # The host build is blocked unless their uploaded bytes were read back and
