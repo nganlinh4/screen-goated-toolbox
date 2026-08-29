@@ -1,9 +1,19 @@
 {
-  "version": 4,
+  "version": 5,
   "cases": [
     {
       "name": "help_index_context",
-      "url": "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/help-index.json",
+      "contract": "component-delivery/help-index-v1.json",
+      "asset": "help-index-v1-91c9f9b5339e4ec8.json.gz",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/help-index-v1-91c9f9b5339e4ec8.json.gz",
+      "format": "json-gzip",
+      "size_bytes": 3188,
+      "sha256": "91c9f9b5339e4ec8aa24648b174c8cf96b9932395d5dcf38242a20e0c0de49cf",
+      "expanded_size_bytes": 8099,
+      "expanded_sha256": "edf5e31a7d1a7aca3ac51f479d389493593ee08b93fdc7356c0a2e91033c878b",
+      "entry_count": 3,
+      "persistent_verified_cache": true,
+      "filter_current_platform": true,
       "top_k": 20,
       "empty_terms_use_first_chunks": true,
       "score_inputs": [
@@ -65,7 +75,7 @@
     {
       "name": "long_lived_request_behavior",
       "use_dedicated_help_assistant_clients": true,
-      "allow_large_help_index_fetches": true,
+      "allow_large_help_index_fetches": false,
       "allow_long_generation_latency": true
     },
     {

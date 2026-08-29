@@ -332,15 +332,34 @@ the tracked `scripts/i18n_scan_report.json` audit artifact.
 
 ## Help index
 
-The in-app help assistant consumes the tracked `help-index.json`. Rebuild requires a KaLM-compatible endpoint accepting `POST /api/embed` with `{"input":"..."}` and returning `{"embeddings":[[...]]}`.
+The in-app Help Assistant consumes reviewed product guidance from `docs/help/`.
+When that corpus changes, build one deterministic content-addressed gzip asset
+in the managed development cache:
 
 ```powershell
-$env:KALM_EMBED_SERVER_URL = 'http://127.0.0.1:8400/api/embed'
-python scripts/help_index_build.py
-python scripts/help_index_query.py --no-llm "question"
+$helpPackage = Join-Path $env:LOCALAPPDATA 'SGT-Development\cache\help-index\package'
+py -3 scripts/help_index_build.py --output-dir $helpPackage
+py -3 scripts/help_index_query.py --platform windows "question"
 ```
 
-Without `--no-llm`, the query helper also needs `GEMINI_API_KEY`.
+The builder has no model, API-key, or private-service dependency. It writes the
+compressed asset and `help-index-v1.package.json`; it never writes generated
+data into the repository root. Stage and test the candidate through the normal
+delivery flow:
+
+```powershell
+py -3 scripts/component_release.py stage `
+  --package-manifest "$helpPackage\help-index-v1.package.json" `
+  --tracked-manifest component-delivery/help-index-v1.json `
+  --contract-relative component-delivery/help-index-v1.json `
+  --asset-root $helpPackage
+```
+
+Use `SGT_COMPONENT_DELIVERY_CHANNEL=staging` and the generated staging contract
+root for Windows or Android debug acceptance. After both clients verify, cache,
+and reuse the candidate, promote it through `component_release.py` and update
+the tracked contract. Do not rebuild this asset merely because the app version
+changes.
 
 ## Documentation
 

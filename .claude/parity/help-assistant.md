@@ -9,7 +9,16 @@
 
 ## Contract
 
-- Fetch and cache the tracked `help-index.json` from the repository raw URL.
+- Read the app-selected `component-delivery/help-index-v1.json` contract, fetch
+  its immutable content-addressed gzip asset, and verify compressed and expanded
+  byte counts and SHA-256 identities before parsing it.
+- Cache the verified compressed asset persistently. Reuse the selected cached
+  asset without a network request, and retain it as the offline copy when a
+  replacement download fails. Never read a mutable branch or staging URL from a
+  production build.
+- Filter entries to the current platform before ranking. The shipped dataset is
+  reviewed product guidance from `docs/help/`, not application source and not a
+  development embedding index.
 - Rank every chunk by non-overlapping question-term matches across `path + text`, apply the fixture's path boost, and send the top 20. With no searchable terms, use the first 20 chunks.
 - Use one primary and one fallback Gemini model with the same output limit,
   temperature, and catalog-resolved `LOW` important-task thinking configuration
@@ -18,6 +27,9 @@
 - Answer in the question language, use locale-correct UI terms, return Markdown, and prohibit invented facts or source-code framing.
 - Use dedicated long-lived network clients for the index and generation requests.
 - Missing keys, fetch failures, and model failures remain visible and recoverable.
+- Help-data generation is development work performed only when `docs/help/`
+  changes. A release validates the pinned delivery contract and does not rebuild
+  the dataset.
 
 ## Platform Surface
 

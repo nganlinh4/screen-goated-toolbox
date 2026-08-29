@@ -94,7 +94,7 @@ class AppContainer(
     val appUpdateController: AppUpdateController = createAppUpdateController(appContext, httpClient)
 
     private val textApiClient = TextApiClient(httpClient)
-    val helpAssistantClient = HelpAssistantClient(helpAssistantHttpClient)
+    val helpAssistantClient = HelpAssistantClient(appContext, helpAssistantHttpClient)
     val audioApiClient = AudioApiClient(
         appContext = appContext,
         httpClient = httpClient,

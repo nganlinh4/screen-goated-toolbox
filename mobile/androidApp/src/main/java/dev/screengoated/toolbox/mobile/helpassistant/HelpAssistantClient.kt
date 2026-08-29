@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.helpassistant
 
+import android.content.Context
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.invalidApiKeyMessage
@@ -14,10 +15,21 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 
-class HelpAssistantClient(
+class HelpAssistantClient private constructor(
     private val httpClient: OkHttpClient,
+    private val helpIndexLoader: () -> List<ChunkEntry>,
 ) {
     private var cachedIndex: List<ChunkEntry>? = null
+
+    constructor(context: Context, httpClient: OkHttpClient) : this(
+        httpClient,
+        { HelpIndexStore(context.applicationContext, httpClient).load() },
+    )
+
+    internal constructor(httpClient: OkHttpClient) : this(
+        httpClient,
+        { error("Help data must not be requested without an Android context") },
+    )
 
     suspend fun ask(request: HelpAssistantRequest): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
@@ -43,24 +55,7 @@ class HelpAssistantClient(
     private fun fetchHelpIndex(): List<ChunkEntry> {
         cachedIndex?.let { return it }
 
-        val request = Request.Builder().url(HELP_INDEX_URL).build()
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Failed to fetch help index: HTTP ${response.code}")
-            }
-            val body = response.body.string()
-            val arr = JSONArray(body)
-            val entries = mutableListOf<ChunkEntry>()
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                entries.add(ChunkEntry(
-                    path = obj.optString("path", ""),
-                    text = obj.optString("text", ""),
-                ))
-            }
-            cachedIndex = entries
-            return entries
-        }
+        return helpIndexLoader().also { cachedIndex = it }
     }
 
     private fun askGemini(
@@ -83,7 +78,7 @@ class HelpAssistantClient(
         ) {
             "Help Assistant model ${apiModel.fullName} has no important-task thinking policy"
         }
-        val userMessage = "$SYSTEM_PROMPT\n\n---\nSource Code Context:\n$context\n---\n\nUser Question: $question"
+        val userMessage = "$SYSTEM_PROMPT\n\n---\nProduct Help Context:\n$context\n---\n\nUser Question: $question"
         val payload = JSONObject()
             .put(
                 "contents",

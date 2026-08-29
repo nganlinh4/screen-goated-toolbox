@@ -1,0 +1,15 @@
+{
+  "helpIndex": {
+    "asset": "help-index-v1-91c9f9b5339e4ec8.json.gz",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/help-index-v1-91c9f9b5339e4ec8.json.gz",
+    "entryCount": 3,
+    "expandedSha256": "edf5e31a7d1a7aca3ac51f479d389493593ee08b93fdc7356c0a2e91033c878b",
+    "expandedSizeBytes": 8099,
+    "format": "json-gzip",
+    "id": "help-index",
+    "sha256": "91c9f9b5339e4ec8aa24648b174c8cf96b9932395d5dcf38242a20e0c0de49cf",
+    "sizeBytes": 3188
+  },
+  "schemaVersion": 1,
+  "version": "1"
+}

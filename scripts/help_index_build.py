@@ -1,224 +1,127 @@
-"""Build the help-assistant RAG index from the codebase.
+#!/usr/bin/env python3
+"""Build the deterministic, delivery-ready Help Assistant data asset."""
 
-Chunks source files, embeds each via a KaLM-compatible embedding server,
-saves to help-index.json.
+from __future__ import annotations
 
-Set KALM_EMBED_SERVER_URL to override the default endpoint.
-Run: python scripts/help_index_build.py
-"""
-
-import json, os, sys, time, math, requests, pathlib
-
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-INDEX_PATH = ROOT / "help-index.json"
-EMBED_SERVER_URL = os.environ.get("KALM_EMBED_SERVER_URL", "http://127.0.0.1:8400/api/embed")
-MAX_CHARS_PER_CHUNK = 16000  # ~4k tokens; served with memory-efficient attention
-BATCH_SIZE = 50  # chunks per batch (Ollama handles sequentially, no rate limit)
-VECTOR_DECIMALS = 6  # Compact enough for GitHub; negligible cosine-ranking error.
-
-# Full codebase — everything users might ask about
-INCLUDE_DIRS = [
-    "src", "screen-record/src", "translation-gummy-ui/src", "catalog",
-    "libs/lang-detect/src", "native/qwen3_runtime/src",
-    "mobile/androidApp/src/main/java", "mobile/shared/src/commonMain",
-    "promptdj-midi",
-]
-INCLUDE_FILES = [
-    "Cargo.toml", "README.md", "build.rs",
-    "screen-record/package.json", "screen-record/tsconfig.json",
-    "mobile/androidApp/build.gradle.kts", "mobile/shared/build.gradle.kts",
-    "mobile/androidApp/src/main/AndroidManifest.xml",
-]
-EXCLUDE_PATTERNS = {
-    "node_modules", "target", "dist", ".git", ".claude", "parity-fixtures",
-    "third_party", "scripts", "src/embed_dlls",
-    "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/ui/carousel",
-    "mobile/androidApp/src/test", "mobile/androidApp/src/androidTest",
-    "mobile/shared/src/commonTest", "mobile/shared/src/androidUnitTest",
-    "mobile/androidApp/src/main/res", "mobile/androidApp/src/main/assets",
-}
-INCLUDE_EXTS = {".rs", ".ts", ".tsx", ".js", ".jsx", ".json", ".toml", ".md",
-                 ".css", ".html", ".kt", ".kts", ".xml", ".py"}
+import argparse
+import gzip
+import hashlib
+import json
+from pathlib import Path
 
 
-
-def should_include(path: pathlib.Path) -> bool:
-    rel = path.relative_to(ROOT).as_posix()
-    parts = rel.split("/")
-    # Exclude if any path segment matches an exclude pattern
-    for ex in EXCLUDE_PATTERNS:
-        if ex in parts or rel.startswith(ex + "/") or rel == ex:
-            return False
-    if path.suffix not in INCLUDE_EXTS:
-        return False
-    return True
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CATALOG = ROOT / "docs" / "help" / "content-v1.json"
+PRODUCTION_PREFIX = (
+    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/"
+    "sgt-runtime-bundles/"
+)
+MAX_DOCUMENT_BYTES = 128 * 1024
+MAX_TOTAL_BYTES = 4 * 1024 * 1024
+VALID_PLATFORMS = {"windows", "android"}
 
 
-def collect_files():
-    files = []
-    for inc_dir in INCLUDE_DIRS:
-        d = ROOT / inc_dir
-        if not d.exists():
-            continue
-        for f in sorted(d.rglob("*")):
-            try:
-                if f.is_file() and should_include(f):
-                    files.append(f)
-            except OSError:
-                # Broken symlinks (e.g. node_modules/.bin/.esbuild-*) raise
-                # WinError 1920 on stat(); just skip them.
-                continue
-    for inc_file in INCLUDE_FILES:
-        f = ROOT / inc_file
-        if f.is_file():
-            files.append(f)
-    return files
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
-def chunk_file(path: pathlib.Path):
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return []
-    if not text.strip():
-        return []
-    rel = path.relative_to(ROOT).as_posix()
-    # Split large files into multiple chunks
-    chunks = []
-    if len(text) <= MAX_CHARS_PER_CHUNK:
-        chunks.append({"path": rel, "text": text})
-    else:
-        start = 0
-        part = 0
-        while start < len(text):
-            end = min(start + MAX_CHARS_PER_CHUNK, len(text))
-            if end < len(text):
-                newline = text.rfind("\n", start, end)
-                if newline > start + MAX_CHARS_PER_CHUNK // 2:
-                    end = newline + 1
-            chunks.append({"path": f"{rel}#part{part}", "text": text[start:end]})
-            start = end
-            part += 1
-    return chunks
+def read_catalog(path: Path) -> tuple[str, list[dict[str, object]]]:
+    root = json.loads(path.read_text(encoding="utf-8"))
+    if root.get("schemaVersion") != 1:
+        raise ValueError("help content catalog uses an unsupported schema")
+    version = root.get("contentVersion")
+    documents = root.get("documents")
+    if not isinstance(version, str) or not version:
+        raise ValueError("help content catalog has no contentVersion")
+    if not isinstance(documents, list) or not documents:
+        raise ValueError("help content catalog has no documents")
+    return version, documents
 
 
-def embed_one(text: str) -> list[float]:
-    """Embed a single text via the configured KaLM-compatible server."""
-    for attempt in range(3):
-        try:
-            resp = requests.post(
-                EMBED_SERVER_URL,
-                json={"input": text[:MAX_CHARS_PER_CHUNK]},
-                timeout=120,
-            )
-            if resp.status_code == 200:
-                embeddings = resp.json().get("embeddings", [])
-                return embeddings[0] if embeddings else []
-            if resp.status_code == 500 and attempt < 2:
-                # Truncate more aggressively on OOM
-                text = text[:len(text)//2]
-                print(f"  500 error, retrying with {len(text)} chars...")
-                time.sleep(2)
-                continue
-            print(f"  Embed error {resp.status_code}: {resp.text[:200]}")
-            return []
-        except requests.exceptions.ConnectionError:
-            if attempt < 2:
-                print(f"  Connection error, retrying in 5s...")
-                time.sleep(5)
-                continue
-            return []
-    return []
+def build_entries(catalog_path: Path, documents: list[dict[str, object]]) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
+    for document in documents:
+        identifier = document.get("id")
+        relative = document.get("path")
+        title = document.get("title")
+        platforms = document.get("platforms")
+        if not all(isinstance(value, str) and value for value in (identifier, relative, title)):
+            raise ValueError("help content document metadata is invalid")
+        if identifier in seen_ids:
+            raise ValueError(f"duplicate help content id: {identifier}")
+        if (
+            not isinstance(platforms, list)
+            or not platforms
+            or not all(platform in VALID_PLATFORMS for platform in platforms)
+        ):
+            raise ValueError(f"invalid platforms for help content {identifier}")
+        source = (catalog_path.parent / relative).resolve()
+        if source.parent != catalog_path.parent.resolve() or not source.is_file():
+            raise ValueError(f"help content path escapes its catalog: {relative}")
+        text = source.read_text(encoding="utf-8").strip()
+        size = len(text.encode("utf-8"))
+        if not text or size > MAX_DOCUMENT_BYTES:
+            raise ValueError(f"help content document has invalid size: {relative}")
+        seen_ids.add(identifier)
+        entries.append(
+            {
+                "id": identifier,
+                "path": f"docs/help/{relative}",
+                "title": title,
+                "platforms": sorted(set(platforms)),
+                "text": text,
+            }
+        )
+    return entries
 
 
-def main():
-    print(f"Collecting files from {ROOT}...")
-    files = collect_files()
-    print(f"Found {len(files)} files")
-
-    chunks = []
-    for f in files:
-        chunks.extend(chunk_file(f))
-    print(f"Split into {len(chunks)} chunks")
-    print(f"Batch size: {BATCH_SIZE}, estimated batches: {math.ceil(len(chunks)/BATCH_SIZE)}")
-
-    # Group small files in same directory into single chunks
-    merged = []
-    dir_buf = {}
-    dir_group = {}
-
-    def new_dir_chunk(directory: str) -> dict[str, str]:
-        group = dir_group.get(directory, 0)
-        dir_group[directory] = group + 1
-        return {"path": f"{directory}/*#group{group}", "text": ""}
-
-    for c in chunks:
-        d = c["path"].rsplit("/", 1)[0] if "/" in c["path"] else ""
-        if len(c["text"]) > 8000:
-            # Large file gets its own chunk
-            merged.append(c)
-        else:
-            if d not in dir_buf:
-                dir_buf[d] = new_dir_chunk(d)
-            combined = dir_buf[d]["text"] + f"\n\n// === {c['path']} ===\n" + c["text"]
-            if len(combined) > MAX_CHARS_PER_CHUNK:
-                merged.append(dir_buf[d])
-                dir_buf[d] = new_dir_chunk(d)
-                dir_buf[d]["text"] = f"// === {c['path']} ===\n" + c["text"]
-            else:
-                dir_buf[d]["text"] = combined
-    for leftover in dir_buf.values():
-        if leftover["text"].strip():
-            merged.append(leftover)
-    chunks = merged
-    print(f"After merging small files: {len(chunks)} chunks")
-
-    # Reuse only entries whose source text is unchanged. Treating a matching
-    # path as complete would leave stale vectors whenever that file is edited.
-    existing_by_path = {}
-    if INDEX_PATH.exists():
-        existing = json.loads(INDEX_PATH.read_text(encoding="utf-8"))
-        existing_by_path = {entry["path"]: entry for entry in existing}
-
-    reusable = {
-        chunk["path"]: existing_by_path[chunk["path"]]
-        for chunk in chunks
-        if chunk["path"] in existing_by_path
-        and existing_by_path[chunk["path"]].get("text") == chunk["text"]
-        and existing_by_path[chunk["path"]].get("vector")
+def write_package(output_dir: Path, version: str, entries: list[dict[str, object]]) -> None:
+    payload = json.dumps(
+        {"schemaVersion": 1, "entries": entries},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(payload) > MAX_TOTAL_BYTES:
+        raise ValueError("expanded help index exceeds its delivery boundary")
+    compressed = gzip.compress(payload, compresslevel=9, mtime=0)
+    digest = sha256(compressed)
+    asset = f"help-index-v{version}-{digest[:16]}.json.gz"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    asset_path = output_dir / asset
+    asset_path.write_bytes(compressed)
+    manifest = {
+        "schemaVersion": 1,
+        "version": version,
+        "helpIndex": {
+            "id": "help-index",
+            "asset": asset,
+            "downloadUrl": f"{PRODUCTION_PREFIX}{asset}",
+            "format": "json-gzip",
+            "sizeBytes": len(compressed),
+            "sha256": digest,
+            "expandedSizeBytes": len(payload),
+            "expandedSha256": sha256(payload),
+            "entryCount": len(entries),
+        },
     }
-    remaining = len(chunks) - len(reusable)
-    print(f"Reusing: {len(reusable)} unchanged chunks")
-    print(f"Remaining: {remaining} changed or new chunks to embed")
+    manifest_path = output_dir / "help-index-v1.package.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    print(f"Built {len(entries)} help documents")
+    print(f"Expanded: {len(payload)} bytes")
+    print(f"Asset: {asset_path}")
+    print(f"Package manifest: {manifest_path}")
 
-    # Embed each chunk via the configured KaLM-compatible server.
-    index = []
-    embedded = 0
-    for chunk in chunks:
-        if chunk["path"] in reusable:
-            index.append(reusable[chunk["path"]])
-            continue
 
-        embed_text = f"File: {chunk['path']}\n\n{chunk['text']}"
-        vec = embed_one(embed_text)
-        if not vec:
-            print(f"  SKIP {chunk['path']} (embed failed)")
-            continue
-        index.append({"path": chunk["path"], "text": chunk["text"], "vector": vec})
-        embedded += 1
-        if embedded % 50 == 0 or embedded == remaining:
-            print(f"  [{embedded}/{remaining}] changed or new chunks embedded")
-
-    # Quantizing the stored vectors avoids preserving Python's long float
-    # spellings. Six decimal places keeps cosine ranking stable while keeping
-    # the tracked index comfortably below GitHub's per-file size limit.
-    for entry in index:
-        entry["vector"] = [round(float(value), VECTOR_DECIMALS) for value in entry["vector"]]
-
-    # Save
-    INDEX_PATH.write_text(json.dumps(index), encoding="utf-8")
-    size_mb = INDEX_PATH.stat().st_size / 1024 / 1024
-    print(f"\nDone! {len(index)} chunks → {INDEX_PATH.name} ({size_mb:.1f} MB)")
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    args = parser.parse_args()
+    catalog_path = args.catalog.resolve()
+    version, documents = read_catalog(catalog_path)
+    entries = build_entries(catalog_path, documents)
+    write_package(args.output_dir.resolve(), version, entries)
 
 
 if __name__ == "__main__":

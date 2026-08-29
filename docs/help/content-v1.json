@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "contentVersion": "1",
+  "documents": [
+    {
+      "id": "shared-workflows",
+      "path": "shared-workflows.md",
+      "title": "Shared workflows and results",
+      "platforms": ["windows", "android"]
+    },
+    {
+      "id": "windows-guide",
+      "path": "windows-guide.md",
+      "title": "Windows guide",
+      "platforms": ["windows"]
+    },
+    {
+      "id": "android-guide",
+      "path": "android-guide.md",
+      "title": "Android guide",
+      "platforms": ["android"]
+    }
+  ]
+}

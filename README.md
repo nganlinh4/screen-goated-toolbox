@@ -30,7 +30,7 @@ Exact models and provider defaults change often. Canonical model data lives in [
 
 ### Windows
 
-Download the current installer/executable from [GitHub Releases](https://github.com/nganlinh4/screen-goated-toolbox/releases).
+Download the current portable executable from [GitHub Releases](https://github.com/nganlinh4/screen-goated-toolbox/releases).
 
 - x64: `ScreenGoatedToolbox_v<VERSION>.exe`
 

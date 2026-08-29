@@ -123,23 +123,7 @@ Each `play <locale>` section has a 500-character limit. Never publish a `play`
 section as the GitHub body or the reverse: the GitHub body carries the Zalo and
 VietQR lines, which do not belong on a store listing.
 
-## 4. Refresh help index
-
-Start the private embedding service described in `docs/RELEASING.local.md`, then:
-
-```powershell
-python scripts/help_index_build.py
-git diff --stat -- help-index.json
-```
-
-Confirm `help-index.json` changed for the intended source tree and contains no local secrets.
-
-After the index is verified, stop the private embedding service before moving
-to validation. Confirm that its process has exited and released its GPU memory;
-the machine-specific service location and shutdown check belong only in
-`docs/RELEASING.local.md`.
-
-## 5. Freeze validated source
+## 4. Freeze validated source
 
 Development verification is complete before release work starts. Do not run
 tests, Clippy, formatters, frontend test suites, target validators, performance
@@ -570,7 +554,7 @@ accepted; FFmpeg updates while idle only for users who already installed an
 older managed FFmpeg. Other optional components select the newest compatible
 contract immediately before their next open/session/install boundary.
 
-## 6. Build Windows
+## 5. Build Windows
 
 ```powershell
 .\build.ps1
@@ -582,7 +566,7 @@ Expected build artifacts:
 
 Smoke-test the x64 artifact on suitable hardware. GitHub publishes the x64 artifact only.
 
-## 7. Build Android
+## 6. Build Android
 
 The release wrapper always builds the signed full-flavor APK. `-IncludeAab` also builds the Play AAB:
 
@@ -597,7 +581,7 @@ Expected copied artifacts:
 
 The Play AAB is the store artifact. Treat the full APK as development/direct-distribution output only.
 
-## 8. Finalize the release commit and tag
+## 7. Finalize the release commit and tag
 
 After owner review, commit the release changes, then create and push the tag from that exact commit:
 
@@ -610,9 +594,9 @@ git push origin v<VERSION>
 
 Verify the remote tag resolves to the reviewed release commit before creating a release.
 
-## 9. Draft GitHub release
+## 8. Draft GitHub release
 
-Create a draft first; use paths produced by step 6:
+Create a draft first; use paths produced by steps 5 and 6:
 
 ```powershell
 python scripts/release_notes.py tmp-release-notes-<VERSION>.md --section github |
@@ -660,7 +644,7 @@ hosts have reasonably migrated, do not delete and recreate the
 put it ahead of the stable release for those old clients. Current hosts do not
 rely on that ordering.
 
-## 10. Publish Google Play
+## 9. Publish Google Play
 
 Explicit owner approval after review is the publication gate for both release
 channels. Once approval is given, publish the reviewed GitHub draft and submit
@@ -712,7 +696,7 @@ only. After a rejection Play forces this path for every later edit.
 Do not resubmit while an appeal is still open on the same violation; wait for
 the appeal outcome so the appeal and the new submission do not conflict.
 
-## 11. Finish
+## 10. Finish
 
 - Publish GitHub draft.
 - Confirm the Play release reached *In review*, then *Available on Google Play*.

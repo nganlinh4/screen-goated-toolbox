@@ -1,26 +1,18 @@
 //! Help Assistant - Ask questions about SGT and get AI-powered answers.
 //!
-//! Uses a pre-built chunk index (help-index.json) with keyword search to
-//! retrieve only the relevant source files, then sends them to Gemini.
+//! Uses verified product-help data with keyword search to retrieve only the
+//! relevant guidance, then sends it to Gemini.
 
+mod index;
+
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+
+use index::{ChunkEntry, get_help_index};
 
 static HELP_INPUT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-const HELP_INDEX_URL: &str =
-    "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/help-index.json";
 const TOP_K: usize = 20;
-
-/// Cached help index — fetched once, reused across queries.
-static HELP_INDEX_CACHE: LazyLock<Mutex<Option<Vec<ChunkEntry>>>> =
-    LazyLock::new(|| Mutex::new(None));
-
-#[derive(Clone)]
-struct ChunkEntry {
-    path: String,
-    text: String,
-}
 
 const PRIMARY_MODEL: &str = crate::model_config::HELP_ASSISTANT_MODEL_CHAIN_IDS[0];
 const FALLBACK_MODEL: &str = crate::model_config::HELP_ASSISTANT_MODEL_CHAIN_IDS[1];
@@ -28,41 +20,6 @@ const MAX_OUTPUT_TOKENS: u32 = 4096;
 
 pub fn is_modal_open() -> bool {
     HELP_INPUT_ACTIVE.load(Ordering::SeqCst)
-}
-
-/// Fetch and cache the help index from GitHub.
-fn get_help_index() -> Result<Vec<ChunkEntry>, String> {
-    {
-        let cache = HELP_INDEX_CACHE.lock().unwrap();
-        if let Some(ref idx) = *cache {
-            return Ok(idx.clone());
-        }
-    }
-
-    let body = crate::api::client::UREQ_STREAM_AGENT
-        .get(HELP_INDEX_URL)
-        .call()
-        .map_err(|e| format!("Failed to fetch help index: {}", e))?
-        .into_body()
-        .read_to_string()
-        .map_err(|e| format!("Failed to read help index: {}", e))?;
-
-    let raw: Vec<serde_json::Value> =
-        serde_json::from_str(&body).map_err(|e| format!("Invalid help index JSON: {}", e))?;
-
-    let entries: Vec<ChunkEntry> = raw
-        .into_iter()
-        .filter_map(|v| {
-            Some(ChunkEntry {
-                path: v["path"].as_str()?.to_string(),
-                text: v["text"].as_str()?.to_string(),
-            })
-        })
-        .collect();
-
-    let mut cache = HELP_INDEX_CACHE.lock().unwrap();
-    *cache = Some(entries.clone());
-    Ok(entries)
 }
 
 /// Simple keyword/BM25-style search: score each chunk by how many query
@@ -138,7 +95,7 @@ fn ask_gemini(
     let system_prompt = r#"You are the SGT (Screen Goated Toolbox) Windows app help assistant. The user is asking from the Windows version — assume questions are about the Windows app unless they explicitly mention Android. Answer in a helpful, concise and easy to understand way in the question's language, no made up information, only true information. Go straight to the point. Do not mention "Based on the source code". If the answer needs to mention UI elements, use correct i18n locale terms matching the question's language. Format your response in Markdown."#;
 
     let user_message = format!(
-        "{}\n\n---\nSource Code Context:\n{}\n---\n\nUser Question: {}",
+        "{}\n\n---\nProduct Help Context:\n{}\n---\n\nUser Question: {}",
         system_prompt, context, question
     );
 

@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -24,10 +25,9 @@ class HelpAssistantClientTest {
         assertEquals("google-gemini-3-5-flash-lite-vision", PRIMARY_MODEL)
         assertEquals("google-gemini-3-5-flash-vision", FALLBACK_MODEL)
         assertEquals(4096, MAX_OUTPUT_TOKENS)
-        assertEquals(
-            "https://raw.githubusercontent.com/nganlinh4/screen-goated-toolbox/main/help-index.json",
-            HELP_INDEX_URL,
-        )
+        val contract = parseDelivery(Files.readAllBytes(deliveryContractPath()))
+        assertTrue(contract.asset.contains(contract.sha256.take(16)))
+        assertTrue(contract.downloadUrl.contains("/sgt-runtime-bundles/"))
     }
 
     @Test
@@ -50,7 +50,12 @@ class HelpAssistantClientTest {
             }
 
         val index = cases.getValue("help_index_context")
-        assertEquals(HELP_INDEX_URL, index.getValue("url").jsonPrimitive.content)
+        val contract = JSONObject(Files.readAllBytes(deliveryContractPath()).decodeToString())
+            .getJSONObject("helpIndex")
+        assertEquals(contract.getString("downloadUrl"), index.getValue("url").jsonPrimitive.content)
+        assertEquals(contract.getString("asset"), index.getValue("asset").jsonPrimitive.content)
+        assertEquals(contract.getInt("sizeBytes"), index.getValue("size_bytes").jsonPrimitive.content.toInt())
+        assertEquals(contract.getString("sha256"), index.getValue("sha256").jsonPrimitive.content)
         assertEquals(HELP_ASSISTANT_TOP_K, index.getValue("top_k").jsonPrimitive.content.toInt())
         assertTrue(index.getValue("empty_terms_use_first_chunks").jsonPrimitive.boolean)
         assertEquals(listOf("path", "text"), index.getValue("score_inputs").jsonArray.map { it.jsonPrimitive.content })
@@ -112,6 +117,16 @@ class HelpAssistantClientTest {
     }
 
     @Test
+    fun helpDataFiltersEntriesToAndroidAndSharedScopes() {
+        val bytes = """{"schemaVersion":1,"entries":[
+            {"path":"shared","text":"one","platforms":["windows","android"]},
+            {"path":"windows","text":"two","platforms":["windows"]}
+        ]}""".trimIndent().encodeToByteArray()
+
+        assertEquals(listOf("shared"), parseHelpIndex(bytes, "android").map(ChunkEntry::path))
+    }
+
+    @Test
     fun localizedPlaceholderAndLoadingTextUseAndroidScopedCopy() {
         val locale = MobileLocaleText.forLanguage("en")
 
@@ -160,6 +175,16 @@ class HelpAssistantClientTest {
         )
         return candidates.firstOrNull { Files.exists(it) }
             ?: error("Missing help assistant fixture. Tried: $candidates")
+    }
+
+    private fun deliveryContractPath(): Path {
+        val candidates = listOf(
+            Paths.get("..", "component-delivery", "help-index-v1.json"),
+            Paths.get("..", "..", "component-delivery", "help-index-v1.json"),
+            Paths.get("component-delivery", "help-index-v1.json"),
+        )
+        return candidates.firstOrNull { Files.exists(it) }
+            ?: error("Missing help delivery contract. Tried: $candidates")
     }
 
     private fun fixtureCase(name: String) = json

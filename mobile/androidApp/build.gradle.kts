@@ -61,6 +61,8 @@ val generatedComponentUpdateTrustAssets =
     layout.buildDirectory.dir("generated/componentUpdateTrustAssets")
 val generatedModelFeedTrustAssets =
     layout.buildDirectory.dir("generated/modelFeedTrustAssets")
+val generatedHelpIndexDeliveryAssets =
+    layout.buildDirectory.dir("generated/helpIndexDeliveryAssets")
 val generatedFullCreationRuntimeDeliveryAssets =
     layout.buildDirectory.dir("generated/fullCreationRuntimeDeliveryAssets")
 val generatedFullDownloaderRuntimeDeliveryAssets =
@@ -69,6 +71,32 @@ val generatedFullDownloaderLauncherJniLibs =
     layout.buildDirectory.dir("generated/fullDownloaderLauncherJniLibs")
 val sharedCreationModelViewerAssets = rootProject.projectDir.parentFile
     .resolve("3d-generator-ui/viewer-dist")
+
+val generateHelpIndexDeliveryAssets by tasks.registering(Sync::class) {
+    val repoRoot = rootProject.projectDir.parentFile
+    val production = repoRoot.resolve("component-delivery/help-index-v1.json")
+    val channel = providers.environmentVariable("SGT_COMPONENT_DELIVERY_CHANNEL").orNull
+    val stagingRoot = providers.environmentVariable("SGT_STAGING_DELIVERY_ROOT").orNull
+    val staged = stagingRoot?.let { File(it).resolve("component-delivery/help-index-v1.json") }
+    val selected = staged?.takeIf { channel == "staging" && it.isFile } ?: production
+    if (channel !in listOf(null, "", "production", "staging")) {
+        error("Unsupported SGT_COMPONENT_DELIVERY_CHANNEL: $channel")
+    }
+    inputs.file(selected)
+    from(selected) {
+        into("help-assistant")
+        rename { "delivery.json" }
+    }
+    into(generatedHelpIndexDeliveryAssets)
+}
+
+if (providers.environmentVariable("SGT_COMPONENT_DELIVERY_CHANNEL").orNull == "staging") {
+    tasks.configureEach {
+        if (name.contains("Release", ignoreCase = false)) {
+            doFirst { error("Android release tasks cannot use staging component delivery") }
+        }
+    }
+}
 
 val generatePresetOverlayAssets by tasks.registering(Exec::class) {
     val repoRoot = rootProject.projectDir.parentFile
@@ -324,6 +352,7 @@ android {
         kotlin.directories.add(generatedPhoneControlContract.get().dir("kotlin").asFile.absolutePath)
         assets.directories.add(generatedNativeRuntimeContractAssets.get().asFile.absolutePath)
         assets.directories.add(generatedModelFeedTrustAssets.get().asFile.absolutePath)
+        assets.directories.add(generatedHelpIndexDeliveryAssets.get().asFile.absolutePath)
     }
     sourceSets.named("full") {
         assets.directories.add(rootProject.projectDir.resolve("native/sherpa-runtime/assets").absolutePath)
@@ -341,11 +370,13 @@ android {
 tasks.matching {
     it.name != generatePresetOverlayAssets.name &&
         it.name != generateModelFeedTrustAssets.name &&
+        it.name != generateHelpIndexDeliveryAssets.name &&
         it.name != "verifyCreationModelViewerAssets" &&
         it.name.contains("Assets", ignoreCase = false)
 }.configureEach {
     dependsOn(generatePresetOverlayAssets)
     dependsOn(generateModelFeedTrustAssets)
+    dependsOn(generateHelpIndexDeliveryAssets)
 }
 
 tasks.matching {

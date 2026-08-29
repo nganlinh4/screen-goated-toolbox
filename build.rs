@@ -6,6 +6,8 @@ mod creation_delivery;
 mod delivery_channel;
 #[path = "build_support/external_tool_delivery.rs"]
 mod external_tool_delivery;
+#[path = "build_support/help_index_delivery.rs"]
+mod help_index_delivery;
 #[path = "build_support/icon_atlas.rs"]
 mod icon_atlas;
 #[path = "build_support/local_asr_delivery.rs"]
@@ -48,6 +50,7 @@ fn main() {
         model_catalog::GENERATOR_SCHEMA,
     );
     creation_delivery::generate(&manifest_dir, &out_dir);
+    help_index_delivery::generate(&manifest_dir, &out_dir);
     icon_atlas::generate(&manifest_dir, &out_dir);
     computer_control_delivery::generate(&manifest_dir, &out_dir);
     external_tool_delivery::generate(&manifest_dir, &out_dir);
