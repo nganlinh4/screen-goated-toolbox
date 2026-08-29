@@ -162,9 +162,8 @@ pub(super) fn connected_snapshot(id: &str) -> Option<(Arc<McpClient>, Vec<McpToo
         .map(|connection| (connection.client.clone(), connection.tools.clone()))
 }
 
-/// Spawn + handshake + list tools, store the live client. Idempotent.
-pub(super) fn connect(id: &str) -> Result<usize, String> {
-    connect_inner(id, None)?.ok_or_else(|| "connection owner stopped".to_string())
+pub(super) fn connect_owned(id: &str, stop: &AtomicBool) -> Result<usize, String> {
+    connect_inner(id, Some(stop))?.ok_or_else(|| "connection owner stopped".to_string())
 }
 
 fn connect_inner(id: &str, stop: Option<&AtomicBool>) -> Result<Option<usize>, String> {

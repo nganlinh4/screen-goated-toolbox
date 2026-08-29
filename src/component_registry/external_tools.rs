@@ -3,7 +3,7 @@
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::sync::{LazyLock, Mutex, MutexGuard};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use sha2::{Digest, Sha256};
@@ -276,7 +276,11 @@ pub(crate) fn schedule_periodic_updates() {
             }
             let name = localized_tool_name(ExternalTool::Ffmpeg);
             let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&name);
-            let cancelled = AtomicBool::new(false);
+            let cancelled = Arc::new(AtomicBool::new(false));
+            let Ok(_activity) = crate::install_activity::register(cancelled.clone()) else {
+                badge.finish();
+                return;
+            };
             let result = ensure(ExternalTool::Ffmpeg, &cancelled, |event| {
                 report_badge_event(&badge, &name, event);
             });

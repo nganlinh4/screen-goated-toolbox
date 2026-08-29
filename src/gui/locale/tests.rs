@@ -175,7 +175,7 @@ fn locale_leaf_fields_have_one_section_owner() {
 fn downloaded_tools_progress_and_cards_are_localized() {
     assert_eq!(
         public_field_names(include_str!("managed_tools.rs")).len(),
-        151
+        150
     );
     let english = LocaleText::get("en");
     for code in ["en", "ko", "vi"] {

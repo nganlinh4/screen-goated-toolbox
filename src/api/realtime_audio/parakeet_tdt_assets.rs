@@ -108,6 +108,7 @@ pub fn remove_parakeet_tdt_model() -> Result<()> {
 }
 
 pub fn download_parakeet_tdt_model(stop_signal: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
+    let _activity = crate::install_activity::register(stop_signal.clone())?;
     let dir = get_parakeet_tdt_model_dir();
     let locale = locale();
 

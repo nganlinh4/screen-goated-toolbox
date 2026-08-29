@@ -226,6 +226,7 @@ pub fn download_magpie_runtime(stop_signal: Arc<AtomicBool>, use_badge: bool) ->
     if is_magpie_runtime_installed() {
         return Ok(());
     }
+    let _activity = crate::install_activity::register(stop_signal.clone())?;
     if MAGPIE_RUNTIME_DOWNLOADING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()

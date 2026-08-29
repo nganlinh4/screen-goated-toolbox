@@ -164,6 +164,7 @@ pub fn download_sherpa_dlls_with_progress(
     stop_signal: Arc<AtomicBool>,
     on_progress: impl Fn(f32),
 ) -> Result<()> {
+    let _activity = crate::install_activity::register(stop_signal.clone())?;
     let _package_guard = lock_sherpa_package();
     crate::unpack_dlls::ensure_ai_runtime_installed(
         stop_signal.clone(),
@@ -242,6 +243,7 @@ pub fn download_sherpa_dlls_with_progress(
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn download_sherpa_dlls(stop_signal: Arc<AtomicBool>, overlay_hwnd: HWND) -> Result<()> {
+    let _activity = crate::install_activity::register(stop_signal.clone())?;
     let _package_guard = lock_sherpa_package();
     crate::unpack_dlls::ensure_ai_runtime_installed(
         stop_signal.clone(),

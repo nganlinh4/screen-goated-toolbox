@@ -3,8 +3,9 @@
 use std::collections::HashSet;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 #[cfg(not(feature = "recorder-worker"))]
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 #[cfg(not(feature = "recorder-worker"))]
 use std::sync::{LazyLock, Mutex};
 
@@ -127,7 +128,9 @@ pub(crate) fn ensure_component(on_progress: impl Fn(u64, u64)) -> Result<VcRunti
     let _mutation = super::acquire_mutation_guard()?;
     let delivery = delivery()?;
     if validate_install(delivery).is_err() {
-        install::install(on_progress)?;
+        let cancelled = std::sync::Arc::new(AtomicBool::new(false));
+        let _activity = crate::install_activity::register(cancelled.clone())?;
+        install::install(&cancelled, on_progress)?;
     }
     let lease = super::acquire(COMPONENT_ID)?;
     let root = version_root(delivery)?;

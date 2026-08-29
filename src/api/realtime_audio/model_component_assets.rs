@@ -23,6 +23,7 @@ pub(super) fn ensure_model(
     if crate::component_registry::models::is_installed(kind) {
         return Ok(());
     }
+    let _activity = crate::install_activity::register(stop.clone())?;
     set_state(true, title, message, 0.0);
     let badge = use_badge
         .then(|| crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(title, message));

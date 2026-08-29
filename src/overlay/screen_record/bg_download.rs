@@ -13,8 +13,8 @@ use std::collections::HashSet;
 use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 
 mod resolver;
@@ -441,7 +441,8 @@ mod uploaded_file_tests {
     }
 }
 
-fn download_background(id: &str, url: &str) -> Result<(), String> {
+fn download_background(id: &str, url: &str, cancelled: &AtomicBool) -> Result<(), String> {
+    ensure_download_not_cancelled(cancelled)?;
     let dir = backgrounds_dir();
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("Failed to create backgrounds directory: {error}"))?;
@@ -492,6 +493,7 @@ fn download_background(id: &str, url: &str) -> Result<(), String> {
         let mut downloaded = 0u64;
         let mut buffer = [0u8; 16_384];
         loop {
+            ensure_download_not_cancelled(cancelled)?;
             let count = reader
                 .read(&mut buffer)
                 .map_err(|error| format!("Download read error: {error}"))?;
@@ -524,6 +526,7 @@ fn download_background(id: &str, url: &str) -> Result<(), String> {
         return Err(error);
     }
 
+    ensure_download_not_cancelled(cancelled)?;
     let (prepared_path, prepared_ext) = match normalize_downloaded_image_for_export(&temp_path, ext)
     {
         Ok(value) => value,
@@ -532,6 +535,7 @@ fn download_background(id: &str, url: &str) -> Result<(), String> {
             return Err(format!("Normalize error: {error}"));
         }
     };
+    ensure_download_not_cancelled(cancelled)?;
     if let Err(error) = publish_prepared_background(id, &prepared_path, &prepared_ext) {
         let _ = std::fs::remove_file(&prepared_path);
         return Err(error);
@@ -550,13 +554,28 @@ pub fn start_download(id: String, url: String) -> Result<(), String> {
         ) {
             return Ok(());
         }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let activity = crate::install_activity::register(cancelled.clone())
+            .map_err(|error| error.to_string())?;
         statuses.insert(id.clone(), BgDownloadStatus::Downloading { progress: 0.0 });
+        thread::spawn(move || {
+            let _activity = activity;
+            match download_background(&id, &url, &cancelled) {
+                Ok(()) => set_download_status(&id, BgDownloadStatus::Done),
+                Err(_) if cancelled.load(Ordering::Acquire) => {
+                    BG_DOWNLOAD_STATUS.lock().unwrap().remove(&id);
+                }
+                Err(error) => set_download_status(&id, BgDownloadStatus::Error(error)),
+            }
+        });
     }
+    Ok(())
+}
 
-    thread::spawn(move || match download_background(&id, &url) {
-        Ok(()) => set_download_status(&id, BgDownloadStatus::Done),
-        Err(error) => set_download_status(&id, BgDownloadStatus::Error(error)),
-    });
+fn ensure_download_not_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err("Background download was cancelled".to_string());
+    }
     Ok(())
 }
 

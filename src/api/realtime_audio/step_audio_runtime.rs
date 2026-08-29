@@ -171,6 +171,7 @@ pub fn download_step_audio_runtime(stop_signal: Arc<AtomicBool>, use_badge: bool
     if is_step_audio_runtime_installed() {
         return Ok(());
     }
+    let _activity = crate::install_activity::register(stop_signal.clone())?;
     if STEP_AUDIO_RUNTIME_DOWNLOADING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()

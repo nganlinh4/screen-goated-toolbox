@@ -226,7 +226,12 @@ impl DownloadManager {
             *current = DownloadState::Downloading(0.0, "Starting...".to_string());
         }
 
+        let Ok(activity) = crate::install_activity::register(cancel.clone()) else {
+            *state.lock().unwrap() = DownloadState::Idle;
+            return;
+        };
         std::thread::spawn(move || {
+            let _activity = activity;
             let attempt = |attempt_label: &str| -> Result<Option<PathBuf>, String> {
                 log(&logs, format!("Processing URL: {url}"));
                 let ytdlp = prepare_tool(ExternalTool::YtDlp, &ytdlp_status, &state, &cancel)?;

@@ -187,6 +187,7 @@ pub(crate) fn download(
     stop: Arc<AtomicBool>,
     use_badge: bool,
 ) -> Result<()> {
+    let _activity = crate::install_activity::register(stop.clone())?;
     let _mutation = super::acquire_mutation_guard()?;
     static DOWNLOAD_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
     let _guard = DOWNLOAD_LOCK

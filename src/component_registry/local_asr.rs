@@ -3,7 +3,7 @@
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use anyhow::{Result, anyhow, bail};
 
@@ -238,8 +238,13 @@ pub(crate) fn start_install(kind: ComponentKind) -> bool {
         return false;
     }
     clear_notice(kind);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let Ok(activity) = crate::install_activity::register(cancelled.clone()) else {
+        installing.store(false, Ordering::Release);
+        return false;
+    };
     std::thread::spawn(move || {
-        let cancelled = AtomicBool::new(false);
+        let _activity = activity;
         let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(
             &localized_component_name(kind),
         );

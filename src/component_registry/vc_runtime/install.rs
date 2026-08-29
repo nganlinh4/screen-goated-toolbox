@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use anyhow::{Result, anyhow, bail};
@@ -25,7 +25,7 @@ const EMBEDDED_NOTICES: &[(&str, &[u8])] = &[
     ),
 ];
 
-pub(super) fn install(on_progress: impl Fn(u64, u64)) -> Result<()> {
+pub(super) fn install(cancelled: &AtomicBool, on_progress: impl Fn(u64, u64)) -> Result<()> {
     let _guard = INSTALL_LOCK
         .lock()
         .unwrap_or_else(|value| value.into_inner());
@@ -35,10 +35,11 @@ pub(super) fn install(on_progress: impl Fn(u64, u64)) -> Result<()> {
     }
     clear_invalid_install()?;
     let _install_lease = super::super::acquire(COMPONENT_ID)?;
-    if adopt_legacy(delivery)? {
+    ensure_not_cancelled(cancelled)?;
+    if adopt_legacy(delivery, cancelled)? {
         return Ok(());
     }
-    install_delivery(delivery, on_progress)
+    install_delivery(delivery, cancelled, on_progress)
 }
 
 fn clear_invalid_install() -> Result<()> {
@@ -56,7 +57,11 @@ fn clear_invalid_install() -> Result<()> {
     }
 }
 
-fn install_delivery(delivery: &VcRuntimeDelivery, on_progress: impl Fn(u64, u64)) -> Result<()> {
+fn install_delivery(
+    delivery: &VcRuntimeDelivery,
+    cancelled: &AtomicBool,
+    on_progress: impl Fn(u64, u64),
+) -> Result<()> {
     let sequence = INSTALL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let working_root = crate::paths::app_local_data_dir();
     let scratch = working_root.join("component-downloads");
@@ -76,9 +81,10 @@ fn install_delivery(delivery: &VcRuntimeDelivery, on_progress: impl Fn(u64, u64)
     require_regular_directory(&staging)?;
 
     let result = (|| {
-        download_archive(delivery, &archive_path, on_progress)?;
+        download_archive(delivery, &archive_path, cancelled, on_progress)?;
         validate_archive(&archive_path, delivery)?;
-        extract_archive(&archive_path, &staging, delivery)?;
+        extract_archive(&archive_path, &staging, delivery, cancelled)?;
+        ensure_not_cancelled(cancelled)?;
         finish_staging(&staging, delivery)
     })();
     let _ = std::fs::remove_file(&archive_path);
@@ -118,6 +124,7 @@ fn ensure_regular_directory(root: &Path, target: &Path) -> Result<()> {
 fn download_archive(
     delivery: &VcRuntimeDelivery,
     target: &Path,
+    cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<()> {
     let response = crate::api::client::UREQ_DOWNLOAD_AGENT
@@ -142,6 +149,7 @@ fn download_archive(
     let mut buffer = [0_u8; 128 * 1024];
     let mut downloaded = 0_u64;
     loop {
+        ensure_not_cancelled(cancelled)?;
         let read = reader.read(&mut buffer)?;
         if read == 0 {
             break;
@@ -175,7 +183,12 @@ fn validate_archive(path: &Path, delivery: &VcRuntimeDelivery) -> Result<()> {
     Ok(())
 }
 
-fn extract_archive(path: &Path, staging: &Path, delivery: &VcRuntimeDelivery) -> Result<()> {
+fn extract_archive(
+    path: &Path,
+    staging: &Path,
+    delivery: &VcRuntimeDelivery,
+    cancelled: &AtomicBool,
+) -> Result<()> {
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)?;
     if archive.len() != delivery.files.len() || archive.len() > MAX_COMPONENT_FILES {
@@ -184,6 +197,7 @@ fn extract_archive(path: &Path, staging: &Path, delivery: &VcRuntimeDelivery) ->
     let mut extracted = HashSet::new();
     let mut extracted_bytes = 0_u64;
     for index in 0..archive.len() {
+        ensure_not_cancelled(cancelled)?;
         let mut entry = archive.by_index(index)?;
         if entry.is_dir() {
             bail!("VC runtime archive contains an unexpected directory entry");
@@ -229,13 +243,20 @@ fn extract_archive(path: &Path, staging: &Path, delivery: &VcRuntimeDelivery) ->
     Ok(())
 }
 
+fn ensure_not_cancelled(cancelled: &AtomicBool) -> Result<()> {
+    if cancelled.load(Ordering::Acquire) {
+        bail!("VC runtime installation was cancelled");
+    }
+    Ok(())
+}
+
 fn legacy_bin_dir() -> PathBuf {
     crate::paths::app_runtime_local_data_dir()
         .join("bin")
         .join("x64")
 }
 
-fn adopt_legacy(delivery: &VcRuntimeDelivery) -> Result<bool> {
+fn adopt_legacy(delivery: &VcRuntimeDelivery, cancelled: &AtomicBool) -> Result<bool> {
     let legacy = legacy_bin_dir();
     if !legacy.is_dir() {
         return Ok(false);
@@ -254,6 +275,7 @@ fn adopt_legacy(delivery: &VcRuntimeDelivery) -> Result<bool> {
     let result = adopt_from(&legacy, &staging, delivery);
     match result {
         Ok(true) => {
+            ensure_not_cancelled(cancelled)?;
             finish_staging(&staging, delivery)?;
             cleanup_verified_legacy(&legacy, delivery);
             Ok(true)

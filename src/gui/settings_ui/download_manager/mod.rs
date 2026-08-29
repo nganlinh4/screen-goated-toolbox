@@ -215,7 +215,7 @@ impl DownloadManager {
 
                 let status_cb = status.clone();
                 let model_badge = badge.clone();
-                sherpa_onnx::download_model_with_progress(lang, &stop, move |p| {
+                sherpa_onnx::download_model_with_progress(lang, stop, move |p| {
                     model_badge.report(50 + (p * 50.0).round() as u64, 100);
                     *status_cb.lock().unwrap() = InstallStatus::Downloading(p);
                 })

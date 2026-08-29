@@ -37,7 +37,7 @@ mod vision_reader;
 
 pub(crate) use external_control::ServerGuard as ExternalControlServerGuard;
 /// MCP capability-store hooks for the Downloaded Tools settings UI (list/install/remove).
-pub(crate) use mcp::{ui_install, ui_installing, ui_list, ui_remove, ui_remove_all};
+pub(crate) use mcp::{ui_install, ui_list, ui_remove, ui_remove_all};
 pub use overlay::{is_active, show_overlay, stop_overlay};
 
 pub(crate) fn remove_downloaded_engine() -> anyhow::Result<()> {

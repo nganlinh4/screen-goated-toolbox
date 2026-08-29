@@ -22,6 +22,7 @@ mod hotkey;
 mod icon_gen;
 mod image_decode;
 mod initialization;
+mod install_activity;
 pub mod lang_detect;
 mod model_config;
 mod model_feed;

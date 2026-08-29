@@ -124,6 +124,7 @@ pub(crate) fn download_from_manager(
     stop: std::sync::Arc<AtomicBool>,
     use_badge: bool,
 ) -> Result<()> {
+    let _activity = crate::install_activity::register(stop.clone())?;
     let badge = use_badge
         .then(|| crate::overlay::auto_copy_badge::DownloadProgressBadge::new(&component_name()));
     set_download_state(0.0);

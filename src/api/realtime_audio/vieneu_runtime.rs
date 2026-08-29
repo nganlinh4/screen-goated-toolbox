@@ -177,6 +177,7 @@ pub fn download_vieneu_runtime(
     if is_vieneu_runtime_installed_for_variant(&variant_id) {
         return Ok(());
     }
+    let _activity = crate::install_activity::register(stop_signal.clone())?;
     if VIENEU_RUNTIME_DOWNLOADING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()

@@ -46,6 +46,7 @@ pub fn download_qwen3_runtime(stop_signal: Arc<AtomicBool>, use_badge: bool) -> 
     if is_qwen3_runtime_managed_installed() {
         return Ok(());
     }
+    let _activity = crate::install_activity::register(stop_signal.clone())?;
     if RUNTIME_DOWNLOAD_IN_PROGRESS
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()

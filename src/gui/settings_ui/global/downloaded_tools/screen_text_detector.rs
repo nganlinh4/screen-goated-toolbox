@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::gui::locale::LocaleText;
@@ -65,7 +66,13 @@ pub(super) fn render(ui: &mut egui::Ui, text: &LocaleText) {
                             .is_ok()
                     {
                         std::thread::spawn(|| {
-                            let cancelled = AtomicBool::new(false);
+                            let cancelled = Arc::new(AtomicBool::new(false));
+                            let Ok(_activity) =
+                                crate::install_activity::register(cancelled.clone())
+                            else {
+                                INSTALLING.store(false, Ordering::Release);
+                                return;
+                            };
                             let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(
                                 &crate::component_registry::screen_text_detector::localized_name(),
                             );

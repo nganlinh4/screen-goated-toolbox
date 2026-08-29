@@ -114,9 +114,10 @@ fn remove_regular_temporary(
 /// Returns Ok(()) on success (already-downloaded files are skipped).
 pub fn download_model_with_progress(
     lang: ZipformerLanguage,
-    stop_signal: &AtomicBool,
+    stop_signal: Arc<AtomicBool>,
     on_progress: impl Fn(f32),
 ) -> Result<()> {
+    let _activity = crate::install_activity::register(stop_signal.clone())?;
     let dir = model_dir(lang);
     std::fs::create_dir_all(&dir)?;
 
@@ -144,7 +145,7 @@ pub fn download_model_with_progress(
             file.contract(),
             &url,
             &target,
-            stop_signal,
+            &stop_signal,
             |downloaded, total_bytes| {
                 let file_frac = if total_bytes > 0 {
                     (downloaded as f32 / total_bytes as f32).clamp(0.0, 1.0)
@@ -162,9 +163,10 @@ pub fn download_model_with_progress(
 
 pub fn download_model(
     lang: ZipformerLanguage,
-    stop_signal: &AtomicBool,
+    stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
 ) -> Result<()> {
+    let _activity = crate::install_activity::register(stop_signal.clone())?;
     let locale = sherpa_locale();
 
     fn post_download_state() {
@@ -327,7 +329,7 @@ pub fn run_sherpa_transcription(
                 .zipformer_downloading_overlay_fmt
                 .replace("{}", lang.display_name()),
         );
-        download_model(lang, &stop_signal, overlay_hwnd)?;
+        download_model(lang, stop_signal.clone(), overlay_hwnd)?;
         if stop_signal.load(Ordering::Relaxed) {
             return Ok(());
         }

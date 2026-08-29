@@ -143,6 +143,7 @@ pub(crate) fn launch_when_ready(launch: fn()) {
 }
 
 pub(crate) fn download(stop: Arc<AtomicBool>, use_badge: bool) -> Result<()> {
+    let _activity = crate::install_activity::register(stop.clone())?;
     install::download(stop, use_badge)
 }
 

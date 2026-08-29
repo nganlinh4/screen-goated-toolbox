@@ -31,10 +31,6 @@ pub(crate) fn ui_list() -> Vec<UiIntegration> {
         .collect()
 }
 
-pub(crate) fn ui_installing() -> bool {
-    !install::installing().lock().is_empty()
-}
-
 /// Install + connect on a background thread (the UI button calls this). Idempotent.
 pub(crate) fn ui_install(id: &str) {
     install::spawn(id);

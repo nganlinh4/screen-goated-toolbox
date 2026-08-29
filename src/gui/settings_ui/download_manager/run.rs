@@ -100,6 +100,18 @@ impl DownloadManager {
         }
     }
 
+    pub(crate) fn cancel_all_activity(&self) {
+        self.install_cancel_flag.store(true, Ordering::Release);
+        for session in &self.sessions {
+            session.cancel_flag.store(true, Ordering::Release);
+            if let Ok(mut state) = session.download_state.lock()
+                && let DownloadState::Downloading(progress, _) = &*state
+            {
+                *state = DownloadState::Downloading(*progress, "Cancelling...".to_string());
+            }
+        }
+    }
+
     pub fn change_download_folder(&mut self) {
         let mut command = std::process::Command::new("powershell");
         command.args([

@@ -6,7 +6,6 @@ pub struct ManagedToolsLocaleText {
     pub downloaded_tools_clean_confirm_body: &'static str,
     pub downloaded_tools_clean_confirm: &'static str,
     pub downloaded_tools_clean_cancel: &'static str,
-    pub downloaded_tools_clean_wait_for_downloads: &'static str,
     pub downloaded_tools_clean_progress_title: &'static str,
     pub downloaded_tools_clean_progress_fmt: &'static str,
     pub downloaded_tools_clean_complete: &'static str,

@@ -37,8 +37,15 @@ impl DownloadManager {
         }
         self.install_cancel_flag.store(false, Ordering::Relaxed);
         let cancel = self.install_cancel_flag.clone();
+        let Ok(activity) = crate::install_activity::register(cancel.clone()) else {
+            *status.lock().unwrap() = install_status(tool);
+            return;
+        };
         let logs = self.install_logs.clone();
-        std::thread::spawn(move || install_in_background(tool, status, cancel, logs));
+        std::thread::spawn(move || {
+            let _activity = activity;
+            install_in_background(tool, status, cancel, logs);
+        });
     }
 }
 

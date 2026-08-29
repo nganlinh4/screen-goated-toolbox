@@ -390,6 +390,7 @@ pub fn download_parakeet_model(
     stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
     use_badge: bool,
 ) -> Result<()> {
+    let _activity = crate::install_activity::register(stop_signal.clone())?;
     let dir = get_parakeet_model_dir();
 
     let locale = {

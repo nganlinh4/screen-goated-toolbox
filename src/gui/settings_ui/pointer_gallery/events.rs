@@ -28,6 +28,11 @@ impl PointerGallery {
         }
 
         self.stop_signal.store(false, Ordering::Relaxed);
+        let stop_signal = self.stop_signal.clone();
+        let Ok(activity) = crate::install_activity::register(stop_signal.clone()) else {
+            self.downloads_paused = true;
+            return;
+        };
         self.preload_started = true;
         self.status_message = None;
         for collection in &mut self.collections {
@@ -41,9 +46,8 @@ impl PointerGallery {
         let (tx, rx) = mpsc::channel();
         self.event_rx = Some(rx);
         let cache_root = self.cache_root.clone();
-        let stop_signal = self.stop_signal.clone();
-
         thread::spawn(move || {
+            let _activity = activity;
             run_preload_worker(&cache_root, tx, stop_signal);
         });
     }

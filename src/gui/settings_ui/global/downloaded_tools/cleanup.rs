@@ -144,8 +144,6 @@ pub(super) fn render(ctx: &egui::Context, text: &LocaleText, download_manager: &
 fn render_confirmation(ctx: &egui::Context, text: &LocaleText, download_manager: &DownloadManager) {
     let managed = &text.auxiliary.managed_tools;
     let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
-    let downloads_active = downloads_active(download_manager);
-    let warning = downloads_active.then_some(managed.downloaded_tools_clean_wait_for_downloads);
     match ConfirmModal::new(
         egui::Id::new("downloaded_tools_clean_confirm"),
         managed.downloaded_tools_clean_confirm_title,
@@ -156,12 +154,10 @@ fn render_confirmation(ctx: &egui::Context, text: &LocaleText, download_manager:
         managed.downloaded_tools_clean_cancel,
     )
     .destructive(true)
-    .confirm_enabled(!downloads_active)
-    .warning(warning)
     .show_ctx(ctx, &theme)
     {
         ConfirmResult::Confirmed => {
-            download_manager.cancel_download();
+            download_manager.cancel_all_activity();
             start_cleanup(ctx.clone(), StatusTargets::capture(download_manager));
         }
         ConfirmResult::Cancelled => set_state(CleanupDialogState::Idle),
@@ -254,7 +250,14 @@ fn start_cleanup(ctx: egui::Context, targets: StatusTargets) {
         step: CleanupStep::Interfaces,
     });
     std::thread::spawn(move || {
-        let attention_count = run_cleanup(&ctx);
+        let attention_count =
+            match crate::install_activity::begin_quiescence(std::time::Duration::from_secs(30)) {
+                Ok(_quiescence) => run_cleanup(&ctx),
+                Err(error) => {
+                    crate::log_info!("[Downloaded Tools] could not stop installers: {error:#}");
+                    1
+                }
+            };
         targets.refresh();
         clear_downloaded_tools_caches();
         set_state(CleanupDialogState::Complete { attention_count });
@@ -482,63 +485,6 @@ fn external_tool_status(tool: ExternalTool) -> InstallStatus {
         ExternalToolStatus::Unavailable => InstallStatus::Unavailable,
         ExternalToolStatus::Error(error) => InstallStatus::Error(error),
     }
-}
-
-fn downloads_active(manager: &DownloadManager) -> bool {
-    if crate::overlay::computer_control::ui_installing() {
-        return true;
-    }
-    let status_active = |status: &Arc<Mutex<InstallStatus>>| {
-        status.lock().is_ok_and(|status| {
-            matches!(
-                *status,
-                InstallStatus::Downloading(_)
-                    | InstallStatus::Extracting
-                    | InstallStatus::Finalizing
-            )
-        })
-    };
-    if [
-        &manager.ytdlp_status,
-        &manager.ffmpeg_status,
-        &manager.deno_status,
-    ]
-    .into_iter()
-    .any(status_active)
-        || status_active(&manager.zipformer_dlls_status)
-        || manager.zipformer_lang_statuses.values().any(status_active)
-    {
-        return true;
-    }
-    if crate::overlay::realtime_webview::state::REALTIME_STATE
-        .lock()
-        .is_ok_and(|state| state.is_downloading)
-    {
-        return true;
-    }
-    use crate::component_registry::local_asr::{ComponentKind, ComponentStatus};
-    if [ComponentKind::Worker, ComponentKind::Runtime]
-        .into_iter()
-        .any(|kind| {
-            matches!(
-                crate::component_registry::local_asr::current_status(kind),
-                ComponentStatus::Installing { .. }
-            )
-        })
-    {
-        return true;
-    }
-    if matches!(
-        crate::component_registry::vc_runtime::current_status(),
-        crate::component_registry::vc_runtime::VcRuntimeStatus::Installing { .. }
-    ) {
-        return true;
-    }
-    crate::overlay::screen_record::bg_download::downloadable_background_summary().downloading_count
-        > 0
-        || crate::gui::settings_ui::pointer_gallery::downloadable_collection_summary()
-            .downloading_count
-            > 0
 }
 
 fn set_status(target: &Arc<Mutex<InstallStatus>>, status: InstallStatus) {
