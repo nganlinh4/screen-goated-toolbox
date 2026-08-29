@@ -56,6 +56,8 @@ src/overlay/prompt_dj/dist/
 
 # Agent specific files
 .agent/
+.claude/settings.local.json
+.codex/config.toml
 
 # General web artifacts
 node_modules/
