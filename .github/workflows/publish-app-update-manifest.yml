@@ -136,10 +136,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git fetch origin \
+            refs/heads/app-update-feed:refs/remotes/origin/app-update-feed
           for name in stable-v1.json stable-v1.sig; do
-            gh api \
-              -H "Accept: application/vnd.github.raw+json" \
-              "repos/$GITHUB_REPOSITORY/contents/$name?ref=app-update-feed" \
-              > "readback-$name"
+            git show "refs/remotes/origin/app-update-feed:$name" > "readback-$name"
             cmp "app-update-output/$name" "readback-$name"
           done
