@@ -2,18 +2,18 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "screen-recorder-5.5.1-ed63aa149b3a1762.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.5.1-ed63aa149b3a1762.zip",
+      "asset": "screen-recorder-5.5.1-175212a4429325e2.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.5.1-175212a4429325e2.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "fc98cb89b1950b4e2ec517ba791c191d2bf013ba85f33fffc495875ddb4adbb5",
-          "sizeBytes": 9506304
+          "sha256": "ba803c31b931f67ac8d31d066ce917bc2b5bc4f9d86e8c58780b5d319132c709",
+          "sizeBytes": 9508864
         },
         {
           "path": "licenses/worker/THIRD-PARTY-LICENSES.json",
-          "sha256": "70f9ee2fbd2e20626617e2595b1d627bc0de719a54e46833eb2760960c2edbeb",
-          "sizeBytes": 4187511
+          "sha256": "86db2e61e2fbb98f9e65b083e4432282eca1aabdebf300cca7047a72ea947702",
+          "sizeBytes": 4186915
         },
         {
           "path": "licenses/worker/THIRD-PARTY-NOTICES.txt",
@@ -1042,9 +1042,9 @@
         }
       ],
       "id": "screen-recorder",
-      "sha256": "ed63aa149b3a1762f0c01e9947e2a1083a18f906ae352edcbf06c6ba7bf6e867",
-      "sizeBytes": 6011111,
-      "unpackedSizeBytes": 16367861,
+      "sha256": "175212a4429325e2380bd91ade03db1055b329ca980a571f3e3caa4f668f3c2c",
+      "sizeBytes": 6003002,
+      "unpackedSizeBytes": 16369825,
       "version": "5.5.1"
     }
   ],
