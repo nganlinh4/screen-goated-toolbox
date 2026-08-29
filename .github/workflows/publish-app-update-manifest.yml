@@ -137,7 +137,9 @@ jobs:
         run: |
           set -euo pipefail
           for name in stable-v1.json stable-v1.sig; do
-            gh api "repos/$GITHUB_REPOSITORY/contents/$name?ref=app-update-feed" \
-              --jq .content | base64 --decode > "readback-$name"
+            gh api \
+              -H "Accept: application/vnd.github.raw+json" \
+              "repos/$GITHUB_REPOSITORY/contents/$name?ref=app-update-feed" \
+              > "readback-$name"
             cmp "app-update-output/$name" "readback-$name"
           done
