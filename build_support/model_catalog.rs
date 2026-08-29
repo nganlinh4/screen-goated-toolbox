@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
 
+pub(crate) const GENERATOR_SCHEMA: u32 = 2;
+
 #[path = "model_catalog_validation.rs"]
 mod validation;
 

@@ -34,6 +34,7 @@ fn main() {
     model_catalog::generate(
         &repo.join("catalog/model_catalog.json"),
         &model_catalog_output,
+        model_catalog::GENERATOR_SCHEMA,
     );
     mark_host_only_catalog_items(&model_catalog_output);
     creation_delivery::generate(repo, &out);
