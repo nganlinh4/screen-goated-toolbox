@@ -29,9 +29,11 @@ RUNTIME_BUNDLES = (
 YTDLP_VERSION = "2026.07.04"
 YTDLP_SIZE = 18_226_085
 YTDLP_SHA256 = "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8"
+YTDLP_SOURCE_URL = f"https://github.com/yt-dlp/yt-dlp/releases/download/{YTDLP_VERSION}/yt-dlp.exe"
 DENO_VERSION = "2.9.5"
 DENO_SIZE = 42_691_248
 DENO_SHA256 = "171efab55ac6b9881fd53ee4c20f8bf3bb1340ffc618483746909014db12216a"
+DENO_SOURCE_URL = f"https://github.com/denoland/deno/releases/download/v{DENO_VERSION}/deno-x86_64-pc-windows-msvc.zip"
 DENO_EXE_SIZE = 97_408_288
 DENO_EXE_SHA256 = "98f8c2a2d470e4ccb04c935c86ff8050817d877762aec5eaeeb9e409ccb3b9fd"
 FFMPEG_VERSION = "n8.1.2-34-g9b6c8969e0-20260809"
@@ -73,6 +75,21 @@ def exact_file(path: Path, size: int, digest: str, label: str) -> bytes:
     if len(data) != size or sha256(data) != digest:
         raise RuntimeError(f"{label} does not match the reviewed identity")
     return data
+
+
+def ensure_exact_source(path: Path, url: str, size: int, digest: str, label: str) -> None:
+    if path.is_file():
+        exact_file(path, size, digest, label)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(url, headers={"User-Agent": "SGT-release-packager"})
+    with urllib.request.urlopen(request, timeout=180) as response:
+        data = response.read(size + 1)
+    if len(data) != size or sha256(data) != digest:
+        raise RuntimeError(f"downloaded {label} does not match the reviewed identity")
+    temporary = path.with_name(f".{path.name}.download")
+    temporary.write_bytes(data)
+    os.replace(temporary, path)
 
 
 def require_x64_pe(data: bytes, label: str) -> None:
@@ -122,7 +139,7 @@ def ytdlp_component(audit: Path) -> dict:
         "id": "yt-dlp-x64",
         "version": YTDLP_VERSION,
         "asset": "yt-dlp.exe",
-        "sourceUrl": f"https://github.com/yt-dlp/yt-dlp/releases/download/{YTDLP_VERSION}/yt-dlp.exe",
+        "sourceUrl": YTDLP_SOURCE_URL,
         "archiveFormat": "raw",
         "sizeBytes": len(data),
         "sha256": sha256(data),
@@ -146,7 +163,7 @@ def deno_component(audit: Path) -> dict:
         "id": "deno-x64",
         "version": DENO_VERSION,
         "asset": "deno-x86_64-pc-windows-msvc.zip",
-        "sourceUrl": f"https://github.com/denoland/deno/releases/download/v{DENO_VERSION}/deno-x86_64-pc-windows-msvc.zip",
+        "sourceUrl": DENO_SOURCE_URL,
         "archiveFormat": "zip",
         "sizeBytes": len(data),
         "sha256": sha256(data),
@@ -392,6 +409,31 @@ def main() -> int:
         if args.require_delivery and delivery_path.is_file()
         else None
     )
+    if delivery is not None:
+        ensure_exact_source(
+            audit / f"yt-dlp-{YTDLP_VERSION}.exe",
+            YTDLP_SOURCE_URL,
+            YTDLP_SIZE,
+            YTDLP_SHA256,
+            "yt-dlp",
+        )
+        ensure_exact_source(
+            audit / f"deno-x86_64-pc-windows-msvc-v{DENO_VERSION}.zip",
+            DENO_SOURCE_URL,
+            DENO_SIZE,
+            DENO_SHA256,
+            "Deno archive",
+        )
+        webview_url = delivery.get("webview2Bootstrapper", {}).get("downloadUrl")
+        if not isinstance(webview_url, str) or not webview_url:
+            raise RuntimeError("verified WebView2 delivery URL is missing")
+        ensure_exact_source(
+            audit / "MicrosoftEdgeWebview2Setup-2026.08.10.exe",
+            webview_url,
+            WEBVIEW_SIZE,
+            WEBVIEW_SHA256,
+            "WebView2 bootstrapper",
+        )
     try:
         ffmpeg = ffmpeg_component(audit, output)
     except RuntimeError:

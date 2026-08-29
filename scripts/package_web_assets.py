@@ -96,12 +96,22 @@ def reuse_verified_asset_names(descriptor: dict, delivery: dict) -> None:
         for entry in delivery.get("windows", {}).get("components", [])
     }
     payload_fields = ("sizeBytes", "sha256", "unpackedSizeBytes", "files")
+    reused = 0
     for component in descriptor["windows"]["components"]:
         delivered = delivered_by_id.get(component["id"])
         if delivered is None or not delivered.get("asset"):
             continue
         if all(component[field] == delivered.get(field) for field in payload_fields):
             component["asset"] = delivered["asset"]
+            reused += 1
+    delivered_version = delivery.get("version")
+    if (
+        reused == len(descriptor["windows"]["components"])
+        and reused == len(delivered_by_id)
+        and isinstance(delivered_version, str)
+        and delivered_version
+    ):
+        descriptor["version"] = delivered_version
 
 
 def require_matching_delivery(output: Path, descriptor: dict) -> None:

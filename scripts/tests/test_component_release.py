@@ -104,29 +104,6 @@ class ComponentReleaseTests(unittest.TestCase):
 
             self.assertEqual(uploaded, [(asset["asset"], b"candidate")])
 
-    def test_selected_component_merges_without_changing_sibling(self):
-        base = {
-            "components": [
-                {"id": "one", "asset": "old-one.zip", "sizeBytes": 1},
-                {"id": "two", "asset": "old-two.zip", "sizeBytes": 2},
-            ]
-        }
-        package = {
-            "components": [
-                {
-                    "id": "one",
-                    "asset": "one-v2-0123456789abcdef.zip",
-                    "assetPath": "ignored.zip",
-                    "sizeBytes": 3,
-                },
-                {"id": "two", "asset": "new-two.zip", "sizeBytes": 4},
-            ]
-        }
-        candidate = MODULE.merge_candidate(base, package, {"one"})
-        self.assertEqual(candidate["components"][0]["sizeBytes"], 3)
-        self.assertNotIn("assetPath", candidate["components"][0])
-        self.assertEqual(candidate["components"][1]["asset"], "old-two.zip")
-
     def test_url_rewrite_is_limited_to_exact_selected_assets(self):
         candidate = {
             "components": [

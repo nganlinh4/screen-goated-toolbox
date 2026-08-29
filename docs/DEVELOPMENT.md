@@ -136,12 +136,12 @@ target or feature set differs. Do not use a release build as routine
 validation; release packaging enables LTO/stripping and rebuilds every
 packaged frontend.
 
-### Windows performance profiles
+### Development-only Windows performance profiles
 
 The normal `release` profile remains the compact shipping baseline. It uses
 size optimization, fat LTO, one codegen unit, and symbol stripping. The
-comparison lanes are explicit so an optimization cannot silently add megabytes
-to every download:
+comparison lanes are opt-in development experiments and are never part of a
+canonical build or release:
 
 ```powershell
 .\scripts\windows-performance.ps1 -Action Compare
@@ -152,12 +152,11 @@ the size-aware speed optimizer, and `release-perf` is the speed-first upper
 bound. The script runs the result, status, and realtime
 compositor restart corpus, records elapsed time/working set/thread peaks under
 the bounded development cache, hashes all three binaries, and enforces
-`scripts/performance-contract.json`. The compact lane is the shipping gate.
-Balanced and perf are measured candidates: their eligibility and rejection
-reasons are retained in the report, but an ineligible experiment cannot block
-an otherwise valid compact release. Optimized builds default to two Cargo jobs
-so concurrent fat-LTO compilers cannot exhaust ordinary developer machines;
-use `-BuildJobs 1` when other large builds are active.
+`scripts/performance-contract.json`. No lane is a release gate. Results are
+engineering evidence for a later source change, never work to run again while
+publishing. Optimized builds default to two Cargo jobs so concurrent fat-LTO
+compilers cannot exhaust ordinary developer machines; use `-BuildJobs 1` when
+other large builds are active.
 
 For a profile-guided candidate, install Rust's matching LLVM tools once and
 train the balanced profile on the same compositor corpus:
@@ -169,11 +168,9 @@ rustup component add llvm-tools-preview
 
 The report, merged profile, and optimized executable stay under
 `%LOCALAPPDATA%\SGT-Development\cache\performance`; raw counters and Cargo
-targets are removed after validation. A release can consume that
-exact generated profile with `build.ps1 -PgoProfile <absolute-profdata-path>`;
-the release wrapper verifies its retained report, exact bytes, Rust toolchain,
-and source fingerprint. Compare the PGO artifact before selecting it. Any source
-or toolchain change requires retraining; PGO is never a floating input.
+targets are removed after validation. They are development evidence only and
+are not accepted by the canonical build. Any source or toolchain change makes
+the comparison stale.
 
 Attribute retained release bytes before changing a dependency boundary:
 

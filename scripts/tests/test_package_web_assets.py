@@ -29,25 +29,28 @@ class VerifiedAssetReuseTest(unittest.TestCase):
     def test_reuses_prior_name_for_identical_payload(self):
         current = component("example-web-5.5.0-aaaaaaaaaaaaaaaa.zip")
         verified = component("example-web-5.4.3-aaaaaaaaaaaaaaaa.zip")
-        descriptor = {"windows": {"components": [current]}}
-        delivery = {"windows": {"components": [verified]}}
+        descriptor = {"version": "5.5.0", "windows": {"components": [current]}}
+        delivery = {"version": "5.4.3", "windows": {"components": [verified]}}
 
         MODULE.reuse_verified_asset_names(descriptor, delivery)
 
         self.assertEqual(verified["asset"], current["asset"])
         self.assertEqual("generated.zip", current["assetPath"])
+        self.assertEqual("5.4.3", descriptor["version"])
 
     def test_keeps_new_name_when_payload_changed(self):
         current = component("example-web-5.5.0-cccccccccccccccc.zip", "c" * 64)
         verified = component("example-web-5.4.3-aaaaaaaaaaaaaaaa.zip")
         original = copy.deepcopy(current)
 
+        descriptor = {"version": "5.5.0", "windows": {"components": [current]}}
         MODULE.reuse_verified_asset_names(
-            {"windows": {"components": [current]}},
-            {"windows": {"components": [verified]}},
+            descriptor,
+            {"version": "5.4.3", "windows": {"components": [verified]}},
         )
 
         self.assertEqual(original, current)
+        self.assertEqual("5.5.0", descriptor["version"])
 
 
 if __name__ == "__main__":

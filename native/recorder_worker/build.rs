@@ -1,5 +1,5 @@
-#[path = "../../build_support/creation_runtime_delivery.rs"]
-mod creation_runtime_delivery;
+#[path = "../../build_support/creation_delivery.rs"]
+mod creation_delivery;
 #[path = "../../build_support/delivery_channel.rs"]
 mod delivery_channel;
 #[path = "../../build_support/local_asr_delivery.rs"]
@@ -36,7 +36,7 @@ fn main() {
         &model_catalog_output,
     );
     mark_host_only_catalog_items(&model_catalog_output);
-    creation_runtime_delivery::generate(repo, &out);
+    creation_delivery::generate(repo, &out);
     local_asr_delivery::generate(repo, &out);
     qwen_runtime_delivery::generate(repo, &out);
     vc_runtime_delivery::generate(repo, &out);

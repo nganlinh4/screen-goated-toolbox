@@ -1,13 +1,13 @@
 {
   "architecture": "x64",
   "component": {
-    "asset": "computer-control-engine-1.0.0-d1d2ff0758d2b887.zip",
-    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/computer-control-engine-1.0.0-d1d2ff0758d2b887.zip",
+    "asset": "computer-control-engine-1.0.0-02395eed059ff826.zip",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/computer-control-engine-1.0.0-02395eed059ff826.zip",
     "files": [
       {
         "path": "bin/x64/sgt-computer-control-engine.exe",
-        "sha256": "e9d7c12f7b1a21370b8b9d974d2fc0ecf0270df226c38f2e03f05c1b9926bb0b",
-        "sizeBytes": 413696
+        "sha256": "082f8886fa1ae8737745e024f66d1ee75efd20febb850ba07dc9095382ffb367",
+        "sizeBytes": 410624
       },
       {
         "path": "licenses/THIRD-PARTY-LICENSES.json",
@@ -21,9 +21,9 @@
       }
     ],
     "id": "computer-control-engine",
-    "sha256": "d1d2ff0758d2b88764598ae735d90f6aef1602efcef3d50f8d4c055ea39e5bf3",
-    "sizeBytes": 224823,
-    "unpackedSizeBytes": 712671,
+    "sha256": "02395eed059ff8263c94d22b2cec220c3fad1959106f287a9b9a7bbb4465fea6",
+    "sizeBytes": 222208,
+    "unpackedSizeBytes": 709599,
     "version": "1.0.0"
   },
   "schemaVersion": 1
