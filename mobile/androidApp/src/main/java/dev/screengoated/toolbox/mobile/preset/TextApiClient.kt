@@ -32,14 +32,18 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
             require(model.modelType == PresetModelType.TEXT && model.provider.hasTextPresetRuntime()) {
                 "Unsupported text provider: ${model.provider.name.lowercase()}"
             }
-            when (model.provider) {
+            val normalizer = InitialLineBreakNormalizer()
+            val normalizedOnChunk: (String) -> Unit = { chunk ->
+                normalizer.observe(chunk)?.let(onChunk)
+            }
+            val result = when (model.provider) {
                 PresetModelProvider.GOOGLE -> streamGemini(
                     model = model,
                     prompt = prompt,
                     inputText = inputText,
                     apiKey = apiKeys.geminiKey,
                     uiLanguage = uiLanguage,
-                    onChunk = onChunk,
+                    onChunk = normalizedOnChunk,
                     streamingEnabled = streamingEnabled,
                 )
 
@@ -51,7 +55,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                             prompt = prompt,
                             inputText = inputText,
                             searchLabel = searchLabel,
-                            onChunk = onChunk,
+                            onChunk = normalizedOnChunk,
                         )
                     } else {
                         streamOpenAiCompatible(
@@ -62,7 +66,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                             prompt = prompt,
                             inputText = inputText,
                             uiLanguage = uiLanguage,
-                            onChunk = onChunk,
+                            onChunk = normalizedOnChunk,
                             streamingEnabled = streamingEnabled,
                         )
                     }
@@ -76,7 +80,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     prompt = prompt,
                     inputText = inputText,
                     uiLanguage = uiLanguage,
-                    onChunk = onChunk,
+                    onChunk = normalizedOnChunk,
                     streamingEnabled = streamingEnabled,
                 )
 
@@ -88,7 +92,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     prompt = prompt,
                     inputText = inputText,
                     uiLanguage = uiLanguage,
-                    onChunk = onChunk,
+                    onChunk = normalizedOnChunk,
                     streamingEnabled = streamingEnabled,
                 )
 
@@ -96,7 +100,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     inputText = inputText,
                     prompt = prompt,
                     targetLanguage = targetLanguage,
-                    onChunk = onChunk,
+                    onChunk = normalizedOnChunk,
                 )
 
                 PresetModelProvider.OLLAMA -> streamOllama(
@@ -105,14 +109,14 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     prompt = prompt,
                     inputText = inputText,
                     uiLanguage = uiLanguage,
-                    onChunk = onChunk,
+                    onChunk = normalizedOnChunk,
                     streamingEnabled = streamingEnabled,
                 )
 
                 PresetModelProvider.TAALAS -> translateTaalas(
                     inputText = inputText,
                     prompt = prompt,
-                    onChunk = onChunk,
+                    onChunk = normalizedOnChunk,
                 )
 
                 PresetModelProvider.GEMINI_LIVE -> httpClient.streamGeminiLiveText(
@@ -120,12 +124,13 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     apiKey = apiKeys.geminiKey,
                     prompt = prompt,
                     inputText = inputText,
-                    onChunk = onChunk,
+                    onChunk = normalizedOnChunk,
                 )
 
                 else ->
                     throw IOException("Unsupported text provider: ${model.provider.name.lowercase()}")
             }
+            normalizer.finish(result)
         }
     }
 

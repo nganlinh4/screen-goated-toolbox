@@ -75,25 +75,10 @@ fn desktop_startup_does_not_install_or_embed_native_support() {
 }
 
 #[test]
-fn headless_dispatch_keeps_replay_last() {
+fn computer_control_is_absent_from_headless_dispatch() {
     let source = read_source("src/app_entry/headless.rs");
-    assert_markers_in_order(
-        &source,
-        "src/app_entry/headless.rs",
-        &[
-            "--gt-narration-test",
-            "--computer-control-probe",
-            "--computer-control-run",
-            "--cc-coord-test",
-            "--cc-uia-dump",
-            "--cc-vision-test",
-            "--cc-cursor-demo",
-            "--cc-grid-test",
-            "--cc-uia-task",
-            "--cc-mcp-test",
-            "--cc-system-query-test",
-            "--cc-task-trace",
-            "super::replay::run(args)",
-        ],
-    );
+    assert!(source.contains("super::replay::run(args)"));
+    assert!(source.contains("computer_control_flags_are_not_headless_entrances"));
+    assert!(!source.contains("run_headless"));
+    assert!(!source.contains("run_probe_cli"));
 }

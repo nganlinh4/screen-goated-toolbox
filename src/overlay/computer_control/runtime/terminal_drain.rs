@@ -209,11 +209,15 @@ pub(super) fn handle(event: &ServerEvent, sink: Option<&AudioSink>, state: &mut 
             true
         }
         // Connection metadata still belongs to the transport and remains live.
-        ServerEvent::SetupComplete
-        | ServerEvent::GoAway { .. }
-        | ServerEvent::SessionResumption { .. }
-        | ServerEvent::Usage(_)
-        | ServerEvent::Other(_) => false,
+        ServerEvent::SessionResumption { handle, resumable } => {
+            let _transport_can_resume = *resumable && handle.is_some();
+            false
+        }
+        ServerEvent::Other(summary) => {
+            let _bounded_summary_length = summary.len();
+            false
+        }
+        ServerEvent::SetupComplete | ServerEvent::GoAway { .. } | ServerEvent::Usage(_) => false,
     }
 }
 

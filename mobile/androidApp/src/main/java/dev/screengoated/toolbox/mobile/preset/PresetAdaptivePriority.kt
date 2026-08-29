@@ -56,10 +56,17 @@ internal fun PresetRetryChainKind.adaptiveChain(
     apiKeys: ApiKeys,
 ): List<String> {
     val offered = offeredModels(settings, apiKeys, targetModelType())
-    if (offered.isEmpty()) return configured
+    val reconciled = reconcileConfiguredModels(
+        configured,
+        settings,
+        apiKeys,
+        targetModelType(),
+        offered.map(Pair<String, Int>::first).toSet(),
+    )
+    if (offered.isEmpty()) return reconciled
     val latencyById = offered.toMap()
     return mergeAdaptiveModels(
-        configured = configured,
+        configured = reconciled,
         offered = offered.map(Pair<String, Int>::first),
         pinned = overrides.pinned,
         excluded = overrides.excluded,
@@ -69,6 +76,22 @@ internal fun PresetRetryChainKind.adaptiveChain(
             qualityTier = model?.intelligenceTier ?: 4,
             latencyMs = latencyById[id] ?: model?.typicalLatencyMs ?: Int.MAX_VALUE,
         )
+    }
+}
+
+private fun reconcileConfiguredModels(
+    configured: List<String>,
+    settings: PresetRuntimeSettings,
+    apiKeys: ApiKeys,
+    wantedType: PresetModelType,
+    offered: Set<String>,
+): List<String> {
+    if (!settings.providerSettings.useNvidia || apiKeys.nvidiaKey.isBlank()) return configured
+    val feed = PresetModelFeed.current() ?: return configured
+    return configured.filter { id ->
+        val model = PresetModelCatalog.getById(id)
+        model == null || model.provider != PresetModelProvider.NVIDIA ||
+            model.modelType != wantedType || id in offered
     }
 }
 
@@ -82,9 +105,24 @@ internal fun offeredModels(
     return rankedFeedModels(feed)
         .filter { feedModelType(it) == wantedType }
         .mapNotNull { model ->
-            resolveFeedEndpoint(feed.provider, model.endpoint)
+            resolveFeedEndpoint(feed.provider, model.endpoint, wantedType)
                 ?.let { it to (model.p50Ms ?: Int.MAX_VALUE) }
         }
+}
+
+internal fun feedAllowsRuntimeModel(
+    model: PresetModelDescriptor,
+    settings: PresetRuntimeSettings,
+    apiKeys: ApiKeys,
+): Boolean {
+    if (model.provider != PresetModelProvider.NVIDIA ||
+        !settings.providerSettings.useNvidia || apiKeys.nvidiaKey.isBlank()
+    ) return true
+    if ("nvidia:${model.fullName}" in GeneratedPresetModelCatalogData.withdrawnEndpoints) return false
+    val feed = PresetModelFeed.current() ?: return true
+    return rankedFeedModels(feed).any {
+        it.endpoint == model.fullName && feedModelType(it) == model.modelType
+    }
 }
 
 internal fun mergeAdaptiveModels(
@@ -111,13 +149,15 @@ internal fun mergeAdaptiveModels(
     val merged = configured.filterIndexed { index, id ->
         index == 0 || id !in excluded && (isPinned(id) || id !in offered)
     }.toMutableList()
-    adaptive.forEach { id ->
-        if (id in merged) return@forEach
-        val candidateRank = rankFor(id)
-        val index = merged.indices.drop(1).firstOrNull {
-            !rankFor(merged[it]).outranksOrTies(candidateRank)
-        } ?: merged.size
-        merged.add(index, id)
+    if (merged.size >= PROTECTED_LOCAL_LEADERS) {
+        adaptive.forEach { id ->
+            if (id in merged) return@forEach
+            val candidateRank = rankFor(id)
+            val index = merged.indices.drop(PROTECTED_LOCAL_LEADERS).firstOrNull {
+                !rankFor(merged[it]).outranksOrTies(candidateRank)
+            } ?: merged.size
+            merged.add(index, id)
+        }
     }
     configured.withIndex().drop(1).filter { isPinned(it.value) && it.value !in excluded }
         .forEach { (authoredIndex, id) ->
@@ -169,16 +209,26 @@ internal fun commitAdaptiveEdits(
     )
 }
 
-private fun resolveFeedEndpoint(provider: String, endpoint: String): String? {
+private fun resolveFeedEndpoint(
+    provider: String,
+    endpoint: String,
+    modelType: PresetModelType,
+): String? {
     if ("$provider:$endpoint" in GeneratedPresetModelCatalogData.withdrawnEndpoints) return null
     val known = GeneratedPresetModelCatalogData.knownEndpoints.firstOrNull {
-        it.provider == PresetModelProvider.NVIDIA && it.fullName == endpoint
+        it.provider == PresetModelProvider.NVIDIA &&
+            it.fullName == endpoint &&
+            it.modelType == modelType
     }
     if (known != null) {
-        return known.takeIf(KnownPresetEndpoint::enabled)
-            ?.let { PresetModelCatalog.builtInForEndpoint(it.provider, it.fullName)?.id }
+        return PresetModelCatalog.builtInForEndpoint(
+            known.provider,
+            known.fullName,
+            known.modelType,
+        )?.id
     }
     return discoveredModelId(provider, endpoint)
 }
 
 private const val MAXIMUM_ADAPTIVE_OFFERS = 5
+private const val PROTECTED_LOCAL_LEADERS = 2

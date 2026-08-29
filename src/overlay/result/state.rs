@@ -234,6 +234,7 @@ pub fn close_chain_windows(chain_id: &str) {
                     hwnd,
                     windows::Win32::UI::WindowsAndMessaging::SW_HIDE,
                 );
+                super::scene_compositor::remove_window(hwnd);
 
                 let _ = PostMessageW(
                     Some(hwnd),

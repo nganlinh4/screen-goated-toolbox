@@ -7,8 +7,12 @@ import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.buildGeminiLiveSetup
 import dev.screengoated.toolbox.mobile.shared.live.geminiLiveWebSocketRequest
 import dev.screengoated.toolbox.mobile.shared.live.parseGeminiLiveServerFrame
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
+import dev.screengoated.toolbox.mobile.service.GeminiTranscribeVocabulary
 import kotlinx.coroutines.ensureActive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.Request
@@ -40,8 +44,11 @@ internal suspend fun AudioApiClient.transcribeWithGemini(
         model = model,
         prompt = prompt,
         wavBytes = wavBytes,
+        vocabulary = transcriptionVocabulary(),
     )
-    val action = if (streamingEnabled) "streamGenerateContent?alt=sse" else "generateContent"
+    val dedicatedTranscribe = model.fullName == GeneratedLiveModelCatalog.GEMINI_TRANSCRIBE_BATCH_API_MODEL
+    val useStreaming = streamingEnabled && !dedicatedTranscribe
+    val action = if (useStreaming) "streamGenerateContent?alt=sse" else "generateContent"
     val request = Request.Builder()
         .url("$GEMINI_ENDPOINT/${model.fullName}:$action")
         .header("x-goog-api-key", apiKey)
@@ -49,7 +56,7 @@ internal suspend fun AudioApiClient.transcribeWithGemini(
         .post(payload.toString().toRequestBody(jsonMediaType))
         .build()
 
-    return if (streamingEnabled) {
+    return if (useStreaming) {
         val fullContent = StringBuilder()
         httpClient.newPresetCall(request, model, streamingEnabled = true).execute().use { response ->
             ModelUsageStats.update(model.provider, model.fullName, response.headers)
@@ -128,12 +135,18 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
     val transcript = StringBuilder()
     val finalTranscript = StringBuilder()
     val closed = AtomicBoolean(false)
+    val dedicatedTranscribe = GeneratedLiveModelCatalog.endpointProfile(model.fullName)?.protocol == "live-transcribe"
+    val vocabulary = transcriptionVocabulary()
     val socket = httpClient.newWebSocket(
         geminiLiveWebSocketRequest(apiKey),
         object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 val endpoint = GeneratedLiveModelCatalog.endpointProfile(model.fullName)
-                val extensions = if (endpoint?.automaticActivityDetectionDefault == true) {
+                val extensions = if (dedicatedTranscribe) {
+                    buildJsonObject {
+                        put("sessionResumption", buildJsonObject {})
+                    }
+                } else if (endpoint?.automaticActivityDetectionDefault == true) {
                     buildJsonObject {
                         put(
                             "realtimeInputConfig",
@@ -158,8 +171,20 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                     buildGeminiLiveSetup(
                         GeminiLiveSetupSpec(
                             apiModel = model.fullName,
-                            mediaResolution = GeminiLiveMediaResolution.LOW,
+                            responseModalities = if (dedicatedTranscribe) listOf("TEXT") else listOf("AUDIO"),
+                            mediaResolution = if (dedicatedTranscribe) null else GeminiLiveMediaResolution.LOW,
                             transcriptionMode = GeminiLiveTranscriptionMode.INPUT,
+                            inputAudioTranscriptionConfig = if (dedicatedTranscribe) {
+                                buildJsonObject {
+                                    put("languageCodes", buildJsonArray {})
+                                    put("mode", "SMART")
+                                    put("customVocabulary", buildJsonArray {
+                                        vocabulary.forEach { add(JsonPrimitive(it)) }
+                                    })
+                                }
+                            } else {
+                                buildJsonObject {}
+                            },
                             setupExtensions = extensions,
                         ),
                     ).toString(),
@@ -228,11 +253,13 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
 
         override suspend fun finish(): AudioStreamingTranscriptResult {
             socket.send(JSONObject().put("realtimeInput", JSONObject().put("audioStreamEnd", true)).toString())
-            val concludeUntil = System.currentTimeMillis() + 2_000
-            while (System.currentTimeMillis() < concludeUntil) {
+            var concludeUntil = System.currentTimeMillis() + 1_200
+            val maxConcludeUntil = System.currentTimeMillis() + 5_000
+            while (System.currentTimeMillis() < concludeUntil && System.currentTimeMillis() < maxConcludeUntil) {
                 coroutineContext.ensureActive()
                 when (val event = events.poll()) {
                     is GeminiLiveInputEvent.Error -> throw IOException(event.message)
+                    GeminiLiveInputEvent.FinalTranscript -> concludeUntil = System.currentTimeMillis() + 700
                     GeminiLiveInputEvent.Closed -> break
                     null -> kotlinx.coroutines.delay(50)
                 }
@@ -254,9 +281,10 @@ private fun buildGeminiAudioPayload(
     model: PresetModelDescriptor,
     prompt: String,
     wavBytes: ByteArray,
+    vocabulary: List<String>,
 ): JSONObject {
     val contentParts = JSONArray()
-    if (prompt.isNotBlank()) {
+    if (prompt.isNotBlank() && model.fullName != GeneratedLiveModelCatalog.GEMINI_TRANSCRIBE_BATCH_API_MODEL) {
         contentParts.put(JSONObject().put("text", prompt))
     }
     contentParts.put(
@@ -279,7 +307,18 @@ private fun buildGeminiAudioPayload(
         ),
     )
 
-    PresetModelCatalog.geminiThinkingConfig(model.provider, model.fullName)?.let { thinking ->
+    if (model.fullName == GeneratedLiveModelCatalog.GEMINI_TRANSCRIBE_BATCH_API_MODEL) {
+        payload.put(
+            "generationConfig",
+            JSONObject().put(
+                "audioTranscriptionConfig",
+                JSONObject()
+                    .put("languageCodes", JSONArray())
+                    .put("mode", "SMART")
+                    .put("customVocabulary", JSONArray(vocabulary)),
+            ),
+        )
+    } else PresetModelCatalog.geminiThinkingConfig(model.provider, model.fullName)?.let { thinking ->
         val thinkingConfig = JSONObject().apply {
             thinking.forEach { (key, value) ->
                 when (value) {
@@ -314,6 +353,7 @@ private fun extractGeminiAudioDelta(payload: String): String {
 
 internal sealed interface GeminiLiveInputEvent {
     data class Error(val message: String) : GeminiLiveInputEvent
+    data object FinalTranscript : GeminiLiveInputEvent
     data object Closed : GeminiLiveInputEvent
 }
 
@@ -340,13 +380,14 @@ internal fun handleGeminiLiveMessage(
 
         val text = frame.inputTranscript.orEmpty()
         if (text.isNotBlank()) {
-            val delta = transcriptDelta(transcript.toString(), text)
+            val delta = appendTranscriptSegment(transcript, text)
             if (delta.isNotEmpty()) {
-                transcript.append(delta)
                 finalTranscript.clear()
                 finalTranscript.append(transcript)
                 onChunk(delta)
             }
+            events.remove(GeminiLiveInputEvent.FinalTranscript)
+            events.offer(GeminiLiveInputEvent.FinalTranscript)
         }
     }
 }
@@ -361,11 +402,30 @@ private fun shortArrayToLittleEndianBytes(samples: ShortArray): ByteArray {
     return bytes
 }
 
-private fun transcriptDelta(current: String, next: String): String {
-    if (next.startsWith(current)) {
-        return next.removePrefix(current)
+private fun appendTranscriptSegment(transcript: StringBuilder, text: String): String {
+    val delta = when {
+        transcript.isEmpty() -> text.trimStart()
+        text.startsWith(transcript.toString()) -> text.removePrefix(transcript.toString())
+        transcript.last().isWhitespace() || text.first().isWhitespace() -> text
+        else -> " $text"
     }
-    return next
+    transcript.append(delta)
+    return delta
+}
+
+private fun AudioApiClient.transcriptionVocabulary(): List<String> {
+    val stored = runCatching {
+        (appContext.applicationContext as SgtMobileApplication)
+            .appContainer
+            .repository
+            .currentConfig()
+            .customVocabulary
+    }.getOrNull()
+    return if (stored != null) {
+        GeminiTranscribeVocabulary.replace(stored).entries
+    } else {
+        GeminiTranscribeVocabulary.snapshot().entries
+    }
 }
 
 private fun closeSocketIfNeeded(socket: WebSocket, closed: AtomicBoolean) {

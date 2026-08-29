@@ -10,6 +10,7 @@ let highestButtonStackOrder = 0;
 let cursorX = 0, cursorY = 0;
 const activeGrabbingSources = new Set();
 let activeResultDragPreview = null;
+let settlingResultDragTargets = new Set();
 window.raiseWindowButtons = function(hwnd) {
     const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
     if (!group) return;
@@ -335,6 +336,7 @@ function handleResultDrag(e, hwnd, groupActions) {
         startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, frame: 0,
         cardOrigins: cardOrigins, nativeTargets: nativeTargets
     };
+    settlingResultDragTargets.clear();
 
     let action = 'result_drag_start';
     if (e.button === 0 && groupActions) action = 'result_group_drag_start';
@@ -397,6 +399,7 @@ function finishLocalResultDrag(event) {
     window.__SGT_BUTTON_SCENE__?.releaseDragPreview(
         event ? event.clientX : undefined,
         event ? event.clientY : undefined);
+    settlingResultDragTargets = new Set(drag.targets);
     activeResultDragPreview = null;
     setResultDraggingCursor(false);
 }
@@ -405,6 +408,13 @@ document.addEventListener('pointerup', finishLocalResultDrag, true);
 document.addEventListener('pointercancel', finishLocalResultDrag, true);
 window.clearResultDragControlPreview = function() {
     document.querySelectorAll('.button-group').forEach(group => { group.style.translate = ''; });
+};
+window.shouldPreserveResultDragGeometry = function(id) {
+    const key = String(id);
+    return Boolean(activeResultDragPreview?.targets.includes(key)) || settlingResultDragTargets.has(key);
+};
+window.releaseResultDragGeometryLock = function() {
+    settlingResultDragTargets.clear();
 };
 
 window.addEventListener("blur", () => finishLocalResultDrag(null));

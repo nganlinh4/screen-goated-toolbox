@@ -107,38 +107,45 @@ where
     let salvage_restatements =
         crate::model_config::vision_request_profile(&request.provider, &request.model)
             .restates_output;
+    let mut normalizer = crate::api::output_normalization::InitialLineBreakNormalizer::default();
     let mut guard = repetition::RepetitionGuard::default();
     let result = {
         let mut observed_chunk = |chunk: &str| {
             output_observer.observe(chunk);
-            if !salvage_restatements {
-                on_chunk(chunk);
-                return;
-            }
-            // A transport may already be replacing what it painted, in which
-            // case the reply restarts and so must the guard.
-            if let Some(replacement) = chunk.strip_prefix(crate::api::WIPE_SIGNAL) {
-                guard.restart(replacement);
-                on_chunk(chunk);
-                return;
-            }
-            match guard.observe(chunk) {
-                repetition::GuardAction::Paint => on_chunk(chunk),
-                repetition::GuardAction::Replace(text) => {
+            match normalizer.observe(chunk) {
+                crate::api::output_normalization::NormalizedChunk::Paint(text) => {
+                    if !salvage_restatements {
+                        on_chunk(text);
+                    } else {
+                        match guard.observe(text) {
+                            repetition::GuardAction::Paint => on_chunk(text),
+                            repetition::GuardAction::Replace(text) => {
+                                on_chunk(&format!("{}{text}", crate::api::WIPE_SIGNAL));
+                            }
+                            repetition::GuardAction::Suppress => {}
+                        }
+                    }
+                }
+                crate::api::output_normalization::NormalizedChunk::Replace(text) => {
+                    if salvage_restatements {
+                        guard.restart(text);
+                    }
                     on_chunk(&format!("{}{text}", crate::api::WIPE_SIGNAL));
                 }
-                repetition::GuardAction::Suppress => {}
+                crate::api::output_normalization::NormalizedChunk::Suppress => {}
             }
         };
         translate_image_streaming_inner(request, &mut trace, &mut observed_chunk)
     };
-    let result = result.map(|content| {
-        if salvage_restatements {
-            guard.finish(content)
-        } else {
-            content
-        }
-    });
+    let result = result
+        .map(|content| normalizer.finish(content))
+        .map(|content| {
+            if salvage_restatements {
+                guard.finish(content)
+            } else {
+                content
+            }
+        });
     trace.finish(&result, &output_observer);
     result
 }

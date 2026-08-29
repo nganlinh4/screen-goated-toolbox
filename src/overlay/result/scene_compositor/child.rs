@@ -493,7 +493,7 @@ fn apply_scene_state(command: &HostCommand) {
                 }
             }
             if matches!(command, HostCommand::DragSettled { .. }) {
-                super::button_input::set_external_drag(false);
+                super::button_input::settle_drag();
             }
         }
         HostCommand::Controls { cards: updates } => {

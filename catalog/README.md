@@ -177,11 +177,12 @@ The current policies come from production-path transport probes:
   text-first ordering.
 - Media resolution remains provider-default. Lower resolution reduced Gemini
   input-token accounting but did not produce a durable end-to-end latency win.
-- Qwen 3.6 uses the Groq-accepted subset of its documented non-thinking
+- Groq Qwen 3.6 and 3.8 use the shared Groq-accepted subset of their documented non-thinking
   sampling profile (`temperature: 0.7`, `top_p: 0.8`,
   `presence_penalty: 1.5`) together with the separate catalog-owned
-  `reasoning_effort: none`. Do not send `top_k` or `min_p`: live endpoint
-  probes return HTTP 400 for both fields.
+  `reasoning_effort: none`. The shared path omits `top_k` and `min_p`; Qwen 3.6
+  live endpoint probes reject both fields, so a future per-endpoint sampling
+  extension requires its own production-path probe.
 - Every ordinary vision endpoint reserves 512 output tokens. A production-path
   OCR probe used 220 completion tokens, while the ten benchmark responses were at
   most 390 characters, so the ceiling is generous for extraction while bounding
@@ -199,9 +200,21 @@ The current policies come from production-path transport probes:
   otherwise appends a re-tokenized repetition of the text it just emitted. The
   envelope is a wire detail; callers still receive plain text. A structural caller must provide a schema, and
   the provider adapter may attach it only when the exact profile allows it.
+  Qwen 3.8 uses its documented strict JSON Schema mode for structural callers
+  and keeps ordinary OCR as unconstrained plain text. Its reviewed unguarded
+  plain-text and OCR run showed no restatement, so its profile does not inherit
+  Qwen 3.6's endpoint-scoped salvage guard.
 
 OCR catalog timing measures full-answer completion through the real
 non-streaming preset path. Time-to-first-token is not benchmark evidence.
+
+Dedicated transcription endpoints remain Audio models, not generic language
+models. Gemini 3.5 Transcribe therefore has separate catalog rows for unary
+audio-file processing (`google`, `gemini-3.5-transcribe`) and continuous Live
+capture (`gemini-live`, `gemini-3.5-transcribe-live`). The latter may own the
+continuous-audio preset default because it natively supplies corrected interim
+and authoritative final events. A one-shot default change still requires a
+reviewed comparable audio benchmark against the current transcription model.
 Increment the benchmark protocol before registering runs after any request
 profile changes.
 
@@ -240,6 +253,21 @@ accuracy floor. Availability and consistency are hard gates, followed by
 latency, accuracy, provider diversity, quota, and endpoint lifecycle. A
 translation-only service, search-specialized model, soon-retired endpoint, or
 model with nonrepresentative sparse evidence must not lead a general chain.
+
+Signed-feed adaptation starts after the two configured local leaders. This keeps
+the reviewed primary and immediate fallback ahead of availability-only changes
+without hardcoding either model identity; user-pinned live rows may retain a
+manually authored anchor. Adaptive priority rows display the same current feed
+p50 used by the ranking formula, while Live-off and ordinary catalog surfaces
+continue to show durable benchmark latency.
+
+For NVIDIA, a verified feed is the runtime authority for endpoint availability,
+accepted request control, and current latency. Clients consume the publisher's
+offered set directly and must not apply a second reliability threshold. A valid
+feed removes absent NVIDIA rows from Live routing and adds newly offered rows
+without an app release. The reviewed withdrawn-endpoint registry remains the
+separate human-quality veto; catalog benchmark tiers remain the quality input to
+adaptive ordering.
 
 Record a reviewed dated decision from the newest complete protocol-compatible
 run before changing intelligence tier, latency, or default priority. Focused

@@ -117,6 +117,7 @@ class PhoneControlService : Service() {
                 stopRequested(source)
             }
             ACTION_ATTACH_PROJECTION -> attachProjection(intent)
+            ACTION_EXTERNAL_GOAL -> submitPendingExternalGoal()
             ACTION_AUTHORITY_SETUP_PROGRESS -> authoritySetup.update(intent)
             ACTION_AUTHORITY_SETUP_CLEAR ->
                 if (intent.getStringExtra(EXTRA_AUTHORITY_PROVIDER_ID).isNullOrBlank()) {
@@ -436,6 +437,7 @@ class PhoneControlService : Service() {
         stopReason = "requested:$source"
         preserveFailureOnDestroy = false
         authoritySetup.clear(reason = "service_stop")
+        PhoneControlExternalGoalRegistry.clear()
         runtime?.stop()
         runtime = null
         releaseProjection()
@@ -466,6 +468,9 @@ class PhoneControlService : Service() {
             authorityGuidance = authoritySetup.guidance,
         )
         publish(state)
+        if (snapshot.code == PhoneControlRuntimeCode.READY) {
+            submitPendingExternalGoal()
+        }
         if (!snapshot.running && snapshot.phase == PhoneControlRuntimePhase.ERROR) {
             stopReason = "runtime_error:${snapshot.code.name.lowercase()}"
             preserveFailureOnDestroy = true
@@ -489,6 +494,14 @@ class PhoneControlService : Service() {
         sessionNotification.enterForeground(phoneControlString(R.string.phone_control_status_starting))
     }
 
+    private fun submitPendingExternalGoal() {
+        val candidate = runtime ?: return
+        val goal = PhoneControlExternalGoalRegistry.peek() ?: return
+        val accepted = candidate.submitExternalGoal(goal) != null
+        PhoneControlExternalGoalRegistry.complete(goal)
+        Log.i(TAG, "external_goal_submit accepted=$accepted chars=${goal.length}")
+    }
+
     private fun stoppedState() = PhoneControlServiceState(
         running = false,
         phase = PhoneControlRuntimePhase.STOPPED,
@@ -501,6 +514,8 @@ class PhoneControlService : Service() {
         private const val AUTHORITY_SETUP_RESUME_DELAY_MS = 750L
         private const val ACTION_START = "dev.screengoated.toolbox.mobile.phonecontrol.START"
         private const val ACTION_STOP = "dev.screengoated.toolbox.mobile.phonecontrol.STOP"
+        private const val ACTION_EXTERNAL_GOAL =
+            "dev.screengoated.toolbox.mobile.phonecontrol.EXTERNAL_GOAL"
         private const val ACTION_ATTACH_PROJECTION =
             "dev.screengoated.toolbox.mobile.phonecontrol.ATTACH_PROJECTION"
         private const val ACTION_AUTHORITY_SETUP_PROGRESS =
@@ -543,7 +558,15 @@ class PhoneControlService : Service() {
                 PhoneControlProtectedCheckpointRegistry.hasActiveCheckpoint()
 
         fun stop(context: Context) {
+            PhoneControlExternalGoalRegistry.clear()
             dispatchStop(context, source = "app")
+        }
+
+        internal fun submitExternalGoal(context: Context) {
+            if (!state.value.running) return
+            context.startService(
+                Intent(context, PhoneControlService::class.java).setAction(ACTION_EXTERNAL_GOAL),
+            )
         }
 
         internal fun reportAuthoritySetup(

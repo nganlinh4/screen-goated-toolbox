@@ -190,12 +190,11 @@ impl RetryChainKind {
     }
 
     /// The chain to actually walk, with eligible availability-feed models
-    /// interleaved below the local head by quality-adjusted latency.
+    /// interleaved below the two local leaders by quality-adjusted latency.
     ///
-    /// The feed can lengthen the fallback but never take first contact: position
-    /// 0 is tied to the configured default and stays local. With no feed, no
-    /// credential, or the provider disabled, this is the configured chain
-    /// unchanged.
+    /// The feed can lengthen the fallback but cannot displace the configured
+    /// primary and immediate fallback when both exist. With no feed, no
+    /// credential, or the provider disabled, this is the configured chain unchanged.
     pub fn effective_chain(self, config: &Config) -> Vec<String> {
         let configured = self.configured_chain(config);
         if !self.adaptive_enabled(config) {
@@ -213,13 +212,16 @@ impl RetryChainKind {
         configured: &[String],
         overrides: &crate::config::types::LiveModelOverrides,
     ) -> Vec<String> {
-        let offered = crate::model_feed::store::offered_models(config, self.target_model_type());
+        let wanted = self.target_model_type();
+        let configured =
+            crate::model_feed::store::reconcile_configured_chain(config, wanted, configured);
+        let offered = crate::model_feed::store::offered_models(config, wanted);
         let offered_ids: Vec<String> = offered.iter().map(|(id, _)| id.clone()).collect();
         if offered_ids.is_empty() {
-            configured.to_vec()
+            configured
         } else {
             crate::model_feed::merge_into_chain_with_overrides(
-                configured,
+                &configured,
                 &offered_ids,
                 &overrides.pinned,
                 &overrides.excluded,
@@ -526,8 +528,12 @@ fn is_retry_candidate_compatible(
     blocked_providers: &HashSet<String>,
     config: &Config,
 ) -> bool {
-    model.enabled
+    (model.enabled
+        || (model.provider == "nvidia"
+            && crate::model_feed::store::is_authoritative(config)
+            && crate::model_feed::store::runtime_allows_model(config, model)))
         && model.model_type == *current_model_type
+        && crate::model_feed::store::runtime_allows_model(config, model)
         && !model_is_non_llm(&model.id)
         && !blocked_providers.contains(&model.provider)
         && provider_is_available(&model.provider, config)

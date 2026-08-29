@@ -1,5 +1,5 @@
 {
-  "version": 16,
+  "version": 18,
   "id_rule": {
     "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-(?:text|vision|audio|search)$",
     "forbidden_lifecycle_segments": [
@@ -61,10 +61,28 @@
       "en": "GG Live"
     },
     {
+      "model_id": "google-gemini-3-5-transcribe-live-audio",
+      "vi": "GG Live mới",
+      "ko": "GG 신규 Live",
+      "en": "GG New Live"
+    },
+    {
+      "model_id": "google-gemini-3-5-transcribe-audio",
+      "vi": "GG Trung thực",
+      "ko": "GG 충실",
+      "en": "GG Faithful"
+    },
+    {
       "model_id": "groq-gpt-oss-20b-text",
       "vi": "G Gọn",
       "ko": "G 간결",
       "en": "G Compact"
+    },
+    {
+      "model_id": "groq-qwen-3-8-27b-text",
+      "vi": "G Tối ưu",
+      "ko": "G 최적",
+      "en": "G Optimized"
     }
   ],
   "performance": {
@@ -111,6 +129,13 @@
     "reset_clears_row_overrides": true,
     "refresh_reorders_only_while_enabled": true,
     "maximum_offers_per_chain": 5,
+    "minimum_unpinned_live_position": 3,
+    "live_rows_show_ranking_latency": true,
+    "publisher_owns_offer_admission": true,
+    "feed_absence_removes_nvidia_from_live_routing": true,
+    "signed_feed_projects_all_nvidia_selectors": true,
+    "feed_endpoint_identity_includes_modality": true,
+    "reviewed_withdrawal_remains_quality_veto": true,
     "quality_latency_multiplier_per_tier": 1.5,
     "windows_live_feed": true,
     "android_live_feed": true,
@@ -127,6 +152,12 @@
     "user_limit": null,
     "prepared_image_default_target": 10,
     "prepared_text_default_target": 12
+  },
+  "default_head_adoption": {
+    "speed_wins_after_quality_floor": true,
+    "uses_full_result_latency": true,
+    "successor_requires_clean_restatement_evidence_for_first_place": true,
+    "provisional_successor_position": 2
   },
   "priority_numbering": {
     "chosen_model": 0,

@@ -43,7 +43,9 @@ pub fn raise_window(hwnd: HWND) {
 
 // Result-control actions routed back from the compositor process.
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};
+use windows::Win32::UI::WindowsAndMessaging::{
+    IsWindow, PostMessageW, SW_HIDE, ShowWindow, WM_CLOSE,
+};
 
 // Helper to check if any window is currently refining/editing
 pub fn is_any_refine_active() -> bool {
@@ -318,12 +320,7 @@ pub fn restore_recent(batch_count: usize) -> bool {
 /// Trigger close for a single window and record it for tray restore.
 pub fn trigger_close_window(hwnd: HWND) {
     restore::remember_last_closed(&[hwnd]);
-
-    unsafe {
-        if windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() {
-            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
-    }
+    request_close_targets(&[hwnd]);
 }
 
 /// Trigger close for the window group containing `hwnd` (linked chain BFS).
@@ -346,13 +343,7 @@ pub fn trigger_close_group(hwnd: HWND) {
         }
     }
 
-    for (h, _) in group {
-        unsafe {
-            if windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(h)).as_bool() {
-                let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-        }
-    }
+    request_close_targets(&group_hwnds);
 }
 
 /// Trigger close all windows on screen.
@@ -373,9 +364,15 @@ pub fn trigger_close_all() {
 
     restore::remember_last_closed(&targets);
 
-    for hwnd in targets {
+    request_close_targets(&targets);
+}
+
+fn request_close_targets(targets: &[HWND]) {
+    for &hwnd in targets {
         unsafe {
-            if windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() {
+            if IsWindow(Some(hwnd)).as_bool() {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                scene_compositor::remove_window(hwnd);
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
         }

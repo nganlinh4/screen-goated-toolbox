@@ -86,7 +86,11 @@ pub fn render_global_settings(
     let on_btn = theme.on_accent();
 
     ui.horizontal(|ui| {
-        if crate::gui::widgets::filled_icon_button(
+        let compact_spacing = f32::from(crate::gui::theme::space::TIGHT);
+        ui.spacing_mut().button_padding.x = compact_spacing;
+        ui.spacing_mut().item_spacing.x = compact_spacing;
+
+        if crate::gui::widgets::compact_filled_icon_button(
             ui,
             Icon::Priority,
             text.model_catalog.models_hub_button,
@@ -101,9 +105,7 @@ pub fn render_global_settings(
             *show_models_modal = true;
         }
 
-        ui.add_space(10.0);
-
-        if crate::gui::widgets::filled_icon_button(
+        if crate::gui::widgets::compact_filled_icon_button(
             ui,
             Icon::Download,
             text.auxiliary.managed_tools.downloaded_tools_button,
@@ -117,9 +119,7 @@ pub fn render_global_settings(
             *show_tools_modal = true;
         }
 
-        ui.add_space(10.0);
-
-        if crate::gui::widgets::filled_icon_button(
+        if crate::gui::widgets::compact_filled_icon_button(
             ui,
             Icon::SettingsVoice,
             text.tts_playground.tts_settings_button,
@@ -133,9 +133,7 @@ pub fn render_global_settings(
             *show_tts_modal = true;
         }
 
-        ui.add_space(10.0);
-
-        if crate::gui::widgets::filled_icon_button(
+        if crate::gui::widgets::compact_filled_icon_button(
             ui,
             Icon::AutoStories,
             text.shell.help_assistant_btn,
@@ -206,14 +204,10 @@ pub fn render_global_settings(
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 draw_icon_static(ui, Icon::Upgrade, Some(crate::gui::icons::ICON_MD));
-                ui.label(
-                    egui::RichText::new(text.global_settings.software_update_header)
-                        .strong()
-                        .size(14.0),
-                );
+                ui.vertical(|ui| {
+                    render_update_section_content(ui, updater, update_status, text);
+                });
             });
-            ui.add_space(6.0);
-            render_update_section_content(ui, updater, update_status, text);
         });
 
     ui.add_space(10.0);

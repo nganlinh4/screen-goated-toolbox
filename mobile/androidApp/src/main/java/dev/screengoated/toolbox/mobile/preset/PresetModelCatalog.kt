@@ -136,6 +136,7 @@ data class PresetModelDescriptor(
 internal data class KnownPresetEndpoint(
     val provider: PresetModelProvider,
     val fullName: String,
+    val modelType: PresetModelType,
     val enabled: Boolean,
 )
 
@@ -173,23 +174,38 @@ object PresetCustomModelRegistry {
 
 object PresetModelCatalog {
     private val builtInModels: List<PresetModelDescriptor> = GeneratedPresetModelCatalogData.models
+    private val rawModels: List<PresetModelDescriptor>
+        get() = builtInModels +
+            PresetCustomModelRegistry.descriptors() +
+            PresetModelFeed.discoveredModels()
     private val allModels: List<PresetModelDescriptor>
-        get() = builtInModels + PresetCustomModelRegistry.descriptors() + PresetModelFeed.discoveredModels()
+        get() {
+            val merged = rawModels
+            val feed = PresetModelFeed.current() ?: return merged
+            val offered = rankedFeedModels(feed).mapNotNull { model ->
+                feedModelType(model)?.let { model.endpoint to it }
+            }.toSet()
+            return merged.filter {
+                it.provider != PresetModelProvider.NVIDIA ||
+                    (it.fullName to it.modelType) in offered
+            }
+        }
     private val selectableModels: List<PresetModelDescriptor>
         get() = allModels.filter { it.provider != PresetModelProvider.PARAKEET }
     val models: List<PresetModelDescriptor>
         get() = selectableModels.sortedWith(displayComparator)
 
     private val byId: Map<String, PresetModelDescriptor>
-        get() = allModels.associateBy { it.id }
+        get() = rawModels.associateBy { it.id }
 
     fun getById(id: String): PresetModelDescriptor? = byId[id]
 
     internal fun builtInForEndpoint(
         provider: PresetModelProvider,
         fullName: String,
+        modelType: PresetModelType,
     ): PresetModelDescriptor? = builtInModels.firstOrNull {
-        it.provider == provider && it.fullName == fullName
+        it.provider == provider && it.fullName == fullName && it.modelType == modelType
     }
 
     fun forType(type: PresetModelType): List<PresetModelDescriptor> =

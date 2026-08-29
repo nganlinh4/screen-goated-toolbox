@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -45,7 +47,6 @@ class RealtimeTtsCoordinatorTest {
             translationVisible = true,
         )
 
-        delay(50)
         assertEquals(1, runtime.enqueuedRealtime.size)
         assertEquals(" Active sentence tail with more words", runtime.enqueuedRealtime.single().text)
     }
@@ -55,6 +56,7 @@ class RealtimeTtsCoordinatorTest {
         val runtime = FakeTtsRuntimeService()
         val coordinator = RealtimeTtsCoordinator(runtime)
         val committed = "Sentence one. Sentence two. Active sentence tail with more words"
+        runtime.awaitPlaybackSubscriber()
 
         coordinator.update(
             committedText = committed,
@@ -63,7 +65,6 @@ class RealtimeTtsCoordinatorTest {
             realtimeSettings = RealtimeTtsSettings(enabled = true),
             translationVisible = true,
         )
-        delay(50)
         val first = runtime.enqueuedRealtime.single()
         runtime.emitPlaybackEvent(
             TtsPlaybackEvent(
@@ -73,7 +74,7 @@ class RealtimeTtsCoordinatorTest {
                 completionStatus = TtsCompletionStatus.INTERRUPTED,
             ),
         )
-        delay(50)
+        runtime.awaitRealtimeDepth(0)
 
         coordinator.update(
             committedText = committed,
@@ -82,8 +83,6 @@ class RealtimeTtsCoordinatorTest {
             realtimeSettings = RealtimeTtsSettings(enabled = true),
             translationVisible = true,
         )
-        delay(50)
-
         assertEquals(2, runtime.enqueuedRealtime.size)
         assertEquals(" Active sentence tail with more words", runtime.enqueuedRealtime.last().text)
         assertTrue(runtime.realtimeDepths.last() >= 1)
@@ -274,5 +273,19 @@ private class FakeTtsRuntimeService : TtsRuntimeService {
 
     fun emitPlaybackEvent(event: TtsPlaybackEvent) {
         mutablePlaybackEvents.tryEmit(event)
+    }
+
+    suspend fun awaitPlaybackSubscriber() {
+        withTimeout(5_000) {
+            mutablePlaybackEvents.subscriptionCount.first { it > 0 }
+        }
+    }
+
+    suspend fun awaitRealtimeDepth(expected: Int) {
+        withTimeout(5_000) {
+            while (realtimeDepths.lastOrNull() != expected) {
+                delay(5)
+            }
+        }
     }
 }

@@ -26,7 +26,7 @@ mod action_worker;
 mod action_worker_receive;
 mod cleanup;
 mod completion_responses;
-mod control;
+pub(super) mod control;
 mod effect_reporting;
 mod frames;
 mod mic;
@@ -46,7 +46,7 @@ mod speech_events;
 mod terminal_drain;
 use action_worker::executor_loop;
 use cleanup::SessionCleanup;
-pub(super) use control::{run, run_scripted, submit_text_command};
+pub(super) use control::{run, submit_text_command};
 use frames::{capture_cache_needed, capture_failed, send_snapshot};
 use mic::{MicUplinkWindow, mic_thread};
 use outcomes::ToolOutcomeLedger;
@@ -72,8 +72,7 @@ const MAX_RECONNECTS: u32 = 6;
 const NUDGE_SILENCE: Duration = Duration::from_secs(8);
 const RECONNECT_SILENCE: Duration = Duration::from_secs(40);
 
-/// A tool call handed to the executor thread. Each job owns its cancellation
-/// token so a late result or a newer job can never resurrect cancelled work.
+/// Executor work owns cancellation so late results cannot resurrect cancelled jobs.
 struct Job {
     id: String,
     name: String,
@@ -151,8 +150,8 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
     let (exec_tx, exec_rx) = mpsc::channel::<Job>();
     let (res_tx, res_rx) = mpsc::channel::<Done>();
     let (cleanup_ack_tx, cleanup_ack_rx) = mpsc::channel::<u64>();
-    let (cmd_tx, cmd_rx) = mpsc::channel::<String>();
-    control::install_text_sender(cmd_tx);
+    let (cmd_tx, cmd_rx) = mpsc::sync_channel::<String>(1);
+    let _text_sender = control::install_text_sender(cmd_tx);
     let exec_target = target.clone();
     let exec_stop = Arc::clone(stop);
     let exec_thread = std::thread::spawn(move || {
@@ -281,7 +280,7 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
             let title = super::uia::pointer_context().0;
             if !title.is_empty() && title != last_mem_title {
                 last_mem_title = title;
-                if let Ok((jpeg, _)) = session::capture_frame_jpeg() {
+                if let Ok(jpeg) = session::capture_frame_jpeg() {
                     mem_frames.push(jpeg);
                     if mem_frames.len() > 6 {
                         mem_frames.remove(0);
@@ -437,7 +436,16 @@ fn run_inner(stop: &Arc<AtomicBool>, scripted_turns: Option<Vec<String>>) -> any
             last_frame = Instant::now();
         }
 
-        if let Ok(cmd) = cmd_rx.try_recv() {
+        let text_turn_idle = !state.active
+            && !state.awaiting
+            && !state.terminal_drain
+            && state.pending.id.is_none()
+            && state.turn_cleanup_pending.is_none()
+            && !sink.as_ref().is_some_and(AudioSink::is_playing);
+        control::set_turn_idle(text_turn_idle);
+        if text_turn_idle && let Ok(cmd) = cmd_rx.try_recv() {
+            control::mark_text_command_consumed();
+            control::set_turn_idle(false);
             let cmd = cmd.trim().to_string();
             if !cmd.is_empty() {
                 let _ = send(&mut socket, realtime_text(&cmd));

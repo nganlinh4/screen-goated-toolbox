@@ -14,6 +14,16 @@
         "restates_output": true
       },
       {
+        "provider": "groq",
+        "api_model": "qwen/qwen3.8-27b",
+        "input_order": "text-first",
+        "media_resolution": "provider-default",
+        "sampling": "qwen3-groq-non-thinking",
+        "max_output_tokens": 512,
+        "structured_output": "strict-json-schema",
+        "restates_output": false
+      },
+      {
         "provider": "google",
         "api_model": "gemma-4-26b-a4b-it",
         "input_order": "image-first",
@@ -139,6 +149,7 @@
       "google_single_image_requests_put_the_image_before_the_prompt",
       "plain_ocr_never_requests_json_or_a_schema",
       "restates_output_profiles_use_endpoint_scoped_repetition_salvage",
+      "all_text_and_vision_results_remove_only_initial_crlf_before_streaming_paint",
       "structured_output_requires_an_explicit_caller_schema_and_endpoint_support",
       "media_resolution_stays_provider_default_until_a_comparable_probe_proves_a_better_policy",
       "openrouter_reasoning_policy_uses_nested_reasoning_effort_none"

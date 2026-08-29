@@ -11,8 +11,6 @@
 
 use std::cell::RefCell;
 use std::sync::atomic::AtomicBool;
-use std::thread::sleep;
-use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
@@ -75,25 +73,6 @@ fn norm_to_absolute(x: f64, y: f64) -> (i32, i32) {
     let nx = (x / 1000.0 * 65535.0).round().clamp(0.0, 65535.0) as i32;
     let ny = (y / 1000.0 * 65535.0).round().clamp(0.0, 65535.0) as i32;
     (nx, ny)
-}
-
-/// Move the cursor to a 0-1000 normalized point (no click). Used by the
-/// coordinate-accuracy debug harness.
-pub(super) fn move_to(x: f64, y: f64) {
-    let (nx, ny) = norm_to_absolute(x, y);
-    if let Err(error) = move_abs(nx, ny) {
-        eprintln!("[computer-control] coordinate probe input failed: {error}");
-    }
-}
-
-/// Back-compat: instant, non-cancellable execution (coord-test / legacy callers).
-pub fn execute(name: &str, args: &Value) -> Value {
-    execute_ex(
-        name,
-        args,
-        &HumanProfile::instant(),
-        &AtomicBool::new(false),
-    )
 }
 
 /// Dispatch one tool call to a real OS action. `profile` selects humanization
@@ -302,63 +281,6 @@ pub(super) fn move_humanized(
 
 pub(super) fn aborted() -> Value {
     json!({"ok": false, "status": "aborted_by_user"})
-}
-
-/// Visual demo (no model): glide the real cursor on a tour of screen points so
-/// the WindMouse path + overshoot are visible. Honors `CC_HUMANIZE`; falls back
-/// to a realistic persona so the motion always shows.
-pub fn cursor_demo() {
-    let mut profile = HumanProfile::from_env();
-    if !profile.humanized() {
-        profile = HumanProfile::realistic();
-    }
-    let cancel = AtomicBool::new(false);
-    let (vx, vy, vw, vh) = virtual_desktop();
-    let p = |fx: f64, fy: f64| (vx + (fx * vw as f64) as i32, vy + (fy * vh as f64) as i32);
-    // Center, then the four corners via long diagonals (triggers overshoot), back.
-    let tour = [
-        p(0.5, 0.5),
-        p(0.12, 0.14),
-        p(0.88, 0.85),
-        p(0.86, 0.14),
-        p(0.14, 0.85),
-        p(0.5, 0.5),
-    ];
-    let mut max_err = 0.0f64;
-    for &(tx, ty) in &tour {
-        let from = cursor_pos();
-        let failure = RefCell::new(None);
-        human_input::human_move(
-            from,
-            (tx as f64, ty as f64),
-            40.0,
-            &profile,
-            &cancel,
-            &|sx, sy| {
-                if failure.borrow().is_some() {
-                    return;
-                }
-                let (ax, ay) = screen_to_abs(sx, sy);
-                if let Err(error) = move_abs(ax, ay) {
-                    *failure.borrow_mut() = Some(error);
-                }
-            },
-        );
-        if let Some(error) = failure.into_inner() {
-            eprintln!("[cursor-demo] input failed: {error}");
-            break;
-        }
-        // Harness-accuracy probe: where did the cursor ACTUALLY land vs intended?
-        let after = cursor_pos();
-        let err = (after.0 - tx as f64).hypot(after.1 - ty as f64);
-        max_err = max_err.max(err);
-        eprintln!(
-            "[cursor-demo] target ({tx},{ty}) landed ({},{}) Δ={err:.1}px",
-            after.0 as i32, after.1 as i32
-        );
-        sleep(Duration::from_millis(250));
-    }
-    eprintln!("[cursor-demo] done — max landing error {max_err:.1}px (harness fidelity)");
 }
 
 fn xy(args: &Value) -> Result<(f64, f64)> {

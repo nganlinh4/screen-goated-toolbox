@@ -1,8 +1,11 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.ui
 
+import android.app.role.RoleManager
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlExternalGoalRegistry
+import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlExternalGoalSlot
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlService
 
@@ -15,6 +18,8 @@ class PhoneControlAssistActivity : ComponentActivity() {
     }
 
     private fun dispatchAssistantInvocation(source: Intent) {
+        val goal = source.phoneControlAssistGoal(defaultAssistantRoleHeld())
+        val goalQueued = goal != null && PhoneControlExternalGoalRegistry.offer(goal)
         val route = phoneControlAssistantInvocationRoute(
             action = source.action,
             running = PhoneControlService.state.value.running,
@@ -31,17 +36,43 @@ class PhoneControlAssistActivity : ComponentActivity() {
         PhoneControlLog.i(
             TAG,
             "assistant_invocation route=${route.wireName} gateway_task_id=$taskId " +
-                "dispatch_requested=${target != null}",
+                "dispatch_requested=${target != null} goal_queued=$goalQueued",
         )
+        if (goalQueued && route == PhoneControlAssistantInvocationRoute.PRESERVE_RUNNING) {
+            PhoneControlService.submitExternalGoal(this)
+        }
         target
             ?.addFlags(PhoneControlActivity.COORDINATOR_REENTRY_FLAGS)
             ?.putExtra(EXTRA_COORDINATOR_SOURCE, SOURCE_SYSTEM_ASSISTANT)
             ?.let(::startActivity)
     }
 
+    private fun defaultAssistantRoleHeld(): Boolean = runCatching {
+        getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+    }.getOrDefault(false)
+
     private companion object {
         const val TAG = "SGTPhoneControlAssistant"
     }
+}
+
+internal fun Intent.phoneControlAssistGoal(defaultAssistantRoleHeld: Boolean): String? {
+    return phoneControlAssistGoal(
+        action = action,
+        defaultAssistantRoleHeld = defaultAssistantRoleHeld,
+        text = getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
+    )
+}
+
+internal fun phoneControlAssistGoal(
+    action: String?,
+    defaultAssistantRoleHeld: Boolean,
+    text: String?,
+): String? {
+    if (action != Intent.ACTION_ASSIST || !defaultAssistantRoleHeld) return null
+    return text
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && it.length <= PhoneControlExternalGoalSlot.MAXIMUM_CHARS }
 }
 
 internal enum class PhoneControlAssistantInvocationRoute(val wireName: String) {

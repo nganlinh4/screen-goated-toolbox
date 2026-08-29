@@ -209,8 +209,8 @@ fn refresh_if_stale() {
 /// unreachable until the next build ships.
 ///
 /// A model that *does* have a catalog row is skipped, so the curated row keeps
-/// its identity, its display names and its place in a chain. Discovery adds; it
-/// never redefines.
+/// its stable identity and reviewed presentation. Its live availability,
+/// request control and latency still come from this feed.
 #[cfg(not(feature = "recorder-worker"))]
 pub fn discovered_models() -> Vec<crate::model_config::ModelConfig> {
     let Some(feed) = cached() else {
@@ -226,7 +226,10 @@ pub(super) fn discovered_models_from_feed(
 ) -> Vec<crate::model_config::ModelConfig> {
     super::ranked_models(feed)
         .into_iter()
-        .filter(|model| !catalog_knows(&feed.provider, &model.id))
+        .filter(|model| {
+            feed_modality(model)
+                .is_some_and(|model_type| !catalog_knows(&feed.provider, &model.id, model_type))
+        })
         .filter_map(|model| discovered_model(&feed.provider, model))
         .collect()
 }
@@ -326,10 +329,91 @@ pub fn offered_models(config: &crate::config::Config, wanted: ModelType) -> Vec<
         .into_iter()
         .filter(|model| feed_modality(model) == Some(wanted))
         .filter_map(|model| {
-            catalog_id_for(&feed.provider, &model.id)
+            catalog_id_for(&feed.provider, &model.id, wanted)
                 .map(|id| (id, model.p50_ms.unwrap_or(u32::MAX)))
         })
         .collect()
+}
+
+/// Whether a valid feed currently owns NVIDIA's operational state for this user.
+///
+/// Without a usable provider credential the normal configured chain is retained:
+/// it will be skipped by provider preflight, and signing/cache failures remain a
+/// fail-open optimisation failure rather than silently rewriting user settings.
+pub fn is_authoritative(config: &crate::config::Config) -> bool {
+    cached()
+        .is_some_and(|feed| crate::retry_model_chain::provider_is_available(&feed.provider, config))
+}
+
+/// Applies the feed's current availability to a configured chain.
+///
+/// Only rows belonging to the feed provider are reconciled. Local and other
+/// provider rows retain their authored order, while an NVIDIA catalog row absent
+/// from the signed offer set cannot survive merely because an older build knew it.
+pub fn reconcile_configured_chain(
+    config: &crate::config::Config,
+    wanted: ModelType,
+    configured: &[String],
+) -> Vec<String> {
+    let Some(feed) = cached().filter(|_| is_authoritative(config)) else {
+        return configured.to_vec();
+    };
+    reconcile_configured_chain_from_feed(&feed, wanted, configured, &config.custom_models)
+}
+
+fn reconcile_configured_chain_from_feed(
+    feed: &AvailabilityFeed,
+    wanted: ModelType,
+    configured: &[String],
+    custom_models: &[crate::config::types::CustomModelDefinition],
+) -> Vec<String> {
+    configured
+        .iter()
+        .filter(|id| {
+            crate::model_config::get_model_by_id_with_custom(id, custom_models).is_none_or(
+                |model| {
+                    model.provider != feed.provider
+                        || endpoint_is_offered(feed, wanted, &model.full_name)
+                },
+            )
+        })
+        .cloned()
+        .collect()
+}
+
+/// Whether this endpoint is part of the signed provider offer for the requested
+/// generic modality. Reviewed withdrawals remain a separate product veto.
+pub fn endpoint_is_offered(feed: &AvailabilityFeed, wanted: ModelType, full_name: &str) -> bool {
+    if crate::model_config::is_withdrawn_endpoint(&feed.provider, full_name) {
+        return false;
+    }
+    super::ranked_models(feed)
+        .into_iter()
+        .any(|model| model.id == full_name && feed_modality(model) == Some(wanted))
+}
+
+/// Projects one provider's dynamic inventory without disturbing any other
+/// catalog source. This is shared by every selector-producing catalog path.
+pub(crate) fn project_provider_inventory(
+    models: &mut Vec<crate::model_config::ModelConfig>,
+    feed: &AvailabilityFeed,
+) {
+    models.retain(|model| {
+        model.provider != feed.provider
+            || endpoint_is_offered(feed, model.model_type, &model.full_name)
+    });
+}
+
+/// Prevents generic fallback discovery from bypassing the authoritative feed.
+pub fn runtime_allows_model(
+    config: &crate::config::Config,
+    model: &crate::model_config::ModelConfig,
+) -> bool {
+    let Some(feed) = cached().filter(|_| is_authoritative(config)) else {
+        return true;
+    };
+    model.provider != feed.provider
+        || endpoint_is_offered(&feed, model.model_type, &model.full_name)
 }
 
 /// What the publisher verified this endpoint on.
@@ -357,34 +441,34 @@ fn dedicated_translation_endpoint(id: &str) -> bool {
 }
 
 /// Resolves a feed endpoint to its curated id or stable discovered identity.
-/// A disabled or withdrawn curated endpoint remains excluded.
-fn catalog_id_for(provider: &str, full_name: &str) -> Option<String> {
+/// A reviewed withdrawal remains excluded; operational enablement is owned by
+/// the signed offer itself rather than a release-time `enabled` snapshot.
+fn catalog_id_for(provider: &str, full_name: &str, model_type: ModelType) -> Option<String> {
     if crate::model_config::is_withdrawn_endpoint(provider, full_name) {
         return None;
     }
-    let known = crate::model_config::get_all_models()
-        .iter()
-        .find(|model| model.provider == provider && model.full_name == full_name);
-    match known {
-        Some(model) if model.enabled => Some(model.id.clone()),
-        Some(_) => None,
-        None => Some(discovered_id(provider, full_name)),
-    }
+    let known = crate::model_config::get_all_models().iter().find(|model| {
+        model.provider == provider && model.full_name == full_name && model.model_type == model_type
+    });
+    Some(known.map_or_else(
+        || discovered_id(provider, full_name),
+        |model| model.id.clone(),
+    ))
 }
 
 /// Whether the catalog has an opinion about this endpoint at all.
 ///
-/// Deliberately blind to `enabled`, unlike [`catalog_id_for`]. A disabled row is
-/// not an absent one: it is a judgement that this endpoint should not be used,
-/// and the feed must not overturn it by re-introducing the same model under a
-/// derived id. Curated decisions outrank live measurements; the feed reports what
-/// works, not what we are willing to ship.
+/// A known row keeps its stable identity and presentation. Only the explicit
+/// withdrawn-endpoint registry is a human-reviewed veto; release-time enabled
+/// state does not override a newer signed NVIDIA availability decision.
 #[cfg(not(feature = "recorder-worker"))]
-fn catalog_knows(provider: &str, full_name: &str) -> bool {
+fn catalog_knows(provider: &str, full_name: &str, model_type: ModelType) -> bool {
     crate::model_config::is_withdrawn_endpoint(provider, full_name)
-        || crate::model_config::get_all_models()
-            .iter()
-            .any(|model| model.provider == provider && model.full_name == full_name)
+        || crate::model_config::get_all_models().iter().any(|model| {
+            model.provider == provider
+                && model.full_name == full_name
+                && model.model_type == model_type
+        })
 }
 
 #[cfg(all(test, not(feature = "recorder-worker")))]
@@ -394,7 +478,7 @@ mod tests {
     #[test]
     fn an_unknown_healthy_model_routes_through_its_discovered_identity() {
         assert_eq!(
-            catalog_id_for("nvidia", "nvidia/not-in-this-build"),
+            catalog_id_for("nvidia", "nvidia/not-in-this-build", ModelType::Text),
             Some(discovered_id("nvidia", "nvidia/not-in-this-build"))
         );
     }
@@ -415,9 +499,48 @@ mod tests {
         // Wired in the same change that added the feed, so this also guards the
         // pairing between the published name and the catalog row.
         assert_eq!(
-            catalog_id_for("nvidia", "nvidia/nemotron-3.5-lightning-30b-a3b").as_deref(),
+            catalog_id_for(
+                "nvidia",
+                "nvidia/nemotron-3.5-lightning-30b-a3b",
+                ModelType::Text,
+            )
+            .as_deref(),
             Some("nvidia-nemotron-3-5-lightning-text")
         );
+    }
+
+    #[test]
+    fn a_feed_modality_cannot_reuse_another_modalitys_catalog_id() {
+        let endpoint = "openai/gpt-oss-120b";
+        assert_eq!(
+            catalog_id_for("nvidia", endpoint, ModelType::Text).as_deref(),
+            Some("nvidia-gpt-oss-120b-text")
+        );
+        assert_eq!(
+            catalog_id_for("nvidia", endpoint, ModelType::Vision),
+            Some(discovered_id("nvidia", endpoint))
+        );
+
+        let feed = AvailabilityFeed {
+            schema_version: 3,
+            control_version: 1,
+            availability_gate_version: 1,
+            provider: "nvidia".to_string(),
+            generated_at: "2026-08-28T00:00:00Z".to_string(),
+            models: vec![crate::model_feed::FeedModel {
+                id: endpoint.to_string(),
+                control: Some(super::super::FeedControl::Plain),
+                modality: Some("vision".to_string()),
+                p50_ms: Some(1_063),
+                success_rate: 0.33,
+                runs: 24,
+            }],
+        };
+        let discovered = discovered_models_from_feed(&feed);
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0].model_type, ModelType::Vision);
+        assert_eq!(discovered[0].name_vi, "N go1");
+        assert_eq!(discovered[0].typical_latency_ms, Some(1_063));
     }
 
     #[test]
@@ -427,5 +550,51 @@ mod tests {
             ..Default::default()
         };
         assert!(offered_models(&config, ModelType::Text).is_empty());
+    }
+
+    #[test]
+    fn signed_offer_removes_stale_nvidia_rows_without_touching_other_providers() {
+        let feed = AvailabilityFeed {
+            schema_version: 3,
+            control_version: 1,
+            availability_gate_version: 1,
+            provider: "nvidia".to_string(),
+            generated_at: "2026-08-28T00:00:00Z".to_string(),
+            models: vec![crate::model_feed::FeedModel {
+                id: "nvidia/nemotron-3.5-lightning-30b-a3b".to_string(),
+                control: Some(super::super::FeedControl::Plain),
+                modality: Some("text".to_string()),
+                p50_ms: Some(300),
+                success_rate: 0.5,
+                runs: 3,
+            }],
+        };
+        let configured = vec![
+            "groq-qwen-3-8-27b-text".to_string(),
+            "nvidia-nemotron-3-5-lightning-text".to_string(),
+            "nvidia-nemotron-3-super-120b-text".to_string(),
+        ];
+
+        assert_eq!(
+            reconcile_configured_chain_from_feed(&feed, ModelType::Text, &configured, &[]),
+            [
+                "groq-qwen-3-8-27b-text",
+                "nvidia-nemotron-3-5-lightning-text"
+            ]
+        );
+
+        let mut selectors = crate::model_config::get_all_models().to_vec();
+        project_provider_inventory(&mut selectors, &feed);
+        assert!(selectors.iter().any(|model| model.provider == "groq"));
+        assert!(
+            selectors
+                .iter()
+                .any(|model| model.id == "nvidia-nemotron-3-5-lightning-text")
+        );
+        assert!(
+            selectors
+                .iter()
+                .all(|model| model.id != "nvidia-nemotron-3-super-120b-text")
+        );
     }
 }

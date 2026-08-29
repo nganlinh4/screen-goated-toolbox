@@ -95,6 +95,17 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
     if primary_instance.owns_activation {
         crate::app_activation::start_listener();
     }
+    let _computer_control_api = if primary_instance.owns_activation {
+        match crate::overlay::computer_control::ExternalControlServerGuard::start() {
+            Ok(server) => Some(server),
+            Err(error) => {
+                crate::log_info!("[ComputerControlApi] Startup failed: {error:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     crate::startup_launch::maybe_delay_for_windows_autostart(startup_args.raw());
 

@@ -58,7 +58,7 @@ static BUTTON_REGIONS: LazyLock<Mutex<Vec<SceneRect>>> = LazyLock::new(|| Mutex:
 static ACTIVE_DRAG: Mutex<Option<ActiveDrag>> = Mutex::new(None);
 static ACTIVE_RESIZE: Mutex<Option<ActiveResize>> = Mutex::new(None);
 static EXTERNAL_DRAG: AtomicBool = AtomicBool::new(false);
-
+static AWAITING_DRAG_SETTLE: AtomicBool = AtomicBool::new(false);
 pub(super) fn handle_renderer_message(
     body: &str,
     host: HWND,
@@ -241,14 +241,22 @@ pub(super) fn interactive_regions() -> Vec<SceneRect> {
 }
 
 pub(super) fn set_external_drag(active: bool) {
-    EXTERNAL_DRAG.store(active, Ordering::SeqCst);
+    let was_active = EXTERNAL_DRAG.swap(active, Ordering::SeqCst);
     if active {
         BUTTON_REGIONS.lock().unwrap().clear();
+    } else if was_active {
+        AWAITING_DRAG_SETTLE.store(true, Ordering::SeqCst);
     }
+}
+
+pub(super) fn settle_drag() {
+    EXTERNAL_DRAG.store(false, Ordering::SeqCst);
+    AWAITING_DRAG_SETTLE.store(false, Ordering::SeqCst);
 }
 
 pub(super) fn is_dragging() -> bool {
     EXTERNAL_DRAG.load(Ordering::SeqCst)
+        || AWAITING_DRAG_SETTLE.load(Ordering::SeqCst)
         || ACTIVE_DRAG.lock().unwrap().is_some()
         || ACTIVE_RESIZE.lock().unwrap().is_some()
 }
@@ -290,6 +298,7 @@ fn translated_origin(rect: RECT, dx: i32, dy: i32) -> (i32, i32) {
 
 fn finish_drag_with_offset(dx: i32, dy: i32) -> Option<ChildEvent> {
     let drag = ACTIVE_DRAG.lock().unwrap().take()?;
+    AWAITING_DRAG_SETTLE.store(true, Ordering::SeqCst);
     let moved_distance = dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy));
     let outcome = if moved_distance < 25 {
         unsafe { place_targets(&drag.targets, 0, 0, true) };
@@ -368,6 +377,7 @@ fn finish_resize_from_message(message: &serde_json::Value) -> RendererInput {
     let Some(resize) = ACTIVE_RESIZE.lock().unwrap().take() else {
         return RendererInput::RefreshRegion;
     };
+    AWAITING_DRAG_SETTLE.store(true, Ordering::SeqCst);
     let (dx, dy) = drag_offset(message);
     unsafe { place_resized_target(&resize, dx, dy) };
     RendererInput::EventAndRefresh(ChildEvent::DragFinished {

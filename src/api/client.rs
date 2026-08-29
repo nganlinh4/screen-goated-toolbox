@@ -170,7 +170,7 @@ mod download_agent_tests {
                 .unwrap();
             stream.flush().unwrap();
             for _ in 0..5 {
-                std::thread::sleep(Duration::from_millis(25));
+                std::thread::sleep(Duration::from_millis(150));
                 stream.write_all(b"1\r\nx\r\n").unwrap();
                 stream.flush().unwrap();
             }
@@ -183,7 +183,7 @@ mod download_agent_tests {
             // comfortably above a saturated parallel test runner's scheduling
             // delay while retaining the deliberately short body-idle window.
             Duration::from_secs(2),
-            Duration::from_millis(45),
+            Duration::from_millis(500),
         );
         let started = Instant::now();
         let response = agent
@@ -198,7 +198,7 @@ mod download_agent_tests {
             .unwrap();
 
         assert_eq!(body, "xxxxx");
-        assert!(started.elapsed() > Duration::from_millis(100));
+        assert!(started.elapsed() > Duration::from_millis(600));
         server.join().unwrap();
     }
 }

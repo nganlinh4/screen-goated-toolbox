@@ -72,6 +72,15 @@ class ModelPerformancePrefixTest {
     }
 
     @Test
+    fun livePriorityLatencyExplainsTheAdaptiveRanking() {
+        val model = requireNotNull(
+            PresetModelCatalog.getById("nvidia-nemotron-3-super-120b-text"),
+        )
+        assertEquals(483, displayedModelLatencyMs(model, 483))
+        assertEquals(model.typicalLatencyMs, displayedModelLatencyMs(model, null))
+    }
+
+    @Test
     fun catalogDisplayOrderSortsGloballyByLatency() {
         val models = PresetModelCatalog.models
         assertEquals(
@@ -95,6 +104,18 @@ class ModelPerformancePrefixTest {
         assertTrue(adaptive.getValue("reset_clears_row_overrides").jsonPrimitive.content.toBoolean())
         assertTrue(adaptive.getValue("refresh_reorders_only_while_enabled").jsonPrimitive.content.toBoolean())
         assertEquals(5, adaptive.getValue("maximum_offers_per_chain").jsonPrimitive.int)
+        assertEquals(3, adaptive.getValue("minimum_unpinned_live_position").jsonPrimitive.int)
+        assertTrue(adaptive.getValue("live_rows_show_ranking_latency").jsonPrimitive.content.toBoolean())
+        assertTrue(adaptive.getValue("publisher_owns_offer_admission").jsonPrimitive.content.toBoolean())
+        assertTrue(
+            adaptive.getValue("feed_absence_removes_nvidia_from_live_routing")
+                .jsonPrimitive.content.toBoolean(),
+        )
+        assertTrue(
+            adaptive.getValue("signed_feed_projects_all_nvidia_selectors")
+                .jsonPrimitive.content.toBoolean(),
+        )
+        assertTrue(adaptive.getValue("reviewed_withdrawal_remains_quality_veto").jsonPrimitive.content.toBoolean())
         assertEquals(3, adaptive.getValue("signed_feed_schema").jsonPrimitive.int)
         assertEquals(1, adaptive.getValue("availability_gate_version").jsonPrimitive.int)
         assertEquals(

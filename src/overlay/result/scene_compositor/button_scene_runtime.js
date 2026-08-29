@@ -123,6 +123,7 @@
     } else if (wasActive || wasAwaitingSettle || controlsHiddenForDrag) {
       awaitingDragSettle = false;
       window.clearResultDragControlPreview?.();
+      window.releaseResultDragGeometryLock?.();
       rebuild();
     }
   }
@@ -131,8 +132,6 @@
     if (!nativeDrag) return;
     nativeDrag = false;
     awaitingDragSettle = true;
-    document.getElementById('button-container').style.visibility = '';
-    controlsHiddenForDrag = false;
     if (Number.isFinite(pointerX) && Number.isFinite(pointerY)) {
       window.updateCursorPosition?.(pointerX, pointerY);
     }

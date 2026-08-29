@@ -58,15 +58,22 @@ def extract_quoted_strings(source: str, marker: str, count: int) -> list[str]:
     return values
 
 
-def extract_match_arm_raw_string(source: str, arm_name: str) -> str:
+def extract_match_arm_asset(source_file: Path, arm_name: str) -> str:
+    source = read(source_file)
     pattern = re.compile(
         rf'"{re.escape(arm_name)}"\s*=>\s*\{{\s*r(#+)"(.*?)"\1\s*\}}',
         re.DOTALL,
     )
     match = pattern.search(source)
-    if match is None:
-        raise ValueError(f"Missing raw string match arm: {arm_name}")
-    return match.group(2)
+    if match is not None:
+        return match.group(2)
+    include = re.search(
+        rf'"{re.escape(arm_name)}"\s*=>\s*include_str!\("([^"]+)"\)',
+        source,
+    )
+    if include is not None:
+        return read(source_file.parent / include.group(1))
+    raise ValueError(f"Missing string asset match arm: {arm_name}")
 
 
 def generate(args: argparse.Namespace) -> None:
@@ -191,15 +198,14 @@ def generate(args: argparse.Namespace) -> None:
         "\n    </script>\n</body>",
         "\n        {{MOBILE_SHIM}}\n    </script>\n</body>",
     )
-    icon_source = read(args.icons_source)
     recording_template = recording_template.replace(
-        "{{ICON_PAUSE}}", extract_match_arm_raw_string(icon_source, "pause")
+        "{{ICON_PAUSE}}", extract_match_arm_asset(args.icons_source, "pause")
     )
     recording_template = recording_template.replace(
-        "{{ICON_PLAY}}", extract_match_arm_raw_string(icon_source, "play_arrow")
+        "{{ICON_PLAY}}", extract_match_arm_asset(args.icons_source, "play_arrow")
     )
     recording_template = recording_template.replace(
-        "{{ICON_CLOSE}}", extract_match_arm_raw_string(icon_source, "close")
+        "{{ICON_CLOSE}}", extract_match_arm_asset(args.icons_source, "close")
     )
     write(output / "windows_recording_template.html", recording_template)
 

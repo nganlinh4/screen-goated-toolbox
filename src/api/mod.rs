@@ -4,9 +4,11 @@ pub mod gemini_embed;
 pub mod gemini_generate;
 pub mod gemini_live;
 mod gemini_schema;
+pub(crate) mod gemini_transcribe;
 pub mod groq;
 pub mod ollama;
 pub mod openai_compat;
+mod output_normalization;
 pub(crate) mod provider_credentials;
 pub mod providers;
 pub mod realtime_audio;
@@ -257,6 +259,7 @@ mod tests {
     fn openai_compatible_reasoning_comes_from_exact_catalog_profiles() {
         for (provider, model, expected) in [
             ("groq", "qwen/qwen3.6-27b", "none"),
+            ("groq", "qwen/qwen3.8-27b", "none"),
             ("groq", "openai/gpt-oss-120b", "low"),
             ("groq", "openai/gpt-oss-20b", "low"),
         ] {

@@ -137,6 +137,32 @@ class PhoneControlOutboundDiagnosticsTest {
     }
 
     @Test
+    fun `external goal cannot replace queued or in-flight work`() {
+        val queue = PhoneControlUserInterfaceGoalQueue(maximumChars = 64)
+        assertEquals(
+            PhoneControlUiGoalOffer.QUEUED,
+            queue.offer("current", runtimeReady = true, replacePending = false).disposition,
+        )
+        assertEquals(
+            PhoneControlUiGoalOffer.REJECTED,
+            queue.offer("excess", runtimeReady = true, replacePending = false).disposition,
+        )
+        assertEquals(
+            PhoneControlUiGoalFlush.SENT,
+            queue.flush(
+                phase = PhoneControlTurnPhase.IDLE,
+                pendingWorkCount = 0,
+                userSpeaking = false,
+                send = { true },
+            ),
+        )
+        assertEquals(
+            PhoneControlUiGoalOffer.REJECTED,
+            queue.offer("while active", runtimeReady = true, replacePending = false).disposition,
+        )
+    }
+
+    @Test
     fun `UI goal completion stays correlated across queued replacement and interruption`() {
         val queue = PhoneControlUserInterfaceGoalQueue(maximumChars = 64)
         val first = queue.offer("first", runtimeReady = true)

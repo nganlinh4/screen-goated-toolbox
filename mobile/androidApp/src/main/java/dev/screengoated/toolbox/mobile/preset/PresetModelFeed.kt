@@ -64,7 +64,7 @@ internal object PresetModelFeed {
         val feed = current() ?: return emptyList()
         return rankedFeedModels(feed).mapNotNull { model ->
             val type = feedModelType(model) ?: return@mapNotNull null
-            if (knownEndpoint(feed.provider, model.endpoint)) return@mapNotNull null
+            if (knownEndpoint(feed.provider, model.endpoint, type)) return@mapNotNull null
             PresetModelDescriptor(
                 id = discoveredModelId(feed.provider, model.endpoint),
                 provider = PresetModelProvider.NVIDIA,
@@ -138,13 +138,13 @@ internal fun validateAvailabilityFeed(feed: AvailabilityFeed) {
         require(model.successRate in 0.0..1.0)
         require(model.runs >= 0)
         require(model.p50Ms == null || model.p50Ms >= 0)
+        if (feed.schemaVersion > 1) require(model.runs > 0 && model.p50Ms != null)
     }
 }
 
 internal fun rankedFeedModels(feed: AvailabilityFeed?): List<FeedModel> = feed
     ?.models
     .orEmpty()
-    .filter { it.successRate >= MINIMUM_SUCCESS_RATE && it.runs > 0 }
     .sortedWith(compareBy<FeedModel> { it.p50Ms ?: Int.MAX_VALUE }.thenBy { it.endpoint })
 
 internal fun feedModelType(model: FeedModel): PresetModelType? {
@@ -179,10 +179,16 @@ internal fun compactEndpointName(provider: String, endpoint: String): String {
     return "$mark $initials"
 }
 
-private fun knownEndpoint(provider: String, endpoint: String): Boolean =
+private fun knownEndpoint(
+    provider: String,
+    endpoint: String,
+    modelType: PresetModelType,
+): Boolean =
     "$provider:$endpoint" in GeneratedPresetModelCatalogData.withdrawnEndpoints ||
         GeneratedPresetModelCatalogData.knownEndpoints.any {
-            it.provider == PresetModelProvider.NVIDIA && it.fullName == endpoint
+            it.provider == PresetModelProvider.NVIDIA &&
+                it.fullName == endpoint &&
+                it.modelType == modelType
         }
 
 private fun parseFeedControl(value: String): FeedReasoningControl = when (value) {
@@ -212,4 +218,3 @@ internal const val SIGNATURE_BYTES = 64
 private val SUPPORTED_SCHEMAS = setOf(1, 3)
 private const val CONTROL_VERSION = 1
 private const val AVAILABILITY_GATE_VERSION = 1
-private const val MINIMUM_SUCCESS_RATE = 0.8

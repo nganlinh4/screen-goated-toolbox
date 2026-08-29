@@ -7,8 +7,12 @@ internal class PhoneControlRuntimeUiGoalSubmission(
     private val runtimeReady: () -> Boolean,
     private val requestScreenRefresh: () -> Unit,
 ) {
-    fun submit(text: String, presentation: PhoneControlUiGoalPresentation): Long? {
-        val result = queue.offer(text, runtimeReady(), presentation)
+    fun submit(
+        text: String,
+        presentation: PhoneControlUiGoalPresentation,
+        replacePending: Boolean = true,
+    ): Long? {
+        val result = queue.offer(text, runtimeReady(), presentation, replacePending)
         if (result.disposition == PhoneControlUiGoalOffer.REJECTED) return null
         requestScreenRefresh()
         Log.i(

@@ -3,8 +3,8 @@
 //! pick elements by name and we click the TRUE coordinates — instead of asking
 //! a token-starved VLM to read pixels. Our edge over screenshot-only agents.
 //!
-//! `--cc-uia-dump` (optionally `CC_UIA_WINDOW=<title substring>` to target a
-//! specific top-level window instead of the foreground one).
+//! Diagnostic callers may target a specific top-level window instead of the
+//! foreground one.
 
 use anyhow::{Result, anyhow};
 use windows::Win32::Foundation::{HWND, POINT};
@@ -201,19 +201,6 @@ unsafe fn window_is_owned_by(mut candidate: HWND, root: HWND) -> bool {
         }
         false
     }
-}
-
-const PINNED_TARGET_PREFIX: &str = "@hwnd:";
-
-/// Turn a successfully focused task window into a stable HWND/PID scope. Window
-/// titles are document state and routinely change during navigation; identity is
-/// not. PID validation prevents a recycled HWND from silently targeting a new
-/// process later in a long task.
-pub(super) fn pin_foreground_target() -> Option<String> {
-    let snapshot = input_target_snapshot();
-    let hwnd = snapshot.get("hwnd")?.as_u64()?;
-    let pid = snapshot.get("pid")?.as_u64()?;
-    (hwnd != 0 && pid != 0).then(|| format!("{PINNED_TARGET_PREFIX}{hwnd}:{pid}"))
 }
 
 /// Screen-pixel rect (x, y, w, h) of the target window (or foreground window if
@@ -426,38 +413,6 @@ pub(super) fn virtual_desktop() -> (i32, i32, i32, i32) {
             GetSystemMetrics(SM_CYVIRTUALSCREEN),
         )
     }
-}
-
-/// CLI: dump the element tree with physical px + normalized 0-1000 centers.
-pub fn run_dump(target: Option<&str>) -> Result<()> {
-    let els = enumerate(target)?;
-    let (vx, vy, vw, vh) = unsafe {
-        (
-            GetSystemMetrics(SM_XVIRTUALSCREEN),
-            GetSystemMetrics(SM_YVIRTUALSCREEN),
-            GetSystemMetrics(SM_CXVIRTUALSCREEN),
-            GetSystemMetrics(SM_CYVIRTUALSCREEN),
-        )
-    };
-    eprintln!(
-        "[uia] {} on-screen elements (target={:?}; virtual desktop {vw}x{vh} @ {vx},{vy})",
-        els.len(),
-        target
-    );
-    let named: Vec<_> = els.iter().filter(|e| !e.name.trim().is_empty()).collect();
-    eprintln!("[uia] {} of them have a non-empty name:", named.len());
-    for (i, e) in named.iter().enumerate().take(150) {
-        let (cx, cy) = e.center();
-        let nx = ((cx - vx) as f64 / vw.max(1) as f64 * 1000.0).round() as i32;
-        let ny = ((cy - vy) as f64 / vh.max(1) as f64 * 1000.0).round() as i32;
-        eprintln!(
-            "[uia] {i:>3} {:<10} norm=({nx:>4},{ny:>4}) {}\"{}\"",
-            e.control_type,
-            if e.enabled { "" } else { "[disabled] " },
-            e.name
-        );
-    }
-    Ok(())
 }
 
 mod activation;

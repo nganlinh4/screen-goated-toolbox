@@ -79,11 +79,6 @@ impl Brain {
         }
     }
 
-    pub(crate) fn retire_session_completed(&mut self) {
-        self.retire_owned_tabs(super::tab_ownership::RetirementReason::Completed);
-        self.clear_retired_turn_state();
-    }
-
     pub(super) fn retire_owned_tabs(&mut self, reason: super::tab_ownership::RetirementReason) {
         self.turn_tabs
             .retire(self.current_turn_id, reason)
@@ -299,79 +294,6 @@ impl Brain {
             ));
         }
         s
-    }
-
-    /// Turn-0 grounding: (frame_b64, state_text). No click marker yet.
-    pub fn initial(&mut self) -> Result<(String, String)> {
-        let semantic = self.semantic_surface_state();
-        let has_semantic_surface = semantic.is_some();
-        let native = (semantic.is_none() && !super::super::browser::input_active())
-            .then(|| native_perception(self.target.as_deref()));
-        let elements = native
-            .as_ref()
-            .map(|perception| perception.elements.clone())
-            .unwrap_or_default();
-        let accessibility_observed = native.as_ref().is_none_or(|state| state.observed);
-        let perception_surface = semantic
-            .as_ref()
-            .map(|state| &state.identity)
-            .or_else(|| native.as_ref().and_then(|state| state.surface.as_ref()));
-        self.show_coarse_grid = !has_semantic_surface
-            && accessibility_observed
-            && !has_accessible_action(&elements, self.view);
-        let existing_marks = self.anchor_marks();
-        let Rendered {
-            frame_b64: b,
-            view: v,
-            fingerprint: _fp,
-            frame_id,
-            surface,
-            source,
-            fixed_view_retained: _,
-            perception_matched,
-        } = render_view(RenderRequest {
-            dir: &self.dir,
-            target: self.target.as_deref(),
-            step: self.step,
-            view: self.view,
-            whole_screen: false,
-            preserve_view: false,
-            bound_source: None,
-            perception_surface,
-            grid: self.grid,
-            marker: None,
-            reason: "initial",
-            action: None,
-            existing_marks: &existing_marks,
-            show_grid: self.show_coarse_grid,
-        })?;
-        if !perception_matched {
-            anyhow::bail!("surface changed between initial perception and frame capture");
-        }
-        self.view = v;
-        self.source_frame = Some(source);
-        self.bind_pending_anchors(frame_id, v, surface);
-        self.prev_state_sig = Some(
-            semantic
-                .as_ref()
-                .map(|state| format!("structured:{}", state.elements))
-                .unwrap_or_else(|| state_signature(&elements)),
-        );
-        let indexed = semantic.is_none().then(|| self.controller.prime_native());
-        let mut state = semantic.map(|state| state.elements).unwrap_or_else(|| {
-            format_state(
-                &elements,
-                self.target.as_deref(),
-                self.view,
-                self.grid,
-                self.show_coarse_grid,
-                indexed.as_deref(),
-            )
-        });
-        if let Some(marks) = self.marks_state() {
-            state.push_str(&format!("\n{marks}"));
-        }
-        Ok((b, state))
     }
 
     /// Re-ground and derive one typed visual/accessibility postcondition.

@@ -311,6 +311,7 @@ fn only_the_endpoint_measured_to_restate_is_salvaged() {
     // Everything else is trusted until measured. An edit applied to a sound
     // endpoint can only remove correct text.
     for (provider, model) in [
+        ("groq", "qwen/qwen3.8-27b"),
         ("google", "gemini-3.5-flash-lite"),
         ("google", "gemini-3.5-flash"),
         ("google", "gemma-4-26b-a4b-it"),

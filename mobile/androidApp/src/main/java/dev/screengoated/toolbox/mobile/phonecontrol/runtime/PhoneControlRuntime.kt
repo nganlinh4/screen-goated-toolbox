@@ -373,6 +373,12 @@ internal class PhoneControlRuntime(
             PhoneControlUiGoalPresentation.CONVERSATIONAL,
     ): Long? = uiGoalSubmission.submit(text, presentation)
 
+    fun submitExternalGoal(text: String): Long? = uiGoalSubmission.submit(
+        text = text,
+        presentation = PhoneControlUiGoalPresentation.CONVERSATIONAL,
+        replacePending = false,
+    )
+
     fun requestProtectedCheckpointBoundary(goalId: Long): Boolean {
         if (goalId <= 0L || !running.get() || resourcesReleased.get()) return false
         while (true) {

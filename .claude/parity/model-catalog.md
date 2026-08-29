@@ -41,9 +41,10 @@
   providers retain provider-specific names, quotas, and request policy.
 - Lists sort globally by latency regardless of provider, with durable model ID
   as the tie-breaker. Runtime priority/retry chains retain the relative order of
-  authored rows. On Windows, eligible live-feed rows may enter before a slower
-  authored fallback without truncating user-authored rows; the chosen head stays
-  fixed.
+  authored rows. Eligible unpinned live-feed rows may enter before a slower
+  authored fallback without truncating user-authored rows, but only from position
+  3 onward: the primary and immediate local fallback stay ahead of automatic
+  remote offers. An explicit user pin may retain its authored anchor.
 - Windows and Android expose one persisted adaptive-model toggle beside each priority-chain
   title. While enabled, its formula-ranked live-feed entries render as ordinary
   selectable, draggable, removable chain rows. Moving a live row pins that row at
@@ -57,6 +58,22 @@
   availability document, apply the same endpoint controls, and reject invalid,
   stale, incompatible, or unsigned documents without replacing the last valid
   cached feed.
+- While Live owns a priority row, its latency prefix shows the current signed-feed
+  p50 used by the adaptive formula. Turning Live off restores the durable catalog
+  benchmark label; ranking and its visible explanation must never use different
+  latency sources.
+- While Live is enabled and a verified feed plus usable credential are present,
+  that signed offer set owns NVIDIA operational availability. Feed-absent NVIDIA
+  rows are removed from the effective chain and generic fallback search; newly
+  offered rows become immediately selectable and routable. Reviewed withdrawn
+  endpoints remain the only catalog-level veto.
+- Every selector projects NVIDIA inventory from the newest verified feed whether
+  adaptive ordering is on or off. The Live toggle controls formula ownership of
+  priority order; it never makes a stale compiled NVIDIA endpoint look available.
+- Signed-feed endpoint identity includes provider, exact endpoint, and modality.
+  A cataloged text row must not capture a vision offer for the same endpoint (or
+  vice versa); the unmatched capability is projected as a compactly named
+  discovered row with its feed latency on both platforms.
 - The image `10` and text `12` counts are shipped-default preparation targets,
   never UI, persistence, or runtime limits. Users may add any number of rows.
 - The chosen-model sentinel is numbered `0`, editable retry rows are numbered
@@ -65,6 +82,12 @@
 - A benchmark-qualified built-in endpoint becomes selectable
   on Windows and Android from the same catalog revision; neither platform may
   hide it behind a platform-local allowlist or duplicate its fallback placement.
+- Default retry-chain heads use the newest reviewed complete-result evidence.
+  Once a model clears the general-task quality and reliability floor, lower
+  end-to-end latency wins; a newer endpoint may replace its predecessor at the
+  head only after the production request path shows no output-restatement defect.
+  A clean but less-proven successor occupies the second slot until that evidence
+  is complete.
 - Every model-selection surface, including the Android node editor, observes
   live-feed revisions and applies the shared provider-enabled predicate. A
   newly offered NVIDIA endpoint therefore appears without reopening the editor,
@@ -74,6 +97,11 @@
   embedding, and other dedicated endpoints remain outside generic Text-to-Text
   priority chains even when implemented as LLMs and even when they pass their
   dedicated task suite.
+- Gemini 3.5 Transcribe owns two distinct Audio rows: the `gemini-live` row uses
+  the dedicated WebSocket endpoint for continuous capture, while the `google`
+  row uses unary audio-file transcription. The continuous-audio preset defaults
+  to the dedicated Live row. One-shot transcription remains on Whisper until a
+  comparable reviewed audio benchmark supports a default change.
 - Lifecycle-disabled modality rows retain their durable catalog identity but
   are excluded from selectable generated catalogs and retry chains on both
   platforms. Ordinary vision request profiles cover enabled rows only.

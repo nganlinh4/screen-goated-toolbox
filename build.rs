@@ -20,6 +20,8 @@ mod recorder_delivery;
 mod screen_text_detector_delivery;
 #[path = "build_support/vc_runtime_delivery.rs"]
 mod vc_runtime_delivery;
+
+const MODEL_CATALOG_GENERATOR_SCHEMA: u32 = 2;
 #[path = "build_support/web_asset_delivery.rs"]
 mod web_asset_delivery;
 
@@ -44,6 +46,7 @@ fn main() {
     model_catalog::generate(
         &model_manifest_path,
         &out_dir.join("model_catalog_generated.rs"),
+        MODEL_CATALOG_GENERATOR_SCHEMA,
     );
     creation_delivery::generate(&manifest_dir, &out_dir);
     icon_atlas::generate(&manifest_dir, &out_dir);

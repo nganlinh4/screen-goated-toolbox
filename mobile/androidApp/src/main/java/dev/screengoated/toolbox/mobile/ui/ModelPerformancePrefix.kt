@@ -30,6 +30,7 @@ internal const val MODEL_PERFORMANCE_PREFIX_WIDTH_DP =
 internal fun ModelPerformancePrefix(
     model: PresetModelDescriptor?,
     modifier: Modifier = Modifier,
+    latencyOverrideMs: Int? = null,
 ) {
     Row(
         modifier = modifier.width(MODEL_PERFORMANCE_PREFIX_WIDTH_DP.dp),
@@ -53,7 +54,7 @@ internal fun ModelPerformancePrefix(
         }
         Spacer(Modifier.width(MODEL_PERFORMANCE_COLUMN_GAP_DP.dp))
         Text(
-            text = formatModelLatencyMs(model?.typicalLatencyMs),
+            text = formatModelLatencyMs(displayedModelLatencyMs(model, latencyOverrideMs)),
             modifier = Modifier.width(MODEL_LATENCY_COLUMN_WIDTH_DP.dp),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -62,6 +63,11 @@ internal fun ModelPerformancePrefix(
         )
     }
 }
+
+internal fun displayedModelLatencyMs(
+    model: PresetModelDescriptor?,
+    liveOverrideMs: Int?,
+): Int? = liveOverrideMs ?: model?.typicalLatencyMs
 
 @DrawableRes
 internal fun intelligenceIconResource(tier: Int): Int = when (intelligenceStatIconName(tier)) {

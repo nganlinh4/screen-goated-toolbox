@@ -1,16 +1,16 @@
+mod launcher_button;
+
 use crate::gui::icons::Icon;
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
-use crate::gui::widgets::compact_filled_icon_button;
 use eframe::egui;
+use launcher_button::footer_launcher_button;
 
-/// Inset from the window edge on every side of the launch bar.
-///
-/// One value for all four sides on purpose: the bar sits in the window's
-/// bottom corners, where an inset that differs between the side and the bottom
-/// is the first thing the eye picks up. It is tighter than
-/// [`crate::gui::theme::space::EDGE`] because a bar is denser than a panel.
+/// Horizontal inset from the window edge inside the launch bar.
 pub(crate) const FOOTER_MARGIN: i8 = crate::gui::theme::WINDOW_EDGE_INSET;
+/// Compact vertical inset that keeps the fixed-height footer from clipping its
+/// two-line launcher labels.
+pub(crate) const FOOTER_VERTICAL_MARGIN: i8 = crate::gui::theme::WINDOW_BAR_VERTICAL_INSET;
 
 /// Where the measured launcher-row width is parked between frames, so the next
 /// frame can centre the row. It only changes with the locale, so the one-frame
@@ -43,20 +43,7 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
         egui::Color32::WHITE
     };
     let screen_translate_label = text.screen_translate.screen_translate_btn;
-    let screen_translate_label_height = ui
-        .painter()
-        .layout_no_wrap(
-            screen_translate_label.to_owned(),
-            egui::TextStyle::Button.resolve(ui.style()),
-            btn_text,
-        )
-        .rect
-        .height();
-    let row_height = ui
-        .spacing()
-        .interact_size
-        .y
-        .max(screen_translate_label_height + ui.spacing().button_padding.y * 2.0);
+    let row_height = ui.available_height();
 
     // Any width beyond what the launchers need is split evenly instead of
     // being dumped on the right: the window is sized to the bar, so leftover
@@ -75,16 +62,15 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
             ui.add_space(leading_slack);
             let content_left = ui.cursor().left();
             let theme = AppTheme::from_ui(ui);
-            ui.spacing_mut().button_padding.x = 3.0;
-            ui.spacing_mut().item_spacing.x = 3.0;
+            ui.spacing_mut().button_padding = egui::vec2(launcher_button::HORIZONTAL_PADDING, 2.0);
+            ui.spacing_mut().item_spacing.x = 6.0;
 
-            let computer_control_response = compact_filled_icon_button(
+            let computer_control_response = footer_launcher_button(
                 ui,
                 Icon::SmartToy,
                 text.shell.computer_control_btn,
                 theme.launch_computer_control(),
                 btn_text,
-                6,
             );
             if computer_control_response.clicked() {
                 *show_computer_control = true;
@@ -97,52 +83,48 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
                 );
             });
 
-            if compact_filled_icon_button(
+            if footer_launcher_button(
                 ui,
                 Icon::Rtt,
                 text.live_translate.live_translate_btn,
                 theme.launch_live_translate(),
                 btn_text,
-                6,
             )
             .clicked()
             {
                 *show_live_translate = true;
             }
 
-            if compact_filled_icon_button(
+            if footer_launcher_button(
                 ui,
                 Icon::Pointer,
                 text.tool_runtime.pointer_gallery_btn,
                 theme.launch_pointer(),
                 btn_text,
-                6,
             )
             .clicked()
             {
                 *show_pointer_gallery = true;
             }
 
-            if compact_filled_icon_button(
+            if footer_launcher_button(
                 ui,
                 Icon::BreakfastDining,
                 text.translation_gummy.translation_gummy_btn,
                 theme.launch_translation(),
                 btn_text,
-                6,
             )
             .clicked()
             {
                 *show_translation_gummy = true;
             }
 
-            let screen_translate_response = compact_filled_icon_button(
+            let screen_translate_response = footer_launcher_button(
                 ui,
                 Icon::Translate,
                 screen_translate_label,
                 theme.launch_screen_translate(),
                 btn_text,
-                6,
             )
             .on_hover_text(text.screen_translate.screen_translate_btn);
             if screen_translate_response.clicked() {
@@ -156,25 +138,23 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
                 );
             });
 
-            if compact_filled_icon_button(
+            if footer_launcher_button(
                 ui,
                 Icon::Speaker,
                 text.tts_playground.tts_playground_btn,
                 theme.launch_tts(),
                 btn_text,
-                6,
             )
             .clicked()
             {
                 *show_tts_playground = true;
             }
-            if compact_filled_icon_button(
+            if footer_launcher_button(
                 ui,
                 Icon::DeployedCode,
                 text.shell.three_d_generator_btn,
                 theme.accent_three_d_generator(),
                 btn_text,
-                6,
             )
             .clicked()
             {
@@ -182,13 +162,12 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
             }
 
             if crate::creation_feature_availability::image_to_svg_entry_visible()
-                && compact_filled_icon_button(
+                && footer_launcher_button(
                     ui,
                     Icon::DrawCollage,
                     text.shell.image_to_svg_btn,
                     theme.accent_image_to_svg(),
                     btn_text,
-                    6,
                 )
                 .clicked()
             {
@@ -196,52 +175,48 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
             }
 
             if crate::creation_feature_availability::image_creator_entry_visible()
-                && compact_filled_icon_button(
+                && footer_launcher_button(
                     ui,
                     Icon::Image,
                     text.shell.image_creator_btn,
                     theme.accent_image_creator(),
                     btn_text,
-                    6,
                 )
                 .clicked()
             {
                 crate::overlay::image_creator::show_image_creator();
             }
 
-            if compact_filled_icon_button(
+            if footer_launcher_button(
                 ui,
                 Icon::Album,
                 text.shell.prompt_dj_btn,
                 theme.accent_prompt_dj(),
                 btn_text,
-                6,
             )
             .clicked()
             {
                 crate::overlay::prompt_dj::show_prompt_dj();
             }
 
-            if compact_filled_icon_button(
+            if footer_launcher_button(
                 ui,
                 Icon::Movie,
                 text.auxiliary.download.download_feature_btn,
                 theme.accent_download(),
                 btn_text,
-                6,
             )
             .clicked()
             {
                 *show_download = true;
             }
 
-            let screen_record_response = compact_filled_icon_button(
+            let screen_record_response = footer_launcher_button(
                 ui,
                 Icon::Videocam,
                 text.tool_runtime.screen_record_btn,
                 theme.accent_screen_record(),
                 btn_text,
-                6,
             );
             if screen_record_response.clicked() {
                 crate::overlay::screen_record::show_screen_record();
@@ -257,8 +232,9 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
 
             // To the last launcher's edge, not to the cursor: the cursor has
             // already stepped past a trailing `item_spacing`, and counting that
-            // phantom column made the row measure 3px wider than it draws —
-            // enough to skew the centring and leave a fatter gap on the right.
+            // phantom column made the row measure one item gap wider than it
+            // draws — enough to skew the centring and leave a fatter gap on
+            // the right.
             let content_width = (screen_record_response.rect.right() - content_left).max(0.0);
             ui.ctx()
                 .data_mut(|data| data.insert_temp(content_width_id(), content_width));
@@ -282,12 +258,8 @@ pub struct FooterToggles<'a> {
 mod tests {
     use super::*;
 
-    /// The launch bar sits in the window's bottom corners, so its inset must
-    /// read the same going left, right, and down. It used to be 10px at the
-    /// sides against 4px at the bottom, from a named constant paired with a
-    /// bare literal.
     #[test]
-    fn the_launch_bar_is_inset_equally_on_every_side() {
+    fn the_launch_bar_uses_shared_horizontal_and_compact_vertical_insets() {
         // Wider than the window minimum, so the footer's own width governs.
         let content_width = crate::MIN_WINDOW_WIDTH + 200.0;
         let minimum = footer_minimum_window_width(content_width);
@@ -300,8 +272,19 @@ mod tests {
         assert_eq!(
             FOOTER_MARGIN,
             crate::gui::theme::WINDOW_EDGE_INSET,
-            "the launch bar sits at the shared window-edge inset"
+            "the launch bar uses the shared horizontal window-edge inset"
         );
+        assert_eq!(
+            FOOTER_VERTICAL_MARGIN,
+            crate::gui::theme::WINDOW_BAR_VERTICAL_INSET,
+            "the launch bar uses the shared compact bar inset"
+        );
+        const {
+            assert!(
+                FOOTER_VERTICAL_MARGIN < FOOTER_MARGIN,
+                "the fixed-height chrome needs less vertical than horizontal inset"
+            );
+        }
     }
 
     #[test]
@@ -329,7 +312,10 @@ mod tests {
                 },
                 |ui| {
                     egui::Frame::default()
-                        .inner_margin(egui::Margin::same(FOOTER_MARGIN))
+                        .inner_margin(egui::Margin::symmetric(
+                            FOOTER_MARGIN,
+                            FOOTER_VERTICAL_MARGIN,
+                        ))
                         .show(ui, |ui| {
                             let content_width = render_footer(
                                 ui,
@@ -374,8 +360,14 @@ mod tests {
                 .expect("footer content width should be captured");
             assert!(
                 first_launcher_rect.width()
-                    > crate::gui::icons::ICON_MD + ui_horizontal_button_chrome(),
+                    > crate::gui::icons::ICON_XL + ui_horizontal_button_chrome(),
                 "{language} first launcher collapsed to an icon: {first_launcher_rect:?}"
+            );
+            let footer_inner_height =
+                crate::gui::theme::WINDOW_BAR_HEIGHT - f32::from(FOOTER_VERTICAL_MARGIN) * 2.0;
+            assert!(
+                first_launcher_rect.height() <= footer_inner_height + 0.5,
+                "{language} launcher exceeds the shared footer band: launcher={first_launcher_rect:?}, inner_height={footer_inner_height}"
             );
             assert!(
                 (first_launcher_rect.center().y - last_launcher_rect.center().y).abs() <= 1.0,
@@ -383,7 +375,7 @@ mod tests {
             );
             assert!(
                 (screen_translate_rect.height() - first_launcher_rect.height()).abs() <= 1.0,
-                "{language} Screen Translate label wrapped onto another row: screen_translate={screen_translate_rect:?}, launcher={first_launcher_rect:?}"
+                "{language} launchers do not share one two-line height: screen_translate={screen_translate_rect:?}, launcher={first_launcher_rect:?}"
             );
             // Equal, not merely "at least": the measurement feeds the centring,
             // so a width that overshoots by even a trailing item gap tips the
@@ -393,10 +385,14 @@ mod tests {
                 (content_width - launcher_span).abs() <= 1.0,
                 "{language} measured footer width does not match its launchers: width={content_width}, span={launcher_span}, first={first_launcher_rect:?}, last={last_launcher_rect:?}"
             );
-            // Measured as a span, not an absolute edge: the row centres itself
-            // in whatever width it is given, so its launchers only sit against
-            // the left margin when the window is at the minimum.
+            // Measured as a span, not an absolute edge. The shared baseline
+            // stays compact, while a wider locale raises the minimum to its
+            // measured launcher row.
             let minimum_width = footer_minimum_window_width(content_width);
+            assert!(
+                minimum_width >= crate::MIN_WINDOW_WIDTH,
+                "{language} footer minimum fell below the shared window baseline"
+            );
             assert!(
                 minimum_width + 1.0 >= launcher_span + f32::from(FOOTER_MARGIN) * 2.0,
                 "{language} footer minimum leaves its last launcher outside the viewport: minimum={minimum_width}, span={launcher_span}, first={first_launcher_rect:?}, last={last_launcher_rect:?}"
@@ -412,6 +408,66 @@ mod tests {
     }
 
     const fn ui_horizontal_button_chrome() -> f32 {
-        3.0 * 2.0
+        launcher_button::HORIZONTAL_PADDING * 2.0
+    }
+
+    #[test]
+    fn localized_launcher_labels_balance_onto_two_rows() {
+        for language in ["en", "vi", "ko"] {
+            let context = egui::Context::default();
+            crate::gui::configure_fonts(&context);
+            AppTheme::apply_global_style(&context, false);
+            let text = LocaleText::get(language);
+            let labels = [
+                text.shell.computer_control_btn,
+                text.live_translate.live_translate_btn,
+                text.tool_runtime.pointer_gallery_btn,
+                text.translation_gummy.translation_gummy_btn,
+                text.screen_translate.screen_translate_btn,
+                text.tts_playground.tts_playground_btn,
+                text.shell.three_d_generator_btn,
+                text.shell.image_to_svg_btn,
+                text.shell.image_creator_btn,
+                text.shell.prompt_dj_btn,
+                text.auxiliary.download.download_feature_btn,
+                text.tool_runtime.screen_record_btn,
+            ];
+
+            let _ = crate::gui::test_support::run_ui(&context, egui::RawInput::default(), |ui| {
+                for label in labels {
+                    assert_eq!(
+                        launcher_button::footer_label_row_count(ui, label),
+                        2,
+                        "{language} launcher label should balance onto two rows: {label:?}"
+                    );
+                    assert_eq!(
+                        launcher_button::footer_label_height(ui, label),
+                        24.0,
+                        "{language} launcher label should keep its compact two-row line height: {label:?}"
+                    );
+                    let rows = launcher_button::footer_label_rows(ui, label);
+                    assert_eq!(
+                        rows.join(" "),
+                        label.split_whitespace().collect::<Vec<_>>().join(" "),
+                        "{language} launcher label split inside a word: {label:?} -> {rows:?}"
+                    );
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn vietnamese_screen_record_label_keeps_quay_whole() {
+        let context = egui::Context::default();
+        crate::gui::configure_fonts(&context);
+        AppTheme::apply_global_style(&context, false);
+        let label = LocaleText::get("vi").tool_runtime.screen_record_btn;
+
+        let _ = crate::gui::test_support::run_ui(&context, egui::RawInput::default(), |ui| {
+            assert_eq!(
+                launcher_button::footer_label_rows(ui, label),
+                ["Quay", "MH"]
+            );
+        });
     }
 }

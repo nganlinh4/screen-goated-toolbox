@@ -205,6 +205,7 @@ private fun isRetryCandidateCompatible(
 ): Boolean {
     return model.modelType == targetType &&
         !model.isNonLlm &&
+        feedAllowsRuntimeModel(model, settings, apiKeys) &&
         model.provider !in blockedProviders &&
         providerIsAvailable(model.provider, apiKeys, settings) &&
         (!mustSupportSearch || PresetModelCatalog.supportsSearchById(model.id))

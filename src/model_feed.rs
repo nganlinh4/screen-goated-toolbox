@@ -9,10 +9,10 @@
 //! What the feed decides, and what it does not:
 //!
 //! - it may **offer** models, which appear as [`ModelSource::Discovered`];
-//! - it may offer live candidates to the adaptive tail below position 0;
-//! - it may never take position 0. That position is tied to
-//!   `default_text_model_id`, carries every request before any fallback exists,
-//!   and stays under local control.
+//! - it may offer live candidates to the adaptive tail below the two local
+//!   leaders when the configured chain contains both;
+//! - it may never displace those leaders. They carry the primary and immediate
+//!   proven fallback before remote availability can influence the chain.
 //!
 //! Feed eligibility is an operational reliability gate. Stable catalog quality
 //! tiers and latency then form a bounded tradeoff for eligible models. A sample
@@ -162,27 +162,20 @@ fn validate(feed: &AvailabilityFeed) -> Result<()> {
         if !(0.0..=1.0).contains(&model.success_rate) {
             bail!("{LABEL} success rate is out of range for {}", model.id);
         }
+        if feed.schema_version > 1 && (model.runs == 0 || model.p50_ms.is_none()) {
+            bail!("{LABEL} offered model has no measurement: {}", model.id);
+        }
     }
     Ok(())
 }
 
-/// Success rate below which a published model is not worth appending.
-///
-/// The publisher already applies hysteresis and withholds anything unavailable
-/// its latest run, so this is a second opinion rather than the only one. Demanding
-/// a perfect record rejected models that pass five runs in six, which are useful
-/// at the back of a chain: reaching them at all means everything local has already
-/// failed, and one rejection there costs a retry. A rate near a coin flip is
-/// excluded, because a fallback that usually fails is not a fallback.
-const MINIMUM_SUCCESS_RATE: f32 = 0.8;
-
 /// The feed's models in the order the client should consider them, best first.
+///
+/// Publication is the admission decision. The signed publisher has already
+/// applied the versioned availability gate and hysteresis; applying a second
+/// client-side threshold would make two clients disagree about the same feed.
 pub fn ranked_models(feed: &AvailabilityFeed) -> Vec<&FeedModel> {
-    let mut usable: Vec<&FeedModel> = feed
-        .models
-        .iter()
-        .filter(|model| model.success_rate >= MINIMUM_SUCCESS_RATE && model.runs > 0)
-        .collect();
+    let mut usable: Vec<&FeedModel> = feed.models.iter().collect();
     usable.sort_by_key(|model| model.p50_ms.unwrap_or(u32::MAX));
     usable
 }
@@ -217,8 +210,8 @@ impl CandidateRank {
     }
 }
 
-/// Interleaves adaptive candidates while keeping the configured head and the
-/// relative order of every non-adaptive configured fallback intact.
+/// Interleaves adaptive candidates while keeping up to two configured local
+/// leaders and the relative order of every non-adaptive fallback intact.
 ///
 /// Each candidate lands before the first slower or weaker configured fallback.
 /// Enabling adaptation explicitly hands currently offered rows back to the
@@ -245,6 +238,7 @@ pub fn merge_into_chain_with_overrides(
         return chain.to_vec();
     }
     const MAX_ADAPTIVE_OFFERS: usize = 5;
+    const PROTECTED_LOCAL_LEADERS: usize = 2;
     let protected_head = &chain[0];
     let is_pinned = |id: &String| {
         pinned.iter().any(|candidate| candidate == id)
@@ -275,19 +269,21 @@ pub fn merge_into_chain_with_overrides(
         })
         .map(|(_, id)| id.clone())
         .collect();
-    for id in adaptive {
-        if merged.iter().any(|existing| existing == id) {
-            continue;
+    if merged.len() >= PROTECTED_LOCAL_LEADERS {
+        for id in adaptive {
+            if merged.iter().any(|existing| existing == id) {
+                continue;
+            }
+            let candidate_rank = rank_for(id);
+            let insert_at = merged
+                .iter()
+                .enumerate()
+                .skip(PROTECTED_LOCAL_LEADERS)
+                .find(|(_, existing)| !rank_for(existing).outranks_or_ties(candidate_rank))
+                .map(|(index, _)| index)
+                .unwrap_or(merged.len());
+            merged.insert(insert_at, id.clone());
         }
-        let candidate_rank = rank_for(id);
-        let insert_at = merged
-            .iter()
-            .enumerate()
-            .skip(1)
-            .find(|(_, existing)| !rank_for(existing).outranks_or_ties(candidate_rank))
-            .map(|(index, _)| index)
-            .unwrap_or(merged.len());
-        merged.insert(insert_at, id.clone());
     }
     for (authored_index, pinned_id) in chain
         .iter()

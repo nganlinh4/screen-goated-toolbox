@@ -18,7 +18,6 @@ mod registry;
 mod runtime;
 #[cfg(test)]
 mod schema;
-mod smoke;
 mod startup;
 mod support;
 mod ui;
@@ -28,7 +27,6 @@ pub(super) use runtime::{
     active_tool_declarations, clear_tools_changed, connect_all_installed,
     declared_tool_is_read_only, disconnect_all, is_connected, tools_changed, try_dispatch,
 };
-pub(super) use smoke::run_mcp_test;
 pub(super) use startup::StartupCatalog;
 pub(crate) use ui::{UiIntegration, ui_install, ui_installing, ui_remove, ui_remove_all};
 

@@ -125,6 +125,24 @@ pub fn refine_text_streaming<F>(request: RefineTextRequest<'_>, mut on_chunk: F)
 where
     F: FnMut(&str),
 {
+    let mut normalizer = crate::api::output_normalization::InitialLineBreakNormalizer::default();
+    let result = {
+        let mut normalized_on_chunk = |chunk: &str| match normalizer.observe(chunk) {
+            crate::api::output_normalization::NormalizedChunk::Paint(text) => on_chunk(text),
+            crate::api::output_normalization::NormalizedChunk::Replace(text) => {
+                on_chunk(&format!("{}{text}", crate::api::WIPE_SIGNAL));
+            }
+            crate::api::output_normalization::NormalizedChunk::Suppress => {}
+        };
+        refine_text_streaming_inner(request, &mut normalized_on_chunk)
+    };
+    result.map(|output| normalizer.finish(output))
+}
+
+fn refine_text_streaming_inner<F>(request: RefineTextRequest<'_>, mut on_chunk: F) -> Result<String>
+where
+    F: FnMut(&str),
+{
     let RefineTextRequest {
         groq_api_key,
         gemini_api_key,
@@ -367,7 +385,7 @@ mod tests {
             state
                 .preferred_text_model("groq", "gemini", "openrouter", "")
                 .map(|model| model.0),
-            Some("groq-qwen-3-6-27b-text".to_string())
+            Some(crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string())
         );
 
         state.use_groq = false;

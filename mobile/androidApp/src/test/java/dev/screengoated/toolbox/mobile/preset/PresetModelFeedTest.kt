@@ -32,7 +32,7 @@ class PresetModelFeedTest {
     }
 
     @Test
-    fun operationalGateRanksUsefulModelsWithoutPresetSpecificQualityBans() {
+    fun signedPublisherOwnsAdmissionAndClientOnlySortsOffers() {
         val feed = schemaThreeFeed(
             model("nvidia/slower", 900, 1.0, 6),
             model("nvidia/fast", 180, 0.83, 6),
@@ -41,7 +41,7 @@ class PresetModelFeedTest {
         )
 
         assertEquals(
-            listOf("nvidia/fast", "nvidia/slower"),
+            listOf("nvidia/unmeasured", "nvidia/flaky", "nvidia/fast", "nvidia/slower"),
             rankedFeedModels(feed).map(FeedModel::endpoint),
         )
     }
@@ -69,6 +69,36 @@ class PresetModelFeedTest {
     }
 
     @Test
+    fun feedModalityCannotReuseAnotherModalitysCatalogId() {
+        val endpoint = "openai/gpt-oss-120b"
+        PresetModelFeed.publish(
+            schemaThreeFeed(
+                model(endpoint, 1_063, 0.33, 24, modality = "vision"),
+            ),
+        )
+        val settings = PresetRuntimeSettings(
+            modelPriorityChains = PresetModelPriorityChains(
+                imageToText = listOf(
+                    "groq-qwen-3-8-27b-vision",
+                    "groq-qwen-3-6-27b-vision",
+                ),
+            ),
+        )
+
+        val discoveredId = discoveredModelId("nvidia", endpoint)
+        val chain = PresetRetryChainKind.IMAGE_TO_TEXT.effectiveChain(
+            settings,
+            ApiKeys(nvidiaKey = "test-key"),
+        )
+        assertTrue(discoveredId in chain)
+        assertFalse("nvidia-gpt-oss-120b-text" in chain)
+        val discovered = requireNotNull(PresetModelCatalog.getById(discoveredId))
+        assertEquals(PresetModelType.VISION, discovered.modelType)
+        assertEquals("N go1", discovered.displayName)
+        assertEquals(1_063, discovered.typicalLatencyMs)
+    }
+
+    @Test
     fun adaptiveRowsInterleaveBelowHeadAndManualEditsStayLiveWhileOneRemains() {
         val liveFast = "nvidia-nemotron-3-5-lightning-text"
         val liveNext = "nvidia-nemotron-3-super-120b-text"
@@ -79,9 +109,9 @@ class PresetModelFeedTest {
             ),
         )
         val configured = listOf(
+            "groq-qwen-3-8-27b-text",
             "groq-qwen-3-6-27b-text",
             "google-gemini-3-5-flash-lite-text",
-            "google-gemini-3-flash-text",
         )
         val settings = PresetRuntimeSettings(
             modelPriorityChains = PresetModelPriorityChains(textToText = configured),
@@ -91,9 +121,9 @@ class PresetModelFeedTest {
             ApiKeys(nvidiaKey = "test-key"),
         )
 
-        assertEquals(configured.first(), merged.first())
-        assertTrue(merged.indexOf(liveFast) in 1 until merged.size)
-        assertTrue(merged.indexOf(liveNext) in 1 until merged.size)
+        assertEquals(configured.take(2), merged.take(2))
+        assertTrue(merged.indexOf(liveFast) in 2 until merged.size)
+        assertTrue(merged.indexOf(liveNext) in 2 until merged.size)
 
         val oneRemoved = commitAdaptiveEdits(
             visible = merged.filterNot { it == liveNext },
@@ -113,6 +143,42 @@ class PresetModelFeedTest {
         assertFalse(allRemoved.remainsEnabled)
     }
 
+    @Test
+    fun signedOfferRemovesStaleNvidiaRowsWithoutTouchingOtherProviders() {
+        PresetModelFeed.publish(
+            schemaThreeFeed(
+                model("nvidia/nemotron-3.5-lightning-30b-a3b", 100, 0.5, 3),
+            ),
+        )
+        val settings = PresetRuntimeSettings(
+            modelPriorityChains = PresetModelPriorityChains(
+                textToText = listOf(
+                    "groq-qwen-3-8-27b-text",
+                    "groq-qwen-3-6-27b-text",
+                    "nvidia-nemotron-3-5-lightning-text",
+                    "nvidia-nemotron-3-super-120b-text",
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                "groq-qwen-3-8-27b-text",
+                "groq-qwen-3-6-27b-text",
+                "nvidia-nemotron-3-5-lightning-text",
+            ),
+            PresetRetryChainKind.TEXT_TO_TEXT.effectiveChain(
+                settings,
+                ApiKeys(nvidiaKey = "test-key"),
+            ),
+        )
+        val selectableNvidia = PresetModelCatalog.forType(PresetModelType.TEXT)
+            .filter { it.provider == PresetModelProvider.NVIDIA }
+            .map(PresetModelDescriptor::id)
+        assertEquals(listOf("nvidia-nemotron-3-5-lightning-text"), selectableNvidia)
+        assertTrue(PresetModelCatalog.getById("nvidia-nemotron-3-super-120b-text") != null)
+    }
+
     private fun schemaThreeFeed(vararg models: FeedModel) = AvailabilityFeed(
         schemaVersion = 3,
         controlVersion = 1,
@@ -127,7 +193,8 @@ class PresetModelFeedTest {
         p50Ms: Int,
         successRate: Double,
         runs: Int,
-    ) = FeedModel(endpoint, FeedReasoningControl.PLAIN, "text", p50Ms, successRate, runs)
+        modality: String = "text",
+    ) = FeedModel(endpoint, FeedReasoningControl.PLAIN, modality, p50Ms, successRate, runs)
 
     private fun repoRoot(): File {
         val workingDirectory = requireNotNull(System.getProperty("user.dir"))

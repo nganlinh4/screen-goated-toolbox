@@ -5,7 +5,9 @@
     "src/overlay/recording/mod.rs",
     "src/overlay/recording/ui.rs",
     "src/api/audio/recording.rs",
-    "src/api/audio/transcription.rs"
+    "src/api/audio/transcription.rs",
+    "src/api/gemini_transcribe.rs",
+    "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/preset/AudioApiClientGemini.kt"
   ],
   "recording_toggle_contract": {
     "first_launch": "start_recording",
@@ -41,9 +43,19 @@
   "streaming_capture_contract": {
     "google-gemini-2-5-live-transcribe-audio": "partial_transcript_during_capture",
     "google-gemini-3-1-live-transcribe-audio": "partial_transcript_during_capture",
+    "google-gemini-3-5-transcribe-live-audio": "replaceable_interim_and_authoritative_final_during_capture",
+    "google-gemini-3-5-transcribe-audio": "unary_smart_audio_file_transcription",
     "local-parakeet-120m-v1-audio": "android_unsupported_until_mobile_runtime_exists",
     "final_transcript_handoff": "first_audio_block_uses_precomputed_transcript",
-    "streaming_auto_paste": "inject_deltas_during_capture_and_skip_final_paste_when_already_written"
+    "streaming_auto_paste": "inject_authoritative_final_deltas_during_capture_and_skip_final_paste_when_already_written",
+    "gemini_transcribe_setup": {
+      "response_modalities": ["TEXT"],
+      "language_codes": [],
+      "mode": "SMART",
+      "custom_vocabulary_source": "persisted_live_transcription_dictionary",
+      "interim_policy": "replace_visible_draft_never_paste_or_append",
+      "final_policy": "append_once_and_make_eligible_for_auto_paste"
+    }
   },
   "android_explicit_unsupported_presets": [
     {

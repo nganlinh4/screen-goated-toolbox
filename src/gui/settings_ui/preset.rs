@@ -68,7 +68,7 @@ pub fn render_preset_editor(
         .corner_radius(10.0)
         .show(ui, |ui| {
             // Row 1: Preset Name + Controller + Restore
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(egui::RichText::new(text.preset_basics.preset_name_label).strong());
 
                 if is_default_preset {
@@ -139,7 +139,7 @@ pub fn render_preset_editor(
             ui.add_space(6.0);
 
             // Row 2: Type + Mode selectors
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(text.preset_basics.preset_type_label);
                 let selected_text = match preset.preset_type.as_str() {
                     "audio" => text.preset_basics.preset_type_audio,
@@ -276,7 +276,7 @@ pub fn render_preset_editor(
             // Row 3: Audio source (if applicable)
             if preset.preset_type == "audio" {
                 ui.add_space(6.0);
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label(text.preset_basics.audio_source_label);
                     let selected_text = if preset.audio_source == "mic" {
                         text.preset_basics.audio_src_mic
@@ -338,7 +338,7 @@ pub fn render_preset_editor(
                 && !preset.show_controller_ui
             {
                 ui.add_space(6.0);
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label(text.preset_editor.command_mode_label);
                     crate::gui::widgets::combo("text_prompt_mode_combo")
                         .selected_text(if preset.prompt_mode == "dynamic" {
@@ -382,7 +382,7 @@ pub fn render_preset_editor(
 
     // Show auto-paste control whenever any applicable block has auto_copy enabled AND controller UI is off
     if has_any_auto_copy && !preset.show_controller_ui {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui
                 .checkbox(&mut preset.auto_paste, text.preset_basics.auto_paste_label)
                 .clicked()

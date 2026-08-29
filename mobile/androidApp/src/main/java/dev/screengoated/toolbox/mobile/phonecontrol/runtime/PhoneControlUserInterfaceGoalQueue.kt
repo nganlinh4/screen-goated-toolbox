@@ -69,12 +69,16 @@ internal class PhoneControlUserInterfaceGoalQueue(
         runtimeReady: Boolean,
         presentation: PhoneControlUiGoalPresentation =
             PhoneControlUiGoalPresentation.CONVERSATIONAL,
+        replacePending: Boolean = true,
     ): PhoneControlUiGoalOfferResult {
         val goal = text.trim()
         if (!runtimeReady || goal.isEmpty() || goal.length > maximumChars) {
             return PhoneControlUiGoalOfferResult(PhoneControlUiGoalOffer.REJECTED, null)
         }
         val queued = PhoneControlQueuedUiGoal(nextGoalId(), goal, presentation)
+        if (!replacePending && (pending.get() != null || inFlight.get() != null)) {
+            return PhoneControlUiGoalOfferResult(PhoneControlUiGoalOffer.REJECTED, null)
+        }
         val disposition = if (pending.getAndSet(queued) == null) {
             PhoneControlUiGoalOffer.QUEUED
         } else {

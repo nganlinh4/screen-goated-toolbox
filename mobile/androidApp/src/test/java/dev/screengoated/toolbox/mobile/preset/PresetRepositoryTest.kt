@@ -304,7 +304,7 @@ class PresetRepositoryTest {
             streamingContract.getValue("google-gemini-2-5-live-transcribe-audio").jsonPrimitive.content,
         )
         assertEquals(
-            "partial_transcript_during_capture",
+            "replaceable_interim_and_authoritative_final_during_capture",
             streamingContract.getValue(PRESET_AUDIO_CONTINUOUS_MODEL_ID).jsonPrimitive.content,
         )
         assertEquals(
@@ -312,7 +312,7 @@ class PresetRepositoryTest {
             streamingContract.getValue("final_transcript_handoff").jsonPrimitive.content,
         )
         assertEquals(
-            "inject_deltas_during_capture_and_skip_final_paste_when_already_written",
+            "inject_authoritative_final_deltas_during_capture_and_skip_final_paste_when_already_written",
             streamingContract.getValue("streaming_auto_paste").jsonPrimitive.content,
         )
         assertTrue(audioSession.contains("PresetModelProvider.GEMINI_LIVE"))

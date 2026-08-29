@@ -18,19 +18,19 @@ fn every_nvidia_model_uses_the_same_endpoint_abbreviation_rule() {
 
 #[test]
 fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
-    assert_eq!(DEFAULT_IMAGE_MODEL_ID, "groq-qwen-3-6-27b-vision");
+    assert_eq!(DEFAULT_IMAGE_MODEL_ID, "groq-qwen-3-8-27b-vision");
     assert_eq!(
         default_image_to_text_priority_chain_ids().first().copied(),
         Some(DEFAULT_IMAGE_MODEL_ID)
     );
     let model = get_model_by_id(DEFAULT_IMAGE_MODEL_ID).expect("default vision model exists");
     assert_eq!(model.provider, "groq");
-    assert_eq!(model.full_name, "qwen/qwen3.6-27b");
-    assert_eq!(model.intelligence_tier, Some(4));
-    assert_eq!(model.typical_latency_ms, Some(846));
+    assert_eq!(model.full_name, "qwen/qwen3.8-27b");
+    assert_eq!(model.intelligence_tier, Some(5));
+    assert_eq!(model.typical_latency_ms, Some(1195));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-08-20-protocol11-clean:ocr-small-1024")
+        Some("benchmark-2026-08-28-protocol13-focused:ocr-small-1024")
     );
 }
 
@@ -92,28 +92,27 @@ fn recommended_defaults_match_the_shared_retry_fixture() {
 
 #[test]
 fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
-    assert_eq!(DEFAULT_TEXT_MODEL_ID, "groq-qwen-3-6-27b-text");
+    assert_eq!(DEFAULT_TEXT_MODEL_ID, "groq-qwen-3-8-27b-text");
     assert_eq!(
         default_text_to_text_priority_chain_ids().first().copied(),
         Some(DEFAULT_TEXT_MODEL_ID)
     );
     let model = get_model_by_id(DEFAULT_TEXT_MODEL_ID).expect("default text model exists");
     assert_eq!(model.provider, "groq");
-    assert_eq!(model.full_name, "qwen/qwen3.6-27b");
-    assert_eq!(model.intelligence_tier, Some(4));
-    assert_eq!(model.typical_latency_ms, Some(266));
+    assert_eq!(model.full_name, "qwen/qwen3.8-27b");
+    assert_eq!(model.intelligence_tier, Some(5));
+    assert_eq!(model.typical_latency_ms, Some(305));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-08-19-protocol10:text")
+        Some("benchmark-2026-08-28-protocol13-focused:text")
     );
-    // Ordered on measured merit: the leader is the fastest text endpoint at
-    // 0.27s, and the 100%-reliable Groq row sits directly behind it so a
-    // rejected first call is absorbed without leaving the provider.
+    // Ordered on reviewed measured merit: the clean successor leads, while the
+    // 100%-reliable predecessor remains the immediate fallback.
     for (index, expected) in [
-        (1, "groq-gpt-oss-120b-text"),
-        (2, "google-gemini-3-5-flash-lite-text"),
-        (3, "google-gemini-robotics-er-2-text"),
-        (4, "openrouter-nemotron-3-super-120b-text"),
+        (1, "groq-qwen-3-6-27b-text"),
+        (2, "groq-gpt-oss-120b-text"),
+        (3, "google-gemini-3-5-flash-lite-text"),
+        (4, "google-gemini-robotics-er-2-text"),
     ] {
         assert_eq!(
             default_text_to_text_priority_chain_ids()
@@ -243,11 +242,17 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
     assert_eq!(qwen.max_output_tokens, Some(512));
     assert_eq!(qwen.structured_output, StructuredOutputPolicy::JsonObject);
     let qwen_model = get_model_by_id("groq-qwen-3-6-27b-vision").expect("Qwen vision model exists");
-    assert_eq!(qwen_model.typical_latency_ms, Some(846));
+    assert_eq!(qwen_model.typical_latency_ms, Some(1788));
     assert_eq!(
         qwen_model.performance_source.as_deref(),
-        Some("benchmark-2026-08-20-protocol11-clean:ocr-small-1024")
+        Some("benchmark-2026-08-28-protocol13:ocr-small-1024")
     );
+    let qwen_38 = vision_request_profile("groq", "qwen/qwen3.8-27b");
+    assert_eq!(
+        qwen_38.structured_output,
+        StructuredOutputPolicy::StrictJsonSchema
+    );
+    assert!(!qwen_38.restates_output);
 
     // The nemotron-omni row was removed after measuring 10% text and 0% vision
     // reliability; dots-3 Note is the surviving OpenRouter vision endpoint.
@@ -260,11 +265,11 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
     assert_eq!(
         &default_image_to_text_priority_chain_ids()[..5],
         &[
+            "groq-qwen-3-8-27b-vision",
             "groq-qwen-3-6-27b-vision",
             "google-gemini-3-5-flash-lite-vision",
             "google-gemini-3-5-flash-vision",
             "google-gemini-3-flash-vision",
-            "google-gemini-3-1-flash-lite-vision",
         ]
     );
 

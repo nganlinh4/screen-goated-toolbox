@@ -186,6 +186,7 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
                 "        KnownPresetEndpoint(",
                 f"            provider = PresetModelProvider.{PROVIDER_MAP[provider]},",
                 f"            fullName = {kotlin_string(model['full_name'])},",
+                f"            modelType = PresetModelType.{MODEL_TYPE_MAP[model['model_type']]},",
                 f"            enabled = {str(model['enabled']).lower()},",
                 "        ),",
             ]
@@ -317,6 +318,7 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         f"    const val GEMINI_LIVE_API_MODEL_3_1 = {kotlin_string(constants['gemini_live_api_model_3_1'])}",
         f"    const val GEMINI_LIVE_TRANSLATE_API_MODEL = {kotlin_string(constants['gemini_live_translate_api_model'])}",
         f"    const val GEMINI_TRANSCRIBE_API_MODEL = {kotlin_string(constants['gemini_transcribe_api_model'])}",
+        f"    const val GEMINI_TRANSCRIBE_BATCH_API_MODEL = {kotlin_string(constants['gemini_transcribe_batch_api_model'])}",
         f"    const val DEFAULT_TTS_GEMINI_MODEL = {kotlin_string(defaults['tts_gemini_live_model'])}",
         f"    const val DEFAULT_TRANSCRIPTION_PROVIDER_ID = {kotlin_string(defaults['live_session_transcription_provider_id'])}",
         f"    const val DEFAULT_TRANSLATION_PROVIDER_ID = {kotlin_string(defaults['live_session_translation_provider_id'])}",

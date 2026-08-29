@@ -92,7 +92,37 @@ class PresetGeminiLiveSocketProtocolTest {
         assertEquals(expected, transcript.toString())
         assertEquals(expected, finalTranscript.toString())
         assertEquals(listOf(expected), chunks)
+        assertEquals(GeminiLiveInputEvent.FinalTranscript, events.removeFirst())
         assertTrue(events.isEmpty())
+    }
+
+    @Test
+    fun `dedicated interim corrections never become paste chunks`() {
+        val transcript = StringBuilder()
+        val finalTranscript = StringBuilder()
+        val chunks = mutableListOf<String>()
+        val events = LinkedBlockingDeque<GeminiLiveInputEvent>()
+
+        handleGeminiLiveMessage(
+            """{"serverContent":{"interimInputTranscription":{"text":"meet Tuesday"}}}""",
+            CompletableDeferred(),
+            events,
+            transcript,
+            finalTranscript,
+            chunks::add,
+        )
+        handleGeminiLiveMessage(
+            """{"serverContent":{"inputTranscription":{"text":"Meet Wednesday at 2:00 PM."}}}""",
+            CompletableDeferred(),
+            events,
+            transcript,
+            finalTranscript,
+            chunks::add,
+        )
+
+        assertEquals("Meet Wednesday at 2:00 PM.", finalTranscript.toString())
+        assertEquals(listOf("Meet Wednesday at 2:00 PM."), chunks)
+        assertEquals(GeminiLiveInputEvent.FinalTranscript, events.removeFirst())
     }
 
     @Test

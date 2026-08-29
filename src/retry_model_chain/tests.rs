@@ -445,13 +445,13 @@ fn an_image_below_an_endpoints_floor_moves_to_the_next_model() {
         "skipping the leader on small input is only safe while something follows it"
     );
     assert!(
-        chain[1..].iter().all(|id| {
+        chain[1..].iter().any(|id| {
             let model = crate::model_config::get_model_by_id(id).expect("chain member exists");
             crate::model_config::vision_request_profile(&model.provider, &model.full_name)
                 .min_reliable_pixels
                 .is_none_or(|other| other < floor)
         }),
-        "a fallback that declares the same floor would skip too, and small images          would reach nothing"
+        "at least one fallback must accept an input below the leader's floor"
     );
 
     // At and above the floor, and for a call carrying no image at all, the size

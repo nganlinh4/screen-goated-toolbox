@@ -84,6 +84,11 @@
   capability, provider-availability, retry, and fallback semantics. Built-in
   capabilities and ordinary reasoning policy are exact endpoint-profile data,
   never model-name heuristics.
+- Every ordinary Text-to-Text, refinement, and Image-to-Text result removes only
+  leading CR/LF characters before its first visible output. This normalization
+  happens before streaming paint and in the returned final result on both
+  platforms; leading spaces, tabs, and later line breaks remain untouched.
+  Transport replacement signals restart the same initial-output normalization.
 - Search capability preserves explicit-search retry compatibility. It does not
   draw a model-list marker: the marker comes only from the separate
   catalog-owned `search_tool_enabled_by_default` behavior flag. Ordinary

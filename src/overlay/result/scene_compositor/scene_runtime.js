@@ -372,13 +372,16 @@ function selectSurface(entry, documentHtml) {
   }
 }
 function applyGeometry(entry, model) {
+  const preservePosition = window.shouldPreserveResultDragGeometry?.(entry.card.dataset.id) === true;
   const scale = window.devicePixelRatio || 1; entry.card.style.setProperty('--sgt-box-radius', (__SGT_BOX_RADIUS_PX__ / scale) + 'px');
-  entry.card.style.translate = '';
   const width = model.rect.width / scale;
   const height = model.rect.height / scale;
   const resized = entry.card.clientWidth !== width || entry.card.clientHeight !== height;
-  entry.card.style.transform = 'translate3d(' + (model.rect.x / scale) + 'px,' +
-    (model.rect.y / scale) + 'px,0)';
+  if (!preservePosition) {
+    entry.card.style.translate = '';
+    entry.card.style.transform = 'translate3d(' + (model.rect.x / scale) + 'px,' +
+      (model.rect.y / scale) + 'px,0)';
+  }
   entry.card.style.width = width + 'px';
   entry.card.style.height = height + 'px';
   entry.processing.resize(width, height, scale);

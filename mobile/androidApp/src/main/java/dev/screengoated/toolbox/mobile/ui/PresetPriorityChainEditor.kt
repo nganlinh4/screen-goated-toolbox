@@ -76,7 +76,15 @@ internal fun PriorityChainEditor(
 ) {
     val feedSnapshot by PresetModelFeed.state.collectAsState()
     val availableModels = PresetModelCatalog.forType(modelType)
-    val liveIds = offeredModels(settings, apiKeys, modelType).map { it.first }
+    val liveOffers = if (adaptiveEnabled) {
+        offeredModels(settings, apiKeys, modelType)
+    } else {
+        emptyList()
+    }
+    val liveIds = liveOffers.map { it.first }
+    val liveLatencyById = liveOffers
+        .filter { (_, latencyMs) -> latencyMs != Int.MAX_VALUE }
+        .toMap()
     val visibleChain = if (adaptiveEnabled) {
         chainKind.adaptiveChain(authoredChain, overrides, settings, apiKeys)
     } else {
@@ -151,6 +159,7 @@ internal fun PriorityChainEditor(
                     number = index + 1,
                     modelId = modelId,
                     availableModels = availableModels,
+                    liveLatencyById = liveLatencyById,
                     uiLanguage = uiLanguage,
                     accent = accent,
                     isDragging = draggedModelId == modelId,
@@ -220,7 +229,7 @@ internal fun PriorityChainEditor(
                 modifier = Modifier.heightIn(max = 420.dp),
             ) {
                 availableModels.filter { it.id !in visibleChain }.forEach { model ->
-                    PriorityModelDropdownItem(model, uiLanguage) {
+                    PriorityModelDropdownItem(model, uiLanguage, liveLatencyById[model.id]) {
                         commit(visibleChain + model.id, AdaptiveManualEdit.Add(model.id))
                         showAddMenu = false
                     }
@@ -235,6 +244,7 @@ private fun DraggablePriorityModel(
     number: Int,
     modelId: String,
     availableModels: List<PresetModelDescriptor>,
+    liveLatencyById: Map<String, Int>,
     uiLanguage: String,
     accent: Color,
     isDragging: Boolean,
@@ -266,6 +276,7 @@ private fun DraggablePriorityModel(
         number = number,
         modelId = modelId,
         availableModels = availableModels,
+        liveLatencyById = liveLatencyById,
         uiLanguage = uiLanguage,
         accent = accent,
         isDragging = isDragging,
@@ -305,6 +316,7 @@ private fun PriorityModelRow(
     number: Int,
     modelId: String,
     availableModels: List<PresetModelDescriptor>,
+    liveLatencyById: Map<String, Int>,
     uiLanguage: String,
     accent: Color,
     isDragging: Boolean,
@@ -336,7 +348,7 @@ private fun PriorityModelRow(
         Spacer(Modifier.width(6.dp))
         Box(Modifier.weight(1f)) {
             TextButton(onClick = { showDropdown = true }, modifier = Modifier.fillMaxWidth()) {
-                ModelPerformancePrefix(descriptor)
+                ModelPerformancePrefix(descriptor, latencyOverrideMs = liveLatencyById[modelId])
                 Spacer(Modifier.width(4.dp))
                 descriptor?.let {
                     Icon(painterResource(providerIconRes(it.provider)), null, Modifier.size(16.dp))
@@ -354,7 +366,7 @@ private fun PriorityModelRow(
                 modifier = Modifier.heightIn(max = 420.dp),
             ) {
                 availableModels.forEach { model ->
-                    PriorityModelDropdownItem(model, uiLanguage) {
+                    PriorityModelDropdownItem(model, uiLanguage, liveLatencyById[model.id]) {
                         onModelChanged(model.id)
                         showDropdown = false
                     }
@@ -371,12 +383,13 @@ private fun PriorityModelRow(
 private fun PriorityModelDropdownItem(
     model: PresetModelDescriptor,
     uiLanguage: String,
+    latencyOverrideMs: Int? = null,
     onClick: () -> Unit,
 ) {
     DropdownMenuItem(
         leadingIcon = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ModelPerformancePrefix(model)
+                ModelPerformancePrefix(model, latencyOverrideMs = latencyOverrideMs)
                 Spacer(Modifier.width(6.dp))
                 Icon(painterResource(providerIconRes(model.provider)), null, Modifier.size(18.dp))
             }

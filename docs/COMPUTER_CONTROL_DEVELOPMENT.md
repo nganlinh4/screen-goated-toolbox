@@ -49,6 +49,23 @@ permission logic. Do not silently reroute the model's requested tool.
 - Classify credentials only from explicit provider evidence. Network, quota,
   model, and generic setup failures must not be mislabeled as key failures.
 
+## External invocation
+
+- The running desktop app exposes a loopback-only authenticated JSON control
+  surface for `launch`, `submit_turn`, `status`, `cancel`, and `stop`.
+- Discovery is a current-user file containing the ephemeral endpoint and bearer
+  token. The server removes only its own matching discovery record at shutdown.
+- A submitted prompt enters the ordinary visible Computer Control runtime and
+  receives the same catalog, observations, checkpoints, receipts, and one-final
+  lifecycle as speech or orb text input. It never starts a headless controller.
+- Keep at most one bounded startup prompt and one in-flight turn. Reject excess,
+  blank, oversized, unauthenticated, stale, or malformed requests explicitly.
+- Prompt text must not enter process arguments, logs, telemetry, discovery, or
+  durable storage. `cancel` stops the owning control session; it does not invent
+  a continuation or a second runtime.
+- Computer Control command-line modes are not a product or test entrance. Test
+  the repaired application through this real runtime surface.
+
 ## Engine boundary
 
 - The optional x64 engine owns only data-only planning, the complete static tool

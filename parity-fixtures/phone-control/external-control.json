@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "feature": "computer-phone-control-external-invocation",
+  "maximumPromptCharacters": 1024,
+  "operations": ["launch", "submit_turn", "status", "cancel", "stop"],
+  "invariants": {
+    "normalRuntimeOnly": true,
+    "singlePendingPrompt": true,
+    "singleInFlightTurn": true,
+    "promptIsNeverCommandLineData": true,
+    "promptIsNeverPersisted": true,
+    "fullToolCatalog": true,
+    "consequentialCheckpointsUnchanged": true,
+    "cancelStopsOwningSession": true,
+    "unknownOperationsRejected": true
+  },
+  "windows": {
+    "transport": "loopback_http",
+    "bindAddress": "127.0.0.1",
+    "authentication": "per_process_bearer_token",
+    "discoveryFile": "computer-control-api.json",
+    "discoveryFileOwner": "current_windows_user",
+    "requestContentType": "application/json",
+    "maximumRequestBytes": 8192
+  },
+  "android": {
+    "transport": "android.intent.action.ASSIST",
+    "authentication": "bind_voice_interaction_permission_and_default_assistant_role",
+    "promptExtra": "android.intent.extra.TEXT",
+    "activationOwner": "private_phone_control_coordinator",
+    "distributionParity": ["full", "play"]
+  },
+  "removedComputerControlCommandLineFlags": [
+    "--computer-control-probe",
+    "--computer-control-run",
+    "--cc-coord-test",
+    "--cc-uia-dump",
+    "--cc-vision-test",
+    "--cc-cursor-demo",
+    "--cc-grid-test",
+    "--cc-uia-task",
+    "--cc-mcp-test",
+    "--cc-system-query-test",
+    "--cc-task-trace"
+  ]
+}

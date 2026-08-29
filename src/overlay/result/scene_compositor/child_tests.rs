@@ -81,12 +81,30 @@ fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() 
         .nth(1)
         .unwrap();
     assert!(released.contains("awaitingDragSettle = true"));
-    assert!(released.contains("style.visibility = ''"));
+    assert!(!released.contains("style.visibility = ''"));
     assert!(released.contains("window.updateCursorPosition?.(pointerX, pointerY)"));
     assert!(!released.contains("clearResultDragControlPreview"));
+    let rebuild = controls
+        .split("function rebuild()")
+        .nth(1)
+        .unwrap()
+        .split("function apply(command)")
+        .next()
+        .unwrap();
+    assert!(rebuild.contains("restoreControlsAfterLayout"));
+    assert!(rebuild.contains("style.visibility = ''"));
     let host_commands = include_str!("host_command_runtime.js");
     assert!(host_commands.contains("hasReleasedDragPreview?.() === true"));
     assert!(host_commands.contains("if (!preservePreview)"));
+    let scene = include_str!("scene_runtime.js");
+    assert!(scene.contains("const preservePosition = window.shouldPreserveResultDragGeometry?."));
+    assert!(scene.contains("if (!preservePosition)"));
+    assert!(pointer.contains("settlingResultDragTargets = new Set(drag.targets)"));
+    assert!(controls.contains("window.releaseResultDragGeometryLock?.()"));
+    let native_input = include_str!("button_input.rs");
+    assert!(native_input.contains("AWAITING_DRAG_SETTLE.store(true"));
+    assert!(native_input.contains("AWAITING_DRAG_SETTLE.load"));
+    assert!(child.contains("super::button_input::settle_drag();"));
     let settled = controls.find("command.type === 'drag_settled'").unwrap();
     let merge = controls[settled..].find("mergeCard(card)").unwrap();
     let reveal = controls[settled..].find("setDragActive(false)").unwrap();

@@ -13,9 +13,9 @@ use eframe::egui::Color32;
 /// question — so nominally identical surfaces sat at visibly different insets
 /// and a window corner showed two different "distances to the edge" at once.
 ///
-/// Pick by role, not by number, and prefer a symmetric [`Margin::same`] for
-/// anything that meets a window or panel edge: an inset that differs between
-/// the side and the bottom is exactly what the eye catches at a corner.
+/// Pick by role, not by number, and prefer a symmetric [`Margin::same`] unless
+/// a fixed-height chrome band uses [`WINDOW_BAR_VERTICAL_INSET`] to preserve
+/// its compact height.
 pub mod space {
     /// Hairline padding, for table rows whose height is set explicitly.
     pub const MICRO: i8 = 1;
@@ -42,6 +42,14 @@ pub mod space {
 /// its right, 6px at the bars — which reads as the whole window being off
 /// centre. One number is the only way that stays true as surfaces are added.
 pub const WINDOW_EDGE_INSET: i8 = space::SNUG;
+
+/// Vertical inset inside the fixed-height title and launcher bars.
+pub const WINDOW_BAR_VERTICAL_INSET: i8 = space::TIGHT;
+
+/// Height of the custom chrome bands at the top and bottom of the main window.
+/// Keeping this shared prevents the launcher bar from reading as a thinner,
+/// unrelated strip beneath the workspace.
+pub const WINDOW_BAR_HEIGHT: f32 = 36.0;
 
 /// Height of a standard control — pill, chip, button, combo, single-line edit.
 ///

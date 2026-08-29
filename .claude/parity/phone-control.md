@@ -167,6 +167,21 @@ communicative-intent invariants to the canonical prompt. Those rules rank
 current semantic, pixel, browser, system, file, and integration evidence; they
 never encode user phrases, languages, applications, or device identities.
 
+External invocation follows
+`parity-fixtures/phone-control/external-control.json`. Windows owns the canonical
+`launch`, `submit_turn`, `status`, `cancel`, and `stop` lifecycle. Android maps
+that lifecycle to its system assistant entrance: only while SGT holds the
+default-assistant role may `ACTION_ASSIST` carry one bounded transient
+`Intent.EXTRA_TEXT` goal. The exported gateway never persists the goal and
+passes it only through the private activation coordinator into the ordinary
+Phone Control runtime. A running idle session accepts it immediately; startup
+or capture-resume holds at most one goal until the runtime can accept it. Blank,
+oversized, unapproved, stale, or concurrent goals are rejected without changing
+the session. The gateway requires Android's signature-level
+`BIND_VOICE_INTERACTION` permission in addition to checking that SGT currently
+holds the assistant role, preventing an ordinary application from explicitly
+invoking the exported activity. Full and Play behavior is identical.
+
 Phone Control UI strings have complete default-English, Korean, and Vietnamese
 resource sets; Android's normal default-resource fallback serves every other UI
 locale. The Apps card title resolves from the same in-app language catalog as
@@ -192,7 +207,8 @@ and replies remain multilingual without language-specific routing.
    private. A system assistant invocation starts the same activation flow when
    Phone Control is stopped, requests capture resume when a live session is
    capture-suspended, and otherwise preserves the already-running session. It
-   ignores every other action and does not read or persist assist-context extras.
+   ignores every other action and every assist-context extra except the bounded
+   `Intent.EXTRA_TEXT` goal defined by the external-control fixture.
    Each actionable invocation explicitly re-enters the app-owned coordinator
    task with new-task, clear-top, and single-top semantics, so an app Settings
    surface above the stateless gateway cannot hide a later invocation. The

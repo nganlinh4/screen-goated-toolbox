@@ -64,7 +64,7 @@ pub(super) fn handle_orb_ipc(hwnd: HWND, body: &str) {
             if let Some(t) = json.get("text").and_then(serde_json::Value::as_str) {
                 let t = t.trim();
                 if !t.is_empty() {
-                    super::super::runtime::submit_text_command(t.to_string());
+                    let _ = super::super::runtime::submit_text_command(t.to_string());
                 }
             }
         }

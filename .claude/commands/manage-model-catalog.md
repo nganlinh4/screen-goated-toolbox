@@ -88,6 +88,16 @@ py -3 scripts\generate_android_preset_model_catalog.py --manifest-source catalog
 The validator and Cargo build reject duplicate IDs, permanent migration tables,
 incomplete lifecycle metadata, and deprecated/retired runtime defaults.
 
+When `build_support/model_catalog.rs` changes the generated Rust output shape or
+constant mappings, increment `MODEL_CATALOG_GENERATOR_SCHEMA` in `build.rs` in
+the same change. This invalidates a cached build-script executable instead of
+letting it regenerate the catalog with old generator logic. Validate through the
+managed warm cache with:
+
+```powershell
+.\run-dev.ps1 -SkipFrontendBuild -SkipCacheMaintenance -CargoCommand check
+```
+
 9. For removal or an intentional namespace rewrite, prove no dangling active
    references remain with `rg`.
 10. Run focused tests, then repository validation from `AGENTS.md`. For Android catalog changes, run the relevant Gradle compile/unit tests from `mobile/README.md`.

@@ -133,10 +133,12 @@ at build time guarantees they eventually lie. Two consequences:
   name. This is what stops the product's freshness being tied to its release
   cadence: a model the monitor finds on Tuesday is usable on Tuesday.
 
-Discovery adds and never redefines identity or presentation. Manual priority
-order remains exact while Live is off. Turning Live on is an explicit opt-in to
-re-rank every currently offered row below the protected head from fresh feed
-signals while preserving the relative order of non-live authored rows.
+Discovery keeps curated identity and presentation while redefining the live
+operational fields it actually measures. Manual priority order remains exact
+while Live is off. Turning Live on is an explicit opt-in to reconcile NVIDIA
+availability and re-rank every currently offered row from position three onward
+using fresh feed signals while preserving the relative order of non-live authored
+rows.
 
 Reasoning controls use the versioned `controlVersion` contract. Labels are a
 closed enum in each client version; changing a label's wire meaning requires a
@@ -152,6 +154,12 @@ Changing a benchmark task never resets endpoint availability.
 The implemented contract is:
 
 - the feed may **offer** models, inserted as `ModelSource::Discovered`;
+- publication is admission: clients consume every signed offer and never apply a
+  second success-rate threshold. A currently absent NVIDIA endpoint is removed
+  from Live routing and generic fallback search; an explicit reviewed withdrawal
+  remains the separate human-quality veto;
+- every NVIDIA selector projects the signed offer set. The Live toggle controls
+  adaptive priority ordering, not whether stale compiled inventory is displayed;
 - dedicated capabilities are omitted from this generic availability feed and
   never enter a text or vision chain merely because the endpoint is implemented
   as an LLM. A translation-only endpoint is governed like any other dedicated

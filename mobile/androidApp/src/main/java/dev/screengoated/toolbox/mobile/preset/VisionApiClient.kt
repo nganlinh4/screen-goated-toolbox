@@ -28,13 +28,15 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
             require(model.modelType == PresetModelType.VISION && model.provider.hasVisionPresetRuntime()) {
                 "Unsupported vision provider: ${model.provider.name.lowercase()}"
             }
+            val normalizer = InitialLineBreakNormalizer()
             val repetitionGuard = model.restatesOutput.takeIf { it }?.let { VisionRepetitionGuard() }
-            val guardedOnChunk: (String) -> Unit = { chunk ->
-                if (repetitionGuard == null) {
-                    onChunk(chunk)
-                } else if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
+            val guardedOnChunk: (String) -> Unit = guarded@{ rawChunk ->
+                val chunk = normalizer.observe(rawChunk) ?: return@guarded
+                if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
                     val replacement = chunk.removePrefix(TextApiClient.WIPE_SIGNAL)
-                    repetitionGuard.restart(replacement)
+                    repetitionGuard?.restart(replacement)
+                    onChunk(chunk)
+                } else if (repetitionGuard == null) {
                     onChunk(chunk)
                 } else {
                     when (val action = repetitionGuard.observe(chunk)) {
@@ -130,11 +132,12 @@ class VisionApiClient(internal val httpClient: OkHttpClient) {
                 else ->
                     throw IOException("Unsupported vision provider: ${model.provider.name.lowercase()}")
             }
+            val normalized = normalizer.finish(result)
             if (repetitionGuard == null) {
-                result
+                normalized
             } else {
-                val salvaged = repetitionGuard.finish(result)
-                if (salvaged != result) {
+                val salvaged = repetitionGuard.finish(normalized)
+                if (salvaged != normalized) {
                     onChunk("${TextApiClient.WIPE_SIGNAL}$salvaged")
                 }
                 salvaged

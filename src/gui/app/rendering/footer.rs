@@ -4,7 +4,8 @@
 use super::super::types::SettingsApp;
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::{
-    FOOTER_MARGIN, FooterToggles, footer_minimum_window_width, render_footer, render_tips_modal,
+    FOOTER_MARGIN, FOOTER_VERTICAL_MARGIN, FooterToggles, footer_minimum_window_width,
+    render_footer, render_tips_modal,
 };
 use eframe::egui;
 
@@ -51,11 +52,15 @@ impl SettingsApp {
 
         let mut footer_content_width = 0.0;
         egui::Panel::bottom("footer_panel")
+            .exact_size(crate::gui::theme::WINDOW_BAR_HEIGHT)
             .resizable(false)
             .show_separator_line(false)
             .frame(
                 egui::Frame::default()
-                    .inner_margin(egui::Margin::same(FOOTER_MARGIN))
+                    .inner_margin(egui::Margin::symmetric(
+                        FOOTER_MARGIN,
+                        FOOTER_VERTICAL_MARGIN,
+                    ))
                     .fill(footer_bg)
                     .corner_radius(egui::CornerRadius {
                         nw: 0,

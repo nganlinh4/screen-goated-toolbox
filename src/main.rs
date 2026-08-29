@@ -46,7 +46,7 @@ pub(crate) use config::load_config;
 pub use screen_capture::GdiCapture;
 
 // The footer raises this baseline per locale when its launchers need more room.
-pub const MIN_WINDOW_WIDTH: f32 = 1100.0;
+pub const MIN_WINDOW_WIDTH: f32 = 1000.0;
 pub const MIN_WINDOW_HEIGHT: f32 = 720.0;
 pub const WINDOW_WIDTH: f32 = MIN_WINDOW_WIDTH;
 pub const WINDOW_HEIGHT: f32 = MIN_WINDOW_HEIGHT;

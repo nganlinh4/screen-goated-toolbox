@@ -52,6 +52,17 @@ class TextApiClientTest {
     }
 
     @Test
+    fun outputNormalizationMatchesWindowsParityContract() {
+        val root = json.parseToJsonElement(Files.readAllBytes(fixturePath()).decodeToString()).jsonObject
+        val contract = root.getValue("output_normalization").jsonObject
+        assertEquals(
+            listOf("text-to-text", "refinement", "image-to-text"),
+            contract.getValue("scopes").jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertTrue(contract.getValue("restart_on_transport_replacement").jsonPrimitive.boolean)
+    }
+
+    @Test
     fun groqGptOssRequestBodyUsesCatalogApiModel() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(

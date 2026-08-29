@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.ui
 
 import android.content.Intent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PhoneControlAssistActivityTest {
@@ -41,6 +42,21 @@ class PhoneControlAssistActivityTest {
                 ),
             )
         }
+    }
+
+    @Test
+    fun `assist text requires role and stays bounded`() {
+        assertEquals(
+            "inspect this",
+            phoneControlAssistGoal(Intent.ACTION_ASSIST, true, "  inspect this  "),
+        )
+        assertNull(phoneControlAssistGoal(Intent.ACTION_ASSIST, false, "inspect this"))
+        assertNull(
+            phoneControlAssistGoal(Intent.ACTION_VIEW, true, "inspect this"),
+        )
+        assertNull(
+            phoneControlAssistGoal(Intent.ACTION_ASSIST, true, "x".repeat(1_025)),
+        )
     }
 
     private fun assertRoute(

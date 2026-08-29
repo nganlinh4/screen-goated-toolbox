@@ -49,7 +49,8 @@ where
     }
 
     let b64_audio = general_purpose::STANDARD.encode(&wav_data);
-    let url = crate::api::gemini_generate::gemini_content_url(&model, true);
+    let is_dedicated_transcribe = model == crate::model_config::GEMINI_TRANSCRIBE_BATCH_API_MODEL;
+    let url = crate::api::gemini_generate::gemini_content_url(&model, !is_dedicated_transcribe);
 
     let mut payload = serde_json::json!({
         "contents": [{
@@ -59,14 +60,34 @@ where
                 {
                     "inline_data": {
                         "mime_type": "audio/wav",
-                        "data": b64_audio
+                        "data": b64_audio.clone()
                     }
                 }
             ]
         }]
     });
 
-    if let Some(thinking_config) = crate::api::gemini_thinking_config(&model) {
+    if is_dedicated_transcribe {
+        payload["contents"][0]["parts"] = serde_json::json!([{
+            "inline_data": {
+                "mime_type": "audio/wav",
+                "data": b64_audio
+            }
+        }]);
+        let vocabulary = crate::APP
+            .lock()
+            .unwrap()
+            .config
+            .realtime_custom_vocabulary
+            .clone();
+        payload["generationConfig"] = serde_json::json!({
+            "audioTranscriptionConfig": {
+                "languageCodes": [],
+                "mode": "SMART",
+                "customVocabulary": vocabulary,
+            }
+        });
+    } else if let Some(thinking_config) = crate::api::gemini_thinking_config(&model) {
         payload["generationConfig"] = serde_json::json!({
             "thinkingConfig": thinking_config
         });
@@ -86,6 +107,21 @@ where
                 anyhow::anyhow!("Gemini Audio API Error: {}", e)
             }
         })?;
+
+    if is_dedicated_transcribe {
+        let root: serde_json::Value = resp.into_body().read_json()?;
+        let text = root["candidates"][0]["content"]["parts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|part| part["text"].as_str())
+            .collect::<String>();
+        if text.is_empty() {
+            return Err(anyhow::anyhow!("No content received from Gemini Audio API"));
+        }
+        on_chunk(&text);
+        return Ok(text);
+    }
 
     let mut full_content = String::new();
     let reader = std::io::BufReader::new(resp.into_body().into_reader());

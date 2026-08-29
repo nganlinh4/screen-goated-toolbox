@@ -129,10 +129,15 @@ Run at minimum:
 
 ```powershell
 py -3 scripts/generate_android_preset_model_catalog.py --manifest-source catalog/model_catalog.json --validate-only
+.\run-dev.ps1 -SkipFrontendBuild -SkipCacheMaintenance -CargoCommand check
 cargo fmt
 cargo test
 cargo clippy --all-targets -- -D warnings
 git diff --check
 ```
+
+For generated Rust output or mapping changes, follow the generator-schema bump
+in `.claude/commands/manage-model-catalog.md` before the managed warm-cache
+check. A clean target alone does not validate stale build-script behavior.
 
 Run Android checks from `mobile/README.md` when generated Android behavior or a shared parity contract changes. Report discovery evidence, accepted/rejected candidates, benchmark coverage and quota gaps, catalog/default/priority changes, and validation results.

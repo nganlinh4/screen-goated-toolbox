@@ -16,6 +16,41 @@ pub(super) struct PreparedChain {
     pub(super) live_ids: Vec<String>,
 }
 
+/// Priority rows must explain the ranking they are currently using. A curated
+/// row keeps its durable catalog benchmark everywhere else, but while Live owns
+/// it this editor shows the feed latency that placed it in the adaptive chain.
+pub(super) fn apply_live_latency_overrides(
+    models: &mut [crate::model_config::ModelConfig],
+    offered: impl IntoIterator<Item = (String, u32)>,
+) {
+    for (id, latency_ms) in offered {
+        if latency_ms == u32::MAX {
+            continue;
+        }
+        if let Some(model) = models.iter_mut().find(|model| model.id == id) {
+            model.typical_latency_ms = Some(latency_ms);
+        }
+    }
+}
+
+pub(super) fn apply_current_live_feed(
+    models: &mut [crate::model_config::ModelConfig],
+    config: &Config,
+    image_enabled: bool,
+    text_enabled: bool,
+) {
+    let offered = [
+        (RetryChainKind::ImageToText, image_enabled),
+        (RetryChainKind::TextToText, text_enabled),
+    ]
+    .into_iter()
+    .filter(|(_, enabled)| *enabled)
+    .flat_map(|(kind, _)| {
+        crate::model_feed::store::offered_models(config, kind.target_model_type())
+    });
+    apply_live_latency_overrides(models, offered);
+}
+
 /// Resolves both possible toggle states before the editor mutably borrows its
 /// authored rows. This keeps full-config cloning out of egui's frame loop.
 pub(super) fn prepare_chain(
@@ -122,6 +157,27 @@ mod tests {
                 false,
             ),
             authored
+        );
+    }
+
+    #[test]
+    fn live_priority_rows_show_the_latency_used_to_rank_them() {
+        let mut models = crate::gui::settings_ui::model_selector::selector_models(&[]);
+        let id = "nvidia-nemotron-3-super-120b-text";
+        let model = models
+            .iter_mut()
+            .find(|model| model.id == id)
+            .expect("curated NVIDIA model");
+        model.typical_latency_ms = Some(1_400);
+
+        apply_live_latency_overrides(&mut models, [(id.to_string(), 483)]);
+
+        assert_eq!(
+            models
+                .iter()
+                .find(|model| model.id == id)
+                .and_then(|model| model.typical_latency_ms),
+            Some(483)
         );
     }
 

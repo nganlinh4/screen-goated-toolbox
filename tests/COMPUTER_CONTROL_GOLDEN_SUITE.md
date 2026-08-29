@@ -67,19 +67,21 @@ Create a local run card without overwriting existing evidence:
 node tests/computer_control_golden_suite_check.mjs --init meeting_packet cc-golden-runs/meeting-packet-001.json
 ```
 
-For exact file state at every scripted turn boundary, set both variables before
-`--computer-control-run` using a debug build (snapshot capture is excluded from
-release builds):
+Launch the repaired desktop app normally. Read the ephemeral endpoint and bearer
+token from `%LOCALAPPDATA%/screen-goated-toolbox/computer-control-api.json`, then
+submit each task to `POST /v1/control` as JSON:
 
 ```powershell
-$env:CC_SCRIPTED_SNAPSHOT_PATHS_JSON = ConvertTo-Json -Compress @((Resolve-Path <artifact>).Path)
-$env:CC_SCRIPTED_SNAPSHOT_DIR = Join-Path (Resolve-Path <run-directory>) 'turn-snapshots'
+$control = Get-Content -Raw (Join-Path $env:LOCALAPPDATA 'screen-goated-toolbox/computer-control-api.json') | ConvertFrom-Json
+$headers = @{ Authorization = "Bearer $($control.token)" }
+$body = @{ operation = 'submit_turn'; prompt = '<natural goal-level task>' } | ConvertTo-Json -Compress
+Invoke-RestMethod -Method Post -Uri "$($control.endpoint)/v1/control" -Headers $headers -ContentType 'application/json' -Body $body
 ```
 
-The source array must contain existing absolute file paths and the destination
-must be a new absolute directory. The run creates `turn-0001`, `turn-0002`, and
-so on without overwriting existing evidence, snapshots the first turn only
-after it finishes, and captures the final turn before the run exits.
+Poll authenticated `GET /v1/status` until the visible runtime reports idle before
+submitting another turn. Capture required artifact state with the independent
+oracle after each boundary. Never put prompt text in process arguments or the
+discovery file.
 
 Fill the card only after collecting independent evidence, then validate it:
 

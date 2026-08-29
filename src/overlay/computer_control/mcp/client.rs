@@ -58,11 +58,6 @@ pub(super) struct McpClient {
 }
 
 impl McpClient {
-    /// Spawn the server, complete the MCP handshake, and return a ready client.
-    pub fn spawn(launch: &LaunchSpec) -> Result<McpClient> {
-        Self::spawn_inner(launch, None, next_connection_token(), None)
-    }
-
     pub fn spawn_managed(
         launch: &LaunchSpec,
         stop: Option<&AtomicBool>,

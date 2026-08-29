@@ -46,7 +46,18 @@ pub fn translate_text_streaming<F>(
 where
     F: FnMut(&str),
 {
-    translate_text_streaming_inner(request, &mut on_chunk)
+    let mut normalizer = crate::api::output_normalization::InitialLineBreakNormalizer::default();
+    let result = {
+        let mut normalized_on_chunk = |chunk: &str| match normalizer.observe(chunk) {
+            crate::api::output_normalization::NormalizedChunk::Paint(text) => on_chunk(text),
+            crate::api::output_normalization::NormalizedChunk::Replace(text) => {
+                on_chunk(&format!("{}{text}", crate::api::WIPE_SIGNAL));
+            }
+            crate::api::output_normalization::NormalizedChunk::Suppress => {}
+        };
+        translate_text_streaming_inner(request, &mut normalized_on_chunk)
+    };
+    result.map(|output| normalizer.finish(output))
 }
 
 /// Keep the provider router monomorphic. Callers still get a zero-cost generic

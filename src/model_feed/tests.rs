@@ -144,21 +144,32 @@ fn an_out_of_range_success_rate_is_rejected() {
 }
 
 #[test]
-fn mostly_reliable_models_are_offered_and_they_sort_by_latency() {
+fn signed_publisher_owns_admission_and_clients_only_sort_its_offers() {
     let published = feed(vec![
         model("nvidia/slow", Some(900), 1.0, 12),
         model("nvidia/coinflip", Some(50), 0.5, 12),
         model("nvidia/fast", Some(300), 1.0, 12),
         model("nvidia/mostly", Some(400), 0.833, 12),
-        model("nvidia/unmeasured", None, 1.0, 0),
     ]);
     let ranked: Vec<&str> = ranked_models(&published)
         .iter()
         .map(|m| m.id.as_str())
         .collect();
-    // Five runs in six is useful at the back of a chain; a coin flip is not, and
-    // a model with no measured run cannot be ordered at all.
-    assert_eq!(ranked, vec!["nvidia/fast", "nvidia/mostly", "nvidia/slow"]);
+    assert_eq!(
+        ranked,
+        vec![
+            "nvidia/coinflip",
+            "nvidia/fast",
+            "nvidia/mostly",
+            "nvidia/slow"
+        ]
+    );
+}
+
+#[test]
+fn schema_three_cannot_offer_an_unmeasured_model() {
+    let published = feed(vec![model("nvidia/unmeasured", None, 1.0, 0)]);
+    assert!(validate(&published).is_err());
 }
 
 #[test]
@@ -175,9 +186,9 @@ fn feed_models_interleave_by_quality_then_speed_without_reordering_local_fallbac
         merged,
         [
             "local-leader",
+            "local-second",
             "nvidia/fast",
             "nvidia/next",
-            "local-second",
             "local-third"
         ]
     );
@@ -219,6 +230,15 @@ fn adaptive_priority_policy_matches_the_shared_platform_fixture() {
     assert_eq!(policy["reset_clears_row_overrides"], true);
     assert_eq!(policy["refresh_reorders_only_while_enabled"], true);
     assert_eq!(policy["maximum_offers_per_chain"], 5);
+    assert_eq!(policy["minimum_unpinned_live_position"], 3);
+    assert_eq!(policy["live_rows_show_ranking_latency"], true);
+    assert_eq!(policy["publisher_owns_offer_admission"], true);
+    assert_eq!(
+        policy["feed_absence_removes_nvidia_from_live_routing"],
+        true
+    );
+    assert_eq!(policy["signed_feed_projects_all_nvidia_selectors"], true);
+    assert_eq!(policy["reviewed_withdrawal_remains_quality_veto"], true);
     assert_eq!(policy["quality_latency_multiplier_per_tier"], 1.5);
     assert_eq!(policy["windows_live_feed"], true);
     assert_eq!(policy["android_live_feed"], true);
@@ -245,7 +265,8 @@ fn a_full_local_chain_still_gives_live_models_bounded_slots() {
     merged.truncate(10);
 
     assert_eq!(merged[0], "local-0");
-    assert_eq!(&merged[1..3], &["nvidia/fast", "nvidia/next"]);
+    assert_eq!(&merged[..2], &["local-0", "local-1"]);
+    assert_eq!(&merged[2..4], &["nvidia/fast", "nvidia/next"]);
     assert_eq!(merged.len(), 10);
 }
 
@@ -268,11 +289,10 @@ fn an_empty_offer_leaves_the_chain_exactly_as_it_was() {
 }
 
 #[test]
-fn a_single_entry_chain_keeps_its_only_member_first() {
+fn a_single_entry_chain_is_not_extended_above_the_minimum_live_position() {
     let chain = vec!["only-local".to_string()];
     let merged = merge_into_chain(&chain, &["nvidia/fast".to_string()], flat_rank);
-    assert_eq!(merged[0], "only-local");
-    assert_eq!(merged[1], "nvidia/fast");
+    assert_eq!(merged, ["only-local"]);
 }
 
 #[test]
@@ -294,7 +314,7 @@ fn enabling_live_reclaims_persisted_feed_rows_for_formula_ordering() {
 
     assert_eq!(
         merged,
-        ["local-leader", "nvidia/fast", "local-middle", "nvidia/slow"]
+        ["local-leader", "local-middle", "nvidia/fast", "nvidia/slow"]
     );
 }
 
@@ -339,7 +359,11 @@ fn pinned_live_rows_stay_in_the_authored_baseline_while_other_offers_refresh() {
 
 #[test]
 fn excluded_live_rows_are_neither_kept_nor_reintroduced() {
-    let chain = vec!["leader".to_string(), "nvidia/removed".to_string()];
+    let chain = vec![
+        "leader".to_string(),
+        "local-second".to_string(),
+        "nvidia/removed".to_string(),
+    ];
     let offered = vec!["nvidia/removed".to_string(), "nvidia/other".to_string()];
     let merged = merge_into_chain_with_overrides(
         &chain,
@@ -366,7 +390,8 @@ fn an_offered_configured_head_remains_protected() {
     });
 
     assert_eq!(merged[0], "nvidia/chosen");
-    assert_eq!(merged[1], "nvidia/faster");
+    assert_eq!(merged[1], "local-next");
+    assert_eq!(merged[2], "nvidia/faster");
 }
 
 #[test]

@@ -44,6 +44,7 @@ fn thinking_config_for(level: Option<String>) -> Value {
 /// Function declarations exposed to the model. Mirrors the Computer-Use action
 /// shape but executed natively on Windows. The probe declares a minimal set to
 /// verify tool-call emission; the full executor extends this.
+#[cfg(test)]
 pub fn tool_declarations() -> Value {
     json!([{ "functionDeclarations": [
         {
@@ -108,6 +109,7 @@ pub fn tool_declarations() -> Value {
 }
 
 /// Build the BidiGenerateContent `setup` payload for the probe (AUDIO output).
+#[cfg(test)]
 pub fn build_setup(system_instruction: &str) -> Value {
     crate::api::gemini_live::setup::LiveSetupBuilder::new(MODEL)
         // HIGH is the OCR knob — required to read small on-screen text.

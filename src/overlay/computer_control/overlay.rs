@@ -75,6 +75,24 @@ pub fn is_active() -> bool {
     CC_ACTIVE.load(Ordering::SeqCst)
 }
 
+pub(crate) fn launch_and_submit(text: String) -> super::runtime::control::TextCommandDisposition {
+    if is_active() && CC_STOP.load(Ordering::SeqCst) {
+        return super::runtime::control::TextCommandDisposition::Busy;
+    }
+    let disposition = super::runtime::submit_text_command(text);
+    if disposition != super::runtime::control::TextCommandDisposition::Queued {
+        return disposition;
+    }
+    if !is_active() {
+        show_overlay();
+        if !is_active() {
+            super::runtime::control::clear_startup_text_command();
+            return super::runtime::control::TextCommandDisposition::Busy;
+        }
+    }
+    disposition
+}
+
 /// Start a Computer Control session (no-op if one is already running).
 pub fn show_overlay() {
     if CC_ACTIVE.swap(true, Ordering::SeqCst) {
@@ -114,6 +132,7 @@ pub(super) fn show_startup_credential_error(error: &anyhow::Error) -> bool {
 
 /// Signal the running session to stop (the runtime thread clears CC_ACTIVE).
 pub fn stop_overlay() {
+    super::runtime::control::clear_startup_text_command();
     CC_STOP.store(true, Ordering::SeqCst);
     super::orb::hide_orb();
 }

@@ -5,8 +5,8 @@
 
 use super::super::types::{DetailPane, SettingsApp};
 use crate::gui::locale::LocaleText;
-use crate::gui::settings_ui::FOOTER_MARGIN;
 use crate::gui::settings_ui::ViewMode;
+use crate::gui::settings_ui::{FOOTER_MARGIN, FOOTER_VERTICAL_MARGIN};
 use eframe::egui;
 
 /// Inset from the window edge for the bars that top and tail the window.
@@ -14,6 +14,7 @@ use eframe::egui;
 /// Shared with the launch bar so both ends of the window sit at one distance
 /// from the frame.
 const BAR_INSET: i8 = FOOTER_MARGIN;
+const BAR_VERTICAL_INSET: i8 = FOOTER_VERTICAL_MARGIN;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 #[cfg(target_os = "windows")]
@@ -33,7 +34,7 @@ impl SettingsApp {
         let bar_bg = crate::gui::theme::AppTheme::from_dark(is_dark).bar_bg();
 
         egui::Panel::top("title_bar")
-            .exact_size(40.0)
+            .exact_size(crate::gui::theme::WINDOW_BAR_HEIGHT)
             .frame(
                 egui::Frame::default()
                     // Maximized, the window controls run to the very corner so
@@ -48,7 +49,7 @@ impl SettingsApp {
                             bottom: 0,
                         }
                     } else {
-                        egui::Margin::same(BAR_INSET)
+                        egui::Margin::symmetric(BAR_INSET, BAR_VERTICAL_INSET)
                     })
                     .fill(bar_bg)
                     .corner_radius(egui::CornerRadius {
@@ -82,7 +83,11 @@ impl SettingsApp {
                 // inherits an over-tall available rect, which egui's row layout snaps
                 // to the TOP — leaving short items (theme icon, combo) high.
                 let title_row_w = ui.available_width();
-                let title_row_h = if is_maximized { 40.0 } else { 28.0 };
+                let title_row_h = if is_maximized {
+                    crate::gui::theme::WINDOW_BAR_HEIGHT
+                } else {
+                    crate::gui::theme::WINDOW_BAR_HEIGHT - f32::from(BAR_VERTICAL_INSET) * 2.0
+                };
                 ui.allocate_ui_with_layout(
                     egui::vec2(title_row_w, title_row_h),
                     egui::Layout::left_to_right(egui::Align::Center),
@@ -300,7 +305,11 @@ impl SettingsApp {
         let resp = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
 
-            let grid_h = if is_maximized { 40.0 } else { 28.0 };
+            let grid_h = if is_maximized {
+                crate::gui::theme::WINDOW_BAR_HEIGHT
+            } else {
+                crate::gui::theme::WINDOW_BAR_HEIGHT - f32::from(BAR_VERTICAL_INSET) * 2.0
+            };
             let btn_size = egui::vec2(40.0, grid_h);
 
             // Close Button

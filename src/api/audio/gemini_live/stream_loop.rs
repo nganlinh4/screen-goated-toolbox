@@ -22,6 +22,7 @@ struct ReconnectContext<'a> {
     session: &'a mut ReadyLiveSession,
     api_key: &'a str,
     model: &'a str,
+    vocabulary: &'a [String],
     audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
     silence_buffer: &'a mut Vec<i16>,
     audio_mode: &'a mut AudioMode,
@@ -37,6 +38,7 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
         session,
         api_key,
         model,
+        vocabulary,
         audio_buffer,
         silence_buffer,
         audio_mode,
@@ -60,7 +62,7 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
             reconnect_buffer.extend(std::mem::take(&mut *buf));
         }
 
-        match super::open_ready_session(api_key, model, || {
+        match super::open_ready_session(api_key, model, vocabulary, || {
             stop_signal.load(Ordering::Relaxed) || abort_signal.load(Ordering::Relaxed)
         }) {
             Ok(new_session) => {
@@ -99,8 +101,10 @@ pub(super) struct StreamingLoopContext<'a, F> {
     pub(super) session: &'a mut ReadyLiveSession,
     pub(super) api_key: &'a str,
     pub(super) model: &'a str,
+    pub(super) vocabulary: &'a [String],
     pub(super) audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
     pub(super) accumulated_text: &'a Arc<Mutex<String>>,
+    pub(super) transcribe_text: &'a mut crate::api::gemini_transcribe::TranscriptState,
     pub(super) stop_signal: &'a Arc<AtomicBool>,
     pub(super) pause_signal: &'a Arc<AtomicBool>,
     pub(super) abort_signal: &'a Arc<AtomicBool>,
@@ -117,8 +121,10 @@ where
         session,
         api_key,
         model,
+        vocabulary,
         audio_buffer,
         accumulated_text,
+        transcribe_text,
         stop_signal,
         pause_signal,
         abort_signal,
@@ -144,6 +150,7 @@ where
     let mut silence_buffer: Vec<i16> = Vec::new();
     let mut last_transcription_time = Instant::now();
     let mut consecutive_empty_reads: u32 = 0;
+    let uses_interim_transcripts = crate::api::gemini_transcribe::is_live_transcribe(model);
 
     while !stop_signal.load(Ordering::SeqCst) && !abort_signal.load(Ordering::SeqCst) {
         if !preset.hide_recording_ui && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
@@ -152,7 +159,7 @@ where
 
         match audio_mode {
             AudioMode::Normal => {
-                if mode_start.elapsed() >= NORMAL_DURATION {
+                if !uses_interim_transcripts && mode_start.elapsed() >= NORMAL_DURATION {
                     audio_mode = AudioMode::Silence;
                     mode_start = Instant::now();
                     silence_buffer.clear();
@@ -216,7 +223,31 @@ where
         loop {
             match session.poll() {
                 Ok(LivePoll::Frame(frame)) => {
-                    if let Some(t) = frame.input_transcript
+                    if uses_interim_transcripts {
+                        if let Some(interim) = frame.interim_input_transcript
+                            && !interim.is_empty()
+                        {
+                            last_transcription_time = Instant::now();
+                            consecutive_empty_reads = 0;
+                            transcribe_text.replace_interim(&interim);
+                            update_stream_text(&transcribe_text.display());
+                        }
+                        if let Some(final_text) = frame.input_transcript
+                            && !final_text.is_empty()
+                        {
+                            last_transcription_time = Instant::now();
+                            consecutive_empty_reads = 0;
+                            let delta = transcribe_text.commit_final(&final_text);
+                            if let Ok(mut txt) = accumulated_text.lock() {
+                                txt.clear();
+                                txt.push_str(transcribe_text.committed());
+                            }
+                            update_stream_text(transcribe_text.committed());
+                            if preset.auto_paste && !delta.is_empty() {
+                                crate::overlay::utils::type_text_to_window(None, &delta);
+                            }
+                        }
+                    } else if let Some(t) = frame.input_transcript
                         && !t.is_empty()
                     {
                         last_transcription_time = Instant::now();
@@ -235,6 +266,7 @@ where
                         session,
                         api_key,
                         model,
+                        vocabulary,
                         audio_buffer,
                         silence_buffer: &mut silence_buffer,
                         audio_mode: &mut audio_mode,
@@ -249,13 +281,15 @@ where
                 }
                 Ok(LivePoll::Idle) => {
                     consecutive_empty_reads += 1;
-                    if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
+                    if !uses_interim_transcripts
+                        && consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
                         && last_transcription_time.elapsed()
                             > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
                         && !try_reconnect(ReconnectContext {
                             session,
                             api_key,
                             model,
+                            vocabulary,
                             audio_buffer,
                             silence_buffer: &mut silence_buffer,
                             audio_mode: &mut audio_mode,
@@ -281,6 +315,7 @@ where
                             session,
                             api_key,
                             model,
+                            vocabulary,
                             audio_buffer,
                             silence_buffer: &mut silence_buffer,
                             audio_mode: &mut audio_mode,
@@ -323,6 +358,8 @@ where
 pub(super) fn wait_for_final_transcriptions(
     session: &mut ReadyLiveSession,
     accumulated_text: &Arc<Mutex<String>>,
+    transcribe_text: &mut crate::api::gemini_transcribe::TranscriptState,
+    uses_interim_transcripts: bool,
     preset: &Preset,
     streaming_hwnd: Option<HWND>,
 ) {
@@ -335,17 +372,37 @@ pub(super) fn wait_for_final_transcriptions(
     while Instant::now() < conclude_end && Instant::now() < max_stop_time {
         match session.poll() {
             Ok(LivePoll::Frame(frame)) => {
+                if uses_interim_transcripts
+                    && let Some(interim) = frame.interim_input_transcript
+                    && !interim.is_empty()
+                {
+                    transcribe_text.replace_interim(&interim);
+                    if let Some(h) = streaming_hwnd {
+                        update_window_text(h, &transcribe_text.display());
+                    }
+                    conclude_end = Instant::now() + extension;
+                }
                 if let Some(t) = frame.input_transcript
                     && !t.is_empty()
                 {
+                    let delta = if uses_interim_transcripts {
+                        transcribe_text.commit_final(&t)
+                    } else {
+                        t.clone()
+                    };
                     if let Ok(mut txt) = accumulated_text.lock() {
-                        txt.push_str(&t);
+                        if uses_interim_transcripts {
+                            txt.clear();
+                            txt.push_str(transcribe_text.committed());
+                        } else {
+                            txt.push_str(&t);
+                        }
                         if let Some(h) = streaming_hwnd {
                             update_window_text(h, &txt);
                         }
                     }
-                    if preset.auto_paste {
-                        crate::overlay::utils::type_text_to_window(None, &t);
+                    if preset.auto_paste && !delta.is_empty() {
+                        crate::overlay::utils::type_text_to_window(None, &delta);
                     }
                     conclude_end = Instant::now() + extension;
                 }

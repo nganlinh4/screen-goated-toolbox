@@ -446,4 +446,6 @@ impl AppTheme {
 mod metrics;
 mod style;
 
-pub use metrics::{CONTROL_HEIGHT, WINDOW_EDGE_INSET, blend, space};
+pub use metrics::{
+    CONTROL_HEIGHT, WINDOW_BAR_HEIGHT, WINDOW_BAR_VERTICAL_INSET, WINDOW_EDGE_INSET, blend, space,
+};

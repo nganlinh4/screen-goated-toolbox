@@ -98,10 +98,6 @@ Answer in ONE or TWO sentences as a direct instruction to the agent. No preamble
             .to_string();
         (!advice.is_empty()).then_some(advice)
     }
-
-    pub fn final_review(&self, task: &str, note: &str) {
-        final_review(&self.dir, self.target.as_deref(), task, note);
-    }
 }
 
 /// Run a (slow, blocking) vision call on a worker thread while polling `cancel`

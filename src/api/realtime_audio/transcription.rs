@@ -14,7 +14,6 @@ use windows::Win32::Foundation::*;
 
 use crate::APP;
 use crate::api::gemini_live::ready_session::{ConnectedLiveSocket, OpenOptions, ReadyLiveSession};
-use crate::api::gemini_live::setup::{LiveSetupBuilder, MediaResolution, TranscriptionMode};
 use crate::model_config::{
     normalize_realtime_transcription_model_id, realtime_transcription_api_model,
     realtime_transcription_live_protocol,
@@ -58,28 +57,7 @@ fn build_realtime_transcription_setup(
     vocabulary: &[String],
     resumption_handle: Option<&str>,
 ) -> serde_json::Value {
-    let builder = LiveSetupBuilder::new(model).transcription(TranscriptionMode::Input);
-    if crate::model_config::live_endpoint_profile(model).and_then(|profile| profile.protocol)
-        == Some("live-transcribe")
-    {
-        let resumption = resumption_handle
-            .map(|handle| serde_json::json!({ "handle": handle }))
-            .unwrap_or_else(|| serde_json::json!({}));
-        builder
-            .generation_field("responseModalities", serde_json::json!(["TEXT"]))
-            .setup_field(
-                "inputAudioTranscription",
-                serde_json::json!({
-                    "languageCodes": [],
-                    "mode": "SMART",
-                    "customVocabulary": vocabulary,
-                }),
-            )
-            .setup_field("sessionResumption", resumption)
-            .build()
-    } else {
-        builder.media_resolution(MediaResolution::Low).build()
-    }
+    crate::api::gemini_transcribe::build_live_setup(model, vocabulary, resumption_handle)
 }
 
 fn reconnect_on_no_results_for_protocol(protocol: Option<&str>) -> bool {

@@ -4,6 +4,23 @@
     "implicit_provider_tools": false,
     "grounding_requires_explicit_search_path": true
   },
+  "output_normalization": {
+    "scopes": [
+      "text-to-text",
+      "refinement",
+      "image-to-text"
+    ],
+    "remove_before_first_visible_output": [
+      "carriage-return",
+      "line-feed"
+    ],
+    "preserve": [
+      "leading-space",
+      "leading-tab",
+      "later-line-breaks"
+    ],
+    "restart_on_transport_replacement": true
+  },
   "cases": [
     {
       "name": "gemini_text_search_and_thinking_follow_windows_rules",

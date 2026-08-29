@@ -44,7 +44,8 @@ pub fn render_model_priority_body(
         .adaptive_model_priority
         .text_to_text_overrides
         .clone();
-    let selector_models = model_selector::selector_models(&config.custom_models);
+    let mut selector_models = model_selector::selector_models(&config.custom_models);
+    feed::apply_current_live_feed(&mut selector_models, config, image_adaptive, text_adaptive);
     let image_prepared = feed::prepare_chain(
         config,
         RetryChainKind::ImageToText,

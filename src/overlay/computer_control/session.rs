@@ -3,19 +3,9 @@
 //! `CC_WS_BASE`), JSON send, and screenshot capture.
 
 use anyhow::Result;
-use base64::{Engine as _, engine::general_purpose};
 use tungstenite::Message;
 
 pub(super) type Sock = tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>;
-
-/// Pixel dimensions of the (downscaled) frame sent to the model. Kept for
-/// logging/debug only — coordinate mapping is 0-1000 normalized and does not
-/// depend on these.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct FrameGeometry {
-    pub frame_w: u32,
-    pub frame_h: u32,
-}
 
 /// Longest screenshot edge sent to the model (keeps JPEG + token cost sane).
 /// Overridable via `CC_MAX_DIM` for fidelity experiments.
@@ -79,16 +69,8 @@ pub(super) fn send(socket: &mut Sock, value: serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-/// Capture the whole virtual screen, downscale to [`MAX_FRAME_DIM`], and return
-/// (base64 JPEG, geometry).
-pub(super) fn capture_frame() -> Result<(String, FrameGeometry)> {
-    let (jpeg, geom) = capture_frame_jpeg()?;
-    Ok((general_purpose::STANDARD.encode(jpeg), geom))
-}
-
-/// Like [`capture_frame`] but returns the raw JPEG bytes (so callers can also
-/// save the exact frame the model sees to disk for visual debugging).
-pub(super) fn capture_frame_jpeg() -> Result<(Vec<u8>, FrameGeometry)> {
+/// Capture the whole virtual screen and return the downscaled JPEG bytes.
+pub(super) fn capture_frame_jpeg() -> Result<Vec<u8>> {
     let cap = capture_virtual()?;
     let mut dynimg = image::DynamicImage::ImageRgb8(cap.rgb);
     let max_dim = max_frame_dim();
@@ -99,11 +81,7 @@ pub(super) fn capture_frame_jpeg() -> Result<(Vec<u8>, FrameGeometry)> {
         let nh = (dynimg.height() as f32 * scale).round().max(1.0) as u32;
         dynimg = dynimg.resize(nw, nh, image::imageops::FilterType::Triangle);
     }
-    let geom = FrameGeometry {
-        frame_w: dynimg.width(),
-        frame_h: dynimg.height(),
-    };
-    Ok((super::vision_contract::encode_jpeg(&dynimg)?, geom))
+    super::vision_contract::encode_jpeg(&dynimg)
 }
 
 /// The whole virtual screen as RGB, with its top-left origin in screen pixels.

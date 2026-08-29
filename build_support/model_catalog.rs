@@ -4,7 +4,7 @@ use std::path::Path;
 #[path = "model_catalog_validation.rs"]
 mod validation;
 
-pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
+pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schema: u32) {
     let manifest = fs::read_to_string(manifest_path)
         .unwrap_or_else(|err| panic!("Failed to read {}: {}", manifest_path.display(), err));
     let manifest: serde_json::Value = serde_json::from_str(&manifest)
@@ -36,6 +36,10 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
             "GEMINI_LIVE_TRANSLATE_API_MODEL",
             "gemini_live_translate_api_model",
         ),
+        (
+            "GEMINI_TRANSCRIBE_BATCH_API_MODEL",
+            "gemini_transcribe_batch_api_model",
+        ),
         ("QWEN3_ASR_0_6B_MODEL_ID", "qwen3_asr_0_6b_model_id"),
         ("QWEN3_ASR_1_7B_MODEL_ID", "qwen3_asr_1_7b_model_id"),
         (
@@ -49,7 +53,9 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path) {
     ];
 
     let mut lines = vec![
-        "// Generated from catalog/model_catalog.json. Do not edit by hand.".to_string(),
+        format!(
+            "// Generated from catalog/model_catalog.json with generator schema {generator_schema}. Do not edit by hand."
+        ),
         String::new(),
     ];
 

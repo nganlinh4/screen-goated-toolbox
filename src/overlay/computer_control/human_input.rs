@@ -43,15 +43,6 @@ impl HumanProfile {
         }
     }
 
-    /// A realistic persona (used by the cursor demo / as a humanized fallback).
-    pub fn realistic() -> Self {
-        Self {
-            mode: Humanize::Realistic,
-            wpm: 55.0,
-            typos: false,
-        }
-    }
-
     /// Read `CC_HUMANIZE` (+ `CC_WPM`, `CC_TYPOS`). Unset/`off` ⇒ instant.
     pub fn from_env() -> Self {
         let wpm = std::env::var("CC_WPM").ok().and_then(|s| s.parse().ok());

@@ -17,7 +17,6 @@ use super::utils::{
 };
 use crate::APP;
 use crate::api::gemini_live::ready_session::{ConnectedLiveSocket, OpenOptions, ReadyLiveSession};
-use crate::api::gemini_live::setup::{LiveSetupBuilder, MediaResolution, TranscriptionMode};
 use crate::config::Preset;
 use crate::model_config::{GEMINI_LIVE_API_MODEL_2_5, get_model_by_id};
 use crate::overlay::recording::AUDIO_INITIALIZING;
@@ -26,12 +25,10 @@ use crate::overlay::result::update_window_text;
 fn open_ready_session(
     api_key: &str,
     model: &str,
+    vocabulary: &[String],
     cancelled: impl FnMut() -> bool,
 ) -> anyhow::Result<ReadyLiveSession> {
-    let setup = LiveSetupBuilder::new(model)
-        .media_resolution(MediaResolution::Low)
-        .transcription(TranscriptionMode::Input)
-        .build();
+    let setup = crate::api::gemini_transcribe::build_live_setup(model, vocabulary, None);
     ConnectedLiveSocket::connect(api_key)?.activate_with(
         setup,
         OpenOptions {
@@ -64,9 +61,12 @@ pub fn record_and_stream_gemini_live(
         }
     };
 
-    let gemini_api_key = {
+    let (gemini_api_key, custom_vocabulary) = {
         let app = APP.lock().unwrap();
-        app.config.gemini_api_key.clone()
+        (
+            app.config.gemini_api_key.clone(),
+            app.config.realtime_custom_vocabulary.clone(),
+        )
     };
     let gemini_live_model = preset
         .blocks
@@ -88,9 +88,12 @@ pub fn record_and_stream_gemini_live(
     AUDIO_INITIALIZING.store(true, Ordering::SeqCst);
     println!("[GeminiLiveStream] Connecting WebSocket...");
 
-    let mut session = match open_ready_session(&gemini_api_key, &gemini_live_model, || {
-        stop_signal.load(Ordering::SeqCst) || abort_signal.load(Ordering::SeqCst)
-    }) {
+    let mut session = match open_ready_session(
+        &gemini_api_key,
+        &gemini_live_model,
+        &custom_vocabulary,
+        || stop_signal.load(Ordering::SeqCst) || abort_signal.load(Ordering::SeqCst),
+    ) {
         Ok(session) => session,
         Err(e) => {
             println!("[GeminiLiveStream] Connection/setup failed: {}", e);
@@ -123,6 +126,7 @@ pub fn record_and_stream_gemini_live(
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
     let full_audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
     let accumulated_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let mut transcribe_text = crate::api::gemini_transcribe::TranscriptState::default();
     let audio_buffer_clone = audio_buffer.clone();
     let full_buffer_clone = full_audio_buffer.clone();
     let pause_clone = pause_signal.clone();
@@ -164,8 +168,10 @@ pub fn record_and_stream_gemini_live(
         session: &mut session,
         api_key: &gemini_api_key,
         model: &gemini_live_model,
+        vocabulary: &custom_vocabulary,
         audio_buffer: &audio_buffer,
         accumulated_text: &accumulated_text,
+        transcribe_text: &mut transcribe_text,
         stop_signal: &stop_signal,
         pause_signal: &pause_signal,
         abort_signal: &abort_signal,
@@ -188,6 +194,8 @@ pub fn record_and_stream_gemini_live(
         stream_loop::wait_for_final_transcriptions(
             &mut session,
             &accumulated_text,
+            &mut transcribe_text,
+            crate::api::gemini_transcribe::is_live_transcribe(&gemini_live_model),
             &preset,
             streaming_hwnd,
         );
