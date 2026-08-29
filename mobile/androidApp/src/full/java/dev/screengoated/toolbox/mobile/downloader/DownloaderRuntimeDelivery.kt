@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.downloader
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.componentupdate.ComponentUpdateCatalog
 import org.json.JSONObject
 
@@ -54,11 +55,14 @@ internal fun loadDownloaderRuntimeDelivery(context: Context): DownloaderRuntimeD
             setOf("android-full-arm64"),
         )?.let { return@runCatching parseDownloaderRuntimeDelivery(it.toString()) }
         context.assets.open("downloader-runtime/delivery.json").bufferedReader().use {
-            parseDownloaderRuntimeDelivery(it.readText())
+            parseDownloaderRuntimeDelivery(it.readText(), allowStaging = BuildConfig.DEBUG)
         }
     }.getOrNull()
 
-internal fun parseDownloaderRuntimeDelivery(raw: String): DownloaderRuntimeDelivery {
+internal fun parseDownloaderRuntimeDelivery(
+    raw: String,
+    allowStaging: Boolean = false,
+): DownloaderRuntimeDelivery {
     val root = JSONObject(raw)
     require(root.getInt("schemaVersion") == 1) { "Unsupported downloader delivery schema" }
     val version = root.requiredString("version")
@@ -102,7 +106,10 @@ internal fun parseDownloaderRuntimeDelivery(raw: String): DownloaderRuntimeDeliv
                     "yt-dlp must be delivered as a direct file"
                 }
             } else {
-                require(url.startsWith(SGT_RUNTIME_BUNDLE_URL)) {
+                require(
+                    url.startsWith(SGT_RUNTIME_BUNDLE_URL) ||
+                        allowStaging && url.startsWith(SGT_RUNTIME_STAGING_URL)
+                ) {
                     "Downloader archive must use sgt-runtime-bundles"
                 }
                 require(asset.startsWith("sgt-downloader-") && asset.contains(sha256.take(12))) {
@@ -151,3 +158,7 @@ private val OFFICIAL_YT_DLP_URL = Regex(
 private const val SGT_RUNTIME_BUNDLE_URL =
     "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/" +
         "sgt-runtime-bundles/sgt-downloader-"
+
+private const val SGT_RUNTIME_STAGING_URL =
+    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/" +
+        "sgt-runtime-staging/sgt-downloader-"

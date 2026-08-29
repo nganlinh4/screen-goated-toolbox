@@ -26,9 +26,9 @@ RUNTIME_BUNDLES = (
     "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/"
     "sgt-runtime-bundles/"
 )
-YTDLP_VERSION = "2026.07.04"
-YTDLP_SIZE = 18_226_085
-YTDLP_SHA256 = "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8"
+YTDLP_VERSION = "2026.08.19"
+YTDLP_SIZE = 17_840_399
+YTDLP_SHA256 = "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a"
 YTDLP_SOURCE_URL = f"https://github.com/yt-dlp/yt-dlp/releases/download/{YTDLP_VERSION}/yt-dlp.exe"
 DENO_VERSION = "2.9.5"
 DENO_SIZE = 42_691_248

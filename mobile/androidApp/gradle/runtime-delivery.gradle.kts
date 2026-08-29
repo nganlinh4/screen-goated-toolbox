@@ -193,20 +193,44 @@ if (requestedCreationRuntimeDeliveryChannel == CreationRuntimeDeliveryChannel.St
         }
     }
 }
-val downloaderRuntimeDeliveryManifest = projectDir.resolve("delivery/downloader-runtime.json")
+val trackedDownloaderRuntimeDeliveryManifest = projectDir.resolve("delivery/downloader-runtime.json")
+val stagedDownloaderRuntimeDeliveryManifest = providers.environmentVariable("LOCALAPPDATA")
+    .orNull
+    ?.takeIf(String::isNotBlank)
+    ?.let { File(it).resolve(
+        "SGT-Development/cache/staging/contracts/mobile/androidApp/delivery/downloader-runtime.json",
+    ) }
+val downloaderRuntimeDeliveryManifest = if (
+    requestedCreationRuntimeDeliveryChannel == CreationRuntimeDeliveryChannel.Staging &&
+    stagedDownloaderRuntimeDeliveryManifest?.isFile == true
+) {
+    stagedDownloaderRuntimeDeliveryManifest
+} else {
+    trackedDownloaderRuntimeDeliveryManifest
+}
+val downloaderRuntimeUsesStaging = downloaderRuntimeDeliveryManifest.readText()
+    .contains("/releases/download/sgt-runtime-staging/")
 val downloaderLauncherSourceRoot = rootProject.projectDir.resolve("../../youtubedl-android")
 val downloaderLauncherContract = linkedMapOf(
     "library/src/main/jniLibs/arm64-v8a/libpython.so" to Pair(
-        5_744L,
-        "8184bd26986955434996a971f73af9e878ee50a7b2a14609c9af7cfc70e7ad58",
+        7_120L,
+        "c85c8510920f1818b5e7ae86b01175a80aef0b67aab81bb22fad8f629792164d",
+    ),
+    "library/src/main/jniLibs/arm64-v8a/libqjs_runner.so" to Pair(
+        125_208L,
+        "48559a9e89c4d34a11fadaad60a7a7da2dc393abad28eb63010b8766cc7d05a5",
+    ),
+    "library/src/main/jniLibs/arm64-v8a/libqjs.so" to Pair(
+        1_054_112L,
+        "41d966aa9cb5ffda2ceaf6b596001d34f5aaffa9b773115d7792d1cc917cc223",
     ),
     "ffmpeg/src/main/jniLibs/arm64-v8a/libffmpeg.so" to Pair(
-        5_336L,
-        "3441cea3739fe72553fbd51bb15a8f949ac8bb15cf9d1aab53d9637b3b4b30cb",
+        6_712L,
+        "2c9d2b2065be7a80141081a6142e1b8fdc9de8dc0fcdfcb31bf802f7dc951fe7",
     ),
     "ffmpeg/src/main/jniLibs/arm64-v8a/libffprobe.so" to Pair(
-        5_376L,
-        "dba2b6cd18cd32bd12b55db17cb20db29a8ee72a33c998921846f4ec2d03a70a",
+        6_784L,
+        "ba588ec55f587e4e86e74ea18f2fa6e94d894056390c35e01bc39cbb4411607b",
     ),
 )
 
@@ -396,6 +420,7 @@ val verifyFullDownloaderRuntimeDelivery by tasks.registering(Exec::class) {
     commandLine(
         "py", "-3", androidAssetVerifier.absolutePath,
         "downloader-delivery", "--file", downloaderRuntimeDeliveryManifest.absolutePath,
+        *if (downloaderRuntimeUsesStaging) arrayOf("--allow-staging") else emptyArray(),
     )
 }
 

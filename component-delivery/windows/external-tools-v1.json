@@ -5,21 +5,21 @@
   "components": [
     {
       "id": "yt-dlp-x64",
-      "version": "2026.07.04",
+      "version": "2026.08.19",
       "asset": "yt-dlp.exe",
       "archiveFormat": "raw",
-      "sizeBytes": 18226085,
-      "sha256": "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8",
-      "unpackedSizeBytes": 18226085,
+      "sizeBytes": 17840399,
+      "sha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a",
+      "unpackedSizeBytes": 17840399,
       "files": [
         {
           "path": "bin/x64/yt-dlp.exe",
           "archivePath": "yt-dlp.exe",
-          "sizeBytes": 18226085,
-          "sha256": "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8"
+          "sizeBytes": 17840399,
+          "sha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a"
         }
       ],
-      "downloadUrl": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp.exe"
+      "downloadUrl": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe"
     },
     {
       "id": "ffmpeg-x64",

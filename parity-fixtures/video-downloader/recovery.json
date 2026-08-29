@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "commandIsolation": {
+    "ignoreUserConfiguration": true,
+    "disableUserPluginDirectories": true,
+    "managedJavaScriptRuntime": true,
+    "managedChallengeScripts": true
+  },
+  "analysisIsOptional": true,
+  "failure": {
+    "preserveBoundedToolError": true,
+    "refreshSource": "signed-component-catalog",
+    "retryOnlyWhenIdentityChanges": true,
+    "maximumRetries": 1,
+    "allowUpstreamSelfUpdate": false
+  }
+}

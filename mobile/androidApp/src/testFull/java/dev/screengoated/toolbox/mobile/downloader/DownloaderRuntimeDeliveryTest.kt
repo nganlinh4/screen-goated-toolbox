@@ -13,14 +13,14 @@ class DownloaderRuntimeDeliveryTest {
         val manifest = repoFile("mobile/androidApp/delivery/downloader-runtime.json").readText()
         val delivery = parseDownloaderRuntimeDelivery(manifest)
 
-        assertEquals("2026.07.04-android-0.18.1", delivery.version)
+        assertEquals("2026.08.19-android-0.18.2", delivery.version)
         assertEquals(DownloaderArtifactRole.entries.toSet(), delivery.artifacts.map { it.role }.toSet())
         assertEquals(
-            3_071_553L,
+            3_072_469L,
             delivery.artifact(DownloaderArtifactRole.YT_DLP).sizeBytes,
         )
         assertEquals(
-            "495be29ff4d9d4e9be7eabdfef225221e5d5282e77f2f505abc6dca80349f3fd",
+            "1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6",
             delivery.artifact(DownloaderArtifactRole.YT_DLP).sha256,
         )
         delivery.artifacts.forEach {
@@ -35,7 +35,7 @@ class DownloaderRuntimeDeliveryTest {
     fun mutableOfficialReleaseUrlIsRejected() {
         val valid = repoFile("mobile/androidApp/delivery/downloader-runtime.json").readText()
         val mutable = valid.replace(
-            "releases/download/2026.07.04/yt-dlp",
+            "releases/download/2026.08.19/yt-dlp",
             "releases/latest/download/yt-dlp",
         )
 
@@ -56,6 +56,23 @@ class DownloaderRuntimeDeliveryTest {
         assertThrows(IllegalArgumentException::class.java) {
             parseDownloaderRuntimeDelivery(unowned)
         }
+    }
+
+    @Test
+    fun stagingRuntimeIsAcceptedOnlyWhenExplicitlyAllowed() {
+        val valid = repoFile("mobile/androidApp/delivery/downloader-runtime.json").readText()
+        val staging = valid.replace(
+            "/releases/download/sgt-runtime-bundles/",
+            "/releases/download/sgt-runtime-staging/",
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            parseDownloaderRuntimeDelivery(staging)
+        }
+        assertEquals(
+            "2026.08.19-android-0.18.2",
+            parseDownloaderRuntimeDelivery(staging, allowStaging = true).version,
+        )
     }
 
     @Test

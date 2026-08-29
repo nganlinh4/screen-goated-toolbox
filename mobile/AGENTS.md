@@ -2,6 +2,15 @@
 
 Root `AGENTS.md` applies. Keep Android platform code thin.
 
+## Owned downloader dependency
+
+- The sibling `youtubedl-android` composite checkout is an SGT-owned repository:
+  `https://github.com/nganlinh4/youtubedl-android`.
+- Android Video Downloader work is authorized to edit, commit, and push that
+  repository when the shared library itself requires a fix. Preserve unrelated
+  work and follow its upstream remote only for comparison; `origin` is the SGT
+  source of truth.
+
 ## Phone Control gate
 
 Before Phone Control work, read:

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use super::DownloadManager;
 use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus};
-use super::utils::{append_cookie_args, fetch_video_formats, log};
+use super::utils::{append_cookie_args, append_isolation_args, fetch_video_formats, log};
 use super::ytdlp_process::run_ytdlp_download_attempt;
 use crate::component_registry::capabilities;
 use crate::component_registry::external_tools::{
@@ -248,14 +248,16 @@ impl DownloadManager {
                 };
                 set_download_stage(&state, "Starting yt-dlp...");
 
-                let mut args = vec![
+                let mut args = Vec::new();
+                append_isolation_args(&mut args);
+                args.extend([
                     "--encoding".to_string(),
                     "utf-8".to_string(),
                     "--ffmpeg-location".to_string(),
                     ffmpeg.bin_dir().to_string_lossy().to_string(),
                     "--newline".to_string(),
                     "--force-overwrites".to_string(),
-                ];
+                ]);
                 if let Some(deno) = deno.as_ref() {
                     args.push("--js-runtimes".to_string());
                     args.push(format!("deno:{}", deno.executable().to_string_lossy()));

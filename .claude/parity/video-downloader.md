@@ -28,8 +28,16 @@
   - It must not default to the app-scoped external files data folder.
   - Because modern Android restricts raw writes to public Downloads, the default path may stage yt-dlp output in app-owned external storage and then publish the completed file through MediaStore.
 - yt-dlp lifecycle:
-  - First install from the Video Downloader UI extracts bundled tools and then immediately runs the same latest-channel yt-dlp update path as settings.
-  - Download failure auto-recovery updates yt-dlp on the latest/nightly channel before retrying once.
+  - Both platforms execute yt-dlp without user configuration or user plugin directories, so an unrelated machine customization cannot alter mini-app behavior.
+  - Full extraction uses an app-delivered JavaScript runtime and matching EJS scripts; it never downloads executable challenge code during a user operation.
+  - Analysis and download failures retain a bounded useful yt-dlp stderr message instead of replacing it with a generic failure.
+  - First use installs the exact immutable yt-dlp identity selected by the app's verified delivery contract.
+  - A typed yt-dlp failure refreshes the signed SGT component catalog and retries once only when that catalog selects a different verified identity.
+  - Neither platform invokes yt-dlp's upstream self-updater or a mutable latest/nightly URL at runtime.
+  - Analysis remains optional: users can start a download while analysis is running or after analysis fails.
+
+## Shared Fixture
+- `parity-fixtures/video-downloader/recovery.json` owns the platform-neutral command isolation, error, and retry transitions.
 
 ## Deviations
 - Windows can download directly into arbitrary desktop paths.

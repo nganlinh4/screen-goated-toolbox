@@ -51,21 +51,25 @@ internal class DownloaderProcessHost(
             val nativeDir = context.applicationInfo.nativeLibraryDir
             val python = java.io.File(nativeDir, "libpython.so")
             val ffmpeg = java.io.File(nativeDir, "libffmpeg.so")
-            check(python.isFile && ffmpeg.isFile) { "Downloader executable launchers are missing" }
-
-            val arguments = request.build().toMutableList()
-            if (!request.hasOption("--cache-dir") && !request.hasOption("--no-cache-dir")) {
-                arguments.add(0, "--no-cache-dir")
+            val quickJs = java.io.File(nativeDir, "libqjs_runner.so")
+            check(python.isFile && ffmpeg.isFile && quickJs.isFile) {
+                "Downloader executable launchers are missing"
             }
-            arguments.add(0, ffmpeg.absolutePath)
-            arguments.add(0, "--ffmpeg-location")
+
+            val arguments = buildYtDlpProcessArguments(
+                request,
+                ffmpeg.absolutePath,
+                quickJs.absolutePath,
+            )
             val command = listOf(python.absolutePath, installer.ytdlpFile.absolutePath) + arguments
             val builder = ProcessBuilder(command)
             builder.environment().apply {
                 val pythonLibs = java.io.File(installer.pythonDirectory, "usr/lib")
                 val ffmpegLibs = java.io.File(installer.ffmpegDirectory, "usr/lib")
                 val pythonHome = java.io.File(installer.pythonDirectory, "usr")
-                this["LD_LIBRARY_PATH"] = "${pythonLibs.absolutePath}:${ffmpegLibs.absolutePath}"
+                remove("LD_LIBRARY_PATH")
+                this["SGT_PYTHON_LIBRARY_DIR"] = pythonLibs.absolutePath
+                this["SGT_FFMPEG_LIBRARY_DIR"] = ffmpegLibs.absolutePath
                 this["SSL_CERT_FILE"] = java.io.File(
                     installer.pythonDirectory,
                     "usr/etc/tls/cert.pem",
@@ -95,7 +99,7 @@ internal class DownloaderProcessHost(
             if (processId != null) processes.remove(processId, process)
             if (cancelled) throw CancellationException("Downloader process was cancelled")
             if (exitCode != 0) {
-                error(errors.toString().trim().ifBlank { "yt-dlp exited with code $exitCode" })
+                error(boundedYtDlpError(errors.toString(), exitCode))
             }
             return YtDlpProcessResult(exitCode, out.toString(), errors.toString())
         } catch (interrupted: InterruptedException) {
@@ -114,6 +118,29 @@ internal class DownloaderProcessHost(
         if (process.isAlive) process.destroyForcibly()
         return true
     }
+}
+
+internal fun buildYtDlpProcessArguments(
+    request: YtDlpCommand,
+    ffmpegPath: String,
+    quickJsPath: String,
+): List<String> = buildList {
+    add("--ignore-config")
+    add("--no-plugin-dirs")
+    add("--ffmpeg-location")
+    add(ffmpegPath)
+    add("--js-runtimes")
+    add("quickjs:$quickJsPath")
+    if (!request.hasOption("--cache-dir") && !request.hasOption("--no-cache-dir")) {
+        add("--no-cache-dir")
+    }
+    addAll(request.build())
+}
+
+internal fun boundedYtDlpError(stderr: String, exitCode: Int): String {
+    val lines = stderr.lineSequence().filter { it.isNotBlank() }.toList()
+    val message = lines.takeLast(12).joinToString("\n").take(4_096)
+    return message.ifBlank { "yt-dlp exited with code $exitCode" }
 }
 
 private fun readStream(

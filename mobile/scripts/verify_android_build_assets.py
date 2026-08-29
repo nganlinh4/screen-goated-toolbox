@@ -14,6 +14,10 @@ PRODUCTION_BUNDLE_PREFIX = (
     "https://github.com/nganlinh4/screen-goated-toolbox/releases/"
     "download/sgt-runtime-bundles/sgt-downloader-"
 )
+STAGING_BUNDLE_PREFIX = (
+    "https://github.com/nganlinh4/screen-goated-toolbox/releases/"
+    "download/sgt-runtime-staging/sgt-downloader-"
+)
 
 
 def verify_viewer(root: Path) -> None:
@@ -55,7 +59,7 @@ def required_string(record: dict[str, object], name: str, context: str) -> str:
     return value
 
 
-def verify_downloader_delivery(source: Path) -> None:
+def verify_downloader_delivery(source: Path, allow_staging: bool = False) -> None:
     if not source.is_file():
         raise ValueError(f"Full downloader delivery manifest is required: {source}")
     root = json.loads(source.read_text("utf-8"))
@@ -102,8 +106,11 @@ def verify_downloader_delivery(source: Path) -> None:
                 raise ValueError("yt-dlp version and delivery version differ")
             continue
 
-        if not url.startswith(PRODUCTION_BUNDLE_PREFIX):
+        supported_prefixes = (PRODUCTION_BUNDLE_PREFIX, STAGING_BUNDLE_PREFIX)
+        if not url.startswith(supported_prefixes):
             raise ValueError(f"{role} must use a uniquely named sgt-runtime-bundles asset")
+        if url.startswith(STAGING_BUNDLE_PREFIX) and not allow_staging:
+            raise ValueError(f"{role} staging delivery is allowed only for debug builds")
         if digest[:12] not in asset:
             raise ValueError(f"{role} asset must include its SHA-256 prefix")
         entry_count = contract.get("entryCount")
@@ -142,6 +149,7 @@ def parse_args() -> argparse.Namespace:
     component_key.add_argument("--file", type=Path, required=True)
     downloader = subparsers.add_parser("downloader-delivery")
     downloader.add_argument("--file", type=Path, required=True)
+    downloader.add_argument("--allow-staging", action="store_true")
     launchers = subparsers.add_parser("launchers")
     launchers.add_argument("--launcher", action="append", default=[], required=True)
     return parser.parse_args()
@@ -154,7 +162,7 @@ def main() -> None:
     elif args.command == "component-key":
         verify_component_key(args.file)
     elif args.command == "downloader-delivery":
-        verify_downloader_delivery(args.file)
+        verify_downloader_delivery(args.file, args.allow_staging)
     elif args.command == "launchers":
         verify_launchers(args.launcher)
 

@@ -45,7 +45,9 @@ fn fetch_video_formats_once(
         )
     };
 
-    let mut args = vec!["--dump-json".to_string(), "--no-playlist".to_string()];
+    let mut args = Vec::new();
+    append_isolation_args(&mut args);
+    args.extend(["--dump-json", "--no-playlist"].map(str::to_string));
 
     if let Some(deno) = deno.as_ref() {
         args.push("--js-runtimes".to_string());
@@ -64,7 +66,10 @@ fn fetch_video_formats_once(
     let output = cmd.output().map_err(|e| e.to_string())?;
 
     if !output.status.success() {
-        return Err("Failed to fetch info".to_string());
+        return Err(bounded_tool_error(
+            &String::from_utf8_lossy(&output.stderr),
+            "yt-dlp could not analyze this URL",
+        ));
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
@@ -139,6 +144,25 @@ fn fetch_video_formats_once(
     Ok((format_results, sorted_manual, sorted_auto))
 }
 
+pub(super) fn append_isolation_args(args: &mut Vec<String>) {
+    args.extend(["--ignore-config", "--no-plugin-dirs"].map(str::to_string));
+}
+
+pub(super) fn bounded_tool_error(stderr: &str, fallback: &str) -> String {
+    const MAX_LINES: usize = 12;
+    const MAX_CHARS: usize = 4_096;
+    let lines = stderr
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    let start = lines.len().saturating_sub(MAX_LINES);
+    let message = lines[start..].join("\n");
+    if message.is_empty() {
+        return fallback.to_string();
+    }
+    message.chars().take(MAX_CHARS).collect()
+}
+
 pub(super) fn append_cookie_args(args: &mut Vec<String>, cookie_browser: CookieBrowser) {
     match cookie_browser {
         CookieBrowser::None => {}
@@ -174,5 +198,41 @@ pub(super) fn append_cookie_args(args: &mut Vec<String>, cookie_browser: CookieB
             args.push("--cookies-from-browser".to_string());
             args.push("whale".to_string());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{append_isolation_args, bounded_tool_error};
+
+    #[test]
+    fn shared_recovery_fixture_requires_isolated_tool_execution() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/video-downloader/recovery.json"
+        )))
+        .unwrap();
+        let mut args = Vec::new();
+        append_isolation_args(&mut args);
+        assert_eq!(args, ["--ignore-config", "--no-plugin-dirs"]);
+        assert_eq!(fixture["commandIsolation"]["ignoreUserConfiguration"], true);
+        assert_eq!(
+            fixture["commandIsolation"]["disableUserPluginDirectories"],
+            true
+        );
+        assert_eq!(fixture["failure"]["maximumRetries"], 1);
+    }
+
+    #[test]
+    fn tool_error_keeps_the_useful_bounded_tail() {
+        let stderr = (0..20)
+            .map(|index| format!("diagnostic {index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let error = bounded_tool_error(&stderr, "fallback");
+        assert!(!error.contains("diagnostic 7"));
+        assert!(error.contains("diagnostic 8"));
+        assert!(error.contains("diagnostic 19"));
+        assert_eq!(bounded_tool_error(" \n", "fallback"), "fallback");
     }
 }
