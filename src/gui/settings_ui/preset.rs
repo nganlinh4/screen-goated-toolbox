@@ -138,7 +138,7 @@ pub fn render_preset_editor(
 
             ui.add_space(6.0);
 
-            // Row 2: Type + Mode selectors
+            // Row 2: Preset type
             ui.horizontal_wrapped(|ui| {
                 ui.label(text.preset_basics.preset_type_label);
                 let selected_text = match preset.preset_type.as_str() {
@@ -192,12 +192,15 @@ pub fn render_preset_editor(
                             );
                         });
                     });
+            });
 
-                ui.add_space(15.0);
-
-                // Mode selectors based on type
-                if preset.preset_type == "image" {
-                    if !preset.show_controller_ui {
+            // Row 3: Mode selectors based on type
+            if (preset.preset_type == "image" && !preset.show_controller_ui)
+                || preset.preset_type == "text"
+            {
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
+                    if preset.preset_type == "image" {
                         ui.label(text.preset_editor.command_mode_label);
                         crate::gui::widgets::combo("prompt_mode_combo")
                             .selected_text(if preset.prompt_mode == "dynamic" {
@@ -227,53 +230,53 @@ pub fn render_preset_editor(
                                     changed = true;
                                 }
                             });
-                    }
-                } else if preset.preset_type == "text" {
-                    ui.label(text.preset_editor.text_input_mode_label);
-                    crate::gui::widgets::combo("text_input_mode_combo")
-                        .selected_text(if preset.text_input_mode == "type" {
-                            text.preset_editor.text_mode_type
-                        } else {
-                            text.preset_editor.text_mode_select
-                        })
-                        .show_ui(ui, |ui| {
-                            if ui
-                                .selectable_value(
-                                    &mut preset.text_input_mode,
-                                    "select".to_string(),
-                                    text.preset_editor.text_mode_select,
+                    } else if preset.preset_type == "text" {
+                        ui.label(text.preset_editor.text_input_mode_label);
+                        crate::gui::widgets::combo("text_input_mode_combo")
+                            .selected_text(if preset.text_input_mode == "type" {
+                                text.preset_editor.text_mode_type
+                            } else {
+                                text.preset_editor.text_mode_select
+                            })
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_value(
+                                        &mut preset.text_input_mode,
+                                        "select".to_string(),
+                                        text.preset_editor.text_mode_select,
+                                    )
+                                    .clicked()
+                                {
+                                    changed = true;
+                                }
+                                if ui
+                                    .selectable_value(
+                                        &mut preset.text_input_mode,
+                                        "type".to_string(),
+                                        text.preset_editor.text_mode_type,
+                                    )
+                                    .clicked()
+                                {
+                                    changed = true;
+                                }
+                            });
+
+                        if preset.text_input_mode == "type"
+                            && !preset.show_controller_ui
+                            && ui
+                                .checkbox(
+                                    &mut preset.continuous_input,
+                                    text.preset_editor.continuous_input_label,
                                 )
                                 .clicked()
-                            {
-                                changed = true;
-                            }
-                            if ui
-                                .selectable_value(
-                                    &mut preset.text_input_mode,
-                                    "type".to_string(),
-                                    text.preset_editor.text_mode_type,
-                                )
-                                .clicked()
-                            {
-                                changed = true;
-                            }
-                        });
-
-                    if preset.text_input_mode == "type"
-                        && !preset.show_controller_ui
-                        && ui
-                            .checkbox(
-                                &mut preset.continuous_input,
-                                text.preset_editor.continuous_input_label,
-                            )
-                            .clicked()
-                    {
-                        changed = true;
+                        {
+                            changed = true;
+                        }
                     }
-                }
-            });
+                });
+            }
 
-            // Row 3: Audio source (if applicable)
+            // Row 4: Audio source (if applicable)
             if preset.preset_type == "audio" {
                 ui.add_space(6.0);
                 ui.horizontal_wrapped(|ui| {
