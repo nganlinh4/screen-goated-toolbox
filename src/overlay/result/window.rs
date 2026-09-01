@@ -226,14 +226,33 @@ pub struct TextOnlyResultOptions {
     pub opacity_percent: Option<u8>,
 }
 
-pub fn create_text_only_result_window(
+pub(crate) fn create_deferred_result_window_shell(
     params: ResultWindowParams,
-    options: TextOnlyResultOptions,
+    chain_id: String,
 ) -> HWND {
     let hwnd = create_result_window_shell(params);
-    configure_text_only_result_window(hwnd, options);
-    initialize_result_window(hwnd);
+    if let Some(state) = WINDOW_STATES.lock().unwrap().get_mut(&(hwnd.0 as isize)) {
+        state.chain_id = Some(chain_id);
+    }
+    super::scene_compositor::defer_window_sync(hwnd);
     hwnd
+}
+
+pub(crate) fn configure_deferred_text_only_result_window(
+    hwnd: HWND,
+    options: TextOnlyResultOptions,
+    is_chain_root: bool,
+) {
+    let text = options.source_segments.join("\n");
+    configure_text_only_result_window(hwnd, options);
+    if let Some(state) = WINDOW_STATES.lock().unwrap().get_mut(&(hwnd.0 as isize)) {
+        state.full_text.clone_from(&text);
+        state.is_chain_root = is_chain_root;
+    }
+    let wide_text = crate::overlay::utils::to_wstring(&text);
+    unsafe {
+        let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
+    }
 }
 
 pub(crate) fn configure_text_only_result_window(hwnd: HWND, options: TextOnlyResultOptions) {

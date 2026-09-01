@@ -4,6 +4,7 @@ mod button_input;
 mod card_bridge;
 mod card_document;
 mod child;
+mod child_commands;
 mod control_surface;
 mod controls;
 mod delivery;
@@ -26,8 +27,8 @@ pub use controls::{
     update_cached_refine_draft,
 };
 pub use parent::{
-    go_back, go_forward, raise_window, register_window, remove_window, sync_geometry, sync_window,
-    update_theme, warmup,
+    defer_window_sync, go_back, go_forward, raise_window, register_window, remove_window,
+    sync_deferred_windows_batch, sync_geometry, sync_window, update_theme, warmup,
 };
 pub(crate) use supervisor::{restart_and_wait, wait_until_ready};
 pub(crate) use sync_scheduler::queue_window_sync;

@@ -4,6 +4,9 @@ window.applyHostCommand = function(command) {
     for (const key of cards.keys()) if (!incoming.has(key)) removeCard(key);
     for (const card of command.cards) upsertCard(card);
   } else if (command.type === 'upsert') upsertCard(command.card);
+  else if (command.type === 'upsert_batch') {
+    for (const card of command.cards) upsertCard(card);
+  }
   else if (command.type === 'stream') streamCard(command.card);
   else if (command.type === 'finalize') finalizeCard(command.card);
   else if (command.type === 'geometry') {

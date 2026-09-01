@@ -81,3 +81,21 @@ fn model_cell_is_recorded_as_individual_detector_segments() {
     assert_eq!(translations.get(&4).unwrap().translated_text, "first");
     assert_eq!(translations.get(&9).unwrap().translated_text, "fourth");
 }
+
+#[test]
+fn completed_stream_regions_are_presented_before_document_completion() {
+    let source = include_str!("render.rs");
+    let region = source.find("Ok(RenderCommand::Region(region))").unwrap();
+    let complete = source
+        .find("Ok(RenderCommand::Complete(document))")
+        .unwrap();
+    let region_branch = &source[region..complete];
+
+    assert!(region_branch.contains("refresh_blocks("));
+    assert!(region_branch.contains("true,"));
+    assert!(!source.contains("receiver.try_recv()"));
+    assert!(source.contains("prewarm_region_window_shell("));
+    assert!(source.contains("configure_deferred_text_only_result_window("));
+    assert!(source.contains("sync_deferred_windows_batch(&created, true)"));
+    assert!(!source.contains("ShowWindow("));
+}

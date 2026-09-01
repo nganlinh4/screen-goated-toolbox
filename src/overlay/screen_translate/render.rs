@@ -3,10 +3,10 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetSystemMetrics, IsWindow, MSG, PM_REMOVE, PeekMessageW, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN, SW_SHOWNOACTIVATE, ShowWindow, TranslateMessage,
+    SM_YVIRTUALSCREEN, TranslateMessage, WM_CLOSE,
 };
 
 use super::contract::{DetectedTextRegion, TranslationDocument, TranslationRegion};
@@ -128,7 +128,19 @@ fn run_overlay_thread(
             .unwrap_or(100),
     };
     let chain_id = format!("screen-translate-{job_id}");
-    let mut blocks: Vec<LiveBlock> = Vec::new();
+    let mut blocks = scene
+        .blocks
+        .iter()
+        .cloned()
+        .map(|prepared| LiveBlock {
+            hwnd: Some(prewarm_region_window_shell(
+                origin, &prepared, &chain_id, &trace_id,
+            )),
+            prepared,
+            rendered_segments: None,
+        })
+        .collect::<Vec<_>>();
+    crate::overlay::result::latency::mark(&trace_id, "batch_shells_created");
     let mut translations = HashMap::new();
     let mut had_visible = false;
     let mut first_visible = Some(first_visible);
@@ -142,7 +154,15 @@ fn run_overlay_thread(
                 block.hwnd = None;
             }
         }
-        if had_visible && blocks.iter().all(|block| block.hwnd.is_none()) {
+        if had_visible
+            && blocks.iter().all(|block| {
+                block.rendered_segments.is_none()
+                    || block
+                        .hwnd
+                        .is_none_or(|hwnd| !unsafe { IsWindow(Some(hwnd)).as_bool() })
+            })
+        {
+            crate::overlay::result::close_chain_windows(&chain_id);
             super::runtime::cancel_active();
             break;
         }
@@ -153,23 +173,20 @@ fn run_overlay_thread(
         match receiver.recv_timeout(Duration::from_millis(8)) {
             Ok(RenderCommand::Region(region)) => {
                 record_translations(region, &mut translations);
-                ensure_blocks(&translations, &scene, &mut blocks, true);
-                for block_index in 0..blocks.len() {
-                    if refresh_block(
-                        block_index,
-                        &mut blocks,
-                        &translations,
-                        &scene,
-                        origin,
-                        &controls,
-                        &chain_id,
-                        &trace_id,
-                    ) {
-                        had_visible = true;
-                        super::runtime::register_overlay(job_id, chain_id.clone());
-                        if let Some(sender) = first_visible.take() {
-                            let _ = sender.send(());
-                        }
+                if refresh_blocks(
+                    &mut blocks,
+                    &translations,
+                    &scene,
+                    origin,
+                    &controls,
+                    &chain_id,
+                    &trace_id,
+                    true,
+                ) {
+                    had_visible = true;
+                    super::runtime::register_overlay(job_id, chain_id.clone());
+                    if let Some(sender) = first_visible.take() {
+                        let _ = sender.send(());
                     }
                 }
             }
@@ -177,30 +194,32 @@ fn run_overlay_thread(
                 for region in document.regions {
                     record_translations(region, &mut translations);
                 }
-                ensure_blocks(&translations, &scene, &mut blocks, false);
-                for block_index in 0..blocks.len() {
-                    if refresh_block(
-                        block_index,
-                        &mut blocks,
-                        &translations,
-                        &scene,
-                        origin,
-                        &controls,
-                        &chain_id,
-                        &trace_id,
-                    ) {
-                        super::runtime::register_overlay(job_id, chain_id.clone());
-                        if let Some(sender) = first_visible.take() {
-                            let _ = sender.send(());
-                        }
+                if refresh_blocks(
+                    &mut blocks,
+                    &translations,
+                    &scene,
+                    origin,
+                    &controls,
+                    &chain_id,
+                    &trace_id,
+                    false,
+                ) {
+                    super::runtime::register_overlay(job_id, chain_id.clone());
+                    if let Some(sender) = first_visible.take() {
+                        let _ = sender.send(());
                     }
                 }
-                let rendered = blocks.iter().filter(|block| block.hwnd.is_some()).count();
+                let rendered = blocks
+                    .iter()
+                    .filter(|block| block.rendered_segments.is_some() && block.hwnd.is_some())
+                    .count();
                 let _ = completion.send(Ok(rendered));
+                close_unrendered_windows(&blocks);
                 while blocks.iter().any(|block| {
-                    block
-                        .hwnd
-                        .is_some_and(|hwnd| unsafe { IsWindow(Some(hwnd)).as_bool() })
+                    block.rendered_segments.is_some()
+                        && block
+                            .hwnd
+                            .is_some_and(|hwnd| unsafe { IsWindow(Some(hwnd)).as_bool() })
                 }) {
                     pump_messages();
                     std::thread::sleep(Duration::from_millis(8));
@@ -220,38 +239,8 @@ fn run_overlay_thread(
     }
 }
 
-fn ensure_blocks(
-    translations: &HashMap<u16, SegmentTranslation>,
-    scene: &PreparedScene,
-    blocks: &mut Vec<LiveBlock>,
-    require_complete: bool,
-) {
-    for prepared in &scene.blocks {
-        let resolved = prepared
-            .member_ids
-            .iter()
-            .filter(|member_id| translations.contains_key(member_id))
-            .count();
-        if resolved == 0 || (require_complete && resolved != prepared.member_ids.len()) {
-            continue;
-        }
-        if blocks
-            .iter()
-            .any(|block| block.prepared.component_id == prepared.component_id)
-        {
-            continue;
-        }
-        blocks.push(LiveBlock {
-            prepared: prepared.clone(),
-            hwnd: None,
-            rendered_segments: None,
-        });
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
-fn refresh_block(
-    block_index: usize,
+fn refresh_blocks(
     blocks: &mut [LiveBlock],
     translations: &HashMap<u16, SegmentTranslation>,
     scene: &PreparedScene,
@@ -259,43 +248,84 @@ fn refresh_block(
     controls: &TranslationControls,
     chain_id: &str,
     trace_id: &str,
+    require_complete: bool,
 ) -> bool {
-    if blocks[block_index]
-        .hwnd
-        .is_some_and(|hwnd| !unsafe { IsWindow(Some(hwnd)).as_bool() })
-    {
-        blocks[block_index].hwnd = None;
+    let mut pending = Vec::new();
+    for (index, block) in blocks.iter_mut().enumerate() {
+        if block
+            .hwnd
+            .is_some_and(|hwnd| !unsafe { IsWindow(Some(hwnd)).as_bool() })
+        {
+            block.hwnd = None;
+        }
+        let resolved = block
+            .prepared
+            .member_ids
+            .iter()
+            .filter(|member_id| translations.contains_key(member_id))
+            .count();
+        if resolved == 0 || (require_complete && resolved != block.prepared.member_ids.len()) {
+            continue;
+        }
+        let Some(segments) = component_translation(&block.prepared, scene, translations) else {
+            continue;
+        };
+        if block.rendered_segments.as_ref() == Some(&segments) && block.hwnd.is_some() {
+            continue;
+        }
+        if block.rendered_segments.is_some()
+            && let Some(hwnd) = block.hwnd
+        {
+            crate::overlay::result::update_text_only_segments(hwnd, segments.clone());
+            block.rendered_segments = Some(segments);
+        } else {
+            pending.push((index, segments));
+        }
     }
-    let prepared = &blocks[block_index].prepared;
-    let Some(segments) = component_translation(prepared, scene, translations) else {
+    if pending.is_empty() {
         return false;
-    };
-    if blocks[block_index].rendered_segments.as_ref() == Some(&segments)
-        && blocks[block_index].hwnd.is_some()
-    {
-        return false;
     }
-    if let Some(hwnd) = blocks[block_index].hwnd {
-        crate::overlay::result::update_text_only_segments(hwnd, segments.clone());
-        blocks[block_index].rendered_segments = Some(segments);
-        return false;
+    let had_root = blocks.iter().any(|block| {
+        block.rendered_segments.is_some()
+            && block
+                .hwnd
+                .is_some_and(|hwnd| unsafe { IsWindow(Some(hwnd)).as_bool() })
+    });
+    let mut root = blocks.iter().find_map(|block| {
+        block
+            .rendered_segments
+            .as_ref()
+            .and_then(|_| block.hwnd)
+            .filter(|hwnd| unsafe { IsWindow(Some(*hwnd)).as_bool() })
+    });
+    let existing_root = root;
+    let mut created = Vec::with_capacity(pending.len());
+    for (index, segments) in pending {
+        let hwnd = blocks[index].hwnd.unwrap_or_else(|| {
+            prewarm_region_window_shell(origin, &blocks[index].prepared, chain_id, trace_id)
+        });
+        configure_region_window_shell(
+            hwnd,
+            &blocks[index].prepared,
+            segments.clone(),
+            root.is_none(),
+            controls,
+            chain_id,
+        );
+        if let Some(root_hwnd) = root {
+            crate::overlay::result::link_windows_deferred(root_hwnd, hwnd);
+        } else {
+            root = Some(hwnd);
+        }
+        blocks[index].hwnd = Some(hwnd);
+        blocks[index].rendered_segments = Some(segments);
+        created.push(hwnd);
     }
-    let root = blocks.iter().find_map(|block| block.hwnd);
-    let hwnd = create_region_window(
-        origin,
-        &blocks[block_index].prepared,
-        segments.clone(),
-        root.is_none(),
-        controls,
-        chain_id,
-        trace_id,
-    );
-    if let Some(root) = root {
-        crate::overlay::result::link_windows(root, hwnd);
+    crate::overlay::result::scene_compositor::sync_deferred_windows_batch(&created, true);
+    if let Some(root) = existing_root {
+        crate::overlay::result::scene_compositor::sync_controls(root);
     }
-    blocks[block_index].hwnd = Some(hwnd);
-    blocks[block_index].rendered_segments = Some(segments);
-    root.is_none()
+    !had_root
 }
 
 fn record_translations(
@@ -360,32 +390,15 @@ fn should_render_segment(source: &str, translated: &str) -> bool {
     !super::contract::text_is_source_equivalent(source, translated)
 }
 
-fn create_region_window(
+fn prewarm_region_window_shell(
     origin: (i32, i32),
     group: &PreparedBlock,
-    translated_segments: Vec<String>,
-    is_root: bool,
-    controls: &TranslationControls,
     chain_id: &str,
     trace_id: &str,
 ) -> HWND {
-    let pixels = group.layout;
-    let target_rect = RECT {
-        left: origin.0 + pixels.x as i32,
-        top: origin.1 + pixels.y as i32,
-        right: origin.0 + (pixels.x + pixels.width) as i32,
-        bottom: origin.1 + (pixels.y + pixels.height) as i32,
-    };
-    let control_options = is_root.then(|| ResultControlOptions {
-        anchor_rect: Some(controls.anchor),
-        control_color: Some(controls.color.clone()),
-        scale_percent: CONTROL_SCALE_PERCENT,
-        group_actions: true,
-        edit_enabled: false,
-    });
-    let hwnd = crate::overlay::result::create_text_only_result_window(
+    crate::overlay::result::create_deferred_result_window_shell(
         ResultWindowParams {
-            target_rect,
+            target_rect: block_target_rect(origin, group),
             win_type: WindowType::Primary,
             context: RefineContext::None,
             model_id: String::new(),
@@ -394,11 +407,32 @@ fn create_region_window(
             start_editing: false,
             preset_prompt: String::new(),
             custom_bg_color: 0,
-            initial_text: translated_segments.join("\n"),
+            initial_text: String::new(),
             preset_id: None,
-            is_chain_root: is_root,
+            is_chain_root: false,
             latency_trace_id: Some(trace_id.to_string()),
         },
+        chain_id.to_string(),
+    )
+}
+
+fn configure_region_window_shell(
+    hwnd: HWND,
+    group: &PreparedBlock,
+    translated_segments: Vec<String>,
+    is_root: bool,
+    controls: &TranslationControls,
+    chain_id: &str,
+) {
+    let control_options = is_root.then(|| ResultControlOptions {
+        anchor_rect: Some(controls.anchor),
+        control_color: Some(controls.color.clone()),
+        scale_percent: CONTROL_SCALE_PERCENT,
+        group_actions: true,
+        edit_enabled: false,
+    });
+    crate::overlay::result::configure_deferred_text_only_result_window(
+        hwnd,
         crate::overlay::result::TextOnlyResultOptions {
             backdrop_data_url: group.backdrop.clone(),
             foreground_color: group.foreground.clone(),
@@ -410,12 +444,34 @@ fn create_region_window(
             source_segments: translated_segments,
             opacity_percent: Some(controls.opacity_percent),
         },
+        is_root,
     );
-    unsafe {
-        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+}
+
+fn block_target_rect(origin: (i32, i32), group: &PreparedBlock) -> RECT {
+    let pixels = group.layout;
+    RECT {
+        left: origin.0 + pixels.x as i32,
+        top: origin.1 + pixels.y as i32,
+        right: origin.0 + (pixels.x + pixels.width) as i32,
+        bottom: origin.1 + (pixels.y + pixels.height) as i32,
     }
-    crate::overlay::result::scene_compositor::sync_window(hwnd, true);
-    hwnd
+}
+
+fn close_unrendered_windows(blocks: &[LiveBlock]) {
+    for block in blocks {
+        let Some(hwnd) = block.hwnd.filter(|_| block.rendered_segments.is_none()) else {
+            continue;
+        };
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                Some(hwnd),
+                WM_CLOSE,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    }
 }
 
 fn pump_messages() {

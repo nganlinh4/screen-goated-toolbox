@@ -10,7 +10,7 @@ use super::protocol::{
 use crate::overlay::result::ResultPresentation;
 use crate::overlay::result::markdown_view::conversion::render_for_compositor;
 use crate::overlay::result::state::WINDOW_STATES;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{LazyLock, Mutex};
@@ -20,6 +20,10 @@ use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsWindow, IsWindowV
 pub(super) static SCENES: LazyLock<Mutex<HashMap<isize, SceneCard>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static SCENE_DISPATCH: Mutex<()> = Mutex::new(());
+static DEFERRED_SYNC: LazyLock<Mutex<HashSet<isize>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+static COMPOSITOR_VISIBLE: LazyLock<Mutex<HashSet<isize>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 static PENDING_GEOMETRY: LazyLock<Mutex<HashMap<isize, SceneGeometry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static GEOMETRY_SIGNAL: LazyLock<SyncSender<()>> = LazyLock::new(|| {
@@ -48,19 +52,74 @@ pub fn register_window(hwnd: HWND) {
     sync_window(hwnd, false);
 }
 
+pub fn defer_window_sync(hwnd: HWND) {
+    DEFERRED_SYNC.lock().unwrap().insert(hwnd.0 as isize);
+}
+
 pub fn sync_window(hwnd: HWND, requested_visible: bool) {
     let _dispatch = SCENE_DISPATCH.lock().unwrap();
+    if DEFERRED_SYNC.lock().unwrap().contains(&(hwnd.0 as isize)) {
+        return;
+    }
     if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
         remove_window_locked(hwnd);
         return;
     }
+    let Some((card, body, text_len)) = scene_card(hwnd, requested_visible) else {
+        return;
+    };
+    let mut scenes = SCENES.lock().unwrap();
+    let previous = scenes.insert(card.id, card.clone());
+    drop(scenes);
+    let Some(command) = command_for_transition(previous.as_ref(), &card, body) else {
+        return;
+    };
+    log_host_command(&command, text_len);
+    send_command(command);
+    if text_len > 0 {
+        crate::overlay::result::latency::mark_window(hwnd, "compositor_command_queued");
+    }
+}
 
+pub fn sync_deferred_windows_batch(hwnds: &[HWND], requested_visible: bool) {
+    if hwnds.is_empty() {
+        return;
+    }
+    let _dispatch = SCENE_DISPATCH.lock().unwrap();
+    let mut cards = Vec::with_capacity(hwnds.len());
+    let mut total_text_len = 0;
+    for hwnd in hwnds {
+        if !unsafe { IsWindow(Some(*hwnd)).as_bool() } {
+            continue;
+        }
+        COMPOSITOR_VISIBLE.lock().unwrap().insert(hwnd.0 as isize);
+        let Some((card, _, text_len)) = scene_card(*hwnd, requested_visible) else {
+            continue;
+        };
+        total_text_len += text_len;
+        SCENES.lock().unwrap().insert(card.id, card.clone());
+        if text_len > 0 {
+            crate::overlay::result::latency::mark_window(*hwnd, "compositor_command_queued");
+        }
+        cards.push(card);
+    }
+    if cards.is_empty() {
+        return;
+    }
+    let command = HostCommand::UpsertBatch { cards };
+    log_host_command(&command, total_text_len);
+    send_command(command);
+    let mut deferred = DEFERRED_SYNC.lock().unwrap();
+    for hwnd in hwnds {
+        deferred.remove(&(hwnd.0 as isize));
+    }
+}
+
+fn scene_card(hwnd: HWND, requested_visible: bool) -> Option<(SceneCard, String, usize)> {
     let hwnd_key = hwnd.0 as isize;
     let snapshot = {
         let states = WINDOW_STATES.lock().unwrap();
-        let Some(state) = states.get(&hwnd_key) else {
-            return;
-        };
+        let state = states.get(&hwnd_key)?;
         (
             state.full_text.clone(),
             state.is_refining,
@@ -84,13 +143,12 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
     let rendered = render_for_compositor(&snapshot.0, snapshot.1, &snapshot.3, &snapshot.4);
     let body = rendered.body;
     let document = rendered.isolated_document.map(with_card_bridge);
-    let Some(geometry) = read_geometry(hwnd, requested_visible, snapshot.9) else {
-        return;
-    };
+    let geometry = read_geometry(hwnd, requested_visible, snapshot.9)?;
     claim_window_onboarding_pulse(hwnd_key);
     let controls = super::controls::snapshot(hwnd_key).unwrap_or_default();
-    let mut scenes = SCENES.lock().unwrap();
-    let stack_order = scenes
+    let stack_order = SCENES
+        .lock()
+        .unwrap()
         .get(&hwnd_key)
         .map(|card| card.stack_order)
         .unwrap_or_else(|| NEXT_STACK_ORDER.fetch_add(1, Ordering::SeqCst));
@@ -119,17 +177,7 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
         source_regions: snapshot.14,
         source_segments: snapshot.15,
     };
-
-    let previous = scenes.insert(hwnd_key, card.clone());
-    drop(scenes);
-    let Some(command) = command_for_transition(previous.as_ref(), &card, body) else {
-        return;
-    };
-    log_host_command(&command, snapshot.0.chars().count());
-    send_command(command);
-    if !snapshot.0.is_empty() {
-        crate::overlay::result::latency::mark_window(hwnd, "compositor_command_queued");
-    }
+    Some((card, body, snapshot.0.chars().count()))
 }
 
 fn claim_window_onboarding_pulse(hwnd_key: isize) {
@@ -335,7 +383,11 @@ fn read_geometry(
             width: (screen_rect.right - screen_rect.left).max(1),
             height: (screen_rect.bottom - screen_rect.top).max(1),
         },
-        visible: requested_visible && unsafe { IsWindowVisible(hwnd).as_bool() },
+        visible: COMPOSITOR_VISIBLE
+            .lock()
+            .unwrap()
+            .contains(&(hwnd.0 as isize))
+            || (requested_visible && unsafe { IsWindowVisible(hwnd).as_bool() }),
     })
 }
 
@@ -346,6 +398,8 @@ pub fn remove_window(hwnd: HWND) {
 
 fn remove_window_locked(hwnd: HWND) {
     let id = hwnd.0 as isize;
+    DEFERRED_SYNC.lock().unwrap().remove(&id);
+    COMPOSITOR_VISIBLE.lock().unwrap().remove(&id);
     PENDING_GEOMETRY.lock().unwrap().remove(&id);
     if SCENES.lock().unwrap().remove(&id).is_some() {
         crate::log_info!("[ResultCard] id={id} host=remove");

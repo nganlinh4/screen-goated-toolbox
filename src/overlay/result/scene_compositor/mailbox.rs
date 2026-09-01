@@ -69,6 +69,11 @@ impl CommandBuffer {
                     return true;
                 }
                 HostCommand::Upsert { card: previous } if previous.id == card.id => break,
+                HostCommand::UpsertBatch { cards }
+                    if cards.iter().any(|previous| previous.id == card.id) =>
+                {
+                    break;
+                }
                 HostCommand::Finalize { card: previous } if previous.id == card.id => break,
                 HostCommand::Remove { id } if *id == card.id => break,
                 HostCommand::Snapshot { .. } => break,
@@ -86,6 +91,9 @@ impl CommandBuffer {
                     return;
                 }
                 HostCommand::Upsert { card } if card.id == id => return,
+                HostCommand::UpsertBatch { cards } if cards.iter().any(|card| card.id == id) => {
+                    return;
+                }
                 HostCommand::Finalize { card } if card.id == id => return,
                 HostCommand::Remove { id: removed } if *removed == id => return,
                 HostCommand::Snapshot { .. } => return,

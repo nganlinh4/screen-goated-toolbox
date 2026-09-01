@@ -67,6 +67,8 @@ function ensureCard(id) {
   const backdrop = document.createElement('img');
   backdrop.className = 'region-backdrop';
   backdrop.hidden = true;
+  const visualSurface = document.createElement('div');
+  visualSurface.className = 'card-visual-surface';
   const processing = window.__SGT_CREATE_PROCESSING_AURA__();
   card.appendChild(backdrop);
   card.appendChild(directHost);
@@ -75,6 +77,7 @@ function ensureCard(id) {
   scene.appendChild(card);
   entry = {
     card: card,
+    visualSurface: visualSurface,
     backdrop: backdrop,
     directHost: directHost,
     bodyElement: bodyElement,
@@ -283,12 +286,18 @@ function applyDirectContent(entry, message) {
       message.type === 'finalize' ? 'finalize_applied' : 'stream_applied', {
         revision: message.content_revision,
         payloadLen: message.html.length,
-        textLen: (entry.bodyElement.innerText || '').trim().length
+        textLen: (entry.bodyElement.textContent || '').trim().length
       });
     reportOrDeferPaint(entry,
       message.type === 'finalize' ? 'final' : 'stream', message.content_revision);
     if (message.type === 'finalize') entry.directRuntime.initGrids();
-    queueFit(entry, message.type === 'stream_update');
+    if (entry.sourceReplacement === true && message.type === 'finalize') {
+      reportCardDiagnostic(entry.card.dataset.id, entry, 'final_fit_completed', {});
+      revealSettledContent(entry, message.content_revision);
+      window.__SGT_BUTTON_SCENE__?.pulseCompletion(entry.card.dataset.id);
+    } else {
+      queueFit(entry, message.type === 'stream_update');
+    }
     return true;
   } catch (error) {
     reportCardDiagnostic(entry.card.dataset.id, entry,
@@ -326,9 +335,6 @@ function flushPendingContent(entry) {
     : postCardMessage(entry, message);
   if (applied) entry.pendingContent = null;
   return applied;
-}
-function documentKey(documentHtml) {
-  return documentHtml === null ? 'shared' : 'inline:' + documentHtml;
 }
 function useDirectSurface(entry) {
   if (entry.mode === 'direct') return;
@@ -376,35 +382,28 @@ function applyGeometry(entry, model) {
   const scale = window.devicePixelRatio || 1; entry.card.style.setProperty('--sgt-box-radius', (__SGT_BOX_RADIUS_PX__ / scale) + 'px');
   const width = model.rect.width / scale;
   const height = model.rect.height / scale;
-  const resized = entry.card.clientWidth !== width || entry.card.clientHeight !== height;
+  const widthCss = width + 'px';
+  const heightCss = height + 'px';
+  const resized = entry.card.style.width !== widthCss || entry.card.style.height !== heightCss;
   if (!preservePosition) {
     entry.card.style.translate = '';
     entry.card.style.transform = 'translate3d(' + (model.rect.x / scale) + 'px,' +
       (model.rect.y / scale) + 'px,0)';
   }
-  entry.card.style.width = width + 'px';
-  entry.card.style.height = height + 'px';
+  entry.card.style.width = widthCss;
+  entry.card.style.height = heightCss;
   entry.processing.resize(width, height, scale);
   if (resized && entry.ready && entry.visible) {
     clearTimeout(entry.resizeFit);
     entry.resizeFit = setTimeout(function() { queueFit(entry, entry.streaming); }, 40);
   }
 }
-function applyStacking(entry, stackOrder) {
-  const order = Number(stackOrder || 0);
-  highestStackOrder = Math.max(highestStackOrder, order);
-  const current = Number(entry.card.style.zIndex || 0);
-  if (order >= current) entry.card.style.zIndex = String(order);
-}
-function raiseCard(entry, stackOrder) {
-  const order = Math.max(highestStackOrder + 1, Number(stackOrder || 0));
-  highestStackOrder = order;
-  entry.card.style.zIndex = String(order);
-}
 function applyAppearance(entry, model) {
   const becameVisible = !entry.visible && model.visible;
   entry.card.dataset.presentation = model.presentation || 'standard';
   entry.sourceReplacement = model.source_replacement === true;
+  entry.card.dataset.sourceReplacement = entry.sourceReplacement ? 'true' : 'false';
+  setSourceReplacementSurface(entry, entry.sourceReplacement);
   entry.sourceVertical = model.source_vertical === true;
   entry.sourceRegions = Array.isArray(model.source_regions) ? model.source_regions : [];
   entry.sourceSegments = Array.isArray(model.source_segments) ? model.source_segments : [];

@@ -9,9 +9,11 @@
         var revealRuntime = window.__SGT_CREATE_REVEAL_RUNTIME__(body, state.reveal);
 
         function dimensions() {
+            var inlineWidth = parseFloat(viewport.style.width);
+            var inlineHeight = parseFloat(viewport.style.height);
             return {
-                width: Math.max(1, viewport.clientWidth),
-                height: Math.max(1, viewport.clientHeight)
+                width: Math.max(1, Number.isFinite(inlineWidth) ? inlineWidth : viewport.clientWidth),
+                height: Math.max(1, Number.isFinite(inlineHeight) ? inlineHeight : viewport.clientHeight)
             };
         }
 
@@ -123,7 +125,7 @@
                 container.style.top = (Number(region.y) * scaleY) + 'px';
                 container.style.width = (Number(region.width) * scaleX) + 'px';
                 container.style.height = (Number(region.height) * scaleY) + 'px';
-                content.style.cssText = 'display:block;max-width:100%;max-height:100%;margin:0;padding:0;background:transparent;user-select:text;overflow:visible;white-space:nowrap;text-align:center;';
+                content.style.cssText = 'display:inline-block;width:max-content;height:max-content;max-width:none;max-height:none;margin:0;padding:0;background:transparent;user-select:text;overflow:visible;white-space:nowrap;text-align:center;';
                 if (region.vertical === true) {
                     content.style.writingMode = 'vertical-rl';
                     content.style.textOrientation = 'mixed';
@@ -132,74 +134,62 @@
                 body.appendChild(container);
                 containers.push({ box: container, text: content });
             }
-            function applyTypography(item, fontSize, stretch) {
+            function applyTypography(item, typography) {
                 var textNode = item.text;
-                textNode.style.fontSize = fontSize + 'px';
+                textNode.style.fontSize = typography.fontSize + 'px';
                 textNode.style.lineHeight = '1.08';
-                textNode.style.fontStretch = stretch + '%';
+                textNode.style.fontStretch = typography.stretch + '%';
                 textNode.style.fontVariationSettings = "'slnt' 0, 'ROND' 100";
             }
-            function shapedExtent(item) {
-                if (!item.text.textContent) return { width: 0, height: 0 };
+            function shapedExtent(element) {
+                if (!element.textContent) return { width: 0, height: 0 };
                 var range = document.createRange();
-                range.selectNodeContents(item.text);
+                range.selectNodeContents(element);
                 var rect = range.getBoundingClientRect();
-                return { width: rect.width, height: rect.height };
+                return {
+                    width: Math.max(rect.width, element.scrollWidth),
+                    height: Math.max(rect.height, element.scrollHeight)
+                };
             }
-            function itemFits(item) {
-                var extent = shapedExtent(item);
-                return extent.width <= item.box.clientWidth + 0.5
-                    && extent.height <= item.box.clientHeight + 0.5;
+            for (var typographyIndex = 0; typographyIndex < containers.length; typographyIndex++) {
+                var typographyItem = containers[typographyIndex];
+                applyTypography(typographyItem, sourceTypography(
+                    typographyItem.text.textContent,
+                    Number(regions[typographyIndex].width) * scaleX,
+                    Number(regions[typographyIndex].height) * scaleY,
+                    regions[typographyIndex].vertical === true
+                ));
             }
-            for (var widthItemIndex = 0; widthItemIndex < containers.length; widthItemIndex++) {
-                var widthItem = containers[widthItemIndex];
-                var vertical = regions[widthItemIndex].vertical === true;
-                var minorExtent = vertical ? widthItem.box.clientWidth : widthItem.box.clientHeight;
-                var fontLow = 0.1;
-                var fontHigh = Math.max(1, minorExtent * 2);
-                var fontSize = 0.1;
-                for (var fontAttempt = 0; fontAttempt < 12; fontAttempt++) {
-                    var fontMiddle = (fontLow + fontHigh) / 2;
-                    applyTypography(widthItem, fontMiddle, 50);
-                    void widthItem.text.offsetHeight;
-                    if (itemFits(widthItem)) {
-                        fontSize = fontMiddle;
-                        fontLow = fontMiddle;
-                    } else {
-                        fontHigh = fontMiddle;
+            state.sourceLayoutReady = window.__SGT_QUEUE_SOURCE_LAYOUT__(function() {
+                return containers.map(function(item) {
+                    return {
+                        extent: shapedExtent(item.text),
+                        width: item.box.clientWidth,
+                        height: item.box.clientHeight
+                    };
+                });
+            }, function(measurements) {
+                if (!measurements) return;
+                for (var finalIndex = 0; finalIndex < containers.length; finalIndex++) {
+                    var finalItem = containers[finalIndex];
+                    var measurement = measurements[finalIndex];
+                    var visualScale = Math.min(
+                        1,
+                        measurement.width / Math.max(1, measurement.extent.width),
+                        measurement.height / Math.max(1, measurement.extent.height)
+                    );
+                    if (visualScale < 1) {
+                        var currentSize = parseFloat(finalItem.text.style.fontSize) || 0.1;
+                        finalItem.text.style.fontSize = Math.max(
+                            0.1,
+                            currentSize * visualScale * 0.98
+                        ) + 'px';
                     }
+                    finalItem.text.style.transform = '';
+                    finalItem.box.style.overflow = 'hidden';
+                    finalItem.text.style.overflow = 'visible';
                 }
-                var widthLow = 50;
-                var widthHigh = 151;
-                var chosenWidth = 50;
-                for (var widthAttempt = 0; widthAttempt < 12; widthAttempt++) {
-                    var widthMiddle = (widthLow + widthHigh) / 2;
-                    applyTypography(widthItem, fontSize, widthMiddle);
-                    void widthItem.text.offsetHeight;
-                    if (itemFits(widthItem)) {
-                        chosenWidth = widthMiddle;
-                        widthLow = widthMiddle;
-                    } else {
-                        widthHigh = widthMiddle;
-                    }
-                }
-                applyTypography(widthItem, fontSize, chosenWidth);
-            }
-            for (var finalIndex = 0; finalIndex < containers.length; finalIndex++) {
-                var finalItem = containers[finalIndex];
-                var finalExtent = shapedExtent(finalItem);
-                var visualScale = Math.min(
-                    1,
-                    finalItem.box.clientWidth / Math.max(1, finalExtent.width),
-                    finalItem.box.clientHeight / Math.max(1, finalExtent.height)
-                );
-                if (visualScale < 1) {
-                    finalItem.text.style.transform = 'scale(' + visualScale + ')';
-                    finalItem.text.style.transformOrigin = 'center center';
-                }
-                finalItem.box.style.overflow = 'hidden';
-                finalItem.text.style.overflow = 'visible';
-            }
+            });
             body.dataset.shapeLayout = 'true';
             return true;
         }
@@ -208,14 +198,23 @@
             if (!options.sourceReplacement || !entry.backdrop || !entry.backdrop.dataset.url) return false;
             if (!entry.backdrop.complete || !entry.backdrop.naturalWidth) {
                 body.style.opacity = '0';
-                entry.backdrop.onload = function() {
-                    entry.backdrop.onload = null;
-                    var currentText = (body.innerText || body.textContent || text).trim();
+                var pendingUrl = entry.backdrop.dataset.url;
+                var decoded = typeof entry.backdrop.decode === 'function'
+                    ? entry.backdrop.decode().catch(function() {})
+                    : new Promise(function(resolve) {
+                        entry.backdrop.addEventListener('load', resolve, { once: true });
+                        entry.backdrop.addEventListener('error', resolve, { once: true });
+                    });
+                state.sourceLayoutReady = decoded.then(function() {
+                    if (entry.backdrop.dataset.url !== pendingUrl) return;
+                    var currentText = (body.textContent || text).trim();
                     layoutInBackdrop(options, currentText);
                     body.style.opacity = '1';
-                };
+                    return state.sourceLayoutReady;
+                });
                 return true;
             }
+            state.sourceLayoutReady = Promise.resolve();
             if (Array.isArray(options.sourceRegions) && options.sourceRegions.length) {
                 layoutSourceRegions(options);
                 return true;
@@ -474,9 +473,8 @@
         function apply(options) {
             var previousWords = state.wordCount;
             var firstRender = state.renderCount === 0;
-            // Source replacement cards are revealed by one compositor-owned batch.
-            // Stop the inherited per-body filter animation before changing the DOM;
-            // otherwise every hidden card still allocates its own blur surface.
+            // Each source replacement card owns one compositor animation. Stop the
+            // inherited per-body animation so it cannot compete for the same filter.
             if (options.sourceReplacement) finishBodyPresentation();
             if (firstRender) body.style.opacity = '0';
             if (options.sourceReplacement || firstRender) body.innerHTML = options.html;
@@ -485,7 +483,9 @@
                 body.style.overflowX = 'hidden';
                 body.style.overflowY = 'auto';
             }
-            var text = (body.innerText || body.textContent || '').trim();
+            var text = (options.sourceReplacement
+                ? body.textContent
+                : (body.innerText || body.textContent || '')).trim();
             var isNewSession = firstRender || (previousWords < 5 && text.length < 50);
             inlineSize(options, text, isNewSession);
             revealRuntime.update(Boolean(options.animateNewWords), isNewSession);

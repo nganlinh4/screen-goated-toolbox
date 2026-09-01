@@ -17,7 +17,6 @@ pub(super) struct PreparedSource {
 
 #[derive(Clone)]
 pub(super) struct PreparedBlock {
-    pub component_id: u16,
     pub member_ids: Vec<u16>,
     pub layout: PixelRegion,
     pub backdrop: String,
@@ -123,9 +122,7 @@ pub(super) fn prepare_scene(
             .and_then(|(background, _)| most_contrasting_foreground(&members, background))
             .map(super::appearance::color_hex)
             .unwrap_or(inferred_foreground);
-        let component_id = member_ids[0];
         blocks.push(PreparedBlock {
-            component_id,
             member_ids,
             layout,
             backdrop: encode_data_url(&backdrop)?,

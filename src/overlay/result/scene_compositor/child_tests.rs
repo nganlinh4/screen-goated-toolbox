@@ -56,6 +56,7 @@ fn authored_html_acceptance_is_captured_from_the_shared_compositor() {
 #[test]
 fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() {
     let child = include_str!("child.rs");
+    let child_commands = include_str!("child_commands.rs");
     let controls = include_str!("button_scene_runtime.js");
     let pointer = crate::overlay::result::scene_compositor::control_surface::document_script();
     let resize = include_str!("resize_runtime.js");
@@ -104,10 +105,24 @@ fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() 
     let native_input = include_str!("button_input.rs");
     assert!(native_input.contains("AWAITING_DRAG_SETTLE.store(true"));
     assert!(native_input.contains("AWAITING_DRAG_SETTLE.load"));
-    assert!(child.contains("super::button_input::settle_drag();"));
+    assert!(child_commands.contains("super::button_input::settle_drag();"));
     let settled = controls.find("command.type === 'drag_settled'").unwrap();
     let merge = controls[settled..].find("mergeCard(card)").unwrap();
     let reveal = controls[settled..].find("setDragActive(false)").unwrap();
     assert!(merge < reveal);
     assert!(controls[settled..].contains("externalDrag = false"));
+}
+
+#[test]
+fn batched_card_creation_also_populates_the_control_scene() {
+    let controls = include_str!("button_scene_runtime.js");
+    let branch = controls
+        .find("command.type === 'upsert_batch'")
+        .expect("button scene must handle batched card creation");
+    let next_branch = controls[branch..]
+        .find("command.type === 'stream'")
+        .map(|offset| branch + offset)
+        .expect("stream branch must follow batched card creation");
+
+    assert!(controls[branch..next_branch].contains("mergeCard(card)"));
 }

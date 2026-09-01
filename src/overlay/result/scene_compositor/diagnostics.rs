@@ -64,6 +64,10 @@ pub(super) fn log_host_command(command: &HostCommand, text_len: usize) {
             "[ResultCard] id={} host=upsert visible={} streaming={} text_len={} rect={}x{}",
             card.id, card.visible, card.streaming, text_len, card.rect.width, card.rect.height
         )),
+        HostCommand::UpsertBatch { cards } => crate::debug_log::log_debug(&format!(
+            "[ResultCard] host=upsert_batch cards={} text_len={text_len}",
+            cards.len()
+        )),
         HostCommand::Finalize { card } => crate::debug_log::log_debug(&format!(
             "[ResultCard] id={} host=finalize visible={} text_len={}",
             card.id, card.visible, text_len

@@ -205,6 +205,9 @@ pub enum HostCommand {
     Upsert {
         card: SceneCard,
     },
+    UpsertBatch {
+        cards: Vec<SceneCard>,
+    },
     Stream {
         card: SceneStream,
     },
@@ -379,6 +382,18 @@ mod tests {
         assert_eq!(decoded, command);
         assert!(!encoded.contains('\n'));
         assert!(encoded.contains("\"external_navigation\":true"));
+
+        let card = match command {
+            HostCommand::Upsert { card } => card,
+            _ => unreachable!(),
+        };
+        let batch = HostCommand::UpsertBatch { cards: vec![card] };
+        let encoded = serde_json::to_string(&batch).unwrap();
+        assert!(encoded.contains("\"type\":\"upsert_batch\""));
+        assert_eq!(
+            serde_json::from_str::<HostCommand>(&encoded).unwrap(),
+            batch
+        );
     }
 
     #[test]

@@ -20,7 +20,9 @@ body{font-family:'Google Sans Flex';user-select:none}
 .result-card[data-processing="true"] .processing-aura{opacity:1}
 .result-card[data-surface="native"]{background:transparent!important;box-shadow:none!important}
 .region-backdrop{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:0}
+.card-visual-surface{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:auto}
 .direct-host,.result-frame{position:absolute;inset:0;z-index:1;display:block;width:100%;height:100%;border:0;background:transparent;user-select:text}
+.direct-host,.result-frame{pointer-events:auto}
 .result-frame{border-radius:inherit;clip-path:inset(0 round var(--sgt-box-radius,__SGT_BOX_RADIUS_PX__px))}
 .direct-host[hidden],.result-frame[hidden]{display:none!important}
 .result-card[data-presentation="text_only"] .direct-host,.result-card[data-presentation="text_only"] .result-frame{user-select:text;cursor:text}

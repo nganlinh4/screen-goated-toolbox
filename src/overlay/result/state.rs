@@ -188,6 +188,16 @@ pub enum WindowType {
 }
 
 pub fn link_windows(hwnd1: HWND, hwnd2: HWND) {
+    link_window_states(hwnd1, hwnd2);
+    super::scene_compositor::sync_controls(hwnd1);
+    super::scene_compositor::sync_controls(hwnd2);
+}
+
+pub(crate) fn link_windows_deferred(hwnd1: HWND, hwnd2: HWND) {
+    link_window_states(hwnd1, hwnd2);
+}
+
+fn link_window_states(hwnd1: HWND, hwnd2: HWND) {
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(s1) = states.get_mut(&(hwnd1.0 as isize))
@@ -201,8 +211,6 @@ pub fn link_windows(hwnd1: HWND, hwnd2: HWND) {
             s2.linked_windows.push(hwnd1);
         }
     }
-    super::scene_compositor::sync_controls(hwnd1);
-    super::scene_compositor::sync_controls(hwnd2);
 }
 
 use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};

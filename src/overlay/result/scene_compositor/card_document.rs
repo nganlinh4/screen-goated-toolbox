@@ -172,6 +172,7 @@ mod tests {
     #[test]
     fn non_streaming_content_is_revealed_only_after_its_final_fit() {
         let document = compositor_document("http://127.0.0.1:32123");
+        let reveal = include_str!("settled_reveal_runtime.js");
 
         assert!(document.contains("type === 'finalize' && !entry.streamingEnabled"));
         assert!(document.contains("prepareSettledReveal(entry, entry.contentRevision)"));
@@ -183,8 +184,24 @@ mod tests {
         assert!(document.contains("settleBeforeReveal: Boolean(message.settle_before_reveal)"));
         assert!(document.contains("finishBodyPresentation()"));
         assert!(document.contains("sourceReplacementReveal.enqueue(entry, reportPendingPaint)"));
-        assert!(document.contains("source-replacement-reveal-batch"));
         assert!(document.contains("filter: 'blur(8px)'"));
+        assert!(document.contains("entry.visualSurface.style.visibility = 'hidden'"));
+        assert!(document.contains("surface.appendChild(entry.backdrop)"));
+        assert!(document.contains("surface.appendChild(entry.directHost)"));
+        assert!(document.contains("entry.card.dataset.sourceReplacement"));
+        assert!(document.contains("entry.sourceReplacementReveal = value"));
+        assert!(document.contains("Promise.resolve(value.animation.ready)"));
+        assert!(document.contains("backdrop.decode()"));
+        assert!(document.contains("entry.directState.sourceLayoutReady"));
+        assert!(document.contains("value.animation.currentTime = 0"));
+        assert!(!document.contains("value.animation.startTime ="));
+        assert!(document.contains("Promise.all(readiness).then(function()"));
+        assert!(!reveal.contains("let pending = []"));
+        assert!(!reveal.contains("let ready = []"));
+        assert!(!reveal.contains("requestAnimationFrame(startReady)"));
+        assert!(!document.contains("{ opacity: 0, filter: 'blur(8px)'"));
+        assert!(!document.contains("layer.appendChild(host)"));
+        assert!(!document.contains("source-replacement-reveal-batch"));
         assert!(document.contains("if (options.sourceReplacement) finishBodyPresentation()"));
         assert!(document.contains("body.style.setProperty('animation', 'none', 'important')"));
         assert!(document.contains("body.style.setProperty('opacity', '1', 'important')"));

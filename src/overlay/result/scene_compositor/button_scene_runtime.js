@@ -75,6 +75,8 @@
       for (const card of command.cards || []) mergeCard(card);
     } else if (command.type === 'upsert') {
       mergeCard(command.card);
+    } else if (command.type === 'upsert_batch') {
+      for (const card of command.cards || []) mergeCard(card);
     } else if (command.type === 'stream' || command.type === 'finalize') {
       mergeCard(command.card);
     } else if (command.type === 'geometry') {

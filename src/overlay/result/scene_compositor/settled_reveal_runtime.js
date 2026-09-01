@@ -28,90 +28,74 @@ function isolatedSurfaceVisibility(entry) {
 }
 
 const sourceReplacementReveal = (function() {
-  let pending = [];
-  let frame = 0;
-
-  function restore(item) {
-    item.host.style.cssText = item.style;
-    if (item.placeholder.parentNode) {
-      item.placeholder.parentNode.insertBefore(item.host, item.placeholder);
-      item.placeholder.remove();
+  function dispose(value, reportPaint) {
+    if (value.finished) return;
+    value.finished = true;
+    if (value.entry.sourceReplacementReveal === value) {
+      value.entry.sourceReplacementReveal = null;
     }
-    item.complete();
+    value.animation.cancel();
+    value.surface.style.willChange = value.priorWillChange;
+    if (reportPaint) value.complete();
   }
 
-  function flush() {
-    frame = 0;
-    const batch = pending;
-    pending = [];
-    if (!batch.length) return;
-
-    const measured = [];
-    batch.forEach(function(item) {
-      const rect = item.entry.directHost.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        measured.push({ item: item, rect: rect });
-      } else {
-        item.entry.directHost.style.cssText = item.style;
-        item.complete();
-      }
-    });
-    if (!measured.length) return;
-
-    const left = Math.min.apply(null, measured.map(function(value) { return value.rect.left; }));
-    const top = Math.min.apply(null, measured.map(function(value) { return value.rect.top; }));
-    const right = Math.max.apply(null, measured.map(function(value) { return value.rect.right; }));
-    const bottom = Math.max.apply(null, measured.map(function(value) { return value.rect.bottom; }));
-    const layer = document.createElement('div');
-    layer.className = 'source-replacement-reveal-batch';
-    layer.style.cssText = 'position:fixed;pointer-events:none;overflow:visible;will-change:opacity,filter,transform;'
-      + 'left:' + left + 'px;top:' + top + 'px;width:' + Math.max(1, right - left)
-      + 'px;height:' + Math.max(1, bottom - top) + 'px;z-index:' + (highestStackOrder + 1) + ';';
-    scene.appendChild(layer);
-
-    const moved = measured.map(function(value) {
-      const item = value.item;
-      const host = item.entry.directHost;
-      const placeholder = document.createComment('source-replacement-reveal');
-      host.parentNode.insertBefore(placeholder, host);
-      const opacity = getComputedStyle(item.entry.card).opacity;
-      layer.appendChild(host);
-      host.style.cssText += ';position:absolute;display:block;pointer-events:auto;visibility:visible;'
-        + 'left:' + (value.rect.left - left) + 'px;top:' + (value.rect.top - top)
-        + 'px;width:' + value.rect.width + 'px;height:' + value.rect.height
-        + 'px;opacity:' + opacity + ';';
-      return {
-        host: host,
-        placeholder: placeholder,
-        style: item.style,
-        complete: item.complete
-      };
-    });
-
-    let finished = false;
-    function finish() {
-      if (finished) return;
-      finished = true;
-      moved.forEach(restore);
-      layer.remove();
-    }
-    if (typeof layer.animate !== 'function') {
-      requestAnimationFrame(function() { requestAnimationFrame(finish); });
+  function start(value) {
+    if (value.finished || value.entry.sourceReplacementReveal !== value) return;
+    if (!value.surface.isConnected || !value.entry.card.isConnected) {
+      dispose(value, true);
       return;
     }
-    const animation = layer.animate([
-      { opacity: 0, filter: 'blur(8px)', transform: 'translate3d(0,4px,0)' },
-      { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0,0,0)' }
-    ], { duration: 350, easing: 'cubic-bezier(0.2,0,0.2,1)', fill: 'both' });
-    animation.addEventListener('finish', finish, { once: true });
-    animation.addEventListener('cancel', finish, { once: true });
+    value.surface.style.visibility = 'visible';
+    value.animation.addEventListener('finish', function() {
+      dispose(value, true);
+    }, { once: true });
+    value.animation.addEventListener('cancel', function() {
+      dispose(value, false);
+    }, { once: true });
+    value.animation.currentTime = 0;
+    value.animation.play();
   }
 
   function enqueue(entry, complete) {
-    const style = entry.directHost.style.cssText;
-    entry.directHost.style.visibility = 'hidden';
-    pending.push({ entry: entry, style: style, complete: complete });
-    if (!frame) frame = requestAnimationFrame(flush);
+    if (entry.sourceReplacementReveal) {
+      dispose(entry.sourceReplacementReveal, false);
+    }
+    const surface = entry.visualSurface;
+    if (typeof Element.prototype.animate !== 'function') {
+      surface.style.visibility = 'visible';
+      complete();
+      return;
+    }
+    const value = {
+      entry: entry,
+      surface: surface,
+      priorWillChange: surface.style.willChange,
+      animation: surface.animate([
+        { filter: 'blur(8px)', transform: 'translate3d(0,4px,0)' },
+        { filter: 'blur(0)', transform: 'translate3d(0,0,0)' }
+      ], { duration: 350, easing: 'cubic-bezier(0.2,0,0.2,1)', fill: 'both' }),
+      complete: complete,
+      finished: false
+    };
+    entry.sourceReplacementReveal = value;
+    surface.style.willChange = 'filter,transform';
+    value.animation.pause();
+    value.animation.currentTime = 0;
+
+    const readiness = [Promise.resolve(value.animation.ready).catch(function() {})];
+    const backdrop = entry.backdrop;
+    if (backdrop && backdrop.dataset.url && typeof backdrop.decode === 'function') {
+      readiness.push(backdrop.decode().catch(function() {}));
+    }
+    const layoutReady = entry.directState.sourceLayoutReady;
+    if (layoutReady && typeof layoutReady.then === 'function') {
+      readiness.push(layoutReady.catch(function() {}));
+    }
+    Promise.all(readiness).then(function() {
+      start(value);
+    }, function() {
+      start(value);
+    });
   }
 
   return { enqueue: enqueue };
@@ -122,7 +106,11 @@ function prepareSettledReveal(entry, contentRevision) {
   entry.awaitingSettledReveal = true;
   entry.settledRevealRevision = contentRevision;
   entry.pendingSettledPaint = null;
-  setSettledSurfaceVisibility(entry, false);
+  if (entry.sourceReplacement === true && entry.mode === 'direct') {
+    entry.visualSurface.style.visibility = 'hidden';
+  } else {
+    setSettledSurfaceVisibility(entry, false);
+  }
   return true;
 }
 
@@ -172,7 +160,6 @@ function revealSettledContent(entry, contentRevision) {
   const pending = entry.pendingSettledPaint;
   entry.awaitingSettledReveal = false;
   entry.pendingSettledPaint = null;
-  setSettledSurfaceVisibility(entry, true);
   function reportPendingPaint() {
     if (!pending) return;
     if (pending.kind === 'direct') {
@@ -185,6 +172,7 @@ function revealSettledContent(entry, contentRevision) {
     sourceReplacementReveal.enqueue(entry, reportPendingPaint);
     return true;
   }
+  setSettledSurfaceVisibility(entry, true);
   reportPendingPaint();
   return true;
 }
