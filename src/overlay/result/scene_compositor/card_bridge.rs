@@ -49,6 +49,7 @@ pub(super) fn with_card_bridge(mut html: String) -> String {
   function cancelBridgeFrame(handle) {
     frameCallbacks.delete(Number(handle));
   }
+  window.__SGT_CANCEL_FIT_FRAME__ = cancelBridgeFrame;
   function queueFit(streaming) {
     window.__SGT_STREAMING__ = Boolean(streaming);
     if (!fontReady) {
@@ -184,6 +185,7 @@ mod tests {
         assert!(html.contains("postToParent({ type: 'card_navigation', url: url })"));
         assert!(!html.contains("anchor.target === '_blank'"));
         assert!(html.contains("postToParent({ type: 'fit_complete' })"));
+        assert!(html.contains("window.__SGT_CANCEL_FIT_FRAME__ = cancelBridgeFrame"));
         assert!(!html.contains("document.body.innerHTML"));
         assert!(!html.contains("window.__SGT_APPLY_STREAM_UPDATE__"));
         assert!(!html.contains("commandType === 'finalize'"));

@@ -292,20 +292,23 @@ fn direct_card_destruction_stops_persistent_scale_motion() {
 fn resizing_refits_during_preview_and_after_release() {
     let direct_runtime = include_str!("direct_runtime.js");
     let resize_runtime = include_str!("resize_runtime.js");
+    let typography_runtime = include_str!("resize_typography_runtime.js");
     assert!(COMPOSED.contains("const resized = entry.card.style.width !== widthCss"));
     assert!(COMPOSED.contains("setTimeout(function() { queueFit(entry, entry.streaming); }, 40)"));
     assert!(COMPOSED.contains("entry.requestResizeFit = function()"));
     assert!(resize_runtime.contains("requestFit: entry.requestResizeFit"));
-    assert!(resize_runtime.contains("resize.entry.directRuntime.previewResize"));
+    assert!(resize_runtime.contains("window.__SGT_TYPOGRAPHY_RESIZE__.preview"));
     assert!(resize_runtime.contains("scheduleSmartFit(resize)"));
     assert!(resize_runtime.contains("}, 100)"));
     let render_fit = resize_runtime
-        .find("resize.entry.directRuntime.previewResize")
+        .find("window.__SGT_TYPOGRAPHY_RESIZE__.preview")
         .unwrap();
     let preview_message = resize_runtime
         .find("action: 'result_resize_preview'")
         .unwrap();
-    let finish_render = resize_runtime.find("render();").unwrap();
+    let finish_render = resize_runtime
+        .find("resize.lastRenderedDx !== resize.dx")
+        .unwrap();
     assert!(render_fit < preview_message);
     assert!(
         finish_render
@@ -313,23 +316,24 @@ fn resizing_refits_during_preview_and_after_release() {
                 .find("action: 'result_resize_finish'")
                 .unwrap()
     );
-    assert!(
-        resize_runtime.contains("if (typeof resize.requestFit === 'function') resize.requestFit()")
-    );
-    assert!(direct_runtime.contains("function beginResizePreview(size)"));
-    assert!(direct_runtime.contains("function previewResize(snapshot, size)"));
-    assert!(
-        direct_runtime.contains("Math.sqrt(Math.max(1, size.width * size.height) / snapshot.area)")
-    );
-    let preview_fit = direct_runtime
-        .split("function previewResize(snapshot, size)")
+    assert!(resize_runtime.contains("const finalSizeNeedsFit"));
+    assert!(resize_runtime.contains("resize.fitRequestDx !== resize.dx"));
+    assert!(resize_runtime.contains("entry.mode !== 'isolated'"));
+    assert!(resize_runtime.contains("entry.frame.contentDocument?.body"));
+    assert!(direct_runtime.contains("window.__SGT_TYPOGRAPHY_RESIZE__.begin"));
+    assert!(typography_runtime.contains("function canonicalAxesChanged(snapshot)"));
+    assert!(typography_runtime.contains("rebase(snapshot, snapshot.lastSize)"));
+    assert!(typography_runtime.contains("const multilineWeight"));
+    let preview_fit = typography_runtime
+        .split("function preview(snapshot, size)")
         .nth(1)
         .unwrap()
-        .split("function destroy()")
+        .split("window.__SGT_TYPOGRAPHY_RESIZE__")
         .next()
         .unwrap();
     assert!(!preview_fit.contains("offsetHeight"));
     assert!(!preview_fit.contains("getBoundingClientRect"));
+    assert!(!preview_fit.contains("scrollHeight"));
 }
 
 #[test]

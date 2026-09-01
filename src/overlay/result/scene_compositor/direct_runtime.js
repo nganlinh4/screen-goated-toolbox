@@ -517,42 +517,6 @@
             });
         }
 
-        function beginResizePreview(size) {
-            var text = (body.textContent || '').trim();
-            var fontSize = parseFloat(body.style.fontSize);
-            if (!text || !Number.isFinite(fontSize) || fontSize <= 0) return null;
-            if (state.fit._sgtFitAnim) {
-                cancelAnimationFrame(state.fit._sgtFitAnim);
-                state.fit._sgtFitAnim = null;
-            }
-            var motion = state.fit._sgtMotionController;
-            if (motion && motion.frame !== null) cancelAnimationFrame(motion.frame);
-            state.fit._sgtMotionController = null;
-            return {
-                area: Math.max(1, size.width * size.height),
-                fontSize: fontSize,
-                paddingTop: parseFloat(body.style.paddingTop) || 0,
-                paddingBottom: parseFloat(body.style.paddingBottom) || 0,
-                textLength: text.length
-            };
-        }
-
-        function previewResize(snapshot, size) {
-            if (!snapshot) return;
-            var scale = Math.sqrt(Math.max(1, size.width * size.height) / snapshot.area);
-            var minimum = snapshot.textLength < 200 ? 6 : 14;
-            var maximum = snapshot.textLength < 300
-                ? 200
-                : (snapshot.textLength < 1500
-                    ? 100
-                    : Math.max(24, Math.min(48, Math.floor(size.height / 10))));
-            var fontSize = Math.max(minimum, Math.min(maximum, snapshot.fontSize * scale));
-            body.style.fontSize = fontSize + 'px';
-            body.style.paddingTop = (snapshot.paddingTop * scale) + 'px';
-            body.style.paddingBottom = (snapshot.paddingBottom * scale) + 'px';
-            state.fit._sgtCurrentFontSize = fontSize;
-        }
-
         function destroy() {
             if (state.overflowObserver) state.overflowObserver.disconnect();
             state.overflowObserver = null;
@@ -565,8 +529,10 @@
         return {
             apply: apply,
             initGrids: initGrids,
-            beginResizePreview: beginResizePreview,
-            previewResize: previewResize,
+            beginResizePreview: function(size) {
+                return window.__SGT_TYPOGRAPHY_RESIZE__.begin(
+                    body, state.fit, size, cancelAnimationFrame.bind(window));
+            },
             destroy: destroy
         };
     }

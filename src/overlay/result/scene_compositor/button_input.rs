@@ -72,6 +72,11 @@ pub(super) fn handle_renderer_message(
     let Some(action) = message.get("action").and_then(|value| value.as_str()) else {
         return RendererInput::Unhandled;
     };
+    if action == "restore_clickable_regions" {
+        settle_drag();
+        update_regions(&message);
+        return RendererInput::RefreshRegion;
+    }
     if action == "update_clickable_regions" {
         update_regions(&message);
         return RendererInput::RefreshRegion;

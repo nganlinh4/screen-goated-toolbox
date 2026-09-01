@@ -19,6 +19,7 @@
   }
 
   function clearClickableRegions() {
+    window.invalidateButtonRegions?.();
     window.ipc.postMessage(JSON.stringify({
       action: 'update_clickable_regions',
       scale: window.devicePixelRatio || 1,
@@ -33,7 +34,7 @@
     clearClickableRegions();
   }
 
-  function rebuild() {
+  function rebuild(restoreRegionsAfterDrag) {
     const container = document.getElementById('button-container');
     if (externalDrag) {
       hideControlsForDrag();
@@ -55,11 +56,12 @@
         state: model.controls
       };
     }
-    window.updateWindows(windows);
     if (restoreControlsAfterLayout) {
       container.style.visibility = '';
       controlsHiddenForDrag = false;
     }
+    window.updateWindows(windows);
+    if (restoreRegionsAfterDrag) window.restoreButtonRegionsAfterDrag?.();
     for (const key of completedCards) tryPulseCompletion(key);
     for (const [key, model] of models) {
       if (model.stackOrder !== undefined) {
@@ -126,7 +128,7 @@
       awaitingDragSettle = false;
       window.clearResultDragControlPreview?.();
       window.releaseResultDragGeometryLock?.();
-      rebuild();
+      rebuild(true);
     }
   }
 

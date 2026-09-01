@@ -78,6 +78,59 @@ fn drag_expands_native_region_before_parent_notification() {
 }
 
 #[test]
+fn drag_region_clear_invalidates_proximity_cache_before_settlement() {
+    let controls = include_str!("button_scene_runtime.js");
+    let runtime = crate::overlay::result::scene_compositor::control_surface::document_script();
+    let clear = controls
+        .split("function clearClickableRegions()")
+        .nth(1)
+        .expect("button scene must clear native regions")
+        .split("function hideControlsForDrag()")
+        .next()
+        .expect("region clear must precede drag hiding");
+    let invalidate = clear
+        .find("window.invalidateButtonRegions?.();")
+        .expect("native region clear must invalidate its visibility cache");
+    let notify = clear
+        .find("window.ipc.postMessage")
+        .expect("native region clear must notify the compositor");
+
+    assert!(invalidate < notify);
+    assert!(runtime.contains("window.invalidateButtonRegions = () =>"));
+    assert!(runtime.contains("lastVisibleState.clear();"));
+    assert!(runtime.contains("lastSentRegions.clear();"));
+}
+
+#[test]
+fn drag_settlement_forces_one_acknowledged_button_region_snapshot() {
+    let controls = include_str!("button_scene_runtime.js");
+    let runtime = crate::overlay::result::scene_compositor::control_surface::document_script();
+    let native_input = include_str!("button_input.rs");
+    let settled = controls
+        .split("function setDragActive(active)")
+        .nth(1)
+        .expect("button scene must expose drag settlement")
+        .split("function releaseDragPreview")
+        .next()
+        .expect("settlement must precede pointer release handling");
+
+    assert!(settled.contains("rebuild(true)"));
+    assert!(runtime.contains("window.restoreButtonRegionsAfterDrag = () =>"));
+    assert!(runtime.contains("? \"restore_clickable_regions\""));
+    assert!(native_input.contains("if action == \"restore_clickable_regions\""));
+    let restore = native_input
+        .split("if action == \"restore_clickable_regions\"")
+        .nth(1)
+        .unwrap()
+        .split("if action == \"update_clickable_regions\"")
+        .next()
+        .unwrap();
+    let settle = restore.find("settle_drag();").unwrap();
+    let regions = restore.find("update_regions(&message);").unwrap();
+    assert!(settle < regions);
+}
+
+#[test]
 fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() {
     let child = include_str!("child.rs");
     let child_commands = include_str!("child_commands.rs");
@@ -94,7 +147,7 @@ fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() 
         .split("function hideControlsForDrag()")
         .nth(1)
         .unwrap()
-        .split("function rebuild()")
+        .split("function rebuild(")
         .next()
         .unwrap();
     assert!(hiding.contains("clearClickableRegions()"));
@@ -110,7 +163,7 @@ fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() 
     assert!(released.contains("window.updateCursorPosition?.(pointerX, pointerY)"));
     assert!(!released.contains("clearResultDragControlPreview"));
     let rebuild = controls
-        .split("function rebuild()")
+        .split("function rebuild(")
         .nth(1)
         .unwrap()
         .split("function apply(command)")

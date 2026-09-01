@@ -27,8 +27,25 @@
     clearTimeout(resize.fitTimer);
     resize.fitTimer = setTimeout(function() {
       resize.fitTimer = 0;
+      resize.fitRequestDx = resize.dx;
+      resize.fitRequestDy = resize.dy;
       resize.requestFit();
     }, 100);
+  }
+
+  function beginFitPreview(entry, size) {
+    if (entry.mode === 'direct') return entry.directRuntime.beginResizePreview(size);
+    if (entry.mode !== 'isolated') return null;
+    try {
+      const view = entry.frame.contentWindow;
+      const body = entry.frame.contentDocument?.body;
+      const cancelFrame = typeof view?.__SGT_CANCEL_FIT_FRAME__ === 'function'
+        ? view.__SGT_CANCEL_FIT_FRAME__.bind(view)
+        : view?.cancelAnimationFrame?.bind(view);
+      return window.__SGT_TYPOGRAPHY_RESIZE__.begin(body, view, size, cancelFrame);
+    } catch (_error) {
+      return null;
+    }
   }
 
   function render() {
@@ -39,7 +56,9 @@
     resize.entry.card.style.width = rect.width + 'px';
     resize.entry.card.style.height = rect.height + 'px';
     resize.entry.processing.resize(rect.width, rect.height, window.devicePixelRatio || 1);
-    resize.entry.directRuntime.previewResize(resize.fitPreview, rect);
+    window.__SGT_TYPOGRAPHY_RESIZE__.preview(resize.fitPreview, rect);
+    resize.lastRenderedDx = resize.dx;
+    resize.lastRenderedDy = resize.dy;
     scheduleSmartFit(resize);
     if (resize.entry.externalNavigation) {
       const scale = window.devicePixelRatio || 1;
@@ -61,9 +80,9 @@
       startX: event.clientX, startY: event.clientY, dx: 0, dy: 0, frame: 0,
       rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
       requestFit: entry.requestResizeFit, fitTimer: 0,
-      fitPreview: entry.mode === 'direct'
-        ? entry.directRuntime.beginResizePreview(size)
-        : null
+      fitRequestDx: null, fitRequestDy: null,
+      lastRenderedDx: null, lastRenderedDy: null,
+      fitPreview: beginFitPreview(entry, size)
     };
     window.ipc.postMessage(JSON.stringify({
       action: 'result_resize_start', hwnd: entry.card.dataset.id, edge: edge
@@ -86,12 +105,16 @@
       resize.dx = event.clientX - resize.startX;
       resize.dy = event.clientY - resize.startY;
     }
+    const scale = window.devicePixelRatio || 1;
+    resize.dx = Math.round(resize.dx * scale) / scale;
+    resize.dy = Math.round(resize.dy * scale) / scale;
     if (resize.frame) cancelAnimationFrame(resize.frame);
-    render();
+    if (resize.lastRenderedDx !== resize.dx || resize.lastRenderedDy !== resize.dy) render();
     clearTimeout(resize.fitTimer);
     resize.fitTimer = 0;
-    if (typeof resize.requestFit === 'function') resize.requestFit();
-    const scale = window.devicePixelRatio || 1;
+    const finalSizeNeedsFit = resize.fitRequestDx !== resize.dx
+      || resize.fitRequestDy !== resize.dy;
+    if (finalSizeNeedsFit && typeof resize.requestFit === 'function') resize.requestFit();
     window.ipc.postMessage(JSON.stringify({
       action: 'result_resize_finish', hwnd: resize.entry.card.dataset.id, edge: resize.edge,
       dx: Math.round(resize.dx * scale), dy: Math.round(resize.dy * scale)

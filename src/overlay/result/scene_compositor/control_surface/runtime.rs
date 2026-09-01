@@ -89,9 +89,14 @@ window.updateCursorPosition = (x, y) => {
     cursorY = y;
     updateButtonOpacity();
 };
-function updateButtonOpacity() {
+window.invalidateButtonRegions = () => {
+    lastVisibleState.clear();
+    lastSentRegions.clear();
+};
+window.restoreButtonRegionsAfterDrag = () => updateButtonOpacity(true, true);
+function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false) {
     const groups = document.querySelectorAll('.button-group');
-    let needsUpdate = false;
+    let needsUpdate = forceUpdate;
 
     groups.forEach(group => {
         const rect = group.getBoundingClientRect();
@@ -174,7 +179,9 @@ function updateButtonOpacity() {
         });
 
         window.ipc.postMessage(JSON.stringify({
-            action: "update_clickable_regions",
+            action: restoreAfterDrag
+                ? "restore_clickable_regions"
+                : "update_clickable_regions",
             scale: window.devicePixelRatio || 1,
             regions: regions
         }));

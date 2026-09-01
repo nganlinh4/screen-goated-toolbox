@@ -37,7 +37,7 @@ body{font-family:'Google Sans Flex';user-select:none}
 .result-card[data-source-replacement="true"] .resize-handle{display:none}
 </style></head><body><span class="font-prewarm" aria-hidden="true">SGT</span>
 <main id="scene"></main><aside id="button-container"></aside>
-<script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DOM_PATCH_RUNTIME__</script><script>__SGT_REVEAL_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script><script>__SGT_PROCESSING_RUNTIME__</script><script>__SGT_RESIZE_RUNTIME__</script>
+<script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DOM_PATCH_RUNTIME__</script><script>__SGT_REVEAL_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script><script>__SGT_PROCESSING_RUNTIME__</script><script>__SGT_RESIZE_TYPOGRAPHY_RUNTIME__</script><script>__SGT_RESIZE_RUNTIME__</script>
 <script>__SGT_SURFACE_RUNTIME__
 window.__SGT_RUN_FIT__ = function(streaming) { __SGT_FIT_RUNTIME__ };
 __SGT_SCENE_RUNTIME__

@@ -68,6 +68,10 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
             "__SGT_PROCESSING_RUNTIME__",
             include_str!("processing_runtime.js"),
         )
+        .replace(
+            "__SGT_RESIZE_TYPOGRAPHY_RUNTIME__",
+            include_str!("resize_typography_runtime.js"),
+        )
         .replace("__SGT_RESIZE_RUNTIME__", include_str!("resize_runtime.js"))
         .replace(
             "__SGT_MIN_WINDOW_WIDTH_PX__",
