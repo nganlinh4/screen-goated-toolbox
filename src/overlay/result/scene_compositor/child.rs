@@ -333,11 +333,17 @@ fn handle_renderer_event(body: &str) {
                 return;
             }
             super::button_input::RendererInput::EventAndRefresh(event) => {
-                if matches!(&event, ChildEvent::DragStarted) {
+                let drag_started = matches!(&event, ChildEvent::DragStarted);
+                if drag_started {
+                    // Pointer capture must be able to leave the card's idle native region
+                    // before any WebView work or parent notification can block.
+                    super::region::update(host, true);
                     evaluate_script("window.__SGT_BUTTON_SCENE__?.setDragActive(true);");
                 }
                 emit_event(event);
-                super::region::update(host, true);
+                if !drag_started {
+                    super::region::update(host, true);
+                }
                 return;
             }
         }

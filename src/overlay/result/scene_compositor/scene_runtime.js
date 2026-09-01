@@ -116,6 +116,11 @@ function ensureCard(id) {
       reportCardDiagnostic(id, entry, phase, { error: error });
     }
   });
+  entry.requestResizeFit = function() {
+    clearTimeout(entry.resizeFit);
+    entry.resizeFit = 0;
+    queueFit(entry, entry.streaming);
+  };
   entry.resizeRuntime = window.__SGT_CARD_RESIZE__.attach(entry);
   function activateIsolatedBridge() {
     if (entry.mode !== 'isolated') return;

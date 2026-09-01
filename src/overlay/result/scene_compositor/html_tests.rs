@@ -289,9 +289,47 @@ fn direct_card_destruction_stops_persistent_scale_motion() {
 }
 
 #[test]
-fn resizing_debounces_fit_without_penalizing_position_only_dragging() {
+fn resizing_refits_during_preview_and_after_release() {
+    let direct_runtime = include_str!("direct_runtime.js");
+    let resize_runtime = include_str!("resize_runtime.js");
     assert!(COMPOSED.contains("const resized = entry.card.style.width !== widthCss"));
     assert!(COMPOSED.contains("setTimeout(function() { queueFit(entry, entry.streaming); }, 40)"));
+    assert!(COMPOSED.contains("entry.requestResizeFit = function()"));
+    assert!(resize_runtime.contains("requestFit: entry.requestResizeFit"));
+    assert!(resize_runtime.contains("resize.entry.directRuntime.previewResize"));
+    assert!(resize_runtime.contains("scheduleSmartFit(resize)"));
+    assert!(resize_runtime.contains("}, 100)"));
+    let render_fit = resize_runtime
+        .find("resize.entry.directRuntime.previewResize")
+        .unwrap();
+    let preview_message = resize_runtime
+        .find("action: 'result_resize_preview'")
+        .unwrap();
+    let finish_render = resize_runtime.find("render();").unwrap();
+    assert!(render_fit < preview_message);
+    assert!(
+        finish_render
+            < resize_runtime
+                .find("action: 'result_resize_finish'")
+                .unwrap()
+    );
+    assert!(
+        resize_runtime.contains("if (typeof resize.requestFit === 'function') resize.requestFit()")
+    );
+    assert!(direct_runtime.contains("function beginResizePreview(size)"));
+    assert!(direct_runtime.contains("function previewResize(snapshot, size)"));
+    assert!(
+        direct_runtime.contains("Math.sqrt(Math.max(1, size.width * size.height) / snapshot.area)")
+    );
+    let preview_fit = direct_runtime
+        .split("function previewResize(snapshot, size)")
+        .nth(1)
+        .unwrap()
+        .split("function destroy()")
+        .next()
+        .unwrap();
+    assert!(!preview_fit.contains("offsetHeight"));
+    assert!(!preview_fit.contains("getBoundingClientRect"));
 }
 
 #[test]

@@ -54,6 +54,30 @@ fn authored_html_acceptance_is_captured_from_the_shared_compositor() {
 }
 
 #[test]
+fn drag_expands_native_region_before_parent_notification() {
+    let source = include_str!("child.rs");
+    let branch = source
+        .split("RendererInput::EventAndRefresh(event) =>")
+        .nth(1)
+        .expect("event and refresh branch must exist")
+        .split("return;")
+        .next()
+        .expect("event and refresh branch must return");
+    let expand = branch
+        .find("super::region::update(host, true);")
+        .expect("drag start must expand the native region");
+    let notify = branch
+        .find("emit_event(event);")
+        .expect("drag start must notify the parent");
+    let webview = branch
+        .find("evaluate_script(\"window.__SGT_BUTTON_SCENE__?.setDragActive(true);\")")
+        .expect("drag start must hide compositor controls");
+
+    assert!(expand < webview);
+    assert!(expand < notify);
+}
+
+#[test]
 fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() {
     let child = include_str!("child.rs");
     let child_commands = include_str!("child_commands.rs");

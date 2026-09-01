@@ -22,6 +22,15 @@
     return { x: x, y: y, width: width, height: height };
   }
 
+  function scheduleSmartFit(resize) {
+    if (typeof resize.requestFit !== 'function') return;
+    clearTimeout(resize.fitTimer);
+    resize.fitTimer = setTimeout(function() {
+      resize.fitTimer = 0;
+      resize.requestFit();
+    }, 100);
+  }
+
   function render() {
     const resize = active; if (!resize) return;
     resize.frame = 0;
@@ -30,6 +39,8 @@
     resize.entry.card.style.width = rect.width + 'px';
     resize.entry.card.style.height = rect.height + 'px';
     resize.entry.processing.resize(rect.width, rect.height, window.devicePixelRatio || 1);
+    resize.entry.directRuntime.previewResize(resize.fitPreview, rect);
+    scheduleSmartFit(resize);
     if (resize.entry.externalNavigation) {
       const scale = window.devicePixelRatio || 1;
       window.ipc.postMessage(JSON.stringify({
@@ -44,10 +55,15 @@
     event.preventDefault(); event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     const rect = entry.card.getBoundingClientRect();
+    const size = { width: rect.width, height: rect.height };
     active = {
       entry: entry, edge: edge, pointerId: event.pointerId,
       startX: event.clientX, startY: event.clientY, dx: 0, dy: 0, frame: 0,
-      rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+      rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+      requestFit: entry.requestResizeFit, fitTimer: 0,
+      fitPreview: entry.mode === 'direct'
+        ? entry.directRuntime.beginResizePreview(size)
+        : null
     };
     window.ipc.postMessage(JSON.stringify({
       action: 'result_resize_start', hwnd: entry.card.dataset.id, edge: edge
@@ -72,6 +88,9 @@
     }
     if (resize.frame) cancelAnimationFrame(resize.frame);
     render();
+    clearTimeout(resize.fitTimer);
+    resize.fitTimer = 0;
+    if (typeof resize.requestFit === 'function') resize.requestFit();
     const scale = window.devicePixelRatio || 1;
     window.ipc.postMessage(JSON.stringify({
       action: 'result_resize_finish', hwnd: resize.entry.card.dataset.id, edge: resize.edge,
@@ -91,6 +110,7 @@
     return { destroy: function() {
       if (active && active.entry === entry) {
         if (active.frame) cancelAnimationFrame(active.frame);
+        clearTimeout(active.fitTimer);
         active = null;
         window.__SGT_BUTTON_SCENE__?.setDragActive(false);
       }
