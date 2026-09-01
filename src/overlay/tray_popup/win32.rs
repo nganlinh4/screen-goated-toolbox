@@ -5,8 +5,7 @@ use windows::Win32::Graphics::Dwm::{
     DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
-    CombineRgn, CreateRoundRectRgn, DeleteObject, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST,
-    MONITORINFO, MonitorFromPoint, RGN_OR, SetWindowRgn,
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, SetWindowRgn,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForSystem, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -19,9 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{HSTRING, PCWSTR};
 
-use super::layout::{
-    FLYOUT_GAP, FLYOUT_WIDTH, MAIN_HEIGHT, MAIN_WIDTH, PhysicalPoint, PopupPlacement, WorkArea,
-};
+use super::layout::{PhysicalPoint, PopupPlacement, WorkArea};
 
 const OFFSCREEN_COORDINATE: i32 = -32_000;
 
@@ -97,8 +94,8 @@ pub(super) fn monitor_metrics(anchor: PhysicalPoint, zoom_factor: f32) -> Monito
     }
 }
 
-pub(super) fn popup_window() -> Option<HWND> {
-    let title = HSTRING::from(super::viewport_title());
+pub(super) fn popup_window(title: &str) -> Option<HWND> {
+    let title = HSTRING::from(title);
     unsafe { FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())).ok() }
         .filter(|window| !window.is_invalid())
 }
@@ -115,35 +112,60 @@ pub(super) fn foreground_identity() -> WindowIdentity {
     }
 }
 
-pub(super) fn prepare_offscreen(window: HWND, placement: PopupPlacement) {
+pub(super) fn prepare_main_offscreen(window: HWND, placement: PopupPlacement) {
     unsafe {
         configure_borderless_popup(window);
-        set_bounds_and_region(
+        set_bounds(
             window,
             OFFSCREEN_COORDINATE,
             OFFSCREEN_COORDINATE,
-            placement,
-            false,
+            placement.main_physical_size(),
             SWP_NOACTIVATE | SWP_NOZORDER,
         );
     }
 }
 
-pub(super) fn reveal(window: HWND, placement: PopupPlacement) {
+pub(super) fn prepare_flyout_offscreen(window: HWND, placement: PopupPlacement) {
     unsafe {
         configure_borderless_popup(window);
-        set_bounds_and_region(
+        set_bounds(
+            window,
+            OFFSCREEN_COORDINATE,
+            OFFSCREEN_COORDINATE,
+            placement.flyout_physical_size(),
+            SWP_NOACTIVATE | SWP_NOZORDER,
+        );
+    }
+}
+
+pub(super) fn reveal_main(window: HWND, placement: PopupPlacement) {
+    unsafe {
+        configure_borderless_popup(window);
+        set_bounds(
             window,
             placement.physical_position.x,
             placement.physical_position.y,
-            placement,
-            false,
+            placement.main_physical_size(),
             SWP_NOACTIVATE,
         );
         let _ = SetForegroundWindow(window);
         crate::log_info!(
             "[TrayPopup] reveal hwnd={:#x} mode=immediate",
             window.0 as usize
+        );
+    }
+}
+
+pub(super) fn reveal_flyout(window: HWND, placement: PopupPlacement) {
+    unsafe {
+        configure_borderless_popup(window);
+        let position = placement.flyout_physical_position();
+        set_bounds(
+            window,
+            position.x,
+            position.y,
+            placement.flyout_physical_size(),
+            SWP_NOACTIVATE,
         );
     }
 }
@@ -164,82 +186,22 @@ pub(super) fn hide(window: HWND) {
     }
 }
 
-pub(super) fn owns_foreground(window: HWND) -> bool {
+pub(super) fn owns_foreground(main: HWND, flyout: Option<HWND>) -> bool {
     unsafe {
         let foreground = GetForegroundWindow();
-        foreground == window || GetAncestor(foreground, GA_ROOT) == window
+        let root = GetAncestor(foreground, GA_ROOT);
+        foreground == main
+            || root == main
+            || flyout.is_some_and(|window| foreground == window || root == window)
     }
 }
 
-pub(super) fn apply_bounds_and_region(window: HWND, placement: PopupPlacement, expanded: bool) {
+unsafe fn set_bounds(window: HWND, x: i32, y: i32, size: [i32; 2], flags: SET_WINDOW_POS_FLAGS) {
     unsafe {
-        configure_borderless_popup(window);
-        set_bounds_and_region(
-            window,
-            placement.physical_position.x,
-            placement.physical_position.y,
-            placement,
-            expanded,
-            SWP_NOACTIVATE,
-        );
-    }
-}
-
-unsafe fn set_bounds_and_region(
-    window: HWND,
-    x: i32,
-    y: i32,
-    placement: PopupPlacement,
-    expanded: bool,
-    flags: SET_WINDOW_POS_FLAGS,
-) {
-    unsafe {
-        let scale = placement.physical_size[1] as f32 / MAIN_HEIGHT;
-        let main_width = scale_value(MAIN_WIDTH, scale);
-        let window_width = if expanded && placement.has_flyout() {
-            placement.physical_size[0]
-        } else {
-            main_width
-        };
-        if expanded && placement.has_flyout() {
-            let main_height = scale_value(MAIN_HEIGHT, scale);
-            let radius = scale_value(16.0, scale).max(2);
-            let combined =
-                CreateRoundRectRgn(0, 0, main_width + 1, main_height + 1, radius, radius);
-            let flyout_left = scale_value(MAIN_WIDTH + FLYOUT_GAP, scale);
-            let flyout_top = scale_value(placement.flyout_top, scale);
-            let flyout_right = flyout_left + scale_value(FLYOUT_WIDTH, scale);
-            let flyout_bottom = flyout_top + scale_value(placement.flyout_height, scale);
-            let flyout = CreateRoundRectRgn(
-                flyout_left,
-                flyout_top,
-                flyout_right + 1,
-                flyout_bottom + 1,
-                radius,
-                radius,
-            );
-            let _ = CombineRgn(Some(combined), Some(combined), Some(flyout), RGN_OR);
-            let _ = DeleteObject(flyout.into());
-            // Windows owns `combined` after a successful SetWindowRgn call.
-            let _ = SetWindowRgn(window, Some(combined), false);
-        } else {
-            // HRGN masks have binary coverage and visibly staircase rounded
-            // corners. Let DWM apply its antialiased compositor mask while the
-            // popup contains only the main card.
-            let _ = SetWindowRgn(window, None, false);
-        }
-        // Shape the retained surface before moving it onscreen. Redrawing the
-        // region after this move would invalidate the cached frame and make an
-        // immediate reveal wait for another compositor submission.
-        let _ = SetWindowPos(
-            window,
-            Some(HWND_TOPMOST),
-            x,
-            y,
-            window_width,
-            placement.physical_size[1],
-            flags,
-        );
+        // Clear any stale binary region from an older popup generation. Each
+        // card is its own HWND, so DWM can antialias the complete boundary.
+        let _ = SetWindowRgn(window, None, false);
+        let _ = SetWindowPos(window, Some(HWND_TOPMOST), x, y, size[0], size[1], flags);
     }
 }
 
@@ -313,8 +275,4 @@ fn configure_dwm_frame(window: HWND) {
             std::mem::size_of_val(&corner_preference) as u32,
         );
     }
-}
-
-fn scale_value(value: f32, scale: f32) -> i32 {
-    (value * scale).round() as i32
 }

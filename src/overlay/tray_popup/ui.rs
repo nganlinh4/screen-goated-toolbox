@@ -9,9 +9,9 @@ use crate::gui::icons::{self, Icon};
 use crate::gui::theme::AppTheme;
 
 use super::data::PopupSnapshot;
-use super::layout::{
-    FLYOUT_GAP, FLYOUT_WIDTH, MAIN_HEIGHT, MAIN_WIDTH, OPTION_HEIGHT, PopupPlacement,
-};
+use super::layout::{MAIN_HEIGHT, MAIN_WIDTH, PopupPlacement};
+
+mod flyout;
 
 const ROW_LEFT: f32 = 4.0;
 const ROW_WIDTH: f32 = 232.0;
@@ -34,19 +34,17 @@ pub(super) fn begin_generation(generation: u64) -> bool {
 #[derive(Default)]
 struct PopupRuntime {
     generation: u64,
-    prepared_generation: u64,
     restore_expanded: bool,
+    flyout_hovered: bool,
     collapse_at: Option<Instant>,
-    shaped_expanded: Option<bool>,
 }
 
 impl PopupRuntime {
     fn reset(&mut self, generation: u64) {
         self.generation = generation;
-        self.prepared_generation = 0;
         self.restore_expanded = false;
+        self.flyout_hovered = false;
         self.collapse_at = None;
-        self.shaped_expanded = None;
     }
 }
 
@@ -62,7 +60,6 @@ enum Action {
 struct PaintResult {
     action: Option<Action>,
     restore_hovered: bool,
-    flyout_hovered: bool,
 }
 
 struct RowSpec<'a> {
@@ -75,7 +72,7 @@ struct RowSpec<'a> {
     chevron: bool,
 }
 
-pub(super) fn render(ui: &mut egui::Ui, placement: PopupPlacement, generation: u64) {
+pub(super) fn render_main(ui: &mut egui::Ui, generation: u64) {
     let context = ui.ctx().clone();
     if ui.input(|input| input.viewport().close_requested() || input.key_pressed(egui::Key::Escape))
     {
@@ -85,33 +82,25 @@ pub(super) fn render(ui: &mut egui::Ui, placement: PopupPlacement, generation: u
 
     let snapshot = super::data::snapshot();
     let now = Instant::now();
-    let expanded = {
+    let painted = paint_popup(ui, &snapshot);
+    let flyout_changed = {
         let mut runtime = RUNTIME.lock();
         if runtime.generation != generation {
             runtime.reset(generation);
         }
-        runtime.restore_expanded && !snapshot.restore_options.is_empty()
-    };
-
-    let painted = paint_popup(ui, placement, &snapshot, expanded);
-    if let Some(window) = super::win32::popup_window() {
-        let mut runtime = RUNTIME.lock();
+        let was_expanded = runtime.restore_expanded;
+        let flyout_hovered = runtime.flyout_hovered;
         update_flyout_state(
             &mut runtime,
-            &painted,
+            painted.restore_hovered,
+            flyout_hovered,
             snapshot.restore_options.is_empty(),
             now,
         );
-
-        if runtime.prepared_generation != generation {
-            runtime.prepared_generation = generation;
-            runtime.shaped_expanded = Some(runtime.restore_expanded);
-        } else if runtime.shaped_expanded != Some(runtime.restore_expanded) {
-            super::win32::apply_bounds_and_region(window, placement, runtime.restore_expanded);
-            runtime.shaped_expanded = Some(runtime.restore_expanded);
-        }
-    } else {
-        context.request_repaint_after(Duration::from_millis(10));
+        was_expanded != runtime.restore_expanded
+    };
+    if flyout_changed {
+        super::request_flyout_repaint();
     }
     if let Some(action) = painted.action {
         perform_action(action, &context);
@@ -120,21 +109,61 @@ pub(super) fn render(ui: &mut egui::Ui, placement: PopupPlacement, generation: u
     context.request_repaint_after(Duration::from_millis(50));
 }
 
-pub(super) fn prepaint(ui: &mut egui::Ui, placement: PopupPlacement) {
+pub(super) fn prepaint_main(ui: &mut egui::Ui) {
     let snapshot = super::data::snapshot();
-    let _ = paint_popup(ui, placement, &snapshot, false);
+    let _ = paint_popup(ui, &snapshot);
+}
+
+pub(super) fn flyout_expanded(generation: u64) -> bool {
+    let runtime = RUNTIME.lock();
+    runtime.generation == generation && runtime.restore_expanded
+}
+
+pub(super) fn render_flyout(ui: &mut egui::Ui, placement: PopupPlacement, generation: u64) {
+    let context = ui.ctx().clone();
+    if ui.input(|input| input.viewport().close_requested() || input.key_pressed(egui::Key::Escape))
+    {
+        super::close_from_viewport(&context, "flyout-escape-or-window-close");
+        return;
+    }
+
+    let snapshot = super::data::snapshot();
+    let painted = flyout::paint(ui, placement, &snapshot, AppTheme::from_ui(ui));
+    let hover_changed = {
+        let mut runtime = RUNTIME.lock();
+        if runtime.generation != generation {
+            runtime.reset(generation);
+        }
+        let changed = runtime.flyout_hovered != painted.hovered;
+        runtime.flyout_hovered = painted.hovered;
+        changed
+    };
+    if hover_changed {
+        super::request_main_repaint();
+    }
+    if let Some(action) = painted.action {
+        perform_action(action, &context);
+        return;
+    }
+    context.request_repaint_after(Duration::from_millis(50));
+}
+
+pub(super) fn prepaint_flyout(ui: &mut egui::Ui, placement: PopupPlacement) {
+    let snapshot = super::data::snapshot();
+    let _ = flyout::paint(ui, placement, &snapshot, AppTheme::from_ui(ui));
 }
 
 fn update_flyout_state(
     runtime: &mut PopupRuntime,
-    painted: &PaintResult,
+    restore_hovered: bool,
+    flyout_hovered: bool,
     restore_empty: bool,
     now: Instant,
 ) {
     if restore_empty {
         runtime.restore_expanded = false;
         runtime.collapse_at = None;
-    } else if painted.restore_hovered || painted.flyout_hovered {
+    } else if restore_hovered || flyout_hovered {
         runtime.restore_expanded = true;
         runtime.collapse_at = None;
     } else if runtime.restore_expanded {
@@ -148,13 +177,8 @@ fn update_flyout_state(
     }
 }
 
-fn paint_popup(
-    ui: &mut egui::Ui,
-    placement: PopupPlacement,
-    snapshot: &PopupSnapshot,
-    expanded: bool,
-) -> PaintResult {
-    ui.set_min_size(placement.size_points);
+fn paint_popup(ui: &mut egui::Ui, snapshot: &PopupSnapshot) -> PaintResult {
+    ui.set_min_size(egui::vec2(MAIN_WIDTH, MAIN_HEIGHT));
     let origin = ui.max_rect().min;
     let theme = AppTheme::from_ui(ui);
     let main = egui::Rect::from_min_size(origin, egui::vec2(MAIN_WIDTH, MAIN_HEIGHT));
@@ -258,18 +282,9 @@ fn paint_popup(
         action = Some(Action::Quit);
     }
 
-    let flyout_hovered = if expanded && !restore_disabled {
-        let (flyout_action, hovered) = paint_flyout(ui, origin, placement, snapshot, theme);
-        action = flyout_action.or(action);
-        hovered
-    } else {
-        false
-    };
-
     PaintResult {
         action,
         restore_hovered: !restore_disabled && restore.hovered(),
-        flyout_hovered,
     }
 }
 
@@ -345,67 +360,6 @@ fn paint_row(
         );
     }
     response
-}
-
-fn paint_flyout(
-    ui: &mut egui::Ui,
-    origin: egui::Pos2,
-    placement: PopupPlacement,
-    snapshot: &PopupSnapshot,
-    theme: AppTheme,
-) -> (Option<Action>, bool) {
-    let flyout_min = origin + egui::vec2(MAIN_WIDTH + FLYOUT_GAP, placement.flyout_top);
-    let flyout = egui::Rect::from_min_size(
-        flyout_min,
-        egui::vec2(FLYOUT_WIDTH, placement.flyout_height),
-    );
-    paint_card(ui.painter(), flyout, theme, ui.visuals().dark_mode);
-    let mut action = None;
-    let mut any_hovered = false;
-
-    for (index, option) in snapshot.restore_options.iter().enumerate() {
-        let rect = egui::Rect::from_min_size(
-            flyout_min + egui::vec2(4.0, 4.0 + index as f32 * OPTION_HEIGHT),
-            egui::vec2(FLYOUT_WIDTH - 8.0, OPTION_HEIGHT),
-        );
-        let response = ui.interact(
-            rect,
-            ui.id().with(("restore-option", option.batch_count)),
-            egui::Sense::click(),
-        );
-        any_hovered |= response.hovered();
-        if response.hovered() || response.has_focus() {
-            ui.painter()
-                .rect_filled(rect, egui::CornerRadius::same(4), theme.neutral_fill());
-        }
-        if response.has_focus() {
-            ui.painter().rect_stroke(
-                rect.shrink(1.0),
-                egui::CornerRadius::same(4),
-                egui::Stroke::new(1.0, theme.accent_fill()),
-                egui::StrokeKind::Inside,
-            );
-        }
-        paint_elided_text(
-            ui.painter(),
-            &option.label,
-            egui::pos2(rect.left() + 10.0, rect.center().y),
-            rect.width() - 20.0,
-            12.0,
-            theme.on_surface(),
-        );
-        if activated(ui, &response) {
-            action = Some(Action::Restore(option.batch_count));
-        }
-    }
-    (
-        action,
-        any_hovered
-            || flyout.contains(
-                ui.input(|input| input.pointer.hover_pos())
-                    .unwrap_or_default(),
-            ),
-    )
 }
 
 fn paint_card(painter: &egui::Painter, rect: egui::Rect, theme: AppTheme, dark_mode: bool) {
@@ -528,30 +482,24 @@ fn toggle_bubble(context: &egui::Context) {
 mod tests {
     use super::*;
 
-    fn hover(restore_hovered: bool, flyout_hovered: bool) -> PaintResult {
-        PaintResult {
-            action: None,
-            restore_hovered,
-            flyout_hovered,
-        }
-    }
-
     #[test]
     fn restore_flyout_bridges_the_pointer_gap_before_collapsing() {
         let start = Instant::now();
         let mut runtime = PopupRuntime::default();
-        update_flyout_state(&mut runtime, &hover(true, false), false, start);
+        update_flyout_state(&mut runtime, true, false, false, start);
         assert!(runtime.restore_expanded);
 
         update_flyout_state(
             &mut runtime,
-            &hover(false, false),
+            false,
+            false,
             false,
             start + Duration::from_millis(10),
         );
         update_flyout_state(
             &mut runtime,
-            &hover(false, true),
+            false,
+            true,
             false,
             start + Duration::from_millis(80),
         );
@@ -563,16 +511,18 @@ mod tests {
     fn restore_flyout_collapses_after_the_hover_delay() {
         let start = Instant::now();
         let mut runtime = PopupRuntime::default();
-        update_flyout_state(&mut runtime, &hover(true, false), false, start);
+        update_flyout_state(&mut runtime, true, false, false, start);
         update_flyout_state(
             &mut runtime,
-            &hover(false, false),
+            false,
+            false,
             false,
             start + Duration::from_millis(10),
         );
         update_flyout_state(
             &mut runtime,
-            &hover(false, false),
+            false,
+            false,
             false,
             start + Duration::from_millis(101),
         );
@@ -587,7 +537,7 @@ mod tests {
             collapse_at: Some(Instant::now()),
             ..Default::default()
         };
-        update_flyout_state(&mut runtime, &hover(true, true), true, Instant::now());
+        update_flyout_state(&mut runtime, true, true, true, Instant::now());
         assert!(!runtime.restore_expanded);
         assert!(runtime.collapse_at.is_none());
     }

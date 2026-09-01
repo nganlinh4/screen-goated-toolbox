@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 
 const VIEWPORT_TITLE: &str = "SGT Tray Quick Actions";
+const FLYOUT_VIEWPORT_TITLE: &str = "SGT Tray Restore History";
 
 static VISIBLE: AtomicBool = AtomicBool::new(false);
 static ANCHOR_X: AtomicI32 = AtomicI32::new(0);
@@ -22,13 +23,22 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 static PAINTED_GENERATION: AtomicU64 = AtomicU64::new(0);
 static PREPAINT_PASSES: AtomicU64 = AtomicU64::new(0);
 static SURFACE_READY: AtomicBool = AtomicBool::new(false);
+static FLYOUT_ONSCREEN: AtomicBool = AtomicBool::new(false);
 
-fn viewport_id() -> egui::ViewportId {
+fn main_viewport_id() -> egui::ViewportId {
     egui::ViewportId::from_hash_of("sgt-native-tray-popup")
 }
 
-fn viewport_title() -> String {
+fn main_viewport_title() -> String {
     format!("{VIEWPORT_TITLE} [{}]", std::process::id())
+}
+
+fn flyout_viewport_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("sgt-native-tray-popup-flyout")
+}
+
+fn flyout_viewport_title() -> String {
+    format!("{FLYOUT_VIEWPORT_TITLE} [{}]", std::process::id())
 }
 
 /// Toggle the popup at the cursor position captured by the tray event thread.
@@ -51,11 +61,11 @@ pub fn show_tray_popup() {
         anchor.y
     );
     if SURFACE_READY.load(Ordering::SeqCst)
-        && let Some(window) = win32::popup_window()
+        && let Some(window) = win32::popup_window(&main_viewport_title())
     {
         let placement = current_placement(current_zoom_factor());
-        win32::reveal(window, placement);
-        request_popup_repaint();
+        win32::reveal_main(window, placement);
+        request_main_repaint();
         crate::log_info!(
             "[TrayPopup] revealed generation={} hwnd={:#x} elapsed_ms={} position=({}, {}) size={}x{} source=offscreen-surface",
             generation,
@@ -78,10 +88,10 @@ fn reveal_when_ready(generation: u64) {
         if !is_current(generation) {
             return;
         }
-        if let Some(window) = win32::popup_window() {
+        if let Some(window) = win32::popup_window(&main_viewport_title()) {
             let placement = current_placement(current_zoom_factor());
-            win32::prepare_offscreen(window, placement);
-            request_popup_repaint();
+            win32::prepare_main_offscreen(window, placement);
+            request_main_repaint();
 
             while is_current(generation)
                 && PAINTED_GENERATION.load(Ordering::SeqCst) < generation
@@ -103,8 +113,8 @@ fn reveal_when_ready(generation: u64) {
             if !is_current(generation) {
                 return;
             }
-            win32::reveal(window, placement);
-            request_popup_repaint();
+            win32::reveal_main(window, placement);
+            request_main_repaint();
             crate::log_info!(
                 "[TrayPopup] revealed generation={} hwnd={:#x} elapsed_ms={} position=({}, {}) size={}x{}",
                 generation,
@@ -137,10 +147,11 @@ fn monitor_focus(generation: u64) {
         if !is_current(generation) {
             return;
         }
-        let Some(window) = win32::popup_window() else {
+        let Some(window) = win32::popup_window(&main_viewport_title()) else {
             continue;
         };
-        if win32::owns_foreground(window) {
+        let flyout = win32::popup_window(&flyout_viewport_title());
+        if win32::owns_foreground(window, flyout) {
             saw_foreground = true;
         } else if saw_foreground {
             let foreground = win32::foreground_identity();
@@ -163,10 +174,15 @@ fn is_current(generation: u64) -> bool {
 fn hide_with_reason(reason: &'static str) {
     let generation = GENERATION.load(Ordering::SeqCst);
     VISIBLE.store(false, Ordering::SeqCst);
-    if let Some(window) = win32::popup_window() {
+    if let Some(window) = win32::popup_window(&main_viewport_title()) {
         win32::hide(window);
     }
-    request_popup_repaint();
+    if let Some(window) = win32::popup_window(&flyout_viewport_title()) {
+        win32::hide(window);
+    }
+    FLYOUT_ONSCREEN.store(false, Ordering::SeqCst);
+    request_main_repaint();
+    request_flyout_repaint();
     crate::log_info!(
         "[TrayPopup] hidden generation={} reason={}",
         generation,
@@ -174,15 +190,23 @@ fn hide_with_reason(reason: &'static str) {
     );
 }
 
-fn request_popup_repaint() -> bool {
+fn request_repaint(viewport: egui::ViewportId) -> bool {
     let Ok(context) = crate::gui::GUI_CONTEXT.lock() else {
         return false;
     };
     let Some(context) = context.as_ref() else {
         return false;
     };
-    context.request_repaint_of(viewport_id());
+    context.request_repaint_of(viewport);
     true
+}
+
+pub(super) fn request_main_repaint() -> bool {
+    request_repaint(main_viewport_id())
+}
+
+pub(super) fn request_flyout_repaint() -> bool {
+    request_repaint(flyout_viewport_id())
 }
 
 fn current_zoom_factor() -> f32 {
@@ -196,22 +220,36 @@ fn current_zoom_factor() -> f32 {
 /// Register the off-screen child whenever a normal settings UI frame is available.
 pub fn render(context: &egui::Context) {
     let placement = current_placement(context.zoom_factor());
-    context.show_viewport_deferred(viewport_id(), viewport_builder(placement), |ui, _class| {
-        render_viewport(ui);
+    context.show_viewport_deferred(main_viewport_id(), main_viewport_builder(), |ui, _class| {
+        render_main_viewport(ui)
     });
+    context.show_viewport_deferred(
+        flyout_viewport_id(),
+        flyout_viewport_builder(placement),
+        |ui, _class| render_flyout_viewport(ui),
+    );
 }
 
-fn viewport_builder(placement: layout::PopupPlacement) -> egui::ViewportBuilder {
+fn main_viewport_builder() -> egui::ViewportBuilder {
     let main_size = egui::vec2(layout::MAIN_WIDTH, layout::MAIN_HEIGHT);
+    popup_viewport_builder(main_viewport_title(), main_size)
+}
+
+fn flyout_viewport_builder(placement: layout::PopupPlacement) -> egui::ViewportBuilder {
+    let height = placement.flyout_height.max(layout::OPTION_HEIGHT + 8.0);
+    popup_viewport_builder(
+        flyout_viewport_title(),
+        egui::vec2(layout::FLYOUT_WIDTH, height),
+    )
+}
+
+fn popup_viewport_builder(title: String, size: egui::Vec2) -> egui::ViewportBuilder {
     egui::ViewportBuilder::default()
-        .with_title(viewport_title())
+        .with_title(title)
         .with_position(egui::pos2(-32_000.0, -32_000.0))
-        // The ordinary window is only the main card, allowing DWM to
-        // antialias all four native corners. Win32 expands it temporarily when
-        // the restore flyout is open.
-        .with_inner_size(main_size)
-        .with_min_inner_size(main_size)
-        .with_max_inner_size(placement.size_points)
+        .with_inner_size(size)
+        .with_min_inner_size(size)
+        .with_max_inner_size(size)
         .with_resizable(false)
         // egui-winit maps `decorations(false)` to winit's Windows-only
         // undecorated-shadow mode. Its WM_NCCALCSIZE handler deliberately
@@ -231,17 +269,17 @@ fn viewport_builder(placement: layout::PopupPlacement) -> egui::ViewportBuilder 
         .with_visible(true)
 }
 
-fn render_viewport(ui: &mut egui::Ui) {
+fn render_main_viewport(ui: &mut egui::Ui) {
     let placement = current_placement(ui.ctx().zoom_factor());
     if !VISIBLE.load(Ordering::SeqCst) {
-        if let Some(window) = win32::popup_window() {
-            win32::prepare_offscreen(window, placement);
+        if let Some(window) = win32::popup_window(&main_viewport_title()) {
+            win32::prepare_main_offscreen(window, placement);
         }
-        ui::prepaint(ui, placement);
+        ui::prepaint_main(ui);
         let pass = PREPAINT_PASSES.fetch_add(1, Ordering::SeqCst) + 1;
         if pass >= 2 {
             if !SURFACE_READY.swap(true, Ordering::SeqCst) {
-                let hwnd = win32::popup_window()
+                let hwnd = win32::popup_window(&main_viewport_title())
                     .map(|window| window.0 as usize)
                     .unwrap_or_default();
                 crate::log_info!(
@@ -249,16 +287,41 @@ fn render_viewport(ui: &mut egui::Ui) {
                 );
             }
         } else {
-            ui.ctx().request_repaint_of(viewport_id());
+            ui.ctx().request_repaint_of(main_viewport_id());
         }
         return;
     }
     let generation = GENERATION.load(Ordering::SeqCst);
     let first_paint = ui::begin_generation(generation);
-    ui::render(ui, placement, generation);
+    ui::render_main(ui, generation);
     PAINTED_GENERATION.store(generation, Ordering::SeqCst);
     if first_paint {
         crate::log_info!("[TrayPopup] first paint generation={generation}");
+    }
+}
+
+fn render_flyout_viewport(ui: &mut egui::Ui) {
+    let placement = current_placement(ui.ctx().zoom_factor());
+    let generation = GENERATION.load(Ordering::SeqCst);
+    let expanded =
+        VISIBLE.load(Ordering::SeqCst) && placement.has_flyout() && ui::flyout_expanded(generation);
+
+    if !expanded {
+        if let Some(window) = win32::popup_window(&flyout_viewport_title()) {
+            win32::prepare_flyout_offscreen(window, placement);
+        }
+        FLYOUT_ONSCREEN.store(false, Ordering::SeqCst);
+        ui::prepaint_flyout(ui, placement);
+        return;
+    }
+
+    ui::render_flyout(ui, placement, generation);
+    if let Some(window) = win32::popup_window(&flyout_viewport_title()) {
+        if !FLYOUT_ONSCREEN.swap(true, Ordering::SeqCst) {
+            win32::reveal_flyout(window, placement);
+        }
+    } else {
+        ui.ctx().request_repaint_after(Duration::from_millis(10));
     }
 }
 
@@ -279,7 +342,8 @@ fn current_placement(zoom_factor: f32) -> layout::PopupPlacement {
 /// Shared egui visuals are owned by the main context; repaint only the child.
 pub fn update_theme(_is_dark: bool) {
     if VISIBLE.load(Ordering::SeqCst) {
-        request_popup_repaint();
+        request_main_repaint();
+        request_flyout_repaint();
     }
 }
 
@@ -307,7 +371,7 @@ mod tests {
             1.0,
             0,
         );
-        let builder = viewport_builder(placement);
+        let builder = main_viewport_builder();
         assert_eq!(builder.active, Some(false));
         assert_eq!(builder.visible, Some(true));
         assert_eq!(builder.decorations, Some(true));
@@ -319,6 +383,18 @@ mod tests {
         assert_eq!(
             builder.min_inner_size,
             Some(egui::vec2(layout::MAIN_WIDTH, layout::MAIN_HEIGHT))
+        );
+
+        let flyout = flyout_viewport_builder(placement);
+        assert_eq!(flyout.active, Some(false));
+        assert_eq!(flyout.visible, Some(true));
+        assert_eq!(flyout.decorations, Some(true));
+        assert_eq!(
+            flyout.inner_size,
+            Some(egui::vec2(
+                layout::FLYOUT_WIDTH,
+                layout::OPTION_HEIGHT + 8.0
+            ))
         );
     }
 }

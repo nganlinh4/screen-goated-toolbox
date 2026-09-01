@@ -1,5 +1,3 @@
-use eframe::egui;
-
 pub(super) const MAIN_WIDTH: f32 = 240.0;
 pub(super) const MAIN_HEIGHT: f32 = 186.0;
 pub(super) const FLYOUT_WIDTH: f32 = 236.0;
@@ -26,7 +24,6 @@ pub(super) struct WorkArea {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PopupPlacement {
-    pub size_points: egui::Vec2,
     pub physical_position: PhysicalPoint,
     pub physical_size: [i32; 2],
     pub flyout_top: f32,
@@ -36,6 +33,25 @@ pub(super) struct PopupPlacement {
 impl PopupPlacement {
     pub fn has_flyout(self) -> bool {
         self.flyout_height > 0.0
+    }
+
+    pub fn main_physical_size(self) -> [i32; 2] {
+        [self.scale(MAIN_WIDTH), self.physical_size[1]]
+    }
+
+    pub fn flyout_physical_position(self) -> PhysicalPoint {
+        PhysicalPoint {
+            x: self.physical_position.x + self.scale(MAIN_WIDTH + FLYOUT_GAP),
+            y: self.physical_position.y + self.scale(self.flyout_top),
+        }
+    }
+
+    pub fn flyout_physical_size(self) -> [i32; 2] {
+        [self.scale(FLYOUT_WIDTH), self.scale(self.flyout_height)]
+    }
+
+    fn scale(self, value: f32) -> i32 {
+        (value * self.physical_size[1] as f32 / MAIN_HEIGHT).round() as i32
     }
 }
 
@@ -53,7 +69,6 @@ pub(super) fn place(
         } else {
             FLYOUT_GAP + FLYOUT_WIDTH
         };
-    let logical_size = egui::vec2(logical_width, MAIN_HEIGHT);
     let physical_width = (logical_width * pixels_per_point).round() as i32;
     let physical_height = (MAIN_HEIGHT * pixels_per_point).round() as i32;
     let main_width = (MAIN_WIDTH * pixels_per_point).round() as i32;
@@ -70,7 +85,6 @@ pub(super) fn place(
     );
 
     PopupPlacement {
-        size_points: logical_size,
         physical_position: PhysicalPoint { x, y },
         physical_size: [physical_width, physical_height],
         flyout_top: flyout_top(option_count),
@@ -127,6 +141,12 @@ mod tests {
         assert_eq!(placement.physical_size, [486, 186]);
         assert_eq!(placement.flyout_top, 32.0);
         assert_eq!(placement.flyout_height, 148.0);
+        assert_eq!(placement.main_physical_size(), [240, 186]);
+        assert_eq!(
+            placement.flyout_physical_position(),
+            PhysicalPoint { x: 1684, y: 866 }
+        );
+        assert_eq!(placement.flyout_physical_size(), [236, 148]);
     }
 
     #[test]
@@ -146,7 +166,8 @@ mod tests {
     #[test]
     fn logical_geometry_is_stable_across_dpi() {
         let placement = place(PhysicalPoint { x: 1200, y: 900 }, PRIMARY_WORK, 2.0, 3);
-        assert_eq!(placement.size_points, egui::vec2(486.0, 186.0));
         assert_eq!(placement.physical_size, [972, 372]);
+        assert_eq!(placement.main_physical_size(), [480, 372]);
+        assert_eq!(placement.flyout_physical_size(), [472, 184]);
     }
 }
