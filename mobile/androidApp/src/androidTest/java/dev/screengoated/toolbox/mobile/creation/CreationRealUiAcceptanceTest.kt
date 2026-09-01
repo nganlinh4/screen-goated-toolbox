@@ -111,11 +111,23 @@ class CreationRealUiAcceptanceTest {
     }
 
     @Test
+    fun imageTo3dFastGeneratesValidatedGlb() {
+        runImageCase(
+            "3d-fast",
+            CreationTool.IMAGE_TO_3D,
+            "creation-mode-fast",
+            CreationGenerationMode.FAST,
+        ) {
+            CreationArtifactValidator.validateGlb(it)
+        }
+    }
+
+    @Test
     fun imageTo3dQualityGeneratesValidatedGlb() {
         runImageCase(
             "3d-quality",
             CreationTool.IMAGE_TO_3D,
-            null,
+            "creation-mode-quality",
             CreationGenerationMode.QUALITY,
             expectedAutoSegment = true,
         ) {
@@ -365,8 +377,9 @@ class CreationRealUiAcceptanceTest {
         while (SystemClock.elapsedRealtime() < deadline) {
             val child = CreationJobJournal(context).load().firstOrNull { record ->
                 record.ownerId == ownerId &&
-                    record.request.operation == "refine" &&
-                    record.request.refinementKind == "separate_detailed" &&
+                    record.request.operation == "segment" &&
+                    record.request.refinementKind == null &&
+                    record.request.revisionKind == "separate_detailed" &&
                     record.request.parentRevisionId == baseRecord.request.dispatchId &&
                     record.request.previousOutputPath == baseHistory.outputPath
             }

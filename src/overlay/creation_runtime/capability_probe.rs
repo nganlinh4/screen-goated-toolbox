@@ -15,6 +15,7 @@ struct RuntimeBinaryKey {
 #[derive(Clone)]
 struct RuntimeCapabilities {
     binary: RuntimeBinaryKey,
+    fast_optional_instruction: bool,
     quality_optional_instruction: bool,
 }
 
@@ -39,6 +40,7 @@ pub(crate) fn supports_optional_3d_instruction(mode: &str) -> bool {
 
     let capabilities = query_runtime_capabilities(binary.clone()).unwrap_or(RuntimeCapabilities {
         binary,
+        fast_optional_instruction: false,
         quality_optional_instruction: false,
     });
     let supported = optional_instruction_for(&capabilities, mode);
@@ -48,7 +50,7 @@ pub(crate) fn supports_optional_3d_instruction(mode: &str) -> bool {
 
 fn optional_instruction_for(capabilities: &RuntimeCapabilities, mode: &str) -> bool {
     match mode {
-        "fast" => false,
+        "fast" => capabilities.fast_optional_instruction,
         "quality" => capabilities.quality_optional_instruction,
         _ => false,
     }
@@ -143,7 +145,7 @@ fn parse_runtime_capabilities(
         return None;
     }
     let modes = tool.get("generationModes")?.as_object()?;
-    if !has_exact_keys(modes, &["quality"]) {
+    if !has_exact_keys(modes, &["fast", "quality"]) {
         return None;
     }
     let optional_instruction = |mode: &str| {
@@ -154,6 +156,7 @@ fn parse_runtime_capabilities(
     };
     Some(RuntimeCapabilities {
         binary,
+        fast_optional_instruction: optional_instruction("fast")?,
         quality_optional_instruction: optional_instruction("quality")?,
     })
 }
@@ -173,7 +176,7 @@ mod tests {
             size_bytes: 1,
             modified_nanos: 1,
         };
-        let valid = br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"quality":{"optionalInstruction":false}}}}}}"#;
+        let valid = br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#;
         let parsed = parse_runtime_capabilities(
             binary.clone(),
             valid,
@@ -181,6 +184,7 @@ mod tests {
             &["image_to_3d", "image_to_svg", "image_creator"],
         )
         .unwrap();
+        assert!(parsed.fast_optional_instruction);
         assert!(!parsed.quality_optional_instruction);
 
         assert!(
@@ -207,11 +211,11 @@ mod tests {
         };
         let features = &["image_to_3d", "image_to_svg", "image_creator"];
         for invalid in [
-            br#"{"ok":true,"extra":1,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
+            br#"{"ok":true,"extra":1,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
             br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false},"future":{"optionalInstruction":true}}}}}}"#.as_slice(),
-            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"quality":{"optionalInstruction":"yes"}}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":"yes"},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
             br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true}}}}}}"#.as_slice(),
-            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
         ] {
             assert!(
                 parse_runtime_capabilities(

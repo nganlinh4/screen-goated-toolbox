@@ -40,7 +40,12 @@ internal class CreationNativeSegmentationLauncher(
         scope.launch(Dispatchers.IO) {
             runCatching {
                 manager.startRefinement(
-                    ownerId, continuationId, kind, targetFaces, animationPreset,
+                    ownerId,
+                    continuationId,
+                    kind,
+                    targetFaces,
+                    animationPreset,
+                    automaticSegmentation = automatic,
                 )
             }
                 .onSuccess { status ->

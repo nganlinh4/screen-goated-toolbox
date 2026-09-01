@@ -69,7 +69,7 @@ class CreationStateContractTest {
         assertTrue(submission.booleanAt("explicitSubmissionCreatesFreshDispatchId"))
         assertFalse(presentation.booleanAt("showImplementationBranding"))
         assertFalse(presentation.booleanAt("showImplementationSelection"))
-        assertFalse(presentation.booleanAt("showGenerationModeSelection"))
+        assertTrue(presentation.booleanAt("showGenerationModeSelection"))
         assertTrue(presentation.booleanAt("normalizeImplementationText"))
         assertEquals("Material Symbols Rounded", presentation.stringAt("iconFamily"))
         assertEquals(1, presentation.intAt("iconFill"))

@@ -35,7 +35,6 @@ impl GenerationMode {
 }
 
 pub(super) fn normalize_request(request: &mut StartJobRequest) {
-    request.generation_mode = GenerationMode::Quality;
     let (minimum, maximum) = request.generation_mode.polycount_limits();
     request.polycount = request.polycount.clamp(minimum, maximum);
     request.auto_segment =
@@ -56,8 +55,8 @@ pub(super) fn frozen_settings_valid(
     (minimum..=maximum).contains(&polycount) && (mode == GenerationMode::Quality || !auto_segment)
 }
 
-pub(super) fn continuation_advertised(_is_segmented: bool, runtime_can_continue: bool) -> bool {
-    runtime_can_continue
+pub(super) fn continuation_advertised(is_segmented: bool, runtime_can_continue: bool) -> bool {
+    runtime_can_continue && !is_segmented
 }
 
 #[cfg(test)]
@@ -83,14 +82,14 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_legacy_mode_normalizes_to_the_available_product_flow() {
+    fn explicit_mode_clamps_settings_without_hidden_routing_state() {
         let mut fast = request(20_000, true);
         fast.generation_mode = GenerationMode::Fast;
         normalize_request(&mut fast);
-        assert_eq!(fast.generation_mode, GenerationMode::Quality);
-        assert_eq!(fast.polycount, QUALITY_MAX_POLYCOUNT);
-        assert!(fast.auto_segment);
-        assert_eq!(fast.segmentation_mode, "parts");
+        assert_eq!(fast.generation_mode, GenerationMode::Fast);
+        assert_eq!(fast.polycount, FAST_MAX_POLYCOUNT);
+        assert!(!fast.auto_segment);
+        assert_eq!(fast.segmentation_mode, "none");
 
         let mut quality = request(100, true);
         normalize_request(&mut quality);
@@ -102,7 +101,7 @@ mod tests {
     #[test]
     fn continuation_depends_only_on_the_runtime_capability_and_result_state() {
         assert!(continuation_advertised(false, true));
-        assert!(continuation_advertised(true, true));
+        assert!(!continuation_advertised(true, true));
         assert!(!continuation_advertised(false, false));
     }
 

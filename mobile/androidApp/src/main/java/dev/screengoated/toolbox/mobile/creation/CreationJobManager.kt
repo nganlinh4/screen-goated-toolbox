@@ -260,6 +260,7 @@ internal class CreationJobManager internal constructor(context: Context) {
         refinementKind: String,
         targetFaces: Int? = null,
         animationPreset: String? = null,
+        automaticSegmentation: Boolean = false,
     ): CreationJobStatus {
         awaitStartup()
         if (!durableStateReadable) throw CreationStorageUnavailableException()
@@ -279,17 +280,31 @@ internal class CreationJobManager internal constructor(context: Context) {
             CreationSegmentationSnapshot(continuationId, current)
         }
         val destination = files.outputDestinationSnapshot(CreationTool.IMAGE_TO_3D)
-        val draft = CreationJobFactory.createRefinement(
-            snapshot.continuation,
-            refinementKind,
-            targetFaces,
-            animationPreset,
-            files,
-            ownerId,
-            nextJobId(CreationTool.IMAGE_TO_3D),
-            nextDispatchId(CreationTool.IMAGE_TO_3D),
-            destination,
-        )
+        val jobId = nextJobId(CreationTool.IMAGE_TO_3D)
+        val dispatchId = nextDispatchId(CreationTool.IMAGE_TO_3D)
+        val draft = if (automaticSegmentation) {
+            require(refinementKind == "separate_detailed")
+            CreationJobFactory.createSegmentation(
+                snapshot.continuation,
+                files,
+                ownerId,
+                jobId,
+                dispatchId,
+                destination,
+            )
+        } else {
+            CreationJobFactory.createRefinement(
+                snapshot.continuation,
+                refinementKind,
+                targetFaces,
+                animationPreset,
+                files,
+                ownerId,
+                jobId,
+                dispatchId,
+                destination,
+            )
+        }
         var retiredContinuationInputs = emptyList<String>()
         try {
             synchronized(mutationLock) {

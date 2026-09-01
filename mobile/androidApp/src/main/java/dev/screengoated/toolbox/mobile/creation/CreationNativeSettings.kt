@@ -48,6 +48,7 @@ internal fun Creation3dSettings(
     strings: Creation3dLocale,
     accent: Color,
     enabled: Boolean,
+    onGenerationMode: (String) -> Unit,
     onPolycount: (Int) -> Unit,
     onAutoSegment: (Boolean) -> Unit,
     onInstruction: (String) -> Unit,
@@ -55,6 +56,42 @@ internal fun Creation3dSettings(
     val mode = CreationGenerationMode.fromWireName(item.generationMode)
     val route = CreationContract.route3dMode(mode, item.polycount, item.autoSegment)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        UtilityExpressiveCard(accent = accent) {
+            UtilityHeaderRow(
+                icon = R.drawable.ms_auto_awesome,
+                title = strings.mode,
+                accent = accent,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(
+                    ButtonGroupDefaults.ConnectedSpaceBetween,
+                ),
+            ) {
+                ModeToggle(
+                    selected = mode == CreationGenerationMode.FAST,
+                    label = strings.fast,
+                    enabled = enabled,
+                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                    accent = accent,
+                    onClick = { onGenerationMode(CreationGenerationMode.FAST.wireName) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("creation-mode-fast"),
+                )
+                ModeToggle(
+                    selected = mode == CreationGenerationMode.QUALITY,
+                    label = strings.quality,
+                    enabled = enabled,
+                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                    accent = accent,
+                    onClick = { onGenerationMode(CreationGenerationMode.QUALITY.wireName) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("creation-mode-quality"),
+                )
+            }
+        }
         if (item.allowsInstruction) {
             UtilityExpressiveCard(accent = accent) {
                 UtilityHeaderRow(

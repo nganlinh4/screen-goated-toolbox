@@ -51,6 +51,10 @@ fun semverToVersionCode(version: String): Int {
 }
 
 val canonicalVersionCode = semverToVersionCode(canonicalAppVersion)
+val creationAcceptanceNativeAbi = providers.gradleProperty("creationAcceptanceNativeAbi")
+    .orNull
+    ?.also { require(it in setOf("arm64-v8a", "x86_64")) }
+    ?: "arm64-v8a"
 
 val generatedPresetOverlayAssets = layout.buildDirectory.dir("generated/presetOverlayAssets")
 val generatedPresetModelCatalogSources = layout.buildDirectory.dir("generated/presetModelCatalog")
@@ -248,7 +252,7 @@ android {
         vectorDrawables.useSupportLibrary = true
 
         ndk {
-            abiFilters += "arm64-v8a"
+            abiFilters += creationAcceptanceNativeAbi
         }
 
     }

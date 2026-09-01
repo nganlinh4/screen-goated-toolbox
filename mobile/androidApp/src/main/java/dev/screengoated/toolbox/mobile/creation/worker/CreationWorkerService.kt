@@ -53,6 +53,7 @@ internal abstract class CreationWorkerService : Service() {
                 }
                 var terminalEmitted = false
                 var prepared = false
+                var retryRequested = false
                 runCatching {
                     activeEngine.prepare(
                         eventSink(callback) { event ->
@@ -62,10 +63,15 @@ internal abstract class CreationWorkerService : Service() {
                             if (event.event == "ready" && event.ready == true) {
                                 prepared = true
                             }
+                            if (event.event == "ready" && event.ready == false) {
+                                retryRequested = true
+                            }
                         },
                     )
                     check(terminalEmitted) { "Creation preparation returned no terminal event" }
-                    check(prepared) { "Creation preparation did not make the engine ready" }
+                    check(prepared || retryRequested) {
+                        "Creation preparation did not produce a supported terminal state"
+                    }
                 }
                     .onFailure {
                         activeEngine.destroy()
@@ -179,7 +185,8 @@ internal abstract class CreationWorkerService : Service() {
                     Log.i(
                         "CreationWorker",
                         "job_terminal tool=${workerTool.wireName} slot=$executionIndex " +
-                            "followUpReady=$followUpReady",
+                            "event=${completed.event} stage=${completed.stage} " +
+                            "failure=${completed.failureCode} followUpReady=$followUpReady",
                     )
                     if (!followUpReady) {
                         runCatching(activeEngine::destroy)

@@ -93,19 +93,27 @@ internal object CreationContract {
     }
 
     fun route3dMode(
-        _mode: CreationGenerationMode,
+        mode: CreationGenerationMode,
         polycount: Int,
         requestedAutoSegment: Boolean,
     ): CreationModeRoute {
         require(polycount in MINIMUM_POLYCOUNT..MAXIMUM_POLYCOUNT) {
             "Polycount must be between $MINIMUM_POLYCOUNT and $MAXIMUM_POLYCOUNT"
         }
-        return CreationModeRoute(
-            mode = CreationGenerationMode.QUALITY,
-            polycount = polycount.coerceAtLeast(QUALITY_MINIMUM_POLYCOUNT),
-            autoSegment = requestedAutoSegment,
-            showAutoSegment = true,
-        )
+        return when (mode) {
+            CreationGenerationMode.FAST -> CreationModeRoute(
+                mode = mode,
+                polycount = polycount.coerceAtMost(FAST_MAXIMUM_POLYCOUNT),
+                autoSegment = false,
+                showAutoSegment = false,
+            )
+            CreationGenerationMode.QUALITY -> CreationModeRoute(
+                mode = mode,
+                polycount = polycount.coerceAtLeast(QUALITY_MINIMUM_POLYCOUNT),
+                autoSegment = requestedAutoSegment,
+                showAutoSegment = true,
+            )
+        }
     }
 
     fun canContinueSegmentation(

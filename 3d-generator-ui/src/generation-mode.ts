@@ -15,11 +15,11 @@ const LIMITS: Record<GenerationMode, { minimum: number; maximum: number }> = {
 };
 
 export function generationSettings(
-  _mode: GenerationMode,
+  mode: GenerationMode,
   polycount: number,
   requestedAutoSegment: boolean,
 ): GenerationSettings {
-  const selectedMode = "quality";
+  const selectedMode = mode === "fast" ? "fast" : "quality";
   const limits = LIMITS[selectedMode];
   const finitePolycount = Number.isFinite(polycount) ? Math.round(polycount) : 5_000;
   return {

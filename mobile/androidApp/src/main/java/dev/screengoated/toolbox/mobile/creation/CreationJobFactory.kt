@@ -175,9 +175,35 @@ internal object CreationJobFactory {
         jobId: String,
         dispatchId: String,
         destination: String?,
-    ): CreationJobDraft = createRefinement(
-        continuation, "separate_detailed", null, null, files, ownerId, jobId, dispatchId, destination,
-    )
+    ): CreationJobDraft {
+        val refinement = createRefinement(
+            continuation,
+            "separate_detailed",
+            null,
+            null,
+            files,
+            ownerId,
+            jobId,
+            dispatchId,
+            destination,
+        )
+        val unsigned = refinement.request.copy(
+            operation = "segment",
+            refinementKind = null,
+            requestFingerprint = "",
+        )
+        return CreationJobDraft(
+            request = unsigned.copy(
+                requestFingerprint = creationRequestFingerprint(unsigned),
+            ),
+            status = refinement.status.copy(
+                operation = "segment",
+                stage = "segmenting",
+                progressText = "Separating model parts.",
+                phase = "segmentation",
+            ),
+        )
+    }
 
     fun createRefinement(
         continuation: CreationContinuation,

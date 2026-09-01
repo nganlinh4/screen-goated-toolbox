@@ -48,7 +48,9 @@
     "acceptedJobsRemainQueuedUntilCapacityIsAvailable": true,
     "maximumParallelJobsEnforced": true,
     "toolCapacityIsIsolated": true,
-    "failureDoesNotExposeImplementationState": true
+    "failureDoesNotExposeImplementationState": true,
+    "unresponsiveOperationIsBoundedBeforeWholeJobWatchdog": true,
+    "uncertainConsequentialActionIsNotRepeated": true
   },
   "surfaceActivity": {
     "firstPaintPrecedesReadinessRequest": true,
@@ -189,10 +191,30 @@
   },
   "generationModes": {
     "default": "quality",
-    "selectionVisible": false,
+    "selectionVisible": true,
     "implementationBrandingVisible": false,
     "requestedPolycountForwardedExactly": true,
     "cases": [
+      {
+        "mode": "fast",
+        "polycount": 100,
+        "autoSegment": false,
+        "effectiveAutoSegment": false,
+        "showAutoSegment": false,
+        "baseTopology": "triangle",
+        "resultSegmented": true,
+        "canSegmentAfterGeneration": false
+      },
+      {
+        "mode": "fast",
+        "polycount": 15000,
+        "autoSegment": true,
+        "effectiveAutoSegment": false,
+        "showAutoSegment": false,
+        "baseTopology": "triangle",
+        "resultSegmented": true,
+        "canSegmentAfterGeneration": false
+      },
       {
         "mode": "quality",
         "polycount": 501,
@@ -228,6 +250,17 @@
       }
     ],
     "clampingCases": [
+      {
+        "mode": "fast",
+        "polycount": 20000,
+        "normalizedPolycount": 15000,
+        "autoSegment": true,
+        "effectiveAutoSegment": false,
+        "showAutoSegment": false,
+        "baseTopology": "triangle",
+        "resultSegmented": true,
+        "canSegmentAfterGeneration": false
+      },
       {
         "mode": "quality",
         "polycount": 100,
@@ -381,7 +414,7 @@
   "presentation": {
     "showImplementationBranding": false,
     "showImplementationSelection": false,
-    "showGenerationModeSelection": false,
+    "showGenerationModeSelection": true,
     "completedProjectFocusesRevisionWorkspace": true,
     "explicitDownloadActionVisible": true,
     "normalizeImplementationText": true,
@@ -467,7 +500,7 @@
   },
   "qualityControl": {
     "realUiPlatforms": ["windows", "android_full", "android_play"],
-    "cases": ["quality"],
+    "cases": ["fast", "quality"],
     "sourceSelectedThroughProductSurface": true,
     "terminalStateRequired": true,
     "committedArtifactValidated": true,

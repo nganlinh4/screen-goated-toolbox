@@ -65,11 +65,31 @@
     "lateStartResponseCannotStealNewerSelection": true
   },
   "readiness": {
+    "speculativeWorkspaceReserve": 1,
+    "immediateReserveCoversParallelLimit": false,
+    "singleAcceptedJobStartsSpeculativeReplenishment": false,
+    "secondAcceptedJobExpandsToParallelLimit": true,
+    "acceptedDemandExpandsPreparation": true,
+    "ambiguousFinalObservationUsesAuthenticatedPostcondition": true,
+    "recoveredPostconditionCommitsExactVerifiedIdentity": true,
+    "recoveredPostconditionDoesNotRepeatAccountCreation": true,
+    "expansionIsBounded": true,
+    "readyWorkDoesNotWaitForReplenishment": true,
     "stateIsProductLevel": true,
     "acceptedJobsRemainQueuedUntilCapacityIsAvailable": true,
     "maximumParallelJobsEnforced": true,
+    "maximumConcurrentFreshPreparations": 1,
     "toolCapacityIsIsolated": true,
-    "failureDoesNotExposeImplementationState": true
+    "failureDoesNotExposeImplementationState": true,
+    "usesCanonicalVisibleEntrySequence": true,
+    "intermediateNavigationIsNotReadiness": true,
+    "authenticatedWorkspaceRequired": true,
+    "authenticatedWorkspaceStabilizesBeforePersistenceCheck": true,
+    "committedAccountTransitionSupersedesReplacedFormObservation": true,
+    "temporarySignOutRetainsWorkspace": true,
+    "temporaryUnavailabilitySchedulesRecheck": true,
+    "existingWorkspaceReconciledBeforeReplacement": true,
+    "freshPreparationRequiresPermanentInvalidation": true
   },
   "surfaceActivity": {
     "firstPaintPrecedesReadinessRequest": true,

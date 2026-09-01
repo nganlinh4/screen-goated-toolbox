@@ -473,10 +473,8 @@ internal class CreationWorkerPool private constructor(private val context: Conte
                     )
                 }
             }
-            handleWorkerLoss(worker, call.epoch, reschedule = !hasAlternative)
-            if (hasAlternative) {
-                handler.postDelayed(::schedulePreparation, PREPARATION_RETRY_DELAY_MS)
-            }
+            handleWorkerLoss(worker, call.epoch, reschedule = false)
+            handler.postDelayed(::schedulePreparation, PREPARATION_RETRY_DELAY_MS)
             preparationStateListener?.invoke()
         }
     }

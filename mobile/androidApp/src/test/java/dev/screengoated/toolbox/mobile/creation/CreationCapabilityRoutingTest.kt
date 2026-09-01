@@ -62,16 +62,16 @@ class CreationCapabilityRoutingTest {
     }
 
     @Test
-    fun `legacy mode values normalize to the available product flow`() {
+    fun `generation modes preserve their product routes`() {
         val fast = CreationContract.route3dMode(
             CreationGenerationMode.FAST,
             CreationContract.MAXIMUM_POLYCOUNT,
             requestedAutoSegment = true,
         )
-        assertEquals(CreationGenerationMode.QUALITY, fast.mode)
-        assertEquals(CreationContract.MAXIMUM_POLYCOUNT, fast.polycount)
-        assertTrue(fast.autoSegment)
-        assertTrue(fast.showAutoSegment)
+        assertEquals(CreationGenerationMode.FAST, fast.mode)
+        assertEquals(CreationContract.FAST_MAXIMUM_POLYCOUNT, fast.polycount)
+        assertFalse(fast.autoSegment)
+        assertFalse(fast.showAutoSegment)
 
         val quality = CreationContract.route3dMode(
             CreationGenerationMode.QUALITY,
@@ -84,7 +84,7 @@ class CreationCapabilityRoutingTest {
     }
 
     @Test
-    fun `draft queue and worker wire contain only the available 3d flow`() {
+    fun `draft queue and worker wire preserve both 3d modes`() {
         val codec = Json { encodeDefaults = true; explicitNulls = false }
 
         CreationGenerationMode.entries.forEach { mode ->
@@ -128,14 +128,14 @@ class CreationCapabilityRoutingTest {
                 codec.encodeToString(CreationWorkerRequest.serializer(), request),
             )
 
-            assertEquals(CreationGenerationMode.QUALITY.wireName, queued.generationMode)
+            assertEquals(mode.wireName, queued.generationMode)
             assertEquals(
-                CreationGenerationMode.QUALITY.wireName,
+                mode.wireName,
                 args.getValue("generationMode").jsonPrimitive.content,
             )
-            assertEquals(CreationGenerationMode.QUALITY.wireName, decoded.generationMode)
+            assertEquals(mode.wireName, decoded.generationMode)
             assertEquals(
-                CreationGenerationMode.QUALITY.wireName,
+                mode.wireName,
                 CreationJobFactory.initialStatus(CreationTool.IMAGE_TO_3D, decoded).generationMode,
             )
         }
@@ -241,6 +241,7 @@ class CreationCapabilityRoutingTest {
               "tools":{
                 "image_to_3d":{
                   "generationModes":{
+                    "fast":{"optionalInstruction":true},
                     "quality":{"optionalInstruction":false}
                   }
                 }
@@ -300,13 +301,14 @@ class CreationCapabilityRoutingTest {
               "tools": {
                 "image_to_3d": {
                   "generationModes": {
+                    "fast": {"optionalInstruction": true},
                     "quality": {"optionalInstruction": false}
                   }
                 }
               }
             }
         """.trimIndent()
-        assertFalse(runtimeSupportsOptionalInstruction(manifest, "fast"))
+        assertTrue(runtimeSupportsOptionalInstruction(manifest, "fast"))
         assertFalse(runtimeSupportsOptionalInstruction(manifest, "quality"))
         assertFalse(runtimeSupportsOptionalInstruction(manifest, "unknown"))
         assertFalse(

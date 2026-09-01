@@ -22,9 +22,11 @@
   outputs and environment overrides are never accepted as product delivery.
 
 - The app is named Image to 3D / 이미지를 3D로 / Ảnh sang 3D.
-- The single available generation flow supports 500–20,000 polygons and
-  offers optional automatic separation. The UI omits mode selection entirely;
-  legacy mode values normalize to this flow before submission.
+- The generation-mode selector exposes Fast and Quality on every platform.
+  Fast supports 100–15,000 polygons and does not offer automatic separation.
+  Quality supports 500–20,000 polygons and offers optional automatic
+  separation. The selected product mode is preserved through submission,
+  recovery, history, and result metadata.
 
 - The runtime submits the frozen polygon count exactly. It never substitutes an
   integration default or depends on an interactive control continuing to exist.

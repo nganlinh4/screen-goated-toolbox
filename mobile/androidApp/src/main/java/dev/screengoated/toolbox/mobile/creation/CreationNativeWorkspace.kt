@@ -66,6 +66,7 @@ internal fun CreationActiveSettings(
                 strings = locale.creationApps.model3d,
                 accent = accent,
                 enabled = enabled,
+                onGenerationMode = viewModel::setGenerationMode,
                 onPolycount = viewModel::setPolycount,
                 onAutoSegment = viewModel::setAutoSegment,
                 onInstruction = viewModel::setInstruction,

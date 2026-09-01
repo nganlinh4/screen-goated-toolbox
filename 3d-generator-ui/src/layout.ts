@@ -73,6 +73,13 @@ export function appMarkup() {
             <span class="source-copy"><strong id="sourceName"></strong><small id="sourceMeta"></small></span>
           </button>
         </div>
+        <div class="control-section">
+          <span class="control-label" data-i18n="generationMode"></span>
+          <div class="mode-options" role="group" data-i18n-aria="generationMode">
+            <button type="button" data-generation-mode="fast" data-i18n="fast"></button>
+            <button type="button" data-generation-mode="quality" data-i18n="quality"></button>
+          </div>
+        </div>
         <div class="control-section instruction-section" id="instructionSection" hidden>
           <label class="control-label" for="instructionInput" data-i18n="optionalInstruction"></label>
           <textarea id="instructionInput" maxlength="1000" data-i18n-placeholder="optionalInstructionHint"></textarea>

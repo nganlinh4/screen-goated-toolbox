@@ -208,7 +208,7 @@ class CreationParityContractTest {
         assertTrue(recovery.boolean("acceptedExecutionLossIsNotTerminalFailure"))
         assertTrue(distribution.boolean("behaviorIdentical"))
         assertTrue(distribution.boolean("featureSetIdentical"))
-        assertRealUiQualityControl(qualityControl, setOf("quality"))
+        assertRealUiQualityControl(qualityControl, setOf("fast", "quality"))
         assertEquals(names.string("en"), MobileLocaleText.forLanguage("en").appImageTo3dTitle)
         assertEquals(names.string("ko"), MobileLocaleText.forLanguage("ko").appImageTo3dTitle)
         assertEquals(names.string("vi"), MobileLocaleText.forLanguage("vi").appImageTo3dTitle)
