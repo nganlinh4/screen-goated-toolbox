@@ -101,6 +101,7 @@ function ensureCard(id) {
     contentRevision: 0, revision: 0, resizeFit: 0,
     awaitingSettledReveal: false, settledRevealRevision: 0,
     pendingSettledPaint: null,
+    sourceSurfacePrewarmed: false,
     directState: {
       wordCount: 0,
       renderCount: 0,
@@ -424,9 +425,21 @@ function applyAppearance(entry, model) {
     entry.directHost.style.removeProperty('--text-color');
   }
   entry.card.style.background = model.background;
-  entry.card.style.opacity = String(Math.max(0, Math.min(100, model.opacity)) / 100);
+  const opacity = String(Math.max(0, Math.min(100, model.opacity)) / 100);
   entry.visible = model.visible;
-  entry.card.hidden = !model.visible;
+  if (entry.sourceReplacement) {
+    entry.card.hidden = false;
+    entry.card.style.opacity = model.visible ? opacity : '0';
+    entry.card.style.pointerEvents = model.visible ? 'auto' : 'none';
+    if (!model.visible) {
+      entry.visualSurface.style.willChange = 'filter,transform';
+      entry.sourceSurfacePrewarmed = true;
+    }
+  } else {
+    entry.card.style.opacity = opacity;
+    entry.card.style.pointerEvents = '';
+    entry.card.hidden = !model.visible;
+  }
   return becameVisible;
 }
 function activateCard(entry, becameVisible) {

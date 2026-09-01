@@ -1,7 +1,8 @@
 use super::state::{ResultControlOptions, ResultPresentation, WINDOW_STATES, link_windows};
 use super::{
     RefineContext, ResultWindowParams, TextOnlyResultOptions, WindowType,
-    configure_text_only_result_window, create_result_window_shell, initialize_result_window,
+    configure_deferred_text_only_result_window, configure_text_only_result_window,
+    create_deferred_result_window_shell, create_result_window_shell, initialize_result_window,
 };
 use crate::win_types::SendHwnd;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -50,6 +51,7 @@ struct RestorableWindowSnapshot {
 #[derive(Clone)]
 struct RestoreBatchSnapshot {
     windows: Vec<RestorableWindowSnapshot>,
+    source_groups: Vec<super::scene_compositor::SourceGroupRestoreSnapshot>,
 }
 
 static RECENT_CLOSED_SNAPSHOTS: LazyLock<Mutex<VecDeque<RestoreBatchSnapshot>>> =
@@ -61,11 +63,11 @@ pub fn recent_restore_option_counts() -> Vec<usize> {
     let mut counts = Vec::with_capacity(history.len().min(MAX_RESTORE_HISTORY));
 
     for batch in history.iter().take(MAX_RESTORE_HISTORY) {
-        if batch.windows.is_empty() {
+        if batch.windows.is_empty() && batch.source_groups.is_empty() {
             continue;
         }
 
-        cumulative += logical_overlay_count(&batch.windows);
+        cumulative += logical_overlay_count(&batch.windows) + batch.source_groups.len();
         counts.push(cumulative);
     }
 
@@ -173,8 +175,12 @@ pub fn restore_recent(batch_count: usize) -> bool {
 
 fn restore_batches(batches: &[RestoreBatchSnapshot]) -> bool {
     let mut restored = HashMap::new();
+    let mut restored_source_group = false;
 
     for batch in batches.iter().rev() {
+        for group in &batch.source_groups {
+            restored_source_group |= spawn_restored_source_group(group.clone());
+        }
         for window in &batch.windows {
             if let Some(hwnd) = spawn_restored_window(window.clone()) {
                 restored.insert(window.restore_id, hwnd);
@@ -196,7 +202,97 @@ fn restore_batches(batches: &[RestoreBatchSnapshot]) -> bool {
         }
     }
 
-    !restored.is_empty()
+    restored_source_group || !restored.is_empty()
+}
+
+fn spawn_restored_source_group(
+    snapshot: super::scene_compositor::SourceGroupRestoreSnapshot,
+) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let coinit = unsafe { CoInitialize(None) };
+        let Some(first) = snapshot.cards.first() else {
+            let _ = tx.send(false);
+            return;
+        };
+        let chain_id = format!("restored-source-group-{}", snapshot.root_id);
+        let trace_id = chain_id.clone();
+        let controller = create_deferred_result_window_shell(
+            ResultWindowParams {
+                target_rect: RECT {
+                    left: first.spec.target_rect.left,
+                    top: first.spec.target_rect.top,
+                    right: first.spec.target_rect.left.saturating_add(1),
+                    bottom: first.spec.target_rect.top.saturating_add(1),
+                },
+                win_type: WindowType::Primary,
+                context: RefineContext::None,
+                model_id: String::new(),
+                provider: String::new(),
+                streaming_enabled: false,
+                start_editing: false,
+                preset_prompt: String::new(),
+                custom_bg_color: 0,
+                initial_text: String::new(),
+                preset_id: None,
+                is_chain_root: false,
+                latency_trace_id: Some(trace_id.clone()),
+            },
+            chain_id.clone(),
+        );
+        if controller.is_invalid() {
+            let _ = tx.send(false);
+            if coinit.is_ok() {
+                unsafe { CoUninitialize() };
+            }
+            return;
+        }
+        configure_deferred_text_only_result_window(
+            controller,
+            TextOnlyResultOptions {
+                backdrop_data_url: String::new(),
+                foreground_color: snapshot.foreground_color.clone(),
+                chain_id,
+                control_options: Some(snapshot.control_options.clone()),
+                preferred_font_size: None,
+                source_vertical: false,
+                source_regions: Vec::new(),
+                source_segments: Vec::new(),
+                opacity_percent: Some(snapshot.opacity),
+            },
+            true,
+        );
+        let specs = snapshot
+            .cards
+            .iter()
+            .map(|card| card.spec.clone())
+            .collect();
+        let (group, handles) = super::scene_compositor::prewarm_source_group(
+            controller,
+            specs,
+            snapshot.opacity,
+            &trace_id,
+        );
+        for (card, handle) in snapshot.cards.iter().zip(handles) {
+            super::scene_compositor::reveal_source_card(handle, card.segments.clone(), &trace_id);
+        }
+        let _ = tx.send(true);
+        unsafe {
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).into() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+                if !IsWindow(Some(controller)).as_bool() {
+                    break;
+                }
+            }
+        }
+        super::scene_compositor::remove_source_group(group);
+        if coinit.is_ok() {
+            unsafe { CoUninitialize() };
+        }
+    });
+    rx.recv().unwrap_or(false)
 }
 
 fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
@@ -312,6 +408,23 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
         .copied()
         .filter(|hwnd| seen.insert(hwnd.0 as isize))
         .collect();
+    let mut source_group_roots = HashSet::new();
+    let mut source_group_targets = HashSet::new();
+    let mut source_groups = Vec::new();
+    for hwnd in &target_hwnds {
+        if let Some(snapshot) =
+            super::scene_compositor::source_group_restore_snapshot(hwnd.0 as isize)
+        {
+            source_group_targets.insert(hwnd.0 as isize);
+            if source_group_roots.insert(snapshot.root_id) {
+                source_groups.push(snapshot);
+            }
+        }
+    }
+    let target_hwnds = target_hwnds
+        .into_iter()
+        .filter(|hwnd| !source_group_targets.contains(&(hwnd.0 as isize)))
+        .collect::<Vec<_>>();
     let target_set: HashSet<isize> = target_hwnds.iter().map(|hwnd| hwnd.0 as isize).collect();
     let restore_ids: HashMap<isize, u64> = target_hwnds
         .iter()
@@ -373,10 +486,13 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
         });
     }
 
-    if windows.is_empty() {
+    if windows.is_empty() && source_groups.is_empty() {
         None
     } else {
-        Some(RestoreBatchSnapshot { windows })
+        Some(RestoreBatchSnapshot {
+            windows,
+            source_groups,
+        })
     }
 }
 

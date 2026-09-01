@@ -4,7 +4,7 @@ use super::parent::{SCENES, next_stack_order};
 use super::protocol::{HostCommand, SceneCard, SceneControls, SceneGeometry, SceneRect};
 use crate::overlay::result::markdown_view::conversion::render_for_compositor;
 use crate::overlay::result::state::WINDOW_STATES;
-use crate::overlay::result::{ResultPresentation, SourceReplacementRegion};
+use crate::overlay::result::{ResultControlOptions, ResultPresentation, SourceReplacementRegion};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -38,6 +38,21 @@ pub struct SourceCardHandle {
 #[derive(Clone, Copy)]
 pub struct SourceGroupHandle {
     root_id: isize,
+}
+
+#[derive(Clone)]
+pub(crate) struct SourceCardRestoreSnapshot {
+    pub spec: SourceCardSpec,
+    pub segments: Vec<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct SourceGroupRestoreSnapshot {
+    pub root_id: isize,
+    pub cards: Vec<SourceCardRestoreSnapshot>,
+    pub opacity: u8,
+    pub foreground_color: String,
+    pub control_options: ResultControlOptions,
 }
 
 struct SourceCardState {
@@ -184,6 +199,58 @@ pub fn group_ids(id: isize) -> Option<Vec<isize>> {
 
 pub fn owns_geometry(id: isize) -> bool {
     CARD_GROUPS.lock().unwrap().contains_key(&id)
+}
+
+pub fn restore_snapshot(id: isize) -> Option<SourceGroupRestoreSnapshot> {
+    let root_id = CARD_GROUPS.lock().unwrap().get(&id).copied()?;
+    let (cards, opacity) = {
+        let groups = GROUPS.lock().unwrap();
+        let group = groups.get(&root_id)?;
+        let cards = group
+            .card_order
+            .iter()
+            .filter_map(|card_id| group.cards.get(card_id))
+            .filter(|card| card.visible)
+            .map(|card| {
+                let mut spec = card.spec.clone();
+                spec.target_rect.left = spec.target_rect.left.saturating_add(group.offset.0);
+                spec.target_rect.right = spec.target_rect.right.saturating_add(group.offset.0);
+                spec.target_rect.top = spec.target_rect.top.saturating_add(group.offset.1);
+                spec.target_rect.bottom = spec.target_rect.bottom.saturating_add(group.offset.1);
+                SourceCardRestoreSnapshot {
+                    spec,
+                    segments: card.segments.clone(),
+                }
+            })
+            .collect::<Vec<_>>();
+        (cards, group.opacity)
+    };
+    if cards.is_empty() {
+        return None;
+    }
+    let (mut control_options, foreground_color) = {
+        let states = WINDOW_STATES.lock().unwrap();
+        let state = states.get(&root_id)?;
+        (
+            state.control_options.clone()?,
+            state.foreground_color.clone().unwrap_or_default(),
+        )
+    };
+    if let Some(controller) = SCENES.lock().unwrap().get(&root_id) {
+        control_options.anchor_rect = Some([
+            controller.control_rect.x,
+            controller.control_rect.y,
+            controller.control_rect.width,
+            controller.control_rect.height,
+        ]);
+    }
+    Some(SourceGroupRestoreSnapshot {
+        root_id,
+        cards,
+        opacity,
+        foreground_color,
+        control_options,
+    })
 }
 
 pub fn set_group_opacity(id: isize, opacity: u8) -> bool {
@@ -472,87 +539,5 @@ fn scene_origin() -> (i32, i32) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{NEXT_SCENE_ID, SourceCardSpec, SourceCardState, move_scene_card, source_card};
-    use std::sync::atomic::Ordering;
-    use windows::Win32::Foundation::RECT;
-
-    #[test]
-    fn logical_scene_ids_never_overlap_native_window_handles() {
-        let id = NEXT_SCENE_ID.fetch_sub(1, Ordering::SeqCst);
-        assert!(id < 0);
-    }
-
-    #[test]
-    fn logical_translation_cells_never_own_result_controls() {
-        let card = source_card(
-            -42,
-            &SourceCardState {
-                spec: SourceCardSpec {
-                    target_rect: RECT {
-                        left: 10,
-                        top: 20,
-                        right: 110,
-                        bottom: 70,
-                    },
-                    backdrop_data_url: String::new(),
-                    foreground_color: "#ffffff".to_string(),
-                    preferred_font_size: 16.0,
-                    source_vertical: false,
-                    source_regions: Vec::new(),
-                },
-                text: "translated".to_string(),
-                segments: vec!["translated".to_string()],
-                visible: true,
-                stack_order: 1,
-            },
-            (0, 0),
-            100,
-        );
-
-        assert!(card.controls.hidden);
-        assert!(card.controls.group_ids.is_empty());
-    }
-
-    #[test]
-    fn moving_geometry_leaves_the_control_cache_for_control_sync() {
-        let mut card = source_card(
-            -43,
-            &SourceCardState {
-                spec: SourceCardSpec {
-                    target_rect: RECT {
-                        left: 10,
-                        top: 20,
-                        right: 110,
-                        bottom: 70,
-                    },
-                    backdrop_data_url: String::new(),
-                    foreground_color: "#ffffff".to_string(),
-                    preferred_font_size: 16.0,
-                    source_vertical: false,
-                    source_regions: Vec::new(),
-                },
-                text: String::new(),
-                segments: Vec::new(),
-                visible: true,
-                stack_order: 1,
-            },
-            (0, 0),
-            100,
-        );
-        card.controls.control_anchor = Some([10, 20, 100, 50]);
-        let controls_before_move = card.controls.clone();
-        let origin_before_move = (card.rect.x, card.rect.y);
-
-        let geometry = move_scene_card(&mut card, 35, -8);
-
-        assert_eq!(
-            (geometry.rect.x, geometry.rect.y),
-            (
-                origin_before_move.0.saturating_add(35),
-                origin_before_move.1.saturating_sub(8)
-            )
-        );
-        assert_eq!(card.controls, controls_before_move);
-    }
-}
+#[path = "scene_groups_tests.rs"]
+mod tests;

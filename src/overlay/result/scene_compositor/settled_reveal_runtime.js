@@ -69,7 +69,7 @@ const sourceReplacementReveal = (function() {
     const value = {
       entry: entry,
       surface: surface,
-      priorWillChange: surface.style.willChange,
+      priorWillChange: entry.sourceSurfacePrewarmed ? '' : surface.style.willChange,
       animation: surface.animate([
         { filter: 'blur(8px)', transform: 'translate3d(0,4px,0)' },
         { filter: 'blur(0)', transform: 'translate3d(0,0,0)' }
@@ -77,6 +77,7 @@ const sourceReplacementReveal = (function() {
       complete: complete,
       finished: false
     };
+    entry.sourceSurfacePrewarmed = false;
     entry.sourceReplacementReveal = value;
     surface.style.willChange = 'filter,transform';
     value.animation.pause();
