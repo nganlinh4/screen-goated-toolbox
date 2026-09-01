@@ -23,10 +23,7 @@ pub(super) fn paint(
     paint_card(ui.painter(), rect, theme, ui.visuals().dark_mode);
 
     let mut action = None;
-    let mut hovered = rect.contains(
-        ui.input(|input| input.pointer.hover_pos())
-            .unwrap_or_default(),
-    );
+    let mut hovered = pointer_inside(rect, ui.input(|input| input.pointer.hover_pos()));
     for (index, option) in snapshot.restore_options.iter().enumerate() {
         let option_rect = egui::Rect::from_min_size(
             rect.min + egui::vec2(4.0, 4.0 + index as f32 * OPTION_HEIGHT),
@@ -66,4 +63,20 @@ pub(super) fn paint(
         }
     }
     PaintResult { action, hovered }
+}
+
+fn pointer_inside(rect: egui::Rect, position: Option<egui::Pos2>) -> bool {
+    position.is_some_and(|position| rect.contains(position))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn absent_pointer_is_not_inside_origin_aligned_flyout() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(236.0, 148.0));
+        assert!(!pointer_inside(rect, None));
+        assert!(pointer_inside(rect, Some(egui::Pos2::ZERO)));
+    }
 }
