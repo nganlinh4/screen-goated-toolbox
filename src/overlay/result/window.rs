@@ -296,22 +296,6 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
     super::raw_webview::request_sync(hwnd);
 }
 
-pub fn update_text_only_segments(hwnd: HWND, segments: Vec<String>) {
-    let text = segments.join("\n");
-    if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
-        return;
-    }
-    if let Some(state) = WINDOW_STATES.lock().unwrap().get_mut(&(hwnd.0 as isize)) {
-        state.full_text = text.clone();
-        state.source_segments = segments;
-    }
-    let wide_text = crate::overlay::utils::to_wstring(&text);
-    unsafe {
-        let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
-    }
-    super::scene_compositor::sync_window(hwnd, true);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

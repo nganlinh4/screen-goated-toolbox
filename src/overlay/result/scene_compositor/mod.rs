@@ -16,6 +16,7 @@ mod mailbox;
 mod parent;
 pub(crate) mod protocol;
 mod region;
+mod scene_groups;
 mod supervisor;
 mod sync_scheduler;
 mod web_response;
@@ -28,7 +29,12 @@ pub use controls::{
 };
 pub use parent::{
     defer_window_sync, go_back, go_forward, raise_window, register_window, remove_window,
-    sync_deferred_windows_batch, sync_geometry, sync_window, update_theme, warmup,
+    sync_geometry, sync_window, update_theme, warmup,
+};
+pub(crate) use scene_groups::{
+    SourceCardHandle, SourceCardSpec, SourceGroupHandle, group_ids as source_group_ids,
+    is_group_alive as source_group_is_alive, prewarm_source_group, remove_source_group,
+    reveal_source_card,
 };
 pub(crate) use supervisor::{restart_and_wait, wait_until_ready};
 pub(crate) use sync_scheduler::queue_window_sync;

@@ -67,6 +67,9 @@ pub(in crate::overlay::result::scene_compositor) fn handle_drag_finished(
     let hwnd = HWND(id as *mut std::ffi::c_void);
     match outcome {
         DragOutcome::Moved => {
+            if crate::overlay::result::scene_compositor::source_group_ids(id).is_some() {
+                return;
+            }
             for target in targets {
                 crate::overlay::result::event_handler::save_window_geometry(
                     HWND(*target as *mut std::ffi::c_void),

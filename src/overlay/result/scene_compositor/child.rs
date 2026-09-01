@@ -377,6 +377,7 @@ fn handle_renderer_event(body: &str) {
                     | ChildEvent::ButtonAction { .. }
                     | ChildEvent::DragStarted
                     | ChildEvent::DragFinished { .. }
+                    | ChildEvent::ResizeFinished { .. }
                     | ChildEvent::FitDiagnostic { .. }
                     | ChildEvent::CardDiagnostic { .. }
                     | ChildEvent::FontReady { .. }

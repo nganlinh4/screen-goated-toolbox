@@ -12,14 +12,13 @@ pub mod state;
 mod window;
 
 pub use refine::{trigger_edit, trigger_refine_cancel, trigger_refine_submit};
-pub(crate) use state::link_windows_deferred;
 pub use state::{
     ChainCancelToken, RefineContext, ResultControlOptions, ResultPresentation,
     SourceReplacementRegion, WINDOW_STATES, WindowType, close_chain_windows, link_windows,
 };
 pub use window::{
     ResultWindowParams, TextOnlyResultOptions, create_result_window, get_chain_color,
-    update_text_only_segments, update_window_text,
+    update_window_text,
 };
 pub(crate) use window::{
     configure_deferred_text_only_result_window, configure_text_only_result_window,

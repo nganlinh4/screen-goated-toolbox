@@ -34,6 +34,7 @@ body{font-family:'Google Sans Flex';user-select:none}
 .resize-handle[data-edge="nw"],.resize-handle[data-edge="ne"],.resize-handle[data-edge="sw"],.resize-handle[data-edge="se"]{width:10px;height:10px}
 .resize-handle[data-edge="nw"]{left:0;top:0;cursor:nwse-resize}.resize-handle[data-edge="ne"]{right:0;top:0;cursor:nesw-resize}
 .resize-handle[data-edge="sw"]{left:0;bottom:0;cursor:nesw-resize}.resize-handle[data-edge="se"]{right:0;bottom:0;cursor:nwse-resize}
+.result-card[data-source-replacement="true"] .resize-handle{display:none}
 </style></head><body><span class="font-prewarm" aria-hidden="true">SGT</span>
 <main id="scene"></main><aside id="button-container"></aside>
 <script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DOM_PATCH_RUNTIME__</script><script>__SGT_REVEAL_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script><script>__SGT_PROCESSING_RUNTIME__</script><script>__SGT_RESIZE_RUNTIME__</script>

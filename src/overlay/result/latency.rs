@@ -14,6 +14,8 @@ struct Trace {
 
 static TRACES: LazyLock<Mutex<HashMap<String, Trace>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static LOGICAL_SCENE_TRACES: LazyLock<Mutex<HashMap<isize, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub(crate) fn begin(trace_id: &str) {
     let mut traces = TRACES.lock().unwrap();
@@ -65,29 +67,44 @@ pub(crate) fn mark_window(hwnd: HWND, phase: &'static str) {
     mark_id(hwnd.0 as isize, phase);
 }
 
+pub(crate) fn bind_logical_scene_ids(ids: impl IntoIterator<Item = isize>, trace_id: &str) {
+    let mut bindings = LOGICAL_SCENE_TRACES.lock().unwrap();
+    for id in ids {
+        bindings.insert(id, trace_id.to_string());
+    }
+}
+
+pub(crate) fn unbind_logical_scene_ids(ids: impl IntoIterator<Item = isize>) {
+    let mut bindings = LOGICAL_SCENE_TRACES.lock().unwrap();
+    for id in ids {
+        bindings.remove(&id);
+    }
+}
+
 pub(crate) fn mark_id(id: isize, phase: &'static str) {
-    let trace_id = WINDOW_STATES
-        .lock()
-        .unwrap()
-        .get(&id)
-        .and_then(|state| state.latency_trace_id.clone());
+    let trace_id = trace_id_for_id(id);
     if let Some(trace_id) = trace_id {
         mark(&trace_id, phase);
     }
 }
 
 fn mark_id_after(id: isize, phase: &'static str, prerequisite: &'static str) {
-    let trace_id = WINDOW_STATES
-        .lock()
-        .unwrap()
-        .get(&id)
-        .and_then(|state| state.latency_trace_id.clone());
+    let trace_id = trace_id_for_id(id);
     let Some(trace_id) = trace_id else {
         return;
     };
     if record_window_phase_after(&trace_id, id, phase, prerequisite) {
         mark(&trace_id, phase);
     }
+}
+
+fn trace_id_for_id(id: isize) -> Option<String> {
+    let native_trace = WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get(&id)
+        .and_then(|state| state.latency_trace_id.clone());
+    native_trace.or_else(|| LOGICAL_SCENE_TRACES.lock().unwrap().get(&id).cloned())
 }
 
 fn record_window_phase_after(
@@ -253,5 +270,28 @@ mod tests {
             wait_for_window_phase_count(trace_id, "final_painted", 2, std::time::Duration::ZERO),
             2
         );
+    }
+
+    #[test]
+    fn logical_scene_paint_is_attributed_to_its_owning_trace() {
+        let trace_id = "latency-logical-scene-test:0";
+        let logical_id = -901_234;
+        begin(trace_id);
+        mark(trace_id, "provider_first_output");
+        bind_logical_scene_ids([logical_id], trace_id);
+
+        mark_card_phase(logical_id, "final_painted", 1, 1);
+
+        assert!(wait_for_phase(
+            trace_id,
+            "first_painted",
+            std::time::Duration::from_millis(1)
+        ));
+        assert_eq!(
+            wait_for_window_phase_count(trace_id, "final_painted", 1, std::time::Duration::ZERO),
+            1
+        );
+        unbind_logical_scene_ids([logical_id]);
+        assert_eq!(trace_id_for_id(logical_id), None);
     }
 }

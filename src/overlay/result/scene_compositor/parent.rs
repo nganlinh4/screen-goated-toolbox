@@ -44,6 +44,10 @@ static GEOMETRY_SIGNAL: LazyLock<SyncSender<()>> = LazyLock::new(|| {
 });
 pub(super) static DRAGGING: AtomicBool = AtomicBool::new(false);
 static NEXT_STACK_ORDER: AtomicU64 = AtomicU64::new(1);
+
+pub(super) fn next_stack_order() -> u64 {
+    NEXT_STACK_ORDER.fetch_add(1, Ordering::SeqCst)
+}
 pub fn warmup() {
     super::delivery::warmup();
 }
@@ -78,40 +82,6 @@ pub fn sync_window(hwnd: HWND, requested_visible: bool) {
     send_command(command);
     if text_len > 0 {
         crate::overlay::result::latency::mark_window(hwnd, "compositor_command_queued");
-    }
-}
-
-pub fn sync_deferred_windows_batch(hwnds: &[HWND], requested_visible: bool) {
-    if hwnds.is_empty() {
-        return;
-    }
-    let _dispatch = SCENE_DISPATCH.lock().unwrap();
-    let mut cards = Vec::with_capacity(hwnds.len());
-    let mut total_text_len = 0;
-    for hwnd in hwnds {
-        if !unsafe { IsWindow(Some(*hwnd)).as_bool() } {
-            continue;
-        }
-        COMPOSITOR_VISIBLE.lock().unwrap().insert(hwnd.0 as isize);
-        let Some((card, _, text_len)) = scene_card(*hwnd, requested_visible) else {
-            continue;
-        };
-        total_text_len += text_len;
-        SCENES.lock().unwrap().insert(card.id, card.clone());
-        if text_len > 0 {
-            crate::overlay::result::latency::mark_window(*hwnd, "compositor_command_queued");
-        }
-        cards.push(card);
-    }
-    if cards.is_empty() {
-        return;
-    }
-    let command = HostCommand::UpsertBatch { cards };
-    log_host_command(&command, total_text_len);
-    send_command(command);
-    let mut deferred = DEFERRED_SYNC.lock().unwrap();
-    for hwnd in hwnds {
-        deferred.remove(&(hwnd.0 as isize));
     }
 }
 
@@ -151,7 +121,7 @@ fn scene_card(hwnd: HWND, requested_visible: bool) -> Option<(SceneCard, String,
         .unwrap()
         .get(&hwnd_key)
         .map(|card| card.stack_order)
-        .unwrap_or_else(|| NEXT_STACK_ORDER.fetch_add(1, Ordering::SeqCst));
+        .unwrap_or_else(next_stack_order);
     let card = SceneCard {
         id: hwnd_key,
         rect: geometry.rect,
@@ -424,7 +394,10 @@ pub fn raise_window(hwnd: HWND) {
 }
 
 fn raise_window_id(id: isize) {
-    let stack_order = NEXT_STACK_ORDER.fetch_add(1, Ordering::SeqCst);
+    if super::scene_groups::raise_group(id) {
+        return;
+    }
+    let stack_order = next_stack_order();
     let updated = SCENES.lock().unwrap().get_mut(&id).is_some_and(|card| {
         card.stack_order = stack_order;
         true
@@ -539,14 +512,28 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
             id,
             targets,
             outcome,
+            dx,
+            dy,
         } => {
             DRAGGING.store(false, Ordering::SeqCst);
             super::control_surface::handle_drag_finished(id, &targets, outcome);
             if outcome == super::protocol::DragOutcome::Moved {
-                settle_drag_geometry(&targets);
+                if let Some(cards) = super::scene_groups::move_group(id, dx, dy) {
+                    send_command(HostCommand::DragSettled { cards });
+                } else {
+                    settle_drag_geometry(&targets);
+                }
             } else {
                 send_command(HostCommand::DragSettled { cards: Vec::new() });
             }
+            super::controls::sync_all();
+        }
+        ChildEvent::ResizeFinished { id, rect } => {
+            DRAGGING.store(false, Ordering::SeqCst);
+            let cards = super::scene_groups::resize_card(id, rect)
+                .into_iter()
+                .collect::<Vec<_>>();
+            send_command(HostCommand::DragSettled { cards });
             super::controls::sync_all();
         }
         ChildEvent::FitDiagnostic { id, payload } => log_fit_diagnostic(id, &payload),

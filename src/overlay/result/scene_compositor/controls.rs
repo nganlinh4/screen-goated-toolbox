@@ -71,6 +71,9 @@ pub fn set_opacity(hwnd: HWND, value: u8) {
 }
 
 pub fn set_control_scope_opacity(hwnd: HWND, value: u8) {
+    if super::scene_groups::set_group_opacity(hwnd.0 as isize, value) {
+        return;
+    }
     let group_actions = WINDOW_STATES
         .lock()
         .unwrap()
@@ -197,7 +200,7 @@ fn from_state(
         input_text: state.refine_session.draft().to_string(),
         opacity_percent: state.opacity_percent,
         model_label: model_label(&state.model_id, &state.provider),
-        group_ids: connected_ids(id, states),
+        group_ids: super::scene_groups::group_ids(id).unwrap_or_else(|| connected_ids(id, states)),
         onboarding_pulse_token: state.onboarding_pulse_token,
     }
 }

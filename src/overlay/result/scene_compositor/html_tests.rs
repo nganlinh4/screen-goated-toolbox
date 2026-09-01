@@ -61,6 +61,7 @@ fn isolated_html_has_a_rounded_mask_and_compositor_owned_resize_edges() {
 
     assert!(COMPOSED.contains(".result-frame{border-radius:inherit;clip-path:inset(0 round"));
     assert!(COMPOSED.contains(".resize-handle{position:absolute;z-index:4"));
+    assert!(COMPOSED.contains("[data-source-replacement=\"true\"] .resize-handle{display:none}"));
     assert!(document.contains("action: 'result_resize_start'"));
     assert!(document.contains("action: 'result_resize_preview'"));
     assert!(document.contains("action: 'result_resize_finish'"));

@@ -325,6 +325,12 @@ pub enum ChildEvent {
         id: isize,
         targets: Vec<isize>,
         outcome: DragOutcome,
+        dx: i32,
+        dy: i32,
+    },
+    ResizeFinished {
+        id: isize,
+        rect: SceneRect,
     },
     FitDiagnostic {
         id: isize,

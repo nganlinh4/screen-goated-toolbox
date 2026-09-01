@@ -37,6 +37,7 @@ struct DragTarget {
     id: isize,
     start_rect: RECT,
     live_native: bool,
+    native_backed: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -52,6 +53,7 @@ struct ActiveResize {
     edge: ResizeEdge,
     start_rect: RECT,
     live_native: bool,
+    native_backed: bool,
 }
 
 static BUTTON_REGIONS: LazyLock<Mutex<Vec<SceneRect>>> = LazyLock::new(|| Mutex::new(Vec::new()));
@@ -203,15 +205,25 @@ fn begin_drag(id: isize, mode: DragMode, cards: &HashMap<isize, SceneCard>) -> R
     let targets = target_ids
         .into_iter()
         .filter_map(|target| {
-            let mut start_rect = RECT::default();
-            unsafe { GetWindowRect(HWND(target as *mut std::ffi::c_void), &mut start_rect) }
-                .ok()?;
+            let card = cards.get(&target)?;
+            let native_backed = target > 0;
+            let start_rect = if native_backed {
+                let mut rect = RECT::default();
+                unsafe { GetWindowRect(HWND(target as *mut std::ffi::c_void), &mut rect) }.ok()?;
+                rect
+            } else {
+                RECT {
+                    left: card.control_rect.x,
+                    top: card.control_rect.y,
+                    right: card.control_rect.x.saturating_add(card.control_rect.width),
+                    bottom: card.control_rect.y.saturating_add(card.control_rect.height),
+                }
+            };
             Some(DragTarget {
                 id: target,
                 start_rect,
-                live_native: cards
-                    .get(&target)
-                    .is_some_and(|card| card.external_navigation),
+                live_native: card.external_navigation,
+                native_backed,
             })
         })
         .collect::<Vec<_>>();
@@ -265,7 +277,7 @@ unsafe fn place_targets(targets: &[DragTarget], dx: i32, dy: i32, live_only: boo
     unsafe {
         let selected = targets
             .iter()
-            .filter(|target| !live_only || target.live_native)
+            .filter(|target| target.native_backed && (!live_only || target.live_native))
             .collect::<Vec<_>>();
         if selected.is_empty() {
             return;
@@ -312,6 +324,8 @@ fn finish_drag_with_offset(dx: i32, dy: i32) -> Option<ChildEvent> {
         id: drag.id,
         targets,
         outcome,
+        dx,
+        dy,
     })
 }
 
@@ -349,7 +363,10 @@ fn begin_resize(
     if ACTIVE_DRAG.lock().unwrap().is_some() || ACTIVE_RESIZE.lock().unwrap().is_some() {
         return RendererInput::RefreshRegion;
     }
-    let Some(card) = cards.get(&id).filter(|card| card.visible) else {
+    let Some(card) = cards
+        .get(&id)
+        .filter(|card| card.visible && !card.source_replacement)
+    else {
         return RendererInput::RefreshRegion;
     };
     let Some(edge) = message
@@ -359,15 +376,27 @@ fn begin_resize(
     else {
         return RendererInput::RefreshRegion;
     };
-    let mut start_rect = RECT::default();
-    if unsafe { GetWindowRect(HWND(id as *mut std::ffi::c_void), &mut start_rect) }.is_err() {
-        return RendererInput::RefreshRegion;
-    }
+    let native_backed = id > 0;
+    let start_rect = if native_backed {
+        let mut rect = RECT::default();
+        if unsafe { GetWindowRect(HWND(id as *mut std::ffi::c_void), &mut rect) }.is_err() {
+            return RendererInput::RefreshRegion;
+        }
+        rect
+    } else {
+        RECT {
+            left: card.rect.x,
+            top: card.rect.y,
+            right: card.rect.x.saturating_add(card.rect.width),
+            bottom: card.rect.y.saturating_add(card.rect.height),
+        }
+    };
     *ACTIVE_RESIZE.lock().unwrap() = Some(ActiveResize {
         id,
         edge,
         start_rect,
         live_native: card.external_navigation,
+        native_backed,
     });
     BUTTON_REGIONS.lock().unwrap().clear();
     RendererInput::EventAndRefresh(ChildEvent::DragStarted)
@@ -379,11 +408,25 @@ fn finish_resize_from_message(message: &serde_json::Value) -> RendererInput {
     };
     AWAITING_DRAG_SETTLE.store(true, Ordering::SeqCst);
     let (dx, dy) = drag_offset(message);
+    let rect = resized_rect(resize.start_rect, resize.edge, dx, dy);
+    if !resize.native_backed {
+        return RendererInput::EventAndRefresh(ChildEvent::ResizeFinished {
+            id: resize.id,
+            rect: SceneRect {
+                x: rect.left,
+                y: rect.top,
+                width: rect.right.saturating_sub(rect.left).max(1),
+                height: rect.bottom.saturating_sub(rect.top).max(1),
+            },
+        });
+    }
     unsafe { place_resized_target(&resize, dx, dy) };
     RendererInput::EventAndRefresh(ChildEvent::DragFinished {
         id: resize.id,
         targets: vec![resize.id],
         outcome: DragOutcome::Moved,
+        dx: 0,
+        dy: 0,
     })
 }
 
@@ -451,6 +494,9 @@ fn resized_rect(mut rect: RECT, edge: ResizeEdge, dx: i32, dy: i32) -> RECT {
 }
 
 unsafe fn place_resized_target(resize: &ActiveResize, dx: i32, dy: i32) {
+    if !resize.native_backed {
+        return;
+    }
     unsafe {
         let hwnd = HWND(resize.id as *mut std::ffi::c_void);
         let rect = resized_rect(resize.start_rect, resize.edge, dx, dy);

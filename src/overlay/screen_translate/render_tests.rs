@@ -92,10 +92,18 @@ fn completed_stream_regions_are_presented_before_document_completion() {
     let region_branch = &source[region..complete];
 
     assert!(region_branch.contains("refresh_blocks("));
-    assert!(region_branch.contains("true,"));
+    assert!(region_branch.contains("&trace_id, true"));
     assert!(!source.contains("receiver.try_recv()"));
-    assert!(source.contains("prewarm_region_window_shell("));
+    assert!(source.contains("prewarm_source_group("));
+    assert!(source.contains("reveal_source_card("));
     assert!(source.contains("configure_deferred_text_only_result_window("));
-    assert!(source.contains("sync_deferred_windows_batch(&created, true)"));
+    assert_eq!(
+        source
+            .matches("create_deferred_result_window_shell(")
+            .count(),
+        1
+    );
+    assert!(!source.contains("prewarm_region_window_shell("));
+    assert!(!source.contains("sync_deferred_windows_batch("));
     assert!(!source.contains("ShowWindow("));
 }
