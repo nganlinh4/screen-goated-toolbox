@@ -238,6 +238,9 @@ fn command_for_transition(
 }
 
 pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
+    if super::scene_groups::owns_geometry(hwnd.0 as isize) {
+        return;
+    }
     if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
         remove_window(hwnd);
         return;

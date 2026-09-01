@@ -183,7 +183,6 @@ fn external_navigation_keeps_the_processing_shell_until_the_native_page_is_ready
 #[test]
 fn text_only_cards_keep_the_fitter_without_card_chrome() {
     let direct_runtime = include_str!("direct_runtime.js");
-    let surface_runtime = include_str!("surface_runtime.js");
     let shape_runtime = include_str!("shape_runtime.js");
     assert!(shape_runtime.contains("window.__SGT_SHAPE_LAYOUT__"));
     assert!(shape_runtime.contains("prefersVerticalWriting"));
@@ -201,25 +200,16 @@ fn text_only_cards_keep_the_fitter_without_card_chrome() {
     assert!(COMPOSED.contains("entry.sourceReplacement = model.source_replacement === true"));
     assert!(COMPOSED.contains("preferredFontSize: entry.preferredFontSize"));
     assert!(COMPOSED.contains("sourceReplacement: entry.sourceReplacement === true"));
+    assert!(direct_runtime.contains("finalItem.box.style.overflow = 'hidden'"));
     assert!(COMPOSED.contains("preferredFontSize / scale"));
     assert!(direct_runtime.contains("isSourceReplacement ? '1.08' : '1.5'"));
     assert!(direct_runtime.contains("? 'center'"));
     assert!(direct_runtime.contains("[100, 90, 80, 70, 60, 50, 40, 30, 25]"));
     assert!(direct_runtime.contains("Math.min(100, candidateWidth)"));
     assert!(!direct_runtime.contains("stretchHigh = 151"));
-    assert!(direct_runtime.contains("sourceTypography("));
-    assert!(surface_runtime.contains("sourceMeasureContext.measureText(text).width"));
-    assert!(surface_runtime.contains("window.__SGT_QUEUE_SOURCE_LAYOUT__"));
-    assert!(surface_runtime.contains("const measurements = batch.map(function(task)"));
-    assert!(surface_runtime.contains("task.commit(measurements[index])"));
-    assert!(
-        direct_runtime.contains("state.sourceLayoutReady = window.__SGT_QUEUE_SOURCE_LAYOUT__(")
-    );
-    assert!(direct_runtime.contains("return containers.map(function(item)"));
-    assert!(direct_runtime.contains("width:max-content;height:max-content;max-width:none"));
-    assert!(!direct_runtime.contains("fontAttempt"));
-    assert!(!direct_runtime.contains("widthAttempt"));
-    assert!(!direct_runtime.contains("widthItem.text.offsetHeight"));
+    assert!(direct_runtime.contains("applyTypography(widthItem, fontMiddle, 50)"));
+    assert!(direct_runtime.contains("var vertical = regions[widthItemIndex].vertical === true;"));
+    assert!(direct_runtime.contains("display:block;max-width:100%;max-height:100%"));
     assert!(!direct_runtime.contains(
         "region.vertical === true\n                    && shapeLayout.prefersVerticalWriting"
     ));

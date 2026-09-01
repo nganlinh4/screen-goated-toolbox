@@ -62,6 +62,21 @@ fn identical_completed_sync_is_not_dispatched_again() {
 }
 
 #[test]
+fn compositor_owned_groups_ignore_hidden_controller_window_geometry() {
+    let source = include_str!("parent.rs");
+    let sync = source
+        .split("pub fn sync_geometry")
+        .nth(1)
+        .unwrap()
+        .split("fn settle_drag_geometry")
+        .next()
+        .unwrap();
+
+    assert!(sync.contains("scene_groups::owns_geometry"));
+    assert!(sync.find("scene_groups::owns_geometry").unwrap() < sync.find("IsWindow").unwrap());
+}
+
+#[test]
 fn streaming_to_completed_transition_is_always_finalize() {
     let streaming = test_card(true);
     let completed = test_card(false);

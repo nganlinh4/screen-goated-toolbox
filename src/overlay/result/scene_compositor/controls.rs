@@ -164,13 +164,20 @@ fn from_state(
     state: &WindowState,
     states: &HashMap<isize, WindowState>,
 ) -> SceneControls {
+    let source_group_ids = super::scene_groups::group_ids(id);
     SceneControls {
         hidden: state.presentation == crate::overlay::result::ResultPresentation::TextOnly
             && state.control_options.is_none(),
-        control_anchor: state
-            .control_options
+        control_anchor: source_group_ids
             .as_ref()
-            .and_then(|control| control.anchor_rect),
+            .is_none()
+            .then(|| {
+                state
+                    .control_options
+                    .as_ref()
+                    .and_then(|control| control.anchor_rect)
+            })
+            .flatten(),
         control_color: state
             .control_options
             .as_ref()
@@ -200,7 +207,7 @@ fn from_state(
         input_text: state.refine_session.draft().to_string(),
         opacity_percent: state.opacity_percent,
         model_label: model_label(&state.model_id, &state.provider),
-        group_ids: super::scene_groups::group_ids(id).unwrap_or_else(|| connected_ids(id, states)),
+        group_ids: source_group_ids.unwrap_or_else(|| connected_ids(id, states)),
         onboarding_pulse_token: state.onboarding_pulse_token,
     }
 }

@@ -38,58 +38,6 @@ function raiseCard(entry, stackOrder) {
   entry.card.style.zIndex = String(order);
 }
 
-let sourceMeasureContext = null;
-function measureSourceText(text) {
-  if (!sourceMeasureContext) sourceMeasureContext = document.createElement('canvas').getContext('2d');
-  if (!sourceMeasureContext || !text) return 0.1;
-  sourceMeasureContext.font = "400 100px 'Google Sans Flex'";
-  return Math.max(0.1, sourceMeasureContext.measureText(text).width);
-}
-
-window.__SGT_QUEUE_SOURCE_LAYOUT__ = (function() {
-  let pending = [];
-  let queued = false;
-
-  function flush() {
-    queued = false;
-    const batch = pending;
-    pending = [];
-    const measurements = batch.map(function(task) {
-      try { return task.measure(); } catch (_) { return null; }
-    });
-    batch.forEach(function(task, index) {
-      try { task.commit(measurements[index]); } finally { task.resolve(); }
-    });
-  }
-
-  return function(measure, commit) {
-    return new Promise(function(resolve) {
-      pending.push({ measure: measure, commit: commit, resolve: resolve });
-      if (queued) return;
-      queued = true;
-      if (typeof queueMicrotask === 'function') queueMicrotask(flush);
-      else Promise.resolve().then(flush);
-    });
-  };
-})();
-
-function sourceTypography(text, width, height, vertical) {
-  const advance = measureSourceText(text);
-  const along = vertical ? height : width;
-  const cross = vertical ? width : height;
-  const minimumAdvanceRatio = 0.75;
-  const fontSize = Math.max(0.1, vertical
-    ? Math.min(cross * 2, along * 100 / advance)
-    : Math.min(cross / 1.08, along * 100 / (advance * minimumAdvanceRatio)));
-  const uncondensedAlong = advance * fontSize / 100;
-  const availableRatio = along / Math.max(0.1, uncondensedAlong);
-  const stretch = vertical ? cross * 100 / fontSize
-    : availableRatio <= minimumAdvanceRatio ? 50
-    : availableRatio <= 1 ? 50 + (availableRatio - minimumAdvanceRatio) * 200
-    : 100 + (availableRatio - 1) * 250;
-  return { fontSize: fontSize, stretch: Math.max(50, Math.min(150, stretch)) };
-}
-
 function setSourceReplacementSurface(entry, enabled) {
   const surface = entry.visualSurface;
   if (enabled && !surface.isConnected) {

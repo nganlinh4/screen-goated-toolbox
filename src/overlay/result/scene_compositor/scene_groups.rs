@@ -182,6 +182,10 @@ pub fn group_ids(id: isize) -> Option<Vec<isize>> {
     Some(ids)
 }
 
+pub fn owns_geometry(id: isize) -> bool {
+    CARD_GROUPS.lock().unwrap().contains_key(&id)
+}
+
 pub fn set_group_opacity(id: isize, opacity: u8) -> bool {
     let opacity = crate::config::types::normalize_result_overlay_opacity_percent(opacity);
     let Some(root_id) = CARD_GROUPS.lock().unwrap().get(&id).copied() else {
@@ -225,35 +229,28 @@ pub fn move_group(id: isize, dx: i32, dy: i32) -> Option<Vec<SceneGeometry>> {
         ids.push(root_id);
         ids
     };
-    if let Some(state) = WINDOW_STATES.lock().unwrap().get_mut(&root_id)
-        && let Some(options) = state.control_options.as_mut()
-    {
-        options.shift_anchor(dx, dy);
-    }
-    let controls = super::controls::snapshot(root_id);
     let mut scenes = SCENES.lock().unwrap();
     let cards = ids
         .into_iter()
         .filter_map(|id| {
             let card = scenes.get_mut(&id)?;
-            card.rect.x = card.rect.x.saturating_add(dx);
-            card.rect.y = card.rect.y.saturating_add(dy);
-            card.control_rect.x = card.control_rect.x.saturating_add(dx);
-            card.control_rect.y = card.control_rect.y.saturating_add(dy);
-            if id == root_id
-                && let Some(controls) = &controls
-            {
-                card.controls.clone_from(controls);
-            }
-            Some(SceneGeometry {
-                id,
-                rect: card.rect.clone(),
-                control_rect: card.control_rect.clone(),
-                visible: card.visible,
-            })
+            Some(move_scene_card(card, dx, dy))
         })
         .collect();
     Some(cards)
+}
+
+fn move_scene_card(card: &mut SceneCard, dx: i32, dy: i32) -> SceneGeometry {
+    card.rect.x = card.rect.x.saturating_add(dx);
+    card.rect.y = card.rect.y.saturating_add(dy);
+    card.control_rect.x = card.control_rect.x.saturating_add(dx);
+    card.control_rect.y = card.control_rect.y.saturating_add(dy);
+    SceneGeometry {
+        id: card.id,
+        rect: card.rect.clone(),
+        control_rect: card.control_rect.clone(),
+        visible: card.visible,
+    }
 }
 
 pub fn raise_group(id: isize) -> bool {
@@ -413,10 +410,23 @@ fn controller_card(root_id: isize, visible: bool) -> Option<SceneCard> {
     rect.y = rect.y.saturating_add(offset.1);
     rect.width = 1;
     rect.height = 1;
+    let control_rect = WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get(&root_id)
+        .and_then(|state| state.control_options.as_ref())
+        .and_then(|options| options.anchor_rect)
+        .map(|anchor| SceneRect {
+            x: anchor[0],
+            y: anchor[1],
+            width: anchor[2].max(1),
+            height: anchor[3].max(1),
+        })
+        .unwrap_or_else(|| rect.clone());
     Some(SceneCard {
         id: root_id,
-        rect: rect.clone(),
-        control_rect: rect,
+        rect,
+        control_rect,
         body: String::new(),
         document: None,
         external_navigation: false,
@@ -463,7 +473,7 @@ fn scene_origin() -> (i32, i32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{NEXT_SCENE_ID, SourceCardSpec, SourceCardState, source_card};
+    use super::{NEXT_SCENE_ID, SourceCardSpec, SourceCardState, move_scene_card, source_card};
     use std::sync::atomic::Ordering;
     use windows::Win32::Foundation::RECT;
 
@@ -502,5 +512,47 @@ mod tests {
 
         assert!(card.controls.hidden);
         assert!(card.controls.group_ids.is_empty());
+    }
+
+    #[test]
+    fn moving_geometry_leaves_the_control_cache_for_control_sync() {
+        let mut card = source_card(
+            -43,
+            &SourceCardState {
+                spec: SourceCardSpec {
+                    target_rect: RECT {
+                        left: 10,
+                        top: 20,
+                        right: 110,
+                        bottom: 70,
+                    },
+                    backdrop_data_url: String::new(),
+                    foreground_color: "#ffffff".to_string(),
+                    preferred_font_size: 16.0,
+                    source_vertical: false,
+                    source_regions: Vec::new(),
+                },
+                text: String::new(),
+                segments: Vec::new(),
+                visible: true,
+                stack_order: 1,
+            },
+            (0, 0),
+            100,
+        );
+        card.controls.control_anchor = Some([10, 20, 100, 50]);
+        let controls_before_move = card.controls.clone();
+        let origin_before_move = (card.rect.x, card.rect.y);
+
+        let geometry = move_scene_card(&mut card, 35, -8);
+
+        assert_eq!(
+            (geometry.rect.x, geometry.rect.y),
+            (
+                origin_before_move.0.saturating_add(35),
+                origin_before_move.1.saturating_sub(8)
+            )
+        );
+        assert_eq!(card.controls, controls_before_move);
     }
 }
