@@ -87,7 +87,6 @@ fn translate_with_llm_chain(
             &model.provider,
             config,
             &blocked_providers,
-            None,
         )
         .is_some()
             || crate::retry_model_chain::claim_model_attempt(&model.id).is_some()

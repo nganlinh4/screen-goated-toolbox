@@ -318,30 +318,12 @@ fn credential_present(environment: &str, saved: &str) -> bool {
 }
 
 /// Why this model should be passed over for the request about to be made.
-///
-/// `input_pixels` is the area of the image this call would send, where there is
-/// one. An endpoint that declares a reliable floor is skipped below it, and the
-/// caller advances to the next model exactly as it would for another structural
-/// capability mismatch.
 pub fn preflight_skip_reason(
     model_id: &str,
     provider: &str,
     config: &Config,
     blocked_providers: &HashSet<String>,
-    input_pixels: Option<u32>,
 ) -> Option<String> {
-    #[cfg(feature = "recorder-worker")]
-    let _ = input_pixels;
-    #[cfg(not(feature = "recorder-worker"))]
-    if let Some(pixels) = input_pixels
-        && let Some(model) = get_model_by_id_with_custom(model_id, &config.custom_models)
-        && let Some(floor) =
-            crate::model_config::vision_request_profile(&model.provider, &model.full_name)
-                .min_reliable_pixels
-        && pixels < floor
-    {
-        return Some(format!("MODEL_INPUT_TOO_SMALL:{model_id}:{pixels}px"));
-    }
     #[cfg(not(feature = "recorder-worker"))]
     if let Some(reason) = model_cooldown_skip_reason(model_id) {
         return Some(reason);
