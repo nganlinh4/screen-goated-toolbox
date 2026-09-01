@@ -150,7 +150,9 @@ where
                     search_label: None,
                     ui_language: &config.ui_language,
                     cancel_token: Some(attempt_cancel),
-                    request_timeout: Some(request_timeout),
+                    request_timeout: Some(crate::api::client::RequestTimeouts::uniform(
+                        request_timeout,
+                    )),
                     target_language: Some(target_language.to_string()),
                 },
                 |chunk| {

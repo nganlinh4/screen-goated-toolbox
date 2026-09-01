@@ -15,21 +15,41 @@ mod budget;
 mod cooldown;
 
 #[cfg(not(feature = "recorder-worker"))]
-const INTERACTIVE_STARTUP_ALLOWANCE_MS: u64 = 30_000;
+const INTERACTIVE_DEFAULT_LATENCY_MS: u64 = 3_000;
 #[cfg(not(feature = "recorder-worker"))]
-const INTERACTIVE_REQUEST_BYTES_PER_SECOND: u64 = 16_384;
+const INTERACTIVE_REQUEST_BYTES_PER_SECOND: u64 = 262_144;
 #[cfg(not(feature = "recorder-worker"))]
-const MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS: u64 = 120_000;
+const MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS: u64 = 3_000;
 #[cfg(not(feature = "recorder-worker"))]
-const MIN_INTERACTIVE_OUTPUT_TOKENS_PER_SECOND: u64 = 16;
+const INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER: u64 = 3;
 #[cfg(not(feature = "recorder-worker"))]
-const DEFAULT_TEXT_OUTPUT_TOKENS: u64 = 4_096;
+const INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER: u64 = 2;
 #[cfg(not(feature = "recorder-worker"))]
-const DEFAULT_VISION_OUTPUT_TOKENS: u64 = 2_048;
+const INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER: u64 = 4;
 #[cfg(not(feature = "recorder-worker"))]
-const MIN_INTERACTIVE_TIMEOUT_MS: u64 = 60_000;
+const INTERACTIVE_CHAIN_LATENCY_MULTIPLIER: u64 = 5;
 #[cfg(not(feature = "recorder-worker"))]
-const MAX_INTERACTIVE_TIMEOUT_MS: u64 = 900_000;
+const INTERACTIVE_CONNECT_TIMEOUT_MS: u64 = 5_000;
+#[cfg(not(feature = "recorder-worker"))]
+const INTERACTIVE_SEND_BASE_MS: u64 = 2_000;
+#[cfg(not(feature = "recorder-worker"))]
+const MAX_INTERACTIVE_SEND_TIMEOUT_MS: u64 = 10_000;
+#[cfg(not(feature = "recorder-worker"))]
+const MIN_INTERACTIVE_RESPONSE_START_MS: u64 = 2_500;
+#[cfg(not(feature = "recorder-worker"))]
+const MAX_INTERACTIVE_RESPONSE_START_MS: u64 = 15_000;
+#[cfg(not(feature = "recorder-worker"))]
+const MIN_INTERACTIVE_PROGRESS_IDLE_MS: u64 = 2_000;
+#[cfg(not(feature = "recorder-worker"))]
+const MAX_INTERACTIVE_PROGRESS_IDLE_MS: u64 = 8_000;
+#[cfg(not(feature = "recorder-worker"))]
+const MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS: u64 = 5_000;
+#[cfg(not(feature = "recorder-worker"))]
+const MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS: u64 = 30_000;
+#[cfg(not(feature = "recorder-worker"))]
+const MIN_INTERACTIVE_CHAIN_TIMEOUT_MS: u64 = 8_000;
+#[cfg(not(feature = "recorder-worker"))]
+const MAX_INTERACTIVE_CHAIN_TIMEOUT_MS: u64 = 30_000;
 const UNBENCHMARKED_FEED_QUALITY_TIER: u8 = 4;
 
 #[cfg(feature = "recorder-worker")]
@@ -92,52 +112,92 @@ pub struct InteractiveRequestWorkload {
 }
 
 #[cfg(not(feature = "recorder-worker"))]
-pub fn interactive_request_timeout(
+pub fn interactive_request_timeouts(
     model_id: &str,
     config: &Config,
-    streaming_enabled: bool,
     workload: InteractiveRequestWorkload,
-) -> Option<Duration> {
-    if streaming_enabled {
-        return None;
-    }
-
-    let model = get_model_by_id_with_custom(model_id, &config.custom_models);
-    let output_tokens = model
-        .as_ref()
-        .map(|model| match model.model_type {
-            ModelType::Vision => {
-                crate::model_config::vision_request_profile(&model.provider, &model.full_name)
-                    .max_output_tokens
-                    .map(u64::from)
-                    .unwrap_or(DEFAULT_VISION_OUTPUT_TOKENS)
-            }
-            ModelType::Text | ModelType::Audio => DEFAULT_TEXT_OUTPUT_TOKENS,
-        })
-        .unwrap_or(DEFAULT_TEXT_OUTPUT_TOKENS);
-    Some(workload_derived_timeout(
+) -> crate::api::client::RequestTimeouts {
+    request_timeouts_from_latency(
+        model_latency_ms(model_id, config),
         workload.encoded_request_bytes,
-        output_tokens,
-    ))
+    )
 }
 
 #[cfg(not(feature = "recorder-worker"))]
-fn workload_derived_timeout(encoded_request_bytes: u64, output_tokens: u64) -> Duration {
-    let request_seconds = encoded_request_bytes
-        .saturating_add(INTERACTIVE_REQUEST_BYTES_PER_SECOND - 1)
-        / INTERACTIVE_REQUEST_BYTES_PER_SECOND;
-    let request_allowance_ms = request_seconds
-        .saturating_mul(1_000)
-        .min(MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS);
-    let output_ms = output_tokens
-        .saturating_mul(1_000)
-        .saturating_add(MIN_INTERACTIVE_OUTPUT_TOKENS_PER_SECOND - 1)
-        / MIN_INTERACTIVE_OUTPUT_TOKENS_PER_SECOND;
-    let timeout_ms = INTERACTIVE_STARTUP_ALLOWANCE_MS
-        .saturating_add(request_allowance_ms)
-        .saturating_add(output_ms)
-        .clamp(MIN_INTERACTIVE_TIMEOUT_MS, MAX_INTERACTIVE_TIMEOUT_MS);
+pub fn interactive_chain_timeout(
+    model_id: &str,
+    config: &Config,
+    workload: InteractiveRequestWorkload,
+) -> Duration {
+    let timeout_ms = model_latency_ms(model_id, config)
+        .saturating_mul(INTERACTIVE_CHAIN_LATENCY_MULTIPLIER)
+        .saturating_add(request_allowance_ms(workload.encoded_request_bytes))
+        .clamp(
+            MIN_INTERACTIVE_CHAIN_TIMEOUT_MS,
+            MAX_INTERACTIVE_CHAIN_TIMEOUT_MS,
+        );
     Duration::from_millis(timeout_ms)
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+fn model_latency_ms(model_id: &str, config: &Config) -> u64 {
+    get_model_by_id_with_custom(model_id, &config.custom_models)
+        .and_then(|model| model.typical_latency_ms)
+        .map(u64::from)
+        .unwrap_or(INTERACTIVE_DEFAULT_LATENCY_MS)
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+fn request_allowance_ms(encoded_request_bytes: u64) -> u64 {
+    encoded_request_bytes
+        .saturating_mul(1_000)
+        .div_ceil(INTERACTIVE_REQUEST_BYTES_PER_SECOND)
+        .min(MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS)
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+fn request_timeouts_from_latency(
+    latency_ms: u64,
+    encoded_request_bytes: u64,
+) -> crate::api::client::RequestTimeouts {
+    let request_ms = request_allowance_ms(encoded_request_bytes);
+    let total_ms = latency_ms
+        .saturating_mul(INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER)
+        .saturating_add(request_ms)
+        .clamp(
+            MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS,
+            MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS,
+        );
+    let total = Duration::from_millis(total_ms);
+    crate::api::client::RequestTimeouts {
+        connect: Duration::from_millis(INTERACTIVE_CONNECT_TIMEOUT_MS).min(total),
+        send: Duration::from_millis(
+            INTERACTIVE_SEND_BASE_MS
+                .saturating_add(request_ms)
+                .min(MAX_INTERACTIVE_SEND_TIMEOUT_MS),
+        )
+        .min(total),
+        response_start: Duration::from_millis(
+            latency_ms
+                .saturating_mul(INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER)
+                .saturating_add(request_ms)
+                .clamp(
+                    MIN_INTERACTIVE_RESPONSE_START_MS,
+                    MAX_INTERACTIVE_RESPONSE_START_MS,
+                ),
+        )
+        .min(total),
+        progress_idle: Duration::from_millis(
+            latency_ms
+                .saturating_mul(INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER)
+                .clamp(
+                    MIN_INTERACTIVE_PROGRESS_IDLE_MS,
+                    MAX_INTERACTIVE_PROGRESS_IDLE_MS,
+                ),
+        )
+        .min(total),
+        total,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

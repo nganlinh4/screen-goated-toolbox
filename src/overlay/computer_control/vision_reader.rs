@@ -203,7 +203,7 @@ fn run_chain_where(
             streaming_enabled: GROUNDING_STREAMING_ENABLED,
             response_schema: schema.clone(),
             cancel_token: cancel_token.clone(),
-            request_timeout,
+            request_timeout: request_timeout.map(crate::api::client::RequestTimeouts::uniform),
         };
         match translate_image_streaming(req, |_| {}) {
             Ok(response) => {

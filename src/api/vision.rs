@@ -38,7 +38,7 @@ pub struct TranslateImageRequest<'a> {
     /// the selected model documents support for constrained JSON.
     pub response_schema: Option<serde_json::Value>,
     pub cancel_token: Option<Arc<AtomicBool>>,
-    pub request_timeout: Option<Duration>,
+    pub request_timeout: Option<crate::api::client::RequestTimeouts>,
 }
 
 fn retry_after_seconds(headers: &ureq::http::HeaderMap) -> Option<u64> {
@@ -253,7 +253,7 @@ where
                 streaming_enabled,
                 ui_language: &ui_language,
                 cancel_token,
-                request_timeout,
+                request_timeout: request_timeout.map(|timeouts| timeouts.total),
             },
             on_chunk,
         );
@@ -476,7 +476,7 @@ where
                 .post("https://api.groq.com/openai/v1/chat/completions")
                 .header("Authorization", &format!("Bearer {}", groq_api_key))
                 .header("Content-Type", "application/json");
-            let response = super::client::with_request_timeout(request, request_timeout)
+            let response = super::client::with_request_timeouts(request, request_timeout)
                 .send(payload_bytes.as_slice())
                 .map_err(|error| anyhow::anyhow!("Groq vision transport error: {error}"))?;
             record_usage_simple(response.headers(), &model);

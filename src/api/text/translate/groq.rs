@@ -7,7 +7,6 @@ use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
 use anyhow::Result;
 use std::io::BufReader;
-use std::time::Duration;
 
 use super::TranslateTransportOptions;
 
@@ -18,7 +17,7 @@ pub(super) fn translate_groq_compound<F>(
     prompt: &str,
     search_label: Option<String>,
     ui_language: &str,
-    request_timeout: Option<Duration>,
+    request_timeout: Option<crate::api::client::RequestTimeouts>,
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -60,7 +59,7 @@ where
     let request = UREQ_RESPONSE_AGENT
         .post("https://api.groq.com/openai/v1/chat/completions")
         .header("Authorization", &format!("Bearer {}", groq_api_key));
-    let resp = crate::api::client::with_request_timeout(request, request_timeout)
+    let resp = crate::api::client::with_request_timeouts(request, request_timeout)
         .send_json(payload)
         .map_err(|error| anyhow::anyhow!("Groq transport error: {error}"))?;
     record_usage_simple(resp.headers(), model);
@@ -259,7 +258,7 @@ where
     let request = UREQ_RESPONSE_AGENT
         .post("https://api.groq.com/openai/v1/chat/completions")
         .header("Authorization", &format!("Bearer {}", groq_api_key));
-    let resp = crate::api::client::with_request_timeout(request, transport.request_timeout)
+    let resp = crate::api::client::with_request_timeouts(request, transport.request_timeout)
         .send_json(payload)
         .map_err(|error| anyhow::anyhow!("Groq transport error: {error}"))?;
     record_usage_simple(resp.headers(), model);

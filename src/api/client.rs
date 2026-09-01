@@ -7,6 +7,38 @@ use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 const STREAM_RESPONSE_START_TIMEOUT: Duration = Duration::from_secs(120);
 const STREAM_PROGRESS_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RequestTimeouts {
+    pub connect: Duration,
+    pub send: Duration,
+    pub response_start: Duration,
+    pub progress_idle: Duration,
+    pub total: Duration,
+}
+
+impl RequestTimeouts {
+    pub const fn uniform(timeout: Duration) -> Self {
+        Self {
+            connect: timeout,
+            send: timeout,
+            response_start: timeout,
+            progress_idle: timeout,
+            total: timeout,
+        }
+    }
+
+    pub fn capped(self, remaining: Duration) -> Self {
+        let cap = |value: Duration| value.min(remaining);
+        Self {
+            connect: cap(self.connect),
+            send: cap(self.send),
+            response_start: cap(self.response_start),
+            progress_idle: cap(self.progress_idle),
+            total: cap(self.total),
+        }
+    }
+}
+
 fn platform_tls_config() -> TlsConfig {
     TlsConfig::builder()
         .provider(TlsProvider::NativeTls)
@@ -86,6 +118,23 @@ pub fn with_request_timeout<B>(
 ) -> ureq::RequestBuilder<B> {
     match timeout {
         Some(timeout) => request.config().timeout_global(Some(timeout)).build(),
+        None => request,
+    }
+}
+
+pub fn with_request_timeouts<B>(
+    request: ureq::RequestBuilder<B>,
+    timeouts: Option<RequestTimeouts>,
+) -> ureq::RequestBuilder<B> {
+    match timeouts {
+        Some(timeouts) => request
+            .config()
+            .timeout_connect(Some(timeouts.connect))
+            .timeout_send_request(Some(timeouts.send))
+            .timeout_recv_response(Some(timeouts.response_start))
+            .timeout_recv_body(Some(timeouts.progress_idle))
+            .timeout_global(Some(timeouts.total))
+            .build(),
         None => request,
     }
 }

@@ -1,13 +1,17 @@
 package dev.screengoated.toolbox.mobile.preset
 
+import kotlinx.coroutines.ThreadContextElement
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import okio.Buffer
 import org.json.JSONException
 import org.json.JSONObject
-import okio.Buffer
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 
 internal fun OkHttpClient.newPresetCall(
     request: Request,
@@ -17,65 +21,120 @@ internal fun OkHttpClient.newPresetCall(
     val encodedRequestBytes = runCatching { request.body?.contentLength() ?: 0L }
         .getOrDefault(0L)
         .coerceAtLeast(0L)
-    val policy = presetRequestDeadlinePolicy(model, streamingEnabled, encodedRequestBytes)
+    val remainingChainMillis = currentPresetChainRemainingMillis()
+    if (remainingChainMillis != null && remainingChainMillis <= 0L) {
+        throw IOException(INTERACTIVE_CHAIN_TIMEOUT_ERROR)
+    }
+    val policy = presetRequestDeadlinePolicy(model, encodedRequestBytes)
+        .cappedBy(remainingChainMillis)
+    val readTimeout = if (streamingEnabled) {
+        minOf(policy.responseStartTimeoutMillis, policy.progressIdleTimeoutMillis)
+    } else {
+        policy.responseStartTimeoutMillis
+    }
     val call = newBuilder()
-        .readTimeout(policy.readIdleTimeoutMillis, TimeUnit.MILLISECONDS)
+        .connectTimeout(policy.connectTimeoutMillis, TimeUnit.MILLISECONDS)
+        .writeTimeout(policy.sendTimeoutMillis, TimeUnit.MILLISECONDS)
+        .readTimeout(readTimeout, TimeUnit.MILLISECONDS)
         .build()
         .newCall(request)
-    policy.wholeCallTimeoutMillis?.let { timeout ->
-        call.timeout().timeout(timeout, TimeUnit.MILLISECONDS)
-    }
+    call.timeout().timeout(policy.attemptTimeoutMillis, TimeUnit.MILLISECONDS)
     return call
 }
 
 internal data class PresetRequestDeadlinePolicy(
-    val readIdleTimeoutMillis: Long,
-    val wholeCallTimeoutMillis: Long?,
-)
+    val connectTimeoutMillis: Long,
+    val sendTimeoutMillis: Long,
+    val responseStartTimeoutMillis: Long,
+    val progressIdleTimeoutMillis: Long,
+    val attemptTimeoutMillis: Long,
+) {
+    fun cappedBy(capMillis: Long?): PresetRequestDeadlinePolicy {
+        if (capMillis == null) return this
+        val cap = capMillis.coerceAtLeast(1L)
+        return copy(
+            connectTimeoutMillis = minOf(connectTimeoutMillis, cap),
+            sendTimeoutMillis = minOf(sendTimeoutMillis, cap),
+            responseStartTimeoutMillis = minOf(responseStartTimeoutMillis, cap),
+            progressIdleTimeoutMillis = minOf(progressIdleTimeoutMillis, cap),
+            attemptTimeoutMillis = minOf(attemptTimeoutMillis, cap),
+        )
+    }
+}
 
 internal fun presetRequestDeadlinePolicy(
     model: PresetModelDescriptor,
-    streamingEnabled: Boolean,
     encodedRequestBytes: Long,
 ): PresetRequestDeadlinePolicy {
-    if (streamingEnabled) {
-        return PresetRequestDeadlinePolicy(
-            readIdleTimeoutMillis = STREAM_PROGRESS_IDLE_TIMEOUT_MILLIS,
-            wholeCallTimeoutMillis = null,
-        )
-    }
-    val outputTokens = when (model.modelType) {
-        PresetModelType.VISION -> model.visionMaxOutputTokens
-            ?.toLong()
-            ?: DEFAULT_VISION_OUTPUT_TOKENS
-        PresetModelType.TEXT, PresetModelType.AUDIO -> DEFAULT_TEXT_OUTPUT_TOKENS
-    }
-    val hardTimeout = workloadDerivedTimeoutMillis(encodedRequestBytes, outputTokens)
+    val latencyMillis = model.typicalLatencyMs?.toLong() ?: INTERACTIVE_DEFAULT_LATENCY_MILLIS
+    val requestAllowance = requestAllowanceMillis(encodedRequestBytes)
+    val attemptTimeout = latencyMillis
+        .saturatingMultiply(INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER)
+        .saturatingAdd(requestAllowance)
+        .coerceIn(MINIMUM_INTERACTIVE_ATTEMPT_MILLIS, MAXIMUM_INTERACTIVE_ATTEMPT_MILLIS)
     return PresetRequestDeadlinePolicy(
-        readIdleTimeoutMillis = hardTimeout,
-        wholeCallTimeoutMillis = hardTimeout,
+        connectTimeoutMillis = minOf(INTERACTIVE_CONNECT_TIMEOUT_MILLIS, attemptTimeout),
+        sendTimeoutMillis = INTERACTIVE_SEND_BASE_MILLIS
+            .saturatingAdd(requestAllowance)
+            .coerceAtMost(MAXIMUM_INTERACTIVE_SEND_TIMEOUT_MILLIS)
+            .coerceAtMost(attemptTimeout),
+        responseStartTimeoutMillis = latencyMillis
+            .saturatingMultiply(INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER)
+            .saturatingAdd(requestAllowance)
+            .coerceIn(MINIMUM_INTERACTIVE_RESPONSE_START_MILLIS, MAXIMUM_INTERACTIVE_RESPONSE_START_MILLIS)
+            .coerceAtMost(attemptTimeout),
+        progressIdleTimeoutMillis = latencyMillis
+            .saturatingMultiply(INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER)
+            .coerceIn(MINIMUM_INTERACTIVE_PROGRESS_IDLE_MILLIS, MAXIMUM_INTERACTIVE_PROGRESS_IDLE_MILLIS)
+            .coerceAtMost(attemptTimeout),
+        attemptTimeoutMillis = attemptTimeout,
     )
 }
 
-internal fun workloadDerivedTimeoutMillis(
+internal fun presetChainTimeoutMillis(
+    model: PresetModelDescriptor,
     encodedRequestBytes: Long,
-    outputTokens: Long,
-): Long {
-    val requestSeconds = encodedRequestBytes
-        .coerceAtLeast(0L)
-        .saturatingAdd(REQUEST_BYTES_PER_ALLOWANCE_SECOND - 1L) / REQUEST_BYTES_PER_ALLOWANCE_SECOND
-    val requestAllowance = requestSeconds
-        .saturatingMultiply(1_000L)
-        .coerceAtMost(MAXIMUM_REQUEST_ALLOWANCE_MILLIS)
-    val outputAllowance = outputTokens
-        .coerceAtLeast(0L)
-        .saturatingMultiply(1_000L)
-        .saturatingAdd(MINIMUM_OUTPUT_TOKENS_PER_SECOND - 1L) / MINIMUM_OUTPUT_TOKENS_PER_SECOND
-    return STARTUP_ALLOWANCE_MILLIS
-        .saturatingAdd(requestAllowance)
-        .saturatingAdd(outputAllowance)
-        .coerceIn(MINIMUM_INTERACTIVE_TIMEOUT_MILLIS, MAXIMUM_INTERACTIVE_TIMEOUT_MILLIS)
+): Long = (model.typicalLatencyMs?.toLong() ?: INTERACTIVE_DEFAULT_LATENCY_MILLIS)
+    .saturatingMultiply(INTERACTIVE_CHAIN_LATENCY_MULTIPLIER)
+    .saturatingAdd(requestAllowanceMillis(encodedRequestBytes))
+    .coerceIn(MINIMUM_INTERACTIVE_CHAIN_MILLIS, MAXIMUM_INTERACTIVE_CHAIN_MILLIS)
+
+private fun requestAllowanceMillis(encodedRequestBytes: Long): Long = encodedRequestBytes
+    .coerceAtLeast(0L)
+    .saturatingMultiply(1_000L)
+    .saturatingAdd(INTERACTIVE_REQUEST_BYTES_PER_SECOND - 1L)
+    .div(INTERACTIVE_REQUEST_BYTES_PER_SECOND)
+    .coerceAtMost(MAXIMUM_INTERACTIVE_REQUEST_ALLOWANCE_MILLIS)
+
+internal class PresetChainDeadline private constructor(
+    private val deadlineNanos: Long,
+) : ThreadContextElement<Long?>, AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<PresetChainDeadline> {
+        fun afterMillis(timeoutMillis: Long): PresetChainDeadline = PresetChainDeadline(
+            System.nanoTime().saturatingAdd(timeoutMillis.saturatingMultiply(NANOS_PER_MILLISECOND)),
+        )
+    }
+
+    override fun updateThreadContext(context: CoroutineContext): Long? {
+        val previous = presetChainDeadlineNanos.get()
+        presetChainDeadlineNanos.set(deadlineNanos)
+        return previous
+    }
+
+    override fun restoreThreadContext(context: CoroutineContext, oldState: Long?) {
+        if (oldState == null) presetChainDeadlineNanos.remove()
+        else presetChainDeadlineNanos.set(oldState)
+    }
 }
+
+private fun currentPresetChainRemainingMillis(): Long? {
+    val deadline = presetChainDeadlineNanos.get() ?: return null
+    val remainingNanos = deadline - System.nanoTime()
+    if (remainingNanos <= 0L) return 0L
+    return remainingNanos.saturatingAdd(NANOS_PER_MILLISECOND - 1L) / NANOS_PER_MILLISECOND
+}
+
+private val presetChainDeadlineNanos = ThreadLocal<Long?>()
 
 private fun Long.saturatingAdd(other: Long): Long =
     if (this > Long.MAX_VALUE - other) Long.MAX_VALUE else this + other
@@ -112,14 +171,25 @@ internal fun Response.providerFailureMessage(subject: String): String {
     }
 }
 
-private const val STREAM_PROGRESS_IDLE_TIMEOUT_MILLIS = 120_000L
-private const val STARTUP_ALLOWANCE_MILLIS = 30_000L
-private const val REQUEST_BYTES_PER_ALLOWANCE_SECOND = 16_384L
-private const val MAXIMUM_REQUEST_ALLOWANCE_MILLIS = 120_000L
-private const val MINIMUM_OUTPUT_TOKENS_PER_SECOND = 16L
-private const val DEFAULT_TEXT_OUTPUT_TOKENS = 4_096L
-private const val DEFAULT_VISION_OUTPUT_TOKENS = 2_048L
-private const val MINIMUM_INTERACTIVE_TIMEOUT_MILLIS = 60_000L
-private const val MAXIMUM_INTERACTIVE_TIMEOUT_MILLIS = 900_000L
+private const val INTERACTIVE_DEFAULT_LATENCY_MILLIS = 3_000L
+private const val INTERACTIVE_REQUEST_BYTES_PER_SECOND = 262_144L
+private const val MAXIMUM_INTERACTIVE_REQUEST_ALLOWANCE_MILLIS = 3_000L
+private const val INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER = 3L
+private const val INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER = 2L
+private const val INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER = 4L
+private const val INTERACTIVE_CHAIN_LATENCY_MULTIPLIER = 5L
+private const val INTERACTIVE_CONNECT_TIMEOUT_MILLIS = 5_000L
+private const val INTERACTIVE_SEND_BASE_MILLIS = 2_000L
+private const val MAXIMUM_INTERACTIVE_SEND_TIMEOUT_MILLIS = 10_000L
+private const val MINIMUM_INTERACTIVE_RESPONSE_START_MILLIS = 2_500L
+private const val MAXIMUM_INTERACTIVE_RESPONSE_START_MILLIS = 15_000L
+private const val MINIMUM_INTERACTIVE_PROGRESS_IDLE_MILLIS = 2_000L
+private const val MAXIMUM_INTERACTIVE_PROGRESS_IDLE_MILLIS = 8_000L
+private const val MINIMUM_INTERACTIVE_ATTEMPT_MILLIS = 5_000L
+private const val MAXIMUM_INTERACTIVE_ATTEMPT_MILLIS = 30_000L
+private const val MINIMUM_INTERACTIVE_CHAIN_MILLIS = 8_000L
+private const val MAXIMUM_INTERACTIVE_CHAIN_MILLIS = 30_000L
+private const val NANOS_PER_MILLISECOND = 1_000_000L
+internal const val INTERACTIVE_CHAIN_TIMEOUT_ERROR = "INTERACTIVE_CHAIN_TIMEOUT"
 private const val MAXIMUM_ERROR_BODY_BYTES = 16 * 1024
 private const val MAXIMUM_ERROR_TEXT_CHARS = 2_000

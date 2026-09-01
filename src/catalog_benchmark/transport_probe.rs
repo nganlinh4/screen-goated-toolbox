@@ -151,7 +151,7 @@ fn run_google(
             cancel_token: &None,
             error_label: None,
             map_auth_errors: true,
-            request_timeout: timeout,
+            request_timeout: timeout.map(crate::api::client::RequestTimeouts::uniform),
             response_schema: None,
             media_resolution: variant.resolution,
             retry_observer: None,

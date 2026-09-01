@@ -166,12 +166,13 @@
   being reduced to a status code. Presentation streaming and transport streaming
   are separate: a final-only Markdown or raw-HTML result may still consume a
   streaming provider response internally for liveness without exposing partial
-  content. Streaming HTTP calls have independent response-start and progress-idle
-  deadlines and no whole-response deadline while bytes keep arriving.
-  Non-streaming interactive calls use a structural hard budget derived from the
-  encoded request size and the endpoint's output-token allowance, clamped from one
-  to fifteen minutes. Catalog benchmark latency is presentation/ranking evidence;
-  it never defines a request's whole-call deadline.
+  content. Every interactive HTTP call uses catalog full-completion latency as a
+  bounded deadline baseline, with encoded request bytes contributing only a small
+  upload allowance. Connect, send, response-start, progress-idle, per-attempt, and
+  whole-chain deadlines follow the shared retry fixture. Primary and fallback
+  attempts consume one chain budget; receiving bytes never makes that budget
+  unbounded. Request or image size may adjust time allowance but never model
+  eligibility or ordering. Blank final content is a retryable model failure.
 - OpenRouter ordinary text, refine, vision, and recorder-subtitle requests
   apply catalog reasoning policy through OpenRouter's nested
   `reasoning: { effort: "none" }` field. `reasoning_effort` is not an

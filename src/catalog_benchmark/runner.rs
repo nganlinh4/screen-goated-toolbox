@@ -148,7 +148,7 @@ fn run_text(
                 search_label: None,
                 ui_language: "en",
                 cancel_token: None,
-                request_timeout: timeout,
+                request_timeout: timeout.map(crate::api::client::RequestTimeouts::uniform),
                 target_language: case.target_language.clone(),
             },
             |_| {},
@@ -265,7 +265,7 @@ fn run_ocr(
                 streaming_enabled: false,
                 response_schema: None,
                 cancel_token: None,
-                request_timeout: timeout,
+                request_timeout: timeout.map(crate::api::client::RequestTimeouts::uniform),
             },
             |_| {},
         )

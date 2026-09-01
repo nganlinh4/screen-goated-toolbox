@@ -3,29 +3,40 @@ use super::cooldown::{
     rate_limit_error, record_model_failure_at, unavailable_model_error,
 };
 use super::{
-    DEFAULT_TEXT_OUTPUT_TOKENS, DEFAULT_VISION_OUTPUT_TOKENS, INTERACTIVE_REQUEST_BYTES_PER_SECOND,
-    INTERACTIVE_STARTUP_ALLOWANCE_MS, InteractiveRequestWorkload,
-    MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS, MAX_INTERACTIVE_TIMEOUT_MS,
-    MIN_INTERACTIVE_OUTPUT_TOKENS_PER_SECOND, MIN_INTERACTIVE_TIMEOUT_MS, RetryChainKind,
-    UNBENCHMARKED_FEED_QUALITY_TIER, interactive_request_timeout, preflight_skip_reason,
-    record_model_success, release_model_probe, resolve_next_configured_model,
-    resolve_next_retry_model, resolve_unavailable_pinned_model, workload_derived_timeout,
+    INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER, INTERACTIVE_CHAIN_LATENCY_MULTIPLIER,
+    INTERACTIVE_CONNECT_TIMEOUT_MS, INTERACTIVE_DEFAULT_LATENCY_MS,
+    INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER, INTERACTIVE_REQUEST_BYTES_PER_SECOND,
+    INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER, INTERACTIVE_SEND_BASE_MS,
+    InteractiveRequestWorkload, MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS,
+    MAX_INTERACTIVE_CHAIN_TIMEOUT_MS, MAX_INTERACTIVE_PROGRESS_IDLE_MS,
+    MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS, MAX_INTERACTIVE_RESPONSE_START_MS,
+    MAX_INTERACTIVE_SEND_TIMEOUT_MS, MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS,
+    MIN_INTERACTIVE_CHAIN_TIMEOUT_MS, MIN_INTERACTIVE_PROGRESS_IDLE_MS,
+    MIN_INTERACTIVE_RESPONSE_START_MS, RetryChainKind, UNBENCHMARKED_FEED_QUALITY_TIER,
+    interactive_chain_timeout, interactive_request_timeouts, preflight_skip_reason,
+    record_model_success, release_model_probe, request_timeouts_from_latency,
+    resolve_next_configured_model, resolve_next_retry_model, resolve_unavailable_pinned_model,
 };
 use crate::config::Config;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 #[test]
-fn unary_timeout_uses_structural_workload_and_safety_bounds() {
-    assert_eq!(workload_derived_timeout(0, 1), Duration::from_secs(60));
-    assert_eq!(
-        workload_derived_timeout(1_000_000, 160),
-        Duration::from_secs(102)
-    );
-    assert_eq!(
-        workload_derived_timeout(u64::MAX, u64::MAX),
-        Duration::from_secs(900)
-    );
+fn interactive_timeouts_use_benchmark_latency_and_bounded_workload_allowance() {
+    let fast = request_timeouts_from_latency(1_195, 4_487);
+    assert_eq!(fast.response_start, Duration::from_millis(3_603));
+    assert_eq!(fast.progress_idle, Duration::from_millis(2_390));
+    assert_eq!(fast.total, Duration::from_secs(5));
+
+    let slow = request_timeouts_from_latency(1_788, 4_487);
+    assert_eq!(slow.response_start, Duration::from_millis(5_382));
+    assert_eq!(slow.progress_idle, Duration::from_millis(3_576));
+    assert_eq!(slow.total, Duration::from_millis(7_170));
+
+    let bounded = request_timeouts_from_latency(u64::MAX, u64::MAX);
+    assert_eq!(bounded.response_start, Duration::from_secs(15));
+    assert_eq!(bounded.progress_idle, Duration::from_secs(8));
+    assert_eq!(bounded.total, Duration::from_secs(30));
 }
 
 #[test]
@@ -34,38 +45,76 @@ fn interactive_deadline_constants_match_mobile_parity_fixture() {
         "../../parity-fixtures/preset-system/retry-runtime.json"
     ))
     .unwrap();
-    let unary = &fixture["interactive_deadlines"]["non_streaming"];
-    let streaming = &fixture["interactive_deadlines"]["streaming"];
-
-    assert_eq!(streaming["response_start_timeout_ms"], 120_000);
-    assert_eq!(streaming["progress_idle_timeout_ms"], 120_000);
-    assert!(streaming["whole_call_timeout_ms"].is_null());
+    let deadlines = &fixture["interactive_deadlines"];
     assert_eq!(
-        unary["startup_allowance_ms"],
-        INTERACTIVE_STARTUP_ALLOWANCE_MS
+        deadlines["default_latency_ms"],
+        INTERACTIVE_DEFAULT_LATENCY_MS
     );
     assert_eq!(
-        unary["request_bytes_per_allowance_second"],
+        deadlines["request_bytes_per_allowance_second"],
         INTERACTIVE_REQUEST_BYTES_PER_SECOND
     );
     assert_eq!(
-        unary["maximum_request_allowance_ms"],
+        deadlines["maximum_request_allowance_ms"],
         MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS
     );
     assert_eq!(
-        unary["minimum_output_tokens_per_second"],
-        MIN_INTERACTIVE_OUTPUT_TOKENS_PER_SECOND
+        deadlines["connect_timeout_ms"],
+        INTERACTIVE_CONNECT_TIMEOUT_MS
+    );
+    assert_eq!(deadlines["send_base_timeout_ms"], INTERACTIVE_SEND_BASE_MS);
+    assert_eq!(
+        deadlines["maximum_send_timeout_ms"],
+        MAX_INTERACTIVE_SEND_TIMEOUT_MS
     );
     assert_eq!(
-        unary["default_text_output_tokens"],
-        DEFAULT_TEXT_OUTPUT_TOKENS
+        deadlines["response_start_latency_multiplier"],
+        INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER
     );
     assert_eq!(
-        unary["default_vision_output_tokens"],
-        DEFAULT_VISION_OUTPUT_TOKENS
+        deadlines["progress_idle_latency_multiplier"],
+        INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER
     );
-    assert_eq!(unary["minimum_hard_timeout_ms"], MIN_INTERACTIVE_TIMEOUT_MS);
-    assert_eq!(unary["maximum_hard_timeout_ms"], MAX_INTERACTIVE_TIMEOUT_MS);
+    assert_eq!(
+        deadlines["attempt_latency_multiplier"],
+        INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER
+    );
+    assert_eq!(
+        deadlines["chain_latency_multiplier"],
+        INTERACTIVE_CHAIN_LATENCY_MULTIPLIER
+    );
+    assert_eq!(
+        deadlines["minimum_response_start_timeout_ms"],
+        MIN_INTERACTIVE_RESPONSE_START_MS
+    );
+    assert_eq!(
+        deadlines["maximum_response_start_timeout_ms"],
+        MAX_INTERACTIVE_RESPONSE_START_MS
+    );
+    assert_eq!(
+        deadlines["minimum_progress_idle_timeout_ms"],
+        MIN_INTERACTIVE_PROGRESS_IDLE_MS
+    );
+    assert_eq!(
+        deadlines["maximum_progress_idle_timeout_ms"],
+        MAX_INTERACTIVE_PROGRESS_IDLE_MS
+    );
+    assert_eq!(
+        deadlines["minimum_attempt_timeout_ms"],
+        MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS
+    );
+    assert_eq!(
+        deadlines["maximum_attempt_timeout_ms"],
+        MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS
+    );
+    assert_eq!(
+        deadlines["minimum_chain_timeout_ms"],
+        MIN_INTERACTIVE_CHAIN_TIMEOUT_MS
+    );
+    assert_eq!(
+        deadlines["maximum_chain_timeout_ms"],
+        MAX_INTERACTIVE_CHAIN_TIMEOUT_MS
+    );
 }
 
 #[test]
@@ -74,25 +123,15 @@ fn live_corpus_passes_enter_as_capable_fallbacks_pending_offline_benchmark() {
 }
 
 #[test]
-fn streaming_requests_do_not_receive_a_total_response_deadline() {
+fn every_interactive_request_receives_a_hard_deadline() {
     let config = Config::default();
+    let model = "groq-qwen-3-8-27b-vision";
+    let timeouts =
+        interactive_request_timeouts(model, &config, InteractiveRequestWorkload::default());
+    assert_eq!(timeouts.total, Duration::from_secs(5));
     assert_eq!(
-        interactive_request_timeout(
-            "google-gemini-3-5-flash-lite-vision",
-            &config,
-            false,
-            InteractiveRequestWorkload::default(),
-        ),
-        Some(Duration::from_secs(62))
-    );
-    assert_eq!(
-        interactive_request_timeout(
-            "google-gemini-3-5-flash-lite-vision",
-            &config,
-            true,
-            InteractiveRequestWorkload::default(),
-        ),
-        None
+        interactive_chain_timeout(model, &config, InteractiveRequestWorkload::default()),
+        Duration::from_secs(8)
     );
 }
 

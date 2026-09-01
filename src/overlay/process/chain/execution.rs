@@ -9,9 +9,9 @@ use crate::config::{Config, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
 use crate::overlay::result::{ChainCancelToken, RefineContext, WINDOW_STATES, update_window_text};
 use crate::retry_model_chain::{
-    InteractiveRequestWorkload, RetryChainKind, claim_model_attempt, interactive_request_timeout,
-    preflight_skip_reason, record_model_failure, record_model_success, release_model_probe,
-    resolve_next_retry_model,
+    InteractiveRequestWorkload, RetryChainKind, claim_model_attempt, interactive_chain_timeout,
+    interactive_request_timeouts, preflight_skip_reason, record_model_failure,
+    record_model_success, release_model_probe, resolve_next_retry_model,
 };
 use crate::win_types::SendHwnd;
 use std::collections::HashSet;
@@ -19,7 +19,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
+use std::time::Instant;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -106,6 +106,8 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
             .saturating_add(input_text.len() as u64)
             .saturating_add(encoded_media_bytes),
     };
+    let chain_timeout = interactive_chain_timeout(&current_model_id, config, workload);
+    let chain_started = Instant::now();
 
     let window_shown = Arc::new(Mutex::new(block.block_type != "image"));
     let processing_hwnd_arc = Arc::new(Mutex::new(processing_hwnd_shared));
@@ -164,11 +166,11 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
             &current_provider,
             &current_model_full_name,
         );
-        let request_timeout = interactive_request_timeout(
-            &current_model_id,
-            config,
-            transport_streaming_enabled,
-            workload,
+        let Some(remaining) = chain_timeout.checked_sub(chain_started.elapsed()) else {
+            break Err(anyhow::anyhow!("INTERACTIVE_CHAIN_TIMEOUT"));
+        };
+        let request_timeout = Some(
+            interactive_request_timeouts(&current_model_id, config, workload).capped(remaining),
         );
         let res_inner = if is_first_processing_block
             && block.block_type == "image"
@@ -206,6 +208,14 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 my_hwnd: my_hwnd.filter(|_| surface_streaming_enabled),
                 cancel_token,
             })
+        };
+
+        let res_inner = match res_inner {
+            Ok(value) if value.trim().is_empty() => Err(anyhow::anyhow!(
+                "EMPTY_MODEL_RESPONSE:{}",
+                current_model_full_name
+            )),
+            other => other,
         };
 
         match res_inner {
@@ -276,7 +286,7 @@ struct ExecuteImageBlockRequest<'a> {
     model_full_name: &'a str,
     provider: &'a str,
     streaming_enabled: bool,
-    request_timeout: Option<Duration>,
+    request_timeout: Option<crate::api::client::RequestTimeouts>,
     accumulated: Arc<Mutex<String>>,
     my_hwnd: Option<HWND>,
     window_shown: Arc<Mutex<bool>>,
@@ -353,7 +363,7 @@ struct ExecuteTextBlockRequest<'a> {
     model_full_name: &'a str,
     provider: &'a str,
     streaming_enabled: bool,
-    request_timeout: Option<Duration>,
+    request_timeout: Option<crate::api::client::RequestTimeouts>,
     preset_id: &'a str,
     config: &'a Config,
     accumulated: Arc<Mutex<String>>,

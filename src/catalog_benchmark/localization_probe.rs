@@ -124,7 +124,7 @@ fn run_case(
                 search_label: None,
                 ui_language: "en",
                 cancel_token: None,
-                request_timeout: timeout,
+                request_timeout: timeout.map(crate::api::client::RequestTimeouts::uniform),
                 target_language: Some(case.target_language.clone()),
             },
             |chunk| {

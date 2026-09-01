@@ -112,7 +112,8 @@ internal fun shouldAdvanceRetryChain(error: String): Boolean {
         }
     }
     val lower = error.lowercase()
-    return lower.contains("rate limit") ||
+    return lower.contains("empty_model_response") ||
+        lower.contains("rate limit") ||
         lower.contains("too many requests") ||
         lower.contains("quota exceeded") ||
         lower.contains("peer disconnected") ||

@@ -31,23 +31,26 @@
     "audio_whole_call_timeout": null
   },
   "interactive_deadlines": {
-    "benchmark_latency_role": "ranking_and_presentation_only",
+    "benchmark_latency_role": "ranking_presentation_and_deadline_baseline",
     "presentation_transport_streaming_separate": true,
-    "streaming": {
-      "response_start_timeout_ms": 120000,
-      "progress_idle_timeout_ms": 120000,
-      "whole_call_timeout_ms": null
-    },
-    "non_streaming": {
-      "startup_allowance_ms": 30000,
-      "request_bytes_per_allowance_second": 16384,
-      "maximum_request_allowance_ms": 120000,
-      "minimum_output_tokens_per_second": 16,
-      "default_text_output_tokens": 4096,
-      "default_vision_output_tokens": 2048,
-      "minimum_hard_timeout_ms": 60000,
-      "maximum_hard_timeout_ms": 900000
-    }
+    "default_latency_ms": 3000,
+    "request_bytes_per_allowance_second": 262144,
+    "maximum_request_allowance_ms": 3000,
+    "connect_timeout_ms": 5000,
+    "send_base_timeout_ms": 2000,
+    "maximum_send_timeout_ms": 10000,
+    "response_start_latency_multiplier": 3,
+    "minimum_response_start_timeout_ms": 2500,
+    "maximum_response_start_timeout_ms": 15000,
+    "progress_idle_latency_multiplier": 2,
+    "minimum_progress_idle_timeout_ms": 2000,
+    "maximum_progress_idle_timeout_ms": 8000,
+    "attempt_latency_multiplier": 4,
+    "minimum_attempt_timeout_ms": 5000,
+    "maximum_attempt_timeout_ms": 30000,
+    "chain_latency_multiplier": 5,
+    "minimum_chain_timeout_ms": 8000,
+    "maximum_chain_timeout_ms": 30000
   },
   "recommended_model_defaults": {
     "generic_image": "groq-qwen-3-8-27b-vision",

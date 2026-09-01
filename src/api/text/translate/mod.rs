@@ -10,7 +10,6 @@ use crate::api::providers::Provider;
 use anyhow::Result;
 use providers::{translate_gemini, translate_nvidia, translate_openrouter, translate_taalas};
 use std::sync::{Arc, atomic::AtomicBool};
-use std::time::Duration;
 
 pub struct TranslateTextRequest<'a> {
     pub groq_api_key: &'a str,
@@ -27,7 +26,7 @@ pub struct TranslateTextRequest<'a> {
     pub cancel_token: Option<Arc<AtomicBool>>,
     /// Optional end-to-end transport budget for latency-sensitive callers.
     /// `None` preserves the provider's normal shared-agent timeout.
-    pub request_timeout: Option<Duration>,
+    pub request_timeout: Option<crate::api::client::RequestTimeouts>,
     pub target_language: Option<String>,
 }
 
@@ -36,7 +35,7 @@ struct TranslateTransportOptions<'a> {
     streaming_enabled: bool,
     ui_language: &'a str,
     cancel_token: &'a Option<Arc<AtomicBool>>,
-    request_timeout: Option<Duration>,
+    request_timeout: Option<crate::api::client::RequestTimeouts>,
 }
 
 pub fn translate_text_streaming<F>(
@@ -171,7 +170,7 @@ fn translate_text_streaming_inner(
                     streaming_enabled,
                     ui_language,
                     cancel_token,
-                    request_timeout,
+                    request_timeout: request_timeout.map(|timeouts| timeouts.total),
                 },
                 on_chunk,
             );

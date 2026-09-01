@@ -76,7 +76,9 @@ pub(in crate::overlay::computer_control) fn read_text_pref_where(
                 search_label: None,
                 ui_language: "en",
                 cancel_token: Some(Arc::clone(&cancel_token)),
-                request_timeout: Some(request_timeout),
+                request_timeout: Some(crate::api::client::RequestTimeouts::uniform(
+                    request_timeout,
+                )),
                 target_language: None,
             },
             |_| {},

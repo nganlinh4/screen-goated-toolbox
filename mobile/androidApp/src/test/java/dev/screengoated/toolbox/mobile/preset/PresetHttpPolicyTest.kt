@@ -6,35 +6,47 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
 class PresetHttpPolicyTest {
     @Test
-    fun unaryTimeoutUsesStructuralWorkloadInsteadOfBenchmarkLatency() {
-        assertEquals(60_000L, workloadDerivedTimeoutMillis(0, 1))
-        assertEquals(102_000L, workloadDerivedTimeoutMillis(1_000_000, 160))
-        assertEquals(900_000L, workloadDerivedTimeoutMillis(Long.MAX_VALUE, Long.MAX_VALUE))
+    fun benchmarkLatencyAndRequestBytesBoundEveryInteractiveAttempt() {
+        val base = requireNotNull(PresetModelCatalog.getById("groq-qwen-3-8-27b-text"))
+        val qwen38 = base.copy(typicalLatencyMs = 1_195)
+        val qwen36 = base.copy(typicalLatencyMs = 1_788)
+
+        val fast = presetRequestDeadlinePolicy(qwen38, encodedRequestBytes = 4_487)
+        assertEquals(3_603L, fast.responseStartTimeoutMillis)
+        assertEquals(2_390L, fast.progressIdleTimeoutMillis)
+        assertEquals(5_000L, fast.attemptTimeoutMillis)
+        assertEquals(8_000L, presetChainTimeoutMillis(qwen38, 4_487))
+
+        val fallback = presetRequestDeadlinePolicy(qwen36, encodedRequestBytes = 4_487)
+        assertEquals(5_382L, fallback.responseStartTimeoutMillis)
+        assertEquals(3_576L, fallback.progressIdleTimeoutMillis)
+        assertEquals(7_170L, fallback.attemptTimeoutMillis)
+
+        val boundedModel = base.copy(typicalLatencyMs = Int.MAX_VALUE)
+        val bounded = presetRequestDeadlinePolicy(boundedModel, encodedRequestBytes = Long.MAX_VALUE)
+        assertEquals(15_000L, bounded.responseStartTimeoutMillis)
+        assertEquals(8_000L, bounded.progressIdleTimeoutMillis)
+        assertEquals(30_000L, bounded.attemptTimeoutMillis)
+        assertEquals(30_000L, presetChainTimeoutMillis(boundedModel, Long.MAX_VALUE))
     }
 
     @Test
-    fun streamingHasProgressIdleDeadlineWithoutWholeCallDeadline() {
-        val model = requireNotNull(PresetModelCatalog.getById("google-gemini-3-5-flash-lite-text"))
-        val policy = presetRequestDeadlinePolicy(model, streamingEnabled = true, encodedRequestBytes = 0)
+    fun remainingChainBudgetCapsEveryHttpPhase() {
+        val model = requireNotNull(PresetModelCatalog.getById("groq-qwen-3-8-27b-text"))
+            .copy(typicalLatencyMs = 1_195)
+        val capped = presetRequestDeadlinePolicy(model, 4_487).cappedBy(900L)
 
-        assertEquals(120_000L, policy.readIdleTimeoutMillis)
-        assertNull(policy.wholeCallTimeoutMillis)
-    }
-
-    @Test
-    fun bufferedTextGetsOutputAndRequestAllowances() {
-        val model = requireNotNull(PresetModelCatalog.getById("google-gemini-3-5-flash-lite-text"))
-        val policy = presetRequestDeadlinePolicy(model, streamingEnabled = false, encodedRequestBytes = 1_000_000)
-
-        assertEquals(348_000L, policy.wholeCallTimeoutMillis)
-        assertEquals(policy.wholeCallTimeoutMillis, policy.readIdleTimeoutMillis)
+        assertEquals(900L, capped.connectTimeoutMillis)
+        assertEquals(900L, capped.sendTimeoutMillis)
+        assertEquals(900L, capped.responseStartTimeoutMillis)
+        assertEquals(900L, capped.progressIdleTimeoutMillis)
+        assertEquals(900L, capped.attemptTimeoutMillis)
     }
 
     @Test
@@ -45,20 +57,21 @@ class PresetHttpPolicyTest {
         val fixture = JSONObject(
             File(root, "parity-fixtures/preset-system/retry-runtime.json").readText(),
         ).getJSONObject("interactive_deadlines")
-        val streaming = fixture.getJSONObject("streaming")
-        val unary = fixture.getJSONObject("non_streaming")
-
-        assertEquals(120_000L, streaming.getLong("response_start_timeout_ms"))
-        assertEquals(120_000L, streaming.getLong("progress_idle_timeout_ms"))
-        assertTrue(streaming.isNull("whole_call_timeout_ms"))
-        assertEquals(30_000L, unary.getLong("startup_allowance_ms"))
-        assertEquals(16_384L, unary.getLong("request_bytes_per_allowance_second"))
-        assertEquals(120_000L, unary.getLong("maximum_request_allowance_ms"))
-        assertEquals(16L, unary.getLong("minimum_output_tokens_per_second"))
-        assertEquals(4_096L, unary.getLong("default_text_output_tokens"))
-        assertEquals(2_048L, unary.getLong("default_vision_output_tokens"))
-        assertEquals(60_000L, unary.getLong("minimum_hard_timeout_ms"))
-        assertEquals(900_000L, unary.getLong("maximum_hard_timeout_ms"))
+        assertEquals(3_000L, fixture.getLong("default_latency_ms"))
+        assertEquals(262_144L, fixture.getLong("request_bytes_per_allowance_second"))
+        assertEquals(3_000L, fixture.getLong("maximum_request_allowance_ms"))
+        assertEquals(5_000L, fixture.getLong("connect_timeout_ms"))
+        assertEquals(2_000L, fixture.getLong("send_base_timeout_ms"))
+        assertEquals(10_000L, fixture.getLong("maximum_send_timeout_ms"))
+        assertEquals(3L, fixture.getLong("response_start_latency_multiplier"))
+        assertEquals(2L, fixture.getLong("progress_idle_latency_multiplier"))
+        assertEquals(4L, fixture.getLong("attempt_latency_multiplier"))
+        assertEquals(5L, fixture.getLong("chain_latency_multiplier"))
+        assertEquals(5_000L, fixture.getLong("minimum_attempt_timeout_ms"))
+        assertEquals(30_000L, fixture.getLong("maximum_attempt_timeout_ms"))
+        assertEquals(8_000L, fixture.getLong("minimum_chain_timeout_ms"))
+        assertEquals(30_000L, fixture.getLong("maximum_chain_timeout_ms"))
+        assertTrue(fixture.getBoolean("presentation_transport_streaming_separate"))
     }
 
     @Test

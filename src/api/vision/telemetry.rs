@@ -52,7 +52,9 @@ impl VisionCallTrace {
             rgba_bytes: request.image.as_raw().len(),
             prompt_bytes: request.prompt.len(),
             has_schema: request.response_schema.is_some(),
-            timeout_ms: request.request_timeout.map(|timeout| timeout.as_millis()),
+            timeout_ms: request
+                .request_timeout
+                .map(|timeouts| timeouts.total.as_millis()),
             prepare_ms: None,
             provider_started_ms: None,
             wire_width: None,
@@ -245,7 +247,9 @@ mod tests {
             streaming_enabled: false,
             response_schema: None,
             cancel_token: None,
-            request_timeout: Some(Duration::from_secs(5)),
+            request_timeout: Some(crate::api::client::RequestTimeouts::uniform(
+                Duration::from_secs(5),
+            )),
         };
         let mut trace = VisionCallTrace::start(&request);
         let observer = trace.output_observer();

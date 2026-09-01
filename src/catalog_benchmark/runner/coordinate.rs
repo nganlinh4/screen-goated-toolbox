@@ -234,7 +234,7 @@ fn call_model(
                 streaming_enabled: GROUNDING_STREAMING_ENABLED,
                 response_schema: request.response_schema,
                 cancel_token: None,
-                request_timeout: timeout,
+                request_timeout: timeout.map(crate::api::client::RequestTimeouts::uniform),
             },
             |_| {},
         )

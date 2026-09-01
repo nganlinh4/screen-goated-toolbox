@@ -124,7 +124,9 @@ fn translate_adherence_across_models() {
                             search_label: None,
                             ui_language: "en",
                             cancel_token: None,
-                            request_timeout: Some(Duration::from_secs(60)),
+                            request_timeout: Some(crate::api::client::RequestTimeouts::uniform(
+                                Duration::from_secs(60),
+                            )),
                             target_language: Some("Vietnamese".to_string()),
                         },
                         |_| {},

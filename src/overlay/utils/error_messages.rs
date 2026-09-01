@@ -450,7 +450,8 @@ pub fn should_advance_retry_chain(error: &str) -> bool {
     }
 
     let lower_err = error.to_lowercase();
-    if lower_err.contains("rate limit")
+    if lower_err.contains("empty_model_response")
+        || lower_err.contains("rate limit")
         || lower_err.contains("too many requests")
         || lower_err.contains("quota exceeded")
         || lower_err.contains("peer disconnected")
@@ -554,6 +555,9 @@ mod tests {
             "request failed with status code 404"
         ));
         assert!(should_advance_retry_chain("unsupported model"));
+        assert!(should_advance_retry_chain(
+            "EMPTY_MODEL_RESPONSE:qwen/qwen3.8-27b"
+        ));
     }
 
     #[test]

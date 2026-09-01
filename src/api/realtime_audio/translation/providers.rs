@@ -1,7 +1,6 @@
 use isolang;
 use serde::Deserialize;
 use std::collections::HashSet;
-use std::time::Duration;
 use urlencoding;
 
 use crate::api::client::{
@@ -105,14 +104,13 @@ fn translate_with_llm_chain(
             .saturating_add(request.finalized_source.len() as u64)
             .saturating_add(request.draft_source.len() as u64)
             .saturating_add(request.previous_draft_translation.len() as u64);
-        let request_timeout = crate::retry_model_chain::interactive_request_timeout(
+        let request_timeout = Some(crate::retry_model_chain::interactive_request_timeouts(
             &model.id,
             config,
-            false,
             crate::retry_model_chain::InteractiveRequestWorkload {
                 encoded_request_bytes: request_bytes,
             },
-        );
+        ));
 
         let result = match model.provider.as_str() {
             "google" => translate_with_google_model(
@@ -165,7 +163,7 @@ fn translate_with_google_model(
     request: &TranslationRequest,
     target_language: &str,
     history_entries: &[(String, String)],
-    request_timeout: Option<Duration>,
+    request_timeout: Option<crate::api::client::RequestTimeouts>,
 ) -> Option<ValidatedTranslationResponse> {
     if api_key.trim().is_empty() {
         return None;
@@ -193,7 +191,7 @@ fn translate_with_google_model(
     let http_request = UREQ_RESPONSE_AGENT
         .post(&url)
         .header("x-goog-api-key", api_key);
-    let http_request = crate::api::client::with_request_timeout(http_request, request_timeout);
+    let http_request = crate::api::client::with_request_timeouts(http_request, request_timeout);
     let resp = http_request.send_json(payload).ok()?;
     crate::api::client::record_usage_headers("google", model_name, resp.headers());
 
@@ -222,7 +220,7 @@ fn translate_with_gemini_live(
     request: &TranslationRequest,
     target_language: &str,
     history_entries: &[(String, String)],
-    request_timeout: Option<Duration>,
+    request_timeout: Option<crate::api::client::RequestTimeouts>,
 ) -> Option<ValidatedTranslationResponse> {
     let prompt = build_structured_prompt(request, target_language, history_entries);
     let text = crate::api::gemini_live::gemini_live_generate(
@@ -236,7 +234,7 @@ fn translate_with_gemini_live(
             streaming_enabled: false,
             ui_language: "",
             cancel_token: None,
-            request_timeout,
+            request_timeout: request_timeout.map(|timeouts| timeouts.total),
         },
         |_| {},
     )
@@ -250,7 +248,7 @@ fn translate_with_groq(
     request: &TranslationRequest,
     target_language: &str,
     history_entries: &[(String, String)],
-    request_timeout: Option<Duration>,
+    request_timeout: Option<crate::api::client::RequestTimeouts>,
 ) -> Option<ValidatedTranslationResponse> {
     if api_key.trim().is_empty() {
         return None;
@@ -274,7 +272,7 @@ fn translate_with_groq(
         .post("https://api.groq.com/openai/v1/chat/completions")
         .header("Authorization", &format!("Bearer {}", api_key))
         .header("Content-Type", "application/json");
-    let http_request = crate::api::client::with_request_timeout(http_request, request_timeout);
+    let http_request = crate::api::client::with_request_timeouts(http_request, request_timeout);
     let resp = http_request.send_json(payload).ok()?;
 
     record_usage_simple(resp.headers(), model_name);
@@ -300,7 +298,7 @@ fn translate_with_nvidia(
     request: &TranslationRequest,
     target_language: &str,
     history_entries: &[(String, String)],
-    request_timeout: Option<Duration>,
+    request_timeout: Option<crate::api::client::RequestTimeouts>,
 ) -> Option<ValidatedTranslationResponse> {
     if api_key.trim().is_empty() {
         return None;
@@ -320,7 +318,7 @@ fn translate_with_nvidia(
         .post(crate::api::NVIDIA_CHAT_COMPLETIONS_URL)
         .header("Authorization", &format!("Bearer {api_key}"))
         .header("Content-Type", "application/json");
-    let http_request = crate::api::client::with_request_timeout(http_request, request_timeout);
+    let http_request = crate::api::client::with_request_timeouts(http_request, request_timeout);
     let resp = http_request.send_json(payload).ok()?;
     crate::api::client::record_usage_headers("nvidia", model_name, resp.headers());
     let root: serde_json::Value = resp.into_body().read_json().ok()?;

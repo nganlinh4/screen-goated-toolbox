@@ -15,7 +15,6 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
 use ureq::http::HeaderMap;
 
 const MAX_PROVIDER_ERROR_BODY_BYTES: u64 = 8 * 1024;
@@ -50,7 +49,7 @@ pub fn stream_openai_compat_chat<F, H>(
     reasoning_fallback: bool,
     ui_language: &str,
     cancel_token: &Option<Arc<AtomicBool>>,
-    request_timeout: Option<Duration>,
+    request_timeout: Option<crate::api::client::RequestTimeouts>,
     error_label: &str,
     map_auth_errors: bool,
     on_headers: H,
@@ -96,7 +95,7 @@ pub fn stream_openai_compat_payload<F, H, J>(
     reasoning_fallback: bool,
     ui_language: &str,
     cancel_token: &Option<Arc<AtomicBool>>,
-    request_timeout: Option<Duration>,
+    request_timeout: Option<crate::api::client::RequestTimeouts>,
     error_label: &str,
     map_auth_errors: bool,
     gzip_large_payload: bool,
@@ -120,7 +119,7 @@ where
         .post(endpoint)
         .header("Authorization", &format!("Bearer {}", api_key))
         .header("Content-Type", "application/json");
-    let request = crate::api::client::with_request_timeout(request, request_timeout);
+    let request = crate::api::client::with_request_timeouts(request, request_timeout);
     let json_bytes = serde_json::to_vec(&payload)?;
     let response = if gzip_large_payload && json_bytes.len() >= 12 * 1024 {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());

@@ -41,6 +41,7 @@ class PresetRetryChainTest {
         assertTrue(shouldAdvanceRetryChain("Gemini request failed with 400"))
         assertTrue(shouldAdvanceRetryChain("request failed with status code 404"))
         assertTrue(shouldAdvanceRetryChain("unsupported model"))
+        assertTrue(shouldAdvanceRetryChain("EMPTY_MODEL_RESPONSE:model/name"))
         assertFalse(shouldAdvanceRetryChain("request failed with 200"))
     }
 

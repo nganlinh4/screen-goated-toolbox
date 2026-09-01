@@ -242,7 +242,9 @@ fn ocr_repetition_matrix() {
                             streaming_enabled: false,
                             response_schema: None,
                             cancel_token: None,
-                            request_timeout: Some(std::time::Duration::from_secs(60)),
+                            request_timeout: Some(crate::api::client::RequestTimeouts::uniform(
+                                std::time::Duration::from_secs(60),
+                            )),
                         },
                         |_| {},
                     )
@@ -269,7 +271,11 @@ fn ocr_repetition_matrix() {
                                 streaming_enabled: false,
                                 response_schema: None,
                                 cancel_token: None,
-                                request_timeout: Some(std::time::Duration::from_secs(60)),
+                                request_timeout: Some(
+                                    crate::api::client::RequestTimeouts::uniform(
+                                        std::time::Duration::from_secs(60),
+                                    ),
+                                ),
                             },
                             |_| {},
                         )
