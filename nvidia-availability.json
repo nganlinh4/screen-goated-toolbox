@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-02T17:55:31Z",
+ "generatedAt": "2026-09-02T21:06:38Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -34,7 +34,7 @@
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 530,
+   "p50_ms": 548,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -42,7 +42,7 @@
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1787,
+   "p50_ms": 1904,
    "success_rate": 0.958,
    "runs": 24
   }
