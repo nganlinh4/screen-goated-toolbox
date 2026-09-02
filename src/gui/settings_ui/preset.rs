@@ -375,7 +375,8 @@ pub fn render_preset_editor(
             }
         });
 
-    ui.add_space(8.0);
+    const SECTION_GAP: f32 = 8.0;
+    ui.add_space(SECTION_GAP);
 
     // Determine visibility conditions: Auto Paste is visible if any NON-input_adapter block has auto_copy enabled
     let has_any_auto_copy = preset
@@ -405,6 +406,7 @@ pub fn render_preset_editor(
                 changed = true;
             }
         });
+        ui.add_space(SECTION_GAP);
     } else if !has_any_auto_copy {
         // No auto_copy means auto_paste must be off
         if preset.auto_paste {
@@ -412,8 +414,6 @@ pub fn render_preset_editor(
             changed = true;
         }
     }
-
-    ui.add_space(10.0);
 
     // Hotkeys - always visible, even when controller UI is enabled
     if render_hotkeys(
@@ -426,6 +426,7 @@ pub fn render_preset_editor(
     ) {
         changed = true;
     }
+    ui.add_space(SECTION_GAP);
 
     // --- PROCESSING CHAIN UI ---
     // Hide the node graph when controller UI is enabled.
