@@ -302,22 +302,21 @@ fn ocr_repetition_matrix() {
 }
 
 #[test]
-fn only_the_endpoint_measured_to_restate_is_salvaged() {
+fn only_endpoints_measured_to_restate_are_salvaged() {
     use crate::model_config::vision_request_profile;
 
-    // Measured on 2026-08-21 with a generated corpus driven through this path:
-    // qwen restated its own output on 6 of 6 samples of one image and 4 of 6 of
-    // another, while gemini-3.5-flash-lite was clean on 16 samples of the same
-    // images. The salvage edits replies, so it runs only where the fault is.
-    assert!(
-        vision_request_profile("groq", "qwen/qwen3.6-27b").restates_output,
-        "the endpoint the salvage exists for must still be flagged"
-    );
+    // The salvage edits replies, so only exact endpoints known to emit the
+    // fragmented restatement are allowed to opt in.
+    for model in ["qwen/qwen3.6-27b", "qwen/qwen3.8-27b"] {
+        assert!(
+            vision_request_profile("groq", model).restates_output,
+            "{model} must retain its measured repetition policy"
+        );
+    }
 
     // Everything else is trusted until measured. An edit applied to a sound
     // endpoint can only remove correct text.
     for (provider, model) in [
-        ("groq", "qwen/qwen3.8-27b"),
         ("google", "gemini-3.5-flash-lite"),
         ("google", "gemini-3.5-flash"),
         ("google", "gemma-4-26b-a4b-it"),

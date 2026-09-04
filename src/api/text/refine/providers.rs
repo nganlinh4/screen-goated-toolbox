@@ -186,7 +186,12 @@ where
         .post("https://api.groq.com/openai/v1/chat/completions")
         .header("Authorization", &format!("Bearer {}", groq_api_key))
         .send_json(payload)
-        .map_err(|e| anyhow::anyhow!("Groq Refine transport error: {}", e))?;
+        .map_err(|error| {
+            anyhow::anyhow!(crate::api::client::transport_error_message(
+                "Groq Refine transport error",
+                &error,
+            ))
+        })?;
 
     record_usage_simple(resp.headers(), p_model);
     if !resp.status().is_success() {

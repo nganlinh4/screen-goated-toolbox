@@ -61,7 +61,12 @@ where
         .header("Authorization", &format!("Bearer {}", groq_api_key));
     let resp = crate::api::client::with_request_timeouts(request, request_timeout)
         .send_json(payload)
-        .map_err(|error| anyhow::anyhow!("Groq transport error: {error}"))?;
+        .map_err(|error| {
+            anyhow::anyhow!(crate::api::client::transport_error_message(
+                "Groq transport error",
+                &error,
+            ))
+        })?;
     record_usage_simple(resp.headers(), model);
     let resp = require_success(resp)?;
 
@@ -260,7 +265,12 @@ where
         .header("Authorization", &format!("Bearer {}", groq_api_key));
     let resp = crate::api::client::with_request_timeouts(request, transport.request_timeout)
         .send_json(payload)
-        .map_err(|error| anyhow::anyhow!("Groq transport error: {error}"))?;
+        .map_err(|error| {
+            anyhow::anyhow!(crate::api::client::transport_error_message(
+                "Groq transport error",
+                &error,
+            ))
+        })?;
     record_usage_simple(resp.headers(), model);
     let resp = require_success(resp)?;
 

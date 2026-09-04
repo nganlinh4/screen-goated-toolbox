@@ -73,10 +73,47 @@ private fun repetitionOnset(
         if (coverage(scan.points, start, scan.points.size) < TAIL_COVERAGE) continue
         val offset = scan.offsets[start]
         if (!isFragmented(text, offset)) continue
-        return snapToTokenEnd(text, offset)
+        restartBoundary(text, offset)?.let { return it }
     }
     return null
 }
+
+private fun restartBoundary(text: String, hit: Int): Int? {
+    val lineStart = maxOf(text.lastIndexOf('\r', hit - 1), text.lastIndexOf('\n', hit - 1)) + 1
+    if (lineStart == 0) return snapToTokenEnd(text, hit)
+    if (lineRestartsPrefix(text, lineStart)) return lineStart
+
+    val carriageReturn = text.indexOf('\r', lineStart).takeIf { it >= 0 } ?: text.length
+    val lineFeed = text.indexOf('\n', lineStart).takeIf { it >= 0 } ?: text.length
+    val lineEnd = minOf(carriageReturn, lineFeed)
+    val snapped = snapToTokenEnd(text, hit)
+    if (hit > lineStart && snapped == lineEnd) return lineEnd
+
+    val previousEnd = text.substring(0, lineStart).trimEnd('\r', '\n').length
+    val previousStart = maxOf(
+        text.lastIndexOf('\r', previousEnd - 1),
+        text.lastIndexOf('\n', previousEnd - 1),
+    ) + 1
+    return previousStart.takeIf { it > 0 && lineRestartsPrefix(text, it) }
+}
+
+private fun lineRestartsPrefix(text: String, lineStart: Int): Boolean {
+    val carriageReturn = text.indexOf('\r', lineStart).takeIf { it >= 0 } ?: text.length
+    val lineFeed = text.indexOf('\n', lineStart).takeIf { it >= 0 } ?: text.length
+    val lineEnd = minOf(carriageReturn, lineFeed)
+    val line = normalizedScanText(text.substring(lineStart, lineEnd))
+    val prefix = normalizedScanText(text.substring(0, lineStart))
+    return line.isNotEmpty() && prefix.startsWith(line)
+}
+
+private fun normalizedScanText(text: String): String = buildString(text.length) {
+    var offset = 0
+    while (offset < text.length) {
+        val point = text.codePointAt(offset)
+        if (!Character.isWhitespace(point)) appendCodePoint(Character.toLowerCase(point))
+        offset += Character.charCount(point)
+    }
+}.let(::squeeze)
 
 private fun scanText(text: String): ScanText {
     val points = ArrayList<Int>(MAX_SCANNED_CODE_POINTS)

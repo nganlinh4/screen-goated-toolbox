@@ -173,7 +173,9 @@ pub(super) fn repetition_onset_with_evidence(text: &str, min_evidence: usize) ->
         if !is_fragmented(text, offset) {
             continue;
         }
-        return Some(snap_to_token_end(text, offset));
+        if let Some(boundary) = restart_boundary(text, offset) {
+            return Some(boundary);
+        }
     }
     None
 }
@@ -304,6 +306,10 @@ fn coverage(chars: &[char], start: usize, end: usize) -> f32 {
 #[path = "repetition/guard.rs"]
 mod guard;
 pub(super) use guard::{GuardAction, RepetitionGuard};
+
+#[path = "repetition/boundary.rs"]
+mod boundary;
+use boundary::restart_boundary;
 
 /// Drops a restatement from a reply received in one piece.
 ///
@@ -444,6 +450,13 @@ mod tests {
         let good = "- nvidia/nemotron-mini-4b-instruct -";
         let dropped = format!("{good}\n- nvidi\n/nem\notron\nmini-4");
         assert_eq!(salvage(&dropped).as_deref(), Some(good));
+    }
+
+    #[test]
+    fn fragmented_parenthesized_filenames_keep_only_the_complete_prefix() {
+        let good = "Document (53).png\nDocument (52).png";
+        let corrupted = format!("{good}\nDocu\nment (53).png\nDo\ndocument (52)\n).png");
+        assert_eq!(salvage(&corrupted).as_deref(), Some(good));
     }
 
     #[test]

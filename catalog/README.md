@@ -201,9 +201,9 @@ The current policies come from production-path transport probes:
   envelope is a wire detail; callers still receive plain text. A structural caller must provide a schema, and
   the provider adapter may attach it only when the exact profile allows it.
   Qwen 3.8 uses its documented strict JSON Schema mode for structural callers
-  and keeps ordinary OCR as unconstrained plain text. Its reviewed unguarded
-  plain-text and OCR run showed no restatement, so its profile does not inherit
-  Qwen 3.6's endpoint-scoped salvage guard.
+  and keeps ordinary OCR as unconstrained plain text. Its ordinary OCR profile
+  shares Qwen 3.6's endpoint-scoped salvage guard because both endpoints can
+  append the same fragmented restatement after a correct extraction.
 
 OCR catalog timing measures full-answer completion through the real
 non-streaming preset path. Time-to-first-token is not benchmark evidence.

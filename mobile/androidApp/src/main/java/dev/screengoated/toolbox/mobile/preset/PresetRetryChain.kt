@@ -99,7 +99,8 @@ internal fun shouldAdvanceRetryChain(error: String): Boolean {
     if (
         error.contains("NO_API_KEY") ||
         error.contains("INVALID_API_KEY") ||
-        error.contains("PROVIDER_NOT_READY")
+        error.contains("PROVIDER_NOT_READY") ||
+        error.contains(PROVIDER_TRANSPORT_UNAVAILABLE)
     ) {
         return true
     }
@@ -135,6 +136,7 @@ internal fun shouldBlockRetryProvider(error: String): Boolean {
         error.contains("INVALID_API_KEY") ||
         error.contains("PROVIDER_DISABLED") ||
         error.contains("PROVIDER_NOT_READY") ||
+        error.contains(PROVIDER_TRANSPORT_UNAVAILABLE) ||
         error.contains("STRUCTURED_OUTPUT_REJECTED")
     ) {
         return true

@@ -152,7 +152,8 @@ fn response_timing_uses_only_full_result_completion() {
 fn attempts_fingerprint_the_current_production_reasoning_policy() {
     let cases = [
         ("google-gemini-3-5-flash-lite-text", "gemini-level:minimal"),
-        ("google-gemini-robotics-er-1-6-text", "gemini-budget:0"),
+        ("google-gemini-robotics-er-2-text", "gemini-budget:0"),
+        ("google-gemini-3-8-flash-text", "gemini-level:low"),
         ("groq-qwen-3-6-27b-vision", "openai-effort:none"),
     ];
     for (id, expected) in cases {

@@ -105,6 +105,9 @@
 - Lifecycle-disabled modality rows retain their durable catalog identity but
   are excluded from selectable generated catalogs and retry chains on both
   platforms. Ordinary vision request profiles cover enabled rows only.
+- A provider-qualified withdrawal removes every modality row and request
+  profile for that endpoint. Windows and Android consume the same withdrawal
+  set, so neither platform may expose a stale modality through a local allowlist.
 - Quota labels mean daily request count and use only the localized daily-count
   form or localized Unlimited form.
 - `supports_search` is provider capability metadata used for explicit

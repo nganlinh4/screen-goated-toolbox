@@ -9,9 +9,9 @@ use crate::config::{Config, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
 use crate::overlay::result::{ChainCancelToken, RefineContext, WINDOW_STATES, update_window_text};
 use crate::retry_model_chain::{
-    InteractiveRequestWorkload, RetryChainKind, claim_model_attempt, interactive_chain_timeout,
-    interactive_request_timeouts, preflight_skip_reason, record_model_failure,
-    record_model_success, release_model_probe, resolve_next_retry_model,
+    InteractiveRequestWorkload, RetryChainKind, claim_model_attempt, interactive_request_timeouts,
+    preflight_skip_reason, record_model_failure, record_model_success, release_model_probe,
+    resolve_next_retry_model,
 };
 use crate::win_types::SendHwnd;
 use std::collections::HashSet;
@@ -19,13 +19,10 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Instant;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::visibility::claim_result_reveal;
-
-const MAX_INTERACTIVE_PROVIDER_ATTEMPTS: usize = 2;
 
 pub struct ExecuteBlockRequest<'a> {
     pub block: &'a ProcessingBlock,
@@ -93,7 +90,6 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     let mut current_model_full_name = model_full_name.to_string();
     let mut failed_model_ids: Vec<String> = Vec::new();
     let mut blocked_providers: HashSet<String> = HashSet::new();
-    let mut provider_attempts = 0;
     let retry_chain_kind = RetryChainKind::from_block_type(&block.block_type)
         .filter(|_| !crate::model_config::model_is_non_llm(model_id));
 
@@ -106,9 +102,6 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
             .saturating_add(input_text.len() as u64)
             .saturating_add(encoded_media_bytes),
     };
-    let chain_timeout = interactive_chain_timeout(&current_model_id, config, workload);
-    let chain_started = Instant::now();
-
     let window_shown = Arc::new(Mutex::new(block.block_type != "image"));
     let processing_hwnd_arc = Arc::new(Mutex::new(processing_hwnd_shared));
 
@@ -161,17 +154,15 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
             break Err(anyhow::anyhow!(skip_reason));
         }
 
-        provider_attempts += 1;
         let transport_streaming_enabled = crate::api::endpoint_supports_progress_streaming(
             &current_provider,
             &current_model_full_name,
         );
-        let Some(remaining) = chain_timeout.checked_sub(chain_started.elapsed()) else {
-            break Err(anyhow::anyhow!("INTERACTIVE_CHAIN_TIMEOUT"));
-        };
-        let request_timeout = Some(
-            interactive_request_timeouts(&current_model_id, config, workload).capped(remaining),
-        );
+        let request_timeout = Some(interactive_request_timeouts(
+            &current_model_id,
+            config,
+            workload,
+        ));
         let res_inner = if is_first_processing_block
             && block.block_type == "image"
             && matches!(context, RefineContext::Image(_))
@@ -232,8 +223,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
 
                 record_model_failure(&current_model_id, &e.to_string());
 
-                if may_retry_provider(provider_attempts)
-                    && let Some(chain_kind) = retry_chain_kind
+                if let Some(chain_kind) = retry_chain_kind
                     && crate::overlay::utils::should_advance_retry_chain(&e.to_string())
                 {
                     if crate::overlay::utils::should_block_retry_provider(&e.to_string()) {
@@ -440,10 +430,6 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
     )
 }
 
-fn may_retry_provider(completed_attempts: usize) -> bool {
-    completed_attempts < MAX_INTERACTIVE_PROVIDER_ATTEMPTS
-}
-
 fn gtx_target_language(block: &ProcessingBlock) -> Option<String> {
     block
         .language_vars
@@ -583,16 +569,5 @@ fn handle_execution_result(
             }
             String::new()
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::may_retry_provider;
-
-    #[test]
-    fn interactive_retry_is_limited_to_one_fallback() {
-        assert!(may_retry_provider(1));
-        assert!(!may_retry_provider(2));
     }
 }

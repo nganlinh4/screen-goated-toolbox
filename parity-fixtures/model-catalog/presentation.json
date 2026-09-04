@@ -1,5 +1,5 @@
 {
-  "version": 18,
+  "version": 20,
   "id_rule": {
     "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-(?:text|vision|audio|search)$",
     "forbidden_lifecycle_segments": [
@@ -146,7 +146,8 @@
   "selector_availability": {
     "shared_provider_predicate": true,
     "node_editor_observes_live_feed_revision": true,
-    "nvidia_respects_provider_switch": true
+    "nvidia_respects_provider_switch": true,
+    "withdrawn_endpoints_remove_all_modality_rows": true
   },
   "priority_chain_size": {
     "user_limit": null,

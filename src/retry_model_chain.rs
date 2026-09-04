@@ -27,8 +27,6 @@ const INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER: u64 = 2;
 #[cfg(not(feature = "recorder-worker"))]
 const INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER: u64 = 4;
 #[cfg(not(feature = "recorder-worker"))]
-const INTERACTIVE_CHAIN_LATENCY_MULTIPLIER: u64 = 5;
-#[cfg(not(feature = "recorder-worker"))]
 const INTERACTIVE_CONNECT_TIMEOUT_MS: u64 = 5_000;
 #[cfg(not(feature = "recorder-worker"))]
 const INTERACTIVE_SEND_BASE_MS: u64 = 2_000;
@@ -47,9 +45,6 @@ const MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS: u64 = 5_000;
 #[cfg(not(feature = "recorder-worker"))]
 const MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS: u64 = 30_000;
 #[cfg(not(feature = "recorder-worker"))]
-const MIN_INTERACTIVE_CHAIN_TIMEOUT_MS: u64 = 8_000;
-#[cfg(not(feature = "recorder-worker"))]
-const MAX_INTERACTIVE_CHAIN_TIMEOUT_MS: u64 = 30_000;
 const UNBENCHMARKED_FEED_QUALITY_TIER: u8 = 4;
 
 #[cfg(feature = "recorder-worker")]
@@ -121,22 +116,6 @@ pub fn interactive_request_timeouts(
         model_latency_ms(model_id, config),
         workload.encoded_request_bytes,
     )
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-pub fn interactive_chain_timeout(
-    model_id: &str,
-    config: &Config,
-    workload: InteractiveRequestWorkload,
-) -> Duration {
-    let timeout_ms = model_latency_ms(model_id, config)
-        .saturating_mul(INTERACTIVE_CHAIN_LATENCY_MULTIPLIER)
-        .saturating_add(request_allowance_ms(workload.encoded_request_bytes))
-        .clamp(
-            MIN_INTERACTIVE_CHAIN_TIMEOUT_MS,
-            MAX_INTERACTIVE_CHAIN_TIMEOUT_MS,
-        );
-    Duration::from_millis(timeout_ms)
 }
 
 #[cfg(not(feature = "recorder-worker"))]

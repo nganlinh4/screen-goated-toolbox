@@ -7,7 +7,6 @@ import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.withContext
 import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 
 internal class PresetGraphExecutor(
@@ -258,7 +257,6 @@ internal class PresetGraphExecutor(
         overlayOrder: Map<Int, Int>,
         shouldSurfaceOverlay: Boolean,
         sessionId: String,
-        encodedRequestBytes: Long,
         recordResult: (finalResult: String) -> Unit,
         attempt: suspend (modelId: String, apiKeys: ApiKeys, onChunk: (String) -> Unit) -> Result<String>,
     ) {
@@ -275,11 +273,6 @@ internal class PresetGraphExecutor(
         val blockedProviders = linkedSetOf<PresetModelProvider>()
         val currentApiKeys = apiKeys()
         val currentRuntimeSettings = runtimeSettings()
-        val initialDescriptor = PresetModelCatalog.getById(currentModelId)
-            ?: error("Unknown model config: $currentModelId")
-        val chainDeadline = PresetChainDeadline.afterMillis(
-            presetChainTimeoutMillis(initialDescriptor, encodedRequestBytes),
-        )
         var result: String? = null
 
         while (result == null) {
@@ -320,32 +313,30 @@ internal class PresetGraphExecutor(
                 continue
             }
 
-            val attemptResult = withContext(chainDeadline) {
-                attempt(currentModelId, currentApiKeys) { chunk ->
-                    if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
-                        blockBuffer.clear()
-                        blockBuffer.append(chunk.removePrefix(TextApiClient.WIPE_SIGNAL))
-                    } else {
-                        blockBuffer.append(chunk)
-                    }
-                    if (shouldSurfaceStreaming) {
-                        executionState.update {
-                            it.withWindowState(
-                                PresetResultWindowState(
-                                    id = resultWindowId,
-                                    blockIdx = index,
-                                    title = preset.nameEn,
-                                    markdownText = blockBuffer.toString(),
-                                    isLoading = false,
-                                    loadingStatusText = null,
-                                    isStreaming = true,
-                                    renderMode = block.renderMode,
-                                    overlayOrder = overlayOrder.getValue(index),
-                                    modelId = currentModelId,
-                                    modelProvider = descriptor.provider,
-                                ),
-                            )
-                        }
+            val attemptResult = attempt(currentModelId, currentApiKeys) { chunk ->
+                if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
+                    blockBuffer.clear()
+                    blockBuffer.append(chunk.removePrefix(TextApiClient.WIPE_SIGNAL))
+                } else {
+                    blockBuffer.append(chunk)
+                }
+                if (shouldSurfaceStreaming) {
+                    executionState.update {
+                        it.withWindowState(
+                            PresetResultWindowState(
+                                id = resultWindowId,
+                                blockIdx = index,
+                                title = preset.nameEn,
+                                markdownText = blockBuffer.toString(),
+                                isLoading = false,
+                                loadingStatusText = null,
+                                isStreaming = true,
+                                renderMode = block.renderMode,
+                                overlayOrder = overlayOrder.getValue(index),
+                                modelId = currentModelId,
+                                modelProvider = descriptor.provider,
+                            ),
+                        )
                     }
                 }
             }
@@ -453,8 +444,6 @@ internal class PresetGraphExecutor(
             overlayOrder = overlayOrder,
             shouldSurfaceOverlay = shouldSurfaceOverlay,
             sessionId = sessionId,
-            encodedRequestBytes = block.resolvePrompt().toByteArray().size.toLong() +
-                sourceText.toByteArray().size.toLong(),
             recordResult = { finalResult ->
                 historyRecorder.recordTextResult(
                     block = block,
@@ -509,8 +498,6 @@ internal class PresetGraphExecutor(
             overlayOrder = overlayOrder,
             shouldSurfaceOverlay = shouldSurfaceOverlay,
             sessionId = sessionId,
-            encodedRequestBytes = finalPrompt.toByteArray().size.toLong() +
-                (imageBytes.size.toLong() * 4L + 2L) / 3L,
             recordResult = { finalResult ->
                 historyRecorder.recordImageResult(
                     block = block,

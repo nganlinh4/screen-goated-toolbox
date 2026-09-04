@@ -478,7 +478,12 @@ where
                 .header("Content-Type", "application/json");
             let response = super::client::with_request_timeouts(request, request_timeout)
                 .send(payload_bytes.as_slice())
-                .map_err(|error| anyhow::anyhow!("Groq vision transport error: {error}"))?;
+                .map_err(|error| {
+                    anyhow::anyhow!(super::client::transport_error_message(
+                        "Groq vision transport error",
+                        &error,
+                    ))
+                })?;
             record_usage_simple(response.headers(), &model);
             let status = response.status().as_u16();
             if response.status().is_success() {

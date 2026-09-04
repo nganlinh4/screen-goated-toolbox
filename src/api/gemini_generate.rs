@@ -127,7 +127,12 @@ where
         let request = agent.post(&url).header("x-goog-api-key", api_key);
         let response = crate::api::client::with_request_timeouts(request, request_timeout)
             .send_json(&payload)
-            .map_err(|error| labeled_error(error_label, format!("transport error: {error}")))?;
+            .map_err(|error| {
+                labeled_error(
+                    error_label,
+                    crate::api::client::transport_error_message("transport error", &error),
+                )
+            })?;
         let status = response.status().as_u16();
         if response.status().is_success() {
             break response;

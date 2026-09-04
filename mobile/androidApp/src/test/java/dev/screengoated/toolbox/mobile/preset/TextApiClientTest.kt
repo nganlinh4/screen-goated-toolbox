@@ -112,7 +112,8 @@ class TextApiClientTest {
             "google-gemini-3-1-flash-lite-text",
             "google-gemini-3-5-flash-lite-text",
             "google-gemini-3-6-flash-text",
-            "google-gemini-robotics-er-1-6-vision",
+            "google-gemini-3-5-flash-vision",
+            "google-gemini-3-8-flash-text",
             "groq-compound-mini-search",
         )) {
             assertTrue(modelId, PresetModelCatalog.supportsSearchById(modelId))

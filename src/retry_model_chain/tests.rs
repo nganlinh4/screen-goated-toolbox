@@ -3,19 +3,17 @@ use super::cooldown::{
     rate_limit_error, record_model_failure_at, unavailable_model_error,
 };
 use super::{
-    INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER, INTERACTIVE_CHAIN_LATENCY_MULTIPLIER,
-    INTERACTIVE_CONNECT_TIMEOUT_MS, INTERACTIVE_DEFAULT_LATENCY_MS,
-    INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER, INTERACTIVE_REQUEST_BYTES_PER_SECOND,
-    INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER, INTERACTIVE_SEND_BASE_MS,
-    InteractiveRequestWorkload, MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS,
-    MAX_INTERACTIVE_CHAIN_TIMEOUT_MS, MAX_INTERACTIVE_PROGRESS_IDLE_MS,
-    MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS, MAX_INTERACTIVE_RESPONSE_START_MS,
-    MAX_INTERACTIVE_SEND_TIMEOUT_MS, MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS,
-    MIN_INTERACTIVE_CHAIN_TIMEOUT_MS, MIN_INTERACTIVE_PROGRESS_IDLE_MS,
+    INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER, INTERACTIVE_CONNECT_TIMEOUT_MS,
+    INTERACTIVE_DEFAULT_LATENCY_MS, INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER,
+    INTERACTIVE_REQUEST_BYTES_PER_SECOND, INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER,
+    INTERACTIVE_SEND_BASE_MS, InteractiveRequestWorkload, MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS,
+    MAX_INTERACTIVE_PROGRESS_IDLE_MS, MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS,
+    MAX_INTERACTIVE_RESPONSE_START_MS, MAX_INTERACTIVE_SEND_TIMEOUT_MS,
+    MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS, MIN_INTERACTIVE_PROGRESS_IDLE_MS,
     MIN_INTERACTIVE_RESPONSE_START_MS, RetryChainKind, UNBENCHMARKED_FEED_QUALITY_TIER,
-    interactive_chain_timeout, interactive_request_timeouts, preflight_skip_reason,
-    record_model_success, release_model_probe, request_timeouts_from_latency,
-    resolve_next_configured_model, resolve_next_retry_model, resolve_unavailable_pinned_model,
+    interactive_request_timeouts, preflight_skip_reason, record_model_success, release_model_probe,
+    request_timeouts_from_latency, resolve_next_configured_model, resolve_next_retry_model,
+    resolve_unavailable_pinned_model,
 };
 use crate::config::Config;
 use std::collections::HashSet;
@@ -80,10 +78,6 @@ fn interactive_deadline_constants_match_mobile_parity_fixture() {
         INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER
     );
     assert_eq!(
-        deadlines["chain_latency_multiplier"],
-        INTERACTIVE_CHAIN_LATENCY_MULTIPLIER
-    );
-    assert_eq!(
         deadlines["minimum_response_start_timeout_ms"],
         MIN_INTERACTIVE_RESPONSE_START_MS
     );
@@ -107,13 +101,22 @@ fn interactive_deadline_constants_match_mobile_parity_fixture() {
         deadlines["maximum_attempt_timeout_ms"],
         MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS
     );
+    assert!(deadlines["dispatch_attempt_cap"].is_null());
     assert_eq!(
-        deadlines["minimum_chain_timeout_ms"],
-        MIN_INTERACTIVE_CHAIN_TIMEOUT_MS
+        deadlines["chain_budget_mode"],
+        "sum_of_unique_dispatched_attempt_budgets"
     );
     assert_eq!(
-        deadlines["maximum_chain_timeout_ms"],
-        MAX_INTERACTIVE_CHAIN_TIMEOUT_MS
+        deadlines["chain_traversal"],
+        "until_success_cancellation_terminal_error_or_exhaustion"
+    );
+    assert_eq!(
+        deadlines["provider_blocking_transport_phases"],
+        serde_json::json!(["dns", "tls", "connect", "send"])
+    );
+    assert_eq!(
+        deadlines["model_scoped_timeout_phases"],
+        serde_json::json!(["response_start", "progress_idle", "attempt"])
     );
 }
 
@@ -129,10 +132,6 @@ fn every_interactive_request_receives_a_hard_deadline() {
     let timeouts =
         interactive_request_timeouts(model, &config, InteractiveRequestWorkload::default());
     assert_eq!(timeouts.total, Duration::from_secs(5));
-    assert_eq!(
-        interactive_chain_timeout(model, &config, InteractiveRequestWorkload::default()),
-        Duration::from_secs(8)
-    );
 }
 
 #[test]
@@ -272,7 +271,7 @@ fn search_capable_retry_skips_incompatible_priority_candidates() {
     )
     .expect("image chain should produce a next model");
 
-    assert_eq!(next.id, "google-gemini-3-5-flash-vision");
+    assert_eq!(next.id, "google-gemini-3-1-flash-lite-vision");
     assert!(crate::model_config::model_supports_search_by_id_with_custom(&next.id, &[]));
     assert_ne!(next.id, "google-gemma-4-31b-vision");
 }

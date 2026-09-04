@@ -48,9 +48,20 @@
     "attempt_latency_multiplier": 4,
     "minimum_attempt_timeout_ms": 5000,
     "maximum_attempt_timeout_ms": 30000,
-    "chain_latency_multiplier": 5,
-    "minimum_chain_timeout_ms": 8000,
-    "maximum_chain_timeout_ms": 30000
+    "dispatch_attempt_cap": null,
+    "chain_budget_mode": "sum_of_unique_dispatched_attempt_budgets",
+    "chain_traversal": "until_success_cancellation_terminal_error_or_exhaustion",
+    "provider_blocking_transport_phases": [
+      "dns",
+      "tls",
+      "connect",
+      "send"
+    ],
+    "model_scoped_timeout_phases": [
+      "response_start",
+      "progress_idle",
+      "attempt"
+    ]
   },
   "recommended_model_defaults": {
     "generic_image": "groq-qwen-3-8-27b-vision",
@@ -75,26 +86,28 @@
     "image_to_text": [
       "groq-qwen-3-8-27b-vision",
       "groq-qwen-3-6-27b-vision",
-      "google-gemini-3-5-flash-lite-vision",
-      "google-gemini-3-5-flash-vision",
-      "google-gemini-3-flash-vision",
-      "google-gemini-3-1-flash-lite-vision",
-      "openrouter-dots-3-note-vision",
-      "google-gemini-robotics-er-1-6-vision",
+      "google-gemma-4-26b-a4b-vision",
       "google-gemini-robotics-er-2-vision",
-      "google-gemma-4-26b-a4b-vision"
+      "google-gemini-3-5-flash-lite-vision",
+      "google-gemini-3-1-flash-lite-vision",
+      "google-gemma-4-31b-vision",
+      "openrouter-dots-3-note-vision",
+      "google-gemini-3-5-flash-vision",
+      "google-gemini-3-8-flash-vision"
     ],
     "text_to_text": [
       "groq-qwen-3-8-27b-text",
       "groq-qwen-3-6-27b-text",
+      "groq-gpt-oss-20b-text",
       "groq-gpt-oss-120b-text",
       "google-gemini-3-5-flash-lite-text",
       "google-gemini-robotics-er-2-text",
-      "openrouter-nemotron-3-super-120b-text",
-      "google-gemini-3-flash-text",
       "google-gemma-4-26b-a4b-text",
-      "groq-gpt-oss-20b-text",
-      "google-gemma-4-31b-text"
+      "google-gemma-4-31b-text",
+      "google-gemini-3-1-flash-lite-text",
+      "google-gemini-3-5-flash-text",
+      "google-gemini-3-8-flash-text",
+      "openrouter-nemotron-3-super-120b-text"
     ]
   }
 }

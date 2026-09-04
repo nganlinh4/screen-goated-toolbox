@@ -26,16 +26,44 @@ impl RequestTimeouts {
             total: timeout,
         }
     }
+}
 
-    pub fn capped(self, remaining: Duration) -> Self {
-        let cap = |value: Duration| value.min(remaining);
-        Self {
-            connect: cap(self.connect),
-            send: cap(self.send),
-            response_start: cap(self.response_start),
-            progress_idle: cap(self.progress_idle),
-            total: cap(self.total),
-        }
+pub const PROVIDER_TRANSPORT_UNAVAILABLE: &str = "PROVIDER_TRANSPORT_UNAVAILABLE";
+
+/// Preserve whether a request failed before any provider response could begin.
+/// Retry chains use this stable marker to skip sibling endpoints on the same
+/// provider without treating model response or body-idle timeouts as provider-wide.
+pub fn transport_error_message(label: &str, error: &ureq::Error) -> String {
+    if provider_transport_is_unavailable(error) {
+        format!("{label}: {PROVIDER_TRANSPORT_UNAVAILABLE}: {error}")
+    } else {
+        format!("{label}: {error}")
+    }
+}
+
+fn provider_transport_is_unavailable(error: &ureq::Error) -> bool {
+    match error {
+        ureq::Error::HostNotFound
+        | ureq::Error::ConnectionFailed
+        | ureq::Error::ConnectProxyFailed(_)
+        | ureq::Error::Tls(_)
+        | ureq::Error::NativeTls(_)
+        | ureq::Error::Der(_)
+        | ureq::Error::TlsRequired => true,
+        ureq::Error::Timeout(phase) => matches!(
+            phase,
+            ureq::Timeout::Resolve
+                | ureq::Timeout::Connect
+                | ureq::Timeout::SendRequest
+                | ureq::Timeout::SendBody
+        ),
+        ureq::Error::Io(error) => matches!(
+            error.kind(),
+            std::io::ErrorKind::ConnectionRefused
+                | std::io::ErrorKind::AddrNotAvailable
+                | std::io::ErrorKind::NotConnected
+        ),
+        _ => false,
     }
 }
 
@@ -349,5 +377,49 @@ mod tls_tests {
             result.unwrap().is_err(),
             "loopback server unexpectedly spoke TLS"
         );
+    }
+}
+
+#[cfg(test)]
+mod transport_error_tests {
+    use super::{PROVIDER_TRANSPORT_UNAVAILABLE, transport_error_message};
+
+    #[test]
+    fn marks_only_pre_response_transport_timeout_phases_as_provider_wide() {
+        for phase in [
+            ureq::Timeout::Resolve,
+            ureq::Timeout::Connect,
+            ureq::Timeout::SendRequest,
+            ureq::Timeout::SendBody,
+        ] {
+            assert!(
+                transport_error_message("request", &ureq::Error::Timeout(phase))
+                    .contains(PROVIDER_TRANSPORT_UNAVAILABLE)
+            );
+        }
+
+        for phase in [
+            ureq::Timeout::RecvResponse,
+            ureq::Timeout::RecvBody,
+            ureq::Timeout::Global,
+        ] {
+            assert!(
+                !transport_error_message("request", &ureq::Error::Timeout(phase))
+                    .contains(PROVIDER_TRANSPORT_UNAVAILABLE)
+            );
+        }
+    }
+
+    #[test]
+    fn marks_dns_connect_and_tls_failures_as_provider_wide() {
+        for error in [
+            ureq::Error::HostNotFound,
+            ureq::Error::ConnectionFailed,
+            ureq::Error::Tls("handshake failed"),
+        ] {
+            assert!(
+                transport_error_message("request", &error).contains(PROVIDER_TRANSPORT_UNAVAILABLE)
+            );
+        }
     }
 }

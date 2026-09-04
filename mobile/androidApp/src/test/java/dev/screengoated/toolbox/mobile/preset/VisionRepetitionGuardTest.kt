@@ -13,6 +13,8 @@ class VisionRepetitionGuardTest {
             "Điều khiển máy tính\nĐiều khi\nển máy tính\nĐiều khiển má\ny tính" to
                 "Điều khiển máy tính",
             "DJI_0872.JPG\nDJI\n_087\n2.JPG" to "DJI_0872.JPG",
+            "Document (53).png\nDocument (52).png\nDocu\nment (53).png\nDo\ndocument (52)\n).png" to
+                "Document (53).png\nDocument (52).png",
         )
         cases.forEach { (corrupted, expected) ->
             assertEquals(expected, salvageVisionRestatement(corrupted))

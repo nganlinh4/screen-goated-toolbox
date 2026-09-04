@@ -134,7 +134,7 @@ where
         if map_auth_errors && is_auth_error(&e) {
             anyhow::anyhow!("INVALID_API_KEY")
         } else {
-            anyhow::anyhow!("{}: {}", error_label, e)
+            anyhow::anyhow!(crate::api::client::transport_error_message(error_label, &e))
         }
     })?;
 

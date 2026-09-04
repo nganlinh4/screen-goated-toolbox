@@ -110,7 +110,8 @@
 - A non-streaming plain-text vision caller never requests JSON mode or a schema.
   Endpoint profiles that may restate the requested output use the same
   endpoint-scoped repetition guard on both platforms; unrelated endpoints and
-  structured callers are unchanged.
+  structured callers are unchanged. Only the exact Groq Qwen 3.6 and Qwen 3.8
+  vision profiles currently opt into this guard.
 - Ordinary LLM vision request shape comes from
   `catalog/model_catalog.json#vision_request_profiles` on both platforms.
   Google vision endpoints send image before text; Groq Qwen sends text before
@@ -168,11 +169,18 @@
   streaming provider response internally for liveness without exposing partial
   content. Every interactive HTTP call uses catalog full-completion latency as a
   bounded deadline baseline, with encoded request bytes contributing only a small
-  upload allowance. Connect, send, response-start, progress-idle, per-attempt, and
-  whole-chain deadlines follow the shared retry fixture. Primary and fallback
-  attempts consume one chain budget; receiving bytes never makes that budget
-  unbounded. Request or image size may adjust time allowance but never model
-  eligibility or ordering. Blank final content is a retryable model failure.
+  upload allowance. Connect, send, response-start, progress-idle, and per-attempt
+  deadlines follow the shared retry fixture. Every unique dispatched model gets
+  its full model-specific attempt budget; earlier attempts never consume a later
+  candidate's budget. The finite effective priority chain therefore bounds total
+  runtime by the sum of its dispatched attempt budgets, with no separate attempt
+  cap or primary-model whole-chain deadline. DNS, TLS, connect, and request-send
+  failures block sibling endpoints from that provider for the current request;
+  response-start, progress-idle, and whole-attempt timeouts remain model-specific.
+  Retryable failures continue until a model succeeds, the user cancels, a terminal
+  error occurs, or all compatible unique candidates are exhausted. Request or
+  image size may adjust time allowance but never model eligibility or ordering.
+  Blank final content is a retryable model failure.
 - OpenRouter ordinary text, refine, vision, and recorder-subtitle requests
   apply catalog reasoning policy through OpenRouter's nested
   `reasoning: { effort: "none" }` field. `reasoning_effort` is not an

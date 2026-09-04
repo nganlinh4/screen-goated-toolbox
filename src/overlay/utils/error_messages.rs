@@ -428,7 +428,10 @@ pub fn is_billing_exhausted_error(error: &str) -> bool {
 }
 
 pub fn should_advance_retry_chain(error: &str) -> bool {
-    if error.contains("NO_API_KEY") || error.contains("INVALID_API_KEY") {
+    if error.contains("NO_API_KEY")
+        || error.contains("INVALID_API_KEY")
+        || error.contains(crate::api::client::PROVIDER_TRANSPORT_UNAVAILABLE)
+    {
         return true;
     }
 
@@ -476,6 +479,7 @@ pub fn should_block_retry_provider(error: &str) -> bool {
     if error.contains("NO_API_KEY")
         || error.contains("INVALID_API_KEY")
         || error.contains("PROVIDER_DISABLED")
+        || error.contains(crate::api::client::PROVIDER_TRANSPORT_UNAVAILABLE)
         || error.contains("STRUCTURED_OUTPUT_REJECTED")
     {
         return true;
@@ -531,6 +535,9 @@ mod tests {
             "request failed with status code 422"
         ));
         assert!(should_advance_retry_chain("deadline exceeded"));
+        assert!(should_advance_retry_chain(
+            "PROVIDER_TRANSPORT_UNAVAILABLE: TLS handshake failed"
+        ));
     }
 
     #[test]
@@ -566,6 +573,9 @@ mod tests {
         assert!(should_block_retry_provider("INVALID_API_KEY"));
         assert!(should_block_retry_provider("PROVIDER_DISABLED:google"));
         assert!(should_block_retry_provider(
+            "Groq transport error: PROVIDER_TRANSPORT_UNAVAILABLE: timeout: send request"
+        ));
+        assert!(should_block_retry_provider(
             "STRUCTURED_OUTPUT_REJECTED:google:HTTP 400 INVALID_ARGUMENT"
         ));
         assert!(should_block_retry_provider(
@@ -573,6 +583,15 @@ mod tests {
         ));
         assert!(!should_block_retry_provider(
             "request failed with status code 404"
+        ));
+        assert!(!should_block_retry_provider(
+            "Groq transport error: timeout: receive response"
+        ));
+        assert!(!should_block_retry_provider(
+            "Groq transport error: timeout: receive body"
+        ));
+        assert!(!should_block_retry_provider(
+            "Groq transport error: timeout: global"
         ));
     }
 }

@@ -42,17 +42,30 @@ class PresetRetryChainTest {
         assertTrue(shouldAdvanceRetryChain("request failed with status code 404"))
         assertTrue(shouldAdvanceRetryChain("unsupported model"))
         assertTrue(shouldAdvanceRetryChain("EMPTY_MODEL_RESPONSE:model/name"))
+        assertTrue(
+            shouldAdvanceRetryChain(
+                "PROVIDER_TRANSPORT_UNAVAILABLE: TLS handshake failed",
+            ),
+        )
         assertFalse(shouldAdvanceRetryChain("request failed with 200"))
     }
 
     @Test
-    fun blocksProviderOnlyForAuthAndProviderAvailabilityErrors() {
+    fun blocksProviderForAuthAvailabilityAndPreResponseTransportErrors() {
         assertTrue(shouldBlockRetryProvider("NO_API_KEY:groq"))
         assertTrue(shouldBlockRetryProvider("INVALID_API_KEY"))
         assertTrue(shouldBlockRetryProvider("PROVIDER_DISABLED:google"))
         assertTrue(shouldBlockRetryProvider("PROVIDER_NOT_READY:gemini-live"))
+        assertTrue(
+            shouldBlockRetryProvider(
+                "PROVIDER_TRANSPORT_UNAVAILABLE: failed to connect to api.example.test",
+            ),
+        )
         assertTrue(shouldBlockRetryProvider("request failed with status code 403"))
         assertFalse(shouldBlockRetryProvider("request failed with status code 404"))
+        assertFalse(shouldBlockRetryProvider("timeout waiting for response headers"))
+        assertFalse(shouldBlockRetryProvider("timeout reading response body"))
+        assertFalse(shouldBlockRetryProvider("whole attempt timeout"))
     }
 
     @Test

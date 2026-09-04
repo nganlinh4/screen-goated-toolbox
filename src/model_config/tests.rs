@@ -27,10 +27,10 @@ fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.8-27b");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(1195));
+    assert_eq!(model.typical_latency_ms, Some(1110));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-08-28-protocol13-focused:ocr-small-1024")
+        Some("benchmark-2026-09-03-protocol13:ocr-small-1024")
     );
 }
 
@@ -101,18 +101,18 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.8-27b");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(305));
+    assert_eq!(model.typical_latency_ms, Some(147));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-08-28-protocol13-focused:text")
+        Some("benchmark-2026-09-03-protocol13:text")
     );
     // Ordered on reviewed measured merit: the clean successor leads, while the
     // 100%-reliable predecessor remains the immediate fallback.
     for (index, expected) in [
         (1, "groq-qwen-3-6-27b-text"),
-        (2, "groq-gpt-oss-120b-text"),
-        (3, "google-gemini-3-5-flash-lite-text"),
-        (4, "google-gemini-robotics-er-2-text"),
+        (2, "groq-gpt-oss-20b-text"),
+        (3, "groq-gpt-oss-120b-text"),
+        (4, "google-gemini-3-5-flash-lite-text"),
     ] {
         assert_eq!(
             default_text_to_text_priority_chain_ids()
@@ -121,11 +121,17 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
             Some(expected)
         );
     }
-    // Lowest catalog-owned quality tier among these enabled text rows, so speed
-    // alone does not buy it a forward seat.
+    // The lower-reliability provider-diverse fallback remains at the tail.
     assert_eq!(
-        default_text_to_text_priority_chain_ids().get(8).copied(),
-        Some("groq-gpt-oss-20b-text")
+        default_text_to_text_priority_chain_ids().get(11).copied(),
+        Some("openrouter-nemotron-3-super-120b-text")
+    );
+    let gemini_38 =
+        get_model_by_id("google-gemini-3-8-flash-text").expect("Gemini 3.8 text fallback exists");
+    assert_eq!(gemini_38.typical_latency_ms, Some(3060));
+    assert_eq!(
+        default_text_to_text_priority_chain_ids().get(10).copied(),
+        Some("google-gemini-3-8-flash-text")
     );
     let openrouter = get_model_by_id("openrouter-nemotron-3-super-120b-text")
         .expect("OpenRouter text fallback exists");
@@ -228,7 +234,11 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         google_gemma.structured_output,
         StructuredOutputPolicy::StrictJsonSchema
     );
-    for model in ["gemini-3.5-flash-lite", "gemini-robotics-er-2-preview"] {
+    for model in [
+        "gemini-3.5-flash-lite",
+        "gemini-robotics-er-2-preview",
+        "gemini-3.8-flash",
+    ] {
         let profile = vision_request_profile("google", model);
         assert_eq!(profile.input_order, VisionInputOrder::ImageFirst);
         assert_eq!(
@@ -242,17 +252,17 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
     assert_eq!(qwen.max_output_tokens, Some(512));
     assert_eq!(qwen.structured_output, StructuredOutputPolicy::JsonObject);
     let qwen_model = get_model_by_id("groq-qwen-3-6-27b-vision").expect("Qwen vision model exists");
-    assert_eq!(qwen_model.typical_latency_ms, Some(1788));
+    assert_eq!(qwen_model.typical_latency_ms, Some(1267));
     assert_eq!(
         qwen_model.performance_source.as_deref(),
-        Some("benchmark-2026-08-28-protocol13:ocr-small-1024")
+        Some("benchmark-2026-09-03-protocol13:ocr-small-1024")
     );
     let qwen_38 = vision_request_profile("groq", "qwen/qwen3.8-27b");
     assert_eq!(
         qwen_38.structured_output,
         StructuredOutputPolicy::StrictJsonSchema
     );
-    assert!(!qwen_38.restates_output);
+    assert!(qwen_38.restates_output);
 
     // The nemotron-omni row was removed after measuring 10% text and 0% vision
     // reliability; dots-3 Note is the surviving OpenRouter vision endpoint.
@@ -267,9 +277,9 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         &[
             "groq-qwen-3-8-27b-vision",
             "groq-qwen-3-6-27b-vision",
+            "google-gemma-4-26b-a4b-vision",
+            "google-gemini-robotics-er-2-vision",
             "google-gemini-3-5-flash-lite-vision",
-            "google-gemini-3-5-flash-vision",
-            "google-gemini-3-flash-vision",
         ]
     );
 
@@ -284,7 +294,8 @@ fn search_capability_uses_exact_catalog_profiles() {
         "google-gemini-3-1-flash-lite-text",
         "google-gemini-3-5-flash-lite-text",
         "google-gemini-3-6-flash-text",
-        "google-gemini-robotics-er-1-6-vision",
+        "google-gemini-3-5-flash-vision",
+        "google-gemini-3-8-flash-text",
         "groq-compound-mini-search",
     ] {
         assert!(model_supports_search_by_id_with_custom(id, &[]), "{id}");
