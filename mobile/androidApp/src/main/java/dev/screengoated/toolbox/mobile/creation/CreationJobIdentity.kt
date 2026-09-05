@@ -4,6 +4,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 internal fun creationStageIsBusy(stage: String): Boolean = stage in setOf(
     "preparing",
+    "waiting_for_user",
     "uploading",
     "generating",
     "segmenting",

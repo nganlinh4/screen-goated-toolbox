@@ -1,9 +1,11 @@
 import { generationSettings } from "./generation-mode";
+import { syncChoiceControl } from "./choice-controls";
 import { locale, t, type MessageKey } from "./i18n";
 import { ICONS } from "./layout";
 import type { AppNodes, AppState, QueueItem, Stage } from "./types";
 import type { ModelViewer, ModelStats, ShadingMode } from "./viewer";
-import { canSubmitItem } from "./submission-policy";
+import { settledModelPath } from "./revision-preview";
+import { canSubmitItem, submissionInFlight } from "./submission-policy";
 import { declaredRefinements } from "./refinement-policy";
 import {
   DEFAULT_PROGRESS_RANGE,
@@ -26,9 +28,15 @@ type PresentationOptions = {
 
 export class ModelPresentation {
   private sourceThumbnailUrl = "";
+  private progressIdentity = "";
   constructor(private readonly options: PresentationOptions) {}
 
   applyTranslations() {
+    this.options.viewer.setPlaybackLabels({
+      animationClip: t("animationClip"), playAnimation: t("playAnimation"),
+      pauseAnimation: t("pauseAnimation"), animationTime: t("animationTime"),
+      animationSpeed: t("animationSpeed"), resetPose: t("resetPose"),
+    });
     document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((node) => {
       node.textContent = t(node.dataset.i18n as MessageKey);
     });
@@ -83,6 +91,14 @@ export class ModelPresentation {
       return;
     }
     if (!item) return;
+    const identity = `${item.id}:${item.operationStartedAt}`;
+    if (this.progressIdentity !== identity) {
+      this.progressIdentity = identity;
+      nodes.progressFill.style.transition = "none";
+      nodes.progressFill.style.width = `${(item.displayedProgress || 0) * 100}%`;
+      nodes.progressFill.getBoundingClientRect();
+      nodes.progressFill.style.transition = "";
+    }
     const elapsedMs = Math.max(0, Date.now() - (item.operationStartedAt || Date.now()));
     const estimateMs = Math.max(10_000, item.estimatedTotalMs || 240_000);
     nodes.progressTrack.removeAttribute("aria-valuetext");
@@ -123,7 +139,7 @@ export class ModelPresentation {
     const item = selectedItem();
     const status = this.friendlyStatus();
     const busy = activeJobCount() > 0;
-    const missing =
+    const missing = state.preparationStatus === "unavailable" ||
       item?.result?.runtimeStatus === "missing" || state.selectedStatus.runtimeStatus === "missing";
     nodes.statusTitle.textContent = status.title;
     nodes.statusDetail.textContent = status.detail;
@@ -138,8 +154,11 @@ export class ModelPresentation {
           : t("preparing");
     nodes.readiness.classList.toggle("busy", busy || state.preparationStatus === "preparing");
     nodes.readiness.classList.toggle("error", missing);
+    nodes.readiness.title = nodes.readinessText.textContent;
     nodes.sourceName.textContent = item ? stripExtension(item.name) : t("chooseImages");
-    const selectedBatchSize = item ? batchItems(item.batchId).length : 0;
+    const selectedBatchSize = item && item.state === "queued" && !item.submitted
+      ? batchItems(item.batchId).filter((member) => member.state === "queued" && !member.submitted).length
+      : 0;
     nodes.sourceMeta.textContent = item
       ? selectedBatchSize > 1
         ? t("sharedSettings", { count: selectedBatchSize })
@@ -172,10 +191,15 @@ export class ModelPresentation {
       button.disabled = locked;
     });
     nodes.polycountRange.disabled = locked;
+    nodes.initialTopologySection.hidden = settings.mode !== "quality";
+    nodes.initialTopology.value = item?.topology || (settings.autoSegment ? "triangle" : "quad");
+    nodes.initialTopology.disabled = locked;
+    syncChoiceControl(nodes.initialTopology);
     nodes.autoSegmentInput.disabled = locked;
     nodes.instructionInput.disabled = locked;
     const selectedDraft = isDraft(item);
-    nodes.generateButton.disabled = missing || !canSubmitItem(item);
+    nodes.generateButton.hidden = submissionInFlight(item);
+    nodes.generateButton.disabled = missing || !canSubmitItem(item) || submissionInFlight(item);
     nodes.generateButton.classList.toggle("is-busy", busy);
     const rerun =
       item ? item.state === "done" || item.state === "failed" || item.state === "cancelled" : false;
@@ -190,7 +214,8 @@ export class ModelPresentation {
     nodes.cancelLabel.textContent =
       item?.result?.stage === "segmenting" ? t("cancelSegmentation") : t("cancel");
     nodes.segmentButton.classList.remove("visible");
-    const hasModel = Boolean(item?.result?.outputPath && item.loadedModelPath);
+    const settledPath = item ? settledModelPath(item) : undefined;
+    const hasModel = Boolean(settledPath && item?.loadedModelPath);
     const supported = declaredRefinements(
       item?.result?.supportedActions,
       item?.result?.availableActions,
@@ -200,6 +225,15 @@ export class ModelPresentation {
     );
     const available = new Set(item?.result?.availableActions || []);
     nodes.refinementPanel.classList.toggle("visible", showRefinements);
+    [...nodes.topologySelect.options].forEach((option) => {
+      const action = `optimize_${option.value}`;
+      option.hidden = !supported.has(action);
+      option.disabled = !supported.has(action);
+    });
+    if (nodes.topologySelect.selectedOptions[0]?.disabled) {
+      const firstSupported = [...nodes.topologySelect.options].find((option) => !option.disabled);
+      if (firstSupported) nodes.topologySelect.value = firstSupported.value;
+    }
     nodes.refinementButtons.forEach((button) => {
       const action = button.dataset.refinement;
       const capability = action === "optimize_mesh"
@@ -210,24 +244,18 @@ export class ModelPresentation {
         : Boolean(action && supported.has(action));
       button.hidden = !actionSupported;
       button.disabled = !showRefinements || !capability || !available.has(capability);
+      button.title = actionSupported && button.disabled ? t("refinementCapacityHint") : "";
       const row = button.closest<HTMLElement>(".refinement-row");
       if (row) row.hidden = !actionSupported;
     });
+    nodes.refinementHint.hidden = !showRefinements
+      || !nodes.refinementButtons.some((button) => !button.hidden && button.disabled);
     const standaloneActions = nodes.refinementPanel.querySelector<HTMLElement>(
       ".refinement-actions",
     );
     if (standaloneActions) {
       standaloneActions.hidden = ![...standaloneActions.querySelectorAll("button")]
         .some((button) => !(button as HTMLButtonElement).hidden);
-    }
-    [...nodes.topologySelect.options].forEach((option) => {
-      const action = `optimize_${option.value}`;
-      option.hidden = !supported.has(action);
-      option.disabled = !supported.has(action);
-    });
-    if (nodes.topologySelect.selectedOptions[0]?.disabled) {
-      const firstSupported = [...nodes.topologySelect.options].find((option) => !option.disabled);
-      if (firstSupported) nodes.topologySelect.value = firstSupported.value;
     }
     const separateAvailable = available.has("separate_parts");
     const optimizeAvailable = available.has(`optimize_${nodes.topologySelect.value}`);
@@ -237,6 +265,8 @@ export class ModelPresentation {
       || !available.has("optimize_triangle") && !available.has("optimize_quad");
     nodes.faceLimitInput.disabled = !showRefinements || !optimizeAvailable;
     nodes.animationSelect.disabled = !showRefinements || !animateAvailable;
+    syncChoiceControl(nodes.segmentationLevel);
+    syncChoiceControl(nodes.topologySelect);
     nodes.resultSummary.classList.toggle("visible", hasModel);
     nodes.resultName.textContent = item?.result?.isSegmented ? t("partsReady") : t("modelReady");
     nodes.resultMeta.textContent = item?.exportedNames?.length
@@ -273,6 +303,7 @@ export class ModelPresentation {
       case "image_too_small": return t("imageTooSmall");
       case "image_too_large": return t("imageTooLarge");
       case "image_invalid": return t("imageInvalid");
+      case "validation_unavailable": return t("imageCheckUnavailable");
       case "engine_unavailable": return t("toolUnavailable");
       case "timed_out": return t("timedOut");
       case "separation_failed": return t("separationFailed");
@@ -312,6 +343,13 @@ export class ModelPresentation {
       return {
         title: t("preparing"),
         detail: t("gettingEverythingReady"),
+        stage: status.stage,
+      };
+    }
+    if (status.stage === "waiting_for_user") {
+      return {
+        title: t("verificationRequired"),
+        detail: t("completeSecureWindow"),
         stage: status.stage,
       };
     }

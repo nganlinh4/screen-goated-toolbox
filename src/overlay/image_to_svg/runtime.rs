@@ -171,6 +171,9 @@ pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, Strin
     if request.image_path.trim().is_empty() {
         return Err("Pick an image first.".to_string());
     }
+    if let Some(error) = super::input_policy::error(std::path::Path::new(&request.image_path)) {
+        return Err(error.to_string());
+    }
     let inspected = crate::overlay::creation_source::inspect_image(&request.image_path)?;
     request.image_path = inspected.path.to_string_lossy().to_string();
     request.source_descriptors.clear();

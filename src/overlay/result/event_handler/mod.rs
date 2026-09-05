@@ -86,6 +86,10 @@ pub unsafe extern "system" fn result_wnd_proc(
                 crate::overlay::result::scene_compositor::set_external_drag(hwnd, false);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
+            WM_CANCELMODE | WM_CAPTURECHANGED => {
+                crate::overlay::result::scene_compositor::set_external_drag(hwnd, false);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
     }

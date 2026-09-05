@@ -1,5 +1,6 @@
 import { t } from "./i18n";
 import { validateInput } from "./input-validation";
+import { showInputDialog } from "./input-dialog";
 import type {
   AppState,
   JobStatus,
@@ -24,6 +25,7 @@ import {
   AUTOMATIC_SEGMENTATION_START,
   GENERATION_WITH_SEGMENTATION_RANGE,
   automaticSegmentationRange,
+  pendingRevisionStatus,
   type ProgressRange,
 } from "./progress-policy";
 
@@ -132,16 +134,8 @@ export class JobRunner {
       historyId: undefined,
       createdAtMs: Date.now(),
       exportedNames: undefined,
-      result: {
-        ...parent.result,
-        stage: "refining",
-        progressText: t("creating"),
-        parentRevisionId: parent.result.jobId,
-        canRefine: false,
-        canSegment: false,
-        supportedActions: [],
-        availableActions: [],
-      },
+      retainedModelPath: parent.loadedModelPath || parent.result.outputPath || undefined,
+      result: pendingRevisionStatus(parent.result, t("creating")),
     };
     state.items.push(item);
     state.selectedId = item.id;
@@ -219,6 +213,7 @@ export class JobRunner {
           generationMode: settings.generationMode,
           polycount: settings.polycount,
           autoSegment: settings.autoSegment,
+          topology: settings.topology,
           instruction: settings.instruction,
           outputDir: settings.outputDir,
           submitted: true,
@@ -283,17 +278,21 @@ export class JobRunner {
       state, normalizeSettings, beginProgress, displayItem, invoke, updateUi,
     } = this.options;
     const settings = normalizeSettings(item);
-    const inputError = await validateInput(invoke, item.path, settings.mode);
-    if (item.cancelRequested || state.cancelRequested) {
-      item.state = "cancelled";
-      updateUi();
-      return;
-    }
-    if (inputError) {
+    while (true) {
+      const inputError = await validateInput(invoke, item.path, settings.mode);
+      if (item.cancelRequested || state.cancelRequested) {
+        item.state = "cancelled";
+        updateUi();
+        return;
+      }
+      if (!inputError) break;
       item.state = "failed";
       item.result = { stage: "failed", progressText: "", error: inputError,
         runtimeStatus: state.selectedStatus.runtimeStatus };
       updateUi();
+      const action = await showInputDialog(inputError, item.name);
+      if (action === "retry") continue;
+      if (action === "choose") document.getElementById("addImagesButton")?.click();
       return;
     }
     state.runningIds.add(item.id);
@@ -315,6 +314,7 @@ export class JobRunner {
       outputDir: item.outputDir || state.outputDir || null,
       polycount: settings.polycount,
       mode: "topology_mesh",
+      topology: item.topology,
       generationMode: settings.mode,
       outputFormat: "glb_plain",
       autoSegment: settings.autoSegment,

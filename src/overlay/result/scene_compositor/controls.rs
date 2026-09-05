@@ -3,8 +3,10 @@ use super::parent::{DRAGGING, SCENES};
 use super::protocol::{HostCommand, SceneControlUpdate, SceneControls};
 use crate::overlay::result::state::{WINDOW_STATES, WindowState};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use windows::Win32::Foundation::HWND;
+
+static EXTERNAL_DRAG_OWNER: AtomicIsize = AtomicIsize::new(0);
 
 pub fn sync(hwnd: HWND) {
     let id = hwnd.0 as isize;
@@ -106,10 +108,16 @@ pub fn update_cached_refine_draft(hwnd: HWND, text: &str) {
 }
 
 pub fn set_external_drag(hwnd: HWND, active: bool) {
-    DRAGGING.store(active, Ordering::SeqCst);
+    let id = hwnd.0 as isize;
     if active {
+        EXTERNAL_DRAG_OWNER.store(id, Ordering::SeqCst);
+        DRAGGING.store(true, Ordering::SeqCst);
         send_command(HostCommand::ExternalDrag { active: true });
-    } else {
+    } else if EXTERNAL_DRAG_OWNER
+        .compare_exchange(id, 0, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        DRAGGING.store(false, Ordering::SeqCst);
         super::parent::settle_external_drag(hwnd);
     }
 }

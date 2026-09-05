@@ -6,8 +6,13 @@ use std::sync::LazyLock;
 /// runtimes in this directory — so assertions about runtime behaviour have to
 /// read the composed output, not the shell.
 static COMPOSED: LazyLock<String> = LazyLock::new(|| {
+    let scene_runtime = [
+        include_str!("scene_runtime.js"),
+        include_str!("scene_command_helpers.js"),
+    ]
+    .concat();
     DOCUMENT
-        .replace("__SGT_SCENE_RUNTIME__", include_str!("scene_runtime.js"))
+        .replace("__SGT_SCENE_RUNTIME__", &scene_runtime)
         .replace(
             "__SGT_SURFACE_RUNTIME__",
             include_str!("surface_runtime.js"),

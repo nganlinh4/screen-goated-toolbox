@@ -13,7 +13,7 @@ import java.net.URI
 import java.security.SecureRandom
 import org.json.JSONObject
 
-internal const val CREATION_MODEL_VIEWER_DOCUMENT_VERSION = 2
+internal const val CREATION_MODEL_VIEWER_DOCUMENT_VERSION = 3
 internal const val CREATION_MODEL_VIEWER_ORIGIN =
     "https://appassets.androidplatform.net/creation-model-viewer"
 private const val CREATION_MODEL_VIEWER_ASSET_ROOT = "creation_model_viewer"
@@ -63,6 +63,7 @@ internal data class CreationModelViewerLabels(
     val resetView: String,
     val preview: String,
     val previewUnavailable: String,
+    val playbackLabels: Map<String, String> = emptyMap(),
 ) {
     fun json() = JSONObject()
         .put("originalMaterials", originalMaterials)
@@ -75,6 +76,7 @@ internal data class CreationModelViewerLabels(
         .put("resetView", resetView)
         .put("preview", preview)
         .put("previewUnavailable", previewUnavailable)
+        .apply { playbackLabels.forEach { (key, value) -> put(key, value) } }
 
     companion object {
         fun from(strings: Creation3dLocale) = CreationModelViewerLabels(
@@ -88,6 +90,14 @@ internal data class CreationModelViewerLabels(
             resetView = strings.fit,
             preview = strings.modelReady,
             previewUnavailable = strings.previewUnavailable,
+            playbackLabels = mapOf(
+                "animationClip" to strings.playback.animationClip,
+                "playAnimation" to strings.playback.playAnimation,
+                "pauseAnimation" to strings.playback.pauseAnimation,
+                "animationTime" to strings.playback.animationTime,
+                "animationSpeed" to strings.playback.animationSpeed,
+                "resetPose" to strings.playback.resetPose,
+            ),
         )
     }
 }

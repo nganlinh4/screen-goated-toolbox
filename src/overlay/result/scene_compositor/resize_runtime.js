@@ -64,6 +64,7 @@
       const scale = window.devicePixelRatio || 1;
       window.ipc.postMessage(JSON.stringify({
         action: 'result_resize_preview', hwnd: resize.entry.card.dataset.id,
+        gesture_id: resize.gestureId,
         dx: Math.round(resize.dx * scale), dy: Math.round(resize.dy * scale)
       }));
     }
@@ -71,11 +72,14 @@
 
   function start(event, entry, edge) {
     if (event.button !== 0 || active) return;
+    const gestureId = window.__SGT_BUTTON_SCENE__?.allocateGestureId();
+    if (!gestureId) return;
     event.preventDefault(); event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     const rect = entry.card.getBoundingClientRect();
     const size = { width: rect.width, height: rect.height };
     active = {
+      gestureId: gestureId,
       entry: entry, edge: edge, pointerId: event.pointerId,
       startX: event.clientX, startY: event.clientY, dx: 0, dy: 0, frame: 0,
       rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
@@ -85,9 +89,13 @@
       fitPreview: beginFitPreview(entry, size)
     };
     window.ipc.postMessage(JSON.stringify({
-      action: 'result_resize_start', hwnd: entry.card.dataset.id, edge: edge
+      action: 'result_resize_start', hwnd: entry.card.dataset.id, edge: edge,
+      gesture_id: gestureId, pointer_type: event.pointerType,
+      button: event.button, pointer_id: event.pointerId,
+      origin_x: Math.round(event.clientX * (window.devicePixelRatio || 1)),
+      origin_y: Math.round(event.clientY * (window.devicePixelRatio || 1))
     }));
-    window.__SGT_BUTTON_SCENE__?.setDragActive(true);
+    window.__SGT_BUTTON_SCENE__?.setDragActive(true, gestureId);
   }
 
   function update(event) {
@@ -117,6 +125,8 @@
     if (finalSizeNeedsFit && typeof resize.requestFit === 'function') resize.requestFit();
     window.ipc.postMessage(JSON.stringify({
       action: 'result_resize_finish', hwnd: resize.entry.card.dataset.id, edge: resize.edge,
+      gesture_id: resize.gestureId,
+      cancelled: !event || event.type !== 'pointerup',
       dx: Math.round(resize.dx * scale), dy: Math.round(resize.dy * scale)
     }));
     active = null;
@@ -132,10 +142,11 @@
     }
     return { destroy: function() {
       if (active && active.entry === entry) {
+        const gestureId = active.gestureId;
         if (active.frame) cancelAnimationFrame(active.frame);
         clearTimeout(active.fitTimer);
         active = null;
-        window.__SGT_BUTTON_SCENE__?.setDragActive(false);
+        window.__SGT_BUTTON_SCENE__?.setDragActive(false, gestureId);
       }
       for (const handle of handles) handle.remove();
     }};
@@ -146,5 +157,13 @@
   document.addEventListener('pointercancel', finish, true);
   window.addEventListener('blur', () => finish(null));
   document.addEventListener('visibilitychange', () => { if (document.hidden) finish(null); });
-  window.__SGT_CARD_RESIZE__ = { attach: attach };
+  window.__SGT_CARD_RESIZE__ = {
+    attach: attach,
+    settleGesture: function(gestureId) {
+      if (!active || active.gestureId !== Number(gestureId)) return;
+      if (active.frame) cancelAnimationFrame(active.frame);
+      clearTimeout(active.fitTimer);
+      active = null;
+    }
+  };
 })();

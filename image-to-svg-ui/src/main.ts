@@ -1,4 +1,5 @@
 import "./styles.css";
+import { validateSvgInput } from "./input-validation";
 import "../../ui-shared/creation-shell-layout.css";
 import { confirmDestructive } from "../../ui-shared/destructive-confirmation";
 import { DemandPoller } from "../../ui-shared/demand-poller";
@@ -401,6 +402,12 @@ async function pump() {
       const item = claimNextQueued(items);
       if (!item) break;
       try {
+        if (!await validateSvgInput(invoke, item.path, item.name, () => void addImages())) {
+          releaseDispatchClaim(item);
+          item.stage = "draft";
+          render();
+          continue;
+        }
         const status = await invoke<JobStatus>("start_job", {
           imagePath: item.path,
           outputDir: item.outputDir,

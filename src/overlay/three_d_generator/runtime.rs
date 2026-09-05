@@ -50,6 +50,8 @@ pub(super) struct StartJobRequest {
     pub generation_mode: GenerationMode,
     pub output_format: String,
     pub auto_segment: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology: Option<String>,
     pub segmentation_mode: String,
     #[serde(default)]
     pub instruction: Option<String>,
@@ -79,6 +81,7 @@ pub(super) struct JobStatus {
     pub generation_mode: Option<GenerationMode>,
     pub polycount: Option<u32>,
     pub auto_segment: Option<bool>,
+    pub topology: Option<String>,
     pub instruction: Option<String>,
     pub project_id: Option<String>,
     pub parent_revision_id: Option<String>,
@@ -109,6 +112,7 @@ struct Continuation {
     generation_mode: GenerationMode,
     polycount: u32,
     auto_segment: bool,
+    topology: Option<String>,
     instruction: Option<String>,
     project_id: String,
     supported_actions: Vec<String>,
@@ -245,7 +249,7 @@ impl RuntimeState {
 fn status_is_busy(stage: &str) -> bool {
     matches!(
         stage,
-        "preparing" | "generating" | "segmenting" | "refining" | "finalizing"
+        "preparing" | "waiting_for_user" | "generating" | "segmenting" | "refining" | "finalizing"
     )
 }
 
@@ -301,6 +305,15 @@ impl RuntimeOperation {
             Self::Generate { request, .. } => request.auto_segment,
             Self::Segment { continuation } | Self::Refine { continuation } => {
                 continuation.auto_segment
+            }
+        }
+    }
+
+    fn topology(&self) -> Option<String> {
+        match self {
+            Self::Generate { request, .. } => request.topology.clone(),
+            Self::Segment { continuation } | Self::Refine { continuation } => {
+                continuation.topology.clone()
             }
         }
     }
@@ -432,6 +445,7 @@ fn idle_status() -> JobStatus {
         generation_mode: None,
         polycount: None,
         auto_segment: None,
+        topology: None,
         instruction: None,
         project_id: None,
         parent_revision_id: None,

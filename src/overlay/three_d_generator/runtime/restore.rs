@@ -146,6 +146,7 @@ fn restore_generation(
         generation_mode: Some(request.generation_mode),
         polycount: Some(request.polycount),
         auto_segment: Some(request.auto_segment),
+        topology: request.topology.clone(),
         instruction: request.instruction.clone(),
         project_id: None,
         parent_revision_id: None,
@@ -300,6 +301,11 @@ fn restore_segment(
         polycount,
         auto_segment,
         instruction: instruction.clone(),
+        topology: intent
+            .arguments
+            .get("generationTopology")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         project_id: project_id.clone(),
         supported_actions,
         available_actions,
@@ -331,6 +337,7 @@ fn restore_segment(
         generation_mode: Some(generation_mode),
         polycount: Some(polycount),
         auto_segment: Some(auto_segment),
+        topology: continuation.topology.clone(),
         instruction,
         project_id: Some(project_id),
         parent_revision_id: None,

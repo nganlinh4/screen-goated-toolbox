@@ -2,6 +2,7 @@
 param(
     [switch]$SkipFrontendBuild,
     [switch]$SkipNpmInstall,
+    [switch]$AuditFrontendDependencies,
     [switch]$SkipCreationRuntimeBuild,
     [switch]$BuildLocalCreationRuntime,
     [switch]$UseStagingDelivery,
@@ -87,7 +88,14 @@ function Sync-Frontend {
 
     Write-Section "Building $Name"
     if (-not $SkipNpmInstall) {
-        Run-Npm $source @("install")
+        $installArguments = @("install", "--no-fund")
+        if ($AuditFrontendDependencies) {
+            $installArguments += "--audit"
+        }
+        else {
+            $installArguments += "--no-audit"
+        }
+        Run-Npm $source $installArguments
     }
     $buildStartedUtc = [DateTime]::UtcNow.AddSeconds(-2)
     Run-Npm $source @("run", "build")

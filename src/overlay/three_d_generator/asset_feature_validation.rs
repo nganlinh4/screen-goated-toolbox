@@ -70,7 +70,7 @@ fn queue_object<'a>(
 }
 
 fn reject_unused_runtime_features(root: &Map<String, Value>) -> Result<(), String> {
-    for key in ["animations", "cameras"] {
+    for key in ["cameras"] {
         if root
             .get(key)
             .is_some_and(|value| value.as_array().is_none_or(|items| !items.is_empty()))
@@ -176,7 +176,6 @@ mod tests {
     #[test]
     fn viewer_unused_tables_and_node_references_are_rejected() {
         for root in [
-            serde_json::json!({"animations": [{}]}),
             serde_json::json!({"cameras": [{}]}),
             serde_json::json!({"nodes": [{"camera": 0}]}),
         ] {

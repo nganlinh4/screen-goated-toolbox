@@ -23,7 +23,7 @@ internal fun validateGlbSkins(
         "The model result has invalid skin metadata"
     }
 
-    val reader = GlbSkinComponentReader(input, buffers, views)
+    val reader = GlbComponentReader(input, buffers, views)
     val jointCounts = IntArray(skins.length())
     var totalJoints = 0
     repeat(skins.length()) { skinIndex ->
@@ -157,12 +157,18 @@ private fun assignSkinScope(
     require(foundGeometry) { "The model result has an empty skin scope" }
 }
 
-private class GlbSkinComponentReader(
+internal class GlbComponentReader(
     private val input: RandomAccessFile,
     private val buffers: List<GlbBuffer>,
     private val views: List<GlbBufferView>,
 ) {
     private val pages = mutableMapOf<Int, Page>()
+
+    fun readPackedFloat(accessor: GlbAccessor, index: Long): Double {
+        require(accessor.componentType == GLB_FLOAT && accessor.stride == 0)
+        require(index >= 0 && index < checkedMultiply(accessor.count, accessor.componentCount.toLong()))
+        return readFloat(accessor, checkedAdd(accessor.absoluteOffset, checkedMultiply(index, 4)))
+    }
 
     fun validateFiniteFloats(accessor: GlbAccessor) {
         repeatElements(accessor) { offset ->

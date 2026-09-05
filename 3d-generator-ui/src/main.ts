@@ -1,10 +1,14 @@
 import "./styles.css";
+import { CapacityVerification } from "./capacity-verification";
+import { monitorReadiness } from "./readiness-monitor";
+import { refreshCapabilities } from "./capabilities-refresh";
 import "./stage.css";
 import "../../ui-shared/creation-shell-layout.css";
 import { confirmDestructive } from "../../ui-shared/destructive-confirmation";
 import { setLocale, t } from "./i18n";
 import { generationSettings } from "./generation-mode";
 import { ModelViewer } from "./viewer";
+import { previewModelPath } from "./revision-preview";
 import { appMarkup } from "./layout";
 import { collectNodes } from "./dom";
 import { ModelQueueView } from "./queue-view";
@@ -44,7 +48,13 @@ declare global {
 }
 
 const BUSY_STAGES = new Set<JobStatus["stage"]>([
-  "queued", "preparing", "generating", "segmenting", "refining", "finalizing",
+  "queued",
+  "preparing",
+  "waiting_for_user",
+  "generating",
+  "segmenting",
+  "refining",
+  "finalizing",
 ]);
 const MAX_IMPORT_SESSIONS = 100;
 const initialContext = window.__SGT_CONTEXT__ || {};
@@ -65,6 +75,7 @@ function invoke<T = unknown>(cmd: string, args: unknown = {}): Promise<T> {
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) throw new Error("App root not found");
 app.innerHTML = appMarkup();
+if (window.invoke) new CapacityVerification(invoke);
 const nodes = collectNodes();
 const viewer = new ModelViewer(nodes.canvas, nodes.stage);
 const modelDisplay = new ModelDisplayLane(viewer, invoke);
@@ -83,7 +94,7 @@ const state: AppState = {
   queueActive: false,
   cancelRequested: false,
   selectedStatus: { stage: "idle", progressText: "", runtimeStatus: "checking" },
-  preparationStatus: "ready",
+  preparationStatus: "preparing",
   displayToken: 0,
   displayedItemId: "",
   displayedModelPath: "",
@@ -136,13 +147,7 @@ function isConfigurable(item?: QueueItem) {
   return isDraft(item) || isRerunnable(item);
 }
 
-function normalizeGenerationSettings(item: QueueItem) {
-  const settings = generationSettings(item.generationMode, item.polycount, item.autoSegment);
-  item.generationMode = settings.mode;
-  item.polycount = settings.polycount;
-  item.autoSegment = settings.autoSegment;
-  return settings;
-}
+import { normalizeGenerationSettings } from "./normalize-settings";
 
 let toastTimer = 0;
 
@@ -307,6 +312,7 @@ async function refreshHistory() {
         item.generationMode = settings.generationMode;
         item.polycount = settings.polycount;
         item.autoSegment = settings.autoSegment;
+        item.topology = entry.metadata?.topology;
         item.instruction = settings.instruction;
         item.outputDir = settings.outputDir;
         item.thumbnailUrl ||= normalizedProjectThumbnail(entry.metadata?.projectThumbnail);
@@ -337,6 +343,7 @@ async function refreshHistory() {
         thumbnailUrl: normalizedProjectThumbnail(entry.metadata?.projectThumbnail),
         generationMode: settings.generationMode,
         polycount: settings.polycount,
+        topology: entry.metadata?.topology,
         autoSegment: settings.autoSegment,
         instruction: settings.instruction,
         outputDir: settings.outputDir,
@@ -444,16 +451,7 @@ async function selectItem(id: string) {
 }
 
 function displayItem(item: QueueItem): Promise<void> {
-  const modelPath = item.result?.outputPath
-    && (
-      item.state === "done"
-      || item.result.stage === "done"
-      || item.result.stage === "segmenting"
-      || item.state === "failed"
-      || item.state === "cancelled"
-    )
-    ? item.result.outputPath
-    : undefined;
+  const modelPath = previewModelPath(item);
   if (
     modelPath
     && state.displayedItemId === item.id
@@ -560,15 +558,7 @@ async function loadDefaultOutputDir() {
 }
 
 async function refreshGenerationCapabilities() {
-  try {
-    state.generationCapabilities = await invoke("generation_capabilities");
-    updateUi();
-  } catch {
-    state.generationCapabilities = {
-      ready: false,
-      optionalInstruction: { fast: false, quality: false },
-    };
-  }
+  await refreshCapabilities(state, invoke, updateUi);
 }
 
 presentation.applyTranslations();
@@ -587,6 +577,9 @@ if (devParams?.get("parallel") === "1") {
 } else if (window.invoke) {
   void (async () => {
     void invoke("prepare_runtime").catch(() => undefined);
+    window.addEventListener("pagehide", monitorReadiness(invoke, (status) => {
+      state.preparationStatus = status; updateUi();
+    }), { once: true });
     await loadDefaultOutputDir();
     await jobRunner.restoreCurrentJobs();
     await refreshHistory();

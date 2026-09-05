@@ -263,6 +263,7 @@
 .refinement-panel button:disabled,
 .refinement-panel select:disabled,
 .refinement-panel input:disabled { opacity: 0.34; }
+.refinement-hint { font-size: 10px; line-height: 1.35; color: var(--muted); }
 .result-summary { display: none; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px; border-radius: 8px; background: var(--accent-soft); }
 .result-summary.visible { display: grid; animation: result-in 240ms ease both; }
 .result-summary > span:first-child { color: var(--accent); font-size: 21px; }
@@ -291,6 +292,7 @@ html[data-theme="light"] .primary-action { color: white; }
 .primary-action:active:not(:disabled),
 .secondary-action:active { transform: scale(0.98); }
 .primary-action:disabled { opacity: 0.38; }
+.primary-action[hidden] { display: none; }
 .primary-action.is-busy span:first-child { animation: status-turn 1.4s ease-in-out infinite; }
 
 .secondary-action { display: none; margin-bottom: 7px; background: var(--control); color: var(--text); }

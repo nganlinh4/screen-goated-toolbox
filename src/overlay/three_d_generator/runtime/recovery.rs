@@ -339,10 +339,7 @@ fn finish_success(
     if result.get("supportedActions").is_none() {
         supported_actions.clone_from(&available_actions);
     }
-    let can_refine = result
-        .get("canRefine")
-        .and_then(Value::as_bool)
-        .unwrap_or(can_segment || !available_actions.is_empty());
+    let can_refine = super::refinement::refinement_advertised(&result, &available_actions);
     let is_textured = result
         .get("isTextured")
         .and_then(Value::as_bool)
@@ -364,38 +361,37 @@ fn finish_success(
             request,
             final_output_dir,
             ..
-        } if super::generation_mode::continuation_advertised(is_segmented, can_refine) => {
-            continuation_expiry(
-                result
-                    .get("continuationExpiresAtMs")
-                    .and_then(Value::as_u64),
-                now_ms(),
-            )
-            .map(|expires_at_ms| Continuation {
-                parent_dispatch_id: request.dispatch_id.clone(),
-                dispatch_id: String::new(),
-                image_path: request.image_path.clone(),
-                source_descriptor: request.source_descriptors[0].clone(),
-                output_dir: final_output_dir.clone(),
-                staging_dir: PathBuf::new(),
-                output_name: String::new(),
-                previous_output_path: output_path.clone(),
-                generation_mode: request.generation_mode,
-                polycount: request.polycount,
-                auto_segment: request.auto_segment,
-                instruction: request.instruction.clone(),
-                project_id: job_id.to_string(),
-                supported_actions: supported_actions.clone(),
-                available_actions: available_actions.clone(),
-                is_segmented,
-                is_textured,
-                is_pbr,
-                is_rigged,
-                rig_type: rig_type.clone(),
-                refinement: None,
-                expires_at_ms,
-            })
-        }
+        } if can_refine => continuation_expiry(
+            result
+                .get("continuationExpiresAtMs")
+                .and_then(Value::as_u64),
+            now_ms(),
+        )
+        .map(|expires_at_ms| Continuation {
+            parent_dispatch_id: request.dispatch_id.clone(),
+            dispatch_id: String::new(),
+            image_path: request.image_path.clone(),
+            source_descriptor: request.source_descriptors[0].clone(),
+            output_dir: final_output_dir.clone(),
+            staging_dir: PathBuf::new(),
+            output_name: String::new(),
+            previous_output_path: output_path.clone(),
+            generation_mode: request.generation_mode,
+            polycount: request.polycount,
+            auto_segment: request.auto_segment,
+            topology: request.topology.clone(),
+            instruction: request.instruction.clone(),
+            project_id: job_id.to_string(),
+            supported_actions: supported_actions.clone(),
+            available_actions: available_actions.clone(),
+            is_segmented,
+            is_textured,
+            is_pbr,
+            is_rigged,
+            rig_type: rig_type.clone(),
+            refinement: None,
+            expires_at_ms,
+        }),
         RuntimeOperation::Refine { continuation } if can_refine => continuation_expiry(
             result
                 .get("continuationExpiresAtMs")
@@ -414,6 +410,7 @@ fn finish_success(
             generation_mode: continuation.generation_mode,
             polycount: continuation.polycount,
             auto_segment: continuation.auto_segment,
+            topology: continuation.topology.clone(),
             instruction: continuation.instruction.clone(),
             project_id: continuation.project_id.clone(),
             supported_actions: supported_actions.clone(),
@@ -470,6 +467,7 @@ fn finish_success(
         generation_mode: Some(operation.generation_mode()),
         polycount: Some(operation.polycount()),
         auto_segment: Some(operation.auto_segment()),
+        topology: operation.topology(),
         instruction: operation.instruction().map(str::to_string),
         project_id: Some(match operation {
             RuntimeOperation::Generate { .. } => job_id.to_string(),
@@ -527,6 +525,7 @@ fn finish_success(
                 "isSegmented": status.is_segmented,
                 "generationMode": status.generation_mode,
                 "polycount": status.polycount,
+                "topology": status.topology,
                 "autoSegment": status.auto_segment,
                 "instruction": status.instruction,
                 "outputDir": status.output_dir,

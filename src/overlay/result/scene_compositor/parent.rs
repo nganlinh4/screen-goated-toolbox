@@ -286,7 +286,7 @@ pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
     }
 }
 
-fn settle_drag_geometry(targets: &[isize]) {
+fn settle_drag_geometry(targets: &[isize], gesture_id: Option<u64>) {
     for id in targets {
         let hwnd = HWND(*id as *mut std::ffi::c_void);
         if unsafe { IsWindow(Some(hwnd)).as_bool() } {
@@ -305,11 +305,11 @@ fn settle_drag_geometry(targets: &[isize]) {
         })
         .collect::<Vec<_>>();
     drop(scenes);
-    send_command(HostCommand::DragSettled { cards });
+    send_command(HostCommand::DragSettled { gesture_id, cards });
 }
 
 pub(super) fn settle_external_drag(hwnd: HWND) {
-    settle_drag_geometry(&[hwnd.0 as isize]);
+    settle_drag_geometry(&[hwnd.0 as isize], None);
 }
 
 fn read_geometry(
@@ -510,8 +510,9 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
         ChildEvent::ButtonAction { id, action } => {
             super::control_surface::handle_action(id, action);
         }
-        ChildEvent::DragStarted => DRAGGING.store(true, Ordering::SeqCst),
+        ChildEvent::DragStarted { .. } => DRAGGING.store(true, Ordering::SeqCst),
         ChildEvent::DragFinished {
+            gesture_id,
             id,
             targets,
             outcome,
@@ -522,24 +523,47 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
             super::control_surface::handle_drag_finished(id, &targets, outcome);
             if outcome == super::protocol::DragOutcome::Moved {
                 if let Some(cards) = super::scene_groups::move_group(id, dx, dy) {
-                    send_command(HostCommand::DragSettled { cards });
+                    send_command(HostCommand::DragSettled {
+                        gesture_id: Some(gesture_id),
+                        cards,
+                    });
                 } else {
-                    settle_drag_geometry(&targets);
+                    settle_drag_geometry(&targets, Some(gesture_id));
                 }
             } else {
-                send_command(HostCommand::DragSettled { cards: Vec::new() });
+                send_command(HostCommand::DragSettled {
+                    gesture_id: Some(gesture_id),
+                    cards: Vec::new(),
+                });
             }
             super::controls::sync_all();
         }
-        ChildEvent::ResizeFinished { id, rect } => {
+        ChildEvent::ResizeFinished {
+            gesture_id,
+            id,
+            rect,
+        } => {
             DRAGGING.store(false, Ordering::SeqCst);
             let cards = super::scene_groups::resize_card(id, rect)
                 .into_iter()
                 .collect::<Vec<_>>();
-            send_command(HostCommand::DragSettled { cards });
+            send_command(HostCommand::DragSettled {
+                gesture_id: Some(gesture_id),
+                cards,
+            });
             super::controls::sync_all();
         }
         ChildEvent::FitDiagnostic { id, payload } => log_fit_diagnostic(id, &payload),
+        ChildEvent::StateAcknowledged {
+            revision,
+            visible_cards,
+            input_rect_count,
+        } => {
+            super::reconciliation::acknowledge_revision(revision);
+            crate::log_info!(
+                "[ResultCompositor] state_ack gen={generation} rev={revision} vis={visible_cards} rects={input_rect_count}"
+            );
+        }
         ChildEvent::Ready
         | ChildEvent::Heartbeat
         | ChildEvent::ResyncRequested

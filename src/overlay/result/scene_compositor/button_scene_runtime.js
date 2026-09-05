@@ -1,8 +1,9 @@
 (function() {
   const models = new Map();
   let externalDrag = false;
-  let nativeDrag = false;
-  let awaitingDragSettle = false;
+  let nativeDrag = 0;
+  let awaitingDragSettle = 0;
+  let nextGestureId = 1;
   let controlsHiddenForDrag = false;
   const completionPulseTokens = new Map();
   const completedCards = new Set();
@@ -34,7 +35,13 @@
     clearClickableRegions();
   }
 
-  function rebuild(restoreRegionsAfterDrag) {
+  function allocateGestureId() {
+    const id = nextGestureId;
+    nextGestureId = nextGestureId >= 2147483647 ? 1 : nextGestureId + 1;
+    return id;
+  }
+
+  function rebuild(restoreGestureId) {
     const container = document.getElementById('button-container');
     if (externalDrag) {
       hideControlsForDrag();
@@ -61,7 +68,9 @@
       controlsHiddenForDrag = false;
     }
     window.updateWindows(windows);
-    if (restoreRegionsAfterDrag) window.restoreButtonRegionsAfterDrag?.();
+    if (restoreGestureId !== undefined) {
+      window.restoreButtonRegionsAfterDrag?.(restoreGestureId);
+    }
     for (const key of completedCards) tryPulseCompletion(key);
     for (const [key, model] of models) {
       if (model.stackOrder !== undefined) {
@@ -85,9 +94,14 @@
       if (!nativeDrag && !awaitingDragSettle) window.clearResultDragControlPreview?.();
       for (const card of command.cards || []) mergeCard(card);
     } else if (command.type === 'drag_settled') {
+      const gestureId = Number(command.gesture_id || 0);
+      const matchesLocal = gestureId !== 0
+        && (nativeDrag === gestureId || awaitingDragSettle === gestureId);
+      const matchesExternal = gestureId === 0 && externalDrag
+        && !nativeDrag && !awaitingDragSettle;
+      if (!matchesLocal && !matchesExternal) return;
       for (const card of command.cards || []) mergeCard(card);
-      externalDrag = false;
-      setDragActive(false);
+      setDragActive(false, gestureId);
       return;
     } else if (command.type === 'controls') {
       for (const card of command.cards || []) mergeCard(card);
@@ -117,25 +131,35 @@
     rebuild();
   }
 
-  function setDragActive(active) {
-    const wasActive = nativeDrag;
-    const wasAwaitingSettle = awaitingDragSettle;
-    nativeDrag = Boolean(active);
-    if (nativeDrag) {
-      awaitingDragSettle = false;
+  function setDragActive(active, gestureId) {
+    const id = Number(gestureId || 0);
+    if (active) {
+      if (!Number.isSafeInteger(id) || id <= 0) return;
+      nativeDrag = id;
+      awaitingDragSettle = 0;
       hideControlsForDrag();
-    } else if (wasActive || wasAwaitingSettle || controlsHiddenForDrag) {
-      awaitingDragSettle = false;
-      window.clearResultDragControlPreview?.();
-      window.releaseResultDragGeometryLock?.();
-      rebuild(true);
+      return;
     }
+    const matchesNative = id !== 0 && nativeDrag === id;
+    const matchesAwaiting = id !== 0 && awaitingDragSettle === id;
+    const matchesExternal = id === 0 && externalDrag && !nativeDrag && !awaitingDragSettle;
+    if (!matchesNative && !matchesAwaiting && !matchesExternal) return;
+    if (matchesNative) nativeDrag = 0;
+    if (matchesAwaiting) awaitingDragSettle = 0;
+    if (matchesExternal) externalDrag = false;
+    if (nativeDrag || awaitingDragSettle || externalDrag) return;
+    window.settleResultDragGesture?.(id);
+    window.__SGT_CARD_RESIZE__?.settleGesture(id);
+    window.clearResultDragControlPreview?.();
+    window.releaseResultDragGeometryLock?.();
+    rebuild(id);
   }
 
-  function releaseDragPreview(pointerX, pointerY) {
-    if (!nativeDrag) return;
-    nativeDrag = false;
-    awaitingDragSettle = true;
+  function releaseDragPreview(pointerX, pointerY, gestureId) {
+    const id = Number(gestureId || 0);
+    if (!id || nativeDrag !== id) return;
+    nativeDrag = 0;
+    awaitingDragSettle = id;
     if (Number.isFinite(pointerX) && Number.isFinite(pointerY)) {
       window.updateCursorPosition?.(pointerX, pointerY);
     }
@@ -180,11 +204,12 @@
     apply(command);
   };
   window.__SGT_BUTTON_SCENE__ = {
+    allocateGestureId: allocateGestureId,
     rebuild: rebuild,
     clearClickableRegions: clearClickableRegions,
     setDragActive: setDragActive,
     releaseDragPreview: releaseDragPreview,
-    hasReleasedDragPreview: function() { return awaitingDragSettle; },
+    hasReleasedDragPreview: function() { return awaitingDragSettle !== 0; },
     pulseCompletion: pulseCompletion
   };
 })();

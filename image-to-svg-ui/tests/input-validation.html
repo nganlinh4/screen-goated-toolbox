@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><title>SVG input acceptance</title></head>
+<body><main id="app"></main><output id="calls" style="position:fixed;bottom:0;z-index:1000">Submissions: 0</output>
+<script type="module">
+const params = new URLSearchParams(location.search);
+window.__SGT_CONTEXT__ = {language:"vi",theme:params.get("theme") || "dark"};
+let calls = 0;
+window.invoke = async (cmd) => {
+  if (cmd === "pick_images") return ["test.png"];
+  if (cmd === "validate_image") return {error:params.get("error") || "image_too_large"};
+  if (cmd === "start_job") {document.querySelector("#calls").textContent = `Submissions: ${++calls}`; throw Error("Unexpected submission");}
+  if (cmd === "job_statuses" || cmd === "history_results") return [];
+  if (cmd === "default_output_dir") return "";
+  return null;
+};
+await import("../src/main.ts");
+</script></body></html>

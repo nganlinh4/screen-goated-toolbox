@@ -1,6 +1,14 @@
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 
+use std::sync::RwLock;
+
+static COMPOSITOR_HTML: RwLock<Option<String>> = RwLock::new(None);
+
+pub(super) fn set_compositor_html(html: String) {
+    *COMPOSITOR_HTML.write().unwrap() = Some(html);
+}
+
 pub(super) fn start() -> anyhow::Result<String> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
@@ -37,6 +45,30 @@ fn handle(mut stream: TcpStream) {
 
     if method == "OPTIONS" {
         write_response(&mut stream, method, 204, "text/plain", b"", "no-store");
+        return;
+    }
+    if (path == "/" || path == "/index.html")
+        && let Some(html) = COMPOSITOR_HTML.read().unwrap().as_ref()
+    {
+        write_response(
+            &mut stream,
+            method,
+            200,
+            "text/html; charset=utf-8",
+            html.as_bytes(),
+            "no-store",
+        );
+        return;
+    }
+    if path == "/font.woff2" {
+        write_response(
+            &mut stream,
+            method,
+            200,
+            "font/woff2",
+            super::font::bytes(),
+            "public, max-age=31536000, immutable",
+        );
         return;
     }
     if let Some(id) = path
@@ -109,4 +141,49 @@ fn write_response(
     }
     let _ = stream.flush();
     let _ = stream.shutdown(Shutdown::Write);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn isolated_server_serves_html_and_font() {
+        set_compositor_html("<html><body>test</body></html>".to_string());
+        let origin = start().expect("server should start");
+
+        let html_resp = ureq::get(&format!("{origin}/index.html")).call().unwrap();
+        assert_eq!(html_resp.status(), 200);
+        assert_eq!(
+            html_resp
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("text/html; charset=utf-8")
+        );
+        let mut html_body = String::new();
+        html_resp
+            .into_body()
+            .into_reader()
+            .read_to_string(&mut html_body)
+            .unwrap();
+        assert_eq!(html_body, "<html><body>test</body></html>");
+
+        let font_resp = ureq::get(&format!("{origin}/font.woff2")).call().unwrap();
+        assert_eq!(font_resp.status(), 200);
+        assert_eq!(
+            font_resp
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("font/woff2")
+        );
+        let mut font_bytes = Vec::new();
+        font_resp
+            .into_body()
+            .into_reader()
+            .read_to_end(&mut font_bytes)
+            .unwrap();
+        assert_eq!(font_bytes, super::super::font::bytes());
+    }
 }

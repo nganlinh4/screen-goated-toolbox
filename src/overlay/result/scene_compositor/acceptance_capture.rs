@@ -1,6 +1,8 @@
 use image::{GenericImageView, ImageFormat};
 use webview2_com::CapturePreviewCompletedHandler;
-use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
+use webview2_com::Microsoft::Web::WebView2::Win32::{
+    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, ICoreWebView2,
+};
 use windows::Win32::Foundation::HGLOBAL;
 use windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
 use windows::Win32::System::Com::{IStream, STATFLAG_NONAME, STREAM_SEEK_SET};
@@ -13,7 +15,11 @@ pub(in crate::overlay::result) fn capture_for_trace(webview: &wry::WebView, trac
     if !super::acceptance_offscreen() {
         return;
     }
-    let result = start_capture_with(webview, "result-navigation", move |result| match result {
+    let controller = webview.controller();
+    let Ok(core) = (unsafe { controller.CoreWebView2() }) else {
+        return;
+    };
+    let result = start_capture_with_core(&core, "result-navigation", move |result| match result {
         Ok(pixel_count) => {
             crate::overlay::result::latency::mark(&trace_id, "interactive_pixels_visible");
             crate::debug_log::log_debug(&format!(
@@ -31,7 +37,7 @@ pub(in crate::overlay::result) fn capture_for_trace(webview: &wry::WebView, trac
     }
 }
 
-pub(super) fn capture_for_card(webview: &wry::WebView, id: isize) {
+pub(super) fn capture_for_card(core: &ICoreWebView2, id: isize) {
     if !super::acceptance_offscreen() {
         return;
     }
@@ -49,7 +55,7 @@ pub(super) fn capture_for_card(webview: &wry::WebView, id: isize) {
             emit_card_capture(id, "interactive_pixels_rejected", Some(error));
         }
     };
-    if let Err(error) = start_capture_with(webview, "result-compositor", complete) {
+    if let Err(error) = start_capture_with_core(core, "result-compositor", complete) {
         let error = error.to_string();
         crate::debug_log::log_debug(&format!(
             "[OverlaySmoke] phase=interactive_pixels_rejected error={error}"
@@ -72,8 +78,8 @@ fn emit_card_capture(id: isize, phase: &str, error: Option<String>) {
     });
 }
 
-fn start_capture_with(
-    webview: &wry::WebView,
+fn start_capture_with_core(
+    core: &ICoreWebView2,
     evidence_name: &'static str,
     complete: impl FnOnce(Result<usize, String>) + 'static,
 ) -> windows::core::Result<()> {
@@ -94,7 +100,7 @@ fn start_capture_with(
             }
             Ok(())
         }));
-        webview.controller().CoreWebView2()?.CapturePreview(
+        core.CapturePreview(
             COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
             &stream,
             &handler,

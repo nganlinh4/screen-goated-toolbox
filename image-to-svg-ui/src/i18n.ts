@@ -2,6 +2,10 @@ export type Language = "en" | "ko" | "vi";
 
 const messages = {
   en: {
+    imageTooLarge: "This image is too large. Compress it or choose a smaller file.",
+    imageInvalid: "This image could not be read. Choose a PNG, JPEG, or WebP image.",
+    imageChooseAnother: "Choose another image", imageCheckRetry: "Retry",
+    imageCheckTitle: "Couldn’t check the image", imageCheckUnavailable: "The image check is unavailable. Please retry.",
     title: "Image to SVG", ready: "Ready", preparing: "Preparing", oneWorker: "Ready to create",
     queue: "Recent", addImages: "Add images", emptyQueue: "Add images to begin", source: "Source image",
     model: "Model", simple: "Simple", simpleHint: "Clean shapes, smaller file", detail: "Detail",
@@ -23,6 +27,10 @@ const messages = {
     renameFailed: "Could not rename the result", deleteFailed: "Could not delete the result", importLimit: "Add up to {count} images at a time.",
   },
   ko: {
+    imageTooLarge: "이미지가 너무 큽니다. 압축하거나 더 작은 파일을 선택하세요.",
+    imageInvalid: "이미지를 읽을 수 없습니다. PNG, JPEG 또는 WebP 이미지를 선택하세요.",
+    imageChooseAnother: "다른 이미지 선택", imageCheckRetry: "다시 시도",
+    imageCheckTitle: "이미지를 확인하지 못했습니다", imageCheckUnavailable: "이미지 확인을 사용할 수 없습니다. 다시 시도하세요.",
     title: "SVG 변환", ready: "준비됨", preparing: "준비 중", oneWorker: "생성 준비됨",
     queue: "최근 항목", addImages: "이미지 추가", emptyQueue: "이미지를 추가해 시작하세요", source: "원본 이미지",
     model: "모델", simple: "간단", simpleHint: "깔끔한 형태, 작은 파일", detail: "상세",
@@ -44,6 +52,10 @@ const messages = {
     renameFailed: "결과 이름을 변경하지 못했습니다", deleteFailed: "결과를 삭제하지 못했습니다", importLimit: "한 번에 최대 {count}개의 이미지를 추가하세요.",
   },
   vi: {
+    imageTooLarge: "Ảnh này quá lớn. Hãy nén ảnh hoặc chọn tệp nhỏ hơn.",
+    imageInvalid: "Không đọc được ảnh này. Hãy chọn ảnh PNG, JPEG hoặc WebP.",
+    imageChooseAnother: "Chọn ảnh khác", imageCheckRetry: "Thử lại",
+    imageCheckTitle: "Chưa kiểm tra được ảnh", imageCheckUnavailable: "Hiện chưa kiểm tra được ảnh. Hãy thử lại.",
     title: "Ảnh sang SVG", ready: "Sẵn sàng", preparing: "Đang chuẩn bị", oneWorker: "Sẵn sàng tạo",
     queue: "Gần đây", addImages: "Thêm ảnh", emptyQueue: "Thêm ảnh để bắt đầu", source: "Ảnh nguồn",
     model: "Mô hình", simple: "Đơn giản", simpleHint: "Hình gọn, tệp nhẹ", detail: "Chi tiết",

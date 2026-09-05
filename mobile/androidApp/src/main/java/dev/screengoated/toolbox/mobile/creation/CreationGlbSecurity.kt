@@ -55,6 +55,7 @@ internal fun validateCreationGlbDocument(
     val meshCosts = validateGlbMeshes(document, accessors, input, buffers, views)
     validateGlbSceneGraph(document, meshCosts)
     validateGlbSkins(document, accessors, input, buffers, views)
+    validateGlbAnimations(document, accessors, input, buffers, views)
     validateGlbUnsupportedWork(document)
     validateGlbImagesAndTextures(document, input, buffers, views)
 }
@@ -266,7 +267,7 @@ private fun validateGlbAccessorBounds(
 }
 
 private fun validateGlbUnsupportedWork(document: JSONObject) {
-    listOf("animations", "cameras").forEach { name ->
+    listOf("cameras").forEach { name ->
         val values = document.optionalArray(name)
         require(values.length() == 0) {
             "The model result contains unsupported runtime work"

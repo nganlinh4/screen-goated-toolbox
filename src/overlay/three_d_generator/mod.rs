@@ -132,6 +132,7 @@ pub fn update_settings() {
 }
 
 pub fn shutdown() -> bool {
+    crate::overlay::creation_runtime::verification::cancel();
     crate::overlay::creation_close::begin_product("3d");
     crate::overlay::creation_runtime::cancel_readiness("3d");
     let _ = runtime::cancel_for_shutdown();

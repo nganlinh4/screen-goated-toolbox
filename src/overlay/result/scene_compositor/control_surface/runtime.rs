@@ -9,8 +9,6 @@ let lastSentRegions = new Map();
 let highestButtonStackOrder = 0;
 let cursorX = 0, cursorY = 0;
 const activeGrabbingSources = new Set();
-let activeResultDragPreview = null;
-let settlingResultDragTargets = new Set();
 window.raiseWindowButtons = function(hwnd) {
     const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
     if (!group) return;
@@ -93,8 +91,8 @@ window.invalidateButtonRegions = () => {
     lastVisibleState.clear();
     lastSentRegions.clear();
 };
-window.restoreButtonRegionsAfterDrag = () => updateButtonOpacity(true, true);
-function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false) {
+window.restoreButtonRegionsAfterDrag = gestureId => updateButtonOpacity(true, true, gestureId);
+function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false, gestureId = 0) {
     const groups = document.querySelectorAll('.button-group');
     let needsUpdate = forceUpdate;
 
@@ -182,6 +180,7 @@ function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false) {
             action: restoreAfterDrag
                 ? "restore_clickable_regions"
                 : "update_clickable_regions",
+            gesture_id: restoreAfterDrag ? gestureId : undefined,
             scale: window.devicePixelRatio || 1,
             regions: regions
         }));
@@ -317,117 +316,6 @@ function generateButtonsHTML(hwnd, state, isVertical) {
     return buttons;
 }
 
-function handleResultDrag(e, hwnd, groupActions) {
-    if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
-    if (activeResultDragPreview) return;
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setResultDraggingCursor(true);
-    const root = window.registeredWindows[String(hwnd)];
-    const groupIds = root?.state?.groupIds?.map(String) || [String(hwnd)];
-    const allIds = [...new Set(Object.entries(window.registeredWindows).flatMap(([id, model]) =>
-        model?.state?.groupIds?.map(String) || [id]))];
-    const targets = e.button === 1 ? allIds
-        : ((groupActions || e.button === 2) ? groupIds : [String(hwnd)]);
-    const nativeTargets = targets.filter(id =>
-        Boolean(window.registeredWindows[id]?.state?.isBrowsing));
-    const cardOrigins = new Map();
-    for (const id of targets) {
-        const card = document.querySelector('.result-card[data-id="' + id + '"]');
-        if (!card) continue;
-        const rect = card.getBoundingClientRect();
-        cardOrigins.set(id, { x: rect.left, y: rect.top });
-    }
-    activeResultDragPreview = {
-        hwnd: String(hwnd), targets: targets, pointerId: e.pointerId,
-        startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, frame: 0,
-        cardOrigins: cardOrigins, nativeTargets: nativeTargets
-    };
-    settlingResultDragTargets.clear();
-
-    let action = 'result_drag_start';
-    if (e.button === 0 && groupActions) action = 'result_group_drag_start';
-    else if (e.button === 1) action = 'result_all_drag_start';
-    else if (e.button === 2) action = 'result_group_drag_start';
-
-    window.ipc.postMessage(JSON.stringify({
-        action: action,
-        hwnd: hwnd
-    }));
-    window.__SGT_BUTTON_SCENE__?.setDragActive(true);
-}
-
-function renderResultDragPreview() {
-    if (!activeResultDragPreview) return;
-    activeResultDragPreview.frame = 0;
-    const dx = activeResultDragPreview.dx;
-    const dy = activeResultDragPreview.dy;
-    const offset = dx + 'px ' + dy + 'px';
-    for (const id of activeResultDragPreview.targets) {
-        const card = document.querySelector('.result-card[data-id="' + id + '"]');
-        const origin = activeResultDragPreview.cardOrigins.get(id);
-        if (card && origin) {
-            card.style.transform = 'translate3d(' + (origin.x + dx) + 'px,' +
-                (origin.y + dy) + 'px,0)';
-        }
-        const group = document.querySelector('.button-group[data-hwnd="' + id + '"]');
-        if (group) group.style.translate = offset;
-    }
-    if (activeResultDragPreview.nativeTargets.length) {
-        const scale = window.devicePixelRatio || 1;
-        window.ipc.postMessage(JSON.stringify({
-            action: 'result_drag_preview', hwnd: activeResultDragPreview.hwnd,
-            dx: Math.round(dx * scale), dy: Math.round(dy * scale)
-        }));
-    }
-}
-function queueResultDragPreview(event) {
-    const drag = activeResultDragPreview;
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    drag.dx = event.clientX - drag.startX;
-    drag.dy = event.clientY - drag.startY;
-    if (!drag.frame) drag.frame = requestAnimationFrame(renderResultDragPreview);
-    event.preventDefault();
-}
-function finishLocalResultDrag(event) {
-    const drag = activeResultDragPreview;
-    if (!drag || (event && event.pointerId !== drag.pointerId)) return;
-    if (event) {
-        drag.dx = event.clientX - drag.startX;
-        drag.dy = event.clientY - drag.startY;
-    }
-    if (drag.frame) cancelAnimationFrame(drag.frame);
-    renderResultDragPreview();
-    const scale = window.devicePixelRatio || 1;
-    window.ipc.postMessage(JSON.stringify({
-        action: 'result_drag_finish', hwnd: drag.hwnd,
-        dx: Math.round(drag.dx * scale), dy: Math.round(drag.dy * scale)
-    }));
-    window.__SGT_BUTTON_SCENE__?.releaseDragPreview(
-        event ? event.clientX : undefined,
-        event ? event.clientY : undefined);
-    settlingResultDragTargets = new Set(drag.targets);
-    activeResultDragPreview = null;
-    setResultDraggingCursor(false);
-}
-document.addEventListener('pointermove', queueResultDragPreview, true);
-document.addEventListener('pointerup', finishLocalResultDrag, true);
-document.addEventListener('pointercancel', finishLocalResultDrag, true);
-window.clearResultDragControlPreview = function() {
-    document.querySelectorAll('.button-group').forEach(group => { group.style.translate = ''; });
-};
-window.shouldPreserveResultDragGeometry = function(id) {
-    const key = String(id);
-    return Boolean(activeResultDragPreview?.targets.includes(key)) || settlingResultDragTargets.has(key);
-};
-window.releaseResultDragGeometryLock = function() {
-    settlingResultDragTargets.clear();
-};
-
-window.addEventListener("blur", () => finishLocalResultDrag(null));
-document.addEventListener("visibilitychange", () => {
-    if (document.hidden) finishLocalResultDrag(null);
-});
 window.addEventListener("pointerup", () => setOpacityDraggingCursor(false));
 window.addEventListener("blur", () => setOpacityDraggingCursor(false));
 document.addEventListener("visibilitychange", () => {

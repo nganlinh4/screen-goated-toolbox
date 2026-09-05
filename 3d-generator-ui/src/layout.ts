@@ -24,7 +24,7 @@ export function appMarkup() {
       <div class="identity">
         <span class="app-icon">${ICONS.model}</span>
         <strong data-i18n="appTitle"></strong>
-        <span class="readiness" id="readiness" data-i18n-title="readyTooltip"><i></i><span id="readinessText"></span></span>
+        <span class="readiness" id="readiness"><i></i><span id="readinessText"></span></span>
       </div>
       <div class="window-actions">
         <button class="icon-button" id="minimizeButton" type="button" data-i18n-title="minimize">${ICONS.minimize}</button>
@@ -84,6 +84,13 @@ export function appMarkup() {
           <label class="control-label" for="instructionInput" data-i18n="optionalInstruction"></label>
           <textarea id="instructionInput" maxlength="1000" data-i18n-placeholder="optionalInstructionHint"></textarea>
         </div>
+        <div class="control-section" id="initialTopologySection">
+          <label class="control-label" for="initialTopology" data-i18n="meshType"></label>
+          <select id="initialTopology" data-i18n-aria="meshType">
+            <option value="triangle" data-i18n="triangles"></option>
+            <option value="quad" selected data-i18n="quads"></option>
+          </select>
+        </div>
         <div class="control-section">
           <div class="control-heading">
             <label for="polycountRange" data-i18n="topology"></label>
@@ -103,6 +110,8 @@ export function appMarkup() {
           <span class="control-label" data-i18n="newVersion"></span>
           <div class="refinement-row">
             <select id="segmentationLevel" data-i18n-aria="separationLevel">
+              <option value="simple" data-i18n="simple"></option>
+              <option value="balanced" data-i18n="balanced"></option>
               <option value="detailed" selected data-i18n="detailedLevel"></option>
             </select>
             <button type="button" data-refinement="separate_parts" data-i18n="separate"></button>
@@ -130,6 +139,7 @@ export function appMarkup() {
             </select>
             <button type="button" data-refinement="animate" data-i18n="animate"></button>
           </div>
+          <small class="refinement-hint" id="refinementHint" data-i18n="refinementCapacityHint" hidden></small>
         </div>
         <div class="result-summary" id="resultSummary">
           <span>${ICONS.check}</span><span><strong id="resultName"></strong><small id="resultMeta"></small></span>

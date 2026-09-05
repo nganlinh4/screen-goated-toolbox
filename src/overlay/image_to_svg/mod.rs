@@ -1,6 +1,7 @@
 //! WRY mini-app for turning raster images into editable SVG artwork.
 
 mod assets;
+mod input_policy;
 mod ipc;
 mod runtime;
 mod window;

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"name":"linear translation","interpolation":"LINEAR","times":[0,1],"values":[0,0,0,1,0,0],"valid":true},
+    {"name":"step translation","interpolation":"STEP","times":[0,1],"values":[0,0,0,1,0,0],"valid":true},
+    {"name":"cubic translation","interpolation":"CUBICSPLINE","times":[0,1],"values":[0,0,0,0,0,0,1,0,0,1,0,0,1,0,0,0,0,0],"valid":true},
+    {"name":"duplicate times","interpolation":"LINEAR","times":[0,0],"values":[0,0,0,1,0,0],"valid":false},
+    {"name":"negative time","interpolation":"LINEAR","times":[-1,1],"values":[0,0,0,1,0,0],"valid":false},
+    {"name":"duration budget","interpolation":"LINEAR","times":[0,3601],"values":[0,0,0,1,0,0],"valid":false},
+    {"name":"output count mismatch","interpolation":"LINEAR","times":[0,1],"values":[0,0,0],"valid":false},
+    {"name":"unsupported interpolation","interpolation":"FUTURE","times":[0,1],"values":[0,0,0,1,0,0],"valid":false},
+    {"name":"cubic overshoot","interpolation":"CUBICSPLINE","times":[0,10],"values":[0,0,0,0,0,0,10000000,0,0,0,0,0,0,0,0,0,0,0],"valid":false}
+  ]
+}

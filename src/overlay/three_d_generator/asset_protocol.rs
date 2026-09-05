@@ -10,6 +10,8 @@ use wry::http::{Request, Response};
 
 #[path = "asset_accessor_validation.rs"]
 mod accessors;
+#[path = "asset_animation_validation.rs"]
+mod animations;
 #[path = "asset_feature_validation.rs"]
 mod features;
 #[path = "asset_float_validation.rs"]
@@ -350,6 +352,7 @@ fn validate_gltf_semantics(value: &Value, binary: Option<&[u8]>) -> Result<(), S
     let buffers = super::asset_texture_validation::resolve_buffers(root, binary)?;
     semantics::validate_indices(root, &accessor_info, &view_lengths, &buffers)?;
     skins::validate(root, &accessor_info, &view_lengths, &buffers)?;
+    animations::validate(root, &accessor_info, &view_lengths, &buffers)?;
     floats::validate(root, &accessor_info, &view_lengths, &buffers)?;
     super::asset_texture_validation::validate_textures(root, binary)?;
     Ok(())

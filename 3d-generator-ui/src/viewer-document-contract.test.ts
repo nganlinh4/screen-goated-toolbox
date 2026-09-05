@@ -7,7 +7,7 @@ const source = (path: string) => readFileSync(new URL(path, import.meta.url), "u
 test("standalone document reuses the canonical viewer and complete controls", () => {
   const entry = source("./viewer-entry.ts");
   assert.match(entry, /from "\.\/viewer"/);
-  assert.match(entry, /VIEWER_DOCUMENT_VERSION = 2/);
+  assert.match(entry, /VIEWER_DOCUMENT_VERSION = 3/);
   for (const call of [
     "setShading", "setOutline", "setAutoRotate", "setGrid", "setWireframe", "fitView",
   ]) {
@@ -21,7 +21,7 @@ test("standalone document reuses the canonical viewer and complete controls", ()
 
 test("viewer document is versioned and cannot load external resources", () => {
   const document = source("../viewer/index.html");
-  assert.match(document, /data-viewer-version="2"/);
+  assert.match(document, /data-viewer-version="3"/);
   assert.match(document, /default-src 'none'/);
   assert.match(document, /script-src 'self'/);
   assert.match(document, /font-src 'self'/);

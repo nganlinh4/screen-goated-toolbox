@@ -15,7 +15,7 @@ test("input preflight forwards the selected mode and preserves public rejection 
 
 test("missing, malformed and unavailable validation fails closed", async () => {
   for (const value of [null, {}, { error: "unknown" }]) {
-    assert.equal(await validateInput(async <T>() => value as T, "source.png", "quality"), "image_invalid");
+    assert.equal(await validateInput(async <T>() => value as T, "source.png", "quality"), "validation_unavailable");
   }
-  assert.equal(await validateInput(async () => { throw new Error("unavailable"); }, "source.png", "fast"), "image_invalid");
+  assert.equal(await validateInput(async () => { throw new Error("unavailable"); }, "source.png", "fast"), "validation_unavailable");
 });

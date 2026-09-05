@@ -468,6 +468,14 @@ class CreationStateContractTest {
     @Test
     fun `unrecognized stages cannot expand product progress`() {
         assertEquals(
+            "waiting_for_user",
+            publicCreationStage(CreationTool.IMAGE_TO_3D, "waiting_for_user", "preparing"),
+        )
+        assertEquals(
+            "Complete the requested step in the secure window",
+            publicCreationProgressText("waiting_for_user"),
+        )
+        assertEquals(
             "preparing",
             publicCreationStage(CreationTool.IMAGE_TO_3D, "uploading", "preparing"),
         )

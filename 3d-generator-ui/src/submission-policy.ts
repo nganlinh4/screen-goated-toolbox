@@ -13,6 +13,10 @@ export function needsFreshSubmissionSession(
   return item.state !== "queued" || item.submitted;
 }
 
+export function submissionInFlight(item?: Pick<QueueItem, "state" | "submitted">): boolean {
+  return item?.state === "running" || item?.state === "queued" && item.submitted === true;
+}
+
 export function freshSubmissionSession(
   source: QueueItem,
   id: string,
@@ -28,6 +32,7 @@ export function freshSubmissionSession(
     thumbnailUrl: source.thumbnailUrl,
     generationMode: source.generationMode,
     polycount: source.polycount,
+    topology: source.topology,
     autoSegment: source.autoSegment,
     instruction: source.instruction,
     submitted: true,

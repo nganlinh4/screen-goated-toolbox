@@ -1,47 +1,47 @@
 {
-  "schemaVersion": 1,
-  "hostVersion": "5.5.1",
-  "version": "0.9.0",
-  "features": [
-    "image_to_3d",
-    "image_to_svg",
-    "image_creator"
-  ],
-  "windows": {
-    "asset": "sgt-creation-runtime-windows-x64-e63c6342e3977495.exe",
-    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64-e63c6342e3977495.exe",
-    "sizeBytes": 2599424,
-    "sha256": "e63c6342e3977495ded47b9300ebdfad209ea767d4fe6926f8f76a973b1a4d8b"
-  },
   "android": {
     "entries": [
       {
         "archivePath": "runtime/sgt-creation-runtime.dex.jar",
         "installPath": "runtime/sgt-creation-runtime.dex.jar",
         "role": "factory_dex",
-        "sha256": "48624851c5709064776f3e91bd0760f52f9e1a6a626acc5eaecb7fb249ac79a8",
-        "sizeBytes": 777040
+        "sha256": "a337a9051c806544f6823c70ff8e644ddc4b9cdfed1944d98fc0c09ad1988832",
+        "sizeBytes": 864820
       },
       {
         "archivePath": "lib/arm64-v8a/libsgt_creation_glb.so",
         "installPath": "lib/arm64-v8a/libsgt_creation_glb.so",
         "role": "native_library",
-        "sha256": "9cecbb123cfd2be0c87d65a54381866386b7dda0cd232df7d629466f236bd745",
-        "sizeBytes": 669624
+        "sha256": "5c16a1c553074de5a3608c3b466fdd958de62a07e7a25a830cb097ca8b642608",
+        "sizeBytes": 670432
       }
     ],
     "factoryClass": "dev.screengoated.toolbox.creation.runtime.AndroidCreationRuntimeFactory",
     "full": {
-      "asset": "sgt-creation-runtime-android-arm64-9fb711b3814085c2.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android-arm64-9fb711b3814085c2.zip",
-      "sha256": "9fb711b3814085c2616c3a3e2c81990c1e0f6dd592c7ce619150fe0d70309ad6",
-      "sizeBytes": 1446982
+      "asset": "sgt-creation-runtime-android-arm64-35e7d4e3d41c0df3.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android-arm64-35e7d4e3d41c0df3.zip",
+      "sha256": "35e7d4e3d41c0df3221b33ad75c38151403b55079d823526ec88464d8ac50053",
+      "sizeBytes": 1535570
     },
     "play": {
-      "asset": "sgt-creation-runtime-android-0224aa966e3a8378.aar",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android-0224aa966e3a8378.aar",
-      "sha256": "0224aa966e3a83785327a9c4f9f0168b151beb03a448344fb20d86464d8f9105",
-      "sizeBytes": 1570298
+      "asset": "sgt-creation-runtime-android-e2f9ea27340ccf0b.aar",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android-e2f9ea27340ccf0b.aar",
+      "sha256": "e2f9ea27340ccf0b90763346e81a545e4b69faa3e9308e2d8215b08a2cff6f41",
+      "sizeBytes": 1661679
     }
+  },
+  "features": [
+    "image_to_3d",
+    "image_to_svg",
+    "image_creator"
+  ],
+  "hostVersion": "5.5.1",
+  "schemaVersion": 1,
+  "version": "0.9.0",
+  "windows": {
+    "asset": "sgt-creation-runtime-windows-x64-e63c6342e3977495.exe",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64-e63c6342e3977495.exe",
+    "sha256": "e63c6342e3977495ded47b9300ebdfad209ea767d4fe6926f8f76a973b1a4d8b",
+    "sizeBytes": 2599424
   }
 }

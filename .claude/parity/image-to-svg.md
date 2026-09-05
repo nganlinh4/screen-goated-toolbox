@@ -252,6 +252,12 @@
 
 ## Platform Deviations
 
+- Windows now checks input validity before submission and shows an accessible
+  Choose another image dialog for rejected input; unavailable checks offer
+  Retry. Its maximum submission size is 4,490,000 bytes. Android's matching
+  preflight/dialog port is outstanding. Dismissal submits nothing and preserves
+  existing generated results.
+
 - Both platforms default to the user's Downloads folder. Windows uses the
   system Downloads directory; Android publishes through MediaStore Downloads.
   Windows may use a selected filesystem folder and Android may use a persisted

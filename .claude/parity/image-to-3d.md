@@ -7,19 +7,32 @@
 - Windows creation UI: [3d-generator-ui](../../3d-generator-ui/src)
 - Shared result history: [generation_history.rs](../../src/overlay/generation_history.rs)
 - Shared fixture: [state-contract.json](../../parity-fixtures/image-to-3d/state-contract.json)
+- Progress fixture: [progress-contract.json](../../parity-fixtures/image-to-3d/progress-contract.json)
 - Android creation UI:
   [creation](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/creation)
 
 ## Product Contract
 
+- Refinement controls use the app's typography and compact choice groups.
+  Separation offers Simple, Balanced, and Detailed; these describe desired
+  granularity rather than guaranteed part counts. Initial topology selection
+  and post-generation topology conversion are distinct operations. Rigging
+  is advertised only for a compatible textured revision. A displayed resource
+  balance alone does not establish an action's entitlement.
+- Readiness describes whether work can start, independently from the selected
+  artifact's Ready label. Available reusable capacity counts as ready; active
+  work or preparation without an available slot is preparing, not a failure.
+
 - Windows validates the source again before submission. Fast mode requires both
   sides to be at least 32 pixels and a file no larger than 20,000,000 bytes.
   These mode-specific limits do not constrain Quality mode. General source
   format, memory and file limits still apply. Invalid sources show a localized
-  explanation without starting generation. Shared boundary cases live in
+  modal explanation with Choose another image before starting generation.
+  Unavailable validation instead offers Retry and does not blame the source.
+  Escape/Close dismisses without submission; dialogs preserve the existing
+  results and use the native modal focus boundary. Shared boundary cases live in
   `parity-fixtures/image-to-3d/input-contract.json`. Android has not yet ported
   this preflight and must not be claimed as verified against this contract.
-
 
 - The shipped creation runtime advertises and delivers `image_to_3d`,
   `image_to_svg`, and `image_creator`. Windows and Android expose only the
@@ -59,9 +72,15 @@
   fresh generation. Restart replay is recognized as the same request only when
   that dispatch identifier matches; source-content equality never makes two
   user submissions the same job.
-- Rapid explicit presses on the selected session are captured as distinct jobs,
-  including while an earlier submission is queued or running. Start-response
-  order cannot collapse requests or steal a newer user selection.
+- Each accepted explicit submission remains a distinct job. Start-response
+  order cannot collapse requests or steal a newer user selection. The Windows
+  primary action is hidden and disabled while its selected session is submitted
+  or running; an unrelated draft can still be submitted while other work runs.
+- A manually requested revision starts a fresh progress clock and ratio without
+  inheriting its parent's execution identity or timing. The parent preview stays
+  visible. Automatic separation continues the combined generation progress.
+  Shared-settings captions name only the unsubmitted images actually affected;
+  completed revisions never count as pending images.
 - At most two jobs run simultaneously. 3D, SVG, and image jobs have independent
   concurrency limits.
 - Runtime preparation is implementation-private. The public host observes only
@@ -69,17 +88,37 @@
   creation tool, and never exposes implementation identities, account state,
   or preparation mechanics through UI, diagnostics, fixtures, or IPC.
 - Opening the surface paints the product UI before requesting readiness work.
-  Idle surfaces do not poll jobs, history, or readiness. Job status and
+  Idle surfaces do not poll jobs or history. Windows polls opaque readiness
+  every two seconds while open and stops on page teardown; its host refreshes
+  that status asynchronously so the header never blocks the UI. Android's
+  matching readiness display port is outstanding. Job status and
   estimated-progress refreshes run only while accepted or recovered work is
   active; history refreshes on open, focus, history mutation, and terminal
   transitions.
 - An accepted job has a two-hour whole-job watchdog. Silence and broken execution
   connections may fail earlier. Inbound elapsed and estimated-duration values
   are bounded to the same two-hour ceiling before storage or presentation.
-- Progress preserves `queued`, `preparing`, `generating`, `segmenting`,
-  `finalizing`, `done`, `failed`, and `cancelled`.
+- Progress preserves `queued`, `preparing`, `waiting_for_user`, `generating`,
+  `segmenting`, `finalizing`, `done`, `failed`, and `cancelled`.
+- When an accepted job needs a bounded user interaction, the runtime creates
+  that interaction in a presentation-capable browser surface from the start,
+  keeps the exact live surface hidden while passive completion remains
+  possible, and reveals that same surface without transferring its URL,
+  cookies, page state, or challenge state. The app shows only the product-level
+  `waiting_for_user` state. Dismissing or timing out the interaction fails
+  closed, cancellation closes it, and no consequential submission occurs
+  before the interaction succeeds.
 - The source preview, public stages, measured ETA, and final artifact are the
   generation visuals.
+- Background preparation must never reveal a verification window or take
+  focus. A deferred capacity verification is coalesced into one actionable
+  request, presented as an `Action needed · 1` chip. Opening the chip explains
+  the purpose using only creation-capacity language and offers Verify now or
+  Later. Verify now explicitly starts a fresh verification; no expiring
+  challenge is retained while the user defers. Repeated clicks share one
+  operation. Closing the mini app cancels that operation. Status refreshes on
+  open, focus, preparation completion, and while explicit verification runs.
+  The badge does not promise additional credits or expose preparation details.
 - Queue and history rows render a persisted, bounded project derivative when
   one is available and fall back to the shared image icon. They never decode
   an original source merely to paint a row. The selected source uses a bounded
@@ -96,8 +135,11 @@
   a new submission asks the user to select the source again; a thumbnail is
   never substituted as generation input.
 - A successful result is a validated triangle GLB no larger than 100 MiB, with
-  site-neutral naming. It may contain a bounded rest-pose skin, but it never
-  contains playable animation. Geometry metadata is reported when known.
+  site-neutral naming. It preserves bounded skins and authored animation.
+  Bounded animation clips support bone and
+  node transforms and morph weights; playback starts paused and offers clip
+  selection, play/pause, scrubbing, speed, and rest-pose reset. Geometry metadata
+  is reported when known.
   Validation runs before publication and bounds the JSON, buffers, views,
   accessors, geometry, node graph, morph targets, materials, and both decoded
   image pixels and per-texture GPU work. The asset version is exactly 2.0 and
@@ -132,8 +174,8 @@
   required factor-vector arity, and is finite and bounded. Texture-transform
   values follow the same bound, and texture sampler filters and wrapping modes
   must be valid typed enum values.
-- The product viewer does not play animation or expose authored cameras, so
-  animations, cameras, sparse accessors, cyclic or multi-parent node graphs,
+- The product viewer does not expose authored cameras, so
+  cameras, sparse accessors, cyclic or multi-parent node graphs,
   and non-triangle primitives are rejected rather than parsed as hidden work.
   Rest-pose skins are accepted only when the skin and joint totals are bounded,
   joint references are unique and in range, inverse-bind matrices are finite,
@@ -152,8 +194,8 @@
   Android loads only the revalidated app-owned result or bounded preview-cache
   materialization.
 - Generation always validates, publishes, records, and displays its base model
-  before optional separation. A request without separation produces the
-  free-preview quad. A request with separation produces the same model as
+  before optional separation. Quality drafts choose triangle or quad topology;
+  legacy requests without a choice retain their earlier quad default. A request with separation produces the model as
   triangles because
   the separation operation does not accept quad input; topology is frozen with
   the request and is never silently changed after generation.
@@ -182,13 +224,25 @@
 - The current revision exposes only refinement actions proved available for its
   generation mode and artifact. Unsupported actions are absent rather than
   presented as disabled promises. A supported action may be disabled as a
-  whole when its live, non-public allowance is temporarily unavailable. The UI
+  whole when its live, non-public allowance is temporarily unavailable; the
+  panel then states that grayed actions need more creation capacity. The UI
   never exposes implementation brands, account balances, or credit counts.
-  Only the current revision may consume a continuation. The supported
-  continuation is detailed separation only. Simpler
-  separation levels, optimization, materials, PBR, rigging, and animation are
-  absent until their complete release workflow passes acceptance on every
-  supported platform.
+  While a child revision is being created, the viewer keeps showing the parent
+  artifact it was started from instead of returning to the empty placeholder.
+- Only the current revision may consume a continuation. Segmented geometry is
+  not a terminal workflow state: other advertised refinements may remain valid.
+  The runtime owns action eligibility for the current revision; the host must
+  not replace that contract with a generation-mode or separation-only gate.
+  Actions still require a valid continuation and validated output.
+  Refinement submission rechecks the current revision and its prerequisites.
+  A recorded submission intent with an unknown outcome is never resubmitted;
+  recovery follows the exact accepted operation, not another operation of the
+  same type. Geometry-only quad revisions offer topology conversion first;
+  material, separation, rig, and animation actions require compatible geometry.
+  Existing materials and rigs must not be silently discarded by conversion.
+  Interactive texture painting is outside this product. Animation success requires
+  a resulting artifact with validated playable tracks; a successful remote job
+  alone is insufficient.
 - Recent sessions are presented newest-first on every surface, including newly
   imported, queued, processing, and saved-result rows. Presentation sorting
   never changes pending dispatch order.
@@ -328,10 +382,24 @@
 
 ## Platform Deviations
 
+- The revised control groups and readiness presentation are Windows changes;
+  Android's matching control presentation has not yet been ported or verified.
+
+- The progress fixture's primary-action visibility, fresh manual-revision
+  presentation, and clarified shared-settings caption are verified on Windows.
+  Android presentation has not yet been ported or verified against this fixture.
+
 - Both platforms keep new project revisions in their app-managed creation
   library. Explicit export uses the system Downloads directory on Windows and
   MediaStore Downloads on Android. Platform folder selection is not part of the
   3D project workflow.
+- Windows presents a runtime-owned WebView2 interaction window for the bounded
+  user-interaction state. Android currently preserves and fails closed on the
+  same state contract but does not yet present the worker-owned WebView across
+  its isolated process boundary; Android release acceptance must not treat a
+  run that requires that interaction as passed.
+- The deferred capacity-verification badge is currently Windows-only. Android
+  does not advertise a verification action until its interactive host exists.
 - Both platforms use the shared viewer document; only the WebView host and
   app-owned result-delivery adapter are platform-specific.
 - Platform delivery differs, but product settings, progress, cancellation,

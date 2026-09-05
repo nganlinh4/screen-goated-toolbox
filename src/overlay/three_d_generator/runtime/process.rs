@@ -8,6 +8,7 @@ fn normalize_progress_stage(value: &str) -> &'static str {
     match value {
         "queued" => "queued",
         "preparing" => "preparing",
+        "waiting_for_user" => "waiting_for_user",
         "generating" => "generating",
         "segmenting" => "segmenting",
         "refining" => "refining",
@@ -20,6 +21,7 @@ fn progress_text(stage: &str) -> &'static str {
     match stage {
         "queued" => "Waiting to create.",
         "preparing" => "Preparing creation.",
+        "waiting_for_user" => "Complete the requested step in the secure window.",
         "segmenting" => "Separating model parts.",
         "refining" => "Creating a new version.",
         "finalizing" => "Finishing model.",
@@ -193,9 +195,17 @@ mod tests {
     #[test]
     fn inbound_runtime_state_is_reduced_to_the_public_contract() {
         assert_eq!(normalize_progress_stage("generating"), "generating");
+        assert_eq!(
+            normalize_progress_stage("waiting_for_user"),
+            "waiting_for_user"
+        );
         assert_eq!(normalize_progress_stage("unexpected-detail"), "generating");
         assert_eq!(normalize_progress_stage("done"), "generating");
         assert_eq!(progress_text("generating"), "Creating model.");
+        assert_eq!(
+            progress_text("waiting_for_user"),
+            "Complete the requested step in the secure window."
+        );
     }
 
     #[test]
@@ -218,6 +228,7 @@ mod tests {
             generation_mode: None,
             polycount: None,
             auto_segment: None,
+            topology: None,
             instruction: None,
             project_id: None,
             parent_revision_id: None,

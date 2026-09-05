@@ -89,6 +89,7 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                 ),
             ),
             model3d = Creation3dLocale(
+                playback = CreationPlaybackLocale("애니메이션", "재생", "일시 정지", "애니메이션 시간", "재생 속도", "기본 포즈"),
                 mode = "모드",
                 fast = "빠름",
                 quality = "품질",

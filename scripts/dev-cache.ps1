@@ -214,6 +214,23 @@ if (Test-Path -LiteralPath $stagingRuntime) {
     })
 }
 
+$cargoRoot = Join-Path $root "cargo"
+$protectedCargoPaths = @(
+    [IO.Path]::GetFullPath($known.DevCargo).TrimEnd('\')
+    [IO.Path]::GetFullPath($known.PackageCargo).TrimEnd('\')
+)
+Get-ChildItem -LiteralPath $cargoRoot -Directory -Force -ErrorAction SilentlyContinue |
+    Where-Object {
+        [IO.Path]::GetFullPath($_.FullName).TrimEnd('\') -notin $protectedCargoPaths
+    } |
+    ForEach-Object {
+        $candidates.Add([pscustomobject]@{
+            Path = $_.FullName
+            LastWriteUtc = Get-NewestWriteTime $_.FullName
+            Protected = $false
+        })
+    }
+
 $candidates.Add([pscustomobject]@{
     Path = $known.PackageCargo
     LastWriteUtc = Get-NewestWriteTime $known.PackageCargo

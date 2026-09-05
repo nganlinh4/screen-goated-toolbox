@@ -1,4 +1,26 @@
+import type { JobStatus } from "./types";
+
 export const MAX_IN_FLIGHT_PROGRESS = 0.94;
+
+export function pendingRevisionStatus(parent: JobStatus, progressText: string): JobStatus {
+  return {
+    ...parent,
+    jobId: undefined,
+    parentRevisionId: parent.jobId,
+    stage: "refining",
+    progressText,
+    phase: undefined,
+    elapsedMs: 0,
+    estimatedTotalMs: undefined,
+    progressRatio: 0,
+    timingSampleCount: 0,
+    error: undefined,
+    canRefine: false,
+    canSegment: false,
+    supportedActions: [],
+    availableActions: [],
+  };
+}
 export const AUTOMATIC_SEGMENTATION_START = 0.72;
 
 export type ProgressRange = {

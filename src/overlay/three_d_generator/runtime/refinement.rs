@@ -1,4 +1,46 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+pub(super) fn refinement_advertised(result: &Value, available_actions: &[String]) -> bool {
+    result
+        .get("canRefine")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| {
+            result.get("canSegment").and_then(Value::as_bool) == Some(true)
+                || !available_actions.is_empty()
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn geometry_state_does_not_override_explicit_refinement_capability() {
+        for segmented in [false, true] {
+            for allowed in [false, true] {
+                assert_eq!(
+                    refinement_advertised(
+                        &json!({"isSegmented": segmented, "canRefine": allowed}),
+                        &["add_materials".to_string()],
+                    ),
+                    allowed,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_capability_fallback_does_not_invent_actions() {
+        assert!(!refinement_advertised(&json!({"isSegmented": true}), &[]));
+        assert!(refinement_advertised(&json!({"canSegment": true}), &[]));
+        assert!(refinement_advertised(
+            &json!({"isSegmented": true}),
+            &["add_materials".to_string()],
+        ));
+    }
+}
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

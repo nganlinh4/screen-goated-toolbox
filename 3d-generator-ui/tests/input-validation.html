@@ -3,28 +3,35 @@
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Input validation acceptance</title></head>
 <body>
 <main id="app"></main>
+<button id="toggle-readiness" style="position:fixed;bottom:48px;left:4px;z-index:1000">Toggle readiness</button>
 <output id="submission-count" style="position:fixed;bottom:4px;left:4px;z-index:1000">Remote submissions: 0</output>
+<output id="validation-count" style="position:fixed;bottom:24px;left:4px;z-index:1000">Validation checks: 0</output>
 <script type="module">
   const params = new URLSearchParams(location.search);
-  window.__SGT_CONTEXT__ = { language: params.get("lang") || "vi", theme: "dark" };
+  window.__SGT_CONTEXT__ = { language: params.get("lang") || "vi", theme: params.get("theme") || "dark" };
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 32;
   const context = canvas.getContext("2d");
   context.fillStyle = "#68a2dd";
   context.fillRect(0, 0, 32, 32);
   let submissions = 0;
+  let checks = 0;
+  let readiness = "ready";
+  document.querySelector("#toggle-readiness").onclick = () => { readiness = readiness === "ready" ? "preparing" : "ready"; };
   window.invoke = async (cmd, args) => {
     switch (cmd) {
       case "pick_images": return ["input.png"];
       case "read_image_preview": return { dataUrl: canvas.toDataURL(), width: 32, height: 32 };
-      case "validate_image": return { error: params.get("error") || "image_too_small" };
+      case "validate_image":
+        document.querySelector("#validation-count").textContent = `Validation checks: ${++checks}`;
+        return { error: params.get("error") || "image_too_small" };
       case "start_job":
         document.querySelector("#submission-count").textContent = `Remote submissions: ${++submissions}`;
         throw new Error("Invalid source must not reach submission");
       case "job_statuses": case "history_results": return [];
       case "generation_capabilities": return { ready: true, optionalInstruction: { fast: false, quality: false } };
       case "capacity_verification_status": return { pendingCount: 0 };
-      case "runtime_preparation_status": case "prepare_runtime": return "ready";
+      case "runtime_preparation_status": case "prepare_runtime": return readiness;
       case "default_output_dir": return "";
       default: return null;
     }

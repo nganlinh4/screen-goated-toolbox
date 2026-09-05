@@ -31,7 +31,7 @@ pub(super) fn operation_name(operation: &RuntimeOperation) -> &'static str {
 }
 
 pub(super) fn request_value(operation: &RuntimeOperation) -> Value {
-    match operation {
+    let mut value = match operation {
         RuntimeOperation::Generate { request, .. } => {
             let mut value = serde_json::to_value(request).unwrap_or(Value::Null);
             if let Some(arguments) = value.as_object_mut() {
@@ -76,7 +76,13 @@ pub(super) fn request_value(operation: &RuntimeOperation) -> Value {
                 "animation": &refinement.animation,
             })
         }
+    };
+    if !matches!(operation, RuntimeOperation::Generate { .. })
+        && let Some(topology) = operation.topology()
+    {
+        value["generationTopology"] = json!(topology);
     }
+    value
 }
 
 pub(super) fn fresh_message(

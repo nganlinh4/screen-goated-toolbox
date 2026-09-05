@@ -194,6 +194,7 @@ pub enum DragOutcome {
     CloseOne,
     CloseGroup,
     CloseAll,
+    Cancelled,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -218,6 +219,7 @@ pub enum HostCommand {
         cards: Vec<SceneGeometry>,
     },
     DragSettled {
+        gesture_id: Option<u64>,
         cards: Vec<SceneGeometry>,
     },
     Controls {
@@ -250,6 +252,9 @@ pub enum HostCommand {
     },
     NavigateForward {
         id: isize,
+    },
+    ApplyRevision {
+        revision: u64,
     },
     Shutdown,
 }
@@ -284,6 +289,11 @@ pub enum ChildEvent {
     ResyncRequested,
     RendererFailure {
         kind: RendererFailureKind,
+    },
+    StateAcknowledged {
+        revision: u64,
+        visible_cards: usize,
+        input_rect_count: usize,
     },
     FontReady {
         duration_ms: f64,
@@ -320,8 +330,11 @@ pub enum ChildEvent {
         id: isize,
         action: ButtonAction,
     },
-    DragStarted,
+    DragStarted {
+        gesture_id: u64,
+    },
     DragFinished {
+        gesture_id: u64,
         id: isize,
         targets: Vec<isize>,
         outcome: DragOutcome,
@@ -329,6 +342,7 @@ pub enum ChildEvent {
         dy: i32,
     },
     ResizeFinished {
+        gesture_id: u64,
         id: isize,
         rect: SceneRect,
     },
@@ -431,6 +445,7 @@ mod tests {
         );
 
         let settled = HostCommand::DragSettled {
+            gesture_id: Some(7),
             cards: match command {
                 HostCommand::Geometry { cards } => cards,
                 _ => unreachable!(),
@@ -438,6 +453,7 @@ mod tests {
         };
         let settled_json = serde_json::to_string(&settled).unwrap();
         assert!(settled_json.contains("\"type\":\"drag_settled\""));
+        assert!(settled_json.contains("\"gesture_id\":7"));
         assert!(!settled_json.contains("html"));
     }
 

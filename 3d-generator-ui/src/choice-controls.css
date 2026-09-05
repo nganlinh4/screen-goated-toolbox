@@ -1,0 +1,33 @@
+.choice-options {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  min-width: 0;
+  border-radius: 12px;
+  background: var(--control);
+}
+.choice-options > button, .refinement-row .choice-options > button {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.choice-options > button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.choice-options > button:hover:not(:disabled) { background: var(--control-hover); }
+.choice-options > button:disabled { opacity: 0.5; cursor: default; }
+.refinement-panel .refinement-row:has(.choice-options) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.refinement-row > .choice-options { grid-column: 1 / -1; }
+.refinement-row > .choice-options + button { grid-column: 2; }
+.refinement-row > select[hidden] { display: none; }

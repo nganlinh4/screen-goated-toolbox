@@ -2,6 +2,11 @@ use super::*;
 
 const _: () = assert!(MAX_RETAINED_TERMINAL_JOBS >= MAX_QUEUED_JOBS);
 
+#[test]
+fn bounded_user_interaction_remains_an_active_job() {
+    assert!(status_is_busy("waiting_for_user"));
+}
+
 fn continuation() -> Continuation {
     Continuation {
         parent_dispatch_id: "parent-dispatch".to_string(),
@@ -19,6 +24,7 @@ fn continuation() -> Continuation {
         generation_mode: GenerationMode::Quality,
         polycount: 5_000,
         auto_segment: false,
+        topology: None,
         instruction: Some("Keep the silhouette".to_string()),
         project_id: "project".to_string(),
         supported_actions: vec!["separate_parts".to_string()],
@@ -165,4 +171,20 @@ fn queued_jobs_are_never_pruned_as_terminal_history() {
         state.job_order.last().map(String::as_str),
         Some("queued-49")
     );
+}
+
+#[test]
+fn segmented_revisions_keep_their_advertised_continuation() {
+    let mut state = RuntimeState::default();
+    let mut current = continuation();
+    current.is_segmented = true;
+    current.supported_actions = vec!["add_materials".to_string()];
+    current
+        .available_actions
+        .clone_from(&current.supported_actions);
+    state.continuations.insert("current".to_string(), current);
+    let retained = state.take_continuation("current", 0).unwrap();
+    assert!(retained.is_segmented);
+    assert_eq!(retained.available_actions, vec!["add_materials"]);
+    assert!(state.take_continuation("current", 0).is_err());
 }

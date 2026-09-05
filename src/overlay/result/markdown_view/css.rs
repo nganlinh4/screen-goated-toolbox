@@ -229,7 +229,7 @@ pub const MARKDOWN_CSS: &str = r#"
         white-space: normal;
     }
 
-    a { color: var(--link-color); text-decoration: none; transition: all 0.2s; cursor: pointer; }
+    a { color: var(--link-color); text-decoration: none; transition: color 0.2s, text-shadow 0.2s; cursor: pointer; }
     a .word { cursor: pointer; } /* Ensure link words show hand cursor */
     a:hover { color: var(--link-hover-color); text-shadow: 0 0 10px var(--link-shadow); text-decoration: none; }
 

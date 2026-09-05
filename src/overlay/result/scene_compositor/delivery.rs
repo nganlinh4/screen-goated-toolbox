@@ -89,6 +89,10 @@ fn deliver_batch(process: ProcessState, mut commands: Vec<HostCommand>) {
             return;
         }
     }
+    if !commands.is_empty() {
+        let rev = super::reconciliation::advance_revision();
+        commands.push(HostCommand::ApplyRevision { revision: rev });
+    }
     for command in commands {
         if let Err(error) = write_command(&command) {
             crate::log_info!("[ResultCompositor] command delivery failed: {error:#}");

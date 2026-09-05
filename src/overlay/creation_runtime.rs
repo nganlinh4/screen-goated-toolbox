@@ -13,6 +13,8 @@ mod capability_probe;
 mod download;
 mod lifecycle;
 mod process_query;
+mod readiness_cache;
+pub(crate) mod verification;
 
 pub(crate) use capability_probe::supports_optional_3d_instruction;
 pub(crate) use download::download_runtime;
@@ -92,6 +94,27 @@ fn parse_readiness(output: &[u8]) -> Option<String> {
 }
 
 pub(crate) fn readiness(tool: &str) -> String {
+    if !supported_readiness_tool(tool) {
+        return "unavailable".to_string();
+    }
+    let observed = readiness_cache::read(tool);
+    let preparing = READINESS_IN_FLIGHT
+        .lock()
+        .unwrap_or_else(|value| value.into_inner())
+        .get(tool)
+        .is_some_and(|task| !task.stop.load(Ordering::Acquire));
+    displayed_readiness(&observed, preparing).to_string()
+}
+
+fn displayed_readiness(observed: &str, preparing: bool) -> &str {
+    if preparing && observed == "unavailable" {
+        "preparing"
+    } else {
+        observed
+    }
+}
+
+fn query_readiness(tool: &str) -> String {
     if !supported_readiness_tool(tool) {
         return "unavailable".to_string();
     }
@@ -265,6 +288,9 @@ pub(crate) fn maintain_readiness_for_demand(
                 || task.stop.load(Ordering::Acquire),
             );
             if task.desired.load(Ordering::Acquire) == 0 {
+                if tool == "3d" {
+                    verification::refresh();
+                }
                 break;
             }
         }

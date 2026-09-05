@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "windows": {"maximumBytes": 4490000, "minimumDimension": 1},
+  "errors": {"image_too_large": "choose", "image_invalid": "choose", "validation_unavailable": "retry"},
+  "dismissSubmits": false,
+  "preservesExistingResults": true,
+  "androidParity": "pending"
+}

@@ -1,8 +1,9 @@
 import "./viewer-standalone.css";
 import { ModelViewer, type ShadingMode } from "./viewer";
 import { viewerToolbarMarkup } from "./viewer-toolbar";
+import type { PlaybackLabels } from "./viewer-playback-panel";
 
-export const VIEWER_DOCUMENT_VERSION = 2;
+export const VIEWER_DOCUMENT_VERSION = 3;
 const PRODUCT_FONT_URL = "/creation-model-viewer/GoogleSansFlex.woff";
 
 const productFont = new FontFace(
@@ -13,7 +14,7 @@ const productFont = new FontFace(
 document.fonts.add(productFont);
 const productFontReady = productFont.load();
 
-type ViewerLabels = {
+type ViewerLabels = PlaybackLabels & {
   originalMaterials: string;
   toonOutline: string;
   partColors: string;
@@ -121,6 +122,7 @@ async function start(options: ViewerStartOptions) {
     node.setAttribute("aria-label", label);
   });
   viewer.setTheme(options.theme);
+  viewer.setPlaybackLabels(options.labels);
   status.hidden = true;
   toolbar.classList.remove("visible");
   try {

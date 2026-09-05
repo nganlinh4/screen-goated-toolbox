@@ -12,6 +12,14 @@ pub(in crate::overlay::three_d_generator) fn start_job(
     crate::overlay::creation_close::ensure_accepting("3d")?;
     ensure_recovery_started();
     generation_mode::normalize_request(&mut request);
+    if request
+        .topology
+        .as_deref()
+        .is_some_and(|value| !matches!(value, "triangle" | "quad"))
+        || request.auto_segment && request.topology.as_deref() == Some("quad")
+    {
+        return Err("Choose triangle topology for automatic separation.".to_string());
+    }
     capabilities::normalize_instruction(request.generation_mode, &mut request.instruction)?;
     if request.image_path.trim().is_empty() {
         return Err("Pick an image first.".to_string());
@@ -66,6 +74,7 @@ pub(in crate::overlay::three_d_generator) fn start_job(
             generation_mode: Some(request.generation_mode),
             polycount: Some(request.polycount),
             auto_segment: Some(request.auto_segment),
+            topology: request.topology.clone(),
             instruction: request.instruction.clone(),
             output_path: None,
             output_name: None,
@@ -207,6 +216,7 @@ pub(in crate::overlay::three_d_generator) fn start_refinement(
             generation_mode: Some(continuation.generation_mode),
             polycount: Some(continuation.polycount),
             auto_segment: Some(continuation.auto_segment),
+            topology: continuation.topology.clone(),
             instruction: continuation.instruction.clone(),
             output_path: Some(
                 continuation
@@ -232,6 +242,7 @@ pub(in crate::overlay::three_d_generator) fn start_refinement(
         "finalOutputDir": &continuation.output_dir,
         "previousOutputPath": &continuation.previous_output_path,
         "generationMode": continuation.generation_mode,
+        "generationTopology": continuation.topology,
         "polycount": continuation.polycount,
         "autoSegment": continuation.auto_segment,
         "instruction": &continuation.instruction,
@@ -355,6 +366,7 @@ struct QueuedStatusFields {
     generation_mode: Option<super::GenerationMode>,
     polycount: Option<u32>,
     auto_segment: Option<bool>,
+    topology: Option<String>,
     instruction: Option<String>,
     output_path: Option<String>,
     output_name: Option<String>,
@@ -380,6 +392,7 @@ fn queued_status(job_id: &str, fields: QueuedStatusFields) -> JobStatus {
         generation_mode: fields.generation_mode,
         polycount: fields.polycount,
         auto_segment: fields.auto_segment,
+        topology: fields.topology,
         instruction: fields.instruction,
         project_id: None,
         parent_revision_id: None,

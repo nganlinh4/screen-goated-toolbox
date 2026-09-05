@@ -22,3 +22,15 @@ test("every preview shading mode keeps generated surfaces visible from both side
   new Set(materials).forEach((material) => material.dispose());
   gradient.dispose();
 });
+
+test("original and toon shading preserve authored alpha instead of applying a reveal opacity", () => {
+  const material = new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.4, alphaTest: 0.2 });
+  const gradient = new THREE.DataTexture();
+  const set = createViewerMaterialSet([material], 0x23b99f, gradient);
+  for (const mode of [set.original, set.toon]) {
+    assert.ok(!Array.isArray(mode));
+    assert.equal(mode.opacity, 0.4);
+    assert.equal(mode.transparent, true);
+    assert.equal(mode.alphaTest, 0.2);
+  }
+});

@@ -1,6 +1,13 @@
 use super::*;
 
 #[test]
+#[ignore = "Requires an explicitly supplied local model acceptance fixture"]
+fn generated_viewer_fixture_passes_committed_artifact_validation() {
+    let path = PathBuf::from(std::env::var("SGT_MODEL_VALIDATION_FIXTURE").unwrap());
+    validate_glb(&path).unwrap();
+}
+
+#[test]
 fn glb_header_length_must_match_the_committed_file() {
     let path = std::env::temp_dir().join(format!(
         "sgt-invalid-glb-{}-{}.glb",
@@ -180,7 +187,7 @@ fn buffer_table_and_unused_viewer_features_are_bounded() {
         component_count: 3,
         ..AccessorInfo::default()
     };
-    for field in ["animations", "cameras"] {
+    {
         let mut root = serde_json::json!({
             "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
             "nodes": [{"mesh": 0}],
@@ -188,7 +195,7 @@ fn buffer_table_and_unused_viewer_features_are_bounded() {
         });
         root.as_object_mut()
             .unwrap()
-            .insert(field.to_string(), serde_json::json!([{}]));
+            .insert("cameras".to_string(), serde_json::json!([{}]));
         assert!(features::validate(root.as_object().unwrap()).is_err());
         assert!(semantics::validate(root.as_object().unwrap(), &[accessor]).is_ok());
     }
@@ -409,152 +416,8 @@ fn json_padding_and_asset_version_match_the_local_loader() {
     assert!(validate_gltf_semantics(&future, Some(&[0; 36])).is_err());
 }
 
-#[test]
-fn model_safety_fixture_matches_windows_limits() {
-    let fixture: Value = serde_json::from_str(include_str!(
-        "../../../parity-fixtures/image-to-3d/state-contract.json"
-    ))
-    .unwrap();
-    assert_eq!(fixture["schemaVersion"].as_u64(), Some(70));
-    assert_eq!(
-        fixture["readiness"]["unrelatedDialogsDoNotBecomeFirstUseGuidance"].as_bool(),
-        Some(true)
-    );
-    let safety = fixture["modelSafety"].as_object().unwrap();
-    for (field, expected) in [
-        ("maximumGlbBytes", MAX_GLB_BYTES),
-        ("maximumJsonBytes", MAX_GLB_JSON_BYTES),
-        (
-            "maximumEmbeddedUriCharacters",
-            MAX_EMBEDDED_URI_BYTES as u64,
-        ),
-        ("maximumBuffers", MAX_GLTF_BUFFERS as u64),
-        ("maximumBufferViews", MAX_GLTF_BUFFER_VIEWS as u64),
-        ("maximumAccessors", MAX_GLTF_ACCESSORS as u64),
-        ("maximumAccessorElements", MAX_GLTF_ACCESSOR_ELEMENTS),
-        (
-            "maximumAggregateBufferViewBytes",
-            MAX_TOTAL_BUFFER_VIEW_BYTES,
-        ),
-        (
-            "maximumAbsoluteRendererValue",
-            MAX_GLTF_ABSOLUTE_RENDERER_VALUE as u64,
-        ),
-        ("maximumNodes", MAX_GLTF_NODES as u64),
-        ("maximumScenes", MAX_GLTF_SCENES as u64),
-        ("maximumMeshes", MAX_GLTF_MESHES as u64),
-        ("maximumPrimitives", MAX_GLTF_PRIMITIVES as u64),
-        ("maximumMaterials", MAX_GLTF_MATERIALS as u64),
-        ("maximumVertices", MAX_GLTF_VERTICES),
-        ("maximumIndices", MAX_GLTF_INDICES),
-        ("maximumMorphTargets", MAX_GLTF_MORPH_TARGETS as u64),
-        ("maximumMorphElements", MAX_GLTF_MORPH_ELEMENTS),
-        ("maximumSkins", MAX_GLTF_SKINS as u64),
-        ("maximumJointsPerSkin", MAX_GLTF_JOINTS_PER_SKIN as u64),
-        ("maximumTotalJoints", MAX_GLTF_TOTAL_JOINTS as u64),
-        (
-            "maximumPrimitiveAttributes",
-            MAX_PRIMITIVE_ATTRIBUTES as u64,
-        ),
-        ("maximumMorphAttributes", MAX_MORPH_ATTRIBUTES as u64),
-        (
-            "maximumImages",
-            super::super::asset_texture_validation::MAX_TEXTURE_IMAGES as u64,
-        ),
-        (
-            "maximumTextures",
-            super::super::asset_texture_validation::MAX_TEXTURES as u64,
-        ),
-        (
-            "maximumSamplers",
-            super::super::asset_texture_validation::MAX_TEXTURE_SAMPLERS as u64,
-        ),
-        (
-            "maximumTextureAxisPixels",
-            u64::from(super::super::asset_texture_validation::MAX_TEXTURE_AXIS),
-        ),
-        (
-            "maximumPixelsPerTextureImage",
-            super::super::asset_texture_validation::MAX_TEXTURE_PIXELS,
-        ),
-        (
-            "maximumDecodedImagePixels",
-            super::super::asset_texture_validation::MAX_TOTAL_TEXTURE_PIXELS,
-        ),
-        (
-            "maximumReferencedTexturePixels",
-            super::super::asset_texture_validation::MAX_TOTAL_TEXTURE_PIXELS,
-        ),
-    ] {
-        assert_eq!(safety[field].as_u64(), Some(expected), "{field}");
-    }
-    let allowed = safety["allowedExtensions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|value| value.as_str().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(allowed, features::SAFE_EXTENSIONS);
-    for field in [
-        "staticTriangleGeometryOnly",
-        "bufferByteLengthIsExactLogicalBytes",
-        "binaryChunkUsesZeroAlignmentPadding",
-        "binaryChunkMustBackBufferZero",
-        "accessorAbsoluteAlignmentRequired",
-        "vertexAccessorFourByteAlignmentRequired",
-        "loaderInterleavedTailCoverageRequired",
-        "accessorBoundsValidated",
-        "positionBoundsContainBinaryValues",
-        "rendererBinaryFloatValuesMustBeFinite",
-        "primitiveElementCountMultipleOfThree",
-        "primitiveIndicesWithinPositionAccessor",
-        "sharedIndexedVertexStorageChargedOnce",
-        "texturePayloadMustDecode",
-        "materialTextureReferencesValidated",
-        "materialNumericValuesBounded",
-        "materialRendererValueTypesValidated",
-        "textureClonePixelsCharged",
-        "textureTransformValuesBounded",
-        "samplerEnumsValidated",
-        "bufferUriMimeContextRequired",
-        "presentationRevalidatesCommittedBytesBeforeLoad",
-        "selectedSceneMustContainGeometry",
-        "sceneRootsUniqueAcrossScenes",
-        "nodeTransformsAndMorphWeightsBounded",
-        "extensionsFailClosed",
-        "extensionsUsedMustBeUnique",
-        "extensionsRequiredMustBeUsed",
-        "extensionBodiesMustBeDeclared",
-        "skinsAllowed",
-        "skinReferencesValidated",
-        "inverseBindMatricesValidated",
-        "jointIndicesWithinSkin",
-        "skinWeightsNormalized",
-        "skinScopesUnambiguous",
-    ] {
-        assert_eq!(safety[field].as_bool(), Some(true), "{field}");
-    }
-    assert_eq!(
-        safety["maximumBinaryAlignmentPaddingBytes"].as_u64(),
-        Some(3)
-    );
-    for field in [
-        "externalResourcesAllowed",
-        "animatedPngAllowed",
-        "animatedWebpAllowed",
-        "sparseAccessorsAllowed",
-        "animationsAllowed",
-        "authoredCamerasAllowed",
-    ] {
-        assert_eq!(safety[field].as_bool(), Some(false), "{field}");
-    }
-    assert_eq!(safety["exactAssetVersion"].as_str(), Some("2.0"));
-    assert_eq!(safety["jsonChunkPaddingByte"].as_u64(), Some(32));
-    assert_eq!(
-        safety["maximumNodeDepth"].as_u64(),
-        Some(MAX_GLTF_NODE_DEPTH as u64)
-    );
-}
+#[path = "asset_contract_tests.rs"]
+mod contract_tests;
 
 fn triangle_document(buffer_views: Value, accessors: Value, buffer_length: u64) -> Value {
     serde_json::json!({

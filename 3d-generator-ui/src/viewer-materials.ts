@@ -27,8 +27,9 @@ function createToonMaterial(source: THREE.Material, gradientMap: THREE.Texture) 
     emissive: standard.emissive?.clone() || new THREE.Color(0x000000),
     emissiveMap: standard.emissiveMap || null,
     side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0,
+    transparent: standard.transparent,
+    opacity: standard.opacity,
+    alphaTest: standard.alphaTest,
     vertexColors: standard.vertexColors,
     gradientMap,
   });
@@ -45,8 +46,8 @@ export function createViewerMaterialSet(
     color: partColor,
     gradientMap,
     side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0,
+    transparent: false,
+    opacity: 1,
   }));
   return {
     original: oneOrMany(original),

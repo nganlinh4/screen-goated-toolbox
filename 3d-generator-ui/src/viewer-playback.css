@@ -1,0 +1,37 @@
+.viewer-playback {
+  position: absolute;
+  z-index: 3;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(620px, calc(100% - 24px));
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px "Google Sans Flex", system-ui, sans-serif;
+}
+.viewer-playback[hidden] { display: none; }
+.viewer-playback button, .viewer-playback select {
+  min-height: 32px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--control);
+  color: inherit;
+  font: inherit;
+  padding: 4px 8px;
+}
+.viewer-playback :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.viewer-playback-clips { min-width: 0; max-width: 130px; }
+.viewer-playback-seek { flex: 1; min-width: 40px; accent-color: var(--accent); }
+.viewer-playback-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (max-width: 520px) {
+  .viewer-playback { flex-wrap: wrap; gap: 6px; }
+  .viewer-playback-seek { order: 1; flex-basis: 65%; }
+  .viewer-playback-time { order: 2; }
+  .viewer-playback-clips { flex: 1; max-width: none; }
+}

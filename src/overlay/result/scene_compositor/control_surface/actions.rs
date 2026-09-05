@@ -80,6 +80,7 @@ pub(in crate::overlay::result::scene_compositor) fn handle_drag_finished(
         DragOutcome::CloseOne => crate::overlay::result::trigger_close_window(hwnd),
         DragOutcome::CloseGroup => crate::overlay::result::trigger_close_group(hwnd),
         DragOutcome::CloseAll => crate::overlay::result::trigger_close_all(),
+        DragOutcome::Cancelled => {}
     }
 }
 

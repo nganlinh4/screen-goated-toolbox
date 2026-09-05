@@ -7,20 +7,25 @@ mod child;
 mod child_commands;
 mod control_surface;
 mod controls;
+mod dcomp;
 mod delivery;
 mod diagnostics;
 pub(crate) mod font;
+mod gesture;
 mod html;
+mod input_surface;
 mod isolated_server;
 mod mailbox;
+#[cfg(test)]
+mod native_verification;
 mod parent;
+mod pointer_input;
 pub(crate) mod protocol;
+mod reconciliation;
 mod region;
 mod scene_groups;
 mod supervisor;
 mod sync_scheduler;
-mod web_response;
-mod webview_failure;
 
 pub use controls::{
     is_dragging, is_point_over_result_window, set_control_scope_opacity, set_external_drag,

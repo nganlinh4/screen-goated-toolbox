@@ -134,6 +134,14 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .map_err(|err| err.to_string())
         }
         "prepare_runtime" => Ok(Value::String(super::runtime::prepare_runtime())),
+        "capacity_verification_status" => {
+            Ok(crate::overlay::creation_runtime::verification::status())
+        }
+        "refresh_capacity_verification" => {
+            crate::overlay::creation_runtime::verification::refresh();
+            Ok(Value::Null)
+        }
+        "verify_capacity" => Ok(crate::overlay::creation_runtime::verification::start()),
         "runtime_preparation_status" => {
             Ok(Value::String(super::runtime::runtime_preparation_status()))
         }

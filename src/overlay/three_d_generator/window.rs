@@ -128,6 +128,13 @@ unsafe extern "system" fn window_proc(
             }
             super::WM_APP_SYNC => {
                 refresh_window_chrome(hwnd);
+                super::WEBVIEW.with(|slot| {
+                    if let Some(webview) = slot.borrow().as_ref() {
+                        let _ = webview.evaluate_script(
+                            "window.dispatchEvent(new Event('creation-verification-changed'))",
+                        );
+                    }
+                });
                 LRESULT(0)
             }
             super::WM_APP_PREVIEW_REPLY => {

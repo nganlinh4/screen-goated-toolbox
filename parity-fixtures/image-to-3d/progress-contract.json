@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "primaryActionHidden": [
+    { "state": "queued", "submitted": false, "hidden": false },
+    { "state": "queued", "submitted": true, "hidden": true },
+    { "state": "running", "submitted": true, "hidden": true },
+    { "state": "done", "submitted": true, "hidden": false },
+    { "state": "failed", "submitted": true, "hidden": false },
+    { "state": "cancelled", "submitted": true, "hidden": false }
+  ],
+  "manualRevision": {
+    "initialProgressRatio": 0,
+    "initialElapsedMs": 0,
+    "inheritsParentJobId": false,
+    "retainsParentPreview": true
+  },
+  "automaticSeparationContinuesCombinedProgress": true,
+  "sharedSettingsCaptionScope": "unsubmitted_images_in_selected_import"
+}

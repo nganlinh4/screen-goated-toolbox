@@ -2,6 +2,7 @@
 
 mod actions;
 mod css;
+mod drag_runtime;
 mod refine_runtime;
 mod runtime;
 mod theme;
@@ -39,10 +40,14 @@ pub(crate) fn document_script() -> String {
         "send": icon("send"), "opacity": icon("opacity"), "close": icon("close"),
     })
     .to_string();
-    [runtime::get_javascript(), refine_runtime::get_javascript()]
-        .concat()
-        .replace("#L10N_JSON#", &l10n)
-        .replace("#ICON_SVGS_JSON#", &icons)
+    [
+        runtime::get_javascript(),
+        drag_runtime::get_javascript(),
+        refine_runtime::get_javascript(),
+    ]
+    .concat()
+    .replace("#L10N_JSON#", &l10n)
+    .replace("#ICON_SVGS_JSON#", &icons)
 }
 
 pub(crate) fn theme_css(is_dark: bool) -> String {
@@ -54,11 +59,14 @@ pub(super) use actions::{handle as handle_action, handle_drag_finished};
 #[cfg(test)]
 mod tests {
     #[test]
-    fn result_cards_and_controls_own_exactly_one_webview_builder() {
+    fn result_cards_and_controls_share_one_composition_host() {
         let compositor = include_str!("../child.rs");
         let controls = include_str!("mod.rs");
 
-        assert_eq!(compositor.matches("WebViewBuilder::").count(), 1);
+        assert_eq!(
+            compositor.matches("let dcomp_host = build_host(").count(),
+            1
+        );
         assert!(!controls.contains(&["create_canvas", "_window"].concat()));
         assert!(!controls.contains(&["Web", "Context"].concat()));
     }

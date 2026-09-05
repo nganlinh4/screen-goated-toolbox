@@ -9,6 +9,9 @@ import { LatestOnlyLane } from "./latest-only-lane";
 import { modelGeometryStats, prepareSegmentedGeometry } from "./segmented-geometry";
 import { EdgeShader } from "./viewer-edge-shader";
 import { createViewerMaterialSet, type ViewerMaterialSet } from "./viewer-materials";
+import { ModelAnimation } from "./viewer-animation";
+import { fitDistance, resizeDistanceRatio } from "./viewer-camera";
+import { PlaybackPanel, type PlaybackLabels } from "./viewer-playback-panel";
 
 export type ShadingMode = "original" | "toon" | "parts";
 export type ModelStats = {
@@ -44,7 +47,7 @@ export class ModelViewer {
   private modelBlend = 0;
   private hasSegmentedParts = false;
   private resizeObserver: ResizeObserver;
-  private shading: ShadingMode = "toon";
+  private shading: ShadingMode = "original";
   private outline = true;
   private wireframe = false;
   private quadEdges: THREE.LineSegments[] = [];
@@ -55,6 +58,9 @@ export class ModelViewer {
   private interactionListener?: (active: boolean) => void;
   private theme: "light" | "dark" = "dark";
   private disposed = false;
+  private playback: ModelAnimation | null = null;
+  private playbackPanel: PlaybackPanel;
+  private previousFrame = 0;
   private hemisphere = new THREE.HemisphereLight(0xe5fbf5, 0x1a2524, 2.15);
   private key = new THREE.DirectionalLight(0xf5fff9, 3.2);
   private rim = new THREE.DirectionalLight(0x54c9b3, 2.0);
@@ -110,19 +116,13 @@ export class ModelViewer {
     this.metadataTarget.texture.colorSpace = THREE.NoColorSpace;
     this.metadataMaterial = new THREE.ShaderMaterial({
       uniforms: { uSurfaceId: { value: 0 } },
-      vertexShader: `
-        varying vec3 vViewNormal;
-        void main() {
-          vViewNormal = normalize(normalMatrix * normal);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
+      vertexShader: THREE.ShaderLib.normal.vertexShader,
       fragmentShader: `
         uniform float uSurfaceId;
-        varying vec3 vViewNormal;
+        varying vec3 vNormal;
         void main() {
           if (uSurfaceId <= 0.0) discard;
-          gl_FragColor = vec4(normalize(vViewNormal) * 0.5 + 0.5, uSurfaceId);
+          gl_FragColor = vec4(normalize(vNormal) * 0.5 + 0.5, uSurfaceId);
         }
       `,
       side: THREE.DoubleSide,
@@ -132,6 +132,11 @@ export class ModelViewer {
     this.metadataMaterial.onBeforeRender = (_renderer, _scene, _camera, _geometry, object) => {
       this.metadataMaterial.uniforms.uSurfaceId.value = this.metadataIds.get(object) || 0;
     };
+    this.playbackPanel = new PlaybackPanel(container, () => {
+      this.previousFrame = 0;
+      this.requestRender();
+    });
+    document.addEventListener("visibilitychange", this.visibilityChanged);
 
     this.idleObject = this.createIdleObject();
     this.scene.add(this.idleObject);
@@ -146,6 +151,13 @@ export class ModelViewer {
     this.interactionListener = listener;
   }
 
+  setPlaybackLabels(labels: PlaybackLabels) { this.playbackPanel.setLabels(labels); }
+
+  private visibilityChanged = () => {
+    this.previousFrame = 0;
+    this.requestRender();
+  };
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -156,6 +168,8 @@ export class ModelViewer {
     this.interactionListener = undefined;
     this.controls.dispose();
     this.clearResult();
+    this.playbackPanel.dispose();
+    document.removeEventListener("visibilitychange", this.visibilityChanged);
     this.disposeGroup(this.idleObject);
     this.grid.geometry.dispose();
     const gridMaterials = Array.isArray(this.grid.material)
@@ -226,20 +240,25 @@ export class ModelViewer {
     }
     try {
       this.idleObject.visible = false;
-      prepareSegmentedGeometry(object, segmented);
+      prepareSegmentedGeometry(object, segmented && object.animations.length === 0);
       const stats = modelGeometryStats(object);
       const box = new THREE.Box3().setFromObject(object);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
-      object.position.sub(center);
-      object.scale.setScalar(1.55 / Math.max(size.x, size.y, size.z, 0.001));
-      object.updateMatrixWorld(true);
+      const normalization = new THREE.Group();
+      const scale = 1.55 / Math.max(size.x, size.y, size.z, 0.001);
+      normalization.scale.setScalar(scale);
+      normalization.position.copy(center).multiplyScalar(-scale);
+      normalization.add(object);
+      normalization.updateMatrixWorld(true);
 
       this.adoptQuadEdges(object);
 
       let meshIndex = 0;
       object.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return;
+        // Authored deformation can move beyond the loader's rest-pose bounds.
+        if (object.animations.length) child.frustumCulled = false;
         const originals = Array.isArray(child.material) ? child.material : [child.material];
         const set = createViewerMaterialSet(
           originals,
@@ -253,13 +272,17 @@ export class ModelViewer {
         meshIndex += 1;
       });
 
+      this.playback?.dispose();
       this.disposeGroup(this.result);
       const root = new THREE.Group();
-      root.add(object);
+      root.add(normalization);
       this.result = root;
+      this.playback = new ModelAnimation(object, object.animations);
+      this.playbackPanel.bind(this.playback);
+      this.previousFrame = 0;
       this.scene.add(root);
       this.hasSegmentedParts = segmented && meshIndex > 1;
-      this.shading = this.hasSegmentedParts ? "parts" : "toon";
+      this.shading = "original";
       this.applyMaterials();
       this.modelBlend = 0;
       this.controls.enabled = true;
@@ -288,7 +311,9 @@ export class ModelViewer {
       throw new Error("Model preview exceeded its size limit");
     }
     if (signal.aborted) throw new Error("Model preview was superseded");
-    return (await new GLTFLoader().parseAsync(bytes, "")).scene;
+    const asset = await new GLTFLoader().parseAsync(bytes, "");
+    asset.scene.animations = asset.animations;
+    return asset.scene;
   }
 
   private toonGradient() {
@@ -342,7 +367,8 @@ export class ModelViewer {
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
     const radius = Math.max(size.x, size.y, size.z) * 0.62;
-    const distance = Math.max(1.7, radius / Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)) * 1.12);
+    const distance = fitDistance(radius, this.camera.fov, this.camera.aspect);
+    this.controls.maxDistance = Math.max(10, distance * 2);
     this.controls.target.copy(center);
     this.camera.position.set(center.x + distance * 0.12, center.y + distance * 0.04, center.z + distance);
     this.camera.near = Math.max(0.001, distance / 1000);
@@ -366,8 +392,6 @@ export class ModelViewer {
         if ("wireframe" in material) {
           (material as THREE.MeshBasicMaterial).wireframe = this.wireframe && !this.hasQuadEdges();
         }
-        material.transparent = true;
-        material.opacity = this.modelBlend;
         material.needsUpdate = true;
       });
     });
@@ -406,6 +430,9 @@ export class ModelViewer {
   }
 
   private clearResult() {
+    this.playback?.dispose();
+    this.playback = null;
+    this.playbackPanel.bind(null);
     this.disposeGroup(this.result);
     this.result = null;
     this.quadEdges = [];
@@ -420,8 +447,13 @@ export class ModelViewer {
     this.scene.remove(group);
     const disposed = new Set<THREE.Material>();
     const disposedTextures = new Set<THREE.Texture>();
+    const disposedSkeletons = new Set<THREE.Skeleton>();
     const sharedGradient = this.scene.userData.toonGradient as THREE.Texture | undefined;
     group.traverse((child) => {
+      if (child instanceof THREE.SkinnedMesh && !disposedSkeletons.has(child.skeleton)) {
+        disposedSkeletons.add(child.skeleton);
+        child.skeleton.dispose();
+      }
       if (!(child instanceof THREE.Mesh || child instanceof THREE.Points
         || child instanceof THREE.LineSegments)) return;
       child.geometry?.dispose();
@@ -463,7 +495,14 @@ export class ModelViewer {
       edgeEnabled ? height * pixelRatio : 1,
     );
     this.edgePass.uniforms.uTexel.value.set(0.78 / (width * pixelRatio), 0.78 / (height * pixelRatio));
-    this.camera.aspect = width / height;
+    const aspect = width / height;
+    if (this.result && aspect !== this.camera.aspect) {
+      const ratio = resizeDistanceRatio(this.camera.aspect, aspect);
+      this.camera.position.sub(this.controls.target).multiplyScalar(ratio).add(this.controls.target);
+      this.controls.maxDistance = Math.max(10, this.camera.position.distanceTo(this.controls.target) * 2);
+      this.camera.far = Math.max(100, this.controls.maxDistance * 25);
+    }
+    this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
     this.requestRender();
   }
@@ -495,6 +534,10 @@ export class ModelViewer {
     this.frameRequest = 0;
     if (document.visibilityState !== "visible") return;
     const time = (now - this.startedAt) / 1000;
+    const delta = this.previousFrame ? (now - this.previousFrame) / 1000 : 0;
+    this.previousFrame = now;
+    const animationChanged = this.playback?.update(delta) ?? false;
+    if (animationChanged) this.playbackPanel.update();
     if (this.idleObject.visible) {
       this.idleObject.rotation.x = time * 0.08;
       this.idleObject.rotation.y = time * 0.14;
@@ -504,11 +547,6 @@ export class ModelViewer {
       this.modelBlend = Math.min(1, this.modelBlend + 0.025);
       const eased = 1 - Math.pow(1 - this.modelBlend, 3);
       this.result.scale.setScalar(0.82 + eased * 0.18);
-      this.result.traverse((child) => {
-        if (!(child instanceof THREE.Mesh)) return;
-        const materials = Array.isArray(child.material) ? child.material : [child.material];
-        materials.forEach((material) => { material.opacity = eased; });
-      });
     }
     const controlsChanged = this.controls.update();
     const edgeEnabled = this.outline && Boolean(this.result) && !this.interacting;
@@ -521,6 +559,7 @@ export class ModelViewer {
       || this.controls.autoRotate
       || this.interacting
       || controlsChanged
+      || this.playback?.state().playing
     ) {
       this.requestRender();
     }

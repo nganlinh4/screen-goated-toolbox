@@ -38,8 +38,70 @@ export class DevHarness {
     };
   }
 
+  private installRefinementFixture(modelUrl: string) {
+    const { pathLeaf } = this.options;
+    const polls = new Map<string, number>();
+    let revisions = 0;
+    const settled = (jobId: string) => ({
+      jobId,
+      stage: "done",
+      progressText: "",
+      runtimeStatus: "installed",
+      outputPath: modelUrl,
+      outputName: pathLeaf(modelUrl),
+      revisionKind: "add_materials",
+      progressRatio: 1,
+      elapsedMs: 120_000,
+      estimatedTotalMs: 120_000,
+      timingSampleCount: 8,
+      supportedActions: ["optimize_triangle", "rig"],
+      availableActions: ["optimize_triangle"],
+      canRefine: true,
+      isTextured: true,
+      isSegmented: false,
+      canSegment: false,
+    });
+    window.invoke = async <T>(cmd: string, args?: unknown): Promise<T> => {
+      if (cmd === "refine_model") {
+        revisions += 1;
+        const jobId = `dev_revision_${revisions}`;
+        polls.set(jobId, 0);
+        return {
+          jobId,
+          stage: "refining",
+          progressText: "",
+          runtimeStatus: "installed",
+          outputPath: modelUrl,
+          outputName: pathLeaf(modelUrl),
+        } as T;
+      }
+      if (cmd === "job_statuses") {
+        return [...polls].map(([jobId, previous]) => {
+          const count = previous + 1;
+          if (count >= 4) {
+            polls.delete(jobId);
+            return settled(jobId);
+          }
+          polls.set(jobId, count);
+          return {
+            jobId,
+            stage: count < 3 ? "refining" : "finalizing",
+            progressText: "",
+            runtimeStatus: "installed",
+            progressRatio: count / 4,
+          };
+        }) as T;
+      }
+      if (cmd === "model_asset_url") {
+        return { url: String((args as { path?: unknown } | undefined)?.path || modelUrl) } as T;
+      }
+      return null as T;
+    };
+  }
+
   async loadModelPreview(modelUrl: string) {
     const { state, viewer, params, pathLeaf, updateUi } = this.options;
+    if (params.get("refinements") === "1") this.installRefinementFixture(modelUrl);
     try {
       const response = await fetch(modelUrl);
       if (!response.ok) throw new Error(`Preview model returned ${response.status}`);
@@ -62,6 +124,10 @@ export class DevHarness {
           stage: "done",
           progressText: "",
           outputPath: modelUrl,
+          progressRatio: 1,
+          elapsedMs: 240_000,
+          estimatedTotalMs: 240_000,
+          timingSampleCount: 8,
           outputName: name,
           jobId: params.get("refinements") === "1" ? "dev_revision" : undefined,
           projectId: params.get("refinements") === "1" ? "dev_project" : undefined,

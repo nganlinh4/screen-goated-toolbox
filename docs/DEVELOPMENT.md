@@ -22,8 +22,15 @@ Useful options:
 ```powershell
 .\run-dev.ps1 -SkipFrontendBuild
 .\run-dev.ps1 -SkipNpmInstall
+.\run-dev.ps1 -AuditFrontendDependencies
 .\run-dev.ps1 -CargoCommand test
 ```
+
+The normal launch still reconciles every frontend dependency, runs install
+scripts, and rebuilds all embedded frontends. It disables npm's remote advisory
+request because registry latency must not block the development loop. Use
+`-AuditFrontendDependencies` when an explicit dependency-security audit is the
+task; CI retains its independent clean-install checks.
 
 `run-dev.ps1` uses `%LOCALAPPDATA%/SGT-Development/cache/cargo/dev` instead of a
 repository `target/` tree. Logs use the same external cache under

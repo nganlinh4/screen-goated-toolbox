@@ -94,6 +94,13 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .ok_or_else(|| "path is required".to_string())?;
             super::runtime::issue_static_asset(path)
         }
+        "validate_image" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "path is required".to_string())?;
+            Ok(json!({"error": super::input_policy::error(std::path::Path::new(path))}))
+        }
         "start_job" => {
             let request: super::runtime::StartJobRequest =
                 serde_json::from_value(args.clone()).map_err(|error| error.to_string())?;

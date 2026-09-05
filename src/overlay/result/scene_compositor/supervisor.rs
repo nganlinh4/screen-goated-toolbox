@@ -342,6 +342,8 @@ pub(super) fn start_watchdog() {
                 };
                 if heartbeat_is_stale(now_ms(), LAST_HEARTBEAT_MS.load(Ordering::SeqCst), timeout) {
                     fail_generation(live, "heartbeat timed out", true);
+                } else if !super::reconciliation::check_convergence(now_ms()) {
+                    fail_generation(live, "reconciliation convergence timed out", true);
                 }
             }
         });
@@ -374,6 +376,7 @@ fn fail_generation(generation: u64, reason: &str, terminate: bool) {
     READY_GENERATION.store(0, Ordering::SeqCst);
     READY_SINCE_MS.store(0, Ordering::SeqCst);
     super::parent::DRAGGING.store(false, Ordering::SeqCst);
+    super::reconciliation::reset();
     schedule_restart_backoff();
     crate::log_info!("[ResultCompositor] renderer failed generation={generation} reason={reason}");
     super::delivery::request_restart();
@@ -423,6 +426,7 @@ pub(super) fn restart_now() -> ProcessState {
         READY_GENERATION.store(0, Ordering::SeqCst);
         READY_SINCE_MS.store(0, Ordering::SeqCst);
         super::parent::DRAGGING.store(false, Ordering::SeqCst);
+        super::reconciliation::reset();
         let _ = write_to(&mut renderer.stdin, &HostCommand::Shutdown);
         crate::overlay::compositor_process::wait_for_exit_or_kill(&mut renderer.child);
     }
@@ -482,7 +486,7 @@ fn heartbeat_is_stale(now: u64, last: u64, timeout: u64) -> bool {
     now.saturating_sub(last) > timeout
 }
 
-fn now_ms() -> u64 {
+pub(super) fn now_ms() -> u64 {
     MONOTONIC_EPOCH.elapsed().as_millis() as u64
 }
 

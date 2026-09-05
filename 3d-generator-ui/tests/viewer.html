@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Model viewer acceptance</title></head>
+<body>
+<div id="viewerStage"><canvas id="modelCanvas"></canvas></div>
+<script type="module">
+  import "../src/viewer-standalone.css";
+  import { ModelViewer } from "../src/viewer.ts";
+  import { animatedModelFixture } from "./animated-model-fixture.ts";
+  const stage = document.getElementById("viewerStage");
+  const viewer = new ModelViewer(document.getElementById("modelCanvas"), stage);
+  const url = URL.createObjectURL(new Blob([animatedModelFixture()], {type:"model/gltf-binary"}));
+  try { await viewer.setModel(url, false); document.title = "Animated model ready"; }
+  catch (error) { document.title = "Viewer failed"; stage.append(String(error)); }
+  finally { URL.revokeObjectURL(url); }
+  window.addEventListener("pagehide", () => viewer.dispose(), {once:true});
+</script>
+</body></html>

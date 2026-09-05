@@ -11,6 +11,7 @@ test("Fast remains selectable and owns its limits", () => {
     maximumPolycount: 15_000,
     autoSegment: false,
     showAutoSegment: false,
+    topology: "triangle",
   });
 });
 
@@ -22,5 +23,12 @@ test("Quality remains the separated default flow", () => {
     maximumPolycount: 20_000,
     autoSegment: true,
     showAutoSegment: true,
+    topology: "triangle",
   });
+});
+
+test("initial topology is independent unless automatic separation needs triangles", () => {
+  assert.equal(generationSettings("quality", 5000, false, "triangle").topology, "triangle");
+  assert.equal(generationSettings("quality", 5000, false, "quad").topology, "quad");
+  assert.equal(generationSettings("quality", 5000, true, "quad").topology, "triangle");
 });

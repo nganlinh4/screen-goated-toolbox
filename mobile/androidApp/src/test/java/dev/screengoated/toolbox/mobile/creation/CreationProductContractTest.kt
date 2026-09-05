@@ -59,7 +59,7 @@ class CreationProductContractTest {
             "integrityValidatedBeforeUse",
         )
         val fixtures = listOf(
-            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 70),
+            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 73),
             Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 44),
             Triple(
                 "parity-fixtures/image-creation-editing/state-contract.json",
@@ -397,6 +397,7 @@ class CreationProductContractTest {
     @Test
     fun `cancelled terminal state cannot accept a late completion`() {
         assertTrue(creationStageIsBusy("generating"))
+        assertTrue(creationStageIsBusy("waiting_for_user"))
         assertTrue(creationStageIsBusy("refining"))
         assertTrue(creationStageIsBusy("finalizing"))
         assertFalse(creationStageIsBusy("cancelled"))

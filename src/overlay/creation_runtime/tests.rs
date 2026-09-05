@@ -1,6 +1,39 @@
 use super::*;
 
 #[test]
+fn readiness_stays_preparing_across_retry_gaps() {
+    let sequence = [
+        ("preparing", true),
+        ("unavailable", true),
+        ("preparing", true),
+        ("unavailable", true),
+        ("ready", true),
+        ("ready", false),
+    ];
+    let displayed: Vec<_> = sequence
+        .into_iter()
+        .map(|(observed, active)| displayed_readiness(observed, active))
+        .collect();
+    assert_eq!(
+        displayed,
+        [
+            "preparing",
+            "preparing",
+            "preparing",
+            "preparing",
+            "ready",
+            "ready"
+        ]
+    );
+}
+
+#[test]
+fn stopped_preparation_does_not_hide_unavailability() {
+    assert_eq!(displayed_readiness("unavailable", false), "unavailable");
+    assert_eq!(displayed_readiness("ready", true), "ready");
+}
+
+#[test]
 fn readiness_parser_accepts_only_the_public_state_contract() {
     assert!(supported_readiness_tool("3d"));
     assert!(supported_readiness_tool("svg"));

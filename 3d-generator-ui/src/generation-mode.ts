@@ -1,4 +1,5 @@
 export type GenerationMode = "fast" | "quality";
+export type MeshTopology = "triangle" | "quad";
 
 export type GenerationSettings = {
   mode: GenerationMode;
@@ -7,6 +8,7 @@ export type GenerationSettings = {
   maximumPolycount: number;
   autoSegment: boolean;
   showAutoSegment: boolean;
+  topology: MeshTopology;
 };
 
 const LIMITS: Record<GenerationMode, { minimum: number; maximum: number }> = {
@@ -18,6 +20,7 @@ export function generationSettings(
   mode: GenerationMode,
   polycount: number,
   requestedAutoSegment: boolean,
+  topology?: MeshTopology,
 ): GenerationSettings {
   const selectedMode = mode === "fast" ? "fast" : "quality";
   const limits = LIMITS[selectedMode];
@@ -29,5 +32,6 @@ export function generationSettings(
     maximumPolycount: limits.maximum,
     autoSegment: selectedMode === "quality" && requestedAutoSegment,
     showAutoSegment: selectedMode === "quality",
+    topology: selectedMode === "fast" || requestedAutoSegment ? "triangle" : topology || "quad",
   };
 }

@@ -95,6 +95,18 @@ export function bindControls(options: BindControlOptions) {
     }
   }));
   nodes.topologySelect.addEventListener("change", updateUi);
+  nodes.initialTopology.addEventListener("change", () => {
+    const item = selectedItem();
+    if (!item || !isConfigurable(item)) return;
+    const update = (member: QueueItem) => {
+      member.topology = nodes.initialTopology.value === "triangle" ? "triangle" : "quad";
+      if (member.topology === "quad") member.autoSegment = false;
+      normalizeSettings(member);
+    };
+    if (isRerunnable(item)) update(item);
+    else batchItems(item.batchId).filter(member => member.state === "queued" && !member.submitted).forEach(update);
+    updateUi();
+  });
   nodes.cancelButton.addEventListener("click", async () => {
     const item = selectedItem();
     if (!item) return;

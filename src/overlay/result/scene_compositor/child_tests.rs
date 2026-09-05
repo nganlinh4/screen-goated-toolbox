@@ -1,50 +1,3 @@
-use super::command_requires_region_redraw;
-use crate::overlay::result::scene_compositor::protocol::{
-    HostCommand, SceneGeometry, SceneRect, SceneTheme,
-};
-
-#[test]
-fn only_commands_that_change_native_clipping_or_content_redraw_the_region() {
-    let command = HostCommand::Geometry {
-        cards: vec![SceneGeometry {
-            id: 42,
-            rect: SceneRect {
-                x: 10,
-                y: 20,
-                width: 300,
-                height: 200,
-            },
-            control_rect: SceneRect {
-                x: 6,
-                y: 18,
-                width: 308,
-                height: 204,
-            },
-            visible: true,
-        }],
-    };
-
-    assert!(!command_requires_region_redraw(&command));
-    assert!(!command_requires_region_redraw(&HostCommand::Theme {
-        theme: SceneTheme {
-            css: String::new(),
-            controls_css: String::new(),
-            cards: Vec::new(),
-        },
-    }));
-    assert!(command_requires_region_redraw(&HostCommand::Raise {
-        id: 42,
-        stack_order: 9,
-    }));
-    assert!(!command_requires_region_redraw(&HostCommand::Opacity {
-        id: 42,
-        opacity: 71,
-    }));
-    assert!(command_requires_region_redraw(&HostCommand::Remove {
-        id: 42
-    }));
-}
-
 #[test]
 fn authored_html_acceptance_is_captured_from_the_shared_compositor() {
     let source = include_str!("child.rs");
@@ -70,7 +23,7 @@ fn drag_expands_native_region_before_parent_notification() {
         .find("emit_event(event);")
         .expect("drag start must notify the parent");
     let webview = branch
-        .find("evaluate_script(\"window.__SGT_BUTTON_SCENE__?.setDragActive(true);\")")
+        .find("window.__SGT_BUTTON_SCENE__?.setDragActive(true,{gesture_id});")
         .expect("drag start must hide compositor controls");
 
     assert!(expand < webview);
@@ -107,15 +60,15 @@ fn drag_settlement_forces_one_acknowledged_button_region_snapshot() {
     let runtime = crate::overlay::result::scene_compositor::control_surface::document_script();
     let native_input = include_str!("button_input.rs");
     let settled = controls
-        .split("function setDragActive(active)")
+        .split("function setDragActive(active, gestureId)")
         .nth(1)
         .expect("button scene must expose drag settlement")
         .split("function releaseDragPreview")
         .next()
         .expect("settlement must precede pointer release handling");
 
-    assert!(settled.contains("rebuild(true)"));
-    assert!(runtime.contains("window.restoreButtonRegionsAfterDrag = () =>"));
+    assert!(settled.contains("rebuild(id)"));
+    assert!(runtime.contains("window.restoreButtonRegionsAfterDrag = gestureId =>"));
     assert!(runtime.contains("? \"restore_clickable_regions\""));
     assert!(native_input.contains("if action == \"restore_clickable_regions\""));
     let restore = native_input
@@ -125,7 +78,7 @@ fn drag_settlement_forces_one_acknowledged_button_region_snapshot() {
         .split("if action == \"update_clickable_regions\"")
         .next()
         .unwrap();
-    let settle = restore.find("settle_drag();").unwrap();
+    let settle = restore.find("settle_drag(gesture_id(&message));").unwrap();
     let regions = restore.find("update_regions(&message);").unwrap();
     assert!(settle < regions);
 }
@@ -155,10 +108,10 @@ fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() 
     assert!(pointer.contains("group.style.translate = offset"));
     assert!(pointer.contains("window.__SGT_BUTTON_SCENE__?.releaseDragPreview("));
     let released = controls
-        .split("function releaseDragPreview(pointerX, pointerY)")
+        .split("function releaseDragPreview(pointerX, pointerY, gestureId)")
         .nth(1)
         .unwrap();
-    assert!(released.contains("awaitingDragSettle = true"));
+    assert!(released.contains("awaitingDragSettle = id"));
     assert!(!released.contains("style.visibility = ''"));
     assert!(released.contains("window.updateCursorPosition?.(pointerX, pointerY)"));
     assert!(!released.contains("clearResultDragControlPreview"));
@@ -179,15 +132,34 @@ fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() 
     assert!(scene.contains("if (!preservePosition)"));
     assert!(pointer.contains("settlingResultDragTargets = new Set(drag.targets)"));
     assert!(controls.contains("window.releaseResultDragGeometryLock?.()"));
-    let native_input = include_str!("button_input.rs");
-    assert!(native_input.contains("AWAITING_DRAG_SETTLE.store(true"));
-    assert!(native_input.contains("AWAITING_DRAG_SETTLE.load"));
-    assert!(child_commands.contains("super::button_input::settle_drag();"));
+    assert!(child_commands.contains("super::button_input::settle_drag(*gesture_id)"));
     let settled = controls.find("command.type === 'drag_settled'").unwrap();
     let merge = controls[settled..].find("mergeCard(card)").unwrap();
-    let reveal = controls[settled..].find("setDragActive(false)").unwrap();
+    let reveal = controls[settled..]
+        .find("setDragActive(false, gestureId)")
+        .unwrap();
     assert!(merge < reveal);
-    assert!(controls[settled..].contains("externalDrag = false"));
+    assert!(controls[settled..].contains("matchesExternal"));
+}
+
+#[test]
+fn gesture_teardown_and_lost_release_have_native_recovery_paths() {
+    let child = include_str!("child.rs");
+    let commands = include_str!("child_commands.rs");
+    let input = include_str!("button_input.rs");
+    let teardown = include_str!("scene_command_helpers.js");
+    let resize = include_str!("resize_runtime.js");
+    let pointer = crate::overlay::result::scene_compositor::control_surface::document_script();
+
+    assert!(child.contains("reconcile_released_pointer()"));
+    assert!(input.contains("pub(super) fn captures_desktop_input()"));
+    assert!(input.contains("pub(super) fn cancel_removed_card"));
+    assert!(input.contains("pub(super) fn cancel_missing_cards"));
+    assert!(commands.contains("cancel_removed_card(*id)"));
+    assert!(commands.contains("cancel_missing_cards(&cards)"));
+    assert!(teardown.contains("window.cancelResultDragForCard?.(key)"));
+    assert!(resize.contains("setDragActive(false, gestureId)"));
+    assert!(pointer.contains("gesture_id: drag.gestureId"));
 }
 
 #[test]

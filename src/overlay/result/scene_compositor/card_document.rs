@@ -12,6 +12,11 @@ pub(super) fn compositor_document(isolated_origin: &str) -> String {
 }
 
 fn build_compositor_document() -> String {
+    let scene_runtime = [
+        include_str!("scene_runtime.js"),
+        include_str!("scene_command_helpers.js"),
+    ]
+    .concat();
     let card_css = format!(
         r#"
 :host{{display:block;width:100%;height:100%;overflow:hidden}}
@@ -37,7 +42,7 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
         // Inlined first: the scene runtime carries placeholders of its own
         // (`__SGT_CARD_CSS_JSON__`, `__SGT_BOX_RADIUS_PX__`), so it has to be
         // in the document before the substitution pass reaches them.
-        .replace("__SGT_SCENE_RUNTIME__", include_str!("scene_runtime.js"))
+        .replace("__SGT_SCENE_RUNTIME__", &scene_runtime)
         .replace(
             "__SGT_SURFACE_RUNTIME__",
             include_str!("surface_runtime.js"),
@@ -154,7 +159,8 @@ mod tests {
         assert!(document.contains("hideControlsForDrag"));
         assert!(document.contains("releaseDragPreview"));
         assert!(document.contains("hasReleasedDragPreview"));
-        assert!(document.contains("awaitingDragSettle = true"));
+        assert!(document.contains("awaitingDragSettle = id"));
+        assert!(document.contains("gesture_id: drag.gestureId"));
         assert!(document.contains("style.visibility = 'hidden'"));
         assert!(document.contains("window.clearResultDragControlPreview?.();"));
         assert!(!document.contains("window.updateWindows({});"));

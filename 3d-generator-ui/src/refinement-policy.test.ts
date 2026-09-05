@@ -17,9 +17,14 @@ test("older results expose only actions the runtime actually advertised", () => 
   assert.deepEqual([...declaredRefinements(undefined, ["add_materials"])], ["add_materials"]);
 });
 
-test("the shipped separation control offers only the proven detailed level", () => {
+test("separation choices match the shared control contract", () => {
   const layoutSource = readFileSync(new URL("./layout.ts", import.meta.url), "utf8");
+  const contract = JSON.parse(readFileSync(new URL("../../parity-fixtures/image-to-3d/control-contract.json", import.meta.url), "utf8"));
   assert.match(layoutSource, /value="detailed" selected/);
-  assert.doesNotMatch(layoutSource, /value="simple"/);
-  assert.doesNotMatch(layoutSource, /value="balanced"/);
+  for (const level of contract.separationLevels) assert.ok(layoutSource.includes(`value="${level}"`));
+});
+
+test("revision changes choose a supported topology before evaluating its action button", () => {
+  const source = readFileSync(new URL("./presentation.ts", import.meta.url), "utf8");
+  assert.ok(source.indexOf("nodes.topologySelect.selectedOptions") < source.indexOf("nodes.refinementButtons.forEach"));
 });

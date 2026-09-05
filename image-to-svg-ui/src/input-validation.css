@@ -1,0 +1,8 @@
+.input-validation-dialog {
+  --surface-strong: var(--surface);
+  --border: var(--line);
+  --accent: var(--cobalt);
+  --stage: var(--bg);
+}
+.input-validation-dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.input-validation-dialog button { padding: 9px 14px; border-radius: 6px; background: var(--surface-2); color: var(--text); cursor: pointer; }

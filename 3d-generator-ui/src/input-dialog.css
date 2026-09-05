@@ -1,0 +1,18 @@
+.input-validation-dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font: inherit;
+}
+.input-validation-dialog::backdrop { background: #06110f94; }
+.input-validation-dialog h2 { margin: 0; font-size: 18px; }
+.input-validation-dialog p { line-height: 1.5; overflow-wrap: anywhere; }
+.input-dialog-filename { color: var(--muted); font-size: 12px; margin: 8px 0 16px; }
+.input-validation-dialog .dialog-actions { flex-wrap: wrap; }
+.input-validation-dialog .input-dialog-primary { background: var(--accent); color: var(--stage); }
+.input-validation-dialog button:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }

@@ -99,6 +99,7 @@ data class CreationProgressLocale(
 )
 
 data class Creation3dLocale(
+    val playback: CreationPlaybackLocale,
     val mode: String,
     val fast: String,
     val quality: String,
@@ -126,6 +127,15 @@ data class Creation3dLocale(
     val toonOutline: String,
     val partColors: String,
     val previewUnavailable: String,
+)
+
+data class CreationPlaybackLocale(
+    val animationClip: String,
+    val playAnimation: String,
+    val pauseAnimation: String,
+    val animationTime: String,
+    val animationSpeed: String,
+    val resetPose: String,
 )
 
 data class Creation3dRefinementLocale(

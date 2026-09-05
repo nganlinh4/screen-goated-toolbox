@@ -1,55 +1,13 @@
 use super::child::CARDS;
 use super::protocol::HostCommand;
 
-pub(super) fn name(command: &HostCommand) -> &'static str {
-    match command {
-        HostCommand::Snapshot { .. } => "snapshot",
-        HostCommand::Upsert { .. } => "upsert",
-        HostCommand::UpsertBatch { .. } => "upsert_batch",
-        HostCommand::Stream { .. } => "stream",
-        HostCommand::Finalize { .. } => "finalize",
-        HostCommand::Geometry { .. } => "geometry",
-        HostCommand::DragSettled { .. } => "drag_settled",
-        HostCommand::Controls { .. } => "controls",
-        HostCommand::Opacity { .. } => "opacity",
-        HostCommand::RefineText { .. } => "refine_text",
-        HostCommand::ExternalDrag { .. } => "external_drag",
-        HostCommand::Theme { .. } => "theme",
-        HostCommand::Raise { .. } => "raise",
-        HostCommand::Remove { .. } => "remove",
-        HostCommand::NavigateBack { .. } => "navigate_back",
-        HostCommand::NavigateForward { .. } => "navigate_forward",
-        HostCommand::Shutdown => "shutdown",
-    }
-}
-
-pub(super) fn id(command: &HostCommand) -> Option<isize> {
-    match command {
-        HostCommand::Upsert { card } => Some(card.id),
-        HostCommand::Stream { card } => Some(card.id),
-        HostCommand::Finalize { card } => Some(card.id),
-        HostCommand::Remove { id }
-        | HostCommand::NavigateBack { id }
-        | HostCommand::NavigateForward { id } => Some(*id),
-        HostCommand::Raise { id, .. } | HostCommand::Opacity { id, .. } => Some(*id),
-        HostCommand::RefineText { id, .. } => Some(*id),
-        HostCommand::Snapshot { .. }
-        | HostCommand::UpsertBatch { .. }
-        | HostCommand::Geometry { .. }
-        | HostCommand::DragSettled { .. }
-        | HostCommand::Controls { .. }
-        | HostCommand::ExternalDrag { .. }
-        | HostCommand::Theme { .. }
-        | HostCommand::Shutdown => None,
-    }
-}
-
 pub(super) fn apply(command: &HostCommand) {
     let mut cards = CARDS.lock().unwrap();
     match command {
         HostCommand::Snapshot { cards: snapshot } => {
             cards.clear();
             cards.extend(snapshot.iter().cloned().map(|card| (card.id, card)));
+            super::button_input::cancel_missing_cards(&cards);
         }
         HostCommand::Upsert { card } => {
             cards.insert(card.id, card.clone());
@@ -83,7 +41,7 @@ pub(super) fn apply(command: &HostCommand) {
                 card.controls.clone_from(&update.controls);
             }
         }
-        HostCommand::Geometry { cards: updates } | HostCommand::DragSettled { cards: updates } => {
+        HostCommand::Geometry { cards: updates } => {
             for update in updates {
                 if let Some(card) = cards.get_mut(&update.id) {
                     card.rect = update.rect.clone();
@@ -91,8 +49,19 @@ pub(super) fn apply(command: &HostCommand) {
                     card.visible = update.visible;
                 }
             }
-            if matches!(command, HostCommand::DragSettled { .. }) {
-                super::button_input::settle_drag();
+        }
+        HostCommand::DragSettled {
+            gesture_id,
+            cards: updates,
+        } => {
+            if super::button_input::settle_drag(*gesture_id) {
+                for update in updates {
+                    if let Some(card) = cards.get_mut(&update.id) {
+                        card.rect = update.rect.clone();
+                        card.control_rect = update.control_rect.clone();
+                        card.visible = update.visible;
+                    }
+                }
             }
         }
         HostCommand::Controls { cards: updates } => {
@@ -116,12 +85,14 @@ pub(super) fn apply(command: &HostCommand) {
             }
         }
         HostCommand::Remove { id } => {
+            super::button_input::cancel_removed_card(*id);
             cards.remove(id);
         }
         HostCommand::NavigateBack { .. }
         | HostCommand::NavigateForward { .. }
         | HostCommand::Opacity { .. }
         | HostCommand::RefineText { .. }
+        | HostCommand::ApplyRevision { .. }
         | HostCommand::Shutdown => {}
     }
 }

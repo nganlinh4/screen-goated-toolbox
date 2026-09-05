@@ -1,16 +1,26 @@
+#[cfg(not(feature = "recorder-worker"))]
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, LazyLock, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+#[cfg(not(feature = "recorder-worker"))]
+use std::sync::atomic::Ordering;
+#[cfg(not(feature = "recorder-worker"))]
+use std::sync::{Condvar, LazyLock, Mutex};
+#[cfg(not(feature = "recorder-worker"))]
 use std::time::{Duration, Instant};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
+#[cfg(not(feature = "recorder-worker"))]
+use anyhow::bail;
 
+#[cfg(not(feature = "recorder-worker"))]
 struct State {
     next_id: u64,
     quiescing: bool,
     active: HashMap<u64, Arc<AtomicBool>>,
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 static ACTIVITY: LazyLock<(Mutex<State>, Condvar)> = LazyLock::new(|| {
     (
         Mutex::new(State {
@@ -26,6 +36,7 @@ static ACTIVITY: LazyLock<(Mutex<State>, Condvar)> = LazyLock::new(|| {
 ///
 /// Registration fails while Clean All owns the quiescence guard, preventing a
 /// new installer from racing deletion after cancellation has been broadcast.
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn register(cancel: Arc<AtomicBool>) -> Result<InstallActivityGuard> {
     let (state, _) = &*ACTIVITY;
     let mut state = state.lock().unwrap_or_else(|value| value.into_inner());
@@ -39,6 +50,12 @@ pub(crate) fn register(cancel: Arc<AtomicBool>) -> Result<InstallActivityGuard> 
     Ok(InstallActivityGuard { id })
 }
 
+#[cfg(feature = "recorder-worker")]
+pub(crate) fn register(_cancel: Arc<AtomicBool>) -> Result<InstallActivityGuard> {
+    Ok(InstallActivityGuard)
+}
+
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn begin_quiescence(timeout: Duration) -> Result<InstallQuiescenceGuard> {
     let (state, settled) = &*ACTIVITY;
     let mut state = state.lock().unwrap_or_else(|value| value.into_inner());
@@ -68,10 +85,15 @@ pub(crate) fn begin_quiescence(timeout: Duration) -> Result<InstallQuiescenceGua
     Ok(InstallQuiescenceGuard)
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) struct InstallActivityGuard {
     id: u64,
 }
 
+#[cfg(feature = "recorder-worker")]
+pub(crate) struct InstallActivityGuard;
+
+#[cfg(not(feature = "recorder-worker"))]
 impl Drop for InstallActivityGuard {
     fn drop(&mut self) {
         let (state, settled) = &*ACTIVITY;
@@ -81,8 +103,10 @@ impl Drop for InstallActivityGuard {
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) struct InstallQuiescenceGuard;
 
+#[cfg(not(feature = "recorder-worker"))]
 impl Drop for InstallQuiescenceGuard {
     fn drop(&mut self) {
         let (state, settled) = &*ACTIVITY;
@@ -92,7 +116,7 @@ impl Drop for InstallQuiescenceGuard {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::*;
 

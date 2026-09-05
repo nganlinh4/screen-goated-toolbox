@@ -33,7 +33,14 @@ internal fun publicCreationStage(
     }
     val allowed = when (tool) {
         CreationTool.IMAGE_TO_3D ->
-            setOf("preparing", "generating", "segmenting", "refining", "finalizing")
+            setOf(
+                "preparing",
+                "waiting_for_user",
+                "generating",
+                "segmenting",
+                "refining",
+                "finalizing",
+            )
         CreationTool.IMAGE_TO_SVG -> setOf("preparing", "generating", "finalizing")
         CreationTool.IMAGE_CREATOR -> error("Handled above")
     }
@@ -44,6 +51,7 @@ internal fun publicCreationStage(
 
 internal fun publicCreationProgressText(stage: String): String = when (stage) {
     "uploading" -> "Adding reference image"
+    "waiting_for_user" -> "Complete the requested step in the secure window"
     "generating" -> "Creating result"
     "segmenting" -> "Separating model parts"
     "refining" -> "Creating a new version"

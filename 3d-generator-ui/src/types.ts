@@ -7,6 +7,7 @@ export type Stage =
   | "runtime_missing"
   | "queued"
   | "preparing"
+  | "waiting_for_user"
   | "generating"
   | "segmenting"
   | "refining"
@@ -32,6 +33,7 @@ export type JobStatus = {
   sourceImagePath?: string | null;
   outputDir?: string | null;
   generationMode?: GenerationMode | null;
+  topology?: "triangle" | "quad" | null;
   polycount?: number | null;
   autoSegment?: boolean | null;
   instruction?: string | null;
@@ -66,6 +68,7 @@ export type StartJobRequest = {
   polycount: number;
   mode: "topology_mesh";
   generationMode: GenerationMode;
+  topology?: "triangle" | "quad";
   outputFormat: "glb_plain";
   autoSegment: boolean;
   segmentationMode: "parts" | "none";
@@ -85,6 +88,7 @@ export type HistoryEntry = {
   createdAtMs: number;
   metadata?: {
     generationMode?: GenerationMode;
+    topology?: "triangle" | "quad";
     polycount?: number;
     autoSegment?: boolean;
     instruction?: string;
@@ -117,6 +121,7 @@ export type QueueItem = {
   thumbnailUrl?: string;
   generationMode: GenerationMode;
   polycount: number;
+  topology?: "triangle" | "quad";
   autoSegment: boolean;
   instruction?: string;
   submitted: boolean;
@@ -125,6 +130,7 @@ export type QueueItem = {
   result?: JobStatus;
   outputDir?: string;
   loadedModelPath?: string;
+  retainedModelPath?: string;
   modelAssetPath?: string;
   modelAssetPromise?: Promise<ModelAssetPayload>;
   operationStartedAt?: number;
@@ -183,6 +189,8 @@ export type AppNodes = {
   polycountRange: HTMLInputElement;
   polycountValue: HTMLOutputElement;
   modeButtons: HTMLButtonElement[];
+  initialTopology: HTMLSelectElement;
+  initialTopologySection: HTMLElement;
   autoSegmentSection: HTMLElement;
   autoSegmentInput: HTMLInputElement;
   instructionSection: HTMLElement;
@@ -198,6 +206,7 @@ export type AppNodes = {
   topologySelect: HTMLSelectElement;
   faceLimitInput: HTMLInputElement;
   animationSelect: HTMLSelectElement;
+  refinementHint: HTMLElement;
   downloadButton: HTMLButtonElement;
   downloadLabel: HTMLElement;
   statusTitle: HTMLElement;

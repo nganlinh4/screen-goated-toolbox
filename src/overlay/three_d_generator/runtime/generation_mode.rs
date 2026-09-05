@@ -55,13 +55,24 @@ pub(super) fn frozen_settings_valid(
     (minimum..=maximum).contains(&polycount) && (mode == GenerationMode::Quality || !auto_segment)
 }
 
-pub(super) fn continuation_advertised(is_segmented: bool, runtime_can_continue: bool) -> bool {
-    runtime_can_continue && !is_segmented
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_requests_keep_their_fingerprint_shape_and_explicit_topology_round_trips() {
+        let mut value = request(5000, false);
+        assert!(
+            serde_json::to_value(&value)
+                .unwrap()
+                .get("topology")
+                .is_none()
+        );
+        value.topology = Some("triangle".into());
+        let restored: StartJobRequest =
+            serde_json::from_value(serde_json::to_value(&value).unwrap()).unwrap();
+        assert_eq!(restored.topology.as_deref(), Some("triangle"));
+    }
 
     fn request(polycount: u32, auto_segment: bool) -> StartJobRequest {
         StartJobRequest {
@@ -73,6 +84,7 @@ mod tests {
             mode: "topology_mesh".to_string(),
             output_format: "glb_plain".to_string(),
             auto_segment,
+            topology: None,
             segmentation_mode: "parts".to_string(),
             generation_mode: GenerationMode::Quality,
             instruction: None,
@@ -96,13 +108,6 @@ mod tests {
         assert_eq!(quality.polycount, QUALITY_MIN_POLYCOUNT);
         assert!(quality.auto_segment);
         assert_eq!(quality.segmentation_mode, "parts");
-    }
-
-    #[test]
-    fn continuation_depends_only_on_the_runtime_capability_and_result_state() {
-        assert!(continuation_advertised(false, true));
-        assert!(!continuation_advertised(true, true));
-        assert!(!continuation_advertised(false, false));
     }
 
     #[test]

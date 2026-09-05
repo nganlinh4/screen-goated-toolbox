@@ -1,0 +1,43 @@
+.capacity-verification-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: var(--amber);
+  background: var(--surface);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.capacity-verification-chip[hidden] { display: none; }
+.capacity-verification-dialog {
+  width: min(380px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font: inherit;
+}
+.capacity-verification-dialog::backdrop { background: rgb(0 0 0 / 30%); }
+.capacity-verification-dialog h2 { margin: 0 0 12px; font-size: 19px; }
+.capacity-verification-dialog p { font-size: 13px; line-height: 1.6; }
+.capacity-verification-reassurance { color: var(--muted); }
+.capacity-verification-feedback:empty { display: none; }
+.capacity-verification-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+.capacity-verification-actions button {
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--control);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.capacity-verification-actions .capacity-verification-primary { background: var(--accent-strong); color: white; }
+.capacity-verification-actions button:disabled { opacity: .6; cursor: wait; }
+.capacity-verification-chip:focus-visible,
+.capacity-verification-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

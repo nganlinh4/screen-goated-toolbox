@@ -35,7 +35,13 @@ class CreationParityContractTest {
         assertEquals(CreationContract.MAXIMUM_POLYCOUNT, limits.int("maximumPolycount"))
         assertEquals(CreationContract.MAXIMUM_PARALLEL_JOBS, limits.int("maximumParallelJobs"))
         assertEquals(CreationContract.DEFAULT_POLYCOUNT, defaults.int("polycount"))
-        assertTrue(modelSafety.boolean("staticTriangleGeometryOnly"))
+        assertFalse(modelSafety.boolean("staticTriangleGeometryOnly"))
+        assertTrue(modelSafety.boolean("animationsAllowed"))
+        assertEquals(CREATION_GLB_MAXIMUM_ANIMATION_CLIPS, modelSafety.int("maximumAnimationClips"))
+        assertEquals(CREATION_GLB_MAXIMUM_ANIMATION_CHANNELS, modelSafety.int("maximumAnimationChannels"))
+        assertEquals(CREATION_GLB_MAXIMUM_ANIMATION_KEYS, modelSafety.int("maximumAnimationKeyframes").toLong())
+        assertEquals(CREATION_GLB_MAXIMUM_ANIMATION_COMPONENTS, modelSafety.int("maximumAnimationOutputComponents").toLong())
+        assertEquals(CREATION_GLB_MAXIMUM_ANIMATION_DURATION, modelSafety.double("maximumAnimationDurationSeconds"), 0.0)
         assertEquals(
             CreationContract.MAXIMUM_GLB_ARTIFACT_BYTES,
             modelSafety.int("maximumGlbBytes").toLong(),
@@ -178,7 +184,7 @@ class CreationParityContractTest {
         assertFalse(modelSafety.boolean("animatedPngAllowed"))
         assertFalse(modelSafety.boolean("animatedWebpAllowed"))
         assertFalse(modelSafety.boolean("sparseAccessorsAllowed"))
-        assertFalse(modelSafety.boolean("animationsAllowed"))
+        assertTrue(modelSafety.boolean("animationsAllowed"))
         assertFalse(modelSafety.boolean("authoredCamerasAllowed"))
         assertEquals("acyclic_single_parent", modelSafety.string("nodeGraphPolicy"))
         assertTrue(modelSafety.boolean("extensionsFailClosed"))

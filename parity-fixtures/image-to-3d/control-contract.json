@@ -1,0 +1,13 @@
+{
+  "separationLevels": ["simple", "balanced", "detailed"],
+  "separationDefault": "detailed",
+  "initialTopologies": ["triangle", "quad"],
+  "refinementTopologyIsIndependent": true,
+  "rigRequiresTexturedRevision": true,
+  "readiness": [
+    {"available": 1, "active": false, "state": "ready"},
+    {"available": 1, "active": true, "state": "ready"},
+    {"available": 0, "active": true, "state": "preparing"},
+    {"available": 0, "active": false, "state": "unavailable"}
+  ]
+}

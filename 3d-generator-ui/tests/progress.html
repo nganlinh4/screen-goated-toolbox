@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="vi" data-theme="dark">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Revision progress acceptance</title></head>
+<body>
+<main id="app"></main>
+<script type="module">
+  import { animatedModelFixture } from "./animated-model-fixture.ts";
+  const model = URL.createObjectURL(new Blob([animatedModelFixture()], { type: "model/gltf-binary" }));
+  const query = new URLSearchParams({ model, refinements: "1", lang: "vi" });
+  history.replaceState(null, "", `${location.pathname}?${query}`);
+  window.addEventListener("pagehide", () => URL.revokeObjectURL(model), { once: true });
+  await import("../src/main.ts");
+</script>
+</body>
+</html>

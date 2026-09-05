@@ -1,12 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import {
   canSubmitItem,
   freshSubmissionSession,
   needsFreshSubmissionSession,
+  submissionInFlight,
 } from "./submission-policy.ts";
 import type { QueueItem } from "./types.ts";
+
+test("the primary action is hidden only for the selected submitted or running session", () => {
+  const fixture = JSON.parse(readFileSync(new URL(
+    "../../parity-fixtures/image-to-3d/progress-contract.json", import.meta.url,
+  ), "utf8"));
+  for (const scenario of fixture.primaryActionHidden) {
+    assert.equal(submissionInFlight(scenario), scenario.hidden);
+  }
+  assert.equal(submissionInFlight(undefined), false);
+  assert.equal(submissionInFlight({ state: "queued", submitted: false }), false);
+  assert.equal(submissionInFlight({ state: "queued", submitted: true }), true);
+  assert.equal(submissionInFlight({ state: "running", submitted: true }), true);
+  for (const state of ["done", "failed", "cancelled"] as const) {
+    assert.equal(submissionInFlight({ state, submitted: true }), false);
+  }
+});
 
 test("only a source imported by this surface can create another model", () => {
   assert.equal(canSubmitItem({ sourceProvenance: "surface-import" }), true);

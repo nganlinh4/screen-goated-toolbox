@@ -13,6 +13,8 @@ mod crypto;
 mod debug_log;
 mod gui;
 mod initialization;
+#[path = "../../../src/install_activity.rs"]
+mod install_activity;
 #[path = "../../../src/lang_detect.rs"]
 mod lang_detect;
 #[path = "../../../src/model_config.rs"]
