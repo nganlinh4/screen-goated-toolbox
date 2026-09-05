@@ -1,6 +1,9 @@
 export type Locale = "en" | "ko" | "vi";
 
 const en = {
+  imageTooSmall: "Fast mode needs an image at least 32 pixels wide and 32 pixels tall. Choose a larger image.",
+  imageTooLarge: "Fast mode accepts images up to 20 MB (20,000,000 bytes). Compress the image or choose a smaller file.",
+  imageInvalid: "This image could not be validated. Choose a readable PNG, JPEG or WebP within the supported size limits. Restart the updated app if this continues.",
   appTitle: "Image to 3D",
   minimize: "Minimize",
   close: "Close",
@@ -132,6 +135,9 @@ const en = {
 type Messages = { [K in keyof typeof en]: string };
 
 const ko: Messages = {
+  imageTooSmall: "빠른 모드에는 가로와 세로가 각각 32픽셀 이상인 이미지가 필요합니다. 더 큰 이미지를 선택하세요.",
+  imageTooLarge: "빠른 모드는 최대 20 MB(20,000,000바이트)까지 지원합니다. 이미지를 압축하거나 더 작은 파일을 선택하세요.",
+  imageInvalid: "이미지를 확인할 수 없습니다. 지원 크기 이내의 PNG, JPEG 또는 WebP를 선택하세요. 계속되면 업데이트된 앱을 다시 시작하세요.",
   appTitle: "이미지를 3D로", minimize: "최소화", close: "닫기", gettingReady: "준비 중", ready: "준비됨",
   preparing: "준비 중", working: "작업 중", unavailable: "사용 불가",
   readyTooltip: "모델을 생성할 준비가 되었습니다.", queue: "프로젝트", addImages: "이미지 추가", dropImages: "이미지를 놓아 추가하세요",
@@ -178,6 +184,9 @@ const ko: Messages = {
 };
 
 const vi: Messages = {
+  imageTooSmall: "Chế độ Nhanh cần ảnh có cả chiều rộng và chiều cao từ 32 pixel trở lên. Hãy chọn ảnh lớn hơn.",
+  imageTooLarge: "Chế độ Nhanh nhận ảnh tối đa 20 MB (20.000.000 byte). Hãy nén ảnh hoặc chọn tệp nhỏ hơn.",
+  imageInvalid: "Không thể kiểm tra ảnh này. Hãy chọn ảnh PNG, JPEG hoặc WebP đọc được và trong giới hạn kích thước. Nếu vẫn lỗi, hãy khởi động lại ứng dụng đã cập nhật.",
   appTitle: "Ảnh sang 3D", minimize: "Thu nhỏ", close: "Đóng", gettingReady: "Đang chuẩn bị", ready: "Sẵn sàng",
   preparing: "Đang chuẩn bị", working: "Đang xử lý", unavailable: "Không khả dụng",
   readyTooltip: "Đã sẵn sàng tạo mô hình.", queue: "Dự án", addImages: "Thêm ảnh", dropImages: "Thả ảnh để thêm vào",

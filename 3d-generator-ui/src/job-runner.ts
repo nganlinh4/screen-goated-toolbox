@@ -1,4 +1,5 @@
 import { t } from "./i18n";
+import { validateInput } from "./input-validation";
 import type {
   AppState,
   JobStatus,
@@ -282,6 +283,19 @@ export class JobRunner {
       state, normalizeSettings, beginProgress, displayItem, invoke, updateUi,
     } = this.options;
     const settings = normalizeSettings(item);
+    const inputError = await validateInput(invoke, item.path, settings.mode);
+    if (item.cancelRequested || state.cancelRequested) {
+      item.state = "cancelled";
+      updateUi();
+      return;
+    }
+    if (inputError) {
+      item.state = "failed";
+      item.result = { stage: "failed", progressText: "", error: inputError,
+        runtimeStatus: state.selectedStatus.runtimeStatus };
+      updateUi();
+      return;
+    }
     state.runningIds.add(item.id);
     item.state = "running";
     beginProgress(

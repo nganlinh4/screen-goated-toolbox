@@ -12,6 +12,15 @@
 
 ## Product Contract
 
+- Windows validates the source again before submission. Fast mode requires both
+  sides to be at least 32 pixels and a file no larger than 20,000,000 bytes.
+  These mode-specific limits do not constrain Quality mode. General source
+  format, memory and file limits still apply. Invalid sources show a localized
+  explanation without starting generation. Shared boundary cases live in
+  `parity-fixtures/image-to-3d/input-contract.json`. Android has not yet ported
+  this preflight and must not be claimed as verified against this contract.
+
+
 - The shipped creation runtime advertises and delivers `image_to_3d`,
   `image_to_svg`, and `image_creator`. Windows and Android expose only the
   capabilities enabled by their shared release-availability fixtures;

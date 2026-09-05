@@ -270,6 +270,9 @@ export class ModelPresentation {
 
   private friendlyError(code?: string | null) {
     switch (code) {
+      case "image_too_small": return t("imageTooSmall");
+      case "image_too_large": return t("imageTooLarge");
+      case "image_invalid": return t("imageInvalid");
       case "engine_unavailable": return t("toolUnavailable");
       case "timed_out": return t("timedOut");
       case "separation_failed": return t("separationFailed");

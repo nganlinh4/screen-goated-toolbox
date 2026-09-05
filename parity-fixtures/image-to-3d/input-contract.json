@@ -1,0 +1,10 @@
+{
+  "fast": { "minimumSide": 32, "maximumBytes": 20000000 },
+  "cases": [
+    { "mode": "fast", "width": 31, "height": 32, "bytes": 100, "error": "image_too_small" },
+    { "mode": "fast", "width": 32, "height": 31, "bytes": 100, "error": "image_too_small" },
+    { "mode": "fast", "width": 32, "height": 32, "bytes": 20000000, "error": null },
+    { "mode": "fast", "width": 32, "height": 32, "bytes": 20000001, "error": "image_too_large" },
+    { "mode": "quality", "width": 31, "height": 32, "bytes": 20000001, "error": null }
+  ]
+}

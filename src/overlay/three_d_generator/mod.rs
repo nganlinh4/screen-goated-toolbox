@@ -8,6 +8,7 @@ mod asset_texture_validation;
 mod assets;
 mod export;
 pub(crate) mod file_dialogs;
+mod input_policy;
 mod ipc;
 mod runtime;
 mod window;

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="vi" data-theme="dark">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Input validation acceptance</title></head>
+<body>
+<main id="app"></main>
+<output id="submission-count" style="position:fixed;bottom:4px;left:4px;z-index:1000">Remote submissions: 0</output>
+<script type="module">
+  const params = new URLSearchParams(location.search);
+  window.__SGT_CONTEXT__ = { language: params.get("lang") || "vi", theme: "dark" };
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 32;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#68a2dd";
+  context.fillRect(0, 0, 32, 32);
+  let submissions = 0;
+  window.invoke = async (cmd, args) => {
+    switch (cmd) {
+      case "pick_images": return ["input.png"];
+      case "read_image_preview": return { dataUrl: canvas.toDataURL(), width: 32, height: 32 };
+      case "validate_image": return { error: params.get("error") || "image_too_small" };
+      case "start_job":
+        document.querySelector("#submission-count").textContent = `Remote submissions: ${++submissions}`;
+        throw new Error("Invalid source must not reach submission");
+      case "job_statuses": case "history_results": return [];
+      case "generation_capabilities": return { ready: true, optionalInstruction: { fast: false, quality: false } };
+      case "capacity_verification_status": return { pendingCount: 0 };
+      case "runtime_preparation_status": case "prepare_runtime": return "ready";
+      case "default_output_dir": return "";
+      default: return null;
+    }
+  };
+  await import("../src/main.ts");
+</script>
+</body>
+</html>

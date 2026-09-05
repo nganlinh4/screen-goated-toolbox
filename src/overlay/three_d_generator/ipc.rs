@@ -66,6 +66,25 @@ pub(super) fn flush_preview_replies(hwnd: HWND) {
 
 fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
     match cmd {
+        "validate_image" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "path is required".to_string())?;
+            let mode = args
+                .get("generationMode")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "generationMode is required".to_string())?;
+            if !matches!(mode, "fast" | "quality") {
+                return Err("Invalid generation mode".to_string());
+            }
+            match crate::overlay::creation_source::inspect_image(path) {
+                Ok(image) => {
+                    Ok(json!({"error": super::input_policy::error(&image, mode == "fast")}))
+                }
+                Err(_) => Ok(json!({"error": "image_invalid"})),
+            }
+        }
         "pick_image" => super::file_dialogs::pick_image_dialog().map(|opt| {
             opt.map(|path| Value::String(path.to_string_lossy().to_string()))
                 .unwrap_or(Value::Null)
