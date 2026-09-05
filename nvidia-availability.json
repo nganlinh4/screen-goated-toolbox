@@ -3,30 +3,22 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-05T10:41:02Z",
+ "generatedAt": "2026-09-05T15:18:14Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 479,
-   "success_rate": 0.708,
-   "runs": 24
-  },
-  {
-   "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-   "control": "effort-none",
-   "modality": "vision",
-   "p50_ms": 525,
-   "success_rate": 0.958,
+   "p50_ms": 476,
+   "success_rate": 0.75,
    "runs": 24
   },
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 529,
+   "p50_ms": 488,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -34,8 +26,16 @@
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 558,
+   "p50_ms": 528,
    "success_rate": 0.708,
+   "runs": 24
+  },
+  {
+   "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+   "control": "effort-none",
+   "modality": "vision",
+   "p50_ms": 535,
+   "success_rate": 0.958,
    "runs": 24
   },
   {
@@ -50,40 +50,24 @@
    "id": "meta/muse-glimmer-30b",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 706,
-   "success_rate": 0.25,
+   "p50_ms": 698,
+   "success_rate": 0.292,
    "runs": 24
   },
   {
    "id": "mistralai/mistral-nemotron",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1225,
-   "success_rate": 0.208,
-   "runs": 24
-  },
-  {
-   "id": "nvidia/nemotron-3-ultra-550b-a55b",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 1757,
-   "success_rate": 0.458,
+   "p50_ms": 1159,
+   "success_rate": 0.25,
    "runs": 24
   },
   {
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2452,
-   "success_rate": 0.958,
-   "runs": 24
-  },
-  {
-   "id": "minimaxai/minimax-m3",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 2469,
-   "success_rate": 0.417,
+   "p50_ms": 2453,
+   "success_rate": 1.0,
    "runs": 24
   }
  ]
