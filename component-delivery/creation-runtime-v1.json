@@ -8,10 +8,10 @@
     "image_creator"
   ],
   "windows": {
-    "asset": "sgt-creation-runtime-windows-x64-8eabb429e0fc8b66.exe",
-    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64-8eabb429e0fc8b66.exe",
-    "sizeBytes": 2675200,
-    "sha256": "8eabb429e0fc8b666d044318d7cf7741401f567637deeccca326c1c7a48e7b28"
+    "asset": "sgt-creation-runtime-windows-x64-a82a6ce8ec5d4a47.exe",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64-a82a6ce8ec5d4a47.exe",
+    "sizeBytes": 2681344,
+    "sha256": "a82a6ce8ec5d4a472227944f8ba1c54514b7196453a99eb2af6da6bebb60fb08"
   },
   "android": {
     "entries": [
