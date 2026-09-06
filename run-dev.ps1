@@ -183,7 +183,11 @@ function Sync-CreationStaging {
 }
 
 function Build-CreationRuntime {
-    $runtimeRoot = Join-Path $repoRoot "native\sgt_3d_generator_runtime"
+    $runtimeRoot = if ([string]::IsNullOrWhiteSpace($env:SGT_CREATION_RUNTIME_ROOT)) {
+        [IO.Path]::GetFullPath((Join-Path $repoRoot "..\sgt-creation-runtime"))
+    } else {
+        [IO.Path]::GetFullPath($env:SGT_CREATION_RUNTIME_ROOT)
+    }
     $runtimeManifest = Join-Path $runtimeRoot "Cargo.toml"
     if (-not (Test-Path -LiteralPath $runtimeManifest)) {
         Write-Host "Private creation runtime checkout not present; using managed delivery." -ForegroundColor Yellow

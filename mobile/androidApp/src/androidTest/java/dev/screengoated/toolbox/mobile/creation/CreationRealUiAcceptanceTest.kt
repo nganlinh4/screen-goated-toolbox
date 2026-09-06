@@ -361,7 +361,6 @@ class CreationRealUiAcceptanceTest {
                     .put("runtimeVersion", delivery.runtimeVersion)
                     .put("runtimeManifestSha256", delivery.runtimeManifestSha256)
                     .put("runtimeSplitName", delivery.runtimeSplitName ?: JSONObject.NULL)
-                    .put("mailboxPollIntervalMs", delivery.mailboxPollIntervalMs)
                     .toString(),
         )
     }

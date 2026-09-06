@@ -28,7 +28,6 @@ internal data class CreationRuntimeAcceptanceEvidence(
     val runtimeVersion: String,
     val runtimeManifestSha256: String,
     val runtimeSplitName: String?,
-    val mailboxPollIntervalMs: Long,
 )
 
 internal object CreationAcceptanceAttestation {
@@ -160,7 +159,6 @@ internal object CreationAcceptanceAttestation {
             runtimeVersion = manifest.getString("runtimeVersion"),
             runtimeManifestSha256 = sha256(manifestBytes),
             runtimeSplitName = splitName,
-            mailboxPollIntervalMs = REQUIRED_MAILBOX_POLL_INTERVAL_MS,
         )
     }
 
@@ -282,7 +280,6 @@ internal object CreationAcceptanceAttestation {
     }
 
     private const val PLAY_RUNTIME_SPLIT = "feature_creation_runtime"
-    private const val REQUIRED_MAILBOX_POLL_INTERVAL_MS = 1_000L
 }
 
 internal fun sha256(file: File): String = file.inputStream().use { input ->

@@ -8,7 +8,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$runtimeRoot = Join-Path $repo "native\sgt_3d_generator_runtime"
+$runtimeRoot = if ([string]::IsNullOrWhiteSpace($env:SGT_CREATION_RUNTIME_ROOT)) {
+    [IO.Path]::GetFullPath((Join-Path $repo "..\sgt-creation-runtime"))
+} else {
+    [IO.Path]::GetFullPath($env:SGT_CREATION_RUNTIME_ROOT)
+}
 if (-not (Test-Path -LiteralPath $runtimeRoot -PathType Container)) {
     throw "The private Creation runtime source is required to build this archive"
 }
