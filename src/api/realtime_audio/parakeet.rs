@@ -183,13 +183,15 @@ where
     let _stream = if using_per_app_capture {
         #[cfg(target_os = "windows")]
         {
-            super::capture::start_per_app_capture(
-                selected_pid,
-                audio_buffer.clone(),
-                stop_signal.clone(),
-                pause_signal.clone(),
-            )?;
-            None
+            Some(
+                super::capture::start_per_app_capture(
+                    selected_pid,
+                    audio_buffer.clone(),
+                    stop_signal.clone(),
+                    pause_signal.clone(),
+                )?
+                .into(),
+            )
         }
         #[cfg(not(target_os = "windows"))]
         {

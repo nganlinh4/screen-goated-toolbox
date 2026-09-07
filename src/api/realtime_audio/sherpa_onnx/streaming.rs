@@ -226,7 +226,7 @@ pub(super) fn start_audio_capture(
     audio_buffer: Arc<Mutex<Vec<i16>>>,
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
-) -> Result<Option<cpal::Stream>> {
+) -> Result<Option<super::super::capture::CaptureStream>> {
     let audio_source = {
         let app = crate::APP.lock().unwrap();
         app.config.realtime_audio_source.clone()
@@ -238,8 +238,9 @@ pub(super) fn start_audio_capture(
     let using_per_app = audio_source == "device" && tts_enabled && selected_pid > 0;
 
     if using_per_app {
-        start_per_app_capture(selected_pid, audio_buffer, stop_signal, pause_signal)?;
-        Ok(None)
+        Ok(Some(
+            start_per_app_capture(selected_pid, audio_buffer, stop_signal, pause_signal)?.into(),
+        ))
     } else if audio_source == "mic" {
         Ok(Some(start_mic_capture_resilient(
             audio_buffer,

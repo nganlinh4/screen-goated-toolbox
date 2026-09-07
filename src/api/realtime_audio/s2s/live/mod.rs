@@ -27,8 +27,6 @@ pub fn run_gemini_live_s2s(
     let audio_buffer = Arc::new(Mutex::new(Vec::<i16>::new()));
     let pause = Arc::new(AtomicBool::new(false));
     let selected_pid = SELECTED_APP_PID.load(Ordering::SeqCst);
-    let mut per_app_capture_stop: Option<Arc<AtomicBool>> = None;
-    let mut per_app_initial_pid: Option<u32> = None;
     let _stream = if audio_source == "device" {
         let selected_pid = if selected_pid == 0 {
             crate::overlay::realtime_webview::app_selection::show_audio_app_selector_overlay();
@@ -37,19 +35,24 @@ pub fn run_gemini_live_s2s(
             Some(selected_pid)
         };
         if let Some(selected_pid) = selected_pid {
-            per_app_initial_pid = Some(selected_pid);
-            #[cfg(target_os = "windows")]
-            {
-                let capture_stop = Arc::new(AtomicBool::new(false));
-                per_app_capture_stop = Some(capture_stop.clone());
-                start_per_app_capture(
+            let capture = start_per_app_capture(
+                selected_pid,
+                audio_buffer.clone(),
+                stop_signal.clone(),
+                pause.clone(),
+            )?;
+            Some(
+                spawn_s2s_per_app_audio_pid_refresh(
                     selected_pid,
+                    capture,
                     audio_buffer.clone(),
-                    capture_stop,
+                    stop_signal.clone(),
                     pause.clone(),
-                )?;
-            }
-            None
+                    session_id,
+                    settings.mode,
+                )?
+                .into(),
+            )
         } else {
             return Err(anyhow::anyhow!(
                 "S2S device mode needs a selected app to avoid capturing its own translated audio"
@@ -62,20 +65,6 @@ pub fn run_gemini_live_s2s(
             pause.clone(),
         )?)
     };
-    if let (Some(capture_stop), Some(initial_pid)) =
-        (per_app_capture_stop.clone(), per_app_initial_pid)
-    {
-        spawn_s2s_per_app_audio_pid_refresh(
-            initial_pid,
-            capture_stop,
-            audio_buffer.clone(),
-            stop_signal.clone(),
-            pause.clone(),
-            session_id,
-            settings.mode,
-        );
-    }
-
     if let Ok(mut s) = state.lock() {
         s.set_transcription_method(
             crate::api::realtime_audio::state::TranscriptionMethod::GeminiLiveS2s,
@@ -152,27 +141,44 @@ pub fn run_gemini_live_s2s(
 
 fn spawn_s2s_per_app_audio_pid_refresh(
     initial_pid: u32,
-    capture_stop: Arc<AtomicBool>,
+    capture: super::super::capture::CaptureWorker,
     audio_buffer: Arc<Mutex<Vec<i16>>>,
     stop_signal: Arc<AtomicBool>,
     pause: Arc<AtomicBool>,
     session_id: u64,
     mode: S2sMode,
-) {
-    std::thread::spawn(move || {
+) -> Result<super::super::capture::CaptureWorker> {
+    super::super::capture::CaptureWorker::spawn("sgt-per-app-pid-monitor", move |monitor_stop| {
+        let mut capture = Some(capture);
         let started = Instant::now();
         let mut last_observed_samples = 0usize;
+        let mut refresh_pending = true;
         while !stop_signal.load(Ordering::Relaxed)
+            && !monitor_stop.load(Ordering::Acquire)
             && !is_stale_session(session_id)
-            && started.elapsed() < Duration::from_secs(10)
+            && !AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
+            && !TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
         {
-            std::thread::sleep(Duration::from_millis(500));
+            std::thread::sleep(Duration::from_millis(100));
+            if monitor_stop.load(Ordering::Acquire)
+                || stop_signal.load(Ordering::Relaxed)
+                || is_stale_session(session_id)
+                || AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
+                || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
+            {
+                break;
+            }
+            if !refresh_pending {
+                continue;
+            }
             let observed_samples = audio_buffer.lock().map(|buffer| buffer.len()).unwrap_or(0);
-            if observed_samples > last_observed_samples + FRAME_SAMPLES {
-                return;
+            if observed_samples > last_observed_samples + FRAME_SAMPLES
+                || started.elapsed() >= Duration::from_secs(10)
+            {
+                refresh_pending = false;
+                continue;
             }
             last_observed_samples = observed_samples;
-
             let Some(refreshed_pid) =
                 crate::overlay::realtime_webview::app_selection::refresh_selected_audio_capture_pid(
                 )
@@ -182,7 +188,6 @@ fn spawn_s2s_per_app_audio_pid_refresh(
             if refreshed_pid == 0 || refreshed_pid == initial_pid {
                 continue;
             }
-
             crate::log_info!(
                 "[{}] restart per-app capture initial_pid={} refreshed_pid={} elapsed_ms={}",
                 mode.log_tag(),
@@ -190,24 +195,38 @@ fn spawn_s2s_per_app_audio_pid_refresh(
                 refreshed_pid,
                 started.elapsed().as_millis()
             );
-            capture_stop.store(true, Ordering::SeqCst);
+            // The previous producer must finish before a replacement can publish samples.
+            drop(capture.take());
+            if monitor_stop.load(Ordering::Acquire)
+                || stop_signal.load(Ordering::Relaxed)
+                || is_stale_session(session_id)
+                || AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
+                || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
+            {
+                break;
+            }
             SELECTED_APP_PID.store(refreshed_pid, Ordering::SeqCst);
-            if let Err(error) = start_per_app_capture(
+            match start_per_app_capture(
                 refreshed_pid,
                 audio_buffer.clone(),
                 stop_signal.clone(),
                 pause.clone(),
             ) {
-                crate::log_info!(
-                    "[{}] restart per-app capture failed refreshed_pid={} error={}",
-                    mode.log_tag(),
-                    refreshed_pid,
-                    error
-                );
+                Ok(replacement) => capture = Some(replacement),
+                Err(error) => {
+                    crate::log_info!(
+                        "[{}] restart per-app capture failed refreshed_pid={} error={}",
+                        mode.log_tag(),
+                        refreshed_pid,
+                        error
+                    );
+                    break;
+                }
             }
-            return;
+            refresh_pending = false;
         }
-    });
+        drop(capture);
+    })
 }
 
 fn apply_tts_speed_for_s2s(speed: &str) {
@@ -224,7 +243,11 @@ fn apply_tts_speed_for_s2s(speed: &str) {
 
 fn wait_for_selected_app(stop_signal: Arc<AtomicBool>, session_id: u64) -> Option<u32> {
     let started = Instant::now();
-    while !stop_signal.load(Ordering::SeqCst) && !is_stale_session(session_id) {
+    while !stop_signal.load(Ordering::SeqCst)
+        && !is_stale_session(session_id)
+        && !AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
+        && !TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
+    {
         let pid = SELECTED_APP_PID.load(Ordering::SeqCst);
         if pid > 0 {
             return Some(pid);

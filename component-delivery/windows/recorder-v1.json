@@ -2,12 +2,12 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "screen-recorder-5.5.1-314abdc4ad994fdb.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.5.1-314abdc4ad994fdb.zip",
+      "asset": "screen-recorder-5.5.1-5a34fca1de181182.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.5.1-5a34fca1de181182.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "9c0325695b2987436a074b5995baab8ad985a3403c3e991651fce480972ceb64",
+          "sha256": "08056408d36520845a7d63f9f45389a55edd8b393e46522d7214321e3b3a55a3",
           "sizeBytes": 9510912
         },
         {
@@ -1042,7 +1042,7 @@
         }
       ],
       "id": "screen-recorder",
-      "sha256": "314abdc4ad994fdb4769437e84da6f4165b098c414ed9d413e3dbe0b91f44aea",
+      "sha256": "5a34fca1de181182bee5589757f535da87dc3931564006ece3b9678b7087ee48",
       "sizeBytes": 6003996,
       "unpackedSizeBytes": 16371873,
       "version": "5.5.1"

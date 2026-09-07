@@ -44,7 +44,6 @@ const MAX_INTERACTIVE_PROGRESS_IDLE_MS: u64 = 8_000;
 const MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS: u64 = 5_000;
 #[cfg(not(feature = "recorder-worker"))]
 const MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS: u64 = 30_000;
-#[cfg(not(feature = "recorder-worker"))]
 const UNBENCHMARKED_FEED_QUALITY_TIER: u8 = 4;
 
 #[cfg(feature = "recorder-worker")]

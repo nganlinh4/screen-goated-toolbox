@@ -1,10 +1,9 @@
 use super::super::types::SettingsApp;
 use crate::gui::icons::{self, Icon};
 use crate::gui::locale::LocaleText;
-use crate::gui::settings_ui::{model_selector, node_graph};
+use crate::gui::settings_ui::node_graph;
 use crate::gui::theme::AppTheme;
 use crate::gui::widgets::{dialog_header, filled_button, removable_chip};
-use crate::retry_model_chain::RetryChainKind;
 use eframe::egui;
 
 const DIALOG_WIDTH: f32 = 560.0;
@@ -228,16 +227,38 @@ impl SettingsApp {
                 );
                 if !is_direct_speech {
                     ui.add_space(6.0);
-                    let ui_language = self.config.ui_language.clone();
                     ui.horizontal(|ui| {
                         ui.label(text.realtime.realtime_tooltip_translation_model);
-                        changed |= model_selector::render_model_combo(
-                            ui,
-                            "live_translate_translation_model",
-                            &mut self.config.realtime_translation_model,
-                            RetryChainKind::TextToText,
-                            &ui_language,
-                        );
+                        let options = [
+                            (
+                                crate::model_config::REALTIME_TRANSLATION_MODEL_LLM,
+                                text.shell.llm_label,
+                            ),
+                            (
+                                crate::model_config::REALTIME_TRANSLATION_MODEL_GTX,
+                                text.shell.google_gtx_label,
+                            ),
+                        ];
+                        let selected = if self.config.realtime_translation_model
+                            == crate::model_config::REALTIME_TRANSLATION_MODEL_GTX
+                        {
+                            text.shell.google_gtx_label
+                        } else {
+                            text.shell.llm_label
+                        };
+                        crate::gui::widgets::combo("live_translate_translation_model")
+                            .selected_text(selected)
+                            .show_ui(ui, |ui| {
+                                for (id, label) in options {
+                                    changed |= ui
+                                        .selectable_value(
+                                            &mut self.config.realtime_translation_model,
+                                            id.to_string(),
+                                            label,
+                                        )
+                                        .changed();
+                                }
+                            });
                     });
                 }
             },

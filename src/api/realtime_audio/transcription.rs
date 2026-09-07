@@ -443,14 +443,16 @@ fn run_realtime_transcription(
         #[cfg(target_os = "windows")]
         {
             let selected_pid = selected_pid.unwrap_or_default();
-            start_per_app_capture(
-                selected_pid,
-                audio_buffer.clone(),
-                stop_signal.clone(),
-                dummy_pause.clone(),
-            )?;
+            Some(
+                start_per_app_capture(
+                    selected_pid,
+                    audio_buffer.clone(),
+                    stop_signal.clone(),
+                    dummy_pause.clone(),
+                )?
+                .into(),
+            )
         }
-        None
     } else if using_device_loopback {
         Some(start_device_loopback_capture_resilient(
             audio_buffer.clone(),
