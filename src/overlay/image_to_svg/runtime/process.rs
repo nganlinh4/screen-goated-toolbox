@@ -32,7 +32,8 @@ pub(super) fn run_job(
     }
     if runtime_command().is_none() {
         let stop = Arc::new(AtomicBool::new(false));
-        if crate::overlay::creation_runtime::download_runtime(stop, true).is_err() {
+        if let Err(error) = crate::overlay::creation_runtime::download_runtime(stop, true) {
+            crate::log_info!("[Creation] SVG runtime installation failed: {error:#}");
             finish(&job_id, Err("Creation engine is unavailable.".to_string()));
             return;
         }

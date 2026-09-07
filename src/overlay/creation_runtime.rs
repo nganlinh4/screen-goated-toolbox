@@ -257,8 +257,11 @@ pub(crate) fn maintain_readiness_for_demand(
     std::thread::spawn(move || {
         loop {
             let desired = task.desired.swap(0, Ordering::AcqRel);
-            if shared_runtime_path().is_none() && task.install_if_missing.load(Ordering::Acquire) {
-                let _ = download_runtime(task.stop.clone(), true);
+            if shared_runtime_path().is_none()
+                && task.install_if_missing.load(Ordering::Acquire)
+                && let Err(error) = download_runtime(task.stop.clone(), true)
+            {
+                crate::log_info!("[Creation] Runtime preparation failed: {error:#}");
             }
             if task.stop.load(Ordering::Acquire) {
                 break;
