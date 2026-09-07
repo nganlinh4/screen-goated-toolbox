@@ -103,7 +103,7 @@ fn isolated_bridge_handshake_activates_the_loaded_document() {
 #[test]
 fn content_revisions_reject_stale_paint_acknowledgements() {
     assert!(COMPOSED.contains("content_revision: ++entry.contentRevision"));
-    assert!(COMPOSED.contains("contentRevision !== entry.contentRevision"));
+    assert!(COMPOSED.contains("completed.contentRevision === entry.contentRevision"));
     assert!(COMPOSED.contains("revision === entry.contentRevision"));
 }
 
@@ -117,7 +117,10 @@ fn fits_are_serialized_and_pending_updates_are_coalesced_per_card() {
     assert!(COMPOSED.contains("window.__SGT_FIT_CONTEXT__"));
     assert!(COMPOSED.contains("fontReady: true"));
     assert!(COMPOSED.contains("'final_fit_completed'"));
-    assert!(COMPOSED.contains("contentRevision: entry.contentRevision"));
+    assert!(COMPOSED.contains(
+        "entry.mode === 'direct' ? entry.appliedContentRevision : entry.contentRevision"
+    ));
+    assert!(COMPOSED.contains("entry.appliedContentRevision = message.content_revision"));
 }
 
 #[test]
@@ -255,7 +258,7 @@ fn streamed_words_use_a_bounded_adaptive_reveal_queue() {
     assert!(reveal_runtime.contains("reveal.queue.shift()"));
     assert!(reveal_runtime.contains("40 * (1 + reveal.queue.length / 10)"));
     assert!(reveal_runtime.contains("generation !== reveal.generation"));
-    assert!(reveal_runtime.contains("opacity 0.22s ease-out"));
+    assert!(reveal_runtime.contains("opacity 0.09s ease-out"));
     assert!(!reveal_runtime.contains("blur(3px)"));
 }
 

@@ -18,6 +18,7 @@
         get scrollWidth() { return fitBody ? fitBody.scrollWidth : 0; }
     } : document.documentElement;
     var needsStreamingRefinement = false;
+    var visualSettlePending = false;
 
     fitState._sgtFitCallCount = (fitState._sgtFitCallCount || 0) + 1;
     if (fitState._sgtFitting) return;
@@ -71,8 +72,7 @@
     }
 
     function runFitWhenReady() {
-        scheduleFitFrame(function() {
-            scheduleFitFrame(function() {
+        var measure = function() {
                 var body = fitBody;
                 var doc = fitDocument;
 
@@ -304,18 +304,13 @@
                     }
                     clearLastMargin();
 
-                    // Force reflow after reset to ensure measurements are accurate.
-                    void body.offsetHeight;
-
                     // ===== PHASE 1: FONT SIZE (with tight line-height) =====
                     // Binary search for largest font size that fits.
                     var low = minSize, high = maxSize, bestSize = minSize;
                     var foundFittingSize = false;
 
-                    // Streaming target search starts at the previous verified target,
-                    // not the lagging displayed value. An area estimate followed by at
-                    // most two verified refinements bounds renderer-thread layout work
-                    // while the exact final fit retains the exhaustive search.
+                    // One measurement per pass. Fractional targets avoid whole-pixel
+                    // undershoot; final content gets one verified fill correction.
                     var preservedSize = false;
                     if (incrementalFit) {
                         var previousTarget = fitState._sgtLastReportedFitTarget;
@@ -325,6 +320,10 @@
                             && textLen >= previousTextLen && previousViewport
                             && previousViewport.width === winW && previousViewport.height === winH;
                         fitState._sgtIncrementalViewport = { width: winW, height: winH };
+                        if (!previousViewport || previousViewport.width !== winW || previousViewport.height !== winH) {
+                            fitState._sgtIncrementalWidth = 90;
+                        }
+                        applyBodyWdth(fitState._sgtIncrementalWidth || 90);
                         var searchHigh = maxSize;
                         if (contentOnlyGrew
                             && previousTarget
@@ -336,6 +335,14 @@
                         }
                         fitState._sgtLastStreamingFitTextLen = textLen;
 
+                        var polish = fitState._sgtFinalPolish;
+                        if (isStreamingFit || !polish || polish.text !== text
+                            || polish.width !== winW || polish.height !== winH) {
+                            polish = { text: text, width: winW, height: winH, pending: 0, done: false };
+                            fitState._sgtFinalPolish = polish;
+                        }
+                        if (!isStreamingFit && polish.pending) searchHigh = polish.pending;
+
                         body.style.fontSize = searchHigh + 'px';
                         clearLastMargin();
                         var highMetrics = readLayoutMetrics();
@@ -343,13 +350,53 @@
                             bestSize = searchHigh;
                             foundFittingSize = true;
                             preservedSize = true;
+                            if (!isStreamingFit && !polish.done) {
+                                if (polish.pending) {
+                                    polish.pending = 0;
+                                    polish.done = true;
+                                } else {
+                                    var fillSize = Math.min(maxSize, searchHigh * 1.08,
+                                        searchHigh * Math.sqrt((winH - 2) / Math.max(1, highMetrics.height)));
+                                    if (polish.overflow && polish.overflow.size > searchHigh
+                                        && polish.overflow.height > highMetrics.height) {
+                                        var fillFraction = Math.max(0, Math.min(0.9,
+                                            (winH - 2 - highMetrics.height)
+                                            / (polish.overflow.height - highMetrics.height) * 0.9));
+                                        fillSize = Math.min(fillSize, searchHigh
+                                            + (polish.overflow.size - searchHigh) * fillFraction);
+                                    }
+                                    polish.safe = searchHigh;
+                                    polish.pending = fillSize > searchHigh + 0.15 ? fillSize : 0;
+                                    polish.done = !polish.pending;
+                                    needsStreamingRefinement = Boolean(polish.pending);
+                                }
+                            }
+                        } else if (!isStreamingFit && polish.pending) {
+                            // The speculative size never becomes an animation target
+                            // unless verified. A wrap boundary keeps the known-safe fit.
+                            bestSize = polish.safe;
+                            foundFittingSize = true;
+                            preservedSize = true;
+                            polish.pending = 0;
+                            polish.done = true;
+                            body.style.fontSize = bestSize + 'px';
+                        } else if ((fitState._sgtIncrementalWidth || 90) === 90
+                            && highMetrics.height <= winH + searchHigh * 1.5
+                            && highMetrics.width <= winW + 1) {
+                            // A small width adjustment can absorb a wrap boundary.
+                            // Keep it for the session instead of pumping width on each chunk.
+                            fitState._sgtIncrementalWidth = 87;
+                            applyBodyWdth(87);
+                            bestSize = searchHigh;
+                            needsStreamingRefinement = true;
                         } else {
+                            polish.overflow = { size: searchHigh, height: highMetrics.height };
                             var heightScale = Math.sqrt(winH / Math.max(1, highMetrics.height));
                             var widthScale = winW / Math.max(1, highMetrics.width);
                             var estimateScale = Math.min(1, heightScale, widthScale);
                             var estimate = Math.max(
                                 minSize,
-                                Math.min(searchHigh - 1, Math.floor(searchHigh * estimateScale))
+                                Math.min(searchHigh - 0.15, Math.floor(searchHigh * estimateScale * 20) / 20)
                             );
                             bestSize = estimate;
                             foundFittingSize = estimate === minSize;

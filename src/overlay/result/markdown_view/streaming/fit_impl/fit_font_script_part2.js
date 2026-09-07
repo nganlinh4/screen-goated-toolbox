@@ -402,7 +402,47 @@
                         // forming the visible "stair-step" between chunks.
                         var snapThreshold = 0.1;
                         var snapWThreshold = 0.3;
-                        if (usesStreamingMotion && hadPriorSize && !settleBeforeReveal) {
+                        if (incrementalFit && !isStreamingFit && !needsStreamingRefinement
+                            && hadPriorSize && !settleBeforeReveal && typeof body.animate === 'function') {
+                            // Freeze the verified line layout. Only the visual transform
+                            // changes during settling, never font metrics or line breaks.
+                            var finalMotion = fitState._sgtMotionController;
+                            if (finalMotion && finalMotion.frame !== null) cancelFitFrame(finalMotion.frame);
+                            applyAxes(targetFontSize, targetWdth);
+                            applyPadding(targetPadTop, targetPadBottom);
+                            fitState._sgtCurrentFontSize = targetFontSize;
+                            fitState._sgtCurrentWdth = targetWdth;
+                            if (finalMotion) {
+                                finalMotion.frame = null;
+                                finalMotion.fontSize = targetFontSize;
+                                finalMotion.fontStretch = targetWdth;
+                                finalMotion.targetFontSize = targetFontSize;
+                                finalMotion.targetFontStretch = targetWdth;
+                                finalMotion.fontVelocity = 0;
+                                finalMotion.stretchVelocity = 0;
+                                finalMotion.padTop = finalMotion.targetPadTop = targetPadTop;
+                                finalMotion.padBottom = finalMotion.targetPadBottom = targetPadBottom;
+                                finalMotion.padTopVelocity = finalMotion.padBottomVelocity = 0;
+                            }
+                            var scale = startFontSize / targetFontSize;
+                            var reducedMotion = window.matchMedia
+                                && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                            var settleDuration = reducedMotion ? 0
+                                : Math.min(120, Math.abs(scale - 1) * 1200);
+                            var animation = body.animate([
+                                { transform: 'scale(' + scale + ')', transformOrigin: '0 0' },
+                                { transform: 'scale(1)', transformOrigin: '0 0' }
+                            ], { duration: settleDuration, easing: 'linear' });
+                            visualSettlePending = true;
+                            fitState._sgtVisualSettle = animation;
+                            var finishSettle = function() {
+                                if (fitState._sgtVisualSettle === animation) fitState._sgtVisualSettle = null;
+                                fitState._sgtStreamingMotionActive = false;
+                                visualSettlePending = false;
+                                revealAndUnlock(!fitContext || !fitContext.isCurrent || fitContext.isCurrent() ? body : null);
+                            };
+                            animation.finished.then(finishSettle, finishSettle);
+                        } else if (usesStreamingMotion && hadPriorSize && !settleBeforeReveal) {
                             retargetContinuousMotion();
                         } else if (settleBeforeReveal || !hadPriorSize
                             || (fsDelta < snapThreshold && wDelta < snapWThreshold)) {
@@ -473,10 +513,11 @@
                             window.__SGT_REPORT_RENDER_DIAGNOSTICS__({ phase: fitPhase });
                         }
                     } catch (_err) {}
-                    revealAndUnlock(body);
+                    if (!visualSettlePending) revealAndUnlock(body);
                 }
-            });
-        });
+        };
+        if (fitContext && fitContext.inAnimationFrame) measure();
+        else scheduleFitFrame(function() { scheduleFitFrame(measure); });
     }
 
     try {

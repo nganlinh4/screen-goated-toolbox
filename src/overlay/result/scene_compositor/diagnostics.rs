@@ -26,6 +26,7 @@ pub(super) fn log_card_diagnostic(event: CardDiagnosticLog) {
                 | "interactive_pixels_rejected"
                 | "activate_font_received"
                 | "finalize_received"
+                | "finalize_applied"
                 | "run_fit_received"
                 | "command_rejected"
                 | "font_failed"

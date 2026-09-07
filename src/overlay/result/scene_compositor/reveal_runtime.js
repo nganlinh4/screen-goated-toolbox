@@ -30,7 +30,7 @@
                 word.style.visibility = 'hidden';
                 word.style.opacity = '0';
                 word.style.filter = '';
-                word.style.transition = 'opacity 0.22s ease-out';
+                word.style.transition = 'opacity 0.09s ease-out';
                 reveal.queue.push({ element: word, index: index });
             }
             if (!reveal.queue.length) return;

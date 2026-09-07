@@ -338,7 +338,9 @@
             var high = Math.min(maxPossible, Math.ceil(estimated * 1.15));
             if (low > high) low = high;
 
-            body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+            body.style.fontWeight = '400';
+            body.style.fontStretch = '90%';
+            body.style.fontVariationSettings = "'slnt' 0, 'ROND' 100";
             body.style.letterSpacing = '0px';
             body.style.wordSpacing = '0px';
             body.style.lineHeight = '1.5';
@@ -424,6 +426,7 @@
         }
 
         function apply(options) {
+            if (state.fit._sgtVisualSettle) state.fit._sgtVisualSettle.cancel();
             var previousWords = state.wordCount;
             var firstRender = state.renderCount === 0;
             // Each source replacement card owns one compositor animation. Stop the
@@ -516,6 +519,7 @@
         }
 
         function destroy() {
+            if (state.fit._sgtVisualSettle) state.fit._sgtVisualSettle.cancel();
             if (state.overflowObserver) state.overflowObserver.disconnect();
             state.overflowObserver = null;
             revealRuntime.destroy();
@@ -528,6 +532,7 @@
             apply: apply,
             initGrids: initGrids,
             beginResizePreview: function(size) {
+                if (state.fit._sgtVisualSettle) state.fit._sgtVisualSettle.cancel();
                 return window.__SGT_TYPOGRAPHY_RESIZE__.begin(
                     body, state.fit, size, cancelAnimationFrame.bind(window));
             },

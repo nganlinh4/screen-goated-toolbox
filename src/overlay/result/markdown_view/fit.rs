@@ -59,6 +59,10 @@ mod tests {
         assert!(cancellation > readiness_frame);
         assert!(cancellation < displayed_axis_capture);
         assert!(script.contains("scheduleFitFrame(tick)"));
+        assert!(script.contains("fitContext.inAnimationFrame) measure()"));
+        assert!(
+            script.contains("else scheduleFitFrame(function() { scheduleFitFrame(measure); })")
+        );
     }
 
     #[test]

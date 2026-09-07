@@ -1,6 +1,13 @@
 function activateCard(entry, becameVisible) {
   if (!entry.visible || entry.navigationDepth !== 0) return;
   if (entry.mode === 'direct' && entry.pendingContent) {
+    // Terminal content supersedes the streaming batch; do not wait behind its frame.
+    if (entry.pendingContent.type === 'finalize') {
+      if (entry.contentFrame) cancelAnimationFrame(entry.contentFrame);
+      entry.contentFrame = null;
+      flushPendingContent(entry);
+      return;
+    }
     if (!entry.contentFrame) entry.contentFrame = requestAnimationFrame(function() {
       entry.contentFrame = null;
       if (cards.get(entry.card.dataset.id) !== entry) return;

@@ -99,7 +99,7 @@ function ensureCard(id) {
     navigationUrls: [],
     refining: false, navigationLoading: false, externalNavigation: false,
     streamingEnabled: true,
-    contentRevision: 0, revision: 0, resizeFit: 0,
+    contentRevision: 0, appliedContentRevision: 0, revision: 0, resizeFit: 0,
     awaitingSettledReveal: false, settledRevealRevision: 0,
     pendingSettledPaint: null,
     sourceSurfacePrewarmed: false,
@@ -171,6 +171,7 @@ function postCardMessage(entry, message) {
   return true;
 }
 function cancelActiveFit(entry) {
+  if (entry.directState.fit._sgtVisualSettle) entry.directState.fit._sgtVisualSettle.cancel();
   pendingFits.delete(entry.card.dataset.id);
   if (!activeFit || activeFit.entry !== entry) return;
   clearTimeout(activeFit.timeout);
@@ -185,7 +186,7 @@ function queueFit(entry, streaming) {
     entry: entry,
     streaming: Boolean(streaming),
     revision: entry.revision,
-    contentRevision: entry.contentRevision,
+    contentRevision: entry.mode === 'direct' ? entry.appliedContentRevision : entry.contentRevision,
     priority: streaming ? 1 : 2
   };
   if (!current || next.priority >= current.priority || next.revision > current.revision) {
@@ -206,7 +207,8 @@ function runDirectFit(entry, streaming, settleBeforeReveal) {
     fontReady: true,
     streamingSession: entry.streamingEnabled,
     handlesRefinement: true,
-    isCurrent: function() { return activeFit === job && cards.get(entry.card.dataset.id) === entry; },
+    inAnimationFrame: true,
+    isCurrent: function() { return activeFit === job && job.contentRevision === entry.appliedContentRevision && cards.get(entry.card.dataset.id) === entry; },
     settleBeforeReveal: Boolean(settleBeforeReveal),
     reportDiagnostic: function(payload) {
       window.ipc.postMessage(JSON.stringify({
@@ -242,7 +244,7 @@ function scheduleFit() {
     const entry = selected.entry;
     if (!entry.ready || !entry.fontReady || !entry.visible || entry.navigationDepth !== 0
         || selected.revision !== entry.revision
-        || selected.contentRevision !== entry.contentRevision) {
+        || selected.contentRevision !== (entry.mode === 'direct' ? entry.appliedContentRevision : entry.contentRevision)) {
       scheduleFit();
       return;
     }
@@ -292,6 +294,7 @@ function applyDirectContent(entry, message) {
       sourceSegments: entry.sourceSegments
     });
     entry.bodyElement.dataset.sgtMode = message.refining ? 'refining' : 'result';
+    entry.appliedContentRevision = message.content_revision;
     reportCardDiagnostic(entry.card.dataset.id, entry,
       message.type === 'finalize' ? 'finalize_applied' : 'stream_applied', {
         revision: message.content_revision,
@@ -508,6 +511,7 @@ function streamCard(model) {
 function finalizeCard(model) {
   const entry = cards.get(String(model.id));
   if (!entry) return;
+  reportCardDiagnostic(model.id, entry, 'finalize_received', {});
   applyContentModel(entry, model, 'finalize');
 }
 function updateGeometry(model) {
