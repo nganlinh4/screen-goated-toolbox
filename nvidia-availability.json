@@ -3,17 +3,9 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-07T18:45:22Z",
+ "generatedAt": "2026-09-07T22:52:21Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
-  {
-   "id": "poolside/laguna-xs-2.1",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 502,
-   "success_rate": 0.708,
-   "runs": 24
-  },
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
@@ -31,11 +23,19 @@
    "runs": 24
   },
   {
+   "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 581,
+   "success_rate": 0.875,
+   "runs": 24
+  },
+  {
    "id": "meta/muse-glimmer-30b",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 714,
-   "success_rate": 0.792,
+   "p50_ms": 722,
+   "success_rate": 0.833,
    "runs": 24
   },
   {
@@ -50,8 +50,16 @@
    "id": "minimaxai/minimax-m3",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1738,
-   "success_rate": 0.542,
+   "p50_ms": 1192,
+   "success_rate": 0.583,
+   "runs": 24
+  },
+  {
+   "id": "nvidia/nemotron-3-ultra-550b-a55b",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 1567,
+   "success_rate": 0.625,
    "runs": 24
   },
   {
@@ -66,8 +74,8 @@
    "id": "moonshotai/kimi-k3",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 2713,
-   "success_rate": 0.583,
+   "p50_ms": 2615,
+   "success_rate": 0.625,
    "runs": 24
   }
  ]
