@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "pretest": "node --test src/viewer-animation.test.ts src/viewer-camera.test.ts src/readiness-monitor.test.ts",
+    "pretest": "node --test src/viewer-animation.test.ts src/viewer-camera.test.ts src/readiness-monitor.test.ts src/readiness-presentation.test.ts",
     "postinstall": "node ../scripts/ensure-rolldown-native.mjs",
     "prebuild": "node ../scripts/ensure-rolldown-native.mjs",
     "build": "tsc --noEmit && vite build && vite build --config viewer.vite.config.ts",

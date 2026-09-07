@@ -11,6 +11,7 @@ import {
   DEFAULT_PROGRESS_RANGE,
   nextDisplayedProgress,
 } from "./progress-policy";
+import { readinessIsError, readinessLabel } from "./readiness-presentation";
 
 type PresentationOptions = {
   state: AppState;
@@ -145,15 +146,9 @@ export class ModelPresentation {
     nodes.statusDetail.textContent = status.detail;
     nodes.stageStatus.dataset.stage = status.stage;
     nodes.statusMark.innerHTML = item?.state === "done" ? ICONS.check : ICONS.sparkle;
-    nodes.readinessText.textContent = missing
-      ? t("unavailable")
-      : busy
-        ? t("working")
-        : state.preparationStatus === "ready"
-          ? t("ready")
-          : t("preparing");
+    nodes.readinessText.textContent = t(readinessLabel(busy, missing, state.preparationStatus));
     nodes.readiness.classList.toggle("busy", busy || state.preparationStatus === "preparing");
-    nodes.readiness.classList.toggle("error", missing);
+    nodes.readiness.classList.toggle("error", readinessIsError(busy, missing));
     nodes.readiness.title = nodes.readinessText.textContent;
     nodes.sourceName.textContent = item ? stripExtension(item.name) : t("chooseImages");
     const selectedBatchSize = item && item.state === "queued" && !item.submitted
