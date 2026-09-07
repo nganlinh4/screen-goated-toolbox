@@ -92,7 +92,9 @@ pub(super) fn create_host_window() -> anyhow::Result<HWND> {
         let _ = RegisterClassW(&window_class);
         let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
         let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
-        let x = super::compositor_host_x(GetSystemMetrics(SM_XVIRTUALSCREEN), width);
+        let x = GetSystemMetrics(SM_XVIRTUALSCREEN)
+            .saturating_sub(width)
+            .saturating_sub(64);
         let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST
@@ -181,6 +183,11 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             WM_TIMER if wparam.0 == INPUT_TIMER_ID => {
+                HOST.with(|slot| {
+                    if let Some(host) = slot.borrow().as_ref() {
+                        host.poll_heartbeat();
+                    }
+                });
                 poll_compositor_cursor();
                 LRESULT(0)
             }
@@ -203,6 +210,17 @@ pub(super) fn focus_webview() {
             host.move_focus();
         }
     });
+}
+
+pub(super) fn set_renderer_visible(hwnd: HWND, visible: bool) -> bool {
+    if HOST_HWND.load(Ordering::SeqCst) != hwnd.0 as isize {
+        return true;
+    }
+    HOST.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_none_or(|host| host.set_visible(visible).is_ok())
+    })
 }
 
 pub(super) fn get_dcomp_cursor(cur: &mut HCURSOR) -> windows::core::Result<()> {

@@ -1,4 +1,3 @@
-setInterval(function() { window.ipc.postMessage('renderer_heartbeat'); }, 1000);
 var rendererFontStarted = performance.now();
 document.fonts.load("400 16px 'Google Sans Flex'").then(function(faces) {
     if (!faces.length || !document.fonts.check("400 16px 'Google Sans Flex'")) {

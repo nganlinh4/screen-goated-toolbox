@@ -82,9 +82,7 @@ pub(super) fn create_input_surface(
             None,
         )?;
 
-        let empty = CreateRectRgn(0, 0, 0, 0);
-        let _ = SetWindowRgn(hwnd, Some(empty), false);
-        let _ = ShowWindow(hwnd, SW_HIDE);
+        super::visual_region::hide(hwnd);
         Ok(hwnd)
     }
 }
@@ -208,8 +206,8 @@ pub(super) fn update_input_regions(
     hwnd: HWND,
     cards: &HashMap<isize, SceneCard>,
     interactive_regions: &[SceneRect],
-    _display_x: i32,
-    _display_y: i32,
+    display_x: i32,
+    display_y: i32,
     display_w: i32,
     display_h: i32,
 ) -> AppliedInputState {
@@ -233,11 +231,7 @@ pub(super) fn update_input_regions(
     // If no cards are visible, input surface must disappear unconditionally.
     // Stale or delayed interactive button regions cannot resurrect dead input islands.
     if visible_cards == 0 {
-        unsafe {
-            let empty = CreateRectRgn(0, 0, 0, 0);
-            let _ = SetWindowRgn(hwnd, Some(empty), false);
-            let _ = ShowWindow(hwnd, SW_HIDE);
-        }
+        super::visual_region::hide(hwnd);
         return AppliedInputState::hidden();
     }
 
@@ -335,6 +329,20 @@ pub(super) fn update_input_regions(
                 return AppliedInputState::hidden();
             }
             if !IsWindowVisible(hwnd).as_bool() {
+                if SetWindowPos(
+                    hwnd,
+                    None,
+                    display_x,
+                    display_y,
+                    display_w,
+                    display_h,
+                    SWP_NOACTIVATE | SWP_NOZORDER,
+                )
+                .is_err()
+                {
+                    super::visual_region::hide(hwnd);
+                    return AppliedInputState::hidden();
+                }
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             }
             let _ = SetWindowPos(

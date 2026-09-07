@@ -37,6 +37,7 @@ window.addEventListener('unhandledrejection',function(e){window.ipc.postMessage(
 "#;
 
 pub(super) struct DcompHost {
+    heartbeat_at: std::cell::Cell<std::time::Instant>,
     _device: IDCompositionDevice,
     _target: IDCompositionTarget,
     _root: IDCompositionVisual,
@@ -45,6 +46,22 @@ pub(super) struct DcompHost {
 }
 
 impl DcompHost {
+    pub(super) fn poll_heartbeat(&self) {
+        // Native scheduling also probes hidden pages whose JavaScript timers are throttled.
+        if self.heartbeat_at.get().elapsed() >= std::time::Duration::from_secs(1) {
+            self.heartbeat_at.set(std::time::Instant::now());
+            self.evaluate_script("window.ipc.postMessage('renderer_heartbeat');");
+        }
+    }
+
+    pub(super) fn set_visible(&self, visible: bool) -> windows::core::Result<()> {
+        unsafe {
+            let controller: ICoreWebView2Controller = self.comp.cast()?;
+            controller.SetIsVisible(visible)?;
+            controller.NotifyParentWindowPositionChanged()
+        }
+    }
+
     pub(super) fn update_display(
         &self,
         width: i32,
@@ -187,7 +204,7 @@ pub(super) fn build_host(
             G: 0,
             B: 0,
         })?;
-        controller.SetIsVisible(true)?;
+        controller.SetIsVisible(false)?;
 
         let webview = controller.CoreWebView2()?;
         inject_bootstrap(&webview)?;
@@ -200,6 +217,7 @@ pub(super) fn build_host(
         device.Commit()?;
 
         Ok(DcompHost {
+            heartbeat_at: std::cell::Cell::new(std::time::Instant::now()),
             _device: device,
             _target: target,
             _root: root,

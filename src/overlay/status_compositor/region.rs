@@ -11,8 +11,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub(super) fn initialize(hwnd: HWND) {
     unsafe {
         let empty = CreateRectRgn(0, 0, 0, 0);
-        let _ = SetWindowRgn(hwnd, Some(empty), false);
         let _ = ShowWindow(hwnd, SW_HIDE);
+        if !empty.is_invalid() && SetWindowRgn(hwnd, Some(empty), false) == 0 {
+            let _ = DeleteObject(empty.into());
+        }
     }
 }
 
@@ -21,21 +23,33 @@ pub(super) fn update(hwnd: HWND, scene: &StatusSnapshot) {
     let visible = visible_rects(scene);
     unsafe {
         let combined = CreateRectRgn(0, 0, 0, 0);
+        if combined.is_invalid() {
+            initialize(hwnd);
+            return;
+        }
         let mut bounded_count = 0;
         for rect in visible {
             let Some(rect) = clip_to_display(rect, display) else {
                 continue;
             };
             bounded_count += 1;
-            union_rect(
+            if !union_rect(
                 combined,
                 rect.x - display.x,
                 rect.y - display.y,
                 rect.width,
                 rect.height,
-            );
+            ) {
+                let _ = DeleteObject(combined.into());
+                initialize(hwnd);
+                return;
+            }
         }
-        let _ = SetWindowRgn(hwnd, Some(combined), true);
+        if SetWindowRgn(hwnd, Some(combined), true) == 0 {
+            let _ = DeleteObject(combined.into());
+            initialize(hwnd);
+            return;
+        }
         if bounded_count == 0 {
             let _ = ShowWindow(hwnd, SW_HIDE);
         } else {
@@ -88,11 +102,15 @@ fn clip_to_display(rect: PhysicalRect, display: super::DisplayMetrics) -> Option
     })
 }
 
-unsafe fn union_rect(region: HRGN, x: i32, y: i32, width: i32, height: i32) {
+unsafe fn union_rect(region: HRGN, x: i32, y: i32, width: i32, height: i32) -> bool {
     unsafe {
         let rect = CreateRectRgn(x, y, x.saturating_add(width), y.saturating_add(height));
-        let _ = CombineRgn(Some(region), Some(region), Some(rect), RGN_OR);
+        if rect.is_invalid() {
+            return false;
+        }
+        let valid = CombineRgn(Some(region), Some(region), Some(rect), RGN_OR).0 != 0;
         let _ = DeleteObject(rect.into());
+        valid
     }
 }
 

@@ -286,6 +286,23 @@ mod tests {
             "Point must hit receiver after final card closure"
         );
 
+        cards.insert(
+            -30,
+            harness_test_card(
+                -30,
+                SceneRect {
+                    x: 200,
+                    y: 200,
+                    width: 200,
+                    height: 200,
+                },
+            ),
+        );
+        let restored = update_input_regions(input_surface, &cards, &[], 0, 0, 1920, 1080);
+        assert!(!restored.is_hidden);
+        pump_messages();
+        assert_eq!(unsafe { WindowFromPoint(pt) }, input_surface);
+
         unsafe {
             let _ = DestroyWindow(input_surface);
             let _ = DestroyWindow(receiver);
