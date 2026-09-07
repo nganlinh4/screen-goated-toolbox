@@ -220,12 +220,11 @@ fn text_only_cards_keep_the_fitter_without_card_chrome() {
     assert!(direct_runtime.contains("Math.min(100, candidateWidth)"));
     assert!(!direct_runtime.contains("stretchHigh = 151"));
     assert!(direct_runtime.contains("window.__SGT_QUEUE_SOURCE_FIT__(containers.map("));
-    assert!(surface_runtime.contains("for (let fontAttempt = 0; fontAttempt < 12; fontAttempt++)"));
-    assert!(
-        surface_runtime.contains("for (let widthAttempt = 0; widthAttempt < 12; widthAttempt++)")
-    );
+    assert!(!surface_runtime.contains("fontAttempt"));
+    assert!(!surface_runtime.contains("widthAttempt"));
+    assert!(surface_runtime.contains("item.stretch = 87"));
     assert!(surface_runtime.contains("requestAnimationFrame(flush)"));
-    assert!(surface_runtime.contains("void document.documentElement.offsetHeight"));
+    assert!(surface_runtime.contains("item.visualScale"));
     assert!(scene_runtime.contains("entry.card.hidden = false"));
     assert!(scene_runtime.contains("entry.sourceSurfacePrewarmed = true"));
     assert!(direct_runtime.contains("display:block;max-width:100%;max-height:100%"));

@@ -36,7 +36,11 @@ pub(super) fn update(hwnd: HWND, _redraw: bool) {
             windows::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN,
         )
     };
-    let _ = super::input_surface::update_input_regions(
+    if !super::visual_region::update(hwnd, &cards, &button_regions, width, height) {
+        super::visual_region::hide(target_hwnd);
+        std::process::exit(1);
+    }
+    let applied = super::input_surface::update_input_regions(
         target_hwnd,
         &cards,
         &button_regions,
@@ -45,6 +49,9 @@ pub(super) fn update(hwnd: HWND, _redraw: bool) {
         width,
         height,
     );
+    if applied.is_hidden {
+        super::visual_region::hide(hwnd);
+    }
 }
 
 pub(super) fn resize_edge_width(dpi: u32) -> i32 {

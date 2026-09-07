@@ -7,6 +7,7 @@ document.fonts.load("400 16px 'Google Sans Flex'").then(function(faces) {
     if (!window.__SGT_BUTTON_SCENE__ || typeof window.updateWindows !== 'function') {
         throw new Error('Unified result controls did not initialize');
     }
+    window.__SGT_QUEUE_SOURCE_FIT__.warmup();
     document.documentElement.classList.add('sgt-font-ready');
     window.ipc.postMessage(JSON.stringify({
         type: 'font_ready',

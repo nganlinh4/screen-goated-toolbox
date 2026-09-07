@@ -43,6 +43,8 @@ window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
   let scheduled = false;
 
   function applyTypography(item, fontSize, stretch) {
+    item.text.style.fontWeight = '400';
+    item.text.style.fontOpticalSizing = 'none';
     item.text.style.fontSize = fontSize + 'px';
     item.text.style.lineHeight = '1.08';
     item.text.style.fontStretch = stretch + '%';
@@ -54,77 +56,59 @@ window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
     const range = document.createRange();
     range.selectNodeContents(item.text);
     const rect = range.getBoundingClientRect();
-    return { width: rect.width, height: rect.height };
-  }
-
-  function itemFits(item) {
-    const extent = shapedExtent(item);
-    return extent.width <= item.box.clientWidth + 0.5
-      && extent.height <= item.box.clientHeight + 0.5;
-  }
-
-  function forceLayout() {
-    void document.documentElement.offsetHeight;
+    return rect;
   }
 
   function fitBatch(tasks) {
-    const items = tasks.flatMap(function(task) { return task.items; });
+    const items = tasks.flatMap(function(task) { return task.items; })
+      .filter(function(item) { return item.text.isConnected && item.box.isConnected; });
+    // Read every box before writing typography. Only two width-axis instances
+    // are needed; continuous axis searches are particularly expensive cold.
     for (const item of items) {
-      item.minorExtent = item.vertical ? item.box.clientWidth : item.box.clientHeight;
-      item.fontLow = 0.1;
-      item.fontHigh = Math.max(1, item.minorExtent * 2);
-      item.fontSize = 0.1;
-    }
-    for (let fontAttempt = 0; fontAttempt < 12; fontAttempt++) {
-      for (const item of items) {
-        item.fontMiddle = (item.fontLow + item.fontHigh) / 2;
-        applyTypography(item, item.fontMiddle, 50);
-      }
-      forceLayout();
-      for (const item of items) {
-        if (itemFits(item)) {
-          item.fontSize = item.fontMiddle;
-          item.fontLow = item.fontMiddle;
-        } else {
-          item.fontHigh = item.fontMiddle;
-        }
-      }
+      item.width = Math.max(0, item.box.clientWidth);
+      item.height = Math.max(0, item.box.clientHeight);
+      item.fontSize = Math.max(0.1, (item.vertical ? item.width : item.height) / 1.08);
+      item.stretch = 100;
     }
     for (const item of items) {
-      item.widthLow = 50;
-      item.widthHigh = 151;
-      item.chosenWidth = 50;
+      item.text.style.transform = '';
+      applyTypography(item, item.fontSize, item.stretch);
     }
-    for (let widthAttempt = 0; widthAttempt < 12; widthAttempt++) {
-      for (const item of items) {
-        item.widthMiddle = (item.widthLow + item.widthHigh) / 2;
-        applyTypography(item, item.fontSize, item.widthMiddle);
-      }
-      forceLayout();
-      for (const item of items) {
-        if (itemFits(item)) {
-          item.chosenWidth = item.widthMiddle;
-          item.widthLow = item.widthMiddle;
-        } else {
-          item.widthHigh = item.widthMiddle;
-        }
-      }
-    }
-    for (const item of items) applyTypography(item, item.fontSize, item.chosenWidth);
-    forceLayout();
+    // First shape: preserve normal width when possible, mildly condense only
+    // overflowing horizontal lines, and estimate the contained size directly.
     for (const item of items) {
       const extent = shapedExtent(item);
-      const visualScale = Math.min(
-        1,
-        item.box.clientWidth / Math.max(1, extent.width),
-        item.box.clientHeight / Math.max(1, extent.height)
-      );
-      if (visualScale < 1) {
-        item.text.style.transform = 'scale(' + visualScale + ')';
-        item.text.style.transformOrigin = 'center center';
-      } else {
-        item.text.style.transform = '';
-      }
+      const heightScale = Math.min(1, item.height / Math.max(0.1, extent.height));
+      if (!item.vertical && extent.width * heightScale > item.width) item.stretch = 87;
+      item.fontSize *= Math.min(heightScale,
+        item.width / Math.max(0.1, extent.width * item.stretch / 100));
+    }
+    for (const item of items) applyTypography(item, item.fontSize, item.stretch);
+    // Optical sizing and shaping need not scale linearly. One measured
+    // correction, then a paint-only containment transform, never a search loop.
+    for (const item of items) {
+      const extent = shapedExtent(item);
+      item.fontSize *= Math.min(1, item.width / Math.max(0.1, extent.width),
+        item.height / Math.max(0.1, extent.height));
+    }
+    for (const item of items) applyTypography(item, item.fontSize, item.stretch);
+    for (const item of items) {
+      const extent = shapedExtent(item);
+      item.visualScale = Math.min(1, item.width / Math.max(0.1, extent.width),
+        item.height / Math.max(0.1, extent.height));
+      const box = item.box.getBoundingClientRect();
+      const text = item.text.getBoundingClientRect();
+      // Center the shaped glyph bounds, not the CSS line box: ascent/descent,
+      // RTL overhangs and max-width constraints can offset the ink inside it.
+      item.shiftX = box.left + box.width / 2 - text.left
+        - ((extent.left || 0) + extent.width / 2 - text.left) * item.visualScale;
+      item.shiftY = box.top + box.height / 2 - text.top
+        - ((extent.top || 0) + extent.height / 2 - text.top) * item.visualScale;
+    }
+    for (const item of items) {
+      item.text.style.transform = 'translate(' + item.shiftX + 'px,' + item.shiftY
+        + 'px) scale(' + item.visualScale + ')';
+      item.text.style.transformOrigin = '0 0';
       item.box.style.overflow = 'hidden';
       item.text.style.overflow = 'visible';
     }
@@ -145,12 +129,30 @@ window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
     requestAnimationFrame(flush);
   }
 
-  return function(items) {
+  function queue(items) {
     return new Promise(function(resolve) {
       pending.push({ items: items, resolve: resolve });
       schedule();
     });
+  }
+
+  queue.warmup = function() {
+    const sample = document.querySelector('.font-prewarm');
+    if (!sample) return;
+    const probe = sample.cloneNode(true);
+    probe.removeAttribute('class');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;pointer-events:none;';
+    probe.style.fontFamily = getComputedStyle(sample).fontFamily;
+    document.body.appendChild(probe);
+    try {
+      const item = { text: probe };
+      for (const stretch of [100, 87]) {
+        applyTypography(item, 16, stretch);
+        shapedExtent(item);
+      }
+    } finally { probe.remove(); }
   };
+  return queue;
 })();
 
 function setSourceReplacementSurface(entry, enabled) {

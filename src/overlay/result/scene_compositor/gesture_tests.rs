@@ -87,11 +87,21 @@ fn stale_finish_does_not_destroy_newer_gesture() {
     assert!(is_gesture_active());
     assert_eq!(active_gesture_id(), Some(200));
 
+    preview_gesture(200, 300, 50);
+    let first = visual_preview_rects(&cards);
+    assert_eq!(first[0].x, 310);
+    preview_gesture(200, -100, 50);
+    let swept = visual_preview_rects(&cards);
+    assert_eq!((swept[0].x, swept[0].width), (-90, 600));
+
     // Delivery of valid finish for gesture 200 succeeds
     let valid_result = finish_gesture_with_offset(200, 50, 50);
     assert!(valid_result.is_some());
     assert!(!is_gesture_active());
     assert_eq!(active_gesture_id(), None);
+    assert!(!visual_preview_rects(&cards).is_empty());
+    assert!(super::super::button_input::settle_drag(Some(200)));
+    assert!(visual_preview_rects(&cards).is_empty());
 }
 
 #[test]

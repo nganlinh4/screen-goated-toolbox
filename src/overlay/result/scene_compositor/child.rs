@@ -19,6 +19,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
 const WM_DRAIN_COMMANDS: u32 = WM_APP + 91;
+const WM_REFRESH_VISUAL: u32 = WM_APP + 92;
+static VISUAL_REFRESH_PENDING: AtomicBool = AtomicBool::new(false);
 const INPUT_TIMER_ID: usize = 1;
 static HOST_HWND: AtomicIsize = AtomicIsize::new(0);
 pub(super) static INPUT_SURFACE_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -76,7 +78,7 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn create_host_window() -> anyhow::Result<HWND> {
+pub(super) fn create_host_window() -> anyhow::Result<HWND> {
     unsafe {
         let instance = GetModuleHandleW(None)?;
         let class_name = w!("SGTResultSceneCompositor");
@@ -119,7 +121,7 @@ fn create_host_window() -> anyhow::Result<HWND> {
             cyBottomHeight: -1,
         };
         DwmExtendFrameIntoClientArea(hwnd, &margins)?;
-        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        super::visual_region::hide(hwnd);
         Ok(hwnd)
     }
 }
@@ -165,6 +167,11 @@ unsafe extern "system" fn window_proc(
 ) -> LRESULT {
     unsafe {
         match message {
+            WM_REFRESH_VISUAL => {
+                VISUAL_REFRESH_PENDING.store(false, Ordering::SeqCst);
+                refresh_visual_region();
+                LRESULT(0)
+            }
             WM_DRAIN_COMMANDS => {
                 drain_commands(hwnd);
                 LRESULT(0)
@@ -263,6 +270,11 @@ fn drain_commands(hwnd: HWND) {
         let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1) };
         let x = super::compositor_host_x(unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) }, width);
         let y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+        let visual_ok = super::visual_region::update(hwnd, &cards, &button_regions, width, height);
+        if !visual_ok {
+            super::visual_region::hide(input_hwnd);
+            std::process::exit(1);
+        }
         let applied = super::input_surface::update_input_regions(
             input_hwnd,
             &cards,
@@ -272,6 +284,9 @@ fn drain_commands(hwnd: HWND) {
             width,
             height,
         );
+        if applied.is_hidden {
+            super::visual_region::hide(hwnd);
+        }
         drop(cards);
         if highest_revision > 0 {
             emit_event(ChildEvent::StateAcknowledged {
@@ -479,6 +494,31 @@ fn resize_host(hwnd: HWND) {
                 height,
             );
         }
+    }
+    super::region::update(hwnd, true);
+}
+
+pub(super) fn request_visual_region() {
+    if !VISUAL_REFRESH_PENDING.swap(true, Ordering::SeqCst) {
+        post_host(WM_REFRESH_VISUAL);
+    }
+}
+
+fn refresh_visual_region() {
+    let value = HOST_HWND.load(Ordering::SeqCst);
+    if value == 0 {
+        return;
+    }
+    let cards = CARDS.lock().unwrap();
+    let buttons = super::button_input::interactive_regions();
+    let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1) };
+    let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1) };
+    if !super::visual_region::update(HWND(value as *mut _), &cards, &buttons, width, height) {
+        let input = INPUT_SURFACE_HWND.load(Ordering::SeqCst);
+        if input != 0 {
+            super::visual_region::hide(HWND(input as *mut _));
+        }
+        std::process::exit(1);
     }
 }
 

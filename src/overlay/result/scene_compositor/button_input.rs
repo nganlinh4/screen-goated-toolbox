@@ -271,11 +271,15 @@ pub(super) fn captures_desktop_input() -> bool {
 }
 
 pub(super) fn settle_drag(gesture_id: Option<u64>) -> bool {
-    gesture_id.is_none_or(|id| {
+    let settled = gesture_id.is_none_or(|id| {
         AWAITING_DRAG_SETTLE
             .compare_exchange(id, 0, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
-    })
+    });
+    if settled {
+        super::gesture::clear_visual_preview();
+    }
+    settled
 }
 
 pub(super) fn await_settlement(gesture_id: u64) {

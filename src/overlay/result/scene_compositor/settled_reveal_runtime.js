@@ -28,62 +28,80 @@ function isolatedSurfaceVisibility(entry) {
 }
 
 const sourceReplacementReveal = (function() {
+  let pending = [];
+  let frame = null;
+
   function dispose(value, reportPaint) {
     if (value.finished) return;
     value.finished = true;
     if (value.entry.sourceReplacementReveal === value) {
       value.entry.sourceReplacementReveal = null;
     }
-    value.animation.cancel();
+    if (reportPaint) value.surface.style.opacity = '1';
+    if (value.animation) value.animation.cancel();
     value.surface.style.willChange = value.priorWillChange;
     if (reportPaint) value.complete();
   }
 
   function start(value) {
     if (value.finished || value.entry.sourceReplacementReveal !== value) return;
-    if (!value.surface.isConnected || !value.entry.card.isConnected) {
-      dispose(value, true);
+    if (!value.surface.isConnected || !value.entry.card.isConnected
+        || value.entry.contentRevision !== value.revision) {
+      dispose(value, false);
       return;
     }
     value.surface.style.visibility = 'visible';
+    if (typeof Element.prototype.animate !== 'function'
+        || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      dispose(value, true);
+      return;
+    }
+    // The source mask stays registered to the captured pixels throughout the
+    // reveal. Opacity needs neither a blur raster nor pixels outside the HWND.
+    value.animation = value.surface.animate([{ opacity: 0 }, { opacity: 1 }],
+      { duration: 180, easing: 'ease-out', fill: 'both' });
     value.animation.addEventListener('finish', function() {
       dispose(value, true);
     }, { once: true });
     value.animation.addEventListener('cancel', function() {
       dispose(value, false);
     }, { once: true });
-    value.animation.currentTime = 0;
-    value.animation.play();
   }
 
-  function enqueue(entry, complete) {
+  function cancel(entry) {
     if (entry.sourceReplacementReveal) {
       dispose(entry.sourceReplacementReveal, false);
     }
+  }
+
+  function flush() {
+    frame = null;
+    const cohort = pending;
+    pending = [];
+    // Cards committed in one frame share one readiness barrier. A cold image
+    // or font layout cannot reveal just the heading ahead of the other lines.
+    Promise.all(cohort.map(function(value) { return value.ready; })).then(function() {
+      requestAnimationFrame(function() { for (const value of cohort) start(value); });
+    });
+  }
+
+  function enqueue(entry, complete) {
+    cancel(entry);
     const surface = entry.visualSurface;
-    if (typeof Element.prototype.animate !== 'function') {
-      surface.style.visibility = 'visible';
-      complete();
-      return;
-    }
     const value = {
       entry: entry,
       surface: surface,
       priorWillChange: entry.sourceSurfacePrewarmed ? '' : surface.style.willChange,
-      animation: surface.animate([
-        { filter: 'blur(8px)', transform: 'translate3d(0,4px,0)' },
-        { filter: 'blur(0)', transform: 'translate3d(0,0,0)' }
-      ], { duration: 350, easing: 'cubic-bezier(0.2,0,0.2,1)', fill: 'both' }),
+      revision: entry.contentRevision,
+      animation: null,
       complete: complete,
       finished: false
     };
     entry.sourceSurfacePrewarmed = false;
     entry.sourceReplacementReveal = value;
-    surface.style.willChange = 'filter,transform';
-    value.animation.pause();
-    value.animation.currentTime = 0;
+    surface.style.willChange = 'opacity';
 
-    const readiness = [Promise.resolve(value.animation.ready).catch(function() {})];
+    const readiness = [];
     const backdrop = entry.backdrop;
     if (backdrop && backdrop.dataset.url && typeof backdrop.decode === 'function') {
       readiness.push(backdrop.decode().catch(function() {}));
@@ -92,14 +110,12 @@ const sourceReplacementReveal = (function() {
     if (layoutReady && typeof layoutReady.then === 'function') {
       readiness.push(layoutReady.catch(function() {}));
     }
-    Promise.all(readiness).then(function() {
-      start(value);
-    }, function() {
-      start(value);
-    });
+    value.ready = Promise.all(readiness);
+    pending.push(value);
+    if (frame === null) frame = requestAnimationFrame(flush);
   }
 
-  return { enqueue: enqueue };
+  return { enqueue: enqueue, cancel: cancel };
 })();
 
 function prepareSettledReveal(entry, contentRevision) {
@@ -108,6 +124,10 @@ function prepareSettledReveal(entry, contentRevision) {
   entry.settledRevealRevision = contentRevision;
   entry.pendingSettledPaint = null;
   if (entry.sourceReplacement === true && entry.mode === 'direct') {
+    sourceReplacementReveal.cancel(entry);
+    // Descendants may explicitly override inherited visibility. Ancestor
+    // opacity gates every pixel until the settled reveal owns the surface.
+    entry.visualSurface.style.opacity = '0';
     entry.visualSurface.style.visibility = 'hidden';
   } else {
     setSettledSurfaceVisibility(entry, false);

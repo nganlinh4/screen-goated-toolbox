@@ -2,7 +2,7 @@ function activateCard(entry, becameVisible) {
   if (!entry.visible || entry.navigationDepth !== 0) return;
   if (entry.mode === 'direct' && entry.pendingContent) {
     // Terminal content supersedes the streaming batch; do not wait behind its frame.
-    if (entry.pendingContent.type === 'finalize') {
+    if (entry.pendingContent.type === 'finalize' && !entry.sourceReplacement) {
       if (entry.contentFrame) cancelAnimationFrame(entry.contentFrame);
       entry.contentFrame = null;
       flushPendingContent(entry);
@@ -29,6 +29,7 @@ function removeCard(id) {
   entry.directRuntime.destroy();
   entry.resizeRuntime.destroy();
   entry.processing.destroy();
+  sourceReplacementReveal.cancel(entry);
   if (entry.commandPort) entry.commandPort.close();
   entry.card.remove();
   cards.delete(key);

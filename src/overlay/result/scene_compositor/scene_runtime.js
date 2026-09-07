@@ -445,7 +445,7 @@ function applyAppearance(entry, model) {
     entry.card.style.opacity = model.visible ? opacity : '0';
     entry.card.style.pointerEvents = model.visible ? 'auto' : 'none';
     if (!model.visible) {
-      entry.visualSurface.style.willChange = 'filter,transform';
+      entry.visualSurface.style.willChange = 'opacity';
       entry.sourceSurfacePrewarmed = true;
     }
   } else {

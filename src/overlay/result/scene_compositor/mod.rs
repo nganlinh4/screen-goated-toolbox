@@ -26,6 +26,7 @@ mod region;
 mod scene_groups;
 mod supervisor;
 mod sync_scheduler;
+mod visual_region;
 
 pub use controls::{
     is_dragging, is_point_over_result_window, set_control_scope_opacity, set_external_drag,

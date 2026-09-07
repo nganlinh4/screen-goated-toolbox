@@ -65,6 +65,79 @@ pub(super) struct ActiveResize {
 }
 
 static ACTIVE_GESTURE: Mutex<Option<ActiveGesture>> = Mutex::new(None);
+static SETTLING_VISUAL: Mutex<Option<ActiveGesture>> = Mutex::new(None);
+static VISUAL_SWEEP: Mutex<(u64, Vec<SceneRect>)> = Mutex::new((0, Vec::new()));
+
+pub(super) fn clear_visual_preview() {
+    *SETTLING_VISUAL.lock().unwrap() = None;
+}
+
+pub(super) fn visual_preview_rects(cards: &HashMap<isize, SceneCard>) -> Vec<SceneRect> {
+    let active = ACTIVE_GESTURE
+        .lock()
+        .unwrap()
+        .clone()
+        .or_else(|| SETTLING_VISUAL.lock().unwrap().clone());
+    let Some(active) = active else {
+        VISUAL_SWEEP.lock().unwrap().1.clear();
+        return Vec::new();
+    };
+    let (dx, dy) = active.last_preview;
+    let rects: Vec<_> = active
+        .targets
+        .iter()
+        .filter_map(|target| {
+            let card = cards.get(&target.id).filter(|card| card.visible)?;
+            let mut rect = card.rect.clone();
+            match active.kind {
+                GestureKind::Drag => {
+                    rect.x = rect.x.saturating_add(dx);
+                    rect.y = rect.y.saturating_add(dy);
+                }
+                GestureKind::Resize {
+                    edge, start_rect, ..
+                } => {
+                    let resized = resized_rect(start_rect, edge, dx, dy);
+                    rect.x = rect
+                        .x
+                        .saturating_add(resized.left.saturating_sub(start_rect.left));
+                    rect.y = rect
+                        .y
+                        .saturating_add(resized.top.saturating_sub(start_rect.top));
+                    rect.width = rect.width.saturating_add(
+                        (resized.right - resized.left) - (start_rect.right - start_rect.left),
+                    );
+                    rect.height = rect.height.saturating_add(
+                        (resized.bottom - resized.top) - (start_rect.bottom - start_rect.top),
+                    );
+                }
+            }
+            Some(rect)
+        })
+        .collect();
+    // Keep previously painted preview positions until native settlement. This
+    // bounds the swept content without clipping an in-flight compositor frame.
+    let mut sweep = VISUAL_SWEEP.lock().unwrap();
+    if sweep.0 != active.gesture_id || sweep.1.len() != rects.len() {
+        *sweep = (active.gesture_id, rects);
+    } else {
+        for (previous, next) in sweep.1.iter_mut().zip(rects) {
+            let right = previous
+                .x
+                .saturating_add(previous.width)
+                .max(next.x.saturating_add(next.width));
+            let bottom = previous
+                .y
+                .saturating_add(previous.height)
+                .max(next.y.saturating_add(next.height));
+            previous.x = previous.x.min(next.x);
+            previous.y = previous.y.min(next.y);
+            previous.width = right.saturating_sub(previous.x);
+            previous.height = bottom.saturating_sub(previous.y);
+        }
+    }
+    sweep.1.clone()
+}
 
 pub(super) fn is_gesture_active() -> bool {
     ACTIVE_GESTURE.lock().unwrap().is_some()
@@ -259,6 +332,7 @@ pub(super) fn preview_gesture(gesture_id: u64, dx: i32, dy: i32) {
     };
 
     // Native window positioning executed outside the ACTIVE_GESTURE lock
+    super::child::request_visual_region();
     match spec {
         Some(PreviewSpec::Drag(targets)) => unsafe { place_targets(&targets, dx, dy, true) },
         Some(PreviewSpec::Resize(resize_spec)) => unsafe {
@@ -269,7 +343,7 @@ pub(super) fn preview_gesture(gesture_id: u64, dx: i32, dy: i32) {
 }
 
 pub(super) fn finish_gesture_with_offset(gesture_id: u64, dx: i32, dy: i32) -> Option<ChildEvent> {
-    let active = {
+    let mut active = {
         let mut lock = ACTIVE_GESTURE.lock().unwrap();
         if !lock.as_ref().is_some_and(|g| g.gesture_id == gesture_id) {
             // Identity mismatch: stale finish cannot destroy an active newer gesture or uninstall its hook
@@ -278,6 +352,9 @@ pub(super) fn finish_gesture_with_offset(gesture_id: u64, dx: i32, dy: i32) -> O
         lock.take().unwrap()
     };
     stop_observation();
+    active.last_preview = (dx, dy);
+    *SETTLING_VISUAL.lock().unwrap() = Some(active.clone());
+    super::child::request_visual_region();
     super::button_input::await_settlement(gesture_id);
 
     match active.kind {
@@ -340,6 +417,7 @@ pub(super) fn finish_gesture_with_offset(gesture_id: u64, dx: i32, dy: i32) -> O
 }
 
 pub(super) fn cancel_active_gesture() -> Option<ChildEvent> {
+    clear_visual_preview();
     let active = {
         let mut lock = ACTIVE_GESTURE.lock().unwrap();
         lock.take()?
