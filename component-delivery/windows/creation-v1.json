@@ -10,13 +10,13 @@
   "version": "5.5.1",
   "windows": {
     "architecture": "x64",
-    "asset": "creation-windows-5.5.1-fc7cf45346dfed43.zip",
-    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/creation-windows-5.5.1-fc7cf45346dfed43.zip",
+    "asset": "creation-windows-5.5.1-01a0c3adb948f18b.zip",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/creation-windows-5.5.1-01a0c3adb948f18b.zip",
     "files": [
       {
         "path": "bin/sgt_creation_runtime.exe",
-        "sha256": "fc273d761605502ef90d05500d2686c23d7fab310e84bfac54f25b1718701e82",
-        "sizeBytes": 2686976
+        "sha256": "ce9a8f99229ad6ecd05e2a17b6f256a60b9802528001eecf43b9440178776652",
+        "sizeBytes": 2689536
       },
       {
         "path": "web/assets/index.css",
@@ -25,8 +25,8 @@
       },
       {
         "path": "web/assets/index.js",
-        "sha256": "35ad60ee9bd9f6f9f163cf250e92279889660628ded36d97fc3c60d2088a9261",
-        "sizeBytes": 768074
+        "sha256": "2a75c4a27beeffa374c5b343954facd575796078cfe41d10f96225b7f53638a7",
+        "sizeBytes": 768143
       },
       {
         "path": "web/index.html",
@@ -34,8 +34,8 @@
         "sizeBytes": 379
       }
     ],
-    "sha256": "fc7cf45346dfed43c31dc710569b5149efbfb70c1e5d71e53c3bb476a65cf1dc",
-    "sizeBytes": 1511517,
-    "unpackedSizeBytes": 3484759
+    "sha256": "01a0c3adb948f18b21c8bde87bb1913eeb6d8decb669c046e243043b2d09e841",
+    "sizeBytes": 1512779,
+    "unpackedSizeBytes": 3487388
   }
 }
