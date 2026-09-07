@@ -51,6 +51,7 @@ internal fun Creation3dSettings(
     onGenerationMode: (String) -> Unit,
     onPolycount: (Int) -> Unit,
     onAutoSegment: (Boolean) -> Unit,
+    onSegmentationLevel: (String) -> Unit,
     onInstruction: (String) -> Unit,
 ) {
     val mode = CreationGenerationMode.fromWireName(item.generationMode)
@@ -178,6 +179,34 @@ internal fun Creation3dSettings(
                         onCheckedChange = onAutoSegment,
                         enabled = enabled,
                     )
+                }
+                if (item.autoSegment) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(
+                            ButtonGroupDefaults.ConnectedSpaceBetween,
+                        ),
+                    ) {
+                        listOf(
+                            "simple" to strings.refinement.simple,
+                            "balanced" to strings.refinement.balanced,
+                            "detailed" to strings.refinement.detailed,
+                        ).forEachIndexed { index, (level, label) ->
+                            ModeToggle(
+                                selected = item.segmentationLevel == level,
+                                label = label,
+                                enabled = enabled,
+                                shapes = when (index) {
+                                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                    2 -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                                },
+                                accent = accent,
+                                onClick = { onSegmentationLevel(level) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
             }
         }

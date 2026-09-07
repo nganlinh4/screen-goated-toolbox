@@ -213,6 +213,7 @@ export class JobRunner {
           generationMode: settings.generationMode,
           polycount: settings.polycount,
           autoSegment: settings.autoSegment,
+          segmentationLevel: status.segmentationLevel || "detailed",
           topology: settings.topology,
           instruction: settings.instruction,
           outputDir: settings.outputDir,
@@ -246,7 +247,7 @@ export class JobRunner {
           await this.startRefinement(item, {
             continuationId: item.result?.jobId || "",
             kind: "separate_parts",
-            segmentationLevel: "detailed",
+            segmentationLevel: item.segmentationLevel,
           }, item.displayedProgress);
         }
       }
@@ -318,6 +319,7 @@ export class JobRunner {
       generationMode: settings.mode,
       outputFormat: "glb_plain",
       autoSegment: settings.autoSegment,
+      segmentationLevel: item.segmentationLevel,
       segmentationMode: settings.autoSegment ? "parts" : "none",
     };
     if (
@@ -445,7 +447,7 @@ export class JobRunner {
       await this.startRefinement(item, {
         continuationId: status.jobId || "",
         kind: "separate_parts",
-        segmentationLevel: "detailed",
+        segmentationLevel: item.segmentationLevel,
       }, item.displayedProgress);
     }
   }

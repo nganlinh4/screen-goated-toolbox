@@ -19,6 +19,10 @@
   and post-generation topology conversion are distinct operations. Rigging
   is advertised only for a compatible textured revision. A displayed resource
   balance alone does not establish an action's entitlement.
+- Automatic separation is only a convenience action after base generation. It
+  exposes the same Simple, Balanced, and Detailed granularity choice as manual
+  separation, freezes that choice with the generation request, and never gates
+  whether a completed compatible revision can be refined manually.
 - Readiness describes whether work can start, independently from the selected
   artifact's Ready label. Available reusable capacity counts as ready; active
   work or preparation without an available slot is preparing, not a failure.
@@ -81,8 +85,9 @@
   visible. Automatic separation continues the combined generation progress.
   Shared-settings captions name only the unsubmitted images actually affected;
   completed revisions never count as pending images.
-- At most two jobs run simultaneously. 3D, SVG, and image jobs have independent
-  concurrency limits.
+- At most two jobs run simultaneously. Each Creation tool maintains three
+  independent prepared-capacity slots so consuming one job does not
+  immediately make the product-level readiness badge unavailable.
 - Runtime preparation is implementation-private. The public host observes only
   product job states, enforces the two-job limit, keeps capacity isolated by
   creation tool, and never exposes implementation identities, account state,
@@ -195,15 +200,16 @@
   materialization.
 - Generation always validates, publishes, records, and displays its base model
   before optional separation. Quality drafts choose triangle or quad topology;
-  legacy requests without a choice retain their earlier quad default. A request with separation produces the model as
-  triangles because
-  the separation operation does not accept quad input; topology is frozen with
+  legacy requests without a choice retain their earlier quad default. A request
+  with automatic separation produces the model as triangles because the
+  separation operation does not accept quad input; topology is frozen with
   the request and is never silently changed after generation.
   When automatic separation is selected, it consumes that committed result's
   continuation in one child job; the base remains visible and saved while the
   child runs and remains usable if separation fails. Recovery starts that child
-  at most once. An eligible quality result may expose a separate continuation
-  for 24 hours when automatic separation was not requested.
+  at most once. Every eligible quality base exposes its state-derived refinement
+  continuation for up to 24 hours; automatic separation consumes that same
+  continuation when it starts.
 - A quality quad result publishes its previewable GLB and quad-source FBX as one
   delivery transaction. Saved-result presentation names both files. Rename,
   delete, recovery, and ownership validation cover both artifacts together;
@@ -221,11 +227,11 @@
   refinement create immutable revisions inside that project; a child revision
   names its parent and never replaces or mutates the parent artifact. A failed
   child keeps the parent selected, previewable, and downloadable.
-- The current revision exposes only refinement actions proved available for its
-  generation mode and artifact. Unsupported actions are absent rather than
-  presented as disabled promises. A supported action may be disabled as a
-  whole when its live, non-public allowance is temporarily unavailable; the
-  panel then states that grayed actions need more creation capacity. The UI
+- The current revision exposes only refinement actions proved supported for its
+  generation mode and artifact. Unsupported actions are absent. A supported
+  action may be disabled when its live, non-public allowance is temporarily
+  unavailable or a visible local prerequisite is unmet. The panel identifies
+  capacity limits and triangle-conversion prerequisites separately. The UI
   never exposes implementation brands, account balances, or credit counts.
   While a child revision is being created, the viewer keeps showing the parent
   artifact it was started from instead of returning to the empty placeholder.

@@ -228,6 +228,7 @@ mod tests {
             generation_mode: None,
             polycount: None,
             auto_segment: None,
+            segmentation_level: None,
             topology: None,
             instruction: None,
             project_id: None,

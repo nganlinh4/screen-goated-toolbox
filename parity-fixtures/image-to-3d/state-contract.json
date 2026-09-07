@@ -30,6 +30,7 @@
   "defaults": {
     "polycount": 5000,
     "autoSegment": false,
+    "segmentationLevel": "detailed",
     "segmentationMode": "none",
     "generationMode": "quality",
     "topologyMode": "topology_mesh",
@@ -45,6 +46,7 @@
     "maximumResultBytes": 104857600
   },
   "readiness": {
+    "preparedCapacityTarget": 3,
     "stateIsProductLevel": true,
     "acceptedJobsRemainQueuedUntilCapacityIsAvailable": true,
     "maximumParallelJobsEnforced": true,
@@ -362,7 +364,7 @@
     "uncertainRefinementIntentIsNeverResubmitted": true,
     "refinementRecoveryUsesExactAcceptedIdentity": true,
     "availableActions": ["separate_parts", "optimize_triangle", "optimize_quad", "add_materials", "generate_pbr", "rig", "animate"],
-    "separationLevels": ["detailed"],
+    "separationLevels": ["simple", "balanced", "detailed"],
     "supportedUnavailableActionsRemainVisibleAndDisabled": true,
     "unsupportedActionsAreAbsent": true,
     "implementationBrandingVisible": false,

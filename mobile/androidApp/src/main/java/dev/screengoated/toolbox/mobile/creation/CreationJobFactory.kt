@@ -51,6 +51,9 @@ internal object CreationJobFactory {
         )
         val requestedAutoSegment = args.boolean("autoSegment") == true &&
             args.string("segmentationMode") != "none"
+        val segmentationLevel = args.string("segmentationLevel")
+            ?.takeIf { it == "simple" || it == "balanced" || it == "detailed" }
+            ?: "detailed"
         val requestedMode = CreationGenerationMode.fromWireName(args.string("generationMode"))
         val modeRoute = if (tool == CreationTool.IMAGE_TO_3D) {
             CreationContract.route3dMode(
@@ -112,6 +115,7 @@ internal object CreationJobFactory {
             outputName = output.name,
             polycount = modeRoute?.polycount ?: polycount,
             autoSegment = modeRoute?.autoSegment ?: false,
+            segmentationLevel = segmentationLevel,
             model = model,
             backgroundMode = backgroundMode,
             projectId = dispatchId.takeIf { tool == CreationTool.IMAGE_TO_3D },
@@ -138,6 +142,9 @@ internal object CreationJobFactory {
         generationMode = request.generationMode,
         polycount = request.polycount.takeIf { tool == CreationTool.IMAGE_TO_3D },
         autoSegment = request.autoSegment.takeIf { tool == CreationTool.IMAGE_TO_3D },
+        segmentationLevel = request.segmentationLevel.takeIf {
+            tool == CreationTool.IMAGE_TO_3D
+        },
         stage = "preparing",
         progressText = if (tool == CreationTool.IMAGE_CREATOR) {
             "Getting ready"
@@ -170,6 +177,7 @@ internal object CreationJobFactory {
 
     fun createSegmentation(
         continuation: CreationContinuation,
+        segmentationLevel: String,
         files: CreationFileStore,
         ownerId: String,
         jobId: String,
@@ -178,7 +186,7 @@ internal object CreationJobFactory {
     ): CreationJobDraft {
         val refinement = createRefinement(
             continuation,
-            "separate_detailed",
+            "separate_$segmentationLevel",
             null,
             null,
             files,

@@ -132,6 +132,7 @@ private fun CreationWorkerRequest.hasValidProductSettings(tool: CreationTool): B
             generationMode == mode.wireName &&
             polycount == route.polycount &&
             autoSegment == route.autoSegment &&
+            segmentationLevel in setOf("simple", "balanced", "detailed") &&
             (operation == "generate" ||
                 (!continuationToken.isNullOrBlank() &&
                     refinementKind in CreationContract.REFINEMENT_ACTIONS))

@@ -34,6 +34,7 @@ export function freshSubmissionSession(
     polycount: source.polycount,
     topology: source.topology,
     autoSegment: source.autoSegment,
+    segmentationLevel: source.segmentationLevel,
     instruction: source.instruction,
     submitted: true,
     cancelRequested: false,

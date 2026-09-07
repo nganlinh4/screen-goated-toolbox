@@ -283,9 +283,14 @@ internal class CreationJobManager internal constructor(context: Context) {
         val jobId = nextJobId(CreationTool.IMAGE_TO_3D)
         val dispatchId = nextDispatchId(CreationTool.IMAGE_TO_3D)
         val draft = if (automaticSegmentation) {
-            require(refinementKind == "separate_detailed")
+            require(
+                refinementKind == "separate_simple" ||
+                    refinementKind == "separate_balanced" ||
+                    refinementKind == "separate_detailed"
+            )
             CreationJobFactory.createSegmentation(
                 snapshot.continuation,
+                refinementKind.removePrefix("separate_"),
                 files,
                 ownerId,
                 jobId,

@@ -57,6 +57,7 @@ internal fun creationSubmissionArgs(
     put("generationMode", item.generationMode)
     put("polycount", item.polycount)
     put("autoSegment", item.autoSegment)
+    put("segmentationLevel", item.segmentationLevel)
     put("segmentationMode", if (item.autoSegment) "parts" else "none")
     put("model", item.model)
     put("backgroundMode", item.backgroundMode)

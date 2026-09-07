@@ -170,6 +170,17 @@ export function bindControls(options: BindControlOptions) {
     }
     updateUi();
   });
+  nodes.autoSegmentationLevel.addEventListener("change", () => {
+    const item = selectedItem();
+    if (!item || !isConfigurable(item)) return;
+    const level = nodes.autoSegmentationLevel.value as QueueItem["segmentationLevel"];
+    const update = (member: QueueItem) => { member.segmentationLevel = level; };
+    if (isRerunnable(item)) update(item);
+    else batchItems(item.batchId)
+      .filter((member) => member.state === "queued" && !member.submitted)
+      .forEach(update);
+    updateUi();
+  });
   nodes.instructionInput.addEventListener("input", () => {
     const item = selectedItem();
     if (!item || !isConfigurable(item)) return;

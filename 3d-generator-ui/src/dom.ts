@@ -22,6 +22,7 @@ export function collectNodes(): AppNodes {
     initialTopology: query("#initialTopology"),
     initialTopologySection: query("#initialTopologySection"),
     autoSegmentInput: query("#autoSegmentInput"),
+    autoSegmentationLevel: query("#autoSegmentationLevel"),
     instructionSection: query("#instructionSection"),
     instructionInput: query("#instructionInput"),
     generateButton: query("#generateButton"),

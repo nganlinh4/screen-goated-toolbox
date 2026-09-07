@@ -178,6 +178,7 @@ class CreationCapabilityRoutingTest {
                 "outputName",
                 "polycount",
                 "autoSegment",
+                "segmentationLevel",
                 "model",
                 "backgroundMode",
             ),

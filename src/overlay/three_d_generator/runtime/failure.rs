@@ -29,6 +29,7 @@ fn finish_failed(job_id: &str, operation: &RuntimeOperation, retain_intent: bool
         generation_mode: Some(operation.generation_mode()),
         polycount: Some(operation.polycount()),
         auto_segment: Some(operation.auto_segment()),
+        segmentation_level: Some(super::generation_mode::segmentation_level(operation).to_string()),
         topology: operation.topology(),
         instruction: operation.instruction().map(str::to_string),
         project_id: match operation {

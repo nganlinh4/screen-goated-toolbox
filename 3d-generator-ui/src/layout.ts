@@ -104,6 +104,14 @@ export function appMarkup() {
             <span><strong data-i18n="autoSeparateParts"></strong><small data-i18n="colorReadyPieces"></small></span>
             <input id="autoSegmentInput" type="checkbox" /><i class="switch" aria-hidden="true"></i>
           </label>
+          <label class="auto-segmentation-level" for="autoSegmentationLevel">
+            <span class="control-label" data-i18n="separationLevel"></span>
+            <select id="autoSegmentationLevel" data-i18n-aria="separationLevel">
+              <option value="simple" data-i18n="simple"></option>
+              <option value="balanced" data-i18n="balanced"></option>
+              <option value="detailed" selected data-i18n="detailedLevel"></option>
+            </select>
+          </label>
         </div>
         <div class="rail-spacer"></div>
         <div class="refinement-panel" id="refinementPanel">

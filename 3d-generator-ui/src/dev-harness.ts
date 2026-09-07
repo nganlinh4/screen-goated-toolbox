@@ -118,6 +118,7 @@ export class DevHarness {
         polycount: 5000,
         generationMode: "quality",
         autoSegment: segmented,
+        segmentationLevel: "detailed",
         submitted: true,
         state: "done",
         result: {
@@ -184,6 +185,7 @@ export class DevHarness {
       generationMode: batchId === "batch_2" ? "fast" : "quality",
       polycount: batchId === "batch_2" ? 8_200 : 5_000,
       autoSegment: batchId === "batch_2",
+      segmentationLevel: "detailed",
       submitted,
       state: itemState,
     });
@@ -311,6 +313,7 @@ export class DevHarness {
         generationMode: "quality",
         polycount: 5_000,
         autoSegment: false,
+        segmentationLevel: "detailed",
         submitted: true,
         state: "queued",
       },
@@ -324,6 +327,7 @@ export class DevHarness {
         generationMode: "fast",
         polycount: 5_000,
         autoSegment: false,
+        segmentationLevel: "detailed",
         submitted: true,
         state: "queued",
       },

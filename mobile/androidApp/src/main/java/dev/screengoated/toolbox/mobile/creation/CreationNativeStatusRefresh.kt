@@ -60,6 +60,7 @@ internal fun refreshCreationNativeItems(
             generationMode = status.generationMode ?: item.generationMode,
             polycount = status.polycount ?: item.polycount,
             autoSegment = status.autoSegment ?: item.autoSegment,
+            segmentationLevel = status.segmentationLevel ?: item.segmentationLevel,
         )
     }
     return CreationNativeStatusRefresh(

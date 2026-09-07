@@ -69,6 +69,7 @@ internal fun CreationActiveSettings(
                 onGenerationMode = viewModel::setGenerationMode,
                 onPolycount = viewModel::setPolycount,
                 onAutoSegment = viewModel::setAutoSegment,
+                onSegmentationLevel = viewModel::setSegmentationLevel,
                 onInstruction = viewModel::setInstruction,
             )
         }

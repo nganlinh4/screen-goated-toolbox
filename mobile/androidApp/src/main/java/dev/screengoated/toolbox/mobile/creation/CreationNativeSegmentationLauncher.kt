@@ -24,7 +24,7 @@ internal class CreationNativeSegmentationLauncher(
 
     fun startPending(items: List<CreationNativeItem>) {
         items.filter(::creationNeedsAutomaticSegmentation).forEach {
-            start(it, automatic = true, "separate_detailed", null, null)
+            start(it, automatic = true, "separate_${it.segmentationLevel}", null, null)
         }
     }
 

@@ -136,8 +136,8 @@ fn query_readiness(tool: &str) -> String {
     .unwrap_or_else(|| "unavailable".to_string())
 }
 
-const BASE_READINESS_CAPACITY: usize = 1;
-const MAX_READINESS_CAPACITY: usize = 2;
+const BASE_READINESS_CAPACITY: usize = 3;
+const MAX_READINESS_CAPACITY: usize = 3;
 
 struct ReadinessTask {
     stop: Arc<AtomicBool>,

@@ -228,6 +228,8 @@
 .switch-row input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
 .switch-row input:disabled + .switch { opacity: 0.45; }
 #autoSegmentSection[hidden] { display: none; }
+.auto-segmentation-level { display: grid; gap: 6px; margin-top: 10px; }
+.auto-segmentation-level[hidden] { display: none; }
 
 .rail-spacer { flex: 1 1 10px; min-height: 10px; }
 .refinement-panel {

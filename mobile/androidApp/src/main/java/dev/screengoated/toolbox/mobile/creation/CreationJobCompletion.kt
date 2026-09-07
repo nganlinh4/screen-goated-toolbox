@@ -233,6 +233,7 @@ internal fun creationHistoryMetadata(
             request.generationMode?.let { put("generationMode", it) }
             put("polycount", request.polycount)
             put("autoSegment", request.autoSegment)
+            put("segmentationLevel", request.segmentationLevel)
             put("projectId", completed.status.projectId ?: request.dispatchId)
             completed.status.parentRevisionId?.let { put("parentRevisionId", it) }
             completed.status.revisionKind?.let { put("revisionKind", it) }

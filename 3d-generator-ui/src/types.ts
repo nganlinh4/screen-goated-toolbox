@@ -16,6 +16,7 @@ export type Stage =
   | "failed"
   | "cancelled";
 export type QueueState = "queued" | "running" | "done" | "failed" | "cancelled";
+export type SegmentationLevel = "simple" | "balanced" | "detailed";
 
 export type JobStatus = {
   jobId?: string | null;
@@ -36,6 +37,7 @@ export type JobStatus = {
   topology?: "triangle" | "quad" | null;
   polycount?: number | null;
   autoSegment?: boolean | null;
+  segmentationLevel?: SegmentationLevel | null;
   instruction?: string | null;
   projectId?: string | null;
   parentRevisionId?: string | null;
@@ -56,7 +58,7 @@ export type JobStatus = {
 export type RefineRequest = {
   continuationId: string;
   kind: "separate_parts" | "optimize_mesh" | "add_materials" | "generate_pbr" | "rig" | "animate";
-  segmentationLevel?: "simple" | "balanced" | "detailed";
+  segmentationLevel?: SegmentationLevel;
   topology?: "triangle" | "quad";
   faceLimit?: number;
   animation?: "idle" | "walk" | "run" | "jump" | "wave_goodbye_01";
@@ -71,6 +73,7 @@ export type StartJobRequest = {
   topology?: "triangle" | "quad";
   outputFormat: "glb_plain";
   autoSegment: boolean;
+  segmentationLevel: SegmentationLevel;
   segmentationMode: "parts" | "none";
   instruction?: string;
 };
@@ -91,6 +94,7 @@ export type HistoryEntry = {
     topology?: "triangle" | "quad";
     polycount?: number;
     autoSegment?: boolean;
+    segmentationLevel?: SegmentationLevel;
     instruction?: string;
     outputDir?: string;
     isSegmented?: boolean;
@@ -123,6 +127,7 @@ export type QueueItem = {
   polycount: number;
   topology?: "triangle" | "quad";
   autoSegment: boolean;
+  segmentationLevel: SegmentationLevel;
   instruction?: string;
   submitted: boolean;
   cancelRequested?: boolean;
@@ -193,6 +198,7 @@ export type AppNodes = {
   initialTopologySection: HTMLElement;
   autoSegmentSection: HTMLElement;
   autoSegmentInput: HTMLInputElement;
+  autoSegmentationLevel: HTMLSelectElement;
   instructionSection: HTMLElement;
   instructionInput: HTMLTextAreaElement;
   generateButton: HTMLButtonElement;

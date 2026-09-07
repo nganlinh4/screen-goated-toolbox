@@ -43,7 +43,11 @@ internal fun Creation3dRefinementPanel(
             UtilityExpressiveCard(accent = accent) {
                 UtilityHeaderRow(R.drawable.ms_layers, strings.separation, accent)
                 ActionRow(
-                    listOf("separate_detailed" to strings.detailed),
+                    listOf(
+                        "separate_simple" to strings.simple,
+                        "separate_balanced" to strings.balanced,
+                        "separate_detailed" to strings.detailed,
+                    ),
                     actions,
                     supported,
                     "separate_parts",

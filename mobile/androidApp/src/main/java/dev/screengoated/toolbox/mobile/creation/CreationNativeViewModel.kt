@@ -195,6 +195,14 @@ internal class CreationNativeViewModel(
         route3dItem(item.copy(autoSegment = enabled))
     }
 
+    fun setSegmentationLevel(level: String) = updateSelectedConfigurable { item ->
+        item.copy(
+            segmentationLevel = level.takeIf {
+                it == "simple" || it == "balanced" || it == "detailed"
+            } ?: "detailed",
+        )
+    }
+
     fun setModel(model: String) = updateSelectedConfigurable {
         it.copy(model = if (model == "detail") "detail" else "simple")
     }
@@ -358,6 +366,7 @@ internal class CreationNativeViewModel(
                                 generationMode = routed.generationMode,
                                 polycount = routed.polycount,
                                 autoSegment = routed.autoSegment,
+                                segmentationLevel = routed.segmentationLevel,
                             )
                         }
                     }
@@ -402,6 +411,7 @@ internal class CreationNativeViewModel(
                                     generationMode = routed.generationMode,
                                     polycount = routed.polycount,
                                     autoSegment = routed.autoSegment,
+                                    segmentationLevel = routed.segmentationLevel,
                                 ),
                             )
                         }
@@ -424,6 +434,8 @@ internal class CreationNativeViewModel(
                                             generationMode = status.generationMode
                                                 ?: routed.generationMode,
                                             autoSegment = status.autoSegment ?: routed.autoSegment,
+                                            segmentationLevel = status.segmentationLevel
+                                                ?: routed.segmentationLevel,
                                         )
                                     } else {
                                         item
@@ -528,6 +540,7 @@ internal class CreationNativeViewModel(
                         generationMode.wireName,
                     ),
                     autoSegment = autoSegment,
+                    segmentationLevel = status.segmentationLevel ?: "detailed",
                     submitted = true,
                     stage = status.toNativeStage(),
                     status = status,

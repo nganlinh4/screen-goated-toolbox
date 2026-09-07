@@ -50,6 +50,8 @@ pub(super) struct StartJobRequest {
     pub generation_mode: GenerationMode,
     pub output_format: String,
     pub auto_segment: bool,
+    #[serde(default = "generation_mode::default_segmentation_level")]
+    pub segmentation_level: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topology: Option<String>,
     pub segmentation_mode: String,
@@ -81,6 +83,7 @@ pub(super) struct JobStatus {
     pub generation_mode: Option<GenerationMode>,
     pub polycount: Option<u32>,
     pub auto_segment: Option<bool>,
+    pub segmentation_level: Option<String>,
     pub topology: Option<String>,
     pub instruction: Option<String>,
     pub project_id: Option<String>,
@@ -112,6 +115,7 @@ struct Continuation {
     generation_mode: GenerationMode,
     polycount: u32,
     auto_segment: bool,
+    segmentation_level: String,
     topology: Option<String>,
     instruction: Option<String>,
     project_id: String,
@@ -445,6 +449,7 @@ fn idle_status() -> JobStatus {
         generation_mode: None,
         polycount: None,
         auto_segment: None,
+        segmentation_level: None,
         topology: None,
         instruction: None,
         project_id: None,

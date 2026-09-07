@@ -24,6 +24,7 @@ fn continuation() -> Continuation {
         generation_mode: GenerationMode::Quality,
         polycount: 5_000,
         auto_segment: false,
+        segmentation_level: "detailed".to_string(),
         topology: None,
         instruction: Some("Keep the silhouette".to_string()),
         project_id: "project".to_string(),

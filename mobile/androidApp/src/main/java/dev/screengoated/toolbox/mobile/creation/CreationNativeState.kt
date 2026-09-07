@@ -23,6 +23,7 @@ internal data class CreationNativeItem(
     val generationMode: String = CreationGenerationMode.QUALITY.wireName,
     val polycount: Int = CreationContract.DEFAULT_POLYCOUNT,
     val autoSegment: Boolean = false,
+    val segmentationLevel: String = "detailed",
     val model: String = "simple",
     val backgroundMode: String = "opaque",
     val prompt: String = "",

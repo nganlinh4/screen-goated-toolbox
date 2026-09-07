@@ -4,6 +4,7 @@ export type FrozenGenerationSettings = {
   generationMode: GenerationMode;
   polycount: number;
   autoSegment: boolean;
+  segmentationLevel: "simple" | "balanced" | "detailed";
   topology?: "triangle" | "quad";
   instruction?: string;
   outputDir: string;
@@ -13,6 +14,7 @@ type FrozenSettingsSource = {
   generationMode?: GenerationMode | null;
   polycount?: number | null;
   autoSegment?: boolean | null;
+  segmentationLevel?: "simple" | "balanced" | "detailed" | null;
   topology?: "triangle" | "quad" | null;
   instruction?: string | null;
   outputDir?: string | null;
@@ -26,6 +28,8 @@ export function frozenGenerationSettings(
     || typeof source.polycount !== "number"
     || !Number.isInteger(source.polycount)
     || typeof source.autoSegment !== "boolean"
+    || (source.segmentationLevel != null
+      && !["simple", "balanced", "detailed"].includes(source.segmentationLevel))
     || typeof source.outputDir !== "string"
     || !source.outputDir.trim()
     || (source.instruction != null && typeof source.instruction !== "string")
@@ -49,6 +53,7 @@ export function frozenGenerationSettings(
     generationMode: source.generationMode,
     polycount: source.polycount,
     autoSegment: source.autoSegment,
+    segmentationLevel: source.segmentationLevel || "detailed",
     ...(source.topology ? { topology: source.topology } : {}),
     instruction: source.instruction || undefined,
     outputDir: source.outputDir,

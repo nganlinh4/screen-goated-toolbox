@@ -300,6 +300,7 @@ async function refreshHistory() {
         generationMode: legacy.mode,
         polycount: legacy.polycount,
         autoSegment: legacy.autoSegment,
+        segmentationLevel: "detailed" as const,
         instruction: undefined,
         outputDir: pathParent(entry.outputPath),
       };
@@ -312,6 +313,7 @@ async function refreshHistory() {
         item.generationMode = settings.generationMode;
         item.polycount = settings.polycount;
         item.autoSegment = settings.autoSegment;
+        item.segmentationLevel = settings.segmentationLevel;
         item.topology = entry.metadata?.topology;
         item.instruction = settings.instruction;
         item.outputDir = settings.outputDir;
@@ -327,6 +329,7 @@ async function refreshHistory() {
           item.result.generationMode = settings.generationMode;
           item.result.polycount = settings.polycount;
           item.result.autoSegment = settings.autoSegment;
+          item.result.segmentationLevel = settings.segmentationLevel;
           item.result.instruction = settings.instruction;
         }
         continue;
@@ -345,6 +348,7 @@ async function refreshHistory() {
         polycount: settings.polycount,
         topology: entry.metadata?.topology,
         autoSegment: settings.autoSegment,
+        segmentationLevel: settings.segmentationLevel,
         instruction: settings.instruction,
         outputDir: settings.outputDir,
         submitted: true,
@@ -363,6 +367,7 @@ async function refreshHistory() {
           generationMode: settings.generationMode,
           polycount: settings.polycount,
           autoSegment: settings.autoSegment,
+          segmentationLevel: settings.segmentationLevel,
           instruction: settings.instruction,
           isSegmented: Boolean(entry.metadata?.isSegmented),
           ...historyRevision(entry),
@@ -413,6 +418,7 @@ async function addImagePaths(paths: string[]) {
       generationMode: "quality",
       polycount: 5_000,
       autoSegment: false,
+      segmentationLevel: "detailed",
       submitted: false,
       state: "queued",
       createdAtMs: Date.now() - index,

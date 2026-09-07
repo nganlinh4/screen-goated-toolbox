@@ -379,6 +379,7 @@ fn finish_success(
             generation_mode: request.generation_mode,
             polycount: request.polycount,
             auto_segment: request.auto_segment,
+            segmentation_level: request.segmentation_level.clone(),
             topology: request.topology.clone(),
             instruction: request.instruction.clone(),
             project_id: job_id.to_string(),
@@ -410,6 +411,7 @@ fn finish_success(
             generation_mode: continuation.generation_mode,
             polycount: continuation.polycount,
             auto_segment: continuation.auto_segment,
+            segmentation_level: continuation.segmentation_level.clone(),
             topology: continuation.topology.clone(),
             instruction: continuation.instruction.clone(),
             project_id: continuation.project_id.clone(),
@@ -467,6 +469,7 @@ fn finish_success(
         generation_mode: Some(operation.generation_mode()),
         polycount: Some(operation.polycount()),
         auto_segment: Some(operation.auto_segment()),
+        segmentation_level: Some(super::generation_mode::segmentation_level(operation).to_string()),
         topology: operation.topology(),
         instruction: operation.instruction().map(str::to_string),
         project_id: Some(match operation {

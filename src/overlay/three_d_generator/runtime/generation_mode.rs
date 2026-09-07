@@ -1,6 +1,19 @@
 use serde::{Deserialize, Serialize};
 
-use super::StartJobRequest;
+use super::{RuntimeOperation, StartJobRequest};
+
+pub(super) fn default_segmentation_level() -> String {
+    "detailed".to_string()
+}
+
+pub(super) fn segmentation_level(operation: &RuntimeOperation) -> &str {
+    match operation {
+        RuntimeOperation::Generate { request, .. } => &request.segmentation_level,
+        RuntimeOperation::Segment { continuation } | RuntimeOperation::Refine { continuation } => {
+            &continuation.segmentation_level
+        }
+    }
+}
 
 const FAST_MIN_POLYCOUNT: u32 = 100;
 const FAST_MAX_POLYCOUNT: u32 = 15_000;
@@ -84,6 +97,7 @@ mod tests {
             mode: "topology_mesh".to_string(),
             output_format: "glb_plain".to_string(),
             auto_segment,
+            segmentation_level: "detailed".to_string(),
             topology: None,
             segmentation_mode: "parts".to_string(),
             generation_mode: GenerationMode::Quality,

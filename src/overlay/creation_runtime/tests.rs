@@ -56,11 +56,11 @@ fn readiness_parser_accepts_only_the_public_state_contract() {
 }
 
 #[test]
-fn accepted_demand_does_not_add_a_speculative_warm_reserve() {
-    assert_eq!(desired_readiness_capacity(0), 1);
-    assert_eq!(desired_readiness_capacity(1), 1);
-    assert_eq!(desired_readiness_capacity(2), 2);
-    assert_eq!(desired_readiness_capacity(100), 2);
+fn every_demand_maintains_the_global_three_slot_reserve() {
+    assert_eq!(desired_readiness_capacity(0), 3);
+    assert_eq!(desired_readiness_capacity(1), 3);
+    assert_eq!(desired_readiness_capacity(2), 3);
+    assert_eq!(desired_readiness_capacity(100), 3);
 }
 
 #[test]

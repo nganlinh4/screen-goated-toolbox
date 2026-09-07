@@ -179,6 +179,9 @@ export class ModelPresentation {
     });
     nodes.autoSegmentSection.hidden = !settings.showAutoSegment;
     nodes.autoSegmentInput.checked = settings.autoSegment;
+    nodes.autoSegmentationLevel.value = item?.segmentationLevel || "detailed";
+    nodes.autoSegmentationLevel.closest<HTMLElement>(".auto-segmentation-level")!.hidden =
+      !settings.autoSegment;
     const instructionAvailable =
       state.generationCapabilities.ready
       && state.generationCapabilities.optionalInstruction[settings.mode];
@@ -196,6 +199,8 @@ export class ModelPresentation {
     nodes.initialTopology.disabled = locked;
     syncChoiceControl(nodes.initialTopology);
     nodes.autoSegmentInput.disabled = locked;
+    nodes.autoSegmentationLevel.disabled = locked;
+    syncChoiceControl(nodes.autoSegmentationLevel);
     nodes.instructionInput.disabled = locked;
     const selectedDraft = isDraft(item);
     nodes.generateButton.hidden = submissionInFlight(item);
@@ -244,12 +249,21 @@ export class ModelPresentation {
         : Boolean(action && supported.has(action));
       button.hidden = !actionSupported;
       button.disabled = !showRefinements || !capability || !available.has(capability);
-      button.title = actionSupported && button.disabled ? t("refinementCapacityHint") : "";
+      button.title = actionSupported && button.disabled
+        ? action === "separate_parts" && item?.result?.topology === "quad"
+          ? t("separationTopologyHint")
+          : t("refinementCapacityHint")
+        : "";
       const row = button.closest<HTMLElement>(".refinement-row");
       if (row) row.hidden = !actionSupported;
     });
     nodes.refinementHint.hidden = !showRefinements
       || !nodes.refinementButtons.some((button) => !button.hidden && button.disabled);
+    nodes.refinementHint.textContent = item?.result?.topology === "quad"
+      && supported.has("separate_parts")
+      && !available.has("separate_parts")
+      ? t("separationTopologyHint")
+      : t("refinementCapacityHint");
     const standaloneActions = nodes.refinementPanel.querySelector<HTMLElement>(
       ".refinement-actions",
     );
