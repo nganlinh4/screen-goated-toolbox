@@ -14,6 +14,18 @@ mod tests {
     use super::runtime_fit_script;
 
     #[test]
+    fn streamed_finalization_keeps_incremental_layout_and_continuous_motion() {
+        let script = runtime_fit_script();
+        assert!(script.contains("fitContext.streamingSession"));
+        assert!(script.contains("if (incrementalFit)"));
+        assert!(script.contains("var usesStreamingMotion = incrementalFit"));
+        assert!(script.contains("var finalGap = incrementalFit ? 0"));
+        assert!(script.contains("fitContext.complete(needsStreamingRefinement)"));
+        assert!(script.contains("previousViewport.width === winW"));
+        assert!(script.contains("fitContext.isCurrent && !fitContext.isCurrent()"));
+    }
+
+    #[test]
     fn runtime_text_measurement_excludes_embedded_scripts() {
         let script = runtime_fit_script();
 
@@ -84,7 +96,7 @@ mod tests {
         assert!(script.contains("previousTarget.fontSize"));
         assert!(script.contains("needsStreamingRefinement = estimate > minSize"));
         assert!(script.contains("fitContext.requestRefinement()"));
-        assert!(script.contains("if (!isStreamingFit && !foundFittingSize && !fits())"));
+        assert!(script.contains("if (!incrementalFit && !foundFittingSize && !fits())"));
         assert!(script.contains("layoutProbes: layoutProbeCount"));
         assert!(script.contains("paintedShrinkPxPerSec: paintedShrinkPxPerSec"));
         assert!(!script.contains("hasPathologicalWrap"));

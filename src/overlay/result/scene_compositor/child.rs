@@ -244,7 +244,9 @@ fn drain_commands(hwnd: HWND) {
         if !matches!(command, HostCommand::ApplyRevision { .. })
             && let Ok(command_json) = serde_json::to_string(&command)
         {
-            let script = format!("window.applyHostCommand({command_json});");
+            let script = format!(
+                "try{{window.applyHostCommand({command_json});}}catch(error){{console.error(error);}}"
+            );
             scripts.push(script);
         }
     }
@@ -279,8 +281,8 @@ fn drain_commands(hwnd: HWND) {
             });
         }
     }
-    for script in scripts {
-        evaluate_script(&script);
+    if !scripts.is_empty() {
+        evaluate_script(&scripts.concat());
     }
 }
 

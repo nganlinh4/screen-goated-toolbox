@@ -2,18 +2,26 @@
     function createRuntime(body, reveal) {
         function update(animate, isNewSession) {
             var words = body.querySelectorAll('.word');
-            reveal.generation++;
+            if (reveal.lastRevealedIndex >= words.length) reveal.lastRevealedIndex = -1;
             var generation = reveal.generation;
+            var wasActive = reveal.active;
             reveal.queue = [];
-            reveal.active = false;
-            reveal.credits = 0;
             if (isNewSession || !animate) {
+                destroy();
+                for (var word of words) {
+                    word.style.visibility = 'visible';
+                    word.style.opacity = '1';
+                }
                 reveal.lastRevealedIndex = words.length - 1;
                 return;
             }
             var start = Math.max(0, reveal.lastRevealedIndex + 1);
             var maximumLag = 80;
             if (words.length - start > maximumLag) {
+                for (var skipped = start; skipped < words.length - maximumLag; skipped++) {
+                    words[skipped].style.visibility = 'visible';
+                    words[skipped].style.opacity = '1';
+                }
                 start = words.length - maximumLag;
                 reveal.lastRevealedIndex = start - 1;
             }
@@ -26,6 +34,8 @@
                 reveal.queue.push({ element: word, index: index });
             }
             if (!reveal.queue.length) return;
+            // Retarget the existing frame loop without resetting elapsed time or credits.
+            if (wasActive) return;
             reveal.active = true;
             reveal.lastTick = performance.now();
             reveal.credits = 1;

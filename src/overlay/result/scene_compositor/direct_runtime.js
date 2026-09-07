@@ -430,15 +430,13 @@
             // inherited per-body animation so it cannot compete for the same filter.
             if (options.sourceReplacement) finishBodyPresentation();
             if (firstRender) body.style.opacity = '0';
-            if (options.sourceReplacement || firstRender) body.innerHTML = options.html;
+            if (options.sourceReplacement) body.innerHTML = options.html;
             else window.__SGT_PATCH_BODY__(body, options.html);
             if (!options.sourceReplacement) {
                 body.style.overflowX = 'hidden';
                 body.style.overflowY = 'auto';
             }
-            var text = (options.sourceReplacement
-                ? body.textContent
-                : (body.innerText || body.textContent || '')).trim();
+            var text = (body.textContent || '').trim();
             var isNewSession = firstRender || (previousWords < 5 && text.length < 50);
             inlineSize(options, text, isNewSession);
             revealRuntime.update(Boolean(options.animateNewWords), isNewSession);

@@ -3,6 +3,7 @@ const cards = new Map();
 const cardStyleText = __SGT_CARD_CSS_JSON__; let currentThemeCss = '';
 let highestStackOrder = 0;
 let activeFit = null; const pendingFits = new Map();
+let fitFrame = null;
 let sharedCardSheet = null;
 function reportCardDiagnostic(id, entry, phase, details) {
   details = details || {};
@@ -193,6 +194,7 @@ function queueFit(entry, streaming) {
   scheduleFit();
 }
 function runDirectFit(entry, streaming, settleBeforeReveal) {
+  const job = activeFit;
   if (entry.sourceReplacement === true) {
     completeFit(entry);
     return;
@@ -202,16 +204,16 @@ function runDirectFit(entry, streaming, settleBeforeReveal) {
     body: entry.bodyElement,
     viewport: entry.card,
     fontReady: true,
+    streamingSession: entry.streamingEnabled,
+    handlesRefinement: true,
+    isCurrent: function() { return activeFit === job && cards.get(entry.card.dataset.id) === entry; },
     settleBeforeReveal: Boolean(settleBeforeReveal),
     reportDiagnostic: function(payload) {
       window.ipc.postMessage(JSON.stringify({
         type: 'fit_diagnostic', id: Number(entry.card.dataset.id), payload: payload
       }));
     },
-    requestRefinement: function() {
-      setTimeout(function() { queueFit(entry, true); }, 0);
-    },
-    complete: function() { completeFit(entry); }
+    complete: function(refine) { if (activeFit === job) completeFit(entry, refine); }
   };
   try {
     window.__SGT_RUN_FIT__(Boolean(streaming));
@@ -223,8 +225,9 @@ function runDirectFit(entry, streaming, settleBeforeReveal) {
   }
 }
 function scheduleFit() {
-  if (activeFit || pendingFits.size === 0) return;
-  requestAnimationFrame(function() {
+  if (activeFit || fitFrame !== null || pendingFits.size === 0) return;
+  fitFrame = requestAnimationFrame(function() {
+    fitFrame = null;
     if (activeFit) return;
     let selectedKey = null;
     let selected = null;
@@ -261,16 +264,17 @@ function scheduleFit() {
       settle_before_reveal: settleBeforeReveal });
   });
 }
-function completeFit(entry) {
+function completeFit(entry, refine) {
   if (!activeFit || activeFit.entry !== entry) return;
   const completed = activeFit;
-  if (!completed.streaming && completed.contentRevision === entry.contentRevision) {
+  if (!refine && !completed.streaming && completed.contentRevision === entry.contentRevision) {
     reportCardDiagnostic(entry.card.dataset.id, entry, 'final_fit_completed', {});
     revealSettledContent(entry, completed.contentRevision);
     window.__SGT_BUTTON_SCENE__?.pulseCompletion(entry.card.dataset.id);
   }
   clearTimeout(completed.timeout);
   activeFit = null;
+  if (refine && cards.get(entry.card.dataset.id) === entry) queueFit(entry, entry.streaming);
   scheduleFit();
 }
 function applyDirectContent(entry, message) {
@@ -319,6 +323,7 @@ function queueCardContent(entry, message) {
     type: message.type,
     html: message.html,
     refining: Boolean(message.refining),
+    settle_before_reveal: Boolean(message.settle_before_reveal),
     content_revision: ++entry.contentRevision,
     revision: entry.revision,
     priority: priority
@@ -446,11 +451,6 @@ function applyAppearance(entry, model) {
     entry.card.hidden = !model.visible;
   }
   return becameVisible;
-}
-function activateCard(entry, becameVisible) {
-  if (!entry.visible || entry.navigationDepth !== 0) return;
-  if (flushPendingContent(entry)) return;
-  if (becameVisible && entry.ready) queueFit(entry, entry.streaming);
 }
 function applyContentModel(entry, model, type) {
   const becameVisible = applyAppearance(entry, model);

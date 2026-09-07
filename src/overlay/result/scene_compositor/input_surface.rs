@@ -7,7 +7,8 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CombineRgn, CreateRectRgn, DeleteObject, HBRUSH, HRGN, RGN_OR, ScreenToClient, SetWindowRgn,
+    CombineRgn, CreateRectRgn, DeleteObject, EqualRgn, GetWindowRgn, HBRUSH, HRGN, RGN_OR,
+    ScreenToClient, SetWindowRgn,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -313,13 +314,29 @@ pub(super) fn update_input_regions(
             let _ = ShowWindow(hwnd, SW_HIDE);
             AppliedInputState::hidden()
         } else {
-            let set_res = SetWindowRgn(hwnd, Some(combined), true);
+            // Compare the actual native region so recreation and external changes cannot
+            // leave a cached hit-test shape out of sync with the window.
+            let current = CreateRectRgn(0, 0, 0, 0);
+            let unchanged = !current.is_invalid()
+                && GetWindowRgn(hwnd, current).0 != 0
+                && EqualRgn(current, combined).as_bool();
+            if !current.is_invalid() {
+                let _ = DeleteObject(current.into());
+            }
+            let set_res = if unchanged {
+                let _ = DeleteObject(combined.into());
+                1
+            } else {
+                SetWindowRgn(hwnd, Some(combined), true)
+            };
             if set_res == 0 {
                 let _ = DeleteObject(combined.into());
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 return AppliedInputState::hidden();
             }
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            if !IsWindowVisible(hwnd).as_bool() {
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
             let _ = SetWindowPos(
                 hwnd,
                 Some(HWND_TOPMOST),
@@ -452,6 +469,24 @@ mod tests {
         assert!(!state.is_hidden);
 
         unsafe {
+            assert_eq!(
+                update_input_regions(hwnd, &cards, &[], -1920, 0, 3840, 1080),
+                state
+            );
+            let _ = ShowWindow(hwnd, SW_HIDE);
+            assert_eq!(
+                update_input_regions(hwnd, &cards, &[], -1920, 0, 3840, 1080),
+                state
+            );
+            assert!(IsWindowVisible(hwnd).as_bool());
+            cards.get_mut(&1).unwrap().rect.x = 900;
+            let _ = update_input_regions(hwnd, &cards, &[], -1920, 0, 3840, 1080);
+            let actual = CreateRectRgn(0, 0, 0, 0);
+            let expected = CreateRectRgn(900, 100, 1300, 400);
+            assert_ne!(GetWindowRgn(hwnd, actual).0, 0);
+            assert!(EqualRgn(actual, expected).as_bool());
+            let _ = DeleteObject(actual.into());
+            let _ = DeleteObject(expected.into());
             let _ = DestroyWindow(hwnd);
         }
     }

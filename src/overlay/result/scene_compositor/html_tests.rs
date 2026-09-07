@@ -110,7 +110,9 @@ fn content_revisions_reject_stale_paint_acknowledgements() {
 #[test]
 fn fits_are_serialized_and_pending_updates_are_coalesced_per_card() {
     assert!(COMPOSED.contains("const pendingFits = new Map()"));
-    assert!(COMPOSED.contains("if (activeFit || pendingFits.size === 0) return"));
+    assert!(
+        COMPOSED.contains("if (activeFit || fitFrame !== null || pendingFits.size === 0) return")
+    );
     assert!(COMPOSED.contains("pendingFits.set(key, next)"));
     assert!(COMPOSED.contains("window.__SGT_FIT_CONTEXT__"));
     assert!(COMPOSED.contains("fontReady: true"));
@@ -266,10 +268,11 @@ fn ordinary_results_retain_a_scroll_recovery_path_while_streaming() {
 }
 
 #[test]
-fn streaming_dom_replacement_is_immediate() {
+fn streaming_dom_updates_are_frame_coalesced_without_fixed_delays() {
     assert!(COMPOSED.contains("if (flushPendingContent(entry)) return;"));
     assert!(COMPOSED.contains("activateCard(entry, becameVisible);"));
-    assert!(!COMPOSED.contains("contentFrame"));
+    assert!(COMPOSED.contains("entry.contentFrame = requestAnimationFrame"));
+    assert!(COMPOSED.contains("cards.get(entry.card.dataset.id) !== entry"));
     assert!(!COMPOSED.contains("lastContentFlushAt"));
     assert!(!COMPOSED.contains("lastStreamingFitAt"));
     assert!(!COMPOSED.contains("streamingFitTimer"));
@@ -283,7 +286,7 @@ fn ordinary_streaming_preserves_unchanged_dom_identity() {
     assert!(patch_runtime.contains("syncNode(existing, next)"));
     assert!(patch_runtime.contains("current.nodeValue = fresh.nodeValue"));
     assert!(!patch_runtime.contains("body.innerHTML = html"));
-    assert!(COMPOSED.contains("requestRefinement: function()"));
+    assert!(COMPOSED.contains("handlesRefinement: true"));
 }
 
 #[test]

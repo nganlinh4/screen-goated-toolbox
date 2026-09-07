@@ -51,11 +51,9 @@ pub(super) fn next_stack_order() -> u64 {
 pub fn warmup() {
     super::delivery::warmup();
 }
-
 pub fn register_window(hwnd: HWND) {
     sync_window(hwnd, false);
 }
-
 pub fn defer_window_sync(hwnd: HWND) {
     DEFERRED_SYNC.lock().unwrap().insert(hwnd.0 as isize);
 }
@@ -259,6 +257,12 @@ pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
         let Some(card) = scenes.get_mut(&geometry.id) else {
             return;
         };
+        if card.rect == geometry.rect
+            && card.control_rect == geometry.control_rect
+            && card.visible == geometry.visible
+        {
+            return;
+        }
         let delta = (
             geometry.control_rect.x - card.control_rect.x,
             geometry.control_rect.y - card.control_rect.y,
@@ -560,9 +564,9 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
             input_rect_count,
         } => {
             super::reconciliation::acknowledge_revision(revision);
-            crate::log_info!(
+            crate::debug_log::log_debug(&format!(
                 "[ResultCompositor] state_ack gen={generation} rev={revision} vis={visible_cards} rects={input_rect_count}"
-            );
+            ));
         }
         ChildEvent::Ready
         | ChildEvent::Heartbeat

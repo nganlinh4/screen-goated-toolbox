@@ -2,6 +2,7 @@
     const fitPhase = "__FIT_PHASE__";
     const isStreamingFit = __STREAMING_MODE__;
     const fitContext = window.__SGT_FIT_CONTEXT__ || null;
+    const incrementalFit = isStreamingFit || Boolean(fitContext && fitContext.streamingSession);
     const fitState = fitContext ? fitContext.state : window;
     const fitBody = fitContext ? fitContext.body : document.body;
     const fitViewport = fitContext ? fitContext.viewport : null;
@@ -56,8 +57,9 @@
             fitState._sgtFitting = false;
             try {
                 if (fitContext && typeof fitContext.complete === 'function') {
-                    fitContext.complete();
+                    fitContext.complete(needsStreamingRefinement);
                     if (needsStreamingRefinement
+                        && !fitContext.handlesRefinement
                         && typeof fitContext.requestRefinement === 'function') {
                         fitContext.requestRefinement();
                     }
@@ -75,6 +77,7 @@
                 var doc = fitDocument;
 
                 try {
+                    if (fitContext && fitContext.isCurrent && !fitContext.isCurrent()) return;
                     if (!body || !doc) {
                         postFitDiagnostic({
                             action: 'render_diagnostics',
@@ -129,7 +132,7 @@
                     // Short-circuit redundant final fits. Window activate/deactivate
                     // can re-trigger fit_font_to_window even when text, window size,
                     // and committed axes are unchanged — wasted ~100ms each time.
-                    if (!isStreamingFit) {
+                    if (!isStreamingFit && !incrementalFit) {
                         var lastFinal = fitState._sgtLastFinalFit;
                         var cachedFs = parseFloat(body.style.fontSize);
                         var cachedStretch = parseFloat(body.style.fontStretch);
@@ -197,7 +200,7 @@
                     // (110 -> 60 -> 44 -> 32) as the response grows. The
                     // final (non-streaming) fit keeps the full range so
                     // short final responses can still display large.
-                    var maxSize = isStreamingFit
+                    var maxSize = incrementalFit
                         ? Math.min(48, winH)
                         : (isTinyContent
                             ? 200
@@ -211,7 +214,7 @@
                     // font-size search cannot improve containment. Scrolling remains
                     // the recovery path for the latter case.
                     var finalStreamingTarget = fitState._sgtLastReportedFitTarget;
-                    if (!isStreamingFit && finalStreamingTarget
+                    if (!isStreamingFit && !incrementalFit && finalStreamingTarget
                         && finalStreamingTarget.streaming
                         && !isShortContent
                         && Number.isFinite(finalStreamingTarget.fontSize)) {
@@ -314,15 +317,17 @@
                     // most two verified refinements bounds renderer-thread layout work
                     // while the exact final fit retains the exhaustive search.
                     var preservedSize = false;
-                    if (isStreamingFit) {
+                    if (incrementalFit) {
                         var previousTarget = fitState._sgtLastReportedFitTarget;
                         var previousTextLen = fitState._sgtLastStreamingFitTextLen;
+                        var previousViewport = fitState._sgtIncrementalViewport;
                         var contentOnlyGrew = Number.isFinite(previousTextLen)
-                            && textLen >= previousTextLen;
+                            && textLen >= previousTextLen && previousViewport
+                            && previousViewport.width === winW && previousViewport.height === winH;
+                        fitState._sgtIncrementalViewport = { width: winW, height: winH };
                         var searchHigh = maxSize;
                         if (contentOnlyGrew
                             && previousTarget
-                            && previousTarget.streaming
                             && Number.isFinite(previousTarget.fontSize)) {
                             searchHigh = Math.max(
                                 minSize,
@@ -373,7 +378,7 @@
                     }
 
                     // Small-window + less-text path: run a settle pass to avoid "almost right" first paint.
-                    if (!isStreamingFit && isConstrainedShortContent && !preservedSize) {
+                    if (!incrementalFit && isConstrainedShortContent && !preservedSize) {
                         void body.offsetHeight;
                         var settleLow = minSize, settleHigh = bestSize, settleBest = minSize;
                         while (settleLow <= settleHigh) {
@@ -399,7 +404,7 @@
                     // Phase-1 result of 40), producing the streaming-vs-final
                     // size disagreement. The final fit still runs condense
                     // so the settled state gets the benefit.
-                    if (!isStreamingFit && !preservedSize && textLen > 0 && (bestSize < maxSize - 2 || !foundFittingSize)) {
+                    if (!incrementalFit && !preservedSize && textLen > 0 && (bestSize < maxSize - 2 || !foundFittingSize)) {
                         var baseSize = parseFloat(body.style.fontSize) || bestSize;
                         var bestComboSize = baseSize;
                         var bestComboWdth = 90;
@@ -456,7 +461,7 @@
                     // ===== PHASES 2-7: gap filling =====
                     // During active streaming, skip the expansion passes entirely.
                     // They can stretch small partial chunks into narrow vertical columns.
-                    if (isShortContent && !isStreamingFit) {
+                    if (isShortContent && !incrementalFit) {
                         // ===== PHASE 2: LINE HEIGHT =====
                         if (fits() && getGap() > 2) {
                             var lowLH = 1.15, highLH = 2.5, bestLH = 1.15;

@@ -110,7 +110,7 @@
                     }
 
                     // ===== PHASE 8: OVERFLOW RESCUE CONDENSE =====
-                    if (!isStreamingFit && !foundFittingSize && !fits()) {
+                    if (!incrementalFit && !foundFittingSize && !fits()) {
                         var rescueSize = Math.max(minSize, parseFloat(body.style.fontSize) || minSize);
                         body.style.fontSize = rescueSize + 'px';
                         body.style.letterSpacing = '0px';
@@ -132,8 +132,8 @@
                     }
 
                     // ===== FINAL: Fill any remaining gap by distributing space =====
-                    var finalGap = isStreamingFit ? 0 : winH - doc.scrollHeight;
-                    if (!isStreamingFit && finalGap > 2) {
+                    var finalGap = incrementalFit ? 0 : winH - doc.scrollHeight;
+                    if (!incrementalFit && finalGap > 2) {
                         body.style.paddingTop = Math.floor(finalGap * 0.3) + 'px';
                         body.style.paddingBottom = Math.floor(finalGap * 0.7) + 'px';
                     } else {
@@ -271,7 +271,7 @@
 
                         // Save signature for the short-circuit at fit entry. Only for
                         // final fits (streaming changes mid-flight and shouldn't cache).
-                        if (!isStreamingFit) {
+                        if (!isStreamingFit && !needsStreamingRefinement) {
                             fitState._sgtLastFinalFit = {
                                 textLen: textLen,
                                 winW: winW,
@@ -300,7 +300,7 @@
                         // accumulating a delayed final collapse. A visible final
                         // fit continues the same linear controller.
                         if (isStreamingFit) fitState._sgtStreamingMotionActive = true;
-                        var usesStreamingMotion = isStreamingFit
+                        var usesStreamingMotion = incrementalFit
                             || fitState._sgtStreamingMotionActive === true;
                         var fontVelocity = usesStreamingMotion ? 55 + fsDelta * 7 : 75;
                         var widthVelocity = usesStreamingMotion ? 120 + wDelta * 5 : 120;
