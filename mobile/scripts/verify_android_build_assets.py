@@ -39,7 +39,7 @@ def verify_viewer(root: Path) -> None:
             f"found {sorted(actual)}"
         )
     document = (root / "creation_model_viewer/index.html").read_text("utf-8")
-    if 'data-viewer-version="2"' not in document:
+    if 'data-viewer-version="3"' not in document:
         raise ValueError("Shared creation viewer document version is missing")
     if "default-src 'none'" not in document or "connect-src 'self'" not in document:
         raise ValueError("Shared creation viewer CSP must deny external resources")

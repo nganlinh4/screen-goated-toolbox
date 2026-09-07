@@ -14,6 +14,20 @@ SPEC.loader.exec_module(MODULE)
 
 
 class CreationArchiveTest(unittest.TestCase):
+    def test_release_reuses_component_version_across_host_version_bump(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Cargo.toml").write_text(
+                '[package]\nname = "host"\nversion = "5.5.2"\n', encoding="utf-8"
+            )
+
+            host, component = MODULE.package_versions(
+                root, None, {"hostVersion": "5.5.2", "version": "5.5.1"}
+            )
+
+            self.assertEqual(host, "5.5.2")
+            self.assertEqual(component, "5.5.1")
+
     def test_inventory_reads_the_canonical_vite_output(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

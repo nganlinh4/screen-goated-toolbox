@@ -32,6 +32,14 @@ def cargo_version(repo: Path) -> str:
     return match.group(1)
 
 
+def package_versions(repo: Path, requested: str | None, delivery: dict | None) -> tuple[str, str]:
+    host_version = cargo_version(repo)
+    version = requested or (delivery.get("version") if delivery else host_version)
+    if not isinstance(version, str) or not re.fullmatch(r"[a-z0-9._-]{1,80}", version):
+        raise RuntimeError("Creation product version is invalid")
+    return host_version, version
+
+
 def runtime_source(repo: Path, manifest_arg: str) -> tuple[Path, str]:
     manifest_path_value = require_repo_or_managed_cache(
         repo, repo / manifest_arg, "Creation runtime manifest"
@@ -114,11 +122,15 @@ def main() -> int:
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
-    version = args.version or cargo_version(repo)
-    if not re.fullmatch(r"[a-z0-9._-]{1,80}", version):
-        raise RuntimeError("Creation product version is invalid")
     output = require_repo_or_managed_cache(repo, repo / args.output_dir, "Creation package output")
     output.mkdir(parents=True, exist_ok=True)
+    delivery_path = output / "sgt_creation_windows.delivery.json"
+    delivery = None
+    if args.require_delivery:
+        if not delivery_path.is_file():
+            raise RuntimeError("verified Creation delivery manifest is missing")
+        delivery = json.loads(delivery_path.read_text(encoding="utf-8"))
+    host_version, version = package_versions(repo, args.version, delivery)
     runtime, runtime_version = runtime_source(repo, args.runtime_manifest)
     entries = inventory(repo, runtime)
     archive, archive_bytes = write_archive(output, version, entries)
@@ -129,7 +141,7 @@ def main() -> int:
         files.append({"path": relative, "sizeBytes": len(data), "sha256": sha256(data)})
     descriptor = {
         "schemaVersion": 1,
-        "hostVersion": version,
+        "hostVersion": host_version,
         "version": version,
         "runtimeVersion": runtime_version,
         "features": list(FEATURES),
@@ -146,11 +158,7 @@ def main() -> int:
     package_path = output / "sgt_creation_windows.packages.json"
     package_path.write_text(json.dumps(descriptor, indent=2) + "\n", encoding="utf-8")
 
-    if args.require_delivery:
-        delivery_path = output / "sgt_creation_windows.delivery.json"
-        if not delivery_path.is_file():
-            raise RuntimeError("verified Creation delivery manifest is missing")
-        delivery = json.loads(delivery_path.read_text(encoding="utf-8"))
+    if delivery is not None:
         if comparable(delivery) != comparable(descriptor):
             raise RuntimeError("verified Creation delivery does not match the current archive")
     print(package_path)

@@ -42,6 +42,18 @@ class HostBoundCrateDiscoveryTest(unittest.TestCase):
         }
         self.assertIn("native/recorder_worker/Cargo.toml", found)
 
+    def test_lock_pattern_updates_only_the_named_workspace_package(self) -> None:
+        raw = (
+            '[[package]]\nname = "dependency"\nversion = "1.0.0"\n\n'
+            '[[package]]\nname = "worker"\nversion = "5.5.1"\n'
+        )
+        updated = MODULE.cargo_lock_package_pattern("worker").sub(
+            r'\g<1>5.5.2\g<3>', raw, count=1
+        )
+
+        self.assertIn('name = "dependency"\nversion = "1.0.0"', updated)
+        self.assertIn('name = "worker"\nversion = "5.5.2"', updated)
+
 
 class AppResourceTest(unittest.TestCase):
     def test_covers_both_spellings_of_the_version(self) -> None:

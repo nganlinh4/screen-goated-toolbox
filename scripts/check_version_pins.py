@@ -76,6 +76,12 @@ def host_bound_cargo_manifests() -> list[Path]:
     return found
 
 
+def cargo_lock_package_pattern(name: str) -> re.Pattern[str]:
+    return re.compile(
+        rf'(\[\[package\]\]\r?\nname = "{re.escape(name)}"\r?\nversion = ")([^"]+)(")'
+    )
+
+
 def app_rc_expectations(version: str) -> list[tuple[str, str]]:
     """The four spellings of the version in the Windows resource script.
 
@@ -135,6 +141,28 @@ def main() -> int:
         if args.write:
             path.write_text(
                 raw.replace(f'version = "{pinned}"', f'version = "{version}"', 1),
+                encoding="utf-8",
+                newline="",
+            )
+
+    cargo_manifests = [REPO / "Cargo.toml", *host_bound_cargo_manifests()]
+    for manifest_path in cargo_manifests:
+        package = tomllib.loads(manifest_path.read_text(encoding="utf-8"))["package"]
+        package_name = package["name"]
+        lock_path = manifest_path.parent / "Cargo.lock"
+        raw = lock_path.read_text(encoding="utf-8")
+        pattern = cargo_lock_package_pattern(package_name)
+        match = pattern.search(raw)
+        if not match:
+            raise SystemExit(f"{lock_path.relative_to(REPO).as_posix()} has no {package_name} package")
+        pinned = match.group(2)
+        if pinned == version:
+            continue
+        relative = lock_path.relative_to(REPO).as_posix()
+        stale.append(f"{relative}: {package_name}.version {pinned}")
+        if args.write:
+            lock_path.write_text(
+                pattern.sub(rf'\g<1>{version}\g<3>', raw, count=1),
                 encoding="utf-8",
                 newline="",
             )
