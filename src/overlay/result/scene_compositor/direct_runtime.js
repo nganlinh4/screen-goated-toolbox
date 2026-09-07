@@ -329,9 +329,7 @@
             var textLen = text.length;
             var constrained = size.height < 260 || size.width < 420;
             var minSize = textLen < 200 ? 6 : 14;
-            var finalMaximum = textLen < 300
-                ? 200
-                : (textLen < 1500 ? 100 : Math.max(24, Math.min(48, Math.floor(size.height / 10))));
+            var finalMaximum = size.height;
             var maxPossible = Math.min(finalizing ? finalMaximum : (constrained ? 40 : 48), size.height);
             var estimated = Math.sqrt((size.width * size.height) / (textLen + 1));
             var low = Math.max(minSize, Math.floor(estimated * 0.5));

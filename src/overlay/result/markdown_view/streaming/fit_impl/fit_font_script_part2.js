@@ -110,7 +110,7 @@
                     }
 
                     // ===== PHASE 8: OVERFLOW RESCUE CONDENSE =====
-                    if (!incrementalFit && !foundFittingSize && !fits()) {
+                    if (!boundedFinalFit && !incrementalFit && !foundFittingSize && !fits()) {
                         var rescueSize = Math.max(minSize, parseFloat(body.style.fontSize) || minSize);
                         body.style.fontSize = rescueSize + 'px';
                         body.style.letterSpacing = '0px';
@@ -136,7 +136,7 @@
                     if (!incrementalFit && finalGap > 2) {
                         body.style.paddingTop = Math.floor(finalGap * 0.3) + 'px';
                         body.style.paddingBottom = Math.floor(finalGap * 0.7) + 'px';
-                    } else {
+                    } else if (!boundedFinalFit) {
                         body.style.paddingTop = '0';
                         body.style.paddingBottom = '0';
                     }
@@ -273,6 +273,7 @@
                         // final fits (streaming changes mid-flight and shouldn't cache).
                         if (!isStreamingFit && !needsStreamingRefinement) {
                             fitState._sgtLastFinalFit = {
+                                text: text,
                                 textLen: textLen,
                                 winW: winW,
                                 winH: winH,
@@ -402,7 +403,7 @@
                         // forming the visible "stair-step" between chunks.
                         var snapThreshold = 0.1;
                         var snapWThreshold = 0.3;
-                        if (incrementalFit && !isStreamingFit && !needsStreamingRefinement
+                        if ((incrementalFit || boundedFinalFit) && !isStreamingFit && !needsStreamingRefinement
                             && hadPriorSize && !settleBeforeReveal && typeof body.animate === 'function') {
                             // Freeze the verified line layout. Only the visual transform
                             // changes during settling, never font metrics or line breaks.
@@ -424,7 +425,9 @@
                                 finalMotion.padBottom = finalMotion.targetPadBottom = targetPadBottom;
                                 finalMotion.padTopVelocity = finalMotion.padBottomVelocity = 0;
                             }
-                            var scale = startFontSize / targetFontSize;
+                            // A shrinking final fit must not magnify the verified
+                            // layout beyond its viewport during the settle effect.
+                            var scale = Math.min(1, startFontSize / targetFontSize);
                             var reducedMotion = window.matchMedia
                                 && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
                             var settleDuration = reducedMotion ? 0

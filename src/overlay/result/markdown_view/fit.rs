@@ -14,6 +14,17 @@ mod tests {
     use super::runtime_fit_script;
 
     #[test]
+    fn final_direct_fit_uses_viewport_bounds_and_verified_glyph_geometry() {
+        let script = runtime_fit_script();
+        assert!(script.contains("const boundedFinalFit = Boolean(fitContext) && !isStreamingFit"));
+        assert!(script.contains("var maxSize = isStreamingFit"));
+        assert!(script.contains(": Math.max(minSize, winH)"));
+        assert!(script.contains("probe < 12"));
+        assert!(script.contains("glyphRange.getBoundingClientRect()"));
+        assert!(script.contains("var scale = Math.min(1, startFontSize / targetFontSize)"));
+    }
+
+    #[test]
     fn streamed_finalization_keeps_incremental_layout_and_continuous_motion() {
         let script = runtime_fit_script();
         assert!(script.contains("fitContext.streamingSession"));
@@ -100,7 +111,11 @@ mod tests {
         assert!(script.contains("previousTarget.fontSize"));
         assert!(script.contains("needsStreamingRefinement = estimate > minSize"));
         assert!(script.contains("fitContext.requestRefinement()"));
-        assert!(script.contains("if (!incrementalFit && !foundFittingSize && !fits())"));
+        assert!(
+            script.contains(
+                "if (!boundedFinalFit && !incrementalFit && !foundFittingSize && !fits())"
+            )
+        );
         assert!(script.contains("layoutProbes: layoutProbeCount"));
         assert!(script.contains("paintedShrinkPxPerSec: paintedShrinkPxPerSec"));
         assert!(!script.contains("hasPathologicalWrap"));

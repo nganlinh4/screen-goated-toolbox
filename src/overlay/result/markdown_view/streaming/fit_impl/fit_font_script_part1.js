@@ -3,6 +3,7 @@
     const isStreamingFit = __STREAMING_MODE__;
     const fitContext = window.__SGT_FIT_CONTEXT__ || null;
     const incrementalFit = isStreamingFit || Boolean(fitContext && fitContext.streamingSession);
+    const boundedFinalFit = Boolean(fitContext) && !isStreamingFit;
     const fitState = fitContext ? fitContext.state : window;
     const fitBody = fitContext ? fitContext.body : document.body;
     const fitViewport = fitContext ? fitContext.viewport : null;
@@ -132,11 +133,12 @@
                     // Short-circuit redundant final fits. Window activate/deactivate
                     // can re-trigger fit_font_to_window even when text, window size,
                     // and committed axes are unchanged — wasted ~100ms each time.
-                    if (!isStreamingFit && !incrementalFit) {
+                    if (!isStreamingFit && (!incrementalFit || boundedFinalFit)) {
                         var lastFinal = fitState._sgtLastFinalFit;
                         var cachedFs = parseFloat(body.style.fontSize);
                         var cachedStretch = parseFloat(body.style.fontStretch);
                         if (lastFinal
+                            && lastFinal.text === text
                             && lastFinal.textLen === textLen
                             && lastFinal.winW === winW
                             && lastFinal.winH === winH
@@ -189,24 +191,15 @@
                     }
 
                     var isShortContent = textLen < 1500;
-                    var isTinyContent = textLen < 300;
                     var isConstrainedWindow = (winH < 260 || winW < 420);
                     var isConstrainedShortContent = isConstrainedWindow && textLen < 450;
                     // Allowed ranges — match streaming's 14px readability floor.
                     var minSize = (textLen < 200) ? 6 : 14;
-                    // Streaming cap is deliberately conservative (48px). An
-                    // early tiny chunk could otherwise be sized up to 96
-                    // and then forced to climb down a long shrink ladder
-                    // (110 -> 60 -> 44 -> 32) as the response grows. The
-                    // final (non-streaming) fit keeps the full range so
-                    // short final responses can still display large.
-                    var maxSize = incrementalFit
+                    // Streaming limits early-chunk growth. Final size is bounded
+                    // by the viewport, not by a fixed font-size or text-length cap.
+                    var maxSize = isStreamingFit
                         ? Math.min(48, winH)
-                        : (isTinyContent
-                            ? 200
-                            : (isShortContent
-                                ? 100
-                                : Math.max(24, Math.min(48, Math.floor(winH / 10)))));
+                        : Math.max(minSize, winH);
 
                     // Final content commonly differs only by stream framing. Reuse
                     // the verified streaming target when it still contains the DOM,
@@ -214,7 +207,7 @@
                     // font-size search cannot improve containment. Scrolling remains
                     // the recovery path for the latter case.
                     var finalStreamingTarget = fitState._sgtLastReportedFitTarget;
-                    if (!isStreamingFit && !incrementalFit && finalStreamingTarget
+                    if (!boundedFinalFit && !isStreamingFit && !incrementalFit && finalStreamingTarget
                         && finalStreamingTarget.streaming
                         && !isShortContent
                         && Number.isFinite(finalStreamingTarget.fontSize)) {
@@ -312,7 +305,39 @@
                     // One measurement per pass. Fractional targets avoid whole-pixel
                     // undershoot; final content gets one verified fill correction.
                     var preservedSize = false;
-                    if (incrementalFit) {
+                    if (boundedFinalFit) {
+                        // Keep one width and verify every candidate against both
+                        // scroll overflow and actual glyph bounds. Fixed-height
+                        // bodies alone cannot describe the rendered text extent.
+                        applyBodyWdth(fitState._sgtIncrementalWidth || 90);
+                        var glyphRange = document.createRange();
+                        glyphRange.selectNodeContents(body);
+                        function finalSize(size) {
+                            body.style.fontSize = size + 'px';
+                            body.style.paddingTop = Math.ceil(size * 0.1) + 'px';
+                        }
+                        function finalFits() {
+                            var metrics = readLayoutMetrics();
+                            var glyphs = glyphRange.getBoundingClientRect();
+                            var bounds = body.getBoundingClientRect();
+                            return metricsFit(metrics)
+                                && glyphs.left >= bounds.left - 0.5
+                                && glyphs.right <= bounds.left + winW + 0.5
+                                && glyphs.top >= bounds.top - 0.5
+                                && glyphs.bottom <= bounds.top + winH - 1;
+                        }
+                        finalSize(minSize);
+                        foundFittingSize = finalFits();
+                        for (var probe = 0; foundFittingSize && probe < 12 && high - low > 0.1; probe++) {
+                            var candidate = (low + high) / 2;
+                            finalSize(candidate);
+                            if (finalFits()) { bestSize = candidate; low = candidate; }
+                            else high = candidate;
+                        }
+                        finalSize(bestSize);
+                        body.style.overflowY = foundFittingSize ? 'hidden' : 'auto';
+                        preservedSize = true;
+                    } else if (incrementalFit) {
                         var previousTarget = fitState._sgtLastReportedFitTarget;
                         var previousTextLen = fitState._sgtLastStreamingFitTextLen;
                         var previousViewport = fitState._sgtIncrementalViewport;
@@ -508,7 +533,7 @@
                     // ===== PHASES 2-7: gap filling =====
                     // During active streaming, skip the expansion passes entirely.
                     // They can stretch small partial chunks into narrow vertical columns.
-                    if (isShortContent && !incrementalFit) {
+                    if (isShortContent && !incrementalFit && !preservedSize) {
                         // ===== PHASE 2: LINE HEIGHT =====
                         if (fits() && getGap() > 2) {
                             var lowLH = 1.15, highLH = 2.5, bestLH = 1.15;
