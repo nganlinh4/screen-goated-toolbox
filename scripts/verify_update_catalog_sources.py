@@ -86,7 +86,7 @@ def main() -> None:
 
     release = request_json(RELEASE_API)
     assets = release.get("assets")
-    if not isinstance(assets, list) or len(assets) > 256:
+    if not isinstance(assets, list):
         raise SystemExit("runtime-bundles release asset list is invalid")
     by_name = {asset.get("name"): asset for asset in assets if isinstance(asset, dict)}
     seen: dict[str, tuple[int, str]] = {}
