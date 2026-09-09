@@ -73,9 +73,10 @@ pub(super) struct PendingNotification {
 
 #[derive(Clone, Debug)]
 pub(super) struct ProgressNotification {
+    pub owner: u64,
     pub title: String,
     pub snippet: String,
-    pub progress: f32,
+    pub progress: Option<f32>,
 }
 
 #[cfg(feature = "recorder-worker")]
@@ -258,13 +259,14 @@ pub fn show_timed_detailed_notification(
     );
 }
 
-fn show_progress_notification(title: &str, snippet: &str, progress: f32) {
+fn show_progress_notification(owner: u64, title: &str, snippet: &str, progress: Option<f32>) {
+    let mut active = ACTIVE_PROGRESS.lock().unwrap();
     {
-        let mut active = ACTIVE_PROGRESS.lock().unwrap();
         *active = Some(ProgressNotification {
+            owner,
             title: title.to_string(),
             snippet: snippet.to_string(),
-            progress: progress.clamp(0.0, 100.0),
+            progress: progress.map(|value| value.clamp(0.0, 100.0)),
         });
     }
     #[cfg(not(feature = "recorder-worker"))]
@@ -277,17 +279,22 @@ fn show_progress_notification(title: &str, snippet: &str, progress: f32) {
     ensure_window_and_post(WM_APP_UPDATE_PROGRESS);
 }
 
-fn update_progress_notification_if_owned(title: &str, snippet: &str, progress: f32) {
+fn update_progress_notification_if_owned(
+    owner: u64,
+    title: &str,
+    snippet: &str,
+    progress: Option<f32>,
+) {
+    let mut active = ACTIVE_PROGRESS.lock().unwrap();
     let updated = {
-        let mut active = ACTIVE_PROGRESS.lock().unwrap();
         let Some(current) = active.as_mut() else {
             return;
         };
-        if !progress_is_owned(Some(current), title) {
+        if !progress_is_owned(Some(current), owner) || current.title != title {
             false
         } else {
             current.snippet = snippet.to_string();
-            current.progress = progress.clamp(0.0, 100.0);
+            current.progress = progress.map(|value| value.clamp(0.0, 100.0));
             true
         }
     };
@@ -303,12 +310,12 @@ fn update_progress_notification_if_owned(title: &str, snippet: &str, progress: f
     }
 }
 
-/// Hide only the progress notification owned by `title`. A completed download
+/// Hide only the progress notification with this identity. A completed download
 /// must not dismiss a newer concurrent download's badge.
-fn hide_progress_notification_for(title: &str) {
+fn hide_progress_notification_for(owner: u64) {
+    let mut active = ACTIVE_PROGRESS.lock().unwrap();
     let removed = {
-        let mut active = ACTIVE_PROGRESS.lock().unwrap();
-        if progress_is_owned(active.as_ref(), title) {
+        if progress_is_owned(active.as_ref(), owner) {
             *active = None;
             true
         } else {
@@ -323,8 +330,8 @@ fn hide_progress_notification_for(title: &str) {
     }
 }
 
-fn progress_is_owned(active: Option<&ProgressNotification>, title: &str) -> bool {
-    active.is_some_and(|progress| progress.title == title)
+fn progress_is_owned(active: Option<&ProgressNotification>, owner: u64) -> bool {
+    active.is_some_and(|progress| progress.owner == owner)
 }
 
 #[cfg(feature = "recorder-worker")]
@@ -374,12 +381,13 @@ mod progress_tests {
     #[test]
     fn a_completed_download_cannot_hide_a_newer_progress_owner() {
         let active = ProgressNotification {
+            owner: 2,
             title: "new download".to_string(),
             snippet: "working".to_string(),
-            progress: 25.0,
+            progress: Some(25.0),
         };
-        assert!(progress_is_owned(Some(&active), "new download"));
-        assert!(!progress_is_owned(Some(&active), "old download"));
-        assert!(!progress_is_owned(None, "new download"));
+        assert!(progress_is_owned(Some(&active), 2));
+        assert!(!progress_is_owned(Some(&active), 1));
+        assert!(!progress_is_owned(None, 2));
     }
 }

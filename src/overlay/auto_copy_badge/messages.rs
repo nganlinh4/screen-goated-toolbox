@@ -111,7 +111,8 @@ pub(super) unsafe extern "system" fn badge_wnd_proc(
                                 "window.upsertProgressNotification('{}', '{}', {});",
                                 escape_js_text(&progress.title),
                                 escape_js_text(&progress.snippet),
-                                progress.progress
+                                serde_json::to_string(&progress.progress)
+                                    .unwrap_or_else(|_| "null".into())
                             );
                             let _ = webview.evaluate_script(&script);
                         }

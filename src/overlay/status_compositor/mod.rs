@@ -124,7 +124,7 @@ pub(crate) fn add_notification(
     parent::send(command);
 }
 
-pub(crate) fn progress_upsert(title: String, snippet: String, progress: f32) {
+pub(crate) fn progress_upsert(title: String, snippet: String, progress: impl Into<Option<f32>>) {
     let rect = notification_rect();
     let mut snapshot = parent::SNAPSHOT.lock().unwrap();
     let progress = ProgressScene {
@@ -135,7 +135,7 @@ pub(crate) fn progress_upsert(title: String, snippet: String, progress: f32) {
             .unwrap_or_else(|| NEXT_SCENE_ORDER.fetch_add(1, Ordering::SeqCst)),
         title: bounded_text(title, MAX_TITLE_CHARS),
         snippet: bounded_text(snippet, MAX_SNIPPET_CHARS),
-        progress: progress.clamp(0.0, 100.0),
+        progress: progress.into().map(|value| value.clamp(0.0, 100.0)),
     };
     snapshot.notification_rect = rect;
     snapshot.progress = Some(progress.clone());

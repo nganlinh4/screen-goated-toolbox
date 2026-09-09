@@ -18,6 +18,20 @@ pub struct StatusSnapshot {
     pub notifications: Vec<NotificationScene>,
 }
 
+impl StatusSnapshot {
+    pub(super) fn finish_notifications(&mut self, through_id: u64, through_progress_order: u64) {
+        if self
+            .progress
+            .as_ref()
+            .is_some_and(|progress| progress.order <= through_progress_order)
+        {
+            self.progress = None;
+        }
+        self.notifications
+            .retain(|notification| notification.id > through_id);
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RecordingScene {
     pub rect: PhysicalRect,
@@ -31,7 +45,7 @@ pub struct ProgressScene {
     pub order: u64,
     pub title: String,
     pub snippet: String,
-    pub progress: f32,
+    pub progress: Option<f32>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -118,13 +132,28 @@ pub enum ChildEvent {
     RecordingReady,
     RecordingPauseToggle,
     RecordingCancel,
-    RecordingMoved { rect: PhysicalRect },
-    NotificationFinished { through_id: u64 },
-    ProgressRemovalApplied { request_id: u64 },
-    SelectionCaptureApplied { request_id: u64 },
+    RecordingMoved {
+        rect: PhysicalRect,
+    },
+    NotificationFinished {
+        through_id: u64,
+        #[serde(default)]
+        through_progress_order: u64,
+    },
+    ProgressRemovalApplied {
+        request_id: u64,
+    },
+    SelectionCaptureApplied {
+        request_id: u64,
+    },
     ResyncRequested,
-    RendererFailure { kind: RendererFailureKind },
-    RendererError { source: String, error: String },
+    RendererFailure {
+        kind: RendererFailureKind,
+    },
+    RendererError {
+        source: String,
+        error: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -152,6 +181,23 @@ impl RendererFailureKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_fade_completion_preserves_new_progress() {
+        let mut scene = StatusSnapshot {
+            progress: Some(ProgressScene {
+                order: 12,
+                title: String::new(),
+                snippet: String::new(),
+                progress: Some(0.0),
+            }),
+            ..Default::default()
+        };
+        scene.finish_notifications(0, 11);
+        assert!(scene.progress.is_some());
+        scene.finish_notifications(0, 12);
+        assert!(scene.progress.is_none());
+    }
 
     #[test]
     fn protocol_round_trips_unicode_and_negative_coordinates() {
@@ -187,5 +233,23 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(event, ChildEvent::ProgressRemovalApplied { request_id: 17 });
+    }
+
+    #[test]
+    fn unknown_progress_is_distinct_from_zero_and_complete() {
+        for progress in [None, Some(0.0), Some(100.0)] {
+            let scene = ProgressScene {
+                order: 1,
+                title: "Preparing".into(),
+                snippet: "Loading".into(),
+                progress,
+            };
+            let value = serde_json::to_value(&scene).unwrap();
+            assert_eq!(value["progress"], serde_json::json!(progress));
+            assert_eq!(
+                serde_json::from_value::<ProgressScene>(value).unwrap(),
+                scene
+            );
+        }
     }
 }

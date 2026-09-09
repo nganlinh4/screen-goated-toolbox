@@ -283,9 +283,8 @@ fn apply_native_state(command: &HostCommand) {
             scene.notification_rect = *rect;
             scene.progress = Some(progress.clone());
         }
-        HostCommand::ProgressRemove | HostCommand::ProgressRemoveBeforeCapture { .. } => {
-            scene.progress = None
-        }
+        HostCommand::ProgressRemove => {}
+        HostCommand::ProgressRemoveBeforeCapture { .. } => scene.progress = None,
         HostCommand::SelectionShow { rect, text } => {
             scene.selection.rect = *rect;
             scene.selection.text_visible = true;
@@ -350,11 +349,13 @@ pub(super) fn handle_renderer_message(body: &str) {
             drain_commands(hwnd);
             super::region::update(hwnd, &SCENE.lock().unwrap());
         }
-    } else if let ChildEvent::NotificationFinished { through_id } = &event {
+    } else if let ChildEvent::NotificationFinished {
+        through_id,
+        through_progress_order,
+    } = &event
+    {
         let mut scene = SCENE.lock().unwrap();
-        scene
-            .notifications
-            .retain(|notification| notification.id > *through_id);
+        scene.finish_notifications(*through_id, *through_progress_order);
         let value = HOST_HWND.load(Ordering::SeqCst);
         if value != 0 {
             super::region::update(HWND(value as *mut std::ffi::c_void), &scene);

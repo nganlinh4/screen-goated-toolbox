@@ -422,7 +422,7 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
                     recording.rect = rect;
                 }
             }
-            ChildEvent::NotificationFinished { through_id } => {
+            ChildEvent::NotificationFinished { through_id, .. } => {
                 SNAPSHOT
                     .lock()
                     .unwrap()

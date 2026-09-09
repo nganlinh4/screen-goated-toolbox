@@ -177,6 +177,21 @@ pub(super) fn get_badge_html() -> String {
         box-shadow: 0 0 10px var(--this-bloom);
         transition: width 0.15s linear;
     }}
+    .progress-badge.indeterminate .progress-fill {{
+        width: 35%;
+        animation: loading-sweep 1.4s ease-in-out infinite;
+        transition: none;
+    }}
+    @keyframes loading-sweep {{
+        from {{ transform: translateX(-110%); }}
+        to {{ transform: translateX(390%); }}
+    }}
+    @media (prefers-reduced-motion: reduce) {{
+        .progress-badge.indeterminate .progress-fill {{
+            animation: none;
+            transform: translateX(90%);
+        }}
+    }}
 </style>
 </head>
 <body>
@@ -427,7 +442,7 @@ pub(super) fn get_badge_html() -> String {
                     <div class="row snippet-container progress-snippet-row">
                         <div class="snippet progress-snippet"></div>
                     </div>
-                    <div class="progress-track">
+                    <div class="progress-track" role="progressbar">
                         <div class="progress-fill"></div>
                     </div>
                 `;
@@ -439,12 +454,23 @@ pub(super) fn get_badge_html() -> String {
                 }});
             }}
 
+            if (badge._progressRemovalTimer) {{
+                clearTimeout(badge._progressRemovalTimer);
+                badge._progressRemovalTimer = null;
+                badge.classList.add('visible');
+            }}
             applyTheme(badge, colors);
+            const indeterminate = progress == null;
             const clamped = Math.max(0, Math.min(100, Number(progress) || 0));
+            badge.classList.toggle('indeterminate', indeterminate);
             badge.querySelector('.progress-title-text').textContent = title;
-            badge.querySelector('.progress-value').textContent = `${{Math.round(clamped)}}%`;
+            badge.querySelector('.progress-value').textContent = indeterminate ? '' : `${{Math.round(clamped)}}%`;
             badge.querySelector('.progress-snippet').textContent = snippet || '';
-            badge.querySelector('.progress-fill').style.width = `${{clamped}}%`;
+            badge.querySelector('.progress-fill').style.width = indeterminate ? '' : `${{clamped}}%`;
+            const track = badge.querySelector('.progress-track');
+            track.setAttribute('aria-label', title + (snippet ? ': ' + snippet : ''));
+            if (indeterminate) track.removeAttribute('aria-valuenow');
+            else track.setAttribute('aria-valuenow', String(clamped));
         }};
 
         window.removeProgressNotification = () => {{
@@ -455,10 +481,11 @@ pub(super) fn get_badge_html() -> String {
             }}
 
             badge.classList.remove('visible');
-            setTimeout(() => {{
+            if (badge._progressRemovalTimer) clearTimeout(badge._progressRemovalTimer);
+            badge._progressRemovalTimer = setTimeout(() => {{
                 if (badge.parentNode) badge.parentNode.removeChild(badge);
                 maybeHideWindow();
-            }}, 250);
+            }}, 400);
         }};
     </script>
 </body>

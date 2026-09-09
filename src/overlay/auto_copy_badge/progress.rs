@@ -1,4 +1,6 @@
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
+
+static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
 
 const DORMANT: u8 = 0;
 const ACTIVE: u8 = 1;
@@ -9,6 +11,7 @@ const FINISHED: u8 = 2;
 /// The badge is updated only when the displayed whole percent changes, and its
 /// drop path only hides the notification if this download still owns it.
 pub struct DownloadProgressBadge {
+    owner: u64,
     title: String,
     initial_message: String,
     progress_message: String,
@@ -34,6 +37,7 @@ impl DownloadProgressBadge {
 
     fn with_messages(title: &str, initial_message: &str, progress_message: &str) -> Self {
         Self {
+            owner: NEXT_OWNER.fetch_add(1, Ordering::Relaxed),
             title: title.to_string(),
             initial_message: initial_message.to_string(),
             progress_message: progress_message.to_string(),
@@ -47,7 +51,7 @@ impl DownloadProgressBadge {
     }
 
     pub fn report_with_message(&self, downloaded: u64, total: u64, message: &str) {
-        if !self.start() {
+        if !self.start(Some(0.0)) {
             return;
         }
         let percent = downloaded
@@ -56,16 +60,26 @@ impl DownloadProgressBadge {
             .unwrap_or(0)
             .min(100) as u32;
         if self.last_percent.swap(percent, Ordering::Relaxed) != percent {
-            super::update_progress_notification_if_owned(&self.title, message, percent as f32);
+            super::update_progress_notification_if_owned(
+                self.owner,
+                &self.title,
+                message,
+                Some(percent as f32),
+            );
         }
     }
 
     #[cfg(not(feature = "recorder-worker"))]
     pub fn set_phase(&self, message: &str, progress: f32) {
-        if !self.start() {
+        if !self.start(Some(progress)) {
             return;
         }
-        super::update_progress_notification_if_owned(&self.title, message, progress);
+        super::update_progress_notification_if_owned(
+            self.owner,
+            &self.title,
+            message,
+            Some(progress),
+        );
     }
 
     /// Make the progress surface visible once real component work has begun.
@@ -74,7 +88,7 @@ impl DownloadProgressBadge {
     /// a badge before discovering that the verified component is already
     /// installed; rendering at construction time made every open look like a
     /// fresh download even though no network request occurred.
-    fn start(&self) -> bool {
+    fn start(&self, progress: Option<f32>) -> bool {
         loop {
             match self.state.load(Ordering::Acquire) {
                 ACTIVE => return true,
@@ -85,7 +99,12 @@ impl DownloadProgressBadge {
                         .compare_exchange(DORMANT, ACTIVE, Ordering::AcqRel, Ordering::Acquire)
                         .is_ok()
                     {
-                        super::show_progress_notification(&self.title, &self.initial_message, 0.0);
+                        super::show_progress_notification(
+                            self.owner,
+                            &self.title,
+                            &self.initial_message,
+                            progress,
+                        );
                         return true;
                     }
                 }
@@ -96,7 +115,7 @@ impl DownloadProgressBadge {
 
     pub fn finish(&self) {
         if self.state.swap(FINISHED, Ordering::AcqRel) == ACTIVE {
-            super::hide_progress_notification_for(&self.title);
+            super::hide_progress_notification_for(self.owner);
         }
     }
 }
@@ -117,6 +136,7 @@ mod tests {
         assert_eq!(badge.state.load(Ordering::Acquire), DORMANT);
         badge.finish();
         assert_eq!(badge.state.load(Ordering::Acquire), FINISHED);
-        assert!(!badge.start());
+        assert!(!badge.start(Some(0.0)));
+        assert!(!badge.start(None));
     }
 }

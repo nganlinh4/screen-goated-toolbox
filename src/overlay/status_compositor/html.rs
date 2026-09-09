@@ -51,6 +51,7 @@ let textVisible = false;
 let imageVisible = false;
 let captureVisible = true;
 let notificationWatermark = 0;
+let progressWatermark = 0;
 
 function post(value) {{ window.ipc.postMessage(JSON.stringify(value)); }}
 function frameWindow(name) {{ return frames[name].contentWindow; }}
@@ -108,6 +109,7 @@ function applySnapshot(scene) {{
   applyTheme(scene.is_dark);
   invoke('notification', 'resetNotifications');
   notificationWatermark = 0;
+  progressWatermark = 0;
   hide('notification');
   place('notification', scene.notification_rect);
   if (scene.recording) {{
@@ -132,6 +134,7 @@ function applySnapshot(scene) {{
         notification.kind, notification.duration_ms);
     }} else {{
       const progress = item.progress;
+      progressWatermark = Math.max(progressWatermark, progress.order || 0);
       invoke('notification', 'upsertProgressNotification', progress.title, progress.snippet, progress.progress);
     }}
   }}
@@ -164,6 +167,7 @@ window.applyStatusCommand = command => {{
       invoke('notification', 'addNotification', command.notification.title, command.notification.snippet,
         command.notification.kind, command.notification.duration_ms); break;
     case 'progress_upsert':
+      progressWatermark = Math.max(progressWatermark, command.progress.order || 0);
       place('notification', command.rect);
       show('notification');
       invoke('notification', 'upsertProgressNotification', command.progress.title,
@@ -217,7 +221,7 @@ window.__sgtStatusFrameMessage = (frame, message) => {{
     else if (message === 'pause_toggle') post({{type:'recording_pause_toggle'}});
     else if (message === 'cancel' || message === 'close') post({{type:'recording_cancel'}});
   }} else if (frame === 'notification' && message === 'finished') {{
-    hide('notification'); post({{type:'notification_finished',through_id:notificationWatermark}});
+    hide('notification'); post({{type:'notification_finished',through_id:notificationWatermark,through_progress_order:progressWatermark}});
   }} else if (String(message).startsWith('error:')) {{
     post({{type:'renderer_error',source:frame,error:String(message)}});
   }}
