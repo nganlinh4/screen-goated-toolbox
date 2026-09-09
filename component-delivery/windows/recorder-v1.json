@@ -2,13 +2,13 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "screen-recorder-5.5.2-84d7c8b9841428ab.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.5.2-84d7c8b9841428ab.zip",
+      "asset": "screen-recorder-5.5.2-d74e8781b2fc9716.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.5.2-d74e8781b2fc9716.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "dbaab0cad2bf0234493a601304be79cda9c0003e3f42b824c430bf8bd2d5d97b",
-          "sizeBytes": 9510912
+          "sha256": "93c3f87abbf84da1917e35a1ab263a8a5aead174fe8d4069bfdff48d5ff07b5e",
+          "sizeBytes": 9517568
         },
         {
           "path": "licenses/worker/THIRD-PARTY-LICENSES.json",
@@ -102,8 +102,8 @@
         },
         {
           "path": "web/assets/editor-renderer.js",
-          "sha256": "4147ed07e58388310626568bba77f8bb294e91e70c10ece8aaeb9e7996c0d3ef",
-          "sizeBytes": 127995
+          "sha256": "9f5b5255e7cfbbab80ee6f2555a3127c112b3b88aa403a00ea48f362d362aeb4",
+          "sizeBytes": 129244
         },
         {
           "path": "web/assets/exportStaging.js",
@@ -1042,9 +1042,9 @@
         }
       ],
       "id": "screen-recorder",
-      "sha256": "84d7c8b9841428ab45e0fa2ee6b33edc00e5aacd20630213516e0bef35efbb56",
-      "sizeBytes": 6003824,
-      "unpackedSizeBytes": 16371873,
+      "sha256": "d74e8781b2fc9716bb5bd4ee66a83da3e2bcd822eb910a5ca29894b63c462dc2",
+      "sizeBytes": 6006051,
+      "unpackedSizeBytes": 16379778,
       "version": "5.5.2"
     }
   ],
