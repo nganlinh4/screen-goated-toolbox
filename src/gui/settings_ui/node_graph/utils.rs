@@ -63,11 +63,30 @@ pub fn show_language_value_selector(
     id: impl std::hash::Hash + std::fmt::Debug,
     value: &mut String,
 ) -> bool {
+    let options: Vec<_> = get_all_languages()
+        .iter()
+        .map(|language| (language.as_str(), language.as_str()))
+        .collect();
+    show_language_options_selector(ui, label, id, value, &options)
+}
+
+pub fn show_language_options_selector(
+    ui: &mut egui::Ui,
+    label: impl Into<String>,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    value: &mut String,
+    options: &[(&str, &str)],
+) -> bool {
     let label = label.into();
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(label);
         let current_val = value.clone();
+        let current_label = options
+            .iter()
+            .find(|(code, _)| *code == current_val)
+            .map(|(_, name)| *name)
+            .unwrap_or(&current_val);
 
         // Create unique IDs for this specific language selector
 
@@ -77,7 +96,7 @@ pub fn show_language_value_selector(
         let theme = AppTheme::from_ui(ui);
         let button_response = filled_button(
             ui,
-            &current_val,
+            current_label,
             theme.node_button_fill(),
             theme.on_accent(),
             8,
@@ -116,13 +135,13 @@ pub fn show_language_value_selector(
                     .auto_shrink([true, false])
                     .show(ui, |ui| {
                         ui.set_width(120.0); // Ensure scrollbar stays on the right edge
-                        for lang in get_all_languages() {
+                        for &(code, lang) in options {
                             let matches_search = search_text.is_empty()
                                 || lang.to_lowercase().contains(&search_text.to_lowercase());
                             if matches_search {
-                                let is_selected = current_val == *lang;
+                                let is_selected = current_val == code;
                                 if ui.selectable_label(is_selected, lang).clicked() {
-                                    value.clone_from(lang);
+                                    *value = code.to_string();
                                     changed = true;
                                     // Clear search and close popup
                                     ui.data_mut(|d| {

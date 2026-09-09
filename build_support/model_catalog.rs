@@ -471,6 +471,30 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
     lines.push("}".to_string());
     lines.push(String::new());
 
+    lines.push("#[cfg(not(feature = \"recorder-worker\"))]".to_string());
+    lines.push(
+        "pub fn input_language_set(provider: &str, api_model: &str) -> Option<&'static str> {"
+            .to_string(),
+    );
+    lines.push("    match (provider, api_model) {".to_string());
+    for (endpoint, profile) in manifest_object(&manifest, "model_profiles") {
+        if let Some(language_set) = profile
+            .get("input_language_set")
+            .and_then(serde_json::Value::as_str)
+        {
+            let (provider, api_model) = endpoint.split_once(':').expect("provider endpoint key");
+            lines.push(format!(
+                "        ({}, {}) => Some({}),",
+                rust_string(provider),
+                rust_string(api_model),
+                rust_string(language_set)
+            ));
+        }
+    }
+    lines.push("        _ => None,".to_string());
+    lines.push("    }".to_string());
+    lines.push("}".to_string());
+
     fs::write(output_path, lines.join("\n"))
         .unwrap_or_else(|err| panic!("Failed to write {}: {}", output_path.display(), err));
 }

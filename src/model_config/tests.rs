@@ -200,6 +200,23 @@ fn tts_model_normalization_uses_catalog_default() {
 }
 
 #[test]
+fn translation_controls_do_not_inherit_the_realtime_default() {
+    for model in get_all_models()
+        .iter()
+        .filter(|model| model.provider != "gemini-live")
+    {
+        assert!(
+            !is_gemini_live_translate_model_id(&model.id),
+            "non-live models must not inherit live translation controls: {}",
+            model.id
+        );
+    }
+    for model_id in ["", "unknown-audio-model"] {
+        assert!(!is_gemini_live_translate_model_id(model_id));
+    }
+}
+
+#[test]
 fn live_translate_routing_comes_from_the_endpoint_profile() {
     assert_eq!(
         realtime_transcription_live_protocol(GEMINI_LIVE_TRANSLATE_MODEL_ID),

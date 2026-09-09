@@ -16,10 +16,11 @@ pub fn normalize_subtitle_text(text: &str) -> String {
 
 pub fn normalize_groq_language_hint(language_hint: Option<&str>) -> Option<String> {
     if let Some(entry) = normalize_language_alias(language_hint) {
-        return Some(entry.groq_code.to_string());
+        return crate::config::speech_languages::whisper_language_code(Some(entry.groq_code))
+            .map(ToOwned::to_owned);
     }
     let primary = normalized_language_primary(language_hint)?;
-    is_groq_whisper_language_code(&primary).then_some(primary)
+    crate::config::speech_languages::whisper_language_code(Some(&primary)).map(ToOwned::to_owned)
 }
 
 pub fn normalize_qwen_language_hint(language_hint: Option<&str>) -> Option<String> {
@@ -92,110 +93,6 @@ fn normalized_language_primary(language_hint: Option<&str>) -> Option<String> {
     Some(normalized.split('-').next().unwrap_or("").to_string())
 }
 
-fn is_groq_whisper_language_code(code: &str) -> bool {
-    matches!(
-        code,
-        "af" | "am"
-            | "ar"
-            | "as"
-            | "az"
-            | "ba"
-            | "be"
-            | "bg"
-            | "bn"
-            | "bo"
-            | "br"
-            | "bs"
-            | "ca"
-            | "cs"
-            | "cy"
-            | "da"
-            | "de"
-            | "el"
-            | "en"
-            | "es"
-            | "et"
-            | "eu"
-            | "fa"
-            | "fi"
-            | "fo"
-            | "fr"
-            | "gl"
-            | "gu"
-            | "ha"
-            | "haw"
-            | "he"
-            | "hi"
-            | "hr"
-            | "ht"
-            | "hu"
-            | "hy"
-            | "id"
-            | "is"
-            | "it"
-            | "ja"
-            | "jw"
-            | "ka"
-            | "kk"
-            | "km"
-            | "kn"
-            | "ko"
-            | "la"
-            | "lb"
-            | "ln"
-            | "lo"
-            | "lt"
-            | "lv"
-            | "mg"
-            | "mi"
-            | "mk"
-            | "ml"
-            | "mn"
-            | "mr"
-            | "ms"
-            | "mt"
-            | "my"
-            | "ne"
-            | "nl"
-            | "nn"
-            | "no"
-            | "oc"
-            | "pa"
-            | "pl"
-            | "ps"
-            | "pt"
-            | "ro"
-            | "ru"
-            | "sa"
-            | "sd"
-            | "si"
-            | "sk"
-            | "sl"
-            | "sn"
-            | "so"
-            | "sq"
-            | "sr"
-            | "su"
-            | "sv"
-            | "sw"
-            | "ta"
-            | "te"
-            | "tg"
-            | "th"
-            | "tk"
-            | "tl"
-            | "tr"
-            | "tt"
-            | "uk"
-            | "ur"
-            | "uz"
-            | "vi"
-            | "yi"
-            | "yo"
-            | "yue"
-            | "zh"
-    )
-}
 
 fn normalize_qwen_supported_language(language_hint: Option<&str>) -> Option<&'static str> {
     let normalized = trimmed_language_hint(language_hint)?
@@ -546,4 +443,28 @@ fn strip_qwen_control_tokens(text: &str) -> String {
         .replace("<|endoftext|>", " ")
         .replace("<|im_end|>", " ")
         .replace("<|im_start|>", " ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::speech_languages::{WHISPER_LANGUAGES, whisper_language_code};
+
+    #[test]
+    fn subtitle_language_hints_stay_within_the_supported_catalog() {
+        for language in WHISPER_LANGUAGES.iter() {
+            assert_eq!(
+                normalize_groq_language_hint(Some(&language.value)).as_deref(),
+                Some(language.value.as_str())
+            );
+        }
+        for language in (0..10000).filter_map(isolang::Language::from_usize) {
+            let label = language.to_name();
+            if let Some(code) = normalize_groq_language_hint(Some(label)) {
+                assert!(whisper_language_code(Some(&code)).is_some(), "{label}: {code}");
+            }
+        }
+        assert_eq!(normalize_groq_language_hint(Some("auto")), None);
+        assert_eq!(normalize_groq_language_hint(None), None);
+    }
 }

@@ -382,7 +382,12 @@ pub fn realtime_transcription_live_protocol(model_id: &str) -> Option<&'static s
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn is_gemini_live_translate_model_id(model_id: &str) -> bool {
-    realtime_transcription_live_protocol(model_id) == Some("live-translate")
+    get_all_models()
+        .iter()
+        .find(|model| model.id == model_id)
+        .filter(|model| model.provider == "gemini-live" && model.model_type == ModelType::Audio)
+        .and_then(|model| live_endpoint_profile(&model.full_name))
+        .is_some_and(|profile| profile.protocol == Some("live-translate"))
 }
 
 #[cfg(not(feature = "recorder-worker"))]

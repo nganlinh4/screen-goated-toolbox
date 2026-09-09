@@ -536,7 +536,15 @@ pub fn execute_audio_processing_logic(
         if groq_api_key.trim().is_empty() {
             Err(anyhow::anyhow!("NO_API_KEY:groq"))
         } else {
-            upload_audio_to_whisper(&groq_api_key, &model_name, wav_data)
+            upload_audio_to_whisper(
+                &groq_api_key,
+                &model_name,
+                wav_data,
+                audio_block
+                    .language_vars
+                    .get(crate::config::speech_languages::INPUT_LANGUAGE_KEY)
+                    .map(String::as_str),
+            )
         }
     } else if Provider::from_wire(&provider) == Some(Provider::Google) {
         if gemini_api_key.trim().is_empty() {

@@ -146,6 +146,38 @@ pub fn show_model_and_settings(
         );
     }
 
+    if target_model_type == ModelType::Audio
+        && get_model_by_id(model).is_some_and(|selected| {
+            crate::model_config::input_language_set(&selected.provider, &selected.full_name)
+                == Some("whisper")
+        })
+    {
+        use crate::config::speech_languages::{INPUT_LANGUAGE_KEY, WHISPER_LANGUAGES};
+        let value = language_vars
+            .entry(INPUT_LANGUAGE_KEY.to_string())
+            .or_insert_with(|| "auto".to_string());
+        let mut options = vec![("auto", "Auto")];
+        options.extend(
+            WHISPER_LANGUAGES
+                .iter()
+                .map(|language| (language.value.as_str(), language.label.as_str())),
+        );
+        let label = match viewer.ui_language.as_str() {
+            "vi" => "Ngôn ngữ đầu vào:",
+            "ko" => "입력 언어:",
+            _ => "Input language:",
+        };
+        if super::super::utils::show_language_options_selector(
+            ui,
+            label,
+            INPUT_LANGUAGE_KEY,
+            value,
+            &options,
+        ) {
+            viewer.changed = true;
+        }
+    }
+
     // Only show prompt UI for LLM models (not QR scanner, GTX, Whisper, etc.)
     if !model_is_non_llm(model) {
         // Row 2: Prompt Label + Add Tag Button

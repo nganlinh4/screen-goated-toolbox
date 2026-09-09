@@ -713,6 +713,7 @@
       "reasoning_policy": "provider-managed"
     },
     "groq:whisper-large-v3-turbo": {
+      "input_language_set": "whisper",
       "name_vi": "G Chép nhanh",
       "name_ko": "G 빠른 받아쓰기",
       "name_en": "G Fast transcription",
@@ -725,6 +726,7 @@
       "reasoning_policy": "not-applicable"
     },
     "groq:whisper-large-v3": {
+      "input_language_set": "whisper",
       "name_vi": "G Chép chính xác",
       "name_ko": "G 정확한 받아쓰기",
       "name_en": "G Accurate transcription",

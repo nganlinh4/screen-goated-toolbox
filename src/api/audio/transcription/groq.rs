@@ -4,6 +4,7 @@ pub(super) fn upload_audio_to_whisper(
     api_key: &str,
     model: &str,
     audio_data: Vec<u8>,
+    language_hint: Option<&str>,
 ) -> anyhow::Result<String> {
     let boundary = format!(
         "----SGTBoundary{}",
@@ -15,6 +16,7 @@ pub(super) fn upload_audio_to_whisper(
 
     let mut body = Vec::new();
     add_field(&mut body, &boundary, "model", model.as_bytes());
+    add_language_field(&mut body, &boundary, language_hint);
     body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
     body.extend_from_slice(
         b"Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n",
@@ -61,4 +63,35 @@ fn add_field(body: &mut Vec<u8>, boundary: &str, name: &str, value: &[u8]) {
     );
     body.extend_from_slice(value);
     body.extend_from_slice(b"\r\n");
+}
+
+fn add_language_field(body: &mut Vec<u8>, boundary: &str, language_hint: Option<&str>) {
+    if let Some(language) = crate::config::speech_languages::whisper_language_code(language_hint) {
+        add_field(body, boundary, "language", language.as_bytes());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_language_is_optional_and_uses_wire_codes() {
+        for hint in [None, Some("auto"), Some(""), Some("unsupported")] {
+            let mut body = Vec::new();
+            add_language_field(&mut body, "boundary", hint);
+            assert!(body.is_empty());
+        }
+        for language in crate::config::speech_languages::WHISPER_LANGUAGES.iter() {
+            let mut body = Vec::new();
+            add_language_field(&mut body, "boundary", Some(&language.value));
+            assert_eq!(
+                String::from_utf8(body).unwrap(),
+                format!(
+                    "--boundary\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\n{}\r\n",
+                    language.value,
+                )
+            );
+        }
+    }
 }

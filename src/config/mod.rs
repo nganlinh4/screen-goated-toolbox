@@ -34,6 +34,7 @@ mod io;
 #[cfg(not(feature = "recorder-worker"))]
 mod live_translate_sync;
 pub mod preset;
+pub mod speech_languages;
 pub mod tts_catalog;
 mod tts_catalog_gemini;
 pub mod types;

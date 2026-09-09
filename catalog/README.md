@@ -9,6 +9,13 @@ create a second model registry.
 
 ## Endpoint Profiles
 
+`input_language_set` optionally selects the supported input-language catalog
+for a transcription endpoint. `whisper` uses `whisper-languages.json`, shared
+by preset controls and recorder subtitles. Auto omits the API language field;
+explicit choices send catalog codes. Input hints are independent of translation
+targets. The language inventory follows the upstream Whisper tokenizer:
+https://github.com/openai/whisper/blob/main/whisper/tokenizer.py.
+
 `model_profiles` is keyed by `<provider>:<exact API full_name>`. Localized name,
 daily request quota, search support, default search-tool behavior, intelligence
 tier, and ordinary reasoning policy live there once. Modality rows resolve the
