@@ -98,6 +98,10 @@
   the mutable `sgt-runtime-staging` prerelease only for a current remote test
   candidate; an opted-in debug build may consume its exact read-back-verified
   contract from an isolated runtime-state root.
+- Staging candidate uploads/replacements, read-back verification, and isolated
+  debug contract selection are authorized development steps. Do not request
+  separate approval for them. This does not authorize production promotion,
+  application releases, or uploading private/customer data.
 - Promote tested bytes once to append-only `sgt-runtime-bundles`. Production
   promotion must download and hash staging, upload without overwrite, read back
   and hash production, then update the reviewed tracked contract. Release builds

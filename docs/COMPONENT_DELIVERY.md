@@ -38,6 +38,10 @@ rules:
 Do not create a release asset for every edit. Rebuild locally as often as
 needed, replace the staging candidate when device or first-use testing needs a
 remote object, and promote once when the component is ready for an app release.
+Uploading or replacing the current `sgt-runtime-staging` candidate, verifying
+its read-back, and selecting its isolated debug contract are ordinary authorized
+development steps; no separate user approval is required. This authorization
+does not include private/customer data, production promotion, or app releases.
 A published host references production only, so users on an existing app
 version do not redownload while development candidates change.
 
@@ -201,5 +205,7 @@ Before building a release host:
 6. test first use, offline failure, cancellation, repair, concurrent use,
    active-use removal, restart completion, and Clean All preservation.
 
-Publishing component artifacts and publishing an application release are
-separate checkpoints. Preparing a host change does not authorize either one.
+Staging development candidates, promoting production component artifacts, and
+publishing an application release are separate checkpoints. Authorized
+development includes staging as described above; preparing a host change alone
+does not authorize production promotion or an application release.

@@ -161,6 +161,10 @@ opt-level = "s"
 # Keep panic backtraces (file:line) but drop bulky symbol data to shrink target/.
 debug = "line-tables-only"
 
+# Component integrity checks stream multi-gigabyte model files even in debug builds.
+[profile.dev.package.sha2]
+opt-level = 3
+
 [patch.crates-io]
 egui-wgpu = { path = "third_party/egui-wgpu" }
 epaint = { path = "libs/epaint" }
