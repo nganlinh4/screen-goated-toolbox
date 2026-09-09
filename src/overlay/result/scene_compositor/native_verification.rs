@@ -17,6 +17,82 @@ mod tests {
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
     static REGISTER_RECEIVER_CLASS: Once = Once::new();
+    #[test]
+    fn result_pair_stays_below_visible_glow_without_activation() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        unsafe {
+            let instance = GetModuleHandleW(None).unwrap();
+            let class = w!("SGTProcessingGlowEdge");
+            let _ = RegisterClassW(&WNDCLASSW {
+                lpfnWndProc: Some(receiver_wnd_proc),
+                hInstance: instance.into(),
+                lpszClassName: class,
+                ..Default::default()
+            });
+            let edge = CreateWindowExW(
+                WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
+                class,
+                w!(""),
+                WS_POPUP | WS_VISIBLE,
+                -100,
+                -100,
+                10,
+                10,
+                None,
+                None,
+                Some(instance.into()),
+                None,
+            )
+            .unwrap();
+            let surface_class = w!("SGTGlowStackHarness");
+            let _ = RegisterClassW(&WNDCLASSW {
+                lpfnWndProc: Some(receiver_wnd_proc),
+                hInstance: instance.into(),
+                lpszClassName: surface_class,
+                ..Default::default()
+            });
+            let create = || {
+                CreateWindowExW(
+                    WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+                    surface_class,
+                    w!(""),
+                    WS_POPUP | WS_VISIBLE,
+                    -100,
+                    -100,
+                    10,
+                    10,
+                    None,
+                    None,
+                    Some(instance.into()),
+                    None,
+                )
+                .unwrap()
+            };
+            let visual = create();
+            let input = create();
+            let foreground = GetForegroundWindow();
+            super::super::input_surface::sync_input_surface_bounds(input, -100, -100, 10, 10);
+            assert!(super::super::visual_region::stack_below_input(
+                visual, input
+            ));
+            let mut next = edge;
+            while next != input {
+                next = GetWindow(next, GW_HWNDNEXT).unwrap();
+                assert_ne!(next, visual, "glow must precede the result pair");
+            }
+            assert_eq!(GetWindow(input, GW_HWNDNEXT).unwrap(), visual);
+            assert_eq!(GetForegroundWindow(), foreground);
+            let _ = ShowWindow(edge, SW_HIDE);
+            super::super::input_surface::sync_input_surface_bounds(input, -100, -100, 10, 10);
+            assert!(super::super::visual_region::stack_below_input(
+                visual, input
+            ));
+            assert_eq!(GetWindow(input, GW_HWNDNEXT).unwrap(), visual);
+            for hwnd in [edge, input, visual] {
+                DestroyWindow(hwnd).unwrap();
+            }
+        }
+    }
     unsafe extern "system" fn receiver_wnd_proc(
         hwnd: HWND,
         message: u32,
@@ -77,6 +153,38 @@ mod tests {
             );
             pump_messages();
             Ok(hwnd)
+        }
+    }
+
+    #[test]
+    fn visual_and_input_stay_adjacent_above_an_intervening_topmost_window() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let visual = create_receiver_window(-100, -100, 10, 10).unwrap();
+        let other = create_receiver_window(-100, -100, 10, 10).unwrap();
+        let input = create_receiver_window(-100, -100, 10, 10).unwrap();
+        unsafe {
+            let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+            SetWindowPos(other, Some(input), 0, 0, 0, 0, flags).unwrap();
+            SetWindowPos(visual, Some(other), 0, 0, 0, 0, flags).unwrap();
+            assert_eq!(GetWindow(input, GW_HWNDNEXT).unwrap(), other);
+            let foreground = GetForegroundWindow();
+            assert!(super::super::visual_region::stack_below_input(
+                visual, input
+            ));
+            assert_eq!(GetWindow(input, GW_HWNDNEXT).unwrap(), visual);
+            assert_eq!(GetWindow(visual, GW_HWNDNEXT).unwrap(), other);
+            assert_eq!(GetForegroundWindow(), foreground);
+            assert!(super::super::visual_region::stack_below_input(
+                visual, input
+            ));
+            let _ = ShowWindow(visual, SW_HIDE);
+            assert!(super::super::visual_region::stack_below_input(
+                visual, input
+            ));
+            assert!(!IsWindowVisible(visual).as_bool());
+            for hwnd in [input, other, visual] {
+                DestroyWindow(hwnd).unwrap();
+            }
         }
     }
 

@@ -6,10 +6,69 @@ use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, DeleteObject, EqualRgn, GetWindowRgn, RGN_OR, SetWindowRgn,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, IsWindowVisible, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos,
+    FindWindowExW, GW_HWNDNEXT, GetSystemMetrics, GetWindow, HWND_TOPMOST, IsWindowVisible,
+    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE,
+    SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
     ShowWindow,
 };
+
+// Reassert decorative edges only when the result pair changes stacking, never
+// from an animation timer. Snapshot first: raising an edge changes enumeration.
+fn raise_processing_glow() {
+    let mut previous = None;
+    let mut edges = Vec::new();
+    unsafe {
+        while let Ok(edge) = FindWindowExW(
+            None,
+            previous,
+            windows::core::w!("SGTProcessingGlowEdge"),
+            None,
+        ) {
+            if IsWindowVisible(edge).as_bool() {
+                edges.push(edge);
+            }
+            previous = Some(edge);
+        }
+        for edge in edges.into_iter().rev() {
+            let _ = SetWindowPos(
+                edge,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+        }
+    }
+}
+
+pub(super) fn stack_below_input(visual: HWND, input: HWND) -> bool {
+    unsafe {
+        if visual == input
+            || !IsWindowVisible(visual).as_bool()
+            || !IsWindowVisible(input).as_bool()
+            || GetWindow(input, GW_HWNDNEXT).ok() == Some(visual)
+        {
+            raise_processing_glow();
+            return true;
+        }
+        // Raising input alone can leave another topmost app between input and
+        // its pixels. Keep the pair adjacent without activation or geometry changes.
+        let positioned = SetWindowPos(
+            visual,
+            Some(input),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+        .is_ok();
+        raise_processing_glow();
+        positioned
+    }
+}
 
 pub(super) fn hide(hwnd: HWND) {
     unsafe {

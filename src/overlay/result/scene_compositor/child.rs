@@ -304,6 +304,10 @@ fn drain_commands(hwnd: HWND) {
         );
         if applied.is_hidden {
             super::visual_region::hide(hwnd);
+        } else if !super::visual_region::stack_below_input(hwnd, input_hwnd) {
+            super::visual_region::hide(hwnd);
+            super::visual_region::hide(input_hwnd);
+            std::process::exit(1);
         }
         drop(cards);
         if highest_revision > 0 {

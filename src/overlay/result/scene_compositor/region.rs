@@ -51,6 +51,10 @@ pub(super) fn update(hwnd: HWND, _redraw: bool) {
     );
     if applied.is_hidden {
         super::visual_region::hide(hwnd);
+    } else if !super::visual_region::stack_below_input(hwnd, target_hwnd) {
+        super::visual_region::hide(hwnd);
+        super::visual_region::hide(target_hwnd);
+        std::process::exit(1);
     }
 }
 
