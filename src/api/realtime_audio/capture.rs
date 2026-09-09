@@ -272,20 +272,8 @@ fn current_default_endpoint_id(flow: EDataFlow) -> Option<String> {
     }
 }
 
-#[cfg(target_os = "windows")]
 pub fn concrete_default_input_device() -> Option<cpal::Device> {
-    let endpoint_id = current_default_endpoint_id(eCapture)?;
-    cpal::default_host().input_devices().ok()?.find(|device| {
-        device
-            .id()
-            .ok()
-            .is_some_and(|id| id.id().eq_ignore_ascii_case(&endpoint_id))
-    })
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn concrete_default_input_device() -> Option<cpal::Device> {
-    cpal::default_host().default_input_device()
+    crate::audio_input::microphone_device()
 }
 
 #[cfg(target_os = "windows")]
@@ -311,9 +299,23 @@ pub fn start_mic_capture(
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
 ) -> Result<cpal::Stream> {
+    let diagnostics =
+        crate::api::audio::capture_diagnostics::CaptureDiagnostics::new("realtime", "mic");
+    diagnostics.controls(stop_signal.clone(), pause_signal.clone());
+    start_mic_capture_diagnosed(audio_buffer, stop_signal, pause_signal, diagnostics.clone())
+        .inspect_err(|error| diagnostics.event("open_error", &format!("{error:#}")))
+}
+
+fn start_mic_capture_diagnosed(
+    audio_buffer: Arc<Mutex<Vec<i16>>>,
+    stop_signal: Arc<AtomicBool>,
+    pause_signal: Arc<AtomicBool>,
+    diagnostics: crate::api::audio::capture_diagnostics::CaptureDiagnostics,
+) -> Result<cpal::Stream> {
     let device = concrete_default_input_device()
         .ok_or_else(|| anyhow::anyhow!("No microphone available. Please connect a microphone."))?;
     let config = device.default_input_config()?;
+    diagnostics.configure(&device, &config);
 
     let sample_rate = config.sample_rate();
     let channels = config.channels() as usize;
@@ -322,15 +324,21 @@ pub fn start_mic_capture(
     let resample_ratio = target_rate as f64 / sample_rate as f64;
     let stop_signal_audio = stop_signal.clone();
     let pause_signal_audio = pause_signal.clone();
-    let err_fn = handle_capture_stream_error;
+    let error_diagnostics = diagnostics.clone();
+    let err_fn = move |error| {
+        error_diagnostics.event("stream_error", &format!("{error:?}"));
+        handle_capture_stream_error(error);
+    };
+    let callback_diagnostics = diagnostics.clone();
 
     let stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
             config.into(),
             move |data: &[f32], _: &_| {
-                if stop_signal_audio.load(Ordering::Relaxed)
-                    || pause_signal_audio.load(Ordering::Relaxed)
-                {
+                let suppressed = stop_signal_audio.load(Ordering::Relaxed)
+                    || pause_signal_audio.load(Ordering::Relaxed);
+                callback_diagnostics.raw(data.iter().map(|&s| s as f64), suppressed);
+                if suppressed {
                     return;
                 }
 
@@ -348,6 +356,7 @@ pub fn start_mic_capture(
 
                 if let Ok(mut buf) = audio_buffer_clone.lock() {
                     buf.extend(resampled.iter().cloned());
+                    callback_diagnostics.delivered(resampled.iter().map(|&s| s as f64 / 32768.0));
                 }
 
                 if !resampled.is_empty() {
@@ -366,6 +375,7 @@ pub fn start_mic_capture(
     };
 
     stream.play()?;
+    diagnostics.event("playing", "target_rate=16000 mono");
     Ok(stream)
 }
 

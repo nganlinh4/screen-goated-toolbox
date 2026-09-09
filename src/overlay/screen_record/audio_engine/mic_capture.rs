@@ -1,4 +1,4 @@
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use ringbuf::traits::*;
 use ringbuf::{HeapProd, HeapRb};
 use std::sync::Arc;
@@ -122,15 +122,12 @@ pub(crate) fn record_mic_audio_sidecar(
     finished_signal.store(false, Ordering::SeqCst);
     start_offset_ms.store(u64::MAX, Ordering::SeqCst);
 
-    let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or_else(|_| cpal::default_host());
-    let device = host
-        .default_input_device()
-        .ok_or("No default microphone found")?;
+    let device = crate::audio_input::microphone_device().ok_or("No default microphone found")?;
     let config = device
         .default_input_config()
         .map_err(|e| format!("Failed to query default microphone config: {e}"))?;
     let sample_rate = config.sample_rate();
-    let channels = config.channels() as u16;
+    let channels = config.channels();
     if channels == 0 || sample_rate == 0 {
         return Err("Default microphone reported an invalid audio format".to_string());
     }

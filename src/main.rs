@@ -9,6 +9,7 @@ mod app_entry;
 mod app_state;
 mod assets;
 mod atomic_json;
+mod audio_input;
 #[cfg(test)]
 mod catalog_benchmark;
 mod component_registry;

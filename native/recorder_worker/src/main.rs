@@ -4,6 +4,8 @@
 mod api;
 #[path = "../../../src/atomic_json.rs"]
 mod atomic_json;
+#[path = "../../../src/audio_input.rs"]
+mod audio_input;
 #[path = "../../../src/component_registry/mod.rs"]
 mod component_registry;
 mod config;

@@ -6,6 +6,7 @@
 //! - `gemini_live` - Real-time Gemini Live WebSocket streaming
 //! - `recording` - Main recording functions and Parakeet streaming
 
+pub(crate) mod capture_diagnostics;
 mod gemini_live;
 mod recording;
 mod transcription;

@@ -159,10 +159,15 @@ pub fn record_audio_and_transcribe(
     abort_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
 ) {
+    let diagnostics = super::capture_diagnostics::CaptureDiagnostics::new(
+        "record-then-process",
+        &preset.audio_source,
+    );
+    diagnostics.controls(stop_signal.clone(), pause_signal.clone());
     let _com_apartment = match AudioComApartment::initialize_mta() {
         Ok(apartment) => apartment,
         Err(error) => {
-            eprintln!("Failed to initialize audio capture: {error}");
+            diagnostics.event("open_error", &format!("initialize COM: {error}"));
             unsafe {
                 let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
@@ -187,7 +192,7 @@ pub fn record_audio_and_transcribe(
             match host.default_output_device() {
                 Some(d) => d,
                 None => {
-                    eprintln!("Error: No default output device found for loopback.");
+                    diagnostics.event("open_error", "No default output device found for loopback");
                     unsafe {
                         let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
                     }
@@ -204,10 +209,10 @@ pub fn record_audio_and_transcribe(
             return;
         }
     } else {
-        match host.default_input_device() {
+        match crate::audio_input::microphone_device() {
             Some(d) => d,
             None => {
-                eprintln!("Error: No input device available.");
+                diagnostics.event("open_error", "No default input device available");
                 unsafe {
                     let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
@@ -222,7 +227,7 @@ pub fn record_audio_and_transcribe(
             Err(_) => match device.default_input_config() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Failed to get audio config: {}", e);
+                    diagnostics.event("open_error", &format!("query config: {e}"));
                     unsafe {
                         let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
                     }
@@ -234,7 +239,7 @@ pub fn record_audio_and_transcribe(
         match device.default_input_config() {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Failed to get audio config: {}", e);
+                diagnostics.event("open_error", &format!("query config: {e}"));
                 unsafe {
                     let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
@@ -245,6 +250,7 @@ pub fn record_audio_and_transcribe(
 
     let sample_rate = config.sample_rate();
     let channels = config.channels();
+    diagnostics.configure(&device, &config);
 
     let spec = hound::WavSpec {
         channels,
@@ -254,18 +260,26 @@ pub fn record_audio_and_transcribe(
     };
 
     let (tx, rx) = mpsc::channel::<Vec<f32>>();
-    let err_fn = |err| eprintln!("Audio stream error: {}", err);
+    let error_diagnostics = diagnostics.clone();
+    let err_fn = move |err| error_diagnostics.event("stream_error", &format!("{err:?}"));
 
     // Threshold for "meaningful audio"
     const WARMUP_RMS_THRESHOLD: f32 = 0.001;
 
     let pause_signal_builder = pause_signal_audio.clone();
+    let callback_diagnostics = diagnostics.clone();
     let stream_res = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
             config.into(),
             move |data: &[f32], _: &_| {
+                callback_diagnostics.raw(
+                    data.iter().map(|&s| s as f64),
+                    pause_signal_builder.load(Ordering::Relaxed),
+                );
                 if !pause_signal_builder.load(Ordering::Relaxed) {
-                    let _ = tx.send(data.to_vec());
+                    if tx.send(data.to_vec()).is_ok() {
+                        callback_diagnostics.delivered(data.iter().map(|&s| s as f64));
+                    }
                     let mut rms = 0.0;
                     for &x in data {
                         rms += x * x;
@@ -285,10 +299,17 @@ pub fn record_audio_and_transcribe(
         cpal::SampleFormat::I16 => device.build_input_stream(
             config.into(),
             move |data: &[i16], _: &_| {
+                callback_diagnostics.raw(
+                    data.iter().map(|&s| s as f64 / i16::MAX as f64),
+                    pause_signal_builder.load(Ordering::Relaxed),
+                );
                 if !pause_signal_builder.load(Ordering::Relaxed) {
                     let f32_data: Vec<f32> =
                         data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
-                    let _ = tx.send(f32_data);
+                    if tx.send(f32_data).is_ok() {
+                        callback_diagnostics
+                            .delivered(data.iter().map(|&s| s as f64 / i16::MAX as f64));
+                    }
                     let mut rms = 0.0;
                     for &x in data {
                         let f = x as f32 / i16::MAX as f32;
@@ -316,6 +337,7 @@ pub fn record_audio_and_transcribe(
     };
 
     if let Err(e) = stream_res {
+        diagnostics.event("open_error", &format!("build stream: {e}"));
         eprintln!("Failed to build stream: {}", e);
         unsafe {
             let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -325,6 +347,7 @@ pub fn record_audio_and_transcribe(
     let stream = stream_res.unwrap();
 
     if let Err(e) = stream.play() {
+        diagnostics.event("open_error", &format!("play stream: {e}"));
         eprintln!("Failed to play stream: {}", e);
         unsafe {
             let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -333,6 +356,7 @@ pub fn record_audio_and_transcribe(
     }
 
     let mut collected_samples: Vec<f32> = Vec::new();
+    diagnostics.event("playing", "interleaved recording");
 
     // Auto-stop state
     let auto_stop_enabled = preset.auto_stop_recording;
@@ -383,10 +407,20 @@ pub fn record_audio_and_transcribe(
     }
 
     if let Err(err) = stream.pause() {
+        diagnostics.event("pause_error", &err.to_string());
         eprintln!("[Recording] Failed to pause audio stream before drop: {err}");
     }
     std::thread::sleep(std::time::Duration::from_millis(80));
     drop(stream);
+    diagnostics.event(
+        "stopped",
+        &format!(
+            "abort={} paused={} collected_samples={}",
+            abort_signal.load(Ordering::Relaxed),
+            pause_signal_audio.load(Ordering::Relaxed),
+            collected_samples.len()
+        ),
+    );
     crate::overlay::screen_record::notify_external_audio_capture_released("record-then-process");
     std::thread::sleep(std::time::Duration::from_millis(40));
 

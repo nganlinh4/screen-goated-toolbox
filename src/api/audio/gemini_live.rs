@@ -251,7 +251,7 @@ fn setup_audio_device(preset: &Preset) -> Option<(cpal::Device, cpal::SupportedS
     let device = if preset.audio_source == "device" {
         host.default_output_device()?
     } else {
-        host.default_input_device()?
+        crate::audio_input::microphone_device()?
     };
 
     let config = if preset.audio_source == "device" {

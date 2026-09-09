@@ -126,11 +126,31 @@ cargo clippy --all-targets -- -D warnings
 
 ## User diagnostic log
 
+All Windows microphone capture uses `src/audio_input.rs`, compiled by both the
+host and recorder worker: audio presets, realtime transcription/translation,
+Computer Control, Translation Gummy, TTS Playground source/reference recording,
+and Screen Recorder microphone tracks. It prefers the default communications
+input endpoint, falling back to the general default input only when the
+communications endpoint cannot be resolved. Device names, virtual-device status,
+mute, and silence do not override the user's role choices. Selection is resolved
+afresh when capture starts. Output loopback and Windows defaults are unchanged.
+
 The desktop app keeps diagnostic output in the single file
 `%LOCALAPPDATA%\SGT\logs\session.log`. When the file would exceed 16 MiB, SGT
 atomically compacts it to its newest 12 MiB at a complete-line boundary. The
 retention window is therefore activity-based rather than a fixed number of
 days. For support, request only `session.log`.
+
+Microphone capture automatically writes `[AudioCapture]` records in development
+and release builds. Each stream has an ID and opening/configured/playing/released
+events, with five-second cumulative health summaries. These include the actual
+device and Windows default input roles, input inventory, endpoint mute/volume/peak,
+sample format/rate/channel count, callback age and suppression, and raw per-channel,
+averaged-mono and delivered signal levels. Zero/nonfinite/clipped sample counts
+distinguish silent input from conversion problems. At most 32 input devices and
+32 channels are detailed; the actual selected channel count is always logged.
+Stream errors are persisted. These diagnostics do not store audio or transcripts
+and do not change device selection, gain, conversion, or the UI.
 
 After the active frontend assets exist, direct `cargo run` is valid, but
 `run-dev.ps1` is preferred because it applies the bounded cache and delivery
