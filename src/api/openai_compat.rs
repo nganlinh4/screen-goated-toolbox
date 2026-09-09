@@ -297,13 +297,28 @@ where
             if data == "[DONE]" {
                 break;
             }
-            if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data)
-                && let Some(content) = chunk.choices.first().and_then(|c| c.delta.content.as_ref())
-            {
-                full_content.push_str(content);
-                on_chunk(content);
+            if let Ok(chunk) = serde_json::from_str::<serde_json::Value>(data) {
+                if chunk.get("error").is_some_and(|error| !error.is_null()) {
+                    return Err(anyhow::anyhow!(
+                        "Provider stream error: {}",
+                        provider_error_message(200, data)
+                    ));
+                }
+                if let Some(choice) = chunk.get("choices").and_then(|v| v.get(0)) {
+                    if let Some(content) = choice.pointer("/delta/content").and_then(|v| v.as_str())
+                    {
+                        full_content.push_str(content);
+                        on_chunk(content);
+                    }
+                    if choice.get("finish_reason").and_then(|v| v.as_str()) == Some("length") {
+                        return Err(anyhow::anyhow!("Provider completion token limit reached"));
+                    }
+                }
             }
         }
+    }
+    if full_content.is_empty() {
+        return Err(anyhow::anyhow!("Provider returned no output content"));
     }
     Ok(full_content)
 }
@@ -311,6 +326,28 @@ where
 #[cfg(test)]
 mod tests {
     use super::provider_error_message;
+
+    #[test]
+    fn content_stream_reports_errors_and_reasoning_only_responses() {
+        let parse = |text: &str| {
+            super::consume_content_stream(std::io::Cursor::new(text.as_bytes()), &None, &mut |_| {})
+        };
+        assert!(
+            parse("data: {\"error\":{\"message\":\"completion budget exhausted\"}}\n")
+                .unwrap_err()
+                .to_string()
+                .contains("budget exhausted")
+        );
+        assert!(parse("data: {\"choices\":[{\"delta\":{\"reasoning\":\"internal\"}}]}\n").is_err());
+        assert!(
+            parse("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n").is_err()
+        );
+        assert_eq!(
+            parse("data: {\"choices\":[{\"delta\":{\"content\":\"result\"}}]}\ndata: [DONE]\n")
+                .unwrap(),
+            "result"
+        );
+    }
 
     #[test]
     fn structured_provider_errors_expose_the_bounded_reason() {

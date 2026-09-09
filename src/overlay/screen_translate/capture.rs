@@ -84,6 +84,9 @@ pub(super) fn process_captured_region(image: image::RgbaImage, rect: RECT) {
 }
 
 fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion) -> Result<()> {
+    if crate::component_registry::screen_text_detector::incremental_delivery() {
+        return super::incremental::translate_region(job_id, cancel, region);
+    }
     let trace_id = format!("screen-translate-{job_id}");
     crate::overlay::result::latency::begin(&trace_id);
     let region_width = i32::try_from(region.width).context("selected region is too wide")?;
@@ -140,9 +143,10 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         }
     };
     let mut accepted = detected.accepted;
-    super::appearance::annotate_regions(&region.image, &mut accepted);
-    let candidates = std::sync::Arc::<[super::contract::DetectedTextRegion]>::from(accepted);
     crate::overlay::result::latency::mark(&trace_id, "detector_complete");
+    super::appearance::annotate_backgrounds(&region.image, &mut accepted);
+    let candidates = std::sync::Arc::<[super::contract::DetectedTextRegion]>::from(accepted);
+    crate::overlay::result::latency::mark(&trace_id, "background_analysis_complete");
     evidence.detected(&candidates, &detected.raw);
     if candidates.is_empty() {
         evidence.no_text();
@@ -157,6 +161,7 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         region,
         std::sync::Arc::clone(&candidates),
         &trace_id,
+        None,
     ) {
         Ok(renderer) => renderer,
         Err(error) => {
@@ -179,13 +184,15 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         processing.close();
     });
     let mut provider_started = false;
-    let document = match super::inference::translate(
+    let outcome = match super::inference::translate(
         super::inference::TranslateInput {
             trace_id: &trace_id,
             target_language: &target_language,
             translation_model: &translation_model,
             translation_prompt: &translation_prompt,
             candidates: &candidates,
+            scene: &candidates,
+            prior_translations: &[],
         },
         Arc::clone(&cancel),
         |region| {
@@ -202,16 +209,11 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
             return Err(error);
         }
     };
+    let warning = outcome.warning();
+    let document = outcome.document;
     crate::overlay::result::latency::mark(&trace_id, "translation_complete");
     crate::overlay::result::latency::mark(&trace_id, "provider_complete");
     if super::runtime::is_current(job_id) && !cancel.load(Ordering::SeqCst) {
-        if document.regions.is_empty() {
-            evidence.no_text();
-            crate::overlay::auto_copy_badge::show_notification(
-                text.screen_translate.screen_translate_no_text,
-            );
-            return Ok(());
-        }
         let evidence_document = document.clone();
         let region_count = match overlay.complete(document) {
             Ok(region_count) => region_count,
@@ -220,12 +222,10 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
                 return Err(error);
             }
         };
-        evidence.finish(evidence_document, region_count);
-        if region_count == 0 {
-            crate::overlay::auto_copy_badge::show_notification(
-                text.screen_translate.screen_translate_no_text,
-            );
+        if let Some(warning) = &warning {
+            crate::overlay::auto_copy_badge::show_notification(warning);
         }
+        evidence.finish_with_warning(evidence_document, region_count, warning);
         crate::log_info!("[Screen Translate] ready regions={region_count}");
     }
     Ok(())

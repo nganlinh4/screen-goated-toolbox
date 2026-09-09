@@ -1,14 +1,13 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
 use crate::api::{TranslateTextRequest, translate_text_streaming};
 use crate::retry_model_chain::{
     RetryChainKind, claim_model_attempt, preflight_skip_reason, record_model_failure,
-    record_model_success, release_model_probe, resolve_next_configured_model,
+    record_model_success, release_model_probe, resolve_next_retry_model,
 };
 
 use super::contract::{
@@ -17,9 +16,30 @@ use super::contract::{
 };
 use super::stream_parser::TranslationStreamParser;
 
-const MAX_CONTENT_ATTEMPTS: usize = 2;
-const MAX_TOTAL_ATTEMPTS: usize = 4;
-const TRANSLATION_TIMEOUT: Duration = Duration::from_secs(20);
+mod context;
+
+pub(super) struct TranslationOutcome {
+    pub document: TranslationDocument,
+    pub unresolved: Vec<u16>,
+}
+
+impl From<TranslationDocument> for TranslationOutcome {
+    fn from(document: TranslationDocument) -> Self {
+        Self {
+            document,
+            unresolved: Vec::new(),
+        }
+    }
+}
+
+impl TranslationOutcome {
+    pub(super) fn warning(&self) -> Option<String> {
+        (!self.unresolved.is_empty()).then(|| format!(
+            "{} text unit(s) could not be translated; original pixels were preserved (units {:?})",
+            self.unresolved.len(), self.unresolved
+        ))
+    }
+}
 
 pub(super) struct TranslateInput<'a> {
     pub trace_id: &'a str,
@@ -27,13 +47,15 @@ pub(super) struct TranslateInput<'a> {
     pub translation_model: &'a str,
     pub translation_prompt: &'a str,
     pub candidates: &'a [DetectedTextRegion],
+    pub scene: &'a [DetectedTextRegion],
+    pub prior_translations: &'a [TranslationRegion],
 }
 
 pub(super) fn translate<F>(
     input: TranslateInput<'_>,
     cancel: Arc<AtomicBool>,
-    on_event: F,
-) -> Result<TranslationDocument>
+    mut on_event: F,
+) -> Result<TranslationOutcome>
 where
     F: FnMut(TranslationRegion),
 {
@@ -43,30 +65,9 @@ where
         translation_model,
         translation_prompt,
         candidates,
+        scene,
+        prior_translations,
     } = input;
-    translate_text(
-        trace_id,
-        target_language,
-        translation_model,
-        translation_prompt,
-        candidates,
-        cancel,
-        on_event,
-    )
-}
-
-fn translate_text<F>(
-    trace_id: &str,
-    target_language: &str,
-    translation_model: &str,
-    translation_prompt: &str,
-    candidates: &[DetectedTextRegion],
-    cancel: Arc<AtomicBool>,
-    mut on_event: F,
-) -> Result<TranslationDocument>
-where
-    F: FnMut(TranslationRegion),
-{
     let config = crate::APP
         .lock()
         .map(|app| app.config.clone())
@@ -75,14 +76,14 @@ where
     let mut blocked_providers = HashSet::new();
     let mut accepted = Vec::new();
     let mut covered = HashSet::new();
-    let mut content_attempts = 0;
-    let mut total_attempts = 0;
     let mut attempt_sequence = 0_usize;
+    let mut copied_response = Vec::new();
+    let selected_model = translation_model;
     let mut current =
-        crate::model_config::get_model_by_id_with_custom(translation_model, &config.custom_models)
+        crate::model_config::get_model_by_id_with_custom(selected_model, &config.custom_models)
             .or_else(|| {
-                resolve_next_configured_model(
-                    translation_model,
+                resolve_next_retry_model(
+                    selected_model,
                     &failed,
                     &blocked_providers,
                     RetryChainKind::TextToText,
@@ -97,13 +98,39 @@ where
         }
         let pending = pending_candidates(candidates, &covered);
         if let Some(document) = completed_document(candidates, &accepted, &covered) {
-            return Ok(document);
+            return Ok(document.into());
         }
         let schema = response_schema(pending.len());
-        let request_text = prompt_with_instruction(target_language, translation_prompt, &pending)?;
-        let request_timeout = TRANSLATION_TIMEOUT;
+        let mut request_text =
+            prompt_with_instruction(target_language, translation_prompt, &pending)?;
+        context::append(
+            &mut request_text,
+            if scene.is_empty() { candidates } else { scene },
+            &pending,
+            prior_translations,
+            &accepted,
+        )?;
+        let request_timeout = crate::retry_model_chain::interactive_request_timeouts(
+            &current.id,
+            &config,
+            crate::retry_model_chain::InteractiveRequestWorkload {
+                encoded_request_bytes: request_text.len() as u64,
+                expected_response_bytes: pending
+                    .iter()
+                    .map(|region| {
+                        (region.source_text.len() as u64)
+                            .saturating_mul(3)
+                            .saturating_add(64)
+                    })
+                    .sum(),
+            },
+        );
         if let Some(reason) =
             preflight_skip_reason(&current.id, &current.provider, &config, &blocked_providers)
+                .or_else(|| {
+                    (!crate::api::text::supports_structured_translation(&current.provider))
+                        .then(|| format!("STRUCTURED_OUTPUT_UNSUPPORTED:{}", current.provider))
+                })
                 .or_else(|| claim_model_attempt(&current.id))
         {
             crate::log_info!(
@@ -115,9 +142,8 @@ where
                 blocked_providers.insert(current.provider.clone());
             }
         } else {
-            // Only a dispatched request spends the fallback budget; a model skipped
-            // for cooldown costs nothing and must leave the budget for a live one.
-            total_attempts += 1;
+            // Cooldowns are shared across callers. Failed IDs bound this walk
+            // without cutting off the configured chain at an arbitrary count.
             attempt_sequence += 1;
             crate::log_info!(
                 "[Screen Translate] trace={trace_id} model attempt model={} provider={}",
@@ -133,31 +159,61 @@ where
                 pending.len(),
             );
             let mut parser = TranslationStreamParser::new(&pending);
+            let confirm_copied_batch = attempt_sequence == 1 && {
+                let mut excluded = failed.clone();
+                excluded.push(current.id.clone());
+                resolve_next_retry_model(
+                    &current.id,
+                    &excluded,
+                    &blocked_providers,
+                    RetryChainKind::TextToText,
+                    &config,
+                )
+                .is_some()
+            };
+            attempt_trace.request(&request_text, &schema, target_language);
             let covered_before_attempt = covered.len();
             let attempt_cancel = Arc::clone(&cancel);
+            let mut reasoning = serde_json::json!({"messages": []});
+            crate::api::apply_ordinary_openai_reasoning_policy(
+                &mut reasoning,
+                &current.provider,
+                &current.full_name,
+            );
+            let needs_reasoning = reasoning
+                .get("reasoning_effort")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|effort| effort != "none");
             let transport = translate_text_streaming(
                 TranslateTextRequest {
                     groq_api_key: &config.api_key,
                     gemini_api_key: &config.gemini_api_key,
                     text: request_text.clone(),
-                    instruction: "Return only the requested structured screen translation."
-                        .to_string(),
+                    instruction: format!(
+                        "Translate into {target_language}. Return only the requested structured screen translation."
+                    ),
                     model: current.full_name.clone(),
                     provider: current.provider.clone(),
                     streaming_enabled: true,
                     use_json_format: true,
                     response_schema: Some(&schema),
+                    max_output_tokens: Some(completion_budget(&pending, needs_reasoning)),
                     search_label: None,
                     ui_language: &config.ui_language,
                     cancel_token: Some(attempt_cancel),
-                    request_timeout: Some(crate::api::client::RequestTimeouts::uniform(
-                        request_timeout,
-                    )),
+                    request_timeout: Some(request_timeout),
                     target_language: Some(target_language.to_string()),
                 },
                 |chunk| {
                     attempt_trace.observe_chunk(chunk);
                     for (_, region) in parser.push(chunk) {
+                        // An unchanged label is valid, but a wholly echoed batch
+                        // needs one independent attempt before accepting it.
+                        if confirm_copied_batch
+                            && super::translation_validation::is_unconfirmed_copy(&region)
+                        {
+                            continue;
+                        }
                         if accept_region(&mut accepted, &mut covered, region.clone(), candidates) {
                             attempt_trace.observe_validated_region();
                             on_event(region);
@@ -166,11 +222,18 @@ where
                 },
             );
             attempt_trace.transport_complete();
-            let received_content = transport.is_ok();
-            if received_content {
-                content_attempts += 1;
-            }
-            let response = transport.and_then(|response| parse_response(&response, &pending));
+            attempt_trace.response(&transport);
+            let response = transport
+                .and_then(|response| parse_response(&response, &pending))
+                .and_then(|document| {
+                    if confirm_copied_batch
+                        && super::translation_validation::is_copied_batch(&document.regions)
+                    {
+                        copied_response = document.regions;
+                        bail!("translation response copied the complete text batch; independent confirmation required");
+                    }
+                    Ok(document)
+                });
             let error = match response {
                 Ok(document) => {
                     for region in document.regions {
@@ -192,7 +255,7 @@ where
                             pending_candidates(candidates, &covered).len(),
                             parser.rejected_count(),
                         );
-                        return Ok(document);
+                        return Ok(document.into());
                     } else {
                         let unresolved = pending_candidates(candidates, &covered);
                         anyhow::anyhow!(
@@ -220,7 +283,7 @@ where
                             pending_candidates(candidates, &covered).len(),
                             parser.rejected_count(),
                         );
-                        return Ok(document);
+                        return Ok(document.into());
                     } else {
                         error
                     }
@@ -236,7 +299,12 @@ where
                 release_model_probe(&current.id);
                 bail!("screen translation was cancelled");
             }
-            record_model_failure(&current.id, &error.to_string());
+            if confirm_copied_batch && !copied_response.is_empty() {
+                // A valid unchanged response is not a provider-health failure.
+                release_model_probe(&current.id);
+            } else {
+                record_model_failure(&current.id, &error.to_string());
+            }
             if crate::overlay::utils::should_block_retry_provider(&error.to_string()) {
                 blocked_providers.insert(current.provider.clone());
             }
@@ -251,35 +319,61 @@ where
                 pending_candidates(candidates, &covered).len(),
                 parser.rejected_count(),
             );
-            if content_attempts >= MAX_CONTENT_ATTEMPTS {
-                let preserved = preserve_unresolved_candidates(
-                    candidates,
+            if !confirm_copied_batch && !copied_response.is_empty() {
+                return Ok(finish_confirmation(
+                    &mut copied_response,
                     &mut accepted,
                     &mut covered,
+                    candidates,
                     &mut on_event,
-                );
-                if let Some(document) = completed_document(candidates, &accepted, &covered) {
-                    crate::log_info!(
-                        "[Screen Translate] trace={trace_id} bounded fallback preserved {} unresolved source region(s)",
-                        preserved
-                    );
-                    return Ok(document);
-                }
-                return Err(error).context("translation models did not resolve every text region");
-            }
-            if total_attempts >= MAX_TOTAL_ATTEMPTS {
-                return Err(error).context("translation models did not resolve every text region");
+                ));
             }
         }
-        current = resolve_next_configured_model(
+        let Some(next) = resolve_next_retry_model(
             &current.id,
             &failed,
             &blocked_providers,
             RetryChainKind::TextToText,
             &config,
-        )
-        .context("all configured text translation models failed")?;
+        ) else {
+            return Ok(finish_confirmation(
+                &mut copied_response,
+                &mut accepted,
+                &mut covered,
+                candidates,
+                &mut on_event,
+            ));
+        };
+        current = next;
     }
+}
+
+fn finish_confirmation(
+    copied: &mut Vec<TranslationRegion>,
+    accepted: &mut Vec<TranslationRegion>,
+    covered: &mut HashSet<u16>,
+    candidates: &[DetectedTextRegion],
+    on_event: &mut impl FnMut(TranslationRegion),
+) -> TranslationOutcome {
+    for region in copied.drain(..) {
+        if accept_region(accepted, covered, region.clone(), candidates) {
+            on_event(region);
+        }
+    }
+    unresolved_outcome(candidates, accepted, covered)
+}
+
+fn completion_budget(candidates: &[DetectedTextRegion], needs_reasoning: bool) -> u32 {
+    // Some endpoints cannot disable reasoning. Their completion cap also owns
+    // internal tokens, so a short visible answer still needs bounded headroom.
+    candidates
+        .iter()
+        .fold(64_u32, |budget, region| {
+            budget
+                .saturating_add((region.source_text.len() as u32).saturating_mul(2))
+                .saturating_add(12)
+        })
+        .clamp(if needs_reasoning { 1024 } else { 256 }, 8192)
 }
 
 fn pending_candidates(
@@ -313,39 +407,18 @@ fn assembled_document(accepted: &[TranslationRegion]) -> TranslationDocument {
     TranslationDocument { regions }
 }
 
-fn preserve_unresolved_candidates<F>(
+fn unresolved_outcome(
     candidates: &[DetectedTextRegion],
-    accepted: &mut Vec<TranslationRegion>,
-    covered: &mut HashSet<u16>,
-    on_event: &mut F,
-) -> usize
-where
-    F: FnMut(TranslationRegion),
-{
-    let unresolved = pending_candidates(candidates, covered);
-    for candidate in &unresolved {
-        let region = TranslationRegion {
-            id: candidate.id,
-            member_ids: vec![candidate.id],
-            member_joins: Vec::new(),
-            selections: vec![super::contract::TranslationSelection {
-                region_id: candidate.id,
-                candidate_id: format!("r{}c0", candidate.id),
-                source_text: candidate.source_text.clone(),
-                bounds: candidate.bounds,
-            }],
-            semantic_role: super::contract::SemanticRole::Standalone,
-            source_text: candidate.source_text.clone(),
-            translated_segments: vec![candidate.source_text.clone()],
-            bounds: candidate.bounds,
-            background_color: None,
-            text_color: None,
-        };
-        covered.insert(candidate.id);
-        accepted.push(region.clone());
-        on_event(region);
+    accepted: &[TranslationRegion],
+    covered: &HashSet<u16>,
+) -> TranslationOutcome {
+    TranslationOutcome {
+        document: assembled_document(accepted),
+        unresolved: pending_candidates(candidates, covered)
+            .iter()
+            .map(|candidate| candidate.id)
+            .collect(),
     }
-    unresolved.len()
 }
 
 fn accept_region(
@@ -354,26 +427,11 @@ fn accept_region(
     region: TranslationRegion,
     candidates: &[DetectedTextRegion],
 ) -> bool {
-    if region.member_ids.iter().any(|id| covered.contains(id)) {
-        return false;
-    }
-    let recognition = candidates
-        .iter()
-        .find(|candidate| candidate.id == region.id)
-        .map(|candidate| candidate.recognition)
-        .unwrap_or_default();
-    if super::translation_validation::is_suspiciously_unchanged(&region, recognition) {
-        crate::log_info!(
-            "[Screen Translate] member validation rejected member={} reason=unchanged_prose",
-            region.id
-        );
-        return false;
-    }
-    if super::translation_validation::retains_source_fragment(&region) {
-        crate::log_info!(
-            "[Screen Translate] member validation rejected member={} reason=source_fragment",
-            region.id
-        );
+    if region.member_ids.is_empty()
+        || region.member_ids.iter().any(|id| {
+            covered.contains(id) || !candidates.iter().any(|candidate| candidate.id == *id)
+        })
+    {
         return false;
     }
     covered.extend(region.member_ids.iter().copied());

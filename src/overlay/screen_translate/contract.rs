@@ -1,13 +1,11 @@
 //! Translation-only model contract backed by locally owned visual cells.
 
-use std::collections::HashSet;
-
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const MAX_CANDIDATES: usize = 240;
 pub(crate) const MAX_SOURCE_CANDIDATES: usize = 2;
-const MAX_TEXT_CHARS: usize = 2_000;
+const MAX_TEXT_CHARS: usize = 16_000;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -109,19 +107,6 @@ impl From<NormalizedBounds> for [u16; 4] {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TranslationResponse {
-    translations: Vec<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum TranslationResponseEnvelope {
-    Object(TranslationResponse),
-    Array(Vec<serde_json::Value>),
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TranslatedSlotResponse {
     slot: usize,
     translation: String,
@@ -143,30 +128,21 @@ pub(crate) fn prompt_with_instruction(
         .iter()
         .enumerate()
         .map(|(slot, candidate)| {
-            serde_json::json!({
+            let mut member = serde_json::json!({
                 "slot": slot,
                 "text": candidate.source_text,
-                "ocrReadings": candidate.source_alternatives.iter().skip(1).collect::<Vec<_>>()
-            })
-        })
-        .collect::<Vec<_>>();
-    let cells = super::cell_proposals::propose(candidates)
-        .into_iter()
-        .map(|proposal| {
-            let slots = proposal
-                .member_ids_in_reading_order
+                "box_2d": <[u16; 4]>::from(candidate.bounds),
+            });
+            let alternatives = candidate
+                .source_alternatives
                 .iter()
-                .filter_map(|id| candidates.iter().find(|candidate| candidate.id == *id))
-                .map(|candidate| {
-                    candidates
-                        .iter()
-                        .position(|item| item.id == candidate.id)
-                        .expect("proposal members come from the candidate set")
-                })
+                .skip(1)
                 .collect::<Vec<_>>();
-            serde_json::json!({
-                "slots": slots
-            })
+            if !alternatives.is_empty() {
+                member["ocrReadings"] =
+                    serde_json::to_value(alternatives).expect("text serializes");
+            }
+            member
         })
         .collect::<Vec<_>>();
     let instruction = translation_instruction
@@ -175,13 +151,13 @@ pub(crate) fn prompt_with_instruction(
         .to_string();
     Ok(format!(
         "Translation preference:\n{instruction}\n\n\
-         Translate every supplied member completely into {target_language}. Members are listed once in canonical numeric slot order. When ocrReadings differ, use the most complete coherent reading; they are alternate OCR observations of the same pixels, not additional text. Cells contain slot references for context only. Return exactly one translations entry for every slot from 0 through {}. Keep each translation attached to its supplied slot; never move, merge, duplicate, or drop content between slots or cells. Preserve names, usernames, handles, codes, punctuation, tone, and mixed-language meaning. Do not summarize, abbreviate, or invent. Geometry and rendering are handled locally.\n\
-         Return exactly one JSON object shaped as {{\"translations\":[{{\"slot\":0,\"translation\":\"...\"}},{{\"slot\":1,\"translation\":\"...\"}}]}}, extended to every supplied slot.\n\
-         Members:\n{}\n\
-         Cells:\n{}",
+         Translate every supplied logical text unit completely into {target_language}. Members are listed once in canonical numeric slot order. Wrapped source lines belonging to one unit have already been joined. When ocrReadings differ, they are alternate observations of the same text, not additional units. Return exactly one translations entry for every slot from 0 through {}. Keep each complete translation attached to its supplied slot; never move, merge, duplicate, or drop content between slots. Never distribute a unit's translation back into source lines. Translate ordinary UI labels, actions, headings, and descriptive text even when short or capitalized; capitalization alone does not make a proper name. Preserve actual proper names, usernames, handles, codes, punctuation, tone, and mixed-language meaning. Text already in the target language may remain unchanged. Do not summarize, abbreviate, or invent. Geometry and fitting are handled locally.\n\
+         Use normal, natural target-language wording. Do not shorten or omit information to fit the source box; preserve the complete meaning, tone, numbers, units, negation, conditions, and qualifications. Local rendering handles expansion.\n\
+         Source box_2d coordinates are [top,left,bottom,right] on a 0–1000 scale. Neighboring units provide context only; they do not change output ownership. These are source positions, not requested output geometry or exact target-text capacity; a small box alone is not a reason to shorten.\n\
+         Return exactly one JSON object shaped as {{\"translations\":{{\"0\":\"...\",\"1\":\"...\"}}}}, extended to every supplied slot. Each key is the supplied numeric slot written as a string, and its value is only that member's translated text. Include every requested key exactly once.\n\
+         Members:\n{}",
         candidates.len() - 1,
-        serde_json::to_string(&members)?,
-        serde_json::to_string(&cells)?
+        serde_json::to_string(&members)?
     ))
 }
 
@@ -189,25 +165,26 @@ pub(crate) fn parse_response(
     response: &str,
     candidates: &[DetectedTextRegion],
 ) -> Result<TranslationDocument> {
-    let envelope: TranslationResponseEnvelope = serde_json::from_str(unwrap_json(response))
+    let envelope: serde_json::Value = serde_json::from_str(unwrap_json(response))
         .context("response did not match the translation schema")?;
-    let values = match envelope {
-        TranslationResponseEnvelope::Object(response) => response.translations,
-        TranslationResponseEnvelope::Array(members) => members,
-    };
-    let mut seen = HashSet::new();
-    let mut regions = Vec::new();
-    for value in values.into_iter().take(MAX_CANDIDATES) {
-        let Ok(response) = serde_json::from_value::<TranslatedSlotResponse>(value) else {
-            continue;
-        };
-        if !seen.insert(response.slot) {
-            continue;
-        }
-        if let Ok(parsed) = validated_translation(response, candidates) {
-            regions.push(parsed);
-        }
+    let valid = envelope.is_array()
+        || envelope.as_object().is_some_and(|object| {
+            object.len() == 1
+                && object
+                    .get("translations")
+                    .is_some_and(|value| value.is_object() || value.is_array())
+        });
+    if !valid {
+        bail!("response did not match the translation envelope");
     }
+    // Use the same identity/duplicate rules for complete and streamed output.
+    // Parsing a map into a JSON value alone would silently overwrite duplicates.
+    let mut parser = super::stream_parser::TranslationStreamParser::new(candidates);
+    let mut regions = parser
+        .push(unwrap_json(response))
+        .into_iter()
+        .map(|(_, region)| region)
+        .collect::<Vec<_>>();
     regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
     Ok(TranslationDocument { regions })
 }
@@ -219,6 +196,21 @@ pub(crate) fn parse_streamed_translation(
     let response: TranslatedSlotResponse = serde_json::from_str(value)
         .context("streamed translation did not match the translation schema")?;
     let region = validated_translation(response, candidates)?;
+    Ok((region.id, region))
+}
+
+pub(crate) fn parse_keyed_translation(
+    key: &str,
+    value: &str,
+    candidates: &[DetectedTextRegion],
+) -> Result<(u16, TranslationRegion)> {
+    let slot: usize = key.parse().context("invalid translation key")?;
+    if key != slot.to_string() {
+        bail!("translation key is not a canonical slot");
+    }
+    let translation =
+        serde_json::from_str::<String>(value).context("translation value is not text")?;
+    let region = validated_translation(TranslatedSlotResponse { slot, translation }, candidates)?;
     Ok((region.id, region))
 }
 
@@ -329,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn prompt_contains_translation_only_cells() {
+    fn prompt_preserves_logical_unit_ownership_without_reallocating_lines() {
         let prompt = prompt_with_instruction(
             "Vietnamese",
             "Translate to {target_language}.",
@@ -339,11 +331,35 @@ mod tests {
         assert!(prompt.contains(r#""slot":0"#));
         assert!(prompt.contains(r#""slot":1"#));
         assert!(prompt.contains(r#""text":"second line""#));
-        assert!(prompt.contains(r#""ocrReadings":[]"#));
-        assert!(prompt.contains(r#""slots":[0,1]"#));
+        assert!(!prompt.contains(r#""ocrReadings":[]"#));
+        assert!(prompt.contains(r#""box_2d":"#));
+        assert!(!prompt.contains("Cells:"));
+        assert!(prompt.contains("Never distribute a unit's translation back into source lines"));
+        assert!(prompt.contains("Do not shorten or omit information to fit the source box"));
+        assert!(prompt.contains("a small box alone is not a reason to shorten"));
         assert_eq!(prompt.matches(r#""text":"second line""#).count(), 1);
         assert!(!prompt.contains("candidateIds"));
         assert!(!prompt.contains("memberJoins"));
+        let mut alternate = candidates();
+        alternate[0]
+            .source_alternatives
+            .push("another reading".into());
+        let prompt = prompt_with_instruction("target", "Translate.", &alternate).unwrap();
+        assert!(prompt.contains(r#""ocrReadings":["another reading"]"#));
+    }
+
+    #[test]
+    fn keyed_response_preserves_ids_and_does_not_overwrite_duplicate_values() {
+        let parsed = parse_response(
+            r#"{"translations":{"1":"second","0":"first","1":"duplicate"}}"#,
+            &candidates(),
+        )
+        .unwrap();
+        assert_eq!(parsed.regions.len(), 2);
+        assert_eq!(parsed.regions[0].id, 1);
+        assert_eq!(parsed.regions[0].translated_segments, ["first"]);
+        assert_eq!(parsed.regions[1].translated_segments, ["second"]);
+        assert!(parse_response(r#"{"translations":null}"#, &candidates()).is_err());
     }
 
     #[test]

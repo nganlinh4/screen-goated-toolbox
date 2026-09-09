@@ -101,6 +101,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
         encoded_request_bytes: (final_prompt.len() as u64)
             .saturating_add(input_text.len() as u64)
             .saturating_add(encoded_media_bytes),
+        ..Default::default()
     };
     let window_shown = Arc::new(Mutex::new(block.block_type != "image"));
     let processing_hwnd_arc = Arc::new(Mutex::new(processing_hwnd_shared));
@@ -387,6 +388,7 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
 
     translate_text_streaming(
         TranslateTextRequest {
+            max_output_tokens: None,
             groq_api_key: groq_key,
             gemini_api_key: gemini_key,
             text: input_text.to_string(),

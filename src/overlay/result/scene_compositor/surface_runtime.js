@@ -39,7 +39,7 @@ function raiseCard(entry, stackOrder) {
 }
 
 window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
-  let pending = [];
+  const pending = [];
   let scheduled = false;
 
   function applyTypography(item, fontSize, stretch) {
@@ -62,44 +62,82 @@ window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
   function fitBatch(tasks) {
     const items = tasks.flatMap(function(task) { return task.items; })
       .filter(function(item) { return item.text.isConnected && item.box.isConnected; });
-    // Read every box before writing typography. Only two width-axis instances
-    // are needed; continuous axis searches are particularly expensive cold.
     for (const item of items) {
       item.width = Math.max(0, item.box.clientWidth);
       item.height = Math.max(0, item.box.clientHeight);
-      item.fontSize = Math.max(0.1, (item.vertical ? item.width : item.height) / 1.08);
+      item.ceiling = Math.max(0.1, (item.vertical ? item.width : item.height) / 1.08);
+      item.fontSize = item.wrap ? Math.max(1, Number(item.preferredFontSize) || 14)
+        : item.ceiling;
       item.stretch = 100;
     }
     for (const item of items) {
       item.text.style.transform = '';
+      item.text.setAttribute('dir', 'auto');
+      item.text.style.whiteSpace = 'nowrap';
+      item.text.style.width = 'auto';
+      item.text.style.height = 'auto';
+      item.text.style.maxHeight = 'none';
+      applyTypography(item, item.fontSize, 100);
+    }
+    // One unwrapped shape supplies both a single-line candidate and a wrapped
+    // area estimate. Use browser shaping, including fallback and bidi runs.
+    for (const item of items) {
+      const extent = shapedExtent(item);
+      const crossScale = Math.min(1, item.height / Math.max(0.1, extent.height));
+      const widthAxis = !item.vertical && extent.width * crossScale > item.width ? 87 : 100;
+      item.singleStretch = widthAxis;
+      item.singleSize = item.fontSize * Math.min(crossScale,
+        item.width / Math.max(0.1, extent.width * widthAxis / 100));
+      const along = item.vertical ? extent.height : extent.width;
+      const area = Math.max(0.1, along * item.fontSize * 1.08);
+      const wrappedSize = Math.min(item.ceiling,
+        item.fontSize * Math.sqrt(item.width * item.height / area) * 0.95);
+      item.wrapping = item.wrap || wrappedSize > item.singleSize * 1.08;
+      item.fontSize = item.wrapping ? wrappedSize : item.singleSize;
+      item.stretch = item.wrapping ? 100 : widthAxis;
+    }
+    function applyLayout(item) {
+      item.text.style.whiteSpace = item.wrapping ? 'normal' : 'nowrap';
+      item.text.style.overflowWrap = 'anywhere';
+      item.text.style.textAlign = item.wrap ? 'start' : 'center';
+      item.text.style.width = item.wrapping && !item.vertical ? '100%' : 'auto';
+      item.text.style.height = item.wrapping && item.vertical ? '100%' : 'auto';
       applyTypography(item, item.fontSize, item.stretch);
     }
-    // First shape: preserve normal width when possible, mildly condense only
-    // overflowing horizontal lines, and estimate the contained size directly.
+    for (const item of items) applyLayout(item);
+    // Keep the conservative size as a fallback. A single area-based probe
+    // avoids the abrupt full-height ratio reduction at a line-wrap boundary.
     for (const item of items) {
       const extent = shapedExtent(item);
-      const heightScale = Math.min(1, item.height / Math.max(0.1, extent.height));
-      if (!item.vertical && extent.width * heightScale > item.width) item.stretch = 87;
-      item.fontSize *= Math.min(heightScale,
-        item.width / Math.max(0.1, extent.width * item.stretch / 100));
-    }
-    for (const item of items) applyTypography(item, item.fontSize, item.stretch);
-    // Optical sizing and shaping need not scale linearly. One measured
-    // correction, then a paint-only containment transform, never a search loop.
-    for (const item of items) {
-      const extent = shapedExtent(item);
-      item.fontSize *= Math.min(1, item.width / Math.max(0.1, extent.width),
+      const ratio = Math.min(1, item.width / Math.max(0.1, extent.width),
         item.height / Math.max(0.1, extent.height));
+      item.safeSize = item.fontSize * ratio;
+      if (item.wrapping) {
+        item.fontSize = Math.min(item.ceiling, item.fontSize
+          * (ratio < 1 ? Math.sqrt(ratio) : 1.12));
+      } else {
+        item.fontSize = item.safeSize;
+      }
     }
-    for (const item of items) applyTypography(item, item.fontSize, item.stretch);
+    for (const item of items) applyLayout(item);
+    for (const item of items) {
+      const extent = shapedExtent(item);
+      if (extent.width > item.width || extent.height > item.height) {
+        item.fontSize = item.safeSize;
+      }
+      if (!item.wrap && item.singleSize > item.fontSize * 1.03) {
+        item.wrapping = false;
+        item.fontSize = item.singleSize;
+        item.stretch = item.singleStretch;
+      }
+    }
+    for (const item of items) applyLayout(item);
     for (const item of items) {
       const extent = shapedExtent(item);
       item.visualScale = Math.min(1, item.width / Math.max(0.1, extent.width),
         item.height / Math.max(0.1, extent.height));
       const box = item.box.getBoundingClientRect();
       const text = item.text.getBoundingClientRect();
-      // Center the shaped glyph bounds, not the CSS line box: ascent/descent,
-      // RTL overhangs and max-width constraints can offset the ink inside it.
       item.shiftX = box.left + box.width / 2 - text.left
         - ((extent.left || 0) + extent.width / 2 - text.left) * item.visualScale;
       item.shiftY = box.top + box.height / 2 - text.top
@@ -116,10 +154,24 @@ window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
 
   function flush() {
     scheduled = false;
-    const tasks = pending;
-    pending = [];
-    try { fitBatch(tasks); }
-    finally { for (const task of tasks) task.resolve(); }
+    // Finish each ready task independently. Dense captures yield between small
+    // batches rather than blocking one frame on every region's font shaping.
+    const started = performance.now();
+    do {
+      let budget = 16;
+      const batch = [];
+      const completed = [];
+      while (pending.length && budget > 0) {
+        const task = pending[0];
+        const items = task.items.slice(task.offset, task.offset + budget);
+        task.offset += items.length;
+        budget -= items.length;
+        batch.push({ items });
+        if (task.offset >= task.items.length) completed.push(pending.shift());
+      }
+      try { fitBatch(batch); }
+      finally { for (const task of completed) task.resolve(); }
+    } while (pending.length && performance.now() - started < 4);
     if (pending.length) schedule();
   }
 
@@ -131,7 +183,7 @@ window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
 
   function queue(items) {
     return new Promise(function(resolve) {
-      pending.push({ items: items, resolve: resolve });
+      pending.push({ items: items, offset: 0, resolve: resolve });
       schedule();
     });
   }

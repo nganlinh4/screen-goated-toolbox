@@ -26,6 +26,7 @@ pub(crate) struct RecognizerCascade {
     primary: TextRecognizer,
     fallbacks: Vec<FallbackRecognizer>,
     pending_fallbacks: Vec<ResolvedModel>,
+    probes: unknown_probe::ProbeCache,
     acceleration: Acceleration,
 }
 
@@ -123,6 +124,7 @@ impl RecognizerCascade {
             primary,
             fallbacks,
             pending_fallbacks,
+            probes: unknown_probe::ProbeCache::default(),
             acceleration,
         })
     }
@@ -131,7 +133,7 @@ impl RecognizerCascade {
         self.primary.recognize_batch(sources)
     }
 
-    pub(crate) fn warm_all(&mut self) -> Result<()> {
+    pub(crate) fn warm_loaded(&mut self) -> Result<()> {
         let source = RgbImage::from_pixel(
             WARMUP_WIDTH,
             crate::recognizer::INPUT_HEIGHT,
@@ -164,11 +166,9 @@ impl RecognizerCascade {
                 needs_alternatives(&result.primary) && is_text_line_candidate(source)
             })
             .collect::<Vec<_>>();
-        let mut known_specialist_applied = false;
         for fallback in &mut self.fallbacks {
             let representatives = representative_indices(&results, region_indices);
             let capture_evidence = fallback.matches_capture(&results, &representatives);
-            known_specialist_applied |= capture_evidence && unresolved.iter().any(|value| *value);
             apply_fallback(
                 fallback,
                 sources,
@@ -193,7 +193,6 @@ impl RecognizerCascade {
         for fallback in &mut loaded {
             let representatives = representative_indices(&results, region_indices);
             let capture_evidence = fallback.matches_capture(&results, &representatives);
-            known_specialist_applied |= capture_evidence && unresolved.iter().any(|value| *value);
             apply_fallback(
                 fallback,
                 sources,
@@ -205,16 +204,32 @@ impl RecognizerCascade {
         }
         self.fallbacks.extend(loaded);
         let representatives = representative_indices(&results, region_indices);
-        if !known_specialist_applied
-            && unknown_probe::needed(&unresolved, sources, &representatives)
-        {
-            let samples = unknown_probe::samples(sources, &unresolved, &results, &representatives);
-            let selected =
-                unknown_probe::select(&mut self.fallbacks, &self.pending_fallbacks, &samples)?;
+        let unknown = results
+            .iter()
+            .zip(&unresolved)
+            .map(|(result, unresolved)| {
+                *unresolved
+                    && !result.alternatives.iter().any(|candidate| {
+                        candidate.confidence >= FAST_PATH_CONFIDENCE
+                            && self.fallbacks.iter().any(|fallback| {
+                                coverage_matches(&fallback.routing, &candidate.text)
+                            })
+                    })
+            })
+            .collect::<Vec<_>>();
+        if unknown_probe::needed(&unknown, sources, &representatives) {
+            let samples = unknown_probe::samples(sources, &unknown, &results, &representatives);
+            let selected = unknown_probe::select(
+                &mut self.fallbacks,
+                &self.pending_fallbacks,
+                &samples,
+                &mut self.probes,
+            )?;
             let selected_index = match selected {
                 Some(unknown_probe::Selection::Loaded(index)) => Some(index),
                 Some(unknown_probe::Selection::Pending(index)) => {
                     let model = self.pending_fallbacks.remove(index);
+                    self.probes.remove(&model.model);
                     let mut loaded = load_models(vec![model], self.acceleration)?;
                     self.fallbacks.push(
                         loaded
@@ -232,7 +247,7 @@ impl RecognizerCascade {
                     &mut results,
                     &mut unresolved,
                     true,
-                    UNKNOWN_PROBE_INPUT_WIDTH,
+                    PRIMARY_INPUT_WIDTH,
                 )?;
             }
         }

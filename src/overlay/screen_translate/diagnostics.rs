@@ -1,8 +1,10 @@
 #[cfg(debug_assertions)]
+#[path = "diagnostics_encoding.rs"]
+mod encoding;
+#[cfg(debug_assertions)]
 mod debug {
-    use anyhow::{Context, Result};
-    use image::codecs::jpeg::JpegEncoder;
-    use image::{ExtendedColorType, ImageEncoder as _};
+    use super::encoding::{save_detector_preview, save_jpeg, spawn_write};
+    use anyhow::Result;
     use serde::Serialize;
     use std::collections::HashMap;
     use std::path::{Path, PathBuf};
@@ -11,7 +13,7 @@ mod debug {
 
     use super::super::contract::{DetectedTextRegion, SemanticRole, TranslationDocument};
     use super::super::evidence_capture::capture_stable_selection;
-    use super::super::geometry::{PixelRegion, normalized_region};
+    use super::super::geometry::normalized_region;
     use crate::overlay::selection::CapturedRegion;
     const MAX_RUNS: usize = 24;
     const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
@@ -20,7 +22,6 @@ mod debug {
     pub(crate) struct RunEvidence {
         state: Option<State>,
     }
-
     struct State {
         directory: PathBuf,
         runs_root: PathBuf,
@@ -113,7 +114,16 @@ mod debug {
                 height: capture.height,
             };
             super::super::diagnostics_model_attempts::begin_trace(trace_id);
-            let source_jpeg = source_jpeg.to_vec();
+            if source_jpeg.starts_with(b"\x89PNG") {
+                spawn_write(directory.join("source.png"), source_jpeg.to_vec());
+            }
+            let source_jpeg = match super::encoding::source_jpeg(capture, source_jpeg) {
+                Ok(encoded) => encoded,
+                Err(error) => {
+                    crate::log_info!("[Screen Translate] evidence encoding failed: {error}");
+                    return Self { state: None };
+                }
+            };
             spawn_write(directory.join("source.jpg"), source_jpeg.clone());
             crate::log_info!(
                 "[Screen Translate] trace={trace_id} evidence={}",
@@ -159,13 +169,36 @@ mod debug {
                 .ok();
         }
 
-        pub(crate) fn finish(mut self, document: TranslationDocument, rendered_count: usize) {
+        pub(crate) fn units(
+            &self,
+            units: &[super::super::units::Unit],
+            layout: &[sgt_screen_text_detector_protocol::stream::LayoutRegion],
+        ) {
+            if let Some(state) = &self.state
+                && let Ok(bytes) = serde_json::to_vec_pretty(
+                    &serde_json::json!({"units": units, "layout": layout}),
+                )
+            {
+                spawn_write(state.directory.join("units.json"), bytes);
+            }
+        }
+
+        pub(crate) fn finish_with_warning(
+            mut self,
+            document: TranslationDocument,
+            rendered_count: usize,
+            warning: Option<String>,
+        ) {
             if let Some(state) = self.state.take() {
                 finalize(
                     state,
-                    "complete",
+                    if warning.is_some() {
+                        "partial"
+                    } else {
+                        "complete"
+                    },
                     None,
-                    None,
+                    warning,
                     Some(document),
                     rendered_count,
                     true,
@@ -365,83 +398,12 @@ mod debug {
         Ok(format!("saved_after_{paint_status}_{visual_status}"))
     }
 
-    fn save_detector_preview(
-        path: &Path,
-        source_jpeg: &[u8],
-        candidates: &[DetectedTextRegion],
-        size: (u32, u32),
-    ) -> Result<()> {
-        let mut image = image::load_from_memory(source_jpeg)
-            .context("decode detector evidence source")?
-            .to_rgba8();
-        for candidate in candidates {
-            draw_box(
-                &mut image,
-                normalized_region(candidate.bounds, size.0, size.1),
-            );
-        }
-        save_jpeg(path, &image)
-    }
-
-    fn draw_box(image: &mut image::RgbaImage, region: PixelRegion) {
-        if region.width == 0 || region.height == 0 || image.width() == 0 || image.height() == 0 {
-            return;
-        }
-        let left = region.x.min(image.width() - 1);
-        let top = region.y.min(image.height() - 1);
-        let right = region
-            .x
-            .saturating_add(region.width.saturating_sub(1))
-            .min(image.width() - 1);
-        let bottom = region
-            .y
-            .saturating_add(region.height.saturating_sub(1))
-            .min(image.height() - 1);
-        for inset in 0..3_u32 {
-            let x1 = left.saturating_add(inset).min(right);
-            let x2 = right.saturating_sub(inset).max(left);
-            let y1 = top.saturating_add(inset).min(bottom);
-            let y2 = bottom.saturating_sub(inset).max(top);
-            for x in x1..=x2 {
-                image.put_pixel(x, y1, image::Rgba([255, 40, 80, 255]));
-                image.put_pixel(x, y2, image::Rgba([255, 40, 80, 255]));
-            }
-            for y in y1..=y2 {
-                image.put_pixel(x1, y, image::Rgba([255, 40, 80, 255]));
-                image.put_pixel(x2, y, image::Rgba([255, 40, 80, 255]));
-            }
-        }
-    }
-
-    fn save_jpeg(path: &Path, image: &image::RgbaImage) -> Result<()> {
-        let rgb = image::DynamicImage::ImageRgba8(image.clone()).to_rgb8();
-        let file = std::fs::File::create(path)?;
-        JpegEncoder::new_with_quality(file, 88).write_image(
-            rgb.as_raw(),
-            rgb.width(),
-            rgb.height(),
-            ExtendedColorType::Rgb8,
-        )?;
-        Ok(())
-    }
-
     fn write_record(directory: &Path, record: &RunRecord) -> Result<()> {
         let bytes = serde_json::to_vec_pretty(record)?;
         let temporary = directory.join("run.json.tmp");
         std::fs::write(&temporary, bytes)?;
         std::fs::rename(temporary, directory.join("run.json"))?;
         Ok(())
-    }
-
-    fn spawn_write(path: PathBuf, bytes: Vec<u8>) {
-        std::thread::Builder::new()
-            .name("sgt-screen-translate-evidence-source".to_string())
-            .spawn(move || {
-                if let Err(error) = std::fs::write(path, bytes) {
-                    crate::log_info!("[Screen Translate] source evidence failed: {error}");
-                }
-            })
-            .ok();
     }
 
     fn evidence_root() -> Option<PathBuf> {
@@ -518,6 +480,7 @@ mod debug {
     mod tests {
         use super::*;
         use crate::overlay::screen_translate::contract::NormalizedBounds;
+        use image::{ExtendedColorType, ImageEncoder as _, codecs::jpeg::JpegEncoder};
 
         fn temporary_root(label: &str) -> PathBuf {
             let nonce = std::time::SystemTime::now()

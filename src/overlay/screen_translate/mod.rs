@@ -3,7 +3,6 @@
 mod appearance;
 mod backdrop;
 mod capture;
-mod cell_proposals;
 mod cell_validation;
 pub(crate) mod contract;
 mod detector;
@@ -14,6 +13,7 @@ mod diagnostics_model_attempts;
 #[cfg(debug_assertions)]
 mod evidence_capture;
 pub(crate) mod geometry;
+mod incremental;
 mod inference;
 mod inference_telemetry;
 mod render;
@@ -25,6 +25,7 @@ mod schema;
 pub(crate) mod stream_parser;
 mod text_metrics;
 mod translation_validation;
+mod units;
 
 static CAPTURE_HANDLER: crate::overlay::image_capture_target::ImageCaptureHandler =
     crate::overlay::image_capture_target::ImageCaptureHandler {
@@ -104,5 +105,6 @@ pub(crate) fn run_lab_queue(queue: std::path::PathBuf) {
 pub(crate) fn run_lab_queue(_queue: std::path::PathBuf) {}
 
 pub(crate) fn stop_detector() {
+    runtime::cancel_active();
     detector::stop();
 }

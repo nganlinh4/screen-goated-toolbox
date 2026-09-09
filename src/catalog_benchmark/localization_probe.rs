@@ -112,6 +112,7 @@ fn run_case(
     let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_text_streaming(
             TranslateTextRequest {
+                max_output_tokens: None,
                 groq_api_key: Credentials::groq_key_for(&model.provider, provider_key),
                 gemini_api_key: provider_key,
                 text: request_text.clone(),

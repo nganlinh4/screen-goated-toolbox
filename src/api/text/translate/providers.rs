@@ -138,6 +138,9 @@ where
         });
     }
     crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "nvidia", model);
+    if let Some(limit) = transport.max_output_tokens {
+        payload["max_tokens"] = limit.into();
+    }
 
     stream_openai_compat_payload(
         crate::api::NVIDIA_CHAT_COMPLETIONS_URL,
@@ -189,6 +192,9 @@ where
         });
     }
     crate::api::apply_ordinary_openrouter_reasoning_policy(&mut payload, model);
+    if let Some(limit) = transport.max_output_tokens {
+        payload["max_tokens"] = limit.into();
+    }
 
     stream_openai_compat_payload(
         "https://openrouter.ai/api/v1/chat/completions",

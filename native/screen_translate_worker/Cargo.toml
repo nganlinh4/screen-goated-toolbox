@@ -1,0 +1,26 @@
+[package]
+name = "sgt-screen-translate-worker"
+version = "4.2.2"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "sgt-screen-text-detector-worker"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+imageproc = { version = "0.25", default-features = false }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "api-24", "directml", "load-dynamic"] }
+sgt-screen-text-detector-protocol = { path = "../screen_text_detector_protocol" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

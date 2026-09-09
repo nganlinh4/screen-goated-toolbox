@@ -103,6 +103,7 @@ fn minimum_vision_request_tokens(provider: &str, api_model: &str) -> Option<u32>
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct InteractiveRequestWorkload {
     pub encoded_request_bytes: u64,
+    pub expected_response_bytes: u64,
 }
 
 #[cfg(not(feature = "recorder-worker"))]
@@ -111,10 +112,24 @@ pub fn interactive_request_timeouts(
     config: &Config,
     workload: InteractiveRequestWorkload,
 ) -> crate::api::client::RequestTimeouts {
-    request_timeouts_from_latency(
+    let mut timeouts = request_timeouts_from_latency(
         model_latency_ms(model_id, config),
         workload.encoded_request_bytes,
-    )
+    );
+    // Large structured replies may be buffered before their first usable
+    // chunk. Input transfer time alone does not cover response generation.
+    let generation = Duration::from_millis(
+        workload
+            .expected_response_bytes
+            .saturating_mul(1000)
+            .div_ceil(1024)
+            .min(MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS),
+    );
+    timeouts.total = (timeouts.total + generation)
+        .min(Duration::from_millis(MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS));
+    timeouts.response_start = (timeouts.response_start + generation).min(timeouts.total);
+    timeouts.progress_idle = (timeouts.progress_idle + generation).min(timeouts.total);
+    timeouts
 }
 
 #[cfg(not(feature = "recorder-worker"))]

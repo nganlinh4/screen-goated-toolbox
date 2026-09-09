@@ -222,7 +222,7 @@ fn text_only_cards_keep_the_fitter_without_card_chrome() {
     assert!(direct_runtime.contains("window.__SGT_QUEUE_SOURCE_FIT__(containers.map("));
     assert!(!surface_runtime.contains("fontAttempt"));
     assert!(!surface_runtime.contains("widthAttempt"));
-    assert!(surface_runtime.contains("item.stretch = 87"));
+    assert!(surface_runtime.contains("item.text.setAttribute('dir', 'auto')"));
     assert!(surface_runtime.contains("requestAnimationFrame(flush)"));
     assert!(surface_runtime.contains("item.visualScale"));
     assert!(scene_runtime.contains("entry.card.hidden = false"));

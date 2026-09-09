@@ -39,6 +39,8 @@ const sourceReplacementReveal = (function() {
     }
     if (reportPaint) value.surface.style.opacity = '1';
     if (value.animation) value.animation.cancel();
+    if (value.textAnimation) value.textAnimation.cancel();
+    value.entry.directHost.style.willChange = value.priorTextWillChange;
     value.surface.style.willChange = value.priorWillChange;
     if (reportPaint) value.complete();
   }
@@ -56,14 +58,22 @@ const sourceReplacementReveal = (function() {
       dispose(value, true);
       return;
     }
-    // The source mask stays registered to the captured pixels throughout the
-    // reveal. Opacity needs neither a blur raster nor pixels outside the HWND.
+    // Only text moves and blurs, clipped by the visual surface. The erasure
+    // backdrop remains registered to the captured pixels and native coverage.
     value.animation = value.surface.animate([{ opacity: 0 }, { opacity: 1 }],
       { duration: 180, easing: 'ease-out', fill: 'both' });
-    value.animation.addEventListener('finish', function() {
+    value.entry.directHost.style.willChange = 'filter,transform,opacity';
+    value.textAnimation = value.entry.directHost.animate([
+      { filter: 'blur(8px)', transform: 'translate3d(0,4px,0)', opacity: 0 },
+      { filter: 'blur(0)', transform: 'translate3d(0,0,0)', opacity: 1 }
+    ], { duration: 350, easing: 'cubic-bezier(0.2,0,0.2,1)', fill: 'both' });
+    value.textAnimation.addEventListener('finish', function() {
       dispose(value, true);
     }, { once: true });
     value.animation.addEventListener('cancel', function() {
+      dispose(value, false);
+    }, { once: true });
+    value.textAnimation.addEventListener('cancel', function() {
       dispose(value, false);
     }, { once: true });
   }
@@ -78,11 +88,10 @@ const sourceReplacementReveal = (function() {
     frame = null;
     const cohort = pending;
     pending = [];
-    // Cards committed in one frame share one readiness barrier. A cold image
-    // or font layout cannot reveal just the heading ahead of the other lines.
-    Promise.all(cohort.map(function(value) { return value.ready; })).then(function() {
-      requestAnimationFrame(function() { for (const value of cohort) start(value); });
-    });
+    // Each atomic card owns its readiness; unrelated cards never wait for it.
+    for (const value of cohort) {
+      value.ready.then(function() { requestAnimationFrame(function() { start(value); }); });
+    }
   }
 
   function enqueue(entry, complete) {
@@ -94,6 +103,8 @@ const sourceReplacementReveal = (function() {
       priorWillChange: entry.sourceSurfacePrewarmed ? '' : surface.style.willChange,
       revision: entry.contentRevision,
       animation: null,
+      textAnimation: null,
+      priorTextWillChange: entry.directHost.style.willChange,
       complete: complete,
       finished: false
     };

@@ -20,6 +20,37 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 #[test]
+fn response_workload_extends_generation_budget_but_remains_bounded() {
+    let config = Config::default();
+    let small =
+        interactive_request_timeouts("missing", &config, InteractiveRequestWorkload::default());
+    let large = interactive_request_timeouts(
+        "missing",
+        &config,
+        InteractiveRequestWorkload {
+            expected_response_bytes: 8192,
+            ..Default::default()
+        },
+    );
+    assert!(large.response_start > small.response_start);
+    assert!(large.total > small.total);
+    let huge = interactive_request_timeouts(
+        "missing",
+        &config,
+        InteractiveRequestWorkload {
+            expected_response_bytes: u64::MAX,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        huge.total,
+        Duration::from_millis(MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS)
+    );
+    assert!(huge.response_start <= huge.total);
+    assert!(huge.progress_idle <= huge.total);
+}
+
+#[test]
 fn interactive_timeouts_use_benchmark_latency_and_bounded_workload_allowance() {
     let fast = request_timeouts_from_latency(1_195, 4_487);
     assert_eq!(fast.response_start, Duration::from_millis(3_603));

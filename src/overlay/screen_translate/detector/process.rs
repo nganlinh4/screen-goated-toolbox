@@ -19,40 +19,57 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 pub(super) struct LaunchResources {
     pub(super) detector: crate::component_registry::screen_text_detector::DetectorUse,
     pub(super) runtime: crate::component_registry::local_asr::OnnxRuntimeUse,
-    _vc: crate::component_registry::vc_runtime::VcRuntimeUse,
+    pub(super) vc: crate::component_registry::vc_runtime::VcRuntimeUse,
 }
 
 impl LaunchResources {
     pub(super) fn ensure(cancelled: &AtomicBool) -> Result<Self> {
-        let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(
-            &crate::component_registry::screen_text_detector::localized_name(),
-        );
+        crate::log_info!("[Screen Translate] preparing verified component resources");
+        let started = std::time::Instant::now();
+        let language = crate::APP
+            .lock()
+            .map(|app| app.config.ui_language.clone())
+            .unwrap_or_else(|_| "en".to_string());
+        let names = &crate::gui::locale::LocaleText::get(&language)
+            .auxiliary
+            .managed_tools;
+        // Each badge describes actual bytes for its named transfer. Installed
+        // dependencies report nothing and must not advance another download.
+        let badge =
+            crate::overlay::auto_copy_badge::DownloadProgressBadge::new(names.tool_vc_runtime);
         let vc = crate::component_registry::vc_runtime::ensure_component(|done, total| {
-            badge.report(done.saturating_mul(10), total.saturating_mul(100));
+            badge.report(done, total);
         })?;
+        badge.finish();
+        let vc_ms = started.elapsed().as_secs_f64() * 1000.0;
+        crate::log_info!("[Screen Translate] VC runtime ready ms={vc_ms:.1}");
+        let started = std::time::Instant::now();
+        let badge =
+            crate::overlay::auto_copy_badge::DownloadProgressBadge::new(names.tool_ai_runtime);
         let runtime =
             crate::component_registry::local_asr::ensure_runtime(cancelled, |done, total| {
-                badge.report(
-                    total
-                        .saturating_mul(10)
-                        .saturating_add(done.saturating_mul(50)),
-                    total.saturating_mul(100),
-                );
+                badge.report(done, total);
             })?;
+        badge.finish();
+        let runtime_ms = started.elapsed().as_secs_f64() * 1000.0;
+        crate::log_info!("[Screen Translate] ONNX runtime ready ms={runtime_ms:.1}");
+        let started = std::time::Instant::now();
+        let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new(
+            names.tool_screen_translate_detector,
+        );
         let detector =
             crate::component_registry::screen_text_detector::ensure(cancelled, |done, total| {
-                badge.report(
-                    total
-                        .saturating_mul(60)
-                        .saturating_add(done.saturating_mul(40)),
-                    total.saturating_mul(100),
-                );
+                badge.report(done, total);
             })?;
+        crate::log_info!(
+            "[Screen Translate] detector_delivery vc_ms={vc_ms:.1} runtime_ms={runtime_ms:.1} models_ms={:.1}",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
         badge.finish();
         Ok(Self {
             detector,
             runtime,
-            _vc: vc,
+            vc,
         })
     }
 }
@@ -60,7 +77,7 @@ impl LaunchResources {
 pub(super) fn spawn_worker(resources: &LaunchResources) -> Result<Child> {
     let executable = canonical_file(resources.detector.executable(), "worker")?;
     let runtime = canonical_dir(resources.runtime.bin_dir(), "ONNX runtime")?;
-    let vc = canonical_dir(resources._vc.bin_dir(), "VC runtime")?;
+    let vc = canonical_dir(resources.vc.bin_dir(), "VC runtime")?;
     let system_root = std::env::var_os("SystemRoot")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())

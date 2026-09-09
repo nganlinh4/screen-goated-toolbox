@@ -14,10 +14,6 @@ import sys
 import zipfile
 from pathlib import Path
 
-import onnx
-from onnx import TensorProto, helper
-
-
 FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 MACHINE_X64 = 0x8664
 COMPONENT_ID = "screen-text-detector"
@@ -168,6 +164,9 @@ def validate_model_readme(path: Path) -> None:
 
 
 def compact_recognizer_model(source: Path, target: Path) -> str:
+    import onnx
+    from onnx import TensorProto, helper
+
     model = onnx.load(source, load_external_data=False)
     if len(model.graph.output) != 1:
         raise RuntimeError("recognizer model must expose exactly one probability output")

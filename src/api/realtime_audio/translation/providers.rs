@@ -109,6 +109,7 @@ fn translate_with_llm_chain(
             config,
             crate::retry_model_chain::InteractiveRequestWorkload {
                 encoded_request_bytes: request_bytes,
+                ..Default::default()
             },
         ));
 

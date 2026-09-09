@@ -7,6 +7,9 @@ use super::contract::DetectedTextRegion;
 use super::geometry::{PixelRegion, normalized_region};
 use crate::overlay::selection::CapturedRegion;
 
+mod connectivity;
+use connectivity::connected_components;
+
 pub(super) struct PreparedSource {
     pub pixels: PixelRegion,
     pub source_text: String,
@@ -36,6 +39,7 @@ pub(super) fn prepare_scene(
     job_id: u64,
     capture: &CapturedRegion,
     candidates: &[DetectedTextRegion],
+    units: Option<&[super::units::Unit]>,
 ) -> Result<PreparedScene> {
     let located = candidates
         .iter()
@@ -75,7 +79,20 @@ pub(super) fn prepare_scene(
     }
 
     let mut blocks = Vec::new();
-    for member_ids in connected_components(&located) {
+    let components = units
+        .map(|units| {
+            units
+                .iter()
+                .map(|unit| (Some(unit), unit.members.clone()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| {
+            connected_components(&located)
+                .into_iter()
+                .map(|ids| (None, ids))
+                .collect()
+        });
+    for (unit, member_ids) in components {
         if !super::runtime::is_current(job_id) {
             break;
         }
@@ -99,7 +116,26 @@ pub(super) fn prepare_scene(
                 .map(|source| (source.pixels, source.background)),
         );
         let vertical_text = dominant_orientation_is_vertical(&shape_regions);
-        let source_lanes = source_lanes(&member_ids, &members, layout, vertical_text);
+        let source_lanes = if let Some(unit) = unit {
+            vec![SourceLane {
+                member_ids: vec![unit.id],
+                region: unit.replacement_region(
+                    layout.width,
+                    layout.height,
+                    vertical_text,
+                    members.len() > 1
+                        && if vertical_text {
+                            layout.width
+                                > members.iter().map(|s| s.pixels.width).max().unwrap_or(0) * 3 / 2
+                        } else {
+                            layout.height
+                                > members.iter().map(|s| s.pixels.height).max().unwrap_or(0) * 3 / 2
+                        },
+                ),
+            }]
+        } else {
+            source_lanes(&member_ids, &members, layout, vertical_text)
+        };
         let source_regions = source_lanes
             .iter()
             .map(|lane| lane.region.clone())
@@ -122,8 +158,9 @@ pub(super) fn prepare_scene(
             .and_then(|(background, _)| most_contrasting_foreground(&members, background))
             .map(super::appearance::color_hex)
             .unwrap_or(inferred_foreground);
+        let translation_ids = unit.map(|unit| vec![unit.id]).unwrap_or(member_ids);
         blocks.push(PreparedBlock {
-            member_ids,
+            member_ids: translation_ids,
             layout,
             backdrop: encode_data_url(&backdrop)?,
             foreground,
@@ -324,6 +361,7 @@ fn source_lane_from_run(
             width,
             height,
             vertical,
+            wrap: false,
         },
     }
 }
@@ -362,39 +400,6 @@ fn luminance(rgb: [u8; 3]) -> u32 {
     (299 * u32::from(rgb[0]) + 587 * u32::from(rgb[1]) + 114 * u32::from(rgb[2])) / 1000
 }
 
-fn connected_components(located: &[(&DetectedTextRegion, PixelRegion)]) -> Vec<Vec<u16>> {
-    let mut assigned = vec![false; located.len()];
-    let mut components = Vec::new();
-    for start in 0..located.len() {
-        if assigned[start] {
-            continue;
-        }
-        assigned[start] = true;
-        let mut pending = vec![start];
-        let mut members = Vec::new();
-        while let Some(index) = pending.pop() {
-            members.push(located[index].0.id);
-            for candidate in 0..located.len() {
-                if !assigned[candidate] && touches(located[index].1, located[candidate].1) {
-                    assigned[candidate] = true;
-                    pending.push(candidate);
-                }
-            }
-        }
-        members.sort_unstable();
-        components.push(members);
-    }
-    components.sort_by_key(|members| members[0]);
-    components
-}
-
-fn touches(left: PixelRegion, right: PixelRegion) -> bool {
-    left.x <= right.x.saturating_add(right.width)
-        && right.x <= left.x.saturating_add(left.width)
-        && left.y <= right.y.saturating_add(right.height)
-        && right.y <= left.y.saturating_add(left.height)
-}
-
 fn dominant_orientation_is_vertical(regions: &[PixelRegion]) -> bool {
     let (vertical_area, horizontal_area) = regions.iter().fold((0_u64, 0_u64), |areas, region| {
         let area = u64::from(region.width) * u64::from(region.height);
@@ -431,6 +436,7 @@ fn union(regions: impl Iterator<Item = PixelRegion>) -> PixelRegion {
 
 #[cfg(test)]
 mod tests {
+    use super::connectivity::touches;
     use super::*;
 
     fn prepared(pixels: PixelRegion) -> PreparedSource {

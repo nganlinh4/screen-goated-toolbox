@@ -80,7 +80,7 @@ impl TextDetector {
                     false,
                 )
                 .and_then(|mut recognizer| {
-                    recognizer.warm_all()?;
+                    recognizer.warm_loaded()?;
                     Ok(recognizer)
                 }),
                 "recognizer",
@@ -215,7 +215,7 @@ impl CpuFallback {
             Acceleration::Cpu,
             true,
         )?;
-        recognizer.warm_all()?;
+        recognizer.warm_loaded()?;
         self.recognizer = Some(recognizer);
         Ok(())
     }

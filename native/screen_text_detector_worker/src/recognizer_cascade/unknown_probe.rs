@@ -10,6 +10,10 @@ use crate::recognizer::UNKNOWN_PROBE_INPUT_WIDTH;
 const MIN_SCORE: f32 = 0.3;
 const REUSE_SCORE: f32 = 0.8;
 
+// Owned by the cascade and bounded by its validated model catalog. Keep CPU
+// sessions across probes; actual recognition keeps its selected backend.
+pub(super) type ProbeCache = std::collections::HashMap<std::path::PathBuf, FallbackRecognizer>;
+
 pub(super) enum Selection {
     Loaded(usize),
     Pending(usize),
@@ -78,14 +82,32 @@ pub(super) fn samples(
     }
     selected
         .into_iter()
-        .map(|index| sources[index].clone())
+        .map(|index| snippet(&sources[index]))
         .collect()
+}
+
+// Probe one spatial window, not every tile of a full line. Preserve glyph
+// proportions and the recognizer's normal input height without shrinking text.
+fn snippet(source: &RgbImage) -> RgbImage {
+    let width = (u64::from(UNKNOWN_PROBE_INPUT_WIDTH) * u64::from(source.height())
+        / u64::from(crate::recognizer::INPUT_HEIGHT))
+    .max(1)
+    .min(u64::from(source.width())) as u32;
+    image::imageops::crop_imm(
+        source,
+        (source.width() - width) / 2,
+        0,
+        width,
+        source.height(),
+    )
+    .to_image()
 }
 
 pub(super) fn select(
     loaded: &mut [FallbackRecognizer],
     pending: &[ResolvedModel],
     samples: &[RgbImage],
+    cache: &mut ProbeCache,
 ) -> Result<Option<Selection>> {
     let loaded_score = score_loaded(loaded, samples)?;
     if let Some((index, score)) = loaded_score
@@ -93,7 +115,7 @@ pub(super) fn select(
     {
         return Ok(Some(Selection::Loaded(index)));
     }
-    let pending_score = score_pending(pending, samples)?;
+    let pending_score = score_pending(pending, samples, cache)?;
     Ok(match (loaded_score, pending_score) {
         (Some((_, loaded)), Some((pending_index, pending))) if pending > loaded => {
             Some(Selection::Pending(pending_index))
@@ -121,25 +143,66 @@ fn score_loaded(
     Ok(best(scores))
 }
 
-fn score_pending(pending: &[ResolvedModel], samples: &[RgbImage]) -> Result<Option<(usize, f32)>> {
-    let scores = std::thread::scope(|scope| {
+fn score_pending(
+    pending: &[ResolvedModel],
+    samples: &[RgbImage],
+    cache: &mut ProbeCache,
+) -> Result<Option<(usize, f32)>> {
+    let started = std::time::Instant::now();
+    cache.retain(|path, _| pending.iter().any(|model| &model.model == path));
+    let reused = cache.len();
+    let results = std::thread::scope(|scope| {
         let tasks = pending
             .iter()
             .cloned()
             .enumerate()
             .map(|(index, model)| {
+                let cached = cache.remove(&model.model);
                 scope.spawn(move || {
-                    let mut loaded = load_models(vec![model], Acceleration::CpuProbe)?;
-                    let mut fallback = loaded
-                        .pop()
-                        .ok_or_else(|| anyhow::anyhow!("specialist probe did not load"))?;
-                    let score = score(&mut fallback, samples)?;
-                    Ok::<_, anyhow::Error>((index, score))
+                    let key = model.model.clone();
+                    let mut fallback = match cached {
+                        Some(fallback) => fallback,
+                        None => load_models(vec![model], Acceleration::CpuProbe)?
+                            .pop()
+                            .ok_or_else(|| anyhow::anyhow!("specialist probe did not load"))?,
+                    };
+                    let score = score(&mut fallback, samples);
+                    Ok::<_, anyhow::Error>((index, key, fallback, score))
                 })
             })
             .collect::<Vec<_>>();
-        join_scores(tasks)
-    })?;
+        tasks
+            .into_iter()
+            .map(|task| {
+                task.join()
+                    .map_err(|_| anyhow::anyhow!("specialist recognizer probe panicked"))
+                    .and_then(|result| result)
+            })
+            .collect::<Vec<_>>()
+    });
+    let mut scores = Vec::new();
+    let mut failure = None;
+    for result in results {
+        match result {
+            Ok((index, key, fallback, score)) => {
+                cache.insert(key, fallback);
+                match score {
+                    Ok(score) => scores.push((index, score)),
+                    Err(error) => failure = Some(error),
+                }
+            }
+            Err(error) => failure = Some(error),
+        }
+    }
+    eprintln!(
+        "[DetectorPerf] probe_models={} reused={} elapsed_ms={:.1}",
+        pending.len(),
+        reused,
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    if let Some(error) = failure {
+        return Err(error);
+    }
     Ok(best(scores))
 }
 
@@ -182,4 +245,29 @@ fn best(scores: Vec<(usize, f32)>) -> Option<(usize, f32)> {
 
 fn image_area(source: &RgbImage) -> u64 {
     u64::from(source.width()) * u64::from(source.height())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_window_is_bounded_without_distorting_glyphs() {
+        for height in [1, 24, 48, 113] {
+            let source =
+                RgbImage::from_fn(8192, height, |x, _| image::Rgb([(x % 251) as u8, 0, 0]));
+            let sample = snippet(&source);
+            assert_eq!(sample.height(), height);
+            assert!(
+                sample.width() * crate::recognizer::INPUT_HEIGHT
+                    <= UNKNOWN_PROBE_INPUT_WIDTH * height
+            );
+            assert_eq!(
+                sample.get_pixel(0, 0),
+                source.get_pixel((source.width() - sample.width()) / 2, 0)
+            );
+        }
+        let short = RgbImage::new(80, 48);
+        assert_eq!(snippet(&short), short);
+    }
 }

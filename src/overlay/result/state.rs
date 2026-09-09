@@ -29,6 +29,8 @@ pub struct SourceReplacementRegion {
     pub width: u32,
     pub height: u32,
     pub vertical: bool,
+    #[serde(default)]
+    pub wrap: bool,
 }
 
 impl Default for ResultControlOptions {

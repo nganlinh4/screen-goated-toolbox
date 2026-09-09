@@ -3,3 +3,7 @@ name = "sgt-screen-text-detector-protocol"
 version = "3.2.18"
 edition = "2024"
 publish = false
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

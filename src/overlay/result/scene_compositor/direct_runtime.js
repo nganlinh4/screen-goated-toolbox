@@ -139,7 +139,9 @@
                     return {
                         box: item.box,
                         text: item.text,
-                        vertical: regions[itemIndex].vertical === true
+                        vertical: regions[itemIndex].vertical === true,
+                        wrap: regions[itemIndex].wrap === true,
+                        preferredFontSize: options.preferredFontSize
                     };
                 }
             ));

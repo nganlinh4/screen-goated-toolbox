@@ -33,7 +33,7 @@ pub(crate) struct TextRecognizer {
     max_input_width: u32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum Acceleration {
     Cpu,
     CpuProbe,
@@ -48,6 +48,7 @@ impl TextRecognizer {
         acceleration: Acceleration,
         max_input_width: u32,
     ) -> Result<Self> {
+        let started = std::time::Instant::now();
         let builder = Session::builder()?
             .with_memory_pattern(false)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
@@ -87,6 +88,11 @@ impl TextRecognizer {
             );
         }
         characters.push(" ".to_string());
+        eprintln!(
+            "[DetectorPerf] recognizer_load backend={acceleration:?} model={} elapsed_ms={:.1}",
+            model.file_name().unwrap_or_default().to_string_lossy(),
+            started.elapsed().as_secs_f64() * 1000.0
+        );
         Ok(Self {
             session,
             characters,
@@ -421,8 +427,10 @@ fn decode_compact(
     let mut previous = usize::MAX;
     let mut script_evidence = Vec::new();
     for (row_scores, row_indices) in scores
-        .chunks_exact(TOP_CANDIDATE_COUNT)
-        .zip(indices.chunks_exact(TOP_CANDIDATE_COUNT))
+        .as_chunks::<TOP_CANDIDATE_COUNT>()
+        .0
+        .iter()
+        .zip(indices.as_chunks::<TOP_CANDIDATE_COUNT>().0)
     {
         let mut candidates = [(0_usize, 0.0_f32); TOP_CANDIDATE_COUNT];
         for candidate in 0..TOP_CANDIDATE_COUNT {

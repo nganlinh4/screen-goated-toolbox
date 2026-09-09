@@ -3849,6 +3849,10 @@ dependencies = [
 [[package]]
 name = "sgt-screen-text-detector-protocol"
 version = "3.2.18"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "sha1"

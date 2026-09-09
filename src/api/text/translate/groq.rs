@@ -241,6 +241,9 @@ where
         "stream": transport.streaming_enabled
     });
     if let Some(schema) = response_schema {
+        // Exact source-to-slot translation needs focused sampling, not the
+        // endpoint's creative default. Leave ordinary free-form calls unchanged.
+        payload["temperature"] = 0.into();
         payload["response_format"] = crate::api::groq::structured_response_format(
             model,
             "translation_result",
@@ -259,6 +262,9 @@ where
         );
     }
     crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", model);
+    if let Some(limit) = transport.max_output_tokens {
+        payload["max_completion_tokens"] = limit.into();
+    }
 
     let request = UREQ_RESPONSE_AGENT
         .post("https://api.groq.com/openai/v1/chat/completions")

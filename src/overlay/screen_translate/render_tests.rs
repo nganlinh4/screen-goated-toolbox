@@ -1,6 +1,48 @@
 use super::*;
 
 #[test]
+fn unresolved_geometry_cannot_be_covered_by_a_partial_block() {
+    let block = PreparedBlock {
+        member_ids: vec![1, 2],
+        layout: super::super::geometry::PixelRegion {
+            x: 0,
+            y: 0,
+            width: 20,
+            height: 20,
+        },
+        backdrop: String::new(),
+        foreground: String::new(),
+        preferred_font_size: 12.0,
+        vertical_text: false,
+        source_regions: Vec::new(),
+        source_lane_member_ids: vec![vec![1, 2]],
+    };
+    let scene = PreparedScene {
+        sources: HashMap::new(),
+        blocks: Vec::new(),
+    };
+    let mut translations = HashMap::from([(
+        1,
+        SegmentTranslation {
+            source_text: "source".into(),
+            translated_text: "changed".into(),
+        },
+    )]);
+    assert!(component_translation(&block, &scene, &translations).is_none());
+    translations.insert(
+        2,
+        SegmentTranslation {
+            source_text: "second".into(),
+            translated_text: "finished".into(),
+        },
+    );
+    assert_eq!(
+        component_translation(&block, &scene, &translations),
+        Some(vec!["changed finished".into()])
+    );
+}
+
+#[test]
 fn control_anchor_is_relative_to_the_virtual_desktop() {
     assert_eq!(
         relative_selection_anchor((-1200, 300), (640, 480), (-1920, -200)),

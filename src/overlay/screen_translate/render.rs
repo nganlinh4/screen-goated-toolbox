@@ -64,6 +64,7 @@ pub(super) fn start(
     capture: CapturedRegion,
     candidates: std::sync::Arc<[DetectedTextRegion]>,
     trace_id: &str,
+    units: Option<std::sync::Arc<[super::units::Unit]>>,
 ) -> Result<(TranslationOverlay, Receiver<()>)> {
     let origin = (capture.left, capture.top);
     let (command_sender, command_receiver) = std::sync::mpsc::channel();
@@ -82,6 +83,7 @@ pub(super) fn start(
                 command_receiver,
                 visible_sender,
                 completion_sender,
+                units,
             );
         })
         .context("screen translation overlay thread could not start")?;
@@ -104,14 +106,30 @@ fn run_overlay_thread(
     receiver: Receiver<RenderCommand>,
     first_visible: SyncSender<()>,
     completion: SyncSender<Result<usize, String>>,
+    units: Option<std::sync::Arc<[super::units::Unit]>>,
 ) {
-    let scene = match super::render_scene::prepare_scene(job_id, &capture, &candidates) {
-        Ok(prepared) => prepared,
-        Err(error) => {
-            let _ = completion.send(Err(error.to_string()));
-            return;
+    let appearance_started = std::time::Instant::now();
+    let mut candidates = candidates.to_vec();
+    for candidate in &mut candidates {
+        if candidate.appearance.is_some() {
+            continue;
         }
-    };
+        let pixels =
+            super::geometry::normalized_region(candidate.bounds, capture.width, capture.height);
+        candidate.appearance = super::appearance::analyze_region(&capture.image, pixels);
+    }
+    crate::log_info!(
+        "[Screen Translate] trace={trace_id} foreground_analysis_ms={:.1}",
+        appearance_started.elapsed().as_secs_f64() * 1000.0
+    );
+    let scene =
+        match super::render_scene::prepare_scene(job_id, &capture, &candidates, units.as_deref()) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                let _ = completion.send(Err(error.to_string()));
+                return;
+            }
+        };
     crate::overlay::result::latency::mark(&trace_id, "backdrops_ready");
     let virtual_origin = unsafe {
         (
@@ -203,6 +221,12 @@ fn run_overlay_thread(
                     .filter(|block| block.rendered_segments.is_some())
                     .count();
                 let _ = completion.send(Ok(rendered));
+                // An empty result must release the hidden controller and the
+                // first-visible waiter, just like an aborted translation.
+                if rendered == 0 {
+                    close_source_overlay(group, controller);
+                    return;
+                }
                 while crate::overlay::result::scene_compositor::source_group_is_alive(group) {
                     pump_messages();
                     std::thread::sleep(Duration::from_millis(8));
@@ -211,7 +235,8 @@ fn run_overlay_thread(
                 return;
             }
             Err(RecvTimeoutError::Disconnected) => {
-                std::thread::sleep(Duration::from_millis(8));
+                close_source_overlay(group, controller);
+                break;
             }
             Err(RecvTimeoutError::Timeout) => {}
         }
@@ -278,6 +303,15 @@ fn component_translation(
     scene: &PreparedScene,
     translations: &HashMap<u16, SegmentTranslation>,
 ) -> Option<Vec<String>> {
+    if block.member_ids.iter().any(|id| {
+        !translations.contains_key(id)
+            && scene
+                .sources
+                .get(id)
+                .is_none_or(|source| source.source_text.is_empty())
+    }) {
+        return None;
+    }
     let changed = block.member_ids.iter().any(|member_id| {
         translations.get(member_id).is_some_and(|translation| {
             should_render_segment(&translation.source_text, &translation.translated_text)

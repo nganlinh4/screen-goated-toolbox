@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "path": "models/pp-ocr-screen-text/layout.onnx",
+      "url": "https://huggingface.co/PaddlePaddle/PP-DocLayoutV3_onnx/resolve/46bbdf188bb0a772c08aed74882ce7e51a8f1ea6/inference.onnx",
+      "sha256": "45bf71750b00739a41fc209f132eb104a4d6b5bb29483c9078164d8b87cf28ba"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/detector.onnx",
+      "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/det/PP-OCRv6_det_medium.onnx",
+      "sha256": "92078b7355007ccfffcd4c8cd441a3afd4538904d06881b29a155e1e679907c2"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/reader.onnx",
+      "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/rec/PP-OCRv6_rec_medium.onnx",
+      "sha256": "eef444829dbbe18d7fea59a3f6eb75647518d2b3a9568d27c92e42940204894b",
+      "transformation": "sorted-top3",
+      "packagedSha256": "6eac7d32c346b07fe80d1dd57a986afb0e728cb6d60eb3d7f348421449818322"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/arabic/config.yml",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/arabic/config.yml",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "21368419e6c016c31db55d316d59e11c128e1913e6e6fe10287084710043d3a6"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/arabic/model.onnx",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/arabic/model.onnx",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "1dceceeb4344300c599b44f48d558c39c49707fe492903e4a2f54d07cf847485"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/cyrillic/config.yml",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/cyrillic/config.yml",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "5c76cc91fa98410178a09f498db10050d0ec1634a660053d3005ab7be581f501"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/cyrillic/model.onnx",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/cyrillic/model.onnx",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "998909f2dec798d8bd8794812151dcd2e66f4066f95b23b6353dc60ce5a2270a"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/devanagari/config.yml",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/devanagari/config.yml",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "9bd172dd26440c8ce94d1cde5d5baea6aefdc7cf3c5c8492e0beedef656d4e54"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/devanagari/model.onnx",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/devanagari/model.onnx",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "d4e56d03944fd1bed4559f13bd450f60eb64d8fb55df43d5f473f497bb6d429b"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/greek/config.yml",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/greek/config.yml",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "17d85b2fe2d2f24cd4ab07bcbc33e0c126859b956ced36e281dc65e2d0c1f0bf"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/greek/model.onnx",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/greek/model.onnx",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "94aefd4b153acf6da1dcadfba77cfd51a505f3f366d99e85b744c1a5fb266d31"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/hangul/config.yml",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/hangul/config.yml",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "f757fa1c40e99edcf27e9cce879b93eb2a51fa46f5ef39095689b8c37dd75998"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/hangul/model.onnx",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/hangul/model.onnx",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "29dd410bcc12bd72e913313890897f93d12196d4d4cfa3e73ae41c7ef38b59e5"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/tamil/config.yml",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/tamil/config.yml",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "88a28f5a1bb30cabe38a0985cb5e6619fa4f0c7c78e57a08274674228c5219a6"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/tamil/model.onnx",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/tamil/model.onnx",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "e01a3764b34f5c3d470b1bcbf4d02338c190d4560e855009cd5bda9f2bfc6abe"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/telugu/config.yml",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/telugu/config.yml",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "acebbe53f1831bf28ddfed75aedf58225d7aa5d09100c1d5a9140a2a53b137ce"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/telugu/model.onnx",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/telugu/model.onnx",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "70b9414d447ca27ab0ee385321cc5c2591b52a048f7edde35e20db1ca3eb95e3"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/thai/config.yml",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/thai/config.yml",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "f6ba7fefc38ca1ff398ddafa75d67d16e0b3757c4e6c833adffee98a981766c9"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/recognizers/thai/model.onnx",
+      "url": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-text-detector-3.2.18-65b5139164fcdc86.zip",
+      "archivePath": "models/pp-ocr-screen-text/recognizers/thai/model.onnx",
+      "archiveSha256": "65b5139164fcdc86a0f5682ace504b2a9976bfa9cc8d0db306851d0c5b7cb62a",
+      "sha256": "8b0d8ad437b0a1bab1ae9197e10aad9fedf8ac60311aa5ae3a7083b692452daa"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/script.onnx",
+      "url": "https://huggingface.co/ogkalu/image-script-identification/resolve/82c21077f798b80def944eec379b06569c7d48e7/osd_lstm.onnx",
+      "sha256": "b18e0c1479d9eb67394993098f7e1079c9a93ef6f7b0416ee333fccb865c6e72"
+    },
+    {
+      "path": "models/pp-ocr-screen-text/script-labels.json",
+      "url": "https://huggingface.co/ogkalu/image-script-identification/resolve/82c21077f798b80def944eec379b06569c7d48e7/osd_labels.json",
+      "sha256": "a1888156b005065039c356e13a7bbef1ec454b45bf6aaf18c11f4a59b1ee35c5"
+    }
+  ],
+  "licenses": [
+    {
+      "path": "licenses/PaddleOCR-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/2661c7c0ef5c613e8f93c6e93b2e052399f0f854/LICENSE",
+      "sha256": "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e"
+    },
+    {
+      "path": "licenses/ScriptModel-README.md",
+      "url": "https://huggingface.co/ogkalu/image-script-identification/resolve/82c21077f798b80def944eec379b06569c7d48e7/README.md",
+      "sha256": "98b45ea81164d1e1a1dd82255207053b15cd6c69d922a1c5cf3387ce604d4b74"
+    },
+    {
+      "path": "licenses/Tesseract-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tesseract/5.5.0/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+  ]
+}

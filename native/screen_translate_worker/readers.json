@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "router": "script.onnx",
+  "labels": "script-labels.json",
+  "readers": [
+    {
+      "id": "general",
+      "model": "reader.onnx",
+      "scripts": [
+        "Latin",
+        "Vietnamese",
+        "HanS",
+        "HanT",
+        "Japanese",
+        "Common",
+        "Fraktur"
+      ]
+    },
+    {
+      "id": "hangul",
+      "model": "recognizers/hangul/model.onnx",
+      "config": "recognizers/hangul/config.yml",
+      "scripts": [
+        "Hangul"
+      ]
+    },
+    {
+      "id": "cyrillic",
+      "model": "recognizers/cyrillic/model.onnx",
+      "config": "recognizers/cyrillic/config.yml",
+      "scripts": [
+        "Cyrillic"
+      ]
+    },
+    {
+      "id": "arabic",
+      "model": "recognizers/arabic/model.onnx",
+      "config": "recognizers/arabic/config.yml",
+      "scripts": [
+        "Arabic"
+      ],
+      "reverse": true
+    },
+    {
+      "id": "devanagari",
+      "model": "recognizers/devanagari/model.onnx",
+      "config": "recognizers/devanagari/config.yml",
+      "scripts": [
+        "Devanagari"
+      ]
+    },
+    {
+      "id": "thai",
+      "model": "recognizers/thai/model.onnx",
+      "config": "recognizers/thai/config.yml",
+      "scripts": [
+        "Thai"
+      ]
+    },
+    {
+      "id": "greek",
+      "model": "recognizers/greek/model.onnx",
+      "config": "recognizers/greek/config.yml",
+      "scripts": [
+        "Greek"
+      ]
+    },
+    {
+      "id": "tamil",
+      "model": "recognizers/tamil/model.onnx",
+      "config": "recognizers/tamil/config.yml",
+      "scripts": [
+        "Tamil"
+      ]
+    },
+    {
+      "id": "telugu",
+      "model": "recognizers/telugu/model.onnx",
+      "config": "recognizers/telugu/config.yml",
+      "scripts": [
+        "Telugu"
+      ]
+    }
+  ]
+}

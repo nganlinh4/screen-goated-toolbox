@@ -195,7 +195,8 @@ mod tests {
         assert!(document.contains("finishBodyPresentation()"));
         assert!(document.contains("sourceReplacementReveal.enqueue(entry, reportPendingPaint)"));
         assert!(reveal.contains("[{ opacity: 0 }, { opacity: 1 }]"));
-        assert!(!reveal.contains("blur(8px)"));
+        assert!(reveal.contains("value.entry.directHost.animate(["));
+        assert!(reveal.contains("blur(8px)"));
         assert!(document.contains("entry.visualSurface.style.visibility = 'hidden'"));
         assert!(reveal.contains("entry.visualSurface.style.opacity = '0'"));
         assert!(reveal.contains("if (reportPaint) value.surface.style.opacity = '1'"));
@@ -209,7 +210,8 @@ mod tests {
         assert!(reveal.contains("value.entry.contentRevision !== value.revision"));
         assert!(!document.contains("value.animation.startTime ="));
         assert!(document.contains("value.ready = Promise.all(readiness)"));
-        assert!(reveal.contains("Promise.all(cohort.map("));
+        assert!(!reveal.contains("Promise.all(cohort.map("));
+        assert!(reveal.contains("value.ready.then(function()"));
         assert!(!reveal.contains("let ready = []"));
         assert!(!reveal.contains("requestAnimationFrame(startReady)"));
         assert!(!document.contains("{ opacity: 0, filter: 'blur(8px)'"));

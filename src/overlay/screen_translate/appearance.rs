@@ -15,11 +15,18 @@ pub(crate) struct VisualSignature {
     pub foreground_confidence: u8,
 }
 
-pub(crate) fn annotate_regions(image: &image::RgbaImage, regions: &mut [DetectedTextRegion]) {
+pub(crate) fn annotate_backgrounds(image: &image::RgbaImage, regions: &mut [DetectedTextRegion]) {
     for region in regions {
         let pixels =
             super::geometry::normalized_region(region.bounds, image.width(), image.height());
-        region.appearance = analyze_region(image, pixels);
+        region.appearance = clipped(pixels, image.width(), image.height())
+            .and_then(|pixels| strongest_background(image, pixels))
+            .map(|(background_rgb, background_confidence)| VisualSignature {
+                background_rgb,
+                background_confidence,
+                foreground_rgb: None,
+                foreground_confidence: 0,
+            });
     }
 }
 
@@ -98,14 +105,17 @@ fn glyph_mask_with_background(
             if pixel[3] < 128 {
                 continue;
             }
+            let global_distance = color_distance(rgb(pixel), background);
+            if background_confidence >= RELIABLE_BACKGROUND_PERCENT && global_distance < 12 {
+                continue;
+            }
+            let edge = local_edge(image, image_x, image_y);
+            if edge < 12 {
+                continue;
+            }
             let local = ring_median(image, image_x, image_y, radius);
             let local_distance = color_distance(rgb(pixel), local);
-            let global_distance = color_distance(rgb(pixel), background);
-            let edge = local_edge(image, image_x, image_y);
-            let locally_distinct = local_distance >= 22 && edge >= 12;
-            let globally_supported =
-                background_confidence < RELIABLE_BACKGROUND_PERCENT || global_distance >= 12;
-            if locally_distinct && globally_supported {
+            if local_distance >= 22 {
                 mask[(y * region.width + x) as usize] = true;
             }
         }
@@ -382,5 +392,37 @@ mod tests {
         .unwrap();
         assert_eq!(signature.background_rgb, [18, 20, 22]);
         assert!(signature.foreground_rgb.is_some());
+    }
+
+    #[test]
+    fn grouping_background_is_identical_to_full_render_analysis() {
+        let image = image::RgbaImage::from_fn(80, 40, |x, y| {
+            image::Rgba([
+                ((x * 17 + y * 7) % 256) as u8,
+                (x * 3) as u8,
+                (y * 5) as u8,
+                255,
+            ])
+        });
+        let mut regions = vec![DetectedTextRegion {
+            id: 1,
+            bounds: super::super::contract::NormalizedBounds {
+                left: 100,
+                top: 100,
+                right: 900,
+                bottom: 900,
+            },
+            source_text: String::new(),
+            source_alternatives: Vec::new(),
+            recognition: Default::default(),
+            appearance: None,
+        }];
+        annotate_backgrounds(&image, &mut regions);
+        let pixels = super::super::geometry::normalized_region(regions[0].bounds, 80, 40);
+        let full = analyze_region(&image, pixels).unwrap();
+        let grouping = regions[0].appearance.unwrap();
+        assert_eq!(grouping.background_rgb, full.background_rgb);
+        assert_eq!(grouping.background_confidence, full.background_confidence);
+        assert_eq!(grouping.foreground_rgb, None);
     }
 }

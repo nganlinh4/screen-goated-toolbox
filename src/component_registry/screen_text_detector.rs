@@ -22,8 +22,8 @@ const ARCHITECTURE: &str = "x64";
 const RUNTIME_ID: &str = "onnx-directml-runtime";
 const EXECUTABLE_PATH: &str = "bin/x64/sgt-screen-text-detector-worker.exe";
 const MODEL_DIR: &str = "models/pp-ocr-screen-text";
-const MAX_COMPONENT_FILES: usize = 28;
-const MAX_COMPONENT_ENTRIES: usize = 64;
+const MAX_COMPONENT_FILES: usize = 64;
+const MAX_COMPONENT_ENTRIES: usize = 128;
 
 struct DetectorFile {
     path: &'static str,
@@ -47,6 +47,7 @@ include!(concat!(
 ));
 
 pub(crate) struct DetectorUse {
+    version: &'static str,
     executable: PathBuf,
     model_dir: PathBuf,
     _lease: ComponentLease,
@@ -54,6 +55,9 @@ pub(crate) struct DetectorUse {
 }
 
 impl DetectorUse {
+    pub(crate) fn version(&self) -> &str {
+        self.version
+    }
     pub(crate) fn executable(&self) -> &Path {
         &self.executable
     }
@@ -70,14 +74,19 @@ pub(crate) fn ensure(
     super::update_catalog::refresh_for_use(ID, "before-session");
     let _mutation = super::acquire_mutation_guard()?;
     let delivery = delivery()?;
-    install::ensure(delivery, cancelled, on_progress)?;
+    // Inventory checks are cheap. Content is verified once, through handles
+    // that deny writes/deletion and remain held for the entire worker lease.
+    if validate_status(delivery).is_err() {
+        install::ensure(delivery, cancelled, on_progress)?;
+    }
     let lease = super::acquire(ID)?;
     let root = version_root(delivery)?;
     let files = lock_component_files(&root, delivery.files)?;
-    validate_install(delivery)?;
+    validate_status(delivery)?;
     let executable = resolve_owned_path(&root, Path::new(EXECUTABLE_PATH))?;
     install::validate_x64_pe(&executable)?;
     Ok(DetectorUse {
+        version: delivery.version,
         executable,
         model_dir: root.join(MODEL_DIR),
         _lease: lease,
@@ -91,6 +100,12 @@ pub(crate) fn is_installed() -> bool {
 
 pub(crate) fn delivery_available() -> bool {
     delivery().is_ok()
+}
+
+pub(crate) fn incremental_delivery() -> bool {
+    delivery().is_ok_and(|delivery| {
+        delivery.version == sgt_screen_text_detector_protocol::stream::WORKER_VERSION
+    })
 }
 
 pub(crate) fn localized_name() -> String {
@@ -270,6 +285,34 @@ fn receipt(delivery: &DetectorDelivery) -> ComponentReceipt {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn launch_verification_rejects_same_size_changes_and_keeps_files_locked() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("sgt-detector-lock-{}-{nonce}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("model.bin");
+        let files = [DetectorFile {
+            path: "model.bin",
+            size_bytes: 3,
+            sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        }];
+        std::fs::write(&path, b"abd").unwrap();
+        assert!(lock_component_files(&root, &files).is_err());
+        std::fs::write(&path, b"abc").unwrap();
+        let locked = lock_component_files(&root, &files).unwrap();
+        assert!(std::fs::write(&path, b"abd").is_err());
+        assert!(std::fs::remove_file(&path).is_err());
+        drop(locked);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
     #[test]
     fn tracked_delivery_is_present() {
         assert!(super::delivery_available());

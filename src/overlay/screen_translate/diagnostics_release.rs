@@ -22,7 +22,19 @@ impl RunEvidence {
     ) {
     }
 
-    pub(crate) fn finish(self, _document: TranslationDocument, _rendered_count: usize) {}
+    pub(crate) fn finish_with_warning(
+        self,
+        _document: TranslationDocument,
+        _rendered_count: usize,
+        _warning: Option<String>,
+    ) {
+    }
+    pub(crate) fn units(
+        &self,
+        _units: &[super::super::units::Unit],
+        _layout: &[sgt_screen_text_detector_protocol::stream::LayoutRegion],
+    ) {
+    }
     pub(crate) fn no_text(self) {}
     pub(crate) fn fail(self, _stage: &str, _error: &anyhow::Error) {}
 }

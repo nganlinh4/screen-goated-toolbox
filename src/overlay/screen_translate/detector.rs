@@ -1,6 +1,7 @@
 //! Persistent host client for detector-owned Screen Translate geometry.
 
 mod client;
+pub(super) mod incremental;
 mod process;
 
 use std::sync::atomic::AtomicBool;
@@ -23,6 +24,10 @@ pub(super) struct DetectionBatch {
 }
 
 pub(super) fn prepare(cancelled: std::sync::Arc<AtomicBool>) {
+    if crate::component_registry::screen_text_detector::incremental_delivery() {
+        incremental::prepare(cancelled);
+        return;
+    }
     let _ = std::thread::Builder::new()
         .name("sgt-screen-text-detector-prepare".to_string())
         .spawn(move || {
@@ -47,7 +52,12 @@ pub(super) fn detect(
     expected_height: u32,
     cancelled: &AtomicBool,
 ) -> Result<DetectionBatch> {
+    let started = std::time::Instant::now();
     let mut client = CLIENT.lock().unwrap_or_else(|value| value.into_inner());
+    crate::log_info!(
+        "[Screen Translate] detector_lock_wait_ms={:.1}",
+        started.elapsed().as_secs_f64() * 1000.0
+    );
     if client.is_none() {
         *client = Some(client::DetectorClient::start(cancelled)?);
     }
@@ -212,6 +222,7 @@ fn alphabetic_buckets(text: &str) -> std::collections::HashSet<u32> {
 }
 
 pub(super) fn stop() {
+    incremental::stop();
     CLIENT
         .lock()
         .unwrap_or_else(|value| value.into_inner())

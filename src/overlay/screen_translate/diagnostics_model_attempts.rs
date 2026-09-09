@@ -16,6 +16,7 @@ pub(super) struct ModelAttemptRecord {
     pub first_validated_ms: Option<f64>,
     pub transport_ms: Option<f64>,
     pub total_ms: f64,
+    pub content: Option<serde_json::Value>,
 }
 
 #[cfg(debug_assertions)]
@@ -41,6 +42,10 @@ mod implementation {
         }
     }
 
+    pub(crate) fn enabled(trace_id: &str) -> bool {
+        ATTEMPTS.lock().unwrap().contains_key(trace_id)
+    }
+
     pub(crate) fn take(trace_id: &str) -> Vec<ModelAttemptRecord> {
         ATTEMPTS
             .lock()
@@ -55,11 +60,14 @@ mod implementation {
     use super::ModelAttemptRecord;
 
     pub(crate) fn record(_trace_id: &str, _attempt: ModelAttemptRecord) {}
+    pub(crate) fn enabled(_trace_id: &str) -> bool {
+        false
+    }
 }
 
-pub(super) use implementation::record;
 #[cfg(debug_assertions)]
 pub(super) use implementation::{begin_trace, take};
+pub(super) use implementation::{enabled, record};
 
 #[cfg(all(test, debug_assertions))]
 mod tests {
@@ -85,6 +93,7 @@ mod tests {
                 first_validated_ms: Some(12.0),
                 transport_ms: Some(20.0),
                 total_ms: 21.0,
+                content: None,
             },
         );
         let attempts = take(trace_id);

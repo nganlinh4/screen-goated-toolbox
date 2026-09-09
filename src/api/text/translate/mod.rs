@@ -11,6 +11,13 @@ use anyhow::Result;
 use providers::{translate_gemini, translate_nvidia, translate_openrouter, translate_taalas};
 use std::sync::{Arc, atomic::AtomicBool};
 
+pub fn supports_structured_translation(provider: &str) -> bool {
+    matches!(
+        Provider::from_wire(provider),
+        Some(Provider::Groq | Provider::Google | Provider::OpenRouter | Provider::Nvidia)
+    )
+}
+
 pub struct TranslateTextRequest<'a> {
     pub groq_api_key: &'a str,
     pub gemini_api_key: &'a str,
@@ -21,6 +28,8 @@ pub struct TranslateTextRequest<'a> {
     pub streaming_enabled: bool,
     pub use_json_format: bool,
     pub response_schema: Option<&'a serde_json::Value>,
+    /// Optional output cap for OpenAI-compatible translation providers.
+    pub max_output_tokens: Option<u32>,
     pub search_label: Option<String>,
     pub ui_language: &'a str,
     pub cancel_token: Option<Arc<AtomicBool>>,
@@ -32,6 +41,7 @@ pub struct TranslateTextRequest<'a> {
 
 #[derive(Clone, Copy)]
 struct TranslateTransportOptions<'a> {
+    max_output_tokens: Option<u32>,
     streaming_enabled: bool,
     ui_language: &'a str,
     cancel_token: &'a Option<Arc<AtomicBool>>,
@@ -76,6 +86,7 @@ fn translate_text_streaming_inner(
         streaming_enabled,
         use_json_format,
         response_schema,
+        max_output_tokens,
         search_label,
         ui_language,
         cancel_token,
@@ -116,6 +127,7 @@ fn translate_text_streaming_inner(
     let full_content;
     let prompt = format!("{}\n\n{}", instruction, text);
     let transport = TranslateTransportOptions {
+        max_output_tokens,
         streaming_enabled,
         ui_language,
         cancel_token: &cancel_token,
@@ -131,12 +143,10 @@ fn translate_text_streaming_inner(
         prompt.len()
     );
 
+    if response_schema.is_some() && !supports_structured_translation(&provider) {
+        return Err(anyhow::anyhow!("STRUCTURED_OUTPUT_UNSUPPORTED:{provider}"));
+    }
     match Provider::from_wire(&provider) {
-        Some(Provider::Ollama | Provider::GeminiLive | Provider::GoogleGtx | Provider::Taalas)
-            if response_schema.is_some() =>
-        {
-            return Err(anyhow::anyhow!("STRUCTURED_OUTPUT_UNSUPPORTED:{provider}"));
-        }
         Some(Provider::Ollama) => {
             // --- OLLAMA LOCAL API ---
             let ollama_base_url = crate::APP

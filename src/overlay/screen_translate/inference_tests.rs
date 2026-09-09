@@ -39,6 +39,56 @@ fn translated(candidate: &DetectedTextRegion) -> TranslationRegion {
 }
 
 #[test]
+fn retry_and_incremental_requests_retain_read_only_context() {
+    let scene = vec![candidate(1, 20), candidate(2, 40), candidate(3, 60)];
+    let accepted = vec![translated(&scene[0])];
+    let mut prompt = String::new();
+    context::append(&mut prompt, &scene, &scene[1..2], &[], &accepted).unwrap();
+    let data: serde_json::Value = serde_json::from_str(prompt.lines().last().unwrap()).unwrap();
+    let sources = data["surroundingSource"].as_array().unwrap();
+    assert_eq!(sources.len(), 2);
+    assert!(sources.iter().all(|source| source["sourceId"] != 2));
+    assert_eq!(
+        data["acceptedTranslations"][0]["translation"][0],
+        "translated-1"
+    );
+    assert!(!prompt.contains("\"slot\""));
+}
+
+#[test]
+fn scene_context_is_bounded_and_does_not_split_source_text() {
+    let mut scene = (1..=200).map(|id| candidate(id, 0)).collect::<Vec<_>>();
+    for region in &mut scene {
+        region.source_text = "x".repeat(2_000);
+    }
+    let mut prompt = String::new();
+    context::append(&mut prompt, &scene, &scene[..1], &[], &[]).unwrap();
+    let data: serde_json::Value = serde_json::from_str(prompt.lines().last().unwrap()).unwrap();
+    let sources = data["surroundingSource"].as_array().unwrap();
+    assert_eq!(sources.len(), 3);
+    assert!(
+        sources
+            .iter()
+            .all(|source| source["text"].as_str().unwrap().len() == 2_000)
+    );
+}
+
+#[test]
+fn terminology_context_deduplicates_without_removing_requested_slots() {
+    let scene = vec![candidate(1, 20), candidate(2, 40)];
+    let previous = translated(&scene[0]);
+    let mut invariant = translated(&scene[1]);
+    invariant.translated_segments = vec![invariant.source_text.clone()];
+    let prior = vec![previous.clone(), previous, invariant];
+    let mut prompt = String::new();
+    context::append(&mut prompt, &scene, &scene[1..], &prior, &[]).unwrap();
+    let data: serde_json::Value = serde_json::from_str(prompt.lines().last().unwrap()).unwrap();
+    assert_eq!(data["acceptedTranslations"].as_array().unwrap().len(), 1);
+    assert_eq!(data["surroundingSource"].as_array().unwrap().len(), 1);
+    assert!(prompt.contains("every requested slot"));
+}
+
+#[test]
 fn retry_requests_only_missing_regions_and_keeps_committed_output() {
     let candidates = vec![candidate(1, 80), candidate(2, 20)];
     let mut accepted = vec![translated(&candidates[0])];
@@ -115,19 +165,121 @@ fn completion_requires_every_detected_member() {
 }
 
 #[test]
-fn bounded_fallback_preserves_only_the_unresolved_source_regions() {
+fn exhausted_chain_keeps_real_results_without_fabricating_translations() {
     let candidates = vec![candidate(1, 20), candidate(2, 40)];
-    let mut accepted = vec![translated(&candidates[0])];
-    let mut covered = HashSet::from([1]);
-    let mut streamed = Vec::new();
+    let accepted = vec![translated(&candidates[0])];
+    let covered = HashSet::from([1]);
+    let outcome = unresolved_outcome(&candidates, &accepted, &covered);
+    assert_eq!(outcome.unresolved, [2]);
+    assert_eq!(outcome.document.regions, accepted);
+    assert!(outcome.warning().is_some());
+    assert!(completed_document(&candidates, &accepted, &covered).is_none());
+}
 
-    let preserved =
-        preserve_unresolved_candidates(&candidates, &mut accepted, &mut covered, &mut |region| {
-            streamed.push(region)
-        });
+#[test]
+fn short_structured_answers_leave_room_for_required_reasoning() {
+    let candidates = vec![candidate(1, 20)];
+    assert_eq!(completion_budget(&candidates, false), 256);
+    assert_eq!(completion_budget(&candidates, true), 1024);
+    let mut large = candidates;
+    large[0].source_text = "text".repeat(10000);
+    assert_eq!(completion_budget(&large, true), 8192);
+}
 
-    assert_eq!(preserved, 1);
-    assert_eq!(streamed[0].id, 2);
-    assert_eq!(streamed[0].translated_segments, ["source-2"]);
-    assert!(completed_document(&candidates, &accepted, &covered).is_some());
+#[test]
+fn similarity_is_not_a_translation_failure() {
+    for (source, output) in [
+        (
+            "Example Extended Product Name and",
+            "Example Extended Product Name và",
+        ),
+        (
+            "Example Extended Product Name",
+            "Example Extended Product Name",
+        ),
+        (
+            "This text is already in the target language",
+            "This text is already in the target language",
+        ),
+        ("文字列の表示設定", "文字列の表示設定"),
+        ("version 123.456", "versión 123.456"),
+    ] {
+        let mut input = candidate(1, 0);
+        input.source_text = source.into();
+        let mut region = translated(&input);
+        region.translated_segments = vec![output.into()];
+        let mut accepted = Vec::new();
+        let mut covered = HashSet::new();
+        assert!(accept_region(&mut accepted, &mut covered, region, &[input]));
+        assert_eq!(accepted[0].translated_segments, [output]);
+    }
+}
+
+#[test]
+fn echo_observation_requires_distinct_text_not_high_overlap() {
+    let mut first = translated(&candidate(1, 0));
+    first.source_text = "Example Extended Product Name and".into();
+    first.translated_segments = vec!["Example Extended Product Name và".into()];
+    assert!(!super::super::translation_validation::is_copied_batch(&[
+        first.clone()
+    ]));
+    first.translated_segments = vec![first.source_text.clone()];
+    assert!(!super::super::translation_validation::is_copied_batch(&[
+        first.clone(),
+        first.clone()
+    ]));
+    let mut second = first.clone();
+    second.source_text = "Another label".into();
+    second.translated_segments = vec![second.source_text.clone()];
+    assert!(super::super::translation_validation::is_copied_batch(&[
+        first, second
+    ]));
+}
+
+#[test]
+fn unavailable_confirmation_retains_valid_copies_and_partial_success() {
+    let candidates = vec![candidate(1, 0), candidate(2, 20)];
+    for partial in [false, true] {
+        let mut copied = candidates.iter().map(translated).collect::<Vec<_>>();
+        for region in &mut copied {
+            region.translated_segments = vec![region.source_text.clone()];
+        }
+        let mut accepted = Vec::new();
+        let mut covered = HashSet::new();
+        if partial {
+            accept_region(
+                &mut accepted,
+                &mut covered,
+                translated(&candidates[0]),
+                &candidates,
+            );
+        }
+        let mut events = Vec::new();
+        let result = finish_confirmation(
+            &mut copied,
+            &mut accepted,
+            &mut covered,
+            &candidates,
+            &mut |r| events.push(r),
+        );
+        assert!(result.unresolved.is_empty());
+        assert!(result.warning().is_none());
+        assert_eq!(result.document.regions.len(), 2);
+        assert_eq!(events.len(), if partial { 1 } else { 2 });
+        assert!(copied.is_empty());
+        if partial {
+            assert_eq!(
+                result.document.regions[0].translated_segments,
+                ["translated-1"]
+            );
+        }
+        // Finalization is idempotent: timeout/chain exhaustion cannot re-emit.
+        finish_confirmation(
+            &mut copied,
+            &mut accepted,
+            &mut covered,
+            &candidates,
+            &mut |_| panic!("duplicate reveal"),
+        );
+    }
 }

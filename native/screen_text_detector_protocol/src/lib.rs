@@ -2,6 +2,9 @@
 
 use std::io::{self, Read, Write};
 
+pub mod recognition;
+pub mod stream;
+
 pub const PROTOCOL_VERSION: u16 = 4;
 pub const WORKER_VERSION: &str = "3.2.18";
 pub const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;

@@ -19,6 +19,11 @@ struct ReplayRecord {
     regions: Vec<ReplayRegion>,
 }
 
+#[derive(Deserialize)]
+struct ReplayUnits {
+    units: Vec<super::units::Unit>,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ReplayRegion {
@@ -65,17 +70,28 @@ fn replay(run_directory: &Path, output: &Path) -> Result<usize> {
     if !run_directory.is_absolute() || !output.is_absolute() {
         bail!("replay paths must be absolute");
     }
-    let source_path = run_directory.join("source.jpg");
+    let source_path = ["source.png", "source.jpg"]
+        .into_iter()
+        .map(|name| run_directory.join(name))
+        .find(|path| path.is_file())
+        .context("replay source is missing")?;
     let record_path = run_directory.join("run.json");
     let image = image::open(&source_path)
         .with_context(|| format!("open replay source {}", source_path.display()))?
         .to_rgba8();
     let record: ReplayRecord = serde_json::from_slice(&std::fs::read(&record_path)?)?;
-    if record.status != "complete" {
-        bail!("only a completed production run can be replayed");
+    if !matches!(record.status.as_str(), "complete" | "partial") {
+        bail!("only a finalized production run can be replayed");
     }
     let candidates = candidates(&record.regions)?;
     let document = document(&record.regions)?;
+    let units_path = run_directory.join("units.json");
+    let units = if units_path.exists() {
+        let record: ReplayUnits = serde_json::from_slice(&std::fs::read(units_path)?)?;
+        Some(Arc::from(record.units))
+    } else {
+        None
+    };
     let capture = CapturedRegion {
         width: image.width(),
         height: image.height(),
@@ -87,7 +103,7 @@ fn replay(run_directory: &Path, output: &Path) -> Result<usize> {
     let (job_id, _) = super::runtime::begin_job();
     let trace_id = format!("screen-translate-replay-{job_id}");
     crate::overlay::result::latency::begin(&trace_id);
-    let (mut overlay, _) = super::render::start(job_id, capture, candidates, &trace_id)?;
+    let (mut overlay, _) = super::render::start(job_id, capture, candidates, &trace_id, units)?;
     for region in &document.regions {
         overlay.send(region.clone());
     }
@@ -116,9 +132,6 @@ fn candidates(regions: &[ReplayRegion]) -> Result<Arc<[DetectedTextRegion]>> {
         .map(|region| {
             let source_alternatives = region.ocr_candidates.clone();
             let source_text = source_alternatives.first().cloned().unwrap_or_default();
-            if source_text.is_empty() {
-                bail!("replay candidate has no OCR text");
-            }
             Ok(DetectedTextRegion {
                 id: region.id,
                 bounds: region.normalized_box_2d.into(),

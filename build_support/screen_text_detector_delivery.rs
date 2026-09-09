@@ -69,6 +69,16 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
     assert_eq!(required_string(component, "id", path), COMPONENT_ID);
     let version = required_string(component, "version", path);
     validate_identifier(version, path);
+    let mut incremental_files = incremental_files();
+    if version == "4.1.0" {
+        incremental_files.retain(|path| path != "models/pp-ocr-screen-text/layout.onnx");
+    }
+    let (required_files, optional_files): (Vec<&str>, &[&str]) =
+        if matches!(version, "4.1.0" | "4.2.0" | "4.2.1" | "4.2.2") {
+            (incremental_files.iter().map(String::as_str).collect(), &[])
+        } else {
+            (REQUIRED_FILES.to_vec(), LEGACY_OPTIONAL_FILES)
+        };
     let sha256 = required_string(component, "sha256", path);
     validate_sha256(sha256, path);
     let asset = required_string(component, "asset", path);
@@ -92,8 +102,7 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
         .and_then(Value::as_array)
         .unwrap_or_else(|| panic!("{} component has no files", path.display()));
     assert!(
-        (REQUIRED_FILES.len()..=REQUIRED_FILES.len() + LEGACY_OPTIONAL_FILES.len())
-            .contains(&files.len())
+        (required_files.len()..=required_files.len() + optional_files.len()).contains(&files.len())
     );
     let mut seen = HashSet::new();
     let mut file_total = 0_u64;
@@ -104,7 +113,7 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
             .unwrap_or_else(|| panic!("{} contains an invalid file", path.display()));
         let relative = required_string(file, "path", path);
         assert!(
-            (REQUIRED_FILES.contains(&relative) || LEGACY_OPTIONAL_FILES.contains(&relative))
+            (required_files.contains(&relative) || optional_files.contains(&relative))
                 && seen.insert(relative)
         );
         let file_size = required_u64(file, "sizeBytes", path);
@@ -118,7 +127,7 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
         ));
     }
     assert!(
-        REQUIRED_FILES
+        required_files
             .iter()
             .all(|relative| seen.contains(relative))
     );
@@ -126,6 +135,28 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
     format!(
         "const DETECTOR_DELIVERY: Option<DetectorDelivery> = Some(DetectorDelivery {{ version: {version:?}, asset: {asset:?}, download_url: {download_url:?}, size_bytes: {size_bytes}, sha256: {sha256:?}, unpacked_size_bytes: {unpacked_size_bytes}, files: &[\n{file_source}    ] }});\n"
     )
+}
+
+fn incremental_files() -> Vec<String> {
+    let inputs: Value = serde_json::from_str(include_str!(
+        "../native/screen_translate_worker/package-inputs.json"
+    ))
+    .expect("invalid incremental package inputs");
+    let mut files = [
+        "bin/x64/sgt-screen-text-detector-worker.exe",
+        "licenses/THIRD-PARTY-LICENSES.json",
+        "licenses/THIRD-PARTY-NOTICES.txt",
+        "licenses/PACKAGE-INPUTS.json",
+        "models/pp-ocr-screen-text/readers.json",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    for section in ["models", "licenses"] {
+        for item in inputs[section].as_array().expect("package inventory") {
+            files.push(item["path"].as_str().expect("package file").to_owned());
+        }
+    }
+    files
 }
 
 fn required_string<'a>(value: &'a Map<String, Value>, field: &str, path: &Path) -> &'a str {

@@ -37,6 +37,7 @@ pub fn generate_filename(content: &str) -> String {
 
     let response = crate::api::text::translate_text_streaming(
         crate::api::text::TranslateTextRequest {
+            max_output_tokens: None,
             groq_api_key: &groq_api_key,
             gemini_api_key: &gemini_api_key,
             text: prompt_content,

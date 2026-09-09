@@ -1,12 +1,25 @@
 use std::collections::HashSet;
 
-use super::contract::{DetectedTextRegion, TranslationRegion, parse_streamed_translation};
+use super::contract::{
+    DetectedTextRegion, TranslationRegion, parse_keyed_translation, parse_streamed_translation,
+};
+
+#[derive(Clone, Copy, PartialEq)]
+enum MapPhase {
+    Key,
+    Colon,
+    Value,
+}
 
 pub(crate) struct TranslationStreamParser<'a> {
     candidates: &'a [DetectedTextRegion],
     buffer: String,
     scan: usize,
-    array_started: bool,
+    collection_started: bool,
+    keyed: bool,
+    map_phase: MapPhase,
+    member_key: String,
+    invalid: bool,
     element_start: Option<usize>,
     nested_depth: usize,
     in_string: bool,
@@ -21,7 +34,11 @@ impl<'a> TranslationStreamParser<'a> {
             candidates,
             buffer: String::new(),
             scan: 0,
-            array_started: false,
+            collection_started: false,
+            keyed: false,
+            map_phase: MapPhase::Key,
+            member_key: String::new(),
+            invalid: false,
             element_start: None,
             nested_depth: 0,
             in_string: false,
@@ -38,7 +55,7 @@ impl<'a> TranslationStreamParser<'a> {
         } else {
             self.buffer.push_str(chunk);
         }
-        if !self.locate_array() {
+        if self.invalid || !self.locate_collection() {
             return Vec::new();
         }
 
@@ -46,6 +63,36 @@ impl<'a> TranslationStreamParser<'a> {
         while self.scan < self.buffer.len() {
             let byte = self.buffer.as_bytes()[self.scan];
             if self.element_start.is_none() {
+                if self.keyed {
+                    if byte.is_ascii_whitespace()
+                        || (byte == b',' && self.map_phase == MapPhase::Key)
+                    {
+                        self.scan += 1;
+                        continue;
+                    }
+                    if self.map_phase == MapPhase::Colon {
+                        if byte != b':' {
+                            self.invalid = true;
+                            break;
+                        }
+                        self.map_phase = MapPhase::Value;
+                        self.scan += 1;
+                        continue;
+                    }
+                    if self.map_phase == MapPhase::Key {
+                        if byte == b'}' {
+                            break;
+                        }
+                        if byte != b'"' {
+                            self.invalid = true;
+                            break;
+                        }
+                    }
+                    if self.map_phase == MapPhase::Value && matches!(byte, b',' | b'}' | b']') {
+                        self.invalid = true;
+                        break;
+                    }
+                }
                 match byte {
                     b' ' | b'\t' | b'\r' | b'\n' | b',' => {
                         self.scan += 1;
@@ -90,9 +137,9 @@ impl<'a> TranslationStreamParser<'a> {
                         self.emit_element(self.scan + 1, &mut completed);
                     }
                 }
-                b',' | b']' if self.nested_depth == 0 => {
+                b',' | b']' | b'}' if self.nested_depth == 0 => {
                     self.emit_element(self.scan, &mut completed);
-                    if byte == b']' {
+                    if byte == b']' || byte == b'}' {
                         break;
                     }
                 }
@@ -107,15 +154,18 @@ impl<'a> TranslationStreamParser<'a> {
         self.rejected
     }
 
-    fn locate_array(&mut self) -> bool {
-        if self.array_started {
+    fn locate_collection(&mut self) -> bool {
+        if self.collection_started {
             return true;
         }
         let array_start = if let Some(marker) = self.buffer.find("\"translations\"") {
             let key_end = marker + "\"translations\"".len();
-            self.buffer[key_end..]
-                .find('[')
-                .map(|offset| key_end + offset)
+            let tail = self.buffer[key_end..]
+                .trim_start()
+                .strip_prefix(':')
+                .map(str::trim_start);
+            tail.filter(|tail| tail.starts_with(['[', '{']))
+                .map(|tail| self.buffer.len() - tail.len())
         } else {
             first_top_level_array(&self.buffer)
         };
@@ -123,7 +173,8 @@ impl<'a> TranslationStreamParser<'a> {
             return false;
         };
         self.scan = array_start + 1;
-        self.array_started = true;
+        self.keyed = self.buffer.as_bytes()[array_start] == b'{';
+        self.collection_started = true;
         true
     }
 
@@ -135,7 +186,23 @@ impl<'a> TranslationStreamParser<'a> {
         if value.is_empty() {
             return;
         }
-        match parse_streamed_translation(value, self.candidates) {
+        if self.keyed && self.map_phase == MapPhase::Key {
+            match serde_json::from_str::<String>(value) {
+                Ok(key) => {
+                    self.member_key = key;
+                    self.map_phase = MapPhase::Colon;
+                }
+                Err(_) => self.invalid = true,
+            }
+            return;
+        }
+        let parsed = if self.keyed {
+            self.map_phase = MapPhase::Key;
+            parse_keyed_translation(&self.member_key, value, self.candidates)
+        } else {
+            parse_streamed_translation(value, self.candidates)
+        };
+        match parsed {
             Ok((id, region)) if self.emitted.insert(id) => completed.push((id, region)),
             Err(_) => self.rejected += 1,
             Ok(_) => self.rejected += 1,
@@ -148,7 +215,11 @@ impl<'a> TranslationStreamParser<'a> {
     fn reset(&mut self) {
         self.buffer.clear();
         self.scan = 0;
-        self.array_started = false;
+        self.collection_started = false;
+        self.keyed = false;
+        self.map_phase = MapPhase::Key;
+        self.member_key.clear();
+        self.invalid = false;
         self.element_start = None;
         self.nested_depth = 0;
         self.in_string = false;
@@ -199,6 +270,60 @@ mod tests {
                 appearance: None,
             })
             .collect()
+    }
+
+    #[test]
+    fn keyed_members_stream_at_value_completion_across_escaped_unicode_chunks() {
+        let candidates = candidates();
+        let mut parser = TranslationStreamParser::new(&candidates);
+        let text = r#"{"translations":{"1":"a\\b \"quoted\" 名""#;
+        let mut emitted = Vec::new();
+        for character in text.chars() {
+            emitted.extend(parser.push(&character.to_string()));
+        }
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].0, 8);
+        assert_eq!(emitted[0].1.translated_segments, [r#"a\b "quoted" 名"#]);
+        assert_eq!(parser.push(r#", "0":"first"}}"#)[0].0, 7);
+        assert_eq!(parser.rejected_count(), 0);
+    }
+
+    #[test]
+    fn keyed_invalid_unknown_and_duplicate_members_cannot_shift_identity() {
+        let candidates = candidates();
+        let mut parser = TranslationStreamParser::new(&candidates);
+        let emitted = parser.push(r#"{"translations":{"99":"unknown","00":"alias","0":null,"1":"second","1":"duplicate","0":"first"}}"#);
+        assert_eq!(parser.rejected_count(), 4);
+        assert_eq!(
+            emitted.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            [8, 7]
+        );
+        assert_eq!(emitted[0].1.translated_segments, ["second"]);
+    }
+
+    #[test]
+    fn missing_map_value_cannot_be_replaced_by_the_next_key() {
+        let candidates = candidates();
+        let mut parser = TranslationStreamParser::new(&candidates);
+        assert!(
+            parser
+                .push(r#"{"translations":{"0":,"1":"second"}}"#)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn keyed_replacement_resets_partial_key_and_string_state() {
+        let candidates = candidates();
+        let mut parser = TranslationStreamParser::new(&candidates);
+        assert!(parser.push(r#"{"translations":{"0":"partial"#).is_empty());
+        let emitted = parser.push(&format!(
+            "{}{}",
+            crate::api::WIPE_SIGNAL,
+            r#"{"translations":{"1":"replacement"}}"#
+        ));
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].0, 8);
     }
 
     #[test]

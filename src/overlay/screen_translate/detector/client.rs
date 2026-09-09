@@ -1,7 +1,7 @@
 use std::io::{BufReader, BufWriter, Read as _};
 use std::os::windows::ffi::OsStrExt as _;
 use std::process::{Child, ChildStdin};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -19,46 +19,59 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 const DETECT_TIMEOUT: Duration = Duration::from_secs(15);
 const WAIT_INTERVAL: Duration = Duration::from_millis(40);
 const STDERR_TAIL_LIMIT: usize = 8 * 1024;
-const WARMUP_PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
-const WARMUP_PROGRESS_CEILING: f32 = 90.0;
-const WARMUP_PROGRESS_TIME_CONSTANT_SECS: f32 = 0.45;
 
 enum ReaderEvent {
     Message(u64, ServerMessage),
     Failed(String),
 }
 
-struct WarmupProgress {
-    badge: Arc<crate::overlay::auto_copy_badge::DownloadProgressBadge>,
-    complete: Arc<AtomicBool>,
-    message: &'static str,
+pub(super) struct WarmupProgress {
+    state: Arc<AtomicU8>,
 }
 
 impl WarmupProgress {
-    fn start(title: &'static str, message: &'static str) -> Self {
-        let badge = Arc::new(
-            crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(title, message),
-        );
-        badge.set_phase(message, 0.0);
-        let complete = Arc::new(AtomicBool::new(false));
-        simulate_warmup_progress(Arc::clone(&badge), Arc::clone(&complete), message);
-        Self {
-            badge,
-            complete,
-            message,
-        }
+    pub(super) fn start(title: &'static str, message: &'static str) -> Self {
+        let badge =
+            crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(title, message);
+        let message = format!("≈ {message}");
+        badge.set_phase(&message, 0.0);
+        let state = Arc::new(AtomicU8::new(0));
+        let worker_state = Arc::clone(&state);
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            loop {
+                match worker_state.load(Ordering::Acquire) {
+                    0 => badge.set_phase(&message, estimated_loading_percent(started.elapsed())),
+                    1 => {
+                        badge.set_phase(&message, 100.0);
+                        std::thread::sleep(Duration::from_millis(350));
+                        break;
+                    }
+                    _ => break,
+                }
+                std::thread::sleep(Duration::from_millis(80));
+            }
+            badge.finish();
+        });
+        Self { state }
     }
 
-    fn finish(self) {
-        self.badge.set_phase(self.message, 100.0);
+    pub(super) fn finish(self) {
+        self.state.store(1, Ordering::Release);
     }
 }
 
 impl Drop for WarmupProgress {
     fn drop(&mut self) {
-        self.complete.store(true, Ordering::Release);
-        self.badge.finish();
+        let _ = self
+            .state
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire);
     }
+}
+
+fn estimated_loading_percent(elapsed: Duration) -> f32 {
+    let seconds = (elapsed.as_secs_f32() - 0.35).max(0.0);
+    (99.0 * (1.0 - (-seconds / 3.0).exp())).min(99.0)
 }
 
 pub(super) struct DetectorClient {
@@ -75,7 +88,13 @@ pub(super) struct DetectorClient {
 
 impl DetectorClient {
     pub(super) fn start(cancelled: &AtomicBool) -> Result<Self> {
+        let preparation = Instant::now();
         let resources = LaunchResources::ensure(cancelled)?;
+        crate::log_info!(
+            "[Screen Translate] detector_resources_ms={:.1}",
+            preparation.elapsed().as_secs_f64() * 1000.0
+        );
+        let startup = Instant::now();
         let language = crate::APP
             .lock()
             .map(|app| app.config.ui_language.clone())
@@ -122,12 +141,23 @@ impl DetectorClient {
         let stderr_reader = std::thread::spawn(move || {
             let mut stderr = BufReader::new(stderr);
             let mut bytes = [0_u8; 1024];
+            let mut pending_line = String::new();
             loop {
                 let Ok(read) = stderr.read(&mut bytes) else {
                     return;
                 };
                 if read == 0 {
                     return;
+                }
+                pending_line.push_str(&String::from_utf8_lossy(&bytes[..read]));
+                while let Some(end) = pending_line.find('\n') {
+                    let line = pending_line.drain(..=end).collect::<String>();
+                    if line.starts_with("[DetectorPerf]") {
+                        crate::log_info!("[Screen Translate] {}", line.trim_end());
+                    }
+                }
+                if pending_line.len() > STDERR_TAIL_LIMIT {
+                    pending_line.clear();
                 }
                 let mut tail = stderr_target
                     .lock()
@@ -155,6 +185,10 @@ impl DetectorClient {
             resources,
         };
         client.handshake(cancelled)?;
+        crate::log_info!(
+            "[Screen Translate] detector_spawn_handshake_ms={:.1}",
+            startup.elapsed().as_secs_f64() * 1000.0
+        );
         warmup_progress.finish();
         Ok(client)
     }
@@ -310,28 +344,6 @@ fn log_detector_timings(timings: DetectionTimings, region_count: usize) {
     );
 }
 
-fn simulate_warmup_progress(
-    badge: Arc<crate::overlay::auto_copy_badge::DownloadProgressBadge>,
-    complete: Arc<AtomicBool>,
-    message: &'static str,
-) {
-    let _ = std::thread::Builder::new()
-        .name("sgt-screen-text-detector-warmup-progress".to_string())
-        .spawn(move || {
-            let started = Instant::now();
-            while !complete.load(Ordering::Acquire) {
-                std::thread::sleep(WARMUP_PROGRESS_INTERVAL);
-                badge.set_phase(message, estimated_warmup_progress(started.elapsed()));
-            }
-        });
-}
-
-fn estimated_warmup_progress(elapsed: Duration) -> f32 {
-    let progress = WARMUP_PROGRESS_CEILING
-        * (1.0 - (-elapsed.as_secs_f32() / WARMUP_PROGRESS_TIME_CONSTANT_SECS).exp());
-    progress.min(WARMUP_PROGRESS_CEILING)
-}
-
 impl Drop for DetectorClient {
     fn drop(&mut self) {
         if let Some(stdin) = self.stdin.as_mut() {
@@ -342,13 +354,32 @@ impl Drop for DetectorClient {
 }
 
 #[cfg(test)]
-mod warmup_progress_tests {
+mod progress_tests {
     use super::*;
 
     #[test]
-    fn estimate_matches_the_lazy_gpu_startup_without_finishing_early() {
-        assert_eq!(estimated_warmup_progress(Duration::ZERO), 0.0);
-        assert!(estimated_warmup_progress(Duration::from_millis(800)) > 70.0);
-        assert!(estimated_warmup_progress(Duration::from_secs(30)) <= 90.0);
+    fn estimate_starts_at_zero_and_never_claims_readiness() {
+        assert_eq!(estimated_loading_percent(Duration::ZERO), 0.0);
+        let mut previous = 0.0;
+        for millis in (0..120_000).step_by(80) {
+            let percent = estimated_loading_percent(Duration::from_millis(millis));
+            assert!((previous..100.0).contains(&percent));
+            previous = percent;
+        }
+    }
+
+    #[test]
+    fn dropping_completed_progress_preserves_its_completion_hold() {
+        let state = Arc::new(AtomicU8::new(0));
+        WarmupProgress {
+            state: Arc::clone(&state),
+        }
+        .finish();
+        assert_eq!(state.load(Ordering::Acquire), 1);
+        state.store(0, Ordering::Release);
+        drop(WarmupProgress {
+            state: Arc::clone(&state),
+        });
+        assert_eq!(state.load(Ordering::Acquire), 2);
     }
 }

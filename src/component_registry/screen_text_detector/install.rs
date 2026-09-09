@@ -100,11 +100,15 @@ fn download(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<()> {
+    on_progress(0, delivery.size_bytes);
     let request = crate::api::client::UREQ_DOWNLOAD_AGENT
         .get(delivery.download_url)
         .config()
         .https_only(true)
         .timeout_global(Some(DOWNLOAD_TIMEOUT))
+        // The response phase also bounds body transfer. Large archives need
+        // the full transfer budget; the shared body-idle timeout stays bounded.
+        .timeout_recv_response(Some(DOWNLOAD_TIMEOUT))
         .build();
     let response = request
         .header("User-Agent", "ScreenGoatedToolbox")
