@@ -12,36 +12,15 @@ use crate::overlay::result::markdown_view::conversion::render_for_compositor;
 use crate::overlay::result::state::WINDOW_STATES;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsWindow, IsWindowVisible};
 
 pub(super) static SCENES: LazyLock<Mutex<HashMap<isize, SceneCard>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-static SCENE_DISPATCH: Mutex<()> = Mutex::new(());
+pub(super) static SCENE_DISPATCH: Mutex<()> = Mutex::new(());
 static DEFERRED_SYNC: LazyLock<Mutex<HashSet<isize>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
-static COMPOSITOR_VISIBLE: LazyLock<Mutex<HashSet<isize>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
-static PENDING_GEOMETRY: LazyLock<Mutex<HashMap<isize, SceneGeometry>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-static GEOMETRY_SIGNAL: LazyLock<SyncSender<()>> = LazyLock::new(|| {
-    let (sender, receiver) = sync_channel(1);
-    std::thread::spawn(move || {
-        while receiver.recv().is_ok() {
-            while receiver.try_recv().is_ok() {}
-            let cards: Vec<SceneGeometry> = {
-                let mut pending = PENDING_GEOMETRY.lock().unwrap();
-                pending.drain().map(|(_, geometry)| geometry).collect()
-            };
-            if !cards.is_empty() {
-                send_command(HostCommand::Geometry { cards });
-            }
-        }
-    });
-    sender
-});
 pub(super) static DRAGGING: AtomicBool = AtomicBool::new(false);
 static NEXT_STACK_ORDER: AtomicU64 = AtomicU64::new(1);
 
@@ -236,11 +215,12 @@ fn command_for_transition(
 }
 
 pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
+    let _dispatch = SCENE_DISPATCH.lock().unwrap();
     if super::scene_groups::owns_geometry(hwnd.0 as isize) {
         return;
     }
     if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
-        remove_window(hwnd);
+        remove_window_locked(hwnd);
         return;
     }
     let presentation = WINDOW_STATES
@@ -272,11 +252,7 @@ pub fn sync_geometry(hwnd: HWND, requested_visible: bool) {
         card.visible = geometry.visible;
         delta
     };
-    PENDING_GEOMETRY
-        .lock()
-        .unwrap()
-        .insert(geometry.id, geometry);
-    let _ = GEOMETRY_SIGNAL.try_send(());
+    super::geometry_delivery::queue(geometry.id);
     if anchor_delta != (0, 0) {
         let shifted = WINDOW_STATES
             .lock()
@@ -360,11 +336,7 @@ fn read_geometry(
             width: (screen_rect.right - screen_rect.left).max(1),
             height: (screen_rect.bottom - screen_rect.top).max(1),
         },
-        visible: COMPOSITOR_VISIBLE
-            .lock()
-            .unwrap()
-            .contains(&(hwnd.0 as isize))
-            || (requested_visible && unsafe { IsWindowVisible(hwnd).as_bool() }),
+        visible: requested_visible && unsafe { IsWindowVisible(hwnd).as_bool() },
     })
 }
 
@@ -376,8 +348,7 @@ pub fn remove_window(hwnd: HWND) {
 fn remove_window_locked(hwnd: HWND) {
     let id = hwnd.0 as isize;
     DEFERRED_SYNC.lock().unwrap().remove(&id);
-    COMPOSITOR_VISIBLE.lock().unwrap().remove(&id);
-    PENDING_GEOMETRY.lock().unwrap().remove(&id);
+    super::geometry_delivery::remove(id);
     if SCENES.lock().unwrap().remove(&id).is_some() {
         crate::log_info!("[ResultCard] id={id} host=remove");
         send_command(HostCommand::Remove { id });
@@ -466,6 +437,7 @@ pub(super) fn scene_snapshot() -> Vec<SceneCard> {
 
 pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
     match event {
+        ChildEvent::StackChanged => crate::overlay::process::window::request_stack_reconciliation(),
         ChildEvent::FontReady { duration_ms } => crate::log_info!(
             "[ResultCompositor] bundled_font_ready generation={generation} duration_ms={duration_ms:.1}"
         ),

@@ -20,6 +20,8 @@ use windows::core::w;
 
 const WM_DRAIN_COMMANDS: u32 = WM_APP + 91;
 const WM_REFRESH_VISUAL: u32 = WM_APP + 92;
+const WM_RECONCILE_STACK: u32 = WM_APP + 93;
+static STACK_RECONCILIATION_PENDING: AtomicBool = AtomicBool::new(false);
 static VISUAL_REFRESH_PENDING: AtomicBool = AtomicBool::new(false);
 const INPUT_TIMER_ID: usize = 1;
 static HOST_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -92,9 +94,7 @@ pub(super) fn create_host_window() -> anyhow::Result<HWND> {
         let _ = RegisterClassW(&window_class);
         let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
         let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
-        let x = GetSystemMetrics(SM_XVIRTUALSCREEN)
-            .saturating_sub(width)
-            .saturating_sub(64);
+        let x = super::compositor_host_x(GetSystemMetrics(SM_XVIRTUALSCREEN), width);
         let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST
@@ -169,6 +169,11 @@ unsafe extern "system" fn window_proc(
 ) -> LRESULT {
     unsafe {
         match message {
+            WM_RECONCILE_STACK => {
+                STACK_RECONCILIATION_PENDING.store(false, Ordering::SeqCst);
+                emit_event(ChildEvent::StackChanged);
+                LRESULT(0)
+            }
             WM_REFRESH_VISUAL => {
                 VISUAL_REFRESH_PENDING.store(false, Ordering::SeqCst);
                 refresh_visual_region();
@@ -434,6 +439,7 @@ pub(super) fn handle_renderer_event(body: &str) {
                         emit_event(event);
                     }
                     ChildEvent::Ready
+                    | ChildEvent::StackChanged
                     | ChildEvent::Heartbeat
                     | ChildEvent::ResyncRequested
                     | ChildEvent::RendererFailure { .. } => {}
@@ -523,6 +529,14 @@ fn resize_host(hwnd: HWND) {
 pub(super) fn request_visual_region() {
     if !VISUAL_REFRESH_PENDING.swap(true, Ordering::SeqCst) {
         post_host(WM_REFRESH_VISUAL);
+    }
+}
+
+pub(super) fn request_stack_reconciliation() {
+    if HOST_HWND.load(Ordering::SeqCst) != 0
+        && !STACK_RECONCILIATION_PENDING.swap(true, Ordering::SeqCst)
+    {
+        post_host(WM_RECONCILE_STACK);
     }
 }
 

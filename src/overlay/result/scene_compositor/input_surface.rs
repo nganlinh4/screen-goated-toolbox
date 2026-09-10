@@ -328,7 +328,8 @@ pub(super) fn update_input_regions(
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 return AppliedInputState::hidden();
             }
-            if !IsWindowVisible(hwnd).as_bool() {
+            let showing = !IsWindowVisible(hwnd).as_bool();
+            if showing {
                 if SetWindowPos(
                     hwnd,
                     None,
@@ -345,15 +346,20 @@ pub(super) fn update_input_regions(
                 }
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             }
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-            );
+            if (showing || !unchanged)
+                && SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                )
+                .is_ok()
+            {
+                super::child::request_stack_reconciliation();
+            }
             AppliedInputState {
                 visible_cards,
                 input_region_count,

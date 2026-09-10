@@ -18,7 +18,7 @@ mod tests {
     static TEST_LOCK: Mutex<()> = Mutex::new(());
     static REGISTER_RECEIVER_CLASS: Once = Once::new();
     #[test]
-    fn result_pair_stays_below_visible_glow_without_activation() {
+    fn result_pair_does_not_reorder_unowned_glow_windows() {
         let _guard = TEST_LOCK.lock().unwrap();
         unsafe {
             let instance = GetModuleHandleW(None).unwrap();
@@ -75,10 +75,10 @@ mod tests {
             assert!(super::super::visual_region::stack_below_input(
                 visual, input
             ));
-            let mut next = edge;
-            while next != input {
+            let mut next = visual;
+            while next != edge {
                 next = GetWindow(next, GW_HWNDNEXT).unwrap();
-                assert_ne!(next, visual, "glow must precede the result pair");
+                assert_ne!(next, input, "unowned glow must not raise the result pair");
             }
             assert_eq!(GetWindow(input, GW_HWNDNEXT).unwrap(), visual);
             assert_eq!(GetForegroundWindow(), foreground);

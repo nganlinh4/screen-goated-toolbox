@@ -60,7 +60,8 @@ public static class SgtDesktopInputProbe {
         return name.ToString();
     }
     static bool IsShell(string name) {
-        return name == "Progman" || name == "WorkerW" || name == "SHELLDLL_DefView" || name == "SysListView32";
+        return name == "Progman" || name == "WorkerW" || name == "SHELLDLL_DefView" || name == "SysListView32"
+            || name == "Shell_TrayWnd" || name == "Shell_SecondaryTrayWnd";
     }
     static Dictionary<string, object> Describe(IntPtr hwnd, bool probeShell) {
         uint pid;
@@ -141,7 +142,8 @@ public static class SgtDesktopInputProbe {
 Write-Host "Place the pointer over the affected desktop. Capturing in $DelaySeconds seconds."
 if ($DelaySeconds -gt 0) { Start-Sleep -Seconds $DelaySeconds }
 $snapshot = [SgtDesktopInputProbe]::Capture()
-$processes = @(Get-Process | Select-Object Id, ProcessName)
+$processes = @(Get-CimInstance Win32_Process | Select-Object @{Name='Id'; Expression={$_.ProcessId}},
+    @{Name='ProcessName'; Expression={$_.Name}}, ParentProcessId)
 @{ native = $snapshot; processes = $processes } |
     ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
 Write-Host "Saved native window metadata: $OutputPath"

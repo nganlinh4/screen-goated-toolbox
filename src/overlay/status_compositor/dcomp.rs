@@ -35,6 +35,7 @@ window.addEventListener('unhandledrejection',function(e){window.ipc.postMessage(
 "#;
 
 pub(super) struct DcompHost {
+    controller_parent: HWND,
     _device: IDCompositionDevice,
     _target: IDCompositionTarget,
     _root: IDCompositionVisual,
@@ -47,6 +48,11 @@ impl DcompHost {
         &self,
         display: super::DisplayMetrics,
     ) -> windows::core::Result<()> {
+        crate::overlay::composition_anchor::resize(
+            self.controller_parent,
+            display.width,
+            display.height,
+        )?;
         unsafe {
             let controller: ICoreWebView2Controller = self.comp.cast()?;
             if let Ok(controller3) = controller.cast::<ICoreWebView2Controller3>() {
@@ -96,12 +102,15 @@ pub(super) fn build_host(hwnd: HWND) -> windows::core::Result<DcompHost> {
         };
 
         let environment3: ICoreWebView2Environment3 = environment.cast()?;
+        let display = super::display_metrics(hwnd);
+        let controller_parent =
+            crate::overlay::composition_anchor::create(hwnd, display.width, display.height)?;
         let composition = {
             let (sender, receiver) = std::sync::mpsc::channel();
             CreateCoreWebView2CompositionControllerCompletedHandler::wait_for_async_operation(
                 Box::new(move |handler| {
                     environment3
-                        .CreateCoreWebView2CompositionController(hwnd, &handler)
+                        .CreateCoreWebView2CompositionController(controller_parent, &handler)
                         .map_err(webview2_com::Error::WindowsError)
                 }),
                 Box::new(move |code, controller| {
@@ -116,7 +125,6 @@ pub(super) fn build_host(hwnd: HWND) -> windows::core::Result<DcompHost> {
         composition.SetRootVisualTarget(&root)?;
 
         let controller: ICoreWebView2Controller = composition.cast()?;
-        let display = super::display_metrics(hwnd);
         if let Ok(controller3) = controller.cast::<ICoreWebView2Controller3>() {
             controller3.SetBoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS)?;
             controller3.SetShouldDetectMonitorScaleChanges(false)?;
@@ -150,6 +158,7 @@ pub(super) fn build_host(hwnd: HWND) -> windows::core::Result<DcompHost> {
         device.Commit()?;
 
         Ok(DcompHost {
+            controller_parent,
             _device: device,
             _target: target,
             _root: root,

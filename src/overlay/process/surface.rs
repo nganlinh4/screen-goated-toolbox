@@ -9,10 +9,10 @@ use windows::Win32::Graphics::Gdi::{
     HBITMAP, HDC, HGDIOBJ, PAINTSTRUCT, ReleaseDC, SelectObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, HTTRANSPARENT, RegisterClassW,
-    SW_SHOWNOACTIVATE, ShowWindow, ULW_ALPHA, UpdateLayeredWindow, WM_NCHITTEST, WM_PAINT,
-    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
-    WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, HTTRANSPARENT, HWND_TOPMOST, RegisterClassW,
+    SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, ShowWindow, ULW_ALPHA,
+    UpdateLayeredWindow, WM_NCHITTEST, WM_PAINT, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::w;
 
@@ -48,6 +48,24 @@ impl SurfaceSet {
 
     pub fn pixel_count(&self) -> usize {
         self.pixel_count
+    }
+
+    pub unsafe fn raise_visible(&self) {
+        for surface in &self.surfaces {
+            if surface.shown {
+                let _ = unsafe {
+                    SetWindowPos(
+                        surface.hwnd,
+                        Some(HWND_TOPMOST),
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                    )
+                };
+            }
+        }
     }
 
     pub unsafe fn present(&mut self, elapsed: std::time::Duration, alpha: u8, recolor: bool) {

@@ -148,6 +148,7 @@ pub unsafe fn create_processing_window(rect: RECT) -> HWND {
         };
         let state = ProcessingState::new(surfaces);
         STATES.lock().unwrap().insert(controller.0 as isize, state);
+        super::stacking::register(controller);
         SetTimer(Some(controller), 1, APPEAR_INTERVAL_MS, None);
         controller
     }
@@ -161,6 +162,14 @@ unsafe extern "system" fn controller_wnd_proc(
 ) -> LRESULT {
     unsafe {
         match message {
+            super::stacking::WM_RECONCILE_STACK => {
+                if super::stacking::take(hwnd)
+                    && let Some(state) = STATES.lock().unwrap().get(&(hwnd.0 as isize))
+                {
+                    state.surfaces.raise_visible();
+                }
+                LRESULT(0)
+            }
             WM_CLOSE => {
                 begin_fade(hwnd);
                 LRESULT(0)
@@ -176,12 +185,17 @@ unsafe extern "system" fn controller_wnd_proc(
                 LRESULT(0)
             }
             WM_DESTROY => {
+                super::stacking::unregister(hwnd);
                 STATES.lock().unwrap().remove(&(hwnd.0 as isize));
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, message, wparam, lparam),
         }
     }
+}
+
+pub(crate) fn request_stack_reconciliation() {
+    super::stacking::request();
 }
 
 unsafe fn begin_fade(hwnd: HWND) {
@@ -254,6 +268,10 @@ unsafe fn render_timer(hwnd: HWND, timer_id: usize) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "window_stacking_tests.rs"]
+mod stacking_tests;
 
 #[cfg(test)]
 mod tests {

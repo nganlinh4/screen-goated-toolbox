@@ -286,6 +286,7 @@ impl RendererFailureKind {
 pub enum ChildEvent {
     Ready,
     Heartbeat,
+    StackChanged,
     ResyncRequested,
     RendererFailure {
         kind: RendererFailureKind,

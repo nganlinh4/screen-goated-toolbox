@@ -11,6 +11,7 @@ mod dcomp;
 mod delivery;
 mod diagnostics;
 pub(crate) mod font;
+mod geometry_delivery;
 mod gesture;
 mod html;
 mod input_surface;

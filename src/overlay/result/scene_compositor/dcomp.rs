@@ -38,6 +38,8 @@ window.addEventListener('unhandledrejection',function(e){window.ipc.postMessage(
 
 pub(super) struct DcompHost {
     heartbeat_at: std::cell::Cell<std::time::Instant>,
+    visible: std::cell::Cell<bool>,
+    controller_parent: HWND,
     _device: IDCompositionDevice,
     _target: IDCompositionTarget,
     _root: IDCompositionVisual,
@@ -55,10 +57,14 @@ impl DcompHost {
     }
 
     pub(super) fn set_visible(&self, visible: bool) -> windows::core::Result<()> {
+        if self.visible.get() == visible {
+            return Ok(());
+        }
         unsafe {
             let controller: ICoreWebView2Controller = self.comp.cast()?;
             controller.SetIsVisible(visible)?;
-            controller.NotifyParentWindowPositionChanged()
+            self.visible.set(visible);
+            Ok(())
         }
     }
 
@@ -68,6 +74,7 @@ impl DcompHost {
         height: i32,
         scale: f64,
     ) -> windows::core::Result<()> {
+        crate::overlay::composition_anchor::resize(self.controller_parent, width, height)?;
         unsafe {
             let controller: ICoreWebView2Controller = self.comp.cast()?;
             if let Ok(controller3) = controller.cast::<ICoreWebView2Controller3>() {
@@ -166,12 +173,13 @@ pub(super) fn build_host(
         };
 
         let environment3: ICoreWebView2Environment3 = environment.cast()?;
+        let controller_parent = crate::overlay::composition_anchor::create(hwnd, width, height)?;
         let composition = {
             let (sender, receiver) = std::sync::mpsc::channel();
             CreateCoreWebView2CompositionControllerCompletedHandler::wait_for_async_operation(
                 Box::new(move |handler| {
                     environment3
-                        .CreateCoreWebView2CompositionController(hwnd, &handler)
+                        .CreateCoreWebView2CompositionController(controller_parent, &handler)
                         .map_err(webview2_com::Error::WindowsError)
                 }),
                 Box::new(move |code, controller| {
@@ -218,6 +226,8 @@ pub(super) fn build_host(
 
         Ok(DcompHost {
             heartbeat_at: std::cell::Cell::new(std::time::Instant::now()),
+            visible: std::cell::Cell::new(false),
+            controller_parent,
             _device: device,
             _target: target,
             _root: root,

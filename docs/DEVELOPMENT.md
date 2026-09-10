@@ -163,6 +163,20 @@ target or feature set differs. Do not use a release build as routine
 validation; release packaging enables LTO/stripping and rebuilds every
 packaged frontend.
 
+### Desktop input regression
+
+On an unlocked Windows desktop, exercise real result/status controllers against
+Explorer context menus, ordinary application input, and each visible taskbar:
+
+```powershell
+python scripts/test_desktop_compositor_input.py --exe <development-exe> --expose-desktop
+```
+
+The optional `--expose-desktop` switch requires `pywin32`; it minimizes and then
+restores open windows. The runner checks empty, visible, dismissed, reopened, and
+recreated controllers. It writes a fresh report beneath the managed development
+cache's `evidence` directory. An obscured target or missing menu fails acceptance.
+
 ### Development-only Windows performance profiles
 
 The normal `release` profile remains the compact shipping baseline. It uses

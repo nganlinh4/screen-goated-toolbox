@@ -6,42 +6,10 @@ use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, DeleteObject, EqualRgn, GetWindowRgn, RGN_OR, SetWindowRgn,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, GW_HWNDNEXT, GetSystemMetrics, GetWindow, HWND_TOPMOST, IsWindowVisible,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE,
-    SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
-    ShowWindow,
+    GW_HWNDNEXT, GetSystemMetrics, GetWindow, IsWindowVisible, SM_XVIRTUALSCREEN,
+    SM_YVIRTUALSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SetWindowPos, ShowWindow,
 };
-
-// Reassert decorative edges only when the result pair changes stacking, never
-// from an animation timer. Snapshot first: raising an edge changes enumeration.
-fn raise_processing_glow() {
-    let mut previous = None;
-    let mut edges = Vec::new();
-    unsafe {
-        while let Ok(edge) = FindWindowExW(
-            None,
-            previous,
-            windows::core::w!("SGTProcessingGlowEdge"),
-            None,
-        ) {
-            if IsWindowVisible(edge).as_bool() {
-                edges.push(edge);
-            }
-            previous = Some(edge);
-        }
-        for edge in edges.into_iter().rev() {
-            let _ = SetWindowPos(
-                edge,
-                Some(HWND_TOPMOST),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-            );
-        }
-    }
-}
 
 pub(super) fn stack_below_input(visual: HWND, input: HWND) -> bool {
     unsafe {
@@ -50,7 +18,6 @@ pub(super) fn stack_below_input(visual: HWND, input: HWND) -> bool {
             || !IsWindowVisible(input).as_bool()
             || GetWindow(input, GW_HWNDNEXT).ok() == Some(visual)
         {
-            raise_processing_glow();
             return true;
         }
         // Raising input alone can leave another topmost app between input and
@@ -65,7 +32,9 @@ pub(super) fn stack_below_input(visual: HWND, input: HWND) -> bool {
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
         )
         .is_ok();
-        raise_processing_glow();
+        if positioned {
+            super::child::request_stack_reconciliation();
+        }
         positioned
     }
 }
@@ -73,21 +42,17 @@ pub(super) fn stack_below_input(visual: HWND, input: HWND) -> bool {
 pub(super) fn hide(hwnd: HWND) {
     unsafe {
         // Visibility is the fail-closed boundary even if allocating a region fails.
-        let _ = ShowWindow(hwnd, SW_HIDE);
-        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
-        let _ = SetWindowPos(
-            hwnd,
-            None,
-            GetSystemMetrics(SM_XVIRTUALSCREEN)
-                .saturating_sub(width)
-                .saturating_sub(64),
-            GetSystemMetrics(SM_YVIRTUALSCREEN),
-            width,
-            GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1),
-            SWP_NOACTIVATE | SWP_NOZORDER,
-        );
-        if !super::child::set_renderer_visible(hwnd, false) {
-            std::process::exit(1);
+        if IsWindowVisible(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+        // Native visibility and the off-screen controller anchor already exclude
+        // input. A failed optional render-throttling request must not kill the child.
+        let _ = super::child::set_renderer_visible(hwnd, false);
+        let mut bounds = windows::Win32::Foundation::RECT::default();
+        if windows::Win32::Graphics::Gdi::GetWindowRgnBox(hwnd, &mut bounds)
+            == windows::Win32::Graphics::Gdi::NULLREGION
+        {
+            return;
         }
         let empty = CreateRectRgn(0, 0, 0, 0);
         if !empty.is_invalid() && SetWindowRgn(hwnd, Some(empty), false) == 0 {
@@ -198,7 +163,6 @@ mod tests {
             assert!(!IsWindowVisible(hwnd).as_bool());
             let mut bounds = windows::Win32::Foundation::RECT::default();
             windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut bounds).unwrap();
-            assert!(bounds.right < GetSystemMetrics(SM_XVIRTUALSCREEN));
             let region = CreateRectRgn(0, 0, 0, 0);
             assert_eq!(GetWindowRgn(hwnd, region).0, 1);
             let rect = SceneRect {
@@ -212,10 +176,19 @@ mod tests {
             assert_eq!(GetWindowRgn(hwnd, region).0, 2);
             assert!(PtInRegion(region, 150, 150).as_bool());
             assert!(!PtInRegion(region, 400, 300).as_bool());
+            windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut bounds).unwrap();
+            let shown_bounds = bounds;
             assert!(apply(hwnd, &[], 800, 600));
             assert!(!IsWindowVisible(hwnd).as_bool());
             windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut bounds).unwrap();
-            assert!(bounds.right < GetSystemMetrics(SM_XVIRTUALSCREEN));
+            assert_eq!(bounds, shown_bounds);
+            assert_eq!(GetWindowRgn(hwnd, region).0, 1);
+            for _ in 0..20 {
+                hide(hwnd);
+            }
+            windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut bounds).unwrap();
+            assert_eq!(bounds, shown_bounds);
+            assert!(!IsWindowVisible(hwnd).as_bool());
             assert_eq!(GetWindowRgn(hwnd, region).0, 1);
             let _ = DeleteObject(region.into());
             let _ = DestroyWindow(hwnd);

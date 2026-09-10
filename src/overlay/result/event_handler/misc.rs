@@ -18,10 +18,13 @@ pub const WM_DOWNLOAD_CLICK: u32 = WM_USER + 217;
 pub const WM_CLOSE_GROUP_CLICK: u32 = WM_USER + 219;
 
 pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
+    // Stop queued text sync from republishing the scene while the HWND still
+    // exists during WM_DESTROY. Removal then waits for any earlier scene dispatch.
+    let state = WINDOW_STATES.lock().unwrap().remove(&(hwnd.0 as isize));
     super::super::scene_compositor::set_external_drag(hwnd, false);
     super::super::raw_webview::destroy(hwnd);
     super::super::scene_compositor::remove_window(hwnd);
-    if let Some(state) = WINDOW_STATES.lock().unwrap().remove(&(hwnd.0 as isize)) {
+    if let Some(state) = state {
         if let Some(token) = state.cancellation_token {
             token.cancel();
         }
