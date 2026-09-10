@@ -1,5 +1,9 @@
 //! Real-time Gemini Live WebSocket streaming for audio transcription.
 
+#[cfg(test)]
+mod live_tests;
+mod pending_audio;
+mod speech_boundaries;
 mod stream_loop;
 
 use std::sync::{
@@ -50,6 +54,8 @@ pub fn record_and_stream_gemini_live(
     _target_window: Option<HWND>,
 ) {
     println!("[GeminiLiveStream] Starting real-time streaming...");
+    let auto_paste =
+        crate::overlay::utils::StreamingAutoPaste::new(preset.auto_paste, abort_signal.clone());
 
     // Create streaming overlay if enabled
     let streaming_hwnd = create_streaming_overlay(&preset);
@@ -172,6 +178,7 @@ pub fn record_and_stream_gemini_live(
         audio_buffer: &audio_buffer,
         accumulated_text: &accumulated_text,
         transcribe_text: &mut transcribe_text,
+        auto_paste: &auto_paste,
         stop_signal: &stop_signal,
         pause_signal: &pause_signal,
         abort_signal: &abort_signal,
@@ -179,6 +186,7 @@ pub fn record_and_stream_gemini_live(
         update_stream_text: &update_stream_text,
     });
 
+    auto_paste.begin_drain();
     drop(stream);
     crate::overlay::screen_record::notify_external_audio_capture_released("gemini-live-stream");
     println!("[GeminiLiveStream] Stopped, waiting for tail...");
@@ -191,17 +199,21 @@ pub fn record_and_stream_gemini_live(
         }
         let _ = session.end_audio_stream();
 
-        stream_loop::wait_for_final_transcriptions(
-            &mut session,
-            &accumulated_text,
-            &mut transcribe_text,
-            crate::api::gemini_transcribe::is_live_transcribe(&gemini_live_model),
-            &preset,
+        stream_loop::wait_for_final_transcriptions(stream_loop::FinalTranscriptionsContext {
+            session: &mut session,
+            accumulated_text: &accumulated_text,
+            transcribe_text: &mut transcribe_text,
+            auto_paste: &auto_paste,
+            uses_interim_transcripts: crate::api::gemini_transcribe::is_live_transcribe(
+                &gemini_live_model,
+            ),
             streaming_hwnd,
-        );
+            abort_signal: &abort_signal,
+        });
     }
 
     let _ = session.close();
+    auto_paste.finish();
     let final_text = accumulated_text.lock().unwrap().clone();
     println!("[GeminiLiveStream] Result: '{}'", final_text);
 

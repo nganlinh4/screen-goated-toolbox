@@ -73,7 +73,6 @@ internal class PresetOverlayController(
         permissionSnapshotProvider = { appContainer.repository.state.value.permissions },
         screenBoundsProvider = ::screenBounds,
         toastBus = appContainer.toastBus,
-        onStreamingTextChunk = ::appendStreamingTextChunk,
     )
     internal val autoSpeakCoordinator = if (ttsRuntimeService != null && ttsSettingsSnapshotProvider != null) {
         PresetAutoSpeakCoordinator(

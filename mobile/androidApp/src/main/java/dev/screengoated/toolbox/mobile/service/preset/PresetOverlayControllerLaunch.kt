@@ -184,17 +184,6 @@ internal fun PresetOverlayController.resumePendingAudioLaunch() {
     )
 }
 
-internal fun PresetOverlayController.appendStreamingTextChunk(chunk: String): Boolean {
-    if (chunk.isBlank()) {
-        return false
-    }
-    val service = SgtAccessibilityService.instance ?: return false
-    return service.appendTextToFocusedField(
-        text = chunk,
-        uiLanguage = uiLanguage(),
-    )
-}
-
 /**
  * Handle TEXT_SELECT after the selected text has been captured.
  * Fixed prompt → execute immediately.

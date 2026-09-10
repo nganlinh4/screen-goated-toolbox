@@ -312,14 +312,16 @@ class PresetRepositoryTest {
             streamingContract.getValue("final_transcript_handoff").jsonPrimitive.content,
         )
         assertEquals(
-            "inject_authoritative_final_deltas_during_capture_and_skip_final_paste_when_already_written",
+            "revise_verified_owned_provisional_tail_commit_finals_and_suppress_final_result_paste",
             streamingContract.getValue("streaming_auto_paste").jsonPrimitive.content,
         )
         assertTrue(audioSession.contains("PresetModelProvider.GEMINI_LIVE"))
         assertTrue(audioSession.contains("openStreamingSession"))
-        assertTrue(audioSession.contains("onStreamingTextChunk(chunk)"))
+        assertTrue(audioSession.contains("delivery?.finalSegment(chunk)"))
+        assertTrue(audioSession.contains("onInterim ="))
+        assertTrue(audioSession.contains("AccessibilityProvisionalPasteTarget.capture"))
         assertTrue(audioSession.contains("precomputedTranscript = streamingTranscript?.transcript"))
-        assertTrue(audioSession.contains("isStreamingResult = streamingTranscript?.producedRealtimePaste == true"))
+        assertTrue(audioSession.contains("isStreamingResult = streamingPaste.suppressFinalPaste || streamingTranscript?.producedRealtimePaste == true"))
         assertTrue(audioBlockExecutor.contains("input.precomputedTranscript"))
         assertTrue(graphExecutor.contains("shouldSkipFinalAutoPaste"))
         assertTrue(graphExecutor.contains("(input as? PresetInput.Audio)?.isStreamingResult == true"))

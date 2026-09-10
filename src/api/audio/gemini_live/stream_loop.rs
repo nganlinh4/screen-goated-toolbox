@@ -7,6 +7,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::api::gemini_live::ready_session::{LivePoll, ReadyLiveSession};
+use crate::api::gemini_live::transcription_recovery::TranscriptionRecovery;
 use crate::api::gemini_live::transport::is_recoverable_anyhow_socket_error;
 use crate::config::Preset;
 use crate::overlay::result::update_window_text;
@@ -27,8 +28,9 @@ struct ReconnectContext<'a> {
     silence_buffer: &'a mut Vec<i16>,
     audio_mode: &'a mut AudioMode,
     mode_start: &'a mut Instant,
-    last_transcription_time: &'a mut Instant,
     consecutive_empty_reads: &'a mut u32,
+    recovery: &'a mut TranscriptionRecovery,
+    dedicated_vad: &'a mut crate::api::gemini_transcribe::HybridVad,
     stop_signal: &'a Arc<AtomicBool>,
     abort_signal: &'a Arc<AtomicBool>,
 }
@@ -43,17 +45,20 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
         silence_buffer,
         audio_mode,
         mode_start,
-        last_transcription_time,
         consecutive_empty_reads,
+        recovery,
+        dedicated_vad,
         stop_signal,
         abort_signal,
     } = context;
-    let mut reconnect_buffer: Vec<i16> = Vec::new();
+    // Older unsent audio must remain ahead of samples captured during reconnect.
+    let mut reconnect_buffer = std::mem::take(silence_buffer);
     let _ = session.close();
 
     loop {
         if stop_signal.load(Ordering::Relaxed) || abort_signal.load(Ordering::Relaxed) {
             println!("[GeminiLiveStream] Cancellation received during reconnection.");
+            silence_buffer.extend(reconnect_buffer);
             return false;
         }
 
@@ -76,13 +81,15 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
                 *audio_mode = AudioMode::CatchUp;
                 *mode_start = Instant::now();
                 *session = new_session;
-                *last_transcription_time = Instant::now();
                 *consecutive_empty_reads = 0;
+                recovery.reset();
+                dedicated_vad.reset_connection();
 
                 return true;
             }
             Err(e) => {
                 if stop_signal.load(Ordering::Relaxed) || abort_signal.load(Ordering::Relaxed) {
+                    silence_buffer.extend(reconnect_buffer);
                     return false;
                 }
                 println!(
@@ -105,6 +112,7 @@ pub(super) struct StreamingLoopContext<'a, F> {
     pub(super) audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
     pub(super) accumulated_text: &'a Arc<Mutex<String>>,
     pub(super) transcribe_text: &'a mut crate::api::gemini_transcribe::TranscriptState,
+    pub(super) auto_paste: &'a crate::overlay::utils::StreamingAutoPaste,
     pub(super) stop_signal: &'a Arc<AtomicBool>,
     pub(super) pause_signal: &'a Arc<AtomicBool>,
     pub(super) abort_signal: &'a Arc<AtomicBool>,
@@ -125,6 +133,7 @@ where
         audio_buffer,
         accumulated_text,
         transcribe_text,
+        auto_paste,
         stop_signal,
         pause_signal,
         abort_signal,
@@ -135,7 +144,6 @@ where
     const NORMAL_DURATION: Duration = Duration::from_secs(20);
     const SILENCE_DURATION: Duration = Duration::from_secs(2);
     const SAMPLES_PER_100MS: usize = 1600;
-    const NO_RESULT_THRESHOLD_SECS: u64 = 8;
     const EMPTY_READ_CHECK_COUNT: u32 = 50;
 
     let mut last_send = Instant::now();
@@ -147,10 +155,13 @@ where
 
     let mut audio_mode = AudioMode::Normal;
     let mut mode_start = Instant::now();
-    let mut silence_buffer: Vec<i16> = Vec::new();
-    let mut last_transcription_time = Instant::now();
+    let mut silence_buffer =
+        super::pending_audio::PendingAudio::new(audio_buffer.clone(), abort_signal.clone());
     let mut consecutive_empty_reads: u32 = 0;
     let uses_interim_transcripts = crate::api::gemini_transcribe::is_live_transcribe(model);
+    let started = Instant::now();
+    let mut recovery = TranscriptionRecovery::default();
+    let mut dedicated_vad = crate::api::gemini_transcribe::HybridVad::default();
 
     while !stop_signal.load(Ordering::SeqCst) && !abort_signal.load(Ordering::SeqCst) {
         if !preset.hide_recording_ui && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
@@ -167,6 +178,7 @@ where
             }
             AudioMode::Silence => {
                 if mode_start.elapsed() >= SILENCE_DURATION {
+                    recovery.input_flushed(started.elapsed().as_millis() as u64);
                     audio_mode = AudioMode::CatchUp;
                     mode_start = Instant::now();
                 }
@@ -192,6 +204,18 @@ where
                             if send_audio(session, chunk).is_err() {
                                 break;
                             }
+                            observe_sent_audio(&mut recovery, chunk);
+                            if uses_interim_transcripts
+                                && super::speech_boundaries::flush_completed_speech(
+                                    &mut dedicated_vad,
+                                    Some(chunk),
+                                    Instant::now(),
+                                    || session.end_audio_stream(),
+                                )
+                                .is_err()
+                            {
+                                return;
+                            }
                         }
                     }
                 }
@@ -208,56 +232,91 @@ where
                     let to_send: Vec<i16> = if silence_buffer.len() >= double_chunk {
                         silence_buffer.drain(..double_chunk).collect()
                     } else if !silence_buffer.is_empty() {
-                        std::mem::take(&mut silence_buffer)
+                        std::mem::take(&mut *silence_buffer)
                     } else {
                         Vec::new()
                     };
                     if !to_send.is_empty() && send_audio(session, &to_send).is_err() {
                         break;
                     }
+                    observe_sent_audio(&mut recovery, &to_send);
+                    if uses_interim_transcripts
+                        && !to_send.is_empty()
+                        && super::speech_boundaries::flush_completed_speech(
+                            &mut dedicated_vad,
+                            Some(&to_send),
+                            Instant::now(),
+                            || session.end_audio_stream(),
+                        )
+                        .is_err()
+                    {
+                        return;
+                    }
                 }
             }
             last_send = Instant::now();
         }
 
+        if uses_interim_transcripts
+            && super::speech_boundaries::flush_completed_speech(
+                &mut dedicated_vad,
+                None,
+                Instant::now(),
+                || session.end_audio_stream(),
+            )
+            .is_err()
+        {
+            return;
+        }
+
         loop {
             match session.poll() {
                 Ok(LivePoll::Frame(frame)) => {
+                    if frame.content_count() > 0 || frame.response_complete() || frame.interrupted {
+                        recovery.reset();
+                    }
                     if uses_interim_transcripts {
-                        if let Some(interim) = frame.interim_input_transcript
-                            && !interim.is_empty()
-                        {
-                            last_transcription_time = Instant::now();
+                        let has_update = frame.interim_input_transcript.is_some()
+                            || frame.input_transcript.is_some();
+                        let delta = transcribe_text.apply_update(
+                            frame.interim_input_transcript.as_deref(),
+                            frame.input_transcript.as_deref(),
+                        );
+                        if has_update {
                             consecutive_empty_reads = 0;
-                            transcribe_text.replace_interim(&interim);
                             update_stream_text(&transcribe_text.display());
                         }
-                        if let Some(final_text) = frame.input_transcript
-                            && !final_text.is_empty()
+                        if delta.is_none()
+                            && frame.interim_input_transcript.is_some()
+                            && !abort_signal.load(Ordering::Relaxed)
                         {
-                            last_transcription_time = Instant::now();
-                            consecutive_empty_reads = 0;
-                            let delta = transcribe_text.commit_final(&final_text);
+                            auto_paste.interim(
+                                &transcribe_text.display()[transcribe_text.committed().len()..],
+                            );
+                        }
+                        if let Some(delta) = delta {
                             if let Ok(mut txt) = accumulated_text.lock() {
                                 txt.clear();
                                 txt.push_str(transcribe_text.committed());
                             }
-                            update_stream_text(transcribe_text.committed());
-                            if preset.auto_paste && !delta.is_empty() {
-                                crate::overlay::utils::type_text_to_window(None, &delta);
+                            crate::log_info!(
+                                "[GeminiLiveStream] authoritative_final chars={} recording_active=true",
+                                delta.chars().count()
+                            );
+                            if !abort_signal.load(Ordering::Relaxed) {
+                                auto_paste.final_text(&delta);
                             }
                         }
                     } else if let Some(t) = frame.input_transcript
                         && !t.is_empty()
                     {
-                        last_transcription_time = Instant::now();
                         consecutive_empty_reads = 0;
                         if let Ok(mut txt) = accumulated_text.lock() {
                             txt.push_str(&t);
                             update_stream_text(&txt);
                         }
-                        if preset.auto_paste {
-                            crate::overlay::utils::type_text_to_window(None, &t);
+                        if !abort_signal.load(Ordering::Relaxed) {
+                            auto_paste.final_text(&t);
                         }
                     }
                 }
@@ -271,8 +330,9 @@ where
                         silence_buffer: &mut silence_buffer,
                         audio_mode: &mut audio_mode,
                         mode_start: &mut mode_start,
-                        last_transcription_time: &mut last_transcription_time,
                         consecutive_empty_reads: &mut consecutive_empty_reads,
+                        recovery: &mut recovery,
+                        dedicated_vad: &mut dedicated_vad,
                         stop_signal,
                         abort_signal,
                     }) {
@@ -283,8 +343,7 @@ where
                     consecutive_empty_reads += 1;
                     if !uses_interim_transcripts
                         && consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
-                        && last_transcription_time.elapsed()
-                            > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
+                        && recovery.should_reconnect(started.elapsed().as_millis() as u64)
                         && !try_reconnect(ReconnectContext {
                             session,
                             api_key,
@@ -294,8 +353,9 @@ where
                             silence_buffer: &mut silence_buffer,
                             audio_mode: &mut audio_mode,
                             mode_start: &mut mode_start,
-                            last_transcription_time: &mut last_transcription_time,
                             consecutive_empty_reads: &mut consecutive_empty_reads,
+                            recovery: &mut recovery,
+                            dedicated_vad: &mut dedicated_vad,
                             stop_signal,
                             abort_signal,
                         })
@@ -320,8 +380,9 @@ where
                             silence_buffer: &mut silence_buffer,
                             audio_mode: &mut audio_mode,
                             mode_start: &mut mode_start,
-                            last_transcription_time: &mut last_transcription_time,
                             consecutive_empty_reads: &mut consecutive_empty_reads,
+                            recovery: &mut recovery,
+                            dedicated_vad: &mut dedicated_vad,
                             stop_signal,
                             abort_signal,
                         }) {
@@ -355,14 +416,26 @@ where
 }
 
 /// Wait for final transcriptions after recording stops.
-pub(super) fn wait_for_final_transcriptions(
-    session: &mut ReadyLiveSession,
-    accumulated_text: &Arc<Mutex<String>>,
-    transcribe_text: &mut crate::api::gemini_transcribe::TranscriptState,
-    uses_interim_transcripts: bool,
-    preset: &Preset,
-    streaming_hwnd: Option<HWND>,
-) {
+pub(super) struct FinalTranscriptionsContext<'a> {
+    pub(super) session: &'a mut ReadyLiveSession,
+    pub(super) accumulated_text: &'a Arc<Mutex<String>>,
+    pub(super) transcribe_text: &'a mut crate::api::gemini_transcribe::TranscriptState,
+    pub(super) auto_paste: &'a crate::overlay::utils::StreamingAutoPaste,
+    pub(super) uses_interim_transcripts: bool,
+    pub(super) streaming_hwnd: Option<HWND>,
+    pub(super) abort_signal: &'a AtomicBool,
+}
+
+pub(super) fn wait_for_final_transcriptions(context: FinalTranscriptionsContext<'_>) {
+    let FinalTranscriptionsContext {
+        session,
+        accumulated_text,
+        transcribe_text,
+        auto_paste,
+        uses_interim_transcripts,
+        streaming_hwnd,
+        abort_signal,
+    } = context;
     let mut conclude_end = Instant::now() + Duration::from_millis(1200);
     let max_stop_time = Instant::now() + Duration::from_millis(5000);
     let extension = Duration::from_millis(700);
@@ -370,23 +443,39 @@ pub(super) fn wait_for_final_transcriptions(
     println!("[GeminiLiveStream] Waiting for tail...");
 
     while Instant::now() < conclude_end && Instant::now() < max_stop_time {
+        if abort_signal.load(Ordering::Relaxed) {
+            break;
+        }
         match session.poll() {
             Ok(LivePoll::Frame(frame)) => {
                 if uses_interim_transcripts
+                    && frame.input_transcript.is_none()
                     && let Some(interim) = frame.interim_input_transcript
                     && !interim.is_empty()
                 {
                     transcribe_text.replace_interim(&interim);
+                    if !abort_signal.load(Ordering::Relaxed) {
+                        auto_paste.interim(
+                            &transcribe_text.display()[transcribe_text.committed().len()..],
+                        );
+                    }
                     if let Some(h) = streaming_hwnd {
                         update_window_text(h, &transcribe_text.display());
                     }
-                    conclude_end = Instant::now() + extension;
+                    conclude_end = extend_tail_deadline(
+                        conclude_end,
+                        Instant::now(),
+                        extension,
+                        max_stop_time,
+                    );
                 }
                 if let Some(t) = frame.input_transcript
                     && !t.is_empty()
                 {
                     let delta = if uses_interim_transcripts {
-                        transcribe_text.commit_final(&t)
+                        transcribe_text
+                            .apply_update(None, Some(&t))
+                            .unwrap_or_default()
                     } else {
                         t.clone()
                     };
@@ -401,10 +490,15 @@ pub(super) fn wait_for_final_transcriptions(
                             update_window_text(h, &txt);
                         }
                     }
-                    if preset.auto_paste && !delta.is_empty() {
-                        crate::overlay::utils::type_text_to_window(None, &delta);
+                    if !abort_signal.load(Ordering::Relaxed) {
+                        auto_paste.final_text(&delta);
                     }
-                    conclude_end = Instant::now() + extension;
+                    conclude_end = extend_tail_deadline(
+                        conclude_end,
+                        Instant::now(),
+                        extension,
+                        max_stop_time,
+                    );
                 }
             }
             Ok(LivePoll::Idle) => {
@@ -418,4 +512,54 @@ pub(super) fn wait_for_final_transcriptions(
 
 fn send_audio(session: &mut ReadyLiveSession, samples: &[i16]) -> anyhow::Result<()> {
     session.send_audio_pcm(samples, 16_000)
+}
+
+fn observe_sent_audio(recovery: &mut TranscriptionRecovery, samples: &[i16]) {
+    if crate::api::gemini_transcribe::compute_i16_rms(samples) >= 0.004 {
+        recovery.audio_sent(crate::api::gemini_transcribe::samples_to_ms(samples.len()));
+    }
+}
+
+fn extend_tail_deadline(
+    current: Instant,
+    now: Instant,
+    extension: Duration,
+    limit: Instant,
+) -> Instant {
+    current.max(now + extension).min(limit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn active_tail_response_extends_without_shortening_initial_grace() {
+        let start = Instant::now();
+        let initial = start + Duration::from_millis(1_200);
+        let extension = Duration::from_millis(700);
+        let limit = start + Duration::from_secs(5);
+        assert_eq!(
+            extend_tail_deadline(
+                initial,
+                start + Duration::from_millis(100),
+                extension,
+                limit
+            ),
+            initial
+        );
+        assert_eq!(
+            extend_tail_deadline(initial, start + Duration::from_secs(1), extension, limit),
+            start + Duration::from_millis(1_700)
+        );
+        assert_eq!(
+            extend_tail_deadline(
+                initial,
+                start + Duration::from_millis(4_900),
+                extension,
+                limit
+            ),
+            limit
+        );
+    }
 }

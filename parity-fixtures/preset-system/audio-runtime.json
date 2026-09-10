@@ -47,14 +47,16 @@
     "google-gemini-3-5-transcribe-audio": "unary_smart_audio_file_transcription",
     "local-parakeet-120m-v1-audio": "android_unsupported_until_mobile_runtime_exists",
     "final_transcript_handoff": "first_audio_block_uses_precomputed_transcript",
-    "streaming_auto_paste": "inject_authoritative_final_deltas_during_capture_and_skip_final_paste_when_already_written",
+    "streaming_auto_paste": "revise_verified_owned_provisional_tail_commit_finals_and_suppress_final_result_paste",
     "gemini_transcribe_setup": {
       "response_modalities": ["TEXT"],
       "language_codes": [],
       "mode": "SMART",
       "custom_vocabulary_source": "persisted_live_transcription_dictionary",
-      "interim_policy": "replace_visible_draft_never_paste_or_append",
-      "final_policy": "append_once_and_make_eligible_for_auto_paste"
+      "interim_policy": "replace_visible_draft_and_verified_owned_destination_tail_only",
+      "final_policy": "append_once_and_make_eligible_for_auto_paste",
+      "speech_boundary_policy": "shared_hybrid_vad_audio_stream_end_per_turn_without_stopping_capture",
+      "combined_frame_policy": "authoritative_final_takes_precedence"
     }
   },
   "android_explicit_unsupported_presets": [

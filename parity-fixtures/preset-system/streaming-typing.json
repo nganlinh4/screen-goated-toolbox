@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "events": [
+    { "interim": "meet Tuesday", "typedDelta": "", "display": "meet Tuesday" },
+    { "interim": "meet Wednesday at two", "typedDelta": "", "display": "meet Wednesday at two" },
+    { "final": "Meet Wednesday at 2:00 PM.", "typedDelta": "Meet Wednesday at 2:00 PM.", "display": "Meet Wednesday at 2:00 PM." },
+    { "interim": "café 🙂 draft", "typedDelta": "", "display": "Meet Wednesday at 2:00 PM. café 🙂 draft" },
+    { "interim": "discarded hypothesis", "final": "Café.", "typedDelta": " Café.", "display": "Meet Wednesday at 2:00 PM. Café." },
+    { "final": "Café.", "typedDelta": " Café.", "display": "Meet Wednesday at 2:00 PM. Café. Café." }
+  ],
+  "finalHistory": "Meet Wednesday at 2:00 PM. Café. Café.",
+  "interimPolicy": "preview_only_never_type",
+  "finalPolicy": "append_each_authoritative_segment_once",
+  "speechBoundaryPolicy": "audio_stream_end_per_turn_while_capture_stays_open"
+}

@@ -97,6 +97,22 @@ pub(crate) struct TranscriptState {
 }
 
 impl TranscriptState {
+    /// Only an authoritative final can produce an irreversible consumer delta.
+    /// When a frame contains both fields, the final supersedes its hypothesis.
+    pub(crate) fn apply_update(
+        &mut self,
+        interim: Option<&str>,
+        final_text: Option<&str>,
+    ) -> Option<String> {
+        if let Some(text) = final_text {
+            Some(self.commit_final(text))
+        } else {
+            if let Some(text) = interim {
+                self.replace_interim(text);
+            }
+            None
+        }
+    }
     pub(crate) fn replace_interim(&mut self, text: &str) {
         self.interim = text.to_string();
     }
@@ -184,6 +200,35 @@ impl HybridVad {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn continuous_typing_only_emits_authoritative_final_deltas() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/preset-system/streaming-typing.json"
+        )))
+        .unwrap();
+        let mut transcript = TranscriptState::default();
+        let mut typed = String::new();
+        for event in fixture["events"].as_array().unwrap() {
+            let delta = transcript.apply_update(event["interim"].as_str(), event["final"].as_str());
+            assert_eq!(
+                delta.as_deref().unwrap_or(""),
+                event["typedDelta"].as_str().unwrap()
+            );
+            if let Some(delta) = delta {
+                typed.push_str(&delta);
+            }
+            assert_eq!(transcript.display(), event["display"].as_str().unwrap());
+        }
+        assert_eq!(typed, fixture["finalHistory"].as_str().unwrap());
+        assert_eq!(transcript.committed(), typed);
+        assert_eq!(
+            transcript.apply_update(None, None),
+            None,
+            "teardown without a new final must not repeat output"
+        );
+    }
 
     #[test]
     fn transcript_interim_is_replaced_and_final_is_appended() {

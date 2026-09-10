@@ -4,6 +4,7 @@ import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveMediaResolution
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSetupSpec
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveTranscriptionMode
 import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
+import dev.screengoated.toolbox.mobile.shared.live.GeminiTranscribeVad
 import dev.screengoated.toolbox.mobile.shared.live.buildGeminiLiveSetup
 import dev.screengoated.toolbox.mobile.shared.live.geminiLiveWebSocketRequest
 import dev.screengoated.toolbox.mobile.shared.live.parseGeminiLiveServerFrame
@@ -52,16 +53,15 @@ class GeminiLiveSocketClient(
     ) {
         val isLiveTranscribe = isLiveTranscribeModel(model)
         val audioBuffer = LinkedBlockingDeque<ShortArray>()
-        var silenceBuffer = mutableListOf<Short>()
+        val silenceBuffer = mutableListOf<Short>()
         var audioMode = AudioMode.NORMAL
-        var modeStartMs = System.currentTimeMillis()
-        var lastTranscriptionMs = System.currentTimeMillis()
+        var modeStartMs = android.os.SystemClock.elapsedRealtime()
         var consecutiveEmptyPolls = 0
-        var outboundChunks = 0
-        var connectionStartedMs = System.currentTimeMillis()
+        val recovery = GeminiTranscriptionRecovery()
+        var connectionStartedMs = android.os.SystemClock.elapsedRealtime()
         var vocabulary = GeminiTranscribeVocabulary.snapshot()
         var resumptionHandle: String? = null
-        val hybridVad = HybridVad()
+        val hybridVad = GeminiTranscribeVad()
 
         // Connect initial socket
         var session = connectAndSetup(apiKey, model, vocabulary.entries, null)
@@ -79,37 +79,43 @@ class GeminiLiveSocketClient(
             while (isActive && !collectJob.isCancelled) {
                 val latestVocabulary = GeminiTranscribeVocabulary.snapshot()
                 if (isLiveTranscribe &&
-                    (System.currentTimeMillis() - connectionStartedMs >= ROTATE_AT_MS || latestVocabulary.version != vocabulary.version) &&
+                    (android.os.SystemClock.elapsedRealtime() - connectionStartedMs >= ROTATE_AT_MS || latestVocabulary.version != vocabulary.version) &&
                     hybridVad.isSafeGap()
                 ) {
                     session = tryReconnect(apiKey, model, audioBuffer, silenceBuffer, resumptionHandle, latestVocabulary.entries)
                         ?: break
                     vocabulary = latestVocabulary
-                    connectionStartedMs = System.currentTimeMillis()
+                    connectionStartedMs = android.os.SystemClock.elapsedRealtime()
                     hybridVad.reset()
+                    recovery.reset()
                     audioMode = AudioMode.CATCH_UP
                 }
                 // Audio mode state machine transitions
-                val elapsed = System.currentTimeMillis() - modeStartMs
+                if (audioMode == AudioMode.CATCH_UP && silenceBuffer.isEmpty()) {
+                    audioMode = AudioMode.NORMAL
+                    modeStartMs = android.os.SystemClock.elapsedRealtime()
+                }
+                val elapsed = android.os.SystemClock.elapsedRealtime() - modeStartMs
                 if (!isLiveTranscribe) {
                     when (audioMode) {
                         AudioMode.NORMAL -> {
                             if (elapsed >= NORMAL_DURATION_MS) {
                                 audioMode = AudioMode.SILENCE
-                                modeStartMs = System.currentTimeMillis()
+                                modeStartMs = android.os.SystemClock.elapsedRealtime()
                                 silenceBuffer.clear()
                             }
                         }
                         AudioMode.SILENCE -> {
                             if (elapsed >= SILENCE_DURATION_MS) {
+                                recovery.inputFlushed(android.os.SystemClock.elapsedRealtime())
                                 audioMode = AudioMode.CATCH_UP
-                                modeStartMs = System.currentTimeMillis()
+                                modeStartMs = android.os.SystemClock.elapsedRealtime()
                             }
                         }
                         AudioMode.CATCH_UP -> {
                             if (silenceBuffer.isEmpty()) {
                                 audioMode = AudioMode.NORMAL
-                                modeStartMs = System.currentTimeMillis()
+                                modeStartMs = android.os.SystemClock.elapsedRealtime()
                             }
                         }
                     }
@@ -128,8 +134,8 @@ class GeminiLiveSocketClient(
                         if (realAudio.isNotEmpty()) {
                             val samples = realAudio.toShortArray()
                             sendChunked(session.socket, samples, CHUNK_SIZE).also {
-                                outboundChunks++
-                                if (it && isLiveTranscribe && hybridVad.observe(samples)) {
+                                if (it) observeActiveAudio(samples, recovery)
+                                if (it && isLiveTranscribe && hybridVad.observe(samples, android.os.SystemClock.elapsedRealtime())) {
                                     session.socket.send(AUDIO_STREAM_END_MESSAGE)
                                 }
                             }
@@ -147,16 +153,26 @@ class GeminiLiveSocketClient(
                         val doubleChunk = SAMPLES_PER_100MS * 2
                         if (silenceBuffer.size >= doubleChunk) {
                             val toSend = ShortArray(doubleChunk) { silenceBuffer.removeAt(0) }
-                            sendChunked(session.socket, toSend, CHUNK_SIZE)
+                            sendChunked(session.socket, toSend, CHUNK_SIZE).also {
+                                if (it) observeActiveAudio(toSend, recovery)
+                                if (it && isLiveTranscribe && hybridVad.observe(toSend, android.os.SystemClock.elapsedRealtime())) {
+                                    session.socket.send(AUDIO_STREAM_END_MESSAGE)
+                                }
+                            }
                         } else if (silenceBuffer.isNotEmpty()) {
                             val toSend = ShortArray(silenceBuffer.size) { silenceBuffer.removeAt(0) }
-                            sendChunked(session.socket, toSend, CHUNK_SIZE)
+                            sendChunked(session.socket, toSend, CHUNK_SIZE).also {
+                                if (it) observeActiveAudio(toSend, recovery)
+                                if (it && isLiveTranscribe && hybridVad.observe(toSend, android.os.SystemClock.elapsedRealtime())) {
+                                    session.socket.send(AUDIO_STREAM_END_MESSAGE)
+                                }
+                            }
                         } else {
                             true
                         }
                     }
                 }
-                if (sendOk && isLiveTranscribe && realAudio.isEmpty() && hybridVad.observe(ShortArray(0))) {
+                if (sendOk && isLiveTranscribe && realAudio.isEmpty() && hybridVad.pollEnd(android.os.SystemClock.elapsedRealtime())) {
                     session.socket.send(AUDIO_STREAM_END_MESSAGE)
                 }
 
@@ -165,10 +181,10 @@ class GeminiLiveSocketClient(
                     session = tryReconnect(apiKey, model, audioBuffer, silenceBuffer, resumptionHandle, vocabulary.entries)
                         ?: break
                     audioMode = AudioMode.CATCH_UP
-                    connectionStartedMs = System.currentTimeMillis()
+                    connectionStartedMs = android.os.SystemClock.elapsedRealtime()
                     hybridVad.reset()
-                    modeStartMs = System.currentTimeMillis()
-                    lastTranscriptionMs = System.currentTimeMillis()
+                    recovery.reset()
+                    modeStartMs = android.os.SystemClock.elapsedRealtime()
                     consecutiveEmptyPolls = 0
                     continue
                 }
@@ -179,8 +195,9 @@ class GeminiLiveSocketClient(
                     val event = session.incomingEvents.poll() ?: break
                     readCount++
                     when (event) {
+                        LiveSocketEvent.Progress -> recovery.reset()
                         is LiveSocketEvent.Transcript -> {
-                            lastTranscriptionMs = System.currentTimeMillis()
+                            recovery.reset()
                             consecutiveEmptyPolls = 0
                             onTranscript(event.text, event.isFinal)
                         }
@@ -188,8 +205,9 @@ class GeminiLiveSocketClient(
                         LiveSocketEvent.GoAway -> {
                             session = tryReconnect(apiKey, model, audioBuffer, silenceBuffer, resumptionHandle, vocabulary.entries)
                                 ?: throw IOException("Gemini Live reconnection failed after goAway.")
-                            connectionStartedMs = System.currentTimeMillis()
+                            connectionStartedMs = android.os.SystemClock.elapsedRealtime()
                             hybridVad.reset()
+                            recovery.reset()
                             audioMode = AudioMode.CATCH_UP
                             break
                         }
@@ -201,10 +219,10 @@ class GeminiLiveSocketClient(
                             session = tryReconnect(apiKey, model, audioBuffer, silenceBuffer, resumptionHandle, vocabulary.entries)
                                 ?: throw IOException("Gemini Live reconnection failed.")
                             audioMode = AudioMode.CATCH_UP
-                            connectionStartedMs = System.currentTimeMillis()
+                            connectionStartedMs = android.os.SystemClock.elapsedRealtime()
                             hybridVad.reset()
-                            modeStartMs = System.currentTimeMillis()
-                            lastTranscriptionMs = System.currentTimeMillis()
+                            recovery.reset()
+                            modeStartMs = android.os.SystemClock.elapsedRealtime()
                             consecutiveEmptyPolls = 0
                             break
                         }
@@ -215,17 +233,18 @@ class GeminiLiveSocketClient(
                 }
 
                 // Degradation detection: stalled connection
-                val timeSinceTranscription = System.currentTimeMillis() - lastTranscriptionMs
                 if (!isLiveTranscribe &&
                     consecutiveEmptyPolls >= EMPTY_READ_CHECK_COUNT &&
-                    timeSinceTranscription > NO_RESULT_THRESHOLD_MS
+                    recovery.shouldReconnect(android.os.SystemClock.elapsedRealtime())
                 ) {
                     session.socket.close(1000, "stalled")
                     session = tryReconnect(apiKey, model, audioBuffer, silenceBuffer, resumptionHandle, vocabulary.entries)
                         ?: throw IOException("Gemini Live reconnection failed after stall.")
+                    connectionStartedMs = android.os.SystemClock.elapsedRealtime()
+                    hybridVad.reset()
+                    recovery.reset()
                     audioMode = AudioMode.CATCH_UP
-                    modeStartMs = System.currentTimeMillis()
-                    lastTranscriptionMs = System.currentTimeMillis()
+                    modeStartMs = android.os.SystemClock.elapsedRealtime()
                     consecutiveEmptyPolls = 0
                     continue
                 }
@@ -251,6 +270,7 @@ class GeminiLiveSocketClient(
         data class Transcript(val text: String, val isFinal: Boolean) : LiveSocketEvent()
         data class Error(val message: String) : LiveSocketEvent()
         data class Resumption(val handle: String) : LiveSocketEvent()
+        data object Progress : LiveSocketEvent()
         data object GoAway : LiveSocketEvent()
         data object Closed : LiveSocketEvent()
     }
@@ -326,6 +346,9 @@ class GeminiLiveSocketClient(
                 setupReady.complete(Unit)
             }
             return
+        }
+        if (frame.contentCount > 0 || frame.responseComplete || frame.interrupted) {
+            events.offer(LiveSocketEvent.Progress)
         }
         frame.sessionResumption?.takeIf { it.resumable }?.handle?.let {
             events.offer(LiveSocketEvent.Resumption(it))
@@ -436,6 +459,14 @@ class GeminiLiveSocketClient(
         ).toString()
     }
 
+    private fun observeActiveAudio(samples: ShortArray, recovery: GeminiTranscriptionRecovery) {
+        val rms = kotlin.math.sqrt(samples.sumOf {
+            val normalized = it.toDouble() / 32768.0
+            normalized * normalized
+        } / samples.size.coerceAtLeast(1))
+        if (rms >= 0.004) recovery.audioSent(samples.size.toLong() * 1_000 / 16_000)
+    }
+
     private fun isLiveTranscribeModel(model: String): Boolean =
         GeneratedLiveModelCatalog.endpointProfile(model)
             ?.protocol == "live-transcribe"
@@ -449,45 +480,6 @@ class GeminiLiveSocketClient(
         private const val CHUNK_SIZE = 1_600
         private const val SEND_INTERVAL_MS = 100L
         private const val EMPTY_READ_CHECK_COUNT = 50
-        private const val NO_RESULT_THRESHOLD_MS = 8_000L
     }
 
-    private class HybridVad {
-        private var active = false
-        private var lastSpeechMs = 0L
-        private var endSent = false
-
-        fun observe(samples: ShortArray): Boolean {
-            val now = System.currentTimeMillis()
-            val rms = kotlin.math.sqrt(samples.sumOf { sample ->
-                val normalized = sample.toDouble() / Short.MAX_VALUE
-                normalized * normalized
-            } / samples.size.coerceAtLeast(1))
-            if (rms >= SPEECH_RMS) {
-                active = true
-                endSent = false
-                lastSpeechMs = now
-                return false
-            }
-            if (active && !endSent && now - lastSpeechMs >= END_SILENCE_MS) {
-                active = false
-                endSent = true
-                return true
-            }
-            return false
-        }
-
-        fun reset() {
-            active = false
-            endSent = false
-            lastSpeechMs = 0L
-        }
-
-        fun isSafeGap(): Boolean = !active
-
-        private companion object {
-            const val SPEECH_RMS = 0.015
-            const val END_SILENCE_MS = 420L
-        }
-    }
 }

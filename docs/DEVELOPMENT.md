@@ -152,6 +152,16 @@ distinguish silent input from conversion problems. At most 32 input devices and
 Stream errors are persisted. These diagnostics do not store audio or transcripts
 and do not change device selection, gain, conversion, or the UI.
 
+Preset `autoPaste` streams into a bound destination. Revisable hypotheses use a
+verified, replaceable provisional tail; unsupported editors receive final chunks
+only. Ownership loss suspends the session's writes rather than guessing what to
+erase. Dedicated transcription retains the shared speech-end reducer, so speech
+pauses finalize chunks without ending capture. See the
+[preset audio contract](../.claude/parity/preset-audio.md).
+`[ModelDownload]` records verified model-file requests, bounded byte progress,
+integrity verification, cancellation, and contextual failures. These records
+distinguish an active transfer from a failed or cancelled first-use installation.
+
 After the active frontend assets exist, direct `cargo run` is valid, but
 `run-dev.ps1` is preferred because it applies the bounded cache and delivery
 channel invariants. Optional mini-app source changes are not visible merely

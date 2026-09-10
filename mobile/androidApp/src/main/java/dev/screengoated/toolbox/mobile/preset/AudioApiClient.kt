@@ -29,16 +29,18 @@ class AudioApiClient(
         apiKeys: ApiKeys,
         uiLanguage: String,
         onChunk: (String) -> Unit,
-    ): AudioStreamingSession? = withContext(Dispatchers.IO) {
+        onInterim: (String) -> Unit = {},
+    ): AudioStreamingSession? {
         val model = resolveModel(modelId)
         require(model.modelType == PresetModelType.AUDIO && model.provider.hasAudioPresetRuntime()) {
             "Unsupported audio provider: ${model.provider.name.lowercase()}"
         }
-        when (model.provider) {
+        return when (model.provider) {
             PresetModelProvider.GEMINI_LIVE -> openGeminiLiveInputSession(
                 model = model,
                 apiKey = apiKeys.geminiKey,
                 onChunk = onChunk,
+                onInterim = onInterim,
             )
 
             else -> null

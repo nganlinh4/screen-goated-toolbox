@@ -16,6 +16,7 @@ import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
 import dev.screengoated.toolbox.mobile.preset.resolvePrompt
+import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
@@ -54,7 +55,6 @@ internal class PresetAudioCaptureSession(
     private val permissionSnapshotProvider: () -> dev.screengoated.toolbox.mobile.shared.live.PermissionSnapshot,
     private val screenBoundsProvider: () -> Rect,
     private val toastBus: AppToastBus,
-    private val onStreamingTextChunk: (String) -> Boolean = { false },
 ) {
     private val density = context.resources.displayMetrics.density
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -77,7 +77,9 @@ internal class PresetAudioCaptureSession(
     private var runtimeKind = PresetAudioRuntimeKind.STANDARD
     private var activeStreamingSession: AudioStreamingSession? = null
     private val pendingStreamingChunks = ArrayDeque<ShortArray>()
-    private var producedRealtimePaste = false
+    private val streamingPaste = StreamingPasteState()
+    private var provisionalDelivery: ProvisionalPasteDelivery? = null
+    private var captureGeneration = 0L
 
     val isActive: Boolean
         get() = activePreset != null
@@ -106,6 +108,7 @@ internal class PresetAudioCaptureSession(
         onFailure: (PresetAudioCaptureFailure) -> Unit,
     ) {
         destroy()
+        val sessionGeneration = captureGeneration
 
         val permissions = permissionSnapshotProvider()
         if (!permissions.recordAudioGranted) {
@@ -120,6 +123,17 @@ internal class PresetAudioCaptureSession(
         activePreset = resolvedPreset
         onCancelledCallback = onCancelled
         runtimeKind = resolveRuntimeKind(resolvedPreset)
+        if (resolvedPreset.preset.autoPaste && runtimeKind != PresetAudioRuntimeKind.STANDARD) {
+            val paste = ProvisionalPasteSession(
+                AccessibilityProvisionalPasteTarget.capture(SgtAccessibilityService.instance),
+            )
+            val generation = streamingPaste.generation
+            provisionalDelivery = ProvisionalPasteDelivery(scope, paste) {
+                if (generation == streamingPaste.generation) streamingPaste.recordInsertion(paste.attempted)
+            }
+            // This session owns delivery, including refusal; the final result cannot bypass it.
+            streamingPaste.accept(streamingPaste.generation)
+        }
         state = if (runtimeKind == PresetAudioRuntimeKind.GEMINI_LIVE_STREAMING) {
             "initializing"
         } else {
@@ -133,7 +147,6 @@ internal class PresetAudioCaptureSession(
         hasSpoken = false
         firstSpeechAtMs = null
         lastActiveAtMs = SystemClock.elapsedRealtime()
-        producedRealtimePaste = false
         if (!resolvedPreset.preset.hideRecordingUi) {
             showOverlay()
         }
@@ -151,23 +164,30 @@ internal class PresetAudioCaptureSession(
                     audioCaptureController.open(
                         config = LiveSessionConfig(sourceMode = sourceMode),
                         onRms = { rms ->
-                            scope.launch { handleRms(rms, resolvedPreset) }
+                            scope.launch {
+                                if (captureGeneration == sessionGeneration) handleRms(rms, resolvedPreset)
+                            }
                         },
                     ).collect { chunk ->
-                        if (paused || processingRequested) {
+                        if (captureGeneration != sessionGeneration || paused || processingRequested) {
                             return@collect
                         }
                         chunk.forEach(capturedSamples::add)
                         runCatching { appendStreamingChunk(chunk) }
                             .onFailure { error ->
                                 Log.w(TAG, "Streaming session degraded to standard mode", error)
-                                activeStreamingSession?.cancel()
-                                activeStreamingSession = null
-                                pendingStreamingChunks.clear()
-                                runtimeKind = PresetAudioRuntimeKind.STANDARD
-                                if (state == "initializing") {
-                                    state = "warmup"
-                                    updateOverlay(rms = 0f)
+                                withContext(Dispatchers.Main.immediate) {
+                                    if (captureGeneration != sessionGeneration) return@withContext
+                                    provisionalDelivery?.cancel()
+                                    streamingPaste.invalidate()
+                                    activeStreamingSession?.cancel()
+                                    activeStreamingSession = null
+                                    pendingStreamingChunks.clear()
+                                    runtimeKind = PresetAudioRuntimeKind.STANDARD
+                                    if (state == "initializing") {
+                                        state = "warmup"
+                                        updateOverlay(rms = 0f)
+                                    }
                                 }
                             }
                     }
@@ -175,6 +195,7 @@ internal class PresetAudioCaptureSession(
             } catch (_: CancellationException) {
                 // expected on stop/cancel
             } catch (error: SecurityException) {
+                if (captureGeneration != sessionGeneration) return@launch
                 Log.e(TAG, "audio capture security failure: preset=${resolvedPreset.preset.id}", error)
                 onFailure(
                     PresetAudioCaptureFailure(
@@ -184,6 +205,7 @@ internal class PresetAudioCaptureSession(
                 )
                 destroy()
             } catch (error: ProjectionConsentInvalidException) {
+                if (captureGeneration != sessionGeneration) return@launch
                 projectionConsentStore.clear()
                 onFailure(
                     PresetAudioCaptureFailure(
@@ -193,6 +215,7 @@ internal class PresetAudioCaptureSession(
                 )
                 destroy()
             } catch (error: Throwable) {
+                if (captureGeneration != sessionGeneration) return@launch
                 Log.e(TAG, "audio capture fatal failure: preset=${resolvedPreset.preset.id}", error)
                 onFailure(
                     PresetAudioCaptureFailure(
@@ -206,25 +229,33 @@ internal class PresetAudioCaptureSession(
 
         processingJob = scope.launch {
             captureJob?.join()
-            if (!processingRequested) {
+            if (captureGeneration != sessionGeneration || !processingRequested) {
                 return@launch
             }
-            val wavBytes = withContext(Dispatchers.Default) {
-                PresetAudioCodec.encodePcm16MonoWav(capturedSamples.toShortArray())
-            }
-            val streamingTranscript = finalizeStreamingTranscript()
-            if (wavBytes.size <= 44) {
-                onCancelled()
-            } else {
-                onRecordingComplete(
-                    PresetAudioCaptureCompletion(
-                        wavBytes = wavBytes,
-                        precomputedTranscript = streamingTranscript?.transcript?.takeIf { it.isNotBlank() },
-                        isStreamingResult = streamingTranscript?.producedRealtimePaste == true,
-                    ),
+            try {
+                val wavBytes = withContext(Dispatchers.Default) {
+                    PresetAudioCodec.encodePcm16MonoWav(capturedSamples.toShortArray())
+                }
+                val streamingTranscript = finalizeStreamingOrFallback(
+                    finalize = { finalizeStreamingTranscript() },
+                    onFailure = { Log.w(TAG, "Streaming finalization failed; preserving WAV fallback", it) },
                 )
+                provisionalDelivery?.finish()
+                streamingPaste.invalidate()
+                if (wavBytes.size <= 44) {
+                    onCancelled()
+                } else {
+                    onRecordingComplete(
+                        PresetAudioCaptureCompletion(
+                            wavBytes = wavBytes,
+                            precomputedTranscript = streamingTranscript?.transcript?.takeIf { it.isNotBlank() },
+                            isStreamingResult = streamingPaste.suppressFinalPaste || streamingTranscript?.producedRealtimePaste == true,
+                        ),
+                    )
+                }
+            } finally {
+                if (captureGeneration == sessionGeneration) destroy()
             }
-            destroy()
         }
     }
 
@@ -233,6 +264,7 @@ internal class PresetAudioCaptureSession(
             return
         }
         processingRequested = true
+        provisionalDelivery?.beginDrain()
         state = "processing"
         updateOverlay(rms = 0f)
         captureJob?.cancel()
@@ -293,6 +325,10 @@ internal class PresetAudioCaptureSession(
     }
 
     fun destroy() {
+        captureGeneration++
+        provisionalDelivery?.cancel()
+        provisionalDelivery = null
+        streamingPaste.reset()
         scope.coroutineContext.cancelChildren()
         captureJob = null
         processingJob = null
@@ -310,7 +346,6 @@ internal class PresetAudioCaptureSession(
         processingRequested = false
         runtimeKind = PresetAudioRuntimeKind.STANDARD
         capturedSamples.clear()
-        producedRealtimePaste = false
     }
 
     private fun showOverlay() {
@@ -369,28 +404,33 @@ internal class PresetAudioCaptureSession(
             return
         }
         val audioBlock = resolvedPreset.preset.blocks.firstOrNull { it.blockType == BlockType.AUDIO } ?: return
+        val sessionGeneration = captureGeneration
+        val delivery = provisionalDelivery
         streamingSetupJob = scope.launch {
             try {
-                val session = withContext(Dispatchers.IO) {
-                    audioApiClient.openStreamingSession(
-                        modelId = audioBlock.model,
-                        _prompt = audioBlock.resolvePrompt(),
-                        apiKeys = apiKeys(),
-                        uiLanguage = uiLanguage(),
-                        onChunk = { chunk ->
-                            scope.launch { handleStreamingTranscriptChunk(chunk) }
-                        },
-                    )
-                }
-                activeStreamingSession = session
-                flushPendingStreamingChunks(session)
+                acquireStreamingSession(
+                    acquire = {
+                        audioApiClient.openStreamingSession(
+                            modelId = audioBlock.model,
+                            _prompt = audioBlock.resolvePrompt(),
+                            apiKeys = apiKeys(),
+                            uiLanguage = uiLanguage(),
+                            onChunk = { chunk -> delivery?.finalSegment(chunk) },
+                            onInterim = { chunk -> delivery?.interim(chunk) },
+                        )
+                    },
+                    install = { session ->
+                        activeStreamingSession = session
+                        flushPendingStreamingChunks(session)
+                    },
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
                 apiKeyErrorToastText(error.message ?: error.toString(), uiLanguage())?.let(toastBus::show)
                 activeStreamingSession = null
             } finally {
-                if (state == "initializing" && !processingRequested) {
+                if (captureGeneration == sessionGeneration && state == "initializing" && !processingRequested) {
                     state = if (paused) "paused" else "warmup"
                     updateOverlay(rms = 0f)
                 }
@@ -421,8 +461,9 @@ internal class PresetAudioCaptureSession(
         val session = activeStreamingSession ?: return null
         return try {
             flushPendingStreamingChunks(session)
-            session.finish().copy(producedRealtimePaste = producedRealtimePaste)
+            session.finish().copy(producedRealtimePaste = streamingPaste.inserted)
         } finally {
+            session.cancel()
             activeStreamingSession = null
         }
     }
@@ -460,17 +501,6 @@ internal class PresetAudioCaptureSession(
         if (state == "recording" || state == "warmup" || state == "paused" || state == "initializing") {
             updateOverlay(rms)
         }
-    }
-
-    private fun handleStreamingTranscriptChunk(chunk: String) {
-        if (chunk.isBlank()) {
-            return
-        }
-        val preset = activePreset?.preset ?: return
-        if (!preset.autoPaste) {
-            return
-        }
-        producedRealtimePaste = onStreamingTextChunk(chunk) || producedRealtimePaste
     }
 
     private fun updateOverlay(rms: Float) {

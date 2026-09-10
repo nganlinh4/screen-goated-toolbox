@@ -1,0 +1,12 @@
+{
+  "minimumActiveMs": 4000,
+  "responseGraceMs": 8000,
+  "cases": [
+    {"name":"unfinished-input-is-not-a-response-timeout","events":[{"audioMs":9000},{"tickMs":9000,"expectReconnect":false},{"tickMs":20000,"expectReconnect":false}]},
+    {"name":"completed-flush-grants-full-response-grace","events":[{"audioMs":5000},{"boundaryMs":22000},{"tickMs":29999,"expectReconnect":false},{"tickMs":30000,"expectReconnect":true}]},
+    {"name":"quiet-input-does-not-reconnect","events":[{"audioMs":3999},{"boundaryMs":22000},{"tickMs":60000,"expectReconnect":false}]},
+    {"name":"server-progress-clears-old-evidence","events":[{"audioMs":5000},{"boundaryMs":22000},{"progress":true},{"tickMs":30000,"expectReconnect":false},{"boundaryMs":44000},{"tickMs":52000,"expectReconnect":false}]},
+    {"name":"new-connection-requires-new-evidence","events":[{"audioMs":5000},{"boundaryMs":22000},{"reset":true},{"boundaryMs":44000},{"tickMs":52000,"expectReconnect":false}]},
+    {"name":"later-boundary-does-not-postpone-outstanding-response","events":[{"audioMs":5000},{"boundaryMs":22000},{"boundaryMs":25000},{"tickMs":30000,"expectReconnect":true}]}
+  ]
+}

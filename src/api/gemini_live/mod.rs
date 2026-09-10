@@ -13,6 +13,8 @@ pub mod manager;
 pub mod ready_session;
 pub mod server_frame;
 pub mod setup;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) mod transcription_recovery;
 pub mod transport;
 pub mod types;
 pub mod websocket;

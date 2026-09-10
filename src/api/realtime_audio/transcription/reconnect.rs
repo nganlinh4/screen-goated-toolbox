@@ -22,7 +22,7 @@ pub(super) struct ReconnectContext<'a> {
 }
 
 pub(super) fn try_reconnect(context: ReconnectContext<'_>) -> bool {
-    let mut reconnect_buffer = Vec::new();
+    let mut reconnect_buffer = std::mem::take(context.silence_buffer);
     let _ = context.session.close();
 
     for attempt in 1..=3 {

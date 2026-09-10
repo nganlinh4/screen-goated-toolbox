@@ -10,6 +10,13 @@ import dev.screengoated.toolbox.mobile.shared.live.parseGeminiLiveServerFrame
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.service.GeminiTranscribeVocabulary
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -128,6 +135,7 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
     model: PresetModelDescriptor,
     apiKey: String,
     onChunk: (String) -> Unit,
+    onInterim: (String) -> Unit = {},
 ): AudioStreamingSession {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:google")
     val events = LinkedBlockingDeque<GeminiLiveInputEvent>()
@@ -136,6 +144,7 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
     val finalTranscript = StringBuilder()
     val closed = AtomicBoolean(false)
     val dedicatedTranscribe = GeneratedLiveModelCatalog.endpointProfile(model.fullName)?.protocol == "live-transcribe"
+    val inputBoundary = GeminiLiveInputTurnBoundary(dedicatedTranscribe, android.os.SystemClock::elapsedRealtime)
     val vocabulary = transcriptionVocabulary()
     val socket = httpClient.newWebSocket(
         geminiLiveWebSocketRequest(apiKey),
@@ -192,6 +201,7 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (closed.get()) return
                 handleGeminiLiveMessage(
                     message = text,
                     setupReady = setupReady,
@@ -199,10 +209,13 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                     transcript = transcript,
                     finalTranscript = finalTranscript,
                     onChunk = onChunk,
+                    onInterim = onInterim,
+                    dedicatedTranscribe = dedicatedTranscribe,
                 )
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                if (closed.get()) return
                 handleGeminiLiveMessage(
                     message = bytes.utf8(),
                     setupReady = setupReady,
@@ -210,6 +223,8 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                     transcript = transcript,
                     finalTranscript = finalTranscript,
                     onChunk = onChunk,
+                    onInterim = onInterim,
+                    dedicatedTranscribe = dedicatedTranscribe,
                 )
             }
 
@@ -229,7 +244,26 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
             }
         },
     )
-    kotlinx.coroutines.withTimeout(20_000) { setupReady.await() }
+    try {
+        kotlinx.coroutines.withTimeout(20_000) { setupReady.await() }
+    } catch (error: Throwable) {
+        inputBoundary.cancel()
+        closeSocketIfNeeded(socket, closed)
+        throw error
+    }
+    val sendEnd = { socket.send("{\"realtimeInput\":{\"audioStreamEnd\":true}}") }
+    val boundaryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    if (dedicatedTranscribe) boundaryScope.launch {
+        while (isActive && !closed.get()) {
+            delay(50)
+            try {
+                inputBoundary.poll(sendEnd)
+            } catch (error: IOException) {
+                events.offer(GeminiLiveInputEvent.Error(error.message.orEmpty()))
+                return@launch
+            }
+        }
+    }
     return object : AudioStreamingSession {
         override suspend fun appendPcm16Chunk(chunk: ShortArray) {
             coroutineContext.ensureActive()
@@ -246,32 +280,37 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                             ),
                     ),
                 )
-            if (!socket.send(payload.toString())) {
-                throw IOException("Gemini Live audio chunk was rejected.")
-            }
+            inputBoundary.sendAudio(chunk, { socket.send(payload.toString()) }, sendEnd)
         }
 
         override suspend fun finish(): AudioStreamingTranscriptResult {
-            socket.send(JSONObject().put("realtimeInput", JSONObject().put("audioStreamEnd", true)).toString())
-            var concludeUntil = System.currentTimeMillis() + 1_200
-            val maxConcludeUntil = System.currentTimeMillis() + 5_000
-            while (System.currentTimeMillis() < concludeUntil && System.currentTimeMillis() < maxConcludeUntil) {
-                coroutineContext.ensureActive()
-                when (val event = events.poll()) {
-                    is GeminiLiveInputEvent.Error -> throw IOException(event.message)
-                    GeminiLiveInputEvent.FinalTranscript -> concludeUntil = System.currentTimeMillis() + 700
-                    GeminiLiveInputEvent.Closed -> break
-                    null -> kotlinx.coroutines.delay(50)
+            boundaryScope.cancel()
+            try {
+                inputBoundary.finish(sendEnd)
+                var concludeUntil = android.os.SystemClock.elapsedRealtime() + 1_200
+                val maxConcludeUntil = android.os.SystemClock.elapsedRealtime() + 5_000
+                while (android.os.SystemClock.elapsedRealtime() < concludeUntil && android.os.SystemClock.elapsedRealtime() < maxConcludeUntil) {
+                    coroutineContext.ensureActive()
+                    when (val event = events.poll()) {
+                        is GeminiLiveInputEvent.Error -> throw IOException(event.message)
+                        GeminiLiveInputEvent.FinalTranscript -> concludeUntil = android.os.SystemClock.elapsedRealtime() + 700
+                        GeminiLiveInputEvent.Closed -> break
+                        null -> kotlinx.coroutines.delay(50)
+                    }
                 }
+                return AudioStreamingTranscriptResult(
+                    transcript = finalTranscript.toString(),
+                    producedRealtimePaste = false,
+                )
+            } finally {
+                inputBoundary.cancel()
+                closeSocketIfNeeded(socket, closed)
             }
-            closeSocketIfNeeded(socket, closed)
-            return AudioStreamingTranscriptResult(
-                transcript = finalTranscript.toString(),
-                producedRealtimePaste = false,
-            )
         }
 
         override fun cancel() {
+            boundaryScope.cancel()
+            inputBoundary.cancel()
             closeSocketIfNeeded(socket, closed)
         }
     }
@@ -363,6 +402,8 @@ internal fun handleGeminiLiveMessage(
     events: LinkedBlockingDeque<GeminiLiveInputEvent>,
     transcript: StringBuilder,
     finalTranscript: StringBuilder,
+    dedicatedTranscribe: Boolean = false,
+    onInterim: (String) -> Unit = {},
     onChunk: (String) -> Unit,
 ) {
     parseGeminiLiveServerFrame(message)?.let { frame ->
@@ -370,7 +411,6 @@ internal fun handleGeminiLiveMessage(
             if (!setupReady.isCompleted) {
                 setupReady.complete(Unit)
             }
-            return
         }
 
         frame.error?.let { error ->
@@ -378,9 +418,16 @@ internal fun handleGeminiLiveMessage(
             return
         }
 
+        frame.interimInputTranscript?.takeIf { frame.inputTranscript == null && it.isNotBlank() }?.let { interim ->
+            val prefix = transcript.toString()
+            onInterim(if (prefix.isNotEmpty() && !prefix.last().isWhitespace() && !interim.first().isWhitespace()) {
+                " $interim"
+            } else if (prefix.isEmpty()) interim.trimStart() else interim)
+        }
+
         val text = frame.inputTranscript.orEmpty()
         if (text.isNotBlank()) {
-            val delta = appendTranscriptSegment(transcript, text)
+            val delta = appendTranscriptSegment(transcript, text, dedicatedTranscribe)
             if (delta.isNotEmpty()) {
                 finalTranscript.clear()
                 finalTranscript.append(transcript)
@@ -402,10 +449,10 @@ private fun shortArrayToLittleEndianBytes(samples: ShortArray): ByteArray {
     return bytes
 }
 
-private fun appendTranscriptSegment(transcript: StringBuilder, text: String): String {
+private fun appendTranscriptSegment(transcript: StringBuilder, text: String, dedicatedTranscribe: Boolean): String {
     val delta = when {
         transcript.isEmpty() -> text.trimStart()
-        text.startsWith(transcript.toString()) -> text.removePrefix(transcript.toString())
+        !dedicatedTranscribe && text.startsWith(transcript.toString()) -> text.removePrefix(transcript.toString())
         transcript.last().isWhitespace() || text.first().isWhitespace() -> text
         else -> " $text"
     }

@@ -49,10 +49,14 @@ pub fn record_and_stream_parakeet(
     overlay_hwnd: HWND,
     _target_window: Option<HWND>,
 ) {
+    let auto_paste = Arc::new(crate::overlay::utils::StreamingAutoPaste::new(
+        preset.auto_paste,
+        abort_signal.clone(),
+    ));
     let accumulated_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     let full_audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
     let acc_clone = accumulated_text.clone();
-    let preset_clone = preset.clone();
+    let callback_paste = auto_paste.clone();
 
     // Create streaming overlay if enabled
     let streaming_hwnd = create_streaming_overlay(&preset);
@@ -68,10 +72,7 @@ pub fn record_and_stream_parakeet(
                     update_window_text(h, &txt);
                 }
             }
-            // Real-time typing
-            if preset_clone.auto_paste {
-                crate::overlay::utils::type_text_to_window(None, &text);
-            }
+            callback_paste.final_text(&text);
         }
     };
 
@@ -91,6 +92,8 @@ pub fn record_and_stream_parakeet(
         },
         callback,
     );
+    auto_paste.begin_drain();
+    auto_paste.finish();
 
     // Close streaming window immediately after recording stops
     if let Some(h) = streaming_hwnd {

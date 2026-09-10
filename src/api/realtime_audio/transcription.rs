@@ -1,6 +1,8 @@
 //! Main transcription loop for realtime audio
 
 pub(crate) mod dedicated;
+#[cfg(test)]
+mod live_tests;
 mod main_loop;
 mod reconnect;
 
@@ -495,6 +497,8 @@ fn run_realtime_transcription(
         capture_label,
         reconnect_on_no_results,
         uses_interim_transcripts,
+        #[cfg(test)]
+        observations: None,
     });
 
     drop(_stream);

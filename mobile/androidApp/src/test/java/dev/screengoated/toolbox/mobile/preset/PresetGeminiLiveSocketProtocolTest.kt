@@ -7,6 +7,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
@@ -84,7 +85,7 @@ class PresetGeminiLiveSocketProtocolTest {
             events,
             transcript,
             finalTranscript,
-            chunks::add,
+            onChunk = chunks::add,
         )
 
         val expected = transcriptCase.getValue("expected").jsonObject
@@ -97,10 +98,11 @@ class PresetGeminiLiveSocketProtocolTest {
     }
 
     @Test
-    fun `dedicated interim corrections never become paste chunks`() {
+    fun `dedicated interim corrections remain separate from authoritative chunks`() {
         val transcript = StringBuilder()
         val finalTranscript = StringBuilder()
         val chunks = mutableListOf<String>()
+        val interims = mutableListOf<String>()
         val events = LinkedBlockingDeque<GeminiLiveInputEvent>()
 
         handleGeminiLiveMessage(
@@ -109,7 +111,8 @@ class PresetGeminiLiveSocketProtocolTest {
             events,
             transcript,
             finalTranscript,
-            chunks::add,
+            onInterim = interims::add,
+            onChunk = chunks::add,
         )
         handleGeminiLiveMessage(
             """{"serverContent":{"inputTranscription":{"text":"Meet Wednesday at 2:00 PM."}}}""",
@@ -117,10 +120,12 @@ class PresetGeminiLiveSocketProtocolTest {
             events,
             transcript,
             finalTranscript,
-            chunks::add,
+            onInterim = interims::add,
+            onChunk = chunks::add,
         )
 
         assertEquals("Meet Wednesday at 2:00 PM.", finalTranscript.toString())
+        assertEquals(listOf("meet Tuesday"), interims)
         assertEquals(listOf("Meet Wednesday at 2:00 PM."), chunks)
         assertEquals(GeminiLiveInputEvent.FinalTranscript, events.removeFirst())
     }
@@ -137,6 +142,54 @@ class PresetGeminiLiveSocketProtocolTest {
                 GeneratedLiveModelCatalog.maxOutputTokens(apiModel),
             )
         }
+    }
+
+    @Test
+    fun `dedicated final segments may repeat without being mistaken for cumulative text`() {
+        val transcript = StringBuilder()
+        val finalTranscript = StringBuilder()
+        val chunks = mutableListOf<String>()
+        repeat(2) {
+            handleGeminiLiveMessage(
+                """{"serverContent":{"inputTranscription":{"text":"hello"}}}""",
+                CompletableDeferred(), LinkedBlockingDeque(), transcript, finalTranscript,
+                dedicatedTranscribe = true, onChunk = chunks::add,
+            )
+        }
+        assertEquals("hello hello", finalTranscript.toString())
+        assertEquals(listOf("hello", " hello"), chunks)
+    }
+
+    @Test
+    fun `streaming typing consumes shared authoritative segment events only`() {
+        val fixturePath = "parity-fixtures/preset-system/streaming-typing.json"
+        val fixture = json.parseToJsonElement(File(repoRoot(), fixturePath).readText()).jsonObject
+        val transcript = StringBuilder()
+        val finalTranscript = StringBuilder()
+        val chunks = mutableListOf<String>()
+        var display = ""
+        for (entry in fixture.getValue("events").jsonArray) {
+            val event = entry.jsonObject
+            val content = org.json.JSONObject()
+            event["interim"]?.jsonPrimitive?.content?.let {
+                content.put("interimInputTranscription", org.json.JSONObject().put("text", it))
+            }
+            event["final"]?.jsonPrimitive?.content?.let {
+                content.put("inputTranscription", org.json.JSONObject().put("text", it))
+            }
+            val countBefore = chunks.size
+            handleGeminiLiveMessage(
+                org.json.JSONObject().put("serverContent", content).toString(),
+                CompletableDeferred(), LinkedBlockingDeque(), transcript, finalTranscript,
+                dedicatedTranscribe = true,
+                onInterim = { display = finalTranscript.toString() + it },
+                onChunk = { chunks.add(it); display = finalTranscript.toString() },
+            )
+            assertEquals(event.getValue("typedDelta").jsonPrimitive.content, chunks.drop(countBefore).joinToString(""))
+            assertEquals(event.getValue("display").jsonPrimitive.content, display)
+        }
+        assertEquals(fixture.getValue("finalHistory").jsonPrimitive.content, chunks.joinToString(""))
+        assertEquals(chunks.joinToString(""), finalTranscript.toString())
     }
 
     @Test

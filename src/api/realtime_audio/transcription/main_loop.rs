@@ -79,6 +79,18 @@ pub(super) struct RealtimeMainLoop<'a> {
     pub(super) capture_label: &'static str,
     pub(super) reconnect_on_no_results: bool,
     pub(super) uses_interim_transcripts: bool,
+    #[cfg(test)]
+    pub(super) observations: Option<Arc<Mutex<SessionObservations>>>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+pub(super) struct SessionObservations {
+    pub(super) first_no_result_reconnect_ms: Option<u128>,
+    pub(super) transcript_updates: u64,
+    pub(super) transcript_updates_after_first_flush: u64,
+    pub(super) interim_updates: u64,
+    pub(super) final_updates: u64,
 }
 
 pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
@@ -93,6 +105,8 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
         capture_label,
         reconnect_on_no_results,
         uses_interim_transcripts,
+        #[cfg(test)]
+        observations,
     } = params;
     let mut last_send = Instant::now();
     let send_interval = Duration::from_millis(100);
@@ -107,13 +121,14 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
 
     let mut last_transcription_time = Instant::now();
     let mut consecutive_empty_reads: u32 = 0;
-    const NO_RESULT_THRESHOLD_SECS: u64 = 8;
     const EMPTY_READ_CHECK_COUNT: u32 = 50;
 
     let session_started = Instant::now();
     let mut connection_started = Instant::now();
     let (mut vocabulary_version, _) = super::dedicated::vocabulary_snapshot();
     let mut resumption_handle: Option<String> = None;
+    let mut recovery =
+        crate::api::gemini_live::transcription_recovery::TranscriptionRecovery::default();
     let mut dedicated_vad = super::dedicated::HybridVad::default();
     let mut last_health_log = Instant::now();
     let mut sent_chunks = 0u64;
@@ -172,10 +187,16 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
             vocabulary_version = current_vocabulary_version;
             connection_started = Instant::now();
             dedicated_vad.reset_connection();
+            recovery.reset();
+            active_samples_since_transcript = 0;
             reconnect_count += 1;
             crate::log_info!("[RealtimeGeminiLiveHealth] reconnect-ok reason={reason}");
         }
 
+        if audio_mode == AudioMode::CatchUp && silence_buffer.is_empty() {
+            audio_mode = AudioMode::Normal;
+            mode_start = Instant::now();
+        }
         if uses_periodic_silence_cycle(uses_interim_transcripts) {
             match audio_mode {
                 AudioMode::Normal => {
@@ -187,6 +208,7 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                 }
                 AudioMode::Silence => {
                     if mode_start.elapsed() >= SILENCE_DURATION {
+                        recovery.input_flushed(session_started.elapsed().as_millis() as u64);
                         audio_mode = AudioMode::CatchUp;
                         mode_start = Instant::now();
                     }
@@ -223,6 +245,7 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                         if is_active {
                             active_sent_samples += real_audio.len();
                             active_samples_since_transcript += real_audio.len();
+                            recovery.audio_sent(samples_to_ms(real_audio.len()));
                         }
                     }
                 }
@@ -249,12 +272,18 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                         break;
                     }
                     if !to_send.is_empty() {
+                        if uses_interim_transcripts
+                            && dedicated_vad.observe(compute_i16_rms(&to_send), Instant::now())
+                        {
+                            session.end_audio_stream()?;
+                        }
                         let is_active = compute_i16_rms(&to_send) >= ACTIVE_AUDIO_RMS_THRESHOLD;
                         sent_chunks += 1;
                         sent_samples += to_send.len();
                         if is_active {
                             active_sent_samples += to_send.len();
                             active_samples_since_transcript += to_send.len();
+                            recovery.audio_sent(samples_to_ms(to_send.len()));
                         }
                     }
                 }
@@ -273,6 +302,9 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
 
         match session.poll() {
             Ok(LivePoll::Frame(frame)) => {
+                if frame.content_count() > 0 || frame.response_complete() || frame.interrupted {
+                    recovery.reset();
+                }
                 if let Some(update) = frame.session_resumption.as_ref()
                     && update.resumable
                     && let Some(handle) = update.handle.as_ref()
@@ -296,6 +328,19 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                     }
                     consecutive_empty_reads = 0;
                     transcript_updates += 1;
+                    #[cfg(test)]
+                    if let Some(observations) = observations.as_ref() {
+                        let mut observations = observations.lock().unwrap();
+                        observations.transcript_updates += 1;
+                        if is_final {
+                            observations.final_updates += 1;
+                        } else {
+                            observations.interim_updates += 1;
+                        }
+                        if session_started.elapsed() >= Duration::from_secs(22) {
+                            observations.transcript_updates_after_first_flush += 1;
+                        }
+                    }
                     transcript_chars += transcript.chars().count();
                     let display_text = if let Ok(mut s) = state.lock() {
                         if uses_interim_transcripts {
@@ -334,6 +379,8 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                     }
                     connection_started = Instant::now();
                     dedicated_vad.reset_connection();
+                    recovery.reset();
+                    active_samples_since_transcript = 0;
                     reconnect_count += 1;
                 }
             }
@@ -363,6 +410,8 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                 reconnect_count += 1;
                 connection_started = Instant::now();
                 dedicated_vad.reset_connection();
+                recovery.reset();
+                active_samples_since_transcript = 0;
                 crate::log_info!(
                     "[RealtimeGeminiLiveHealth] reconnect-ok reason=close count={} catchup_ms={}",
                     reconnect_count,
@@ -373,11 +422,16 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                 consecutive_empty_reads += 1;
                 if reconnect_on_no_results
                     && consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
-                    && last_transcription_time.elapsed()
-                        > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
-                    && samples_to_ms(active_samples_since_transcript)
-                        >= NO_RESULT_ACTIVE_AUDIO_THRESHOLD_MS
+                    && recovery.should_reconnect(session_started.elapsed().as_millis() as u64)
                 {
+                    #[cfg(test)]
+                    if let Some(observations) = observations.as_ref() {
+                        observations
+                            .lock()
+                            .unwrap()
+                            .first_no_result_reconnect_ms
+                            .get_or_insert(session_started.elapsed().as_millis());
+                    }
                     crate::log_info!(
                         "[RealtimeGeminiLiveHealth] reconnect-start reason=no-results empty_reads={} since_transcript_ms={} active_since_transcript_ms={} mode={}",
                         consecutive_empty_reads,
@@ -406,6 +460,8 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                     reconnect_count += 1;
                     connection_started = Instant::now();
                     dedicated_vad.reset_connection();
+                    recovery.reset();
+                    active_samples_since_transcript = 0;
                     crate::log_info!(
                         "[RealtimeGeminiLiveHealth] reconnect-ok reason=no-results count={} catchup_ms={}",
                         reconnect_count,
@@ -449,6 +505,8 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                     reconnect_count += 1;
                     connection_started = Instant::now();
                     dedicated_vad.reset_connection();
+                    recovery.reset();
+                    active_samples_since_transcript = 0;
                     crate::log_info!(
                         "[RealtimeGeminiLiveHealth] reconnect-ok reason=socket-error count={} catchup_ms={}",
                         reconnect_count,
@@ -495,103 +553,11 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
 }
 
 const ACTIVE_AUDIO_RMS_THRESHOLD: f32 = 0.004;
-const NO_RESULT_ACTIVE_AUDIO_THRESHOLD_MS: usize = 4_000;
 
 fn send_audio(session: &mut ReadyLiveSession, samples: &[i16]) -> Result<()> {
     session.send_audio_pcm(samples, 16_000)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dedicated_transcript_replaces_interim_and_commits_authoritative_text() {
-        let mut transcript = DedicatedTranscriptState::default();
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/parity-fixtures/gemini-transcribe-stream/events.json"
-        )))
-        .unwrap();
-        for event in fixture["events"].as_array().unwrap() {
-            let frame = crate::api::gemini_live::server_frame::parse_server_frame(
-                &event["payload"].to_string(),
-            )
-            .unwrap();
-            if let Some(final_text) = frame.input_transcript {
-                transcript.commit_final(&final_text);
-            } else if let Some(interim) = frame.interim_input_transcript {
-                transcript.replace_interim(&interim);
-            }
-        }
-        assert_eq!(transcript.committed, fixture["expectedCommitted"]);
-        assert_eq!(transcript.interim, fixture["expectedInterim"]);
-        transcript.commit_final("Bring the agenda.");
-        assert_eq!(
-            transcript.committed,
-            "Meet Wednesday at 2:00 PM. Bring the agenda."
-        );
-    }
-
-    #[test]
-    fn dedicated_interim_uses_sentence_boundaries_without_claiming_server_finality() {
-        let mut state = crate::api::realtime_audio::state::RealtimeState::new();
-        state.set_transcription_method(
-            crate::api::realtime_audio::state::TranscriptionMethod::GeminiTranscribe,
-        );
-        state.set_transcript_segments("", "Complete thought. uncertain words");
-        let interim = state.get_translation_request().unwrap();
-        assert_eq!(interim.finalized_source, "Complete thought.");
-        assert_eq!(interim.draft_source, " uncertain words");
-
-        state.set_transcript_segments("Corrected words without punctuation", "");
-        let final_request = state.get_translation_request().unwrap();
-        assert_eq!(
-            final_request.finalized_source,
-            "Corrected words without punctuation"
-        );
-        assert!(final_request.draft_source.is_empty());
-    }
-
-    #[test]
-    fn dedicated_punctuated_translation_rolls_back_after_interim_correction() {
-        let mut state = crate::api::realtime_audio::state::RealtimeState::new();
-        state.set_transcription_method(
-            crate::api::realtime_audio::state::TranscriptionMethod::GeminiTranscribe,
-        );
-        state.set_transcript_segments("", "Wrong day. trailing words");
-        let request = state.get_translation_request().unwrap();
-        assert!(state.apply_translation_result(&request, "Sai ngày.", "từ tiếp theo"));
-        assert_eq!(state.last_committed_pos, "Wrong day.".len());
-        assert_eq!(state.transcript_committed_pos, "Wrong day.".len());
-
-        state.set_transcript_segments("", "Wrong day. trailing words continue");
-        assert_eq!(state.transcript_committed_pos, "Wrong day.".len());
-
-        state.set_transcript_segments("", "Right day. trailing words");
-        assert_eq!(state.last_committed_pos, 0);
-        assert_eq!(state.transcript_committed_pos, 0);
-        assert!(state.committed_translation.is_empty());
-        assert!(state.uncommitted_translation.is_empty());
-    }
-
-    #[test]
-    fn dedicated_unpunctuated_translation_uses_bounded_silence_fallback() {
-        let mut state = crate::api::realtime_audio::state::RealtimeState::new();
-        state.set_transcription_method(
-            crate::api::realtime_audio::state::TranscriptionMethod::GeminiTranscribe,
-        );
-        state.set_transcript_segments("", "stable words without punctuation");
-        let request = state.get_translation_request().unwrap();
-        assert!(state.apply_translation_result(&request, "", "bản dịch ổn định"));
-        state.last_transcript_append_time = Instant::now() - Duration::from_millis(900);
-        state.last_translation_update_time = Instant::now() - Duration::from_millis(1_100);
-        assert!(state.should_force_commit_on_timeout());
-    }
-
-    #[test]
-    fn dedicated_transcription_streams_continuously_without_periodic_silence() {
-        assert!(!uses_periodic_silence_cycle(true));
-        assert!(uses_periodic_silence_cycle(false));
-    }
-}
+#[path = "tests.rs"]
+mod tests;
