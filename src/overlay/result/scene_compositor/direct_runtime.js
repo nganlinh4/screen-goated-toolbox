@@ -141,6 +141,9 @@
                         text: item.text,
                         vertical: regions[itemIndex].vertical === true,
                         wrap: regions[itemIndex].wrap === true,
+                        footprint: (regions[itemIndex].footprint || []).map(function(r) {
+                            return [r[0] * scaleX, r[1] * scaleY, r[2] * scaleX, r[3] * scaleY];
+                        }),
                         preferredFontSize: options.preferredFontSize
                     };
                 }

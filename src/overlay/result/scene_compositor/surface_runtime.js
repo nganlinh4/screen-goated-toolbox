@@ -60,10 +60,14 @@ window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
   }
 
   function fitBatch(tasks) {
-    const items = tasks.flatMap(function(task) { return task.items; })
+    const ready = tasks.flatMap(function(task) { return task.items; })
       .filter(function(item) { return item.text.isConnected && item.box.isConnected; });
+    const items = ready.filter(function(item) {
+      return !item.footprint || !item.footprint.length || !window.__SGT_FIT_FOOTPRINT__(item);
+    });
     for (const item of items) {
-      item.width = Math.max(0, item.box.clientWidth);
+      // Advance bounds can exclude a glyph's horizontal ink overhang.
+      item.width = Math.max(0, item.box.clientWidth - 2);
       item.height = Math.max(0, item.box.clientHeight);
       item.ceiling = Math.max(0.1, (item.vertical ? item.width : item.height) / 1.08);
       item.fontSize = item.wrap ? Math.max(1, Number(item.preferredFontSize) || 14)
@@ -132,6 +136,33 @@ window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
       }
     }
     for (const item of items) applyLayout(item);
+    const widthCandidates = items.filter(function(item) {
+      const extent = shapedExtent(item);
+      item.widthBest = { size: item.fontSize, stretch: item.stretch, wrap: item.wrapping,
+        effective: item.fontSize * Math.min(1, item.width / Math.max(0.1, extent.width),
+          item.height / Math.max(0.1, extent.height)) };
+      return !item.vertical && (item.wrapping || extent.height < item.height * 0.94);
+    });
+    // Shape actual condensed glyphs at full line height. Batch writes and reads;
+    // do not estimate the variable font's width response as a linear scale.
+    for (const stretch of [85, 70, 60]) {
+      for (const item of widthCandidates) {
+        item.wrapping = false; item.fontSize = item.ceiling; item.stretch = stretch;
+        applyLayout(item);
+      }
+      for (const item of widthCandidates) {
+        const extent = shapedExtent(item);
+        const size = item.fontSize * Math.min(1, item.width / Math.max(0.1, extent.width),
+          item.height / Math.max(0.1, extent.height));
+        if (size >= item.widthBest.effective * 1.06) {
+          item.widthBest = { size, stretch, wrap: false, effective: size };
+        }
+      }
+    }
+    for (const item of widthCandidates) {
+      item.fontSize = item.widthBest.size; item.stretch = item.widthBest.stretch;
+      item.wrapping = item.widthBest.wrap; applyLayout(item);
+    }
     for (const item of items) {
       const extent = shapedExtent(item);
       item.visualScale = Math.min(1, item.width / Math.max(0.1, extent.width),
@@ -163,11 +194,13 @@ window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
       const completed = [];
       while (pending.length && budget > 0) {
         const task = pending[0];
-        const items = task.items.slice(task.offset, task.offset + budget);
+        const shaped = task.items[task.offset]?.footprint?.length > 1;
+        const items = task.items.slice(task.offset, task.offset + (shaped ? 1 : budget));
         task.offset += items.length;
         budget -= items.length;
         batch.push({ items });
         if (task.offset >= task.items.length) completed.push(pending.shift());
+        if (shaped) break;
       }
       try { fitBatch(batch); }
       finally { for (const task of completed) task.resolve(); }

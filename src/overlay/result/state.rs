@@ -31,6 +31,9 @@ pub struct SourceReplacementRegion {
     pub vertical: bool,
     #[serde(default)]
     pub wrap: bool,
+    /// Allowed source rectangles, relative to this region; empty means rectangular.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub footprint: Vec<[u32; 4]>,
 }
 
 impl Default for ResultControlOptions {

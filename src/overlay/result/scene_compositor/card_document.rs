@@ -45,7 +45,11 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
         .replace("__SGT_SCENE_RUNTIME__", &scene_runtime)
         .replace(
             "__SGT_SURFACE_RUNTIME__",
-            include_str!("surface_runtime.js"),
+            &[
+                include_str!("footprint_runtime.js"),
+                include_str!("surface_runtime.js"),
+            ]
+            .concat(),
         )
         .replace("__SGT_FONT_FACE__", &super::font::face_css("/font.woff2"))
         .replace("__SGT_BUTTON_CSS__", super::control_surface::document_css())
@@ -152,7 +156,7 @@ mod tests {
         assert!(document.contains("result_drag_start"));
         assert!(document.contains("command.type === 'controls'"));
         assert!(document.contains("command.type === 'opacity'"));
-        assert!(document.contains("card.style.opacity = String(Math.max"));
+        assert!(document.contains("entry.card.style.opacity = entry.visible"));
         assert!(document.contains("sgt-controls-theme-css"));
         assert!(document.contains("window.__SGT_BUTTON_SCENE__"));
         assert!(document.contains("Unified result controls did not initialize"));

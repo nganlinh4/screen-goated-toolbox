@@ -14,6 +14,13 @@ window.applyHostCommand = function(command) {
   } else if (command.type === 'drag_settled') {
     const preservePreview = window.__SGT_BUTTON_SCENE__?.hasReleasedDragPreview?.() === true;
     if (!preservePreview) for (const card of command.cards) updateGeometry(card);
+  } else if (command.type === 'opacity') {
+    const entry = cards.get(String(command.id));
+    if (entry) {
+      // Prewarmed source cards stay mounted, but opacity must not reveal them.
+      entry.card.style.opacity = entry.visible
+        ? String(Math.max(0, Math.min(100, command.opacity)) / 100) : '0';
+    }
   } else if (command.type === 'theme') applyTheme(command.theme);
   else if (command.type === 'raise') {
     const entry = cards.get(String(command.id));

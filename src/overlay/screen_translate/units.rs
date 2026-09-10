@@ -14,18 +14,29 @@ pub(super) struct Unit {
 impl Unit {
     pub(super) fn replacement_region(
         &self,
-        width: u32,
-        height: u32,
+        layout: super::geometry::PixelRegion,
+        footprint: &[super::geometry::PixelRegion],
         vertical: bool,
         wrap: bool,
     ) -> crate::overlay::result::SourceReplacementRegion {
         crate::overlay::result::SourceReplacementRegion {
             x: 0,
             y: 0,
-            width,
-            height,
+            width: layout.width,
+            height: layout.height,
             vertical,
             wrap,
+            footprint: footprint
+                .iter()
+                .map(|r| {
+                    [
+                        r.x.saturating_sub(layout.x),
+                        r.y.saturating_sub(layout.y),
+                        r.width,
+                        r.height,
+                    ]
+                })
+                .collect(),
         }
     }
 }
@@ -121,6 +132,35 @@ pub(super) fn union(bounds: impl Iterator<Item = NormalizedBounds>) -> Normalize
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn replacement_preserves_line_footprint_without_filling_gaps() {
+        use super::super::geometry::PixelRegion;
+        let layout = PixelRegion {
+            x: 100,
+            y: 200,
+            width: 300,
+            height: 60,
+        };
+        let lines = [
+            PixelRegion {
+                height: 24,
+                ..layout
+            },
+            PixelRegion {
+                x: 110,
+                y: 236,
+                width: 150,
+                height: 24,
+            },
+        ];
+        let unit = super::Unit {
+            id: 1,
+            members: vec![1, 2],
+        };
+        let region = unit.replacement_region(layout, &lines, false, true);
+        assert_eq!(region.footprint, vec![[0, 0, 300, 24], [10, 36, 150, 24]]);
+        assert_eq!((region.width, region.height), (300, 60));
+    }
     use super::*;
     fn source(id: u16, top: u16, right: u16) -> DetectedTextRegion {
         DetectedTextRegion {

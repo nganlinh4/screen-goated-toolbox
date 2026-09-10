@@ -120,8 +120,8 @@ pub(super) fn prepare_scene(
             vec![SourceLane {
                 member_ids: vec![unit.id],
                 region: unit.replacement_region(
-                    layout.width,
-                    layout.height,
+                    layout,
+                    &shape_regions,
                     vertical_text,
                     members.len() > 1
                         && if vertical_text {
@@ -362,6 +362,7 @@ fn source_lane_from_run(
             height,
             vertical,
             wrap: false,
+            footprint: Vec::new(),
         },
     }
 }
