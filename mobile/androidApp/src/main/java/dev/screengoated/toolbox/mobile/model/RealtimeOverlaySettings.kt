@@ -15,6 +15,9 @@ data class RealtimeTtsSettings(
     val volumePercent: Int = 100,
 )
 
+internal fun RealtimeTtsSettings.withDirectSpeech(directSpeech: Boolean): RealtimeTtsSettings =
+    copy(enabled = enabled || directSpeech)
+
 object RealtimeModelIds {
     const val TRANSCRIPTION_GEMINI_2_5 = GeneratedLiveModelCatalog.TRANSCRIPTION_GEMINI_2_5
     const val TRANSCRIPTION_GEMINI_3_1 = GeneratedLiveModelCatalog.TRANSCRIPTION_GEMINI_3_1

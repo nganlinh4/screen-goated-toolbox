@@ -7,6 +7,14 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use super::layout::{CardRect, CardRole, CompositorLayout};
 use super::protocol::{CardSettings, CardText, RealtimeScene};
 
+mod first_use;
+mod read_state;
+pub(crate) use first_use::run as run_first_use;
+
+pub(super) fn handle_probe(role: CardRole, body: &str) -> bool {
+    read_state::handle_probe(role, body) || first_use::handle_probe(role, body)
+}
+
 pub(crate) fn run() -> i32 {
     if !super::supervisor::wait_until_ready(Duration::from_secs(8)) {
         crate::debug_log::log_debug("[RealtimeSmoke] status=failed reason=renderer_not_ready");
@@ -31,12 +39,17 @@ pub(crate) fn run() -> i32 {
     }
     std::thread::sleep(Duration::from_millis(500));
     let restored = super::parent::scene_snapshot().transcription == expected;
+    let read_preserved = read_state::verify();
     super::parent::set_active(false);
     crate::debug_log::log_debug(&format!(
-        "[RealtimeSmoke] status={} restart_restored={restored}",
-        if restored { "passed" } else { "failed" }
+        "[RealtimeSmoke] status={} restart_restored={restored} read_preserved={read_preserved}",
+        if restored && read_preserved {
+            "passed"
+        } else {
+            "failed"
+        }
     ));
-    if restored { 0 } else { 1 }
+    if restored && read_preserved { 0 } else { 1 }
 }
 
 fn smoke_scene() -> RealtimeScene {

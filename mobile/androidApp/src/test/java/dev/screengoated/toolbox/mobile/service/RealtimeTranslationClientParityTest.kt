@@ -1,6 +1,8 @@
 package dev.screengoated.toolbox.mobile.service
 
 import java.io.File
+import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
+import dev.screengoated.toolbox.mobile.model.withDirectSpeech
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,7 +44,9 @@ class RealtimeTranslationClientParityTest {
         val repositorySource = loadSourceFile(REPOSITORY_SOURCE_PATH).readText()
         val controllerSource = loadSourceFile(OVERLAY_CONTROLLER_SOURCE_PATH).readText()
 
-        assertTrue(repositorySource.contains("enabled = settings.enabled || RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId())"))
+        assertTrue(repositorySource.contains("settings.withDirectSpeech("))
+        assertTrue(repositorySource.contains("RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId())"))
+        assertTrue(RealtimeTtsSettings(enabled = false).withDirectSpeech(true).enabled)
         assertTrue(controllerSource.contains("if (RealtimeModelIds.isGeminiS2sModelId(repository.transcriptionModelId()))"))
         assertTrue(controllerSource.contains("repository.updateRealtimeTtsSettings(current.copy(enabled = true))"))
     }

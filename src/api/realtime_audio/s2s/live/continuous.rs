@@ -67,7 +67,7 @@ pub(super) fn run_live_translate_continuous(
 
         if last_health_log.elapsed() >= Duration::from_secs(5) {
             crate::log_info!(
-                "[{}] continuous health generation={} sent_chunks={} received_audio_chunks={} pending_ms={} dropped_ms={} socket_age_ms={} since_server_ms={} since_input_ms={} reconnect_attempts={} generation_boundaries={} turn_boundaries={} interrupted_generations={}",
+                "[{}] continuous health generation={} sent_chunks={} received_audio_chunks={} pending_ms={} dropped_ms={} socket_age_ms={} since_server_ms={} since_input_ms={} reconnect_attempts={} generation_boundaries={} turn_boundaries={} interrupted_generations={} playback_pending={} playback_volume={} playback_submitted_frames={}",
                 log_tag,
                 lifecycle.generation(),
                 sent_chunks,
@@ -80,7 +80,10 @@ pub(super) fn run_live_translate_continuous(
                 lifecycle.reconnect_attempt(),
                 output.generation_boundaries(),
                 output.turn_boundaries(),
-                output.interrupted_generations()
+                output.interrupted_generations(),
+                playback.has_pending_playback(),
+                crate::overlay::realtime_webview::state::CURRENT_TTS_VOLUME.load(Ordering::Relaxed),
+                playback.submitted_frames()
             );
             dropped_samples = 0;
             last_health_log = Instant::now();

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant};
 use windows::Win32::Media::Audio::*;
@@ -28,6 +28,7 @@ pub(crate) struct AudioPlayer {
     _sample_rate: u32,
     shared_buffer: Arc<Mutex<VecDeque<i16>>>,
     device_padding_frames: Arc<AtomicU32>,
+    submitted_frames: Arc<AtomicU64>,
     shutdown: Arc<AtomicBool>,
     _thread: Option<std::thread::JoinHandle<()>>,
     wsola: Mutex<WsolaStretcher>,
@@ -48,13 +49,15 @@ impl AudioPlayer {
         let buffer_clone = shared_buffer.clone();
         let device_padding_frames = Arc::new(AtomicU32::new(0));
         let device_padding_clone = device_padding_frames.clone();
+        let submitted_frames = Arc::new(AtomicU64::new(0));
+        let submitted_clone = submitted_frames.clone();
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_clone = shutdown.clone();
 
         let thread = std::thread::spawn(move || {
-            eprintln!("[TTS Player] WASAPI thread starting...");
+            crate::log_info!("[TTS Player] WASAPI thread starting...");
             if wasapi::initialize_mta().is_err() {
-                eprintln!("[TTS Player] ERROR: Failed to initialize COM for WASAPI thread");
+                crate::log_info!("[TTS Player] ERROR: Failed to initialize COM for WASAPI thread");
                 return;
             }
             let _apartment = WasapiApartment;
@@ -72,6 +75,7 @@ impl AudioPlayer {
                         shutdown_clone.clone(),
                         target_device_id,
                         manager.clone(),
+                        submitted_clone.clone(),
                     )
                 };
                 device_padding_clone.store(0, Ordering::Release);
@@ -81,7 +85,7 @@ impl AudioPlayer {
                         if shutdown_clone.load(Ordering::Relaxed) {
                             break;
                         }
-                        eprintln!(
+                        crate::log_info!(
                             "[TTS Player] WARNING: WASAPI stream failed: {}. Reinitializing...",
                             e
                         );
@@ -95,6 +99,7 @@ impl AudioPlayer {
             _sample_rate: sample_rate,
             shared_buffer,
             device_padding_frames,
+            submitted_frames,
             shutdown,
             _thread: Some(thread),
             wsola: Mutex::new(WsolaStretcher::new(SOURCE_SAMPLE_RATE)),
@@ -117,6 +122,7 @@ impl AudioPlayer {
         shutdown: Arc<AtomicBool>,
         target_device_id: Option<String>,
         manager: Arc<TtsManager>,
+        submitted_frames: Arc<AtomicU64>,
     ) -> anyhow::Result<()> {
         unsafe {
             eprintln!("[TTS WASAPI] Initializing audio output...");
@@ -142,6 +148,11 @@ impl AudioPlayer {
             };
 
             let active_device_id = device.GetId()?.to_string().ok();
+            crate::log_info!(
+                "[TTS WASAPI] selected_endpoint={:?} follows_default={}",
+                active_device_id,
+                target_device_id.is_none()
+            );
             let follows_default_device = target_device_id.is_none();
 
             let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
@@ -151,9 +162,11 @@ impl AudioPlayer {
             let channels = mix_format.nChannels;
             let sample_rate = mix_format.nSamplesPerSec;
             let bits = mix_format.wBitsPerSample;
-            eprintln!(
+            crate::log_info!(
                 "[TTS WASAPI] Device format: {} channels, {} Hz, {} bits",
-                channels, sample_rate, bits
+                channels,
+                sample_rate,
+                bits
             );
 
             let initialize_result = client.Initialize(
@@ -172,7 +185,7 @@ impl AudioPlayer {
 
             let mut client_started = false;
 
-            eprintln!(
+            crate::log_info!(
                 "[TTS WASAPI] Audio client initialized successfully (buffer size: {})",
                 buffer_size
             );
@@ -223,6 +236,10 @@ impl AudioPlayer {
                     if !client_started {
                         client.Start()?;
                         client_started = true;
+                        crate::log_info!(
+                            "[TTS WASAPI] playback_started endpoint={:?}",
+                            active_device_id
+                        );
                     }
                     // Mark the device reservation before removing samples from
                     // the shared queue. This closes the handoff window where a
@@ -269,6 +286,7 @@ impl AudioPlayer {
                     }
 
                     render_client.ReleaseBuffer(available, 0)?;
+                    submitted_frames.fetch_add(available as u64, Ordering::Relaxed);
                 }
 
                 std::thread::sleep(Duration::from_millis(10));
@@ -409,6 +427,10 @@ impl AudioPlayer {
         playback_work_present(queued, self.device_padding_frames.load(Ordering::Acquire))
     }
 
+    pub(crate) fn submitted_frames(&self) -> u64 {
+        self.submitted_frames.load(Ordering::Relaxed)
+    }
+
     pub(crate) fn stop(&self) {
         if let Ok(mut buf) = self.shared_buffer.lock() {
             buf.clear();
@@ -503,5 +525,40 @@ mod tests {
         assert!(playback_work_present(true, 0));
         assert!(playback_work_present(false, 480));
         assert!(!playback_work_present(false, 0));
+    }
+
+    #[test]
+    #[ignore = "plays a short quiet generated tone on the configured Windows output"]
+    fn native_playback_device_acceptance() {
+        let player = super::AudioPlayer::new(
+            crate::api::tts::types::PLAYBACK_SAMPLE_RATE,
+            crate::api::tts::TTS_MANAGER.clone(),
+        );
+        let sample_rate = crate::api::tts::types::SOURCE_SAMPLE_RATE;
+        let count = sample_rate as usize * 3 / 4;
+        let pcm = (0..count)
+            .flat_map(|index| {
+                let envelope = (index.min(count - index) as f32 / 240.0).min(1.0);
+                let phase = index as f32 * 440.0 * std::f32::consts::TAU / sample_rate as f32;
+                ((phase.sin() * 1600.0 * envelope) as i16).to_le_bytes()
+            })
+            .collect::<Vec<_>>();
+        player.play_native_stream(&pcm);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while player.has_pending_playback() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let drained = !player.has_pending_playback();
+        let submitted = player.submitted_frames();
+        player.stop();
+        eprintln!("[PlaybackAcceptance] submitted_frames={submitted} drained={drained}");
+        assert!(
+            submitted > 0,
+            "Windows did not accept generated audio frames"
+        );
+        assert!(
+            drained,
+            "generated audio did not drain from queue and device"
+        );
     }
 }

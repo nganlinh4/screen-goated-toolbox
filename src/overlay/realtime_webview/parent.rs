@@ -267,6 +267,9 @@ pub(super) fn handle_child_event(event: ChildEvent) {
 }
 
 fn handle_card_input(role: CardRole, body: &str) {
+    if super::smoke::handle_probe(role, body) {
+        return;
+    }
     if body == "saveResize" {
         save_size(role);
     } else if let Some(visible) = parse_toggle(body, "toggleMic:") {

@@ -79,6 +79,7 @@ pub fn reset_runtime_for_new_session() {
 }
 
 pub fn apply_session_config(config: &RealtimeSessionConfig) {
+    reconcile_read_model(&config.transcription_model);
     crate::api::realtime_audio::set_vocabulary(&config.custom_vocabulary.join("\n"));
     if let Ok(mut source) = NEW_AUDIO_SOURCE.lock() {
         *source = config.audio_source.clone();
@@ -147,6 +148,7 @@ pub fn set_translation_model(model: &str) {
 pub fn set_transcription_model(model: &str) {
     let model = crate::model_config::normalize_realtime_transcription_model_id(model);
     let is_s2s = crate::model_config::is_gemini_live_s2s_model_id(&model);
+    let read_enabled = reconcile_read_model(&model);
     if let Ok(mut new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
         *new_model = model.clone();
     }
@@ -155,6 +157,7 @@ pub fn set_transcription_model(model: &str) {
         move |config| config.realtime_transcription_model = model
     });
     TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
+    super::parent::update_tts(read_enabled, CURRENT_TTS_SPEED.load(Ordering::Relaxed));
     if load_session_config().audio_source != "device" {
         return;
     }
@@ -165,6 +168,21 @@ pub fn set_transcription_model(model: &str) {
         clear_selected_app();
         show_audio_app_selector_overlay();
     }
+}
+
+pub(super) fn reconcile_read_model(model: &str) -> bool {
+    let forced = crate::model_config::is_gemini_live_s2s_model_id(model);
+    let enabled = reconcile_read_enabled(&REALTIME_TTS_ENABLED, forced);
+    crate::log_info!(
+        "[RealtimeRead] model_reconciled direct_speech={} enabled={}",
+        forced,
+        enabled
+    );
+    enabled
+}
+
+fn reconcile_read_enabled(enabled: &std::sync::atomic::AtomicBool, forced: bool) -> bool {
+    enabled.fetch_or(forced, Ordering::SeqCst) || forced
 }
 
 pub fn set_transcription_language(language: &str) {
@@ -178,6 +196,10 @@ pub fn set_font_size(font_size: u32) {
 }
 
 pub fn set_tts_enabled(requested_enabled: bool) {
+    crate::log_info!(
+        "[RealtimeRead] user_requested enabled={}",
+        requested_enabled
+    );
     if crate::model_config::is_gemini_live_s2s_model_id(&load_session_config().transcription_model)
     {
         REALTIME_TTS_ENABLED.store(true, Ordering::SeqCst);
@@ -312,4 +334,33 @@ fn clamp_to_char_boundary(text: &str, index: usize) -> usize {
         clamped -= 1;
     }
     clamped
+}
+
+#[cfg(test)]
+mod read_state_tests {
+    use super::*;
+
+    #[test]
+    fn direct_speech_read_state_survives_transcription_and_render_refreshes() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/live-translate/read-state.json"
+        )))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let state =
+                std::sync::atomic::AtomicBool::new(case["initialEnabled"].as_bool().unwrap());
+            for event in case["events"].as_array().unwrap() {
+                if let Some(direct) = event["directSpeech"].as_bool() {
+                    reconcile_read_enabled(&state, direct);
+                }
+                assert_eq!(
+                    state.load(Ordering::SeqCst),
+                    event["expectedEnabled"].as_bool().unwrap(),
+                    "{}",
+                    case["name"]
+                );
+            }
+        }
+    }
 }

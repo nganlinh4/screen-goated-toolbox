@@ -138,6 +138,16 @@ impl StartupArgs {
     pub(crate) fn realtime_compositor_smoke(&self) -> bool {
         self.has(REALTIME_COMPOSITOR_SMOKE_FLAG)
     }
+
+    pub(crate) fn realtime_first_use_smoke(&self) -> Option<PathBuf> {
+        self.value("--realtime-parakeet-first-use-smoke")
+            .or_else(|| self.value("--realtime-parakeet-continuation-smoke"))
+            .map(PathBuf::from)
+    }
+
+    pub(crate) fn realtime_continuation_smoke(&self) -> bool {
+        self.has("--realtime-parakeet-continuation-smoke")
+    }
 }
 
 fn find_process_with_sgt_file(
@@ -259,6 +269,20 @@ mod tests {
         assert!(result.result_compositor_smoke());
         assert!(status.status_compositor_smoke());
         assert!(realtime.realtime_compositor_smoke());
+    }
+
+    #[test]
+    fn first_use_smoke_requires_an_explicit_audio_fixture() {
+        assert!(args(&["sgt.exe"]).realtime_first_use_smoke().is_none());
+        assert_eq!(
+            args(&[
+                "sgt.exe",
+                "--realtime-parakeet-first-use-smoke",
+                "public.wav"
+            ])
+            .realtime_first_use_smoke(),
+            Some(PathBuf::from("public.wav"))
+        );
     }
 
     #[test]

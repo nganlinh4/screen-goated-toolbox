@@ -222,6 +222,7 @@ fn handle_start_overlay() {
         active: true,
         layout,
         settings,
+        tts_enabled: REALTIME_TTS_ENABLED.load(Ordering::SeqCst),
         tts_speed: 100,
         translation_model: active_config.translation_model,
         is_dark: crate::overlay::is_dark_mode(),

@@ -33,6 +33,12 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
         };
 
         if let Some((rx, hwnd, req_id, generation, is_realtime)) = playback_job {
+            crate::log_info!(
+                "[TTS Playback] started request={} generation={} realtime={}",
+                req_id,
+                generation,
+                is_realtime
+            );
             let mut loading_cleared = false;
             let mut chunks_received = 0u32;
 
@@ -76,6 +82,11 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                         audio_player.play(&data, is_realtime);
                     }
                     Ok(AudioEvent::Error(error)) => {
+                        crate::log_info!(
+                            "[TTS Playback] failed request={} error={}",
+                            req_id,
+                            error
+                        );
                         if !is_realtime {
                             eprintln!("[TTS Player] AudioEvent::Error: {error}");
                         }
@@ -151,6 +162,12 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
             }
 
             // Mark that we're done playing this job
+            crate::log_info!(
+                "[TTS Playback] finished request={} chunks={} interrupted={}",
+                req_id,
+                chunks_received,
+                generation < manager.interrupt_generation.load(Ordering::SeqCst)
+            );
             manager.is_playing.store(false, Ordering::SeqCst);
         }
     }

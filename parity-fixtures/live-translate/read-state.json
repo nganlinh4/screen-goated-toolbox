@@ -1,0 +1,7 @@
+{
+  "cases": [
+    {"name":"direct-to-transcription-keeps-read-enabled","initialEnabled":false,"events":[{"directSpeech":true,"expectedEnabled":true},{"directSpeech":false,"expectedEnabled":true},{"refresh":"transcript","expectedEnabled":true},{"refresh":"translation","expectedEnabled":true},{"refresh":"renderer","expectedEnabled":true}]},
+    {"name":"transcription-does-not-enable-read-implicitly","initialEnabled":false,"events":[{"directSpeech":false,"expectedEnabled":false},{"refresh":"transcript","expectedEnabled":false}]},
+    {"name":"explicit-read-choice-persists-across-transcription-models","initialEnabled":true,"events":[{"directSpeech":false,"expectedEnabled":true},{"directSpeech":false,"expectedEnabled":true},{"refresh":"speed","expectedEnabled":true}]}
+  ]
+}

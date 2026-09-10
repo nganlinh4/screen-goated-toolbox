@@ -74,13 +74,15 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
     let result_compositor_smoke = startup_args.result_compositor_smoke();
     let status_compositor_smoke = startup_args.status_compositor_smoke();
     let realtime_compositor_smoke = startup_args.realtime_compositor_smoke();
+    let realtime_first_use_smoke = startup_args.realtime_first_use_smoke();
     let isolated_ui_test = screen_record_wry_smoke
         || creation_ui_test.is_some()
         || screen_translate_ui_test
         || screen_translate_lab_queue.is_some()
         || result_compositor_smoke
         || status_compositor_smoke
-        || realtime_compositor_smoke;
+        || realtime_compositor_smoke
+        || realtime_first_use_smoke.is_some();
 
     let _ = crate::RESTORE_EVENT.as_ref();
     // Establish process ownership before cleanup, installation, registry edits,
@@ -187,6 +189,14 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
     }
     if realtime_compositor_smoke {
         let exit = smoke_exit_code(crate::overlay::realtime_webview::smoke::run());
+        shutdown_compositors();
+        return Ok(exit);
+    }
+    if let Some(path) = realtime_first_use_smoke {
+        let exit = smoke_exit_code(crate::overlay::realtime_webview::smoke::run_first_use(
+            &path,
+            !startup_args.realtime_continuation_smoke(),
+        ));
         shutdown_compositors();
         return Ok(exit);
     }

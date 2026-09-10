@@ -72,6 +72,7 @@ class AndroidLiveSessionRepository(
         PresetCustomModelRegistry.set(mutableCustomModels.value)
         val permissions = permissionEvaluator.evaluate(context, persistedConfig, overlaySupported)
         store.hydrate(persistedConfig, permissions)
+        reconcileReadModel()
     }
 
     fun refreshPermissions() {
@@ -81,6 +82,7 @@ class AndroidLiveSessionRepository(
     fun updateConfig(patch: LiveSessionPatch) {
         val previousLanguage = state.value.config.targetLanguage
         store.updateConfig(patch)
+        reconcileReadModel()
         if (patch.targetLanguage != null && patch.targetLanguage != previousLanguage) {
             store.clearTranslationHistory()
         }
@@ -120,12 +122,19 @@ class AndroidLiveSessionRepository(
     }
 
     fun updateRealtimeTtsSettings(settings: RealtimeTtsSettings) {
-        mutableRealtimeTtsSettings.value = settings.copy(
-            enabled = settings.enabled || RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId()),
+        mutableRealtimeTtsSettings.value = settings.withDirectSpeech(
+            RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId()),
+        ).copy(
             speedPercent = settings.speedPercent.coerceIn(50, 200),
             volumePercent = settings.volumePercent.coerceIn(0, 100),
         )
         settingsStore.saveRealtimeTtsSettings(mutableRealtimeTtsSettings.value)
+    }
+
+    private fun reconcileReadModel() {
+        val current = mutableRealtimeTtsSettings.value
+        val next = current.withDirectSpeech(RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId()))
+        if (next != current) updateRealtimeTtsSettings(next)
     }
 
     fun updateGlobalTtsSettings(settings: MobileGlobalTtsSettings) {
