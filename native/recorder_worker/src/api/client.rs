@@ -3,6 +3,9 @@ use std::time::Duration;
 use ureq::http::HeaderMap;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
+#[path = "../../../../src/api/client/download_transport.rs"]
+mod download_transport;
+
 fn platform_tls_config() -> TlsConfig {
     TlsConfig::builder()
         .provider(TlsProvider::NativeTls)
@@ -25,18 +28,12 @@ fn build_agent(http_status_as_error: bool) -> ureq::Agent {
 }
 
 fn build_download_agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .user_agent(concat!(
-            env!("CARGO_PKG_NAME"),
-            "/",
-            env!("CARGO_PKG_VERSION")
-        ))
-        .timeout_connect(Some(Duration::from_secs(30)))
-        .timeout_send_request(Some(Duration::from_secs(30)))
-        .timeout_recv_response(Some(Duration::from_secs(120)))
-        .tls_config(platform_tls_config())
-        .build()
-        .into()
+    download_transport::build(
+        platform_tls_config(),
+        concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")),
+        Duration::from_secs(120),
+        Duration::from_secs(30),
+    )
 }
 
 pub(crate) static UREQ_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| build_agent(true));

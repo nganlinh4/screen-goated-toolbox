@@ -109,5 +109,5 @@ pub fn cancel_download_and_revert_to_gemini() {
         }
     }
 
-    println!("Parakeet download cancelled, reverting to default realtime model");
+    crate::log_info!("[ModelDownload] cancellation requested; reverting to default realtime model");
 }

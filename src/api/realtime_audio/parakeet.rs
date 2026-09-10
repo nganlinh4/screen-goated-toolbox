@@ -133,7 +133,9 @@ where
     } = options;
 
     // 1. Install the worker and its registry-owned native dependencies before model download.
+    crate::log_info!("[Parakeet] phase=prepare_engine");
     if let Err(e) = super::local_asr_worker::LocalAsrClient::prepare(&stop_signal) {
+        crate::log_info!("[Parakeet] phase=prepare_engine_failed error={e:#}");
         let err_msg = e.to_string();
         if err_msg.contains("cancelled") || stop_signal.load(Ordering::Relaxed) {
             println!("Local ASR engine install was cancelled by user");
@@ -149,7 +151,7 @@ where
             Err(e) => {
                 let err_msg = e.to_string();
                 if err_msg.contains("cancelled") || stop_signal.load(Ordering::Relaxed) {
-                    println!("Parakeet download was cancelled by user");
+                    crate::log_info!("[Parakeet] phase=model_download_cancelled");
                     return Ok(());
                 }
                 return Err(e);
@@ -161,7 +163,12 @@ where
     }
 
     // 3. Load Model
-    let mut worker = load_parakeet_model_with_repair(&stop_signal, use_badge)?;
+    crate::log_info!("[Parakeet] phase=load_model");
+    let mut worker =
+        load_parakeet_model_with_repair(&stop_signal, use_badge).inspect_err(|error| {
+            crate::log_info!("[Parakeet] phase=load_model_failed error={error:#}");
+        })?;
+    crate::log_info!("[Parakeet] phase=model_ready");
 
     // 4. Audio Setup
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));

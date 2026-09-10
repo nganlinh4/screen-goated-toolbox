@@ -1,9 +1,13 @@
 use anyhow::{Result, anyhow};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 #[cfg(not(feature = "recorder-worker"))]
 use std::sync::LazyLock;
+
+#[path = "model_loader/verified_download.rs"]
+mod verified_download;
+pub(crate) use verified_download::download_verified_file_with_progress;
 
 #[cfg(not(feature = "recorder-worker"))]
 static LAST_PARAKEET_ACTION_ERROR: LazyLock<std::sync::Mutex<Option<String>>> =
@@ -202,109 +206,6 @@ fn is_reparse_point(metadata: &fs::Metadata) -> bool {
     metadata.file_type().is_symlink()
 }
 
-pub(crate) fn download_verified_file_with_progress(
-    contract: FileContract,
-    url: &str,
-    path: &Path,
-    stop_signal: &std::sync::atomic::AtomicBool,
-    on_progress: impl Fn(u64, u64),
-) -> Result<()> {
-    if verified_file_present(path, contract) {
-        return Ok(());
-    }
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow!("model file has no parent directory"))?;
-    fs::create_dir_all(parent)?;
-    let temp_path = path.with_extension("verified-download");
-    let _ = fs::remove_file(&temp_path);
-    let result = (|| -> Result<()> {
-        let response = crate::api::client::UREQ_DOWNLOAD_AGENT
-            .get(url)
-            .header("User-Agent", "ScreenGoatedToolbox")
-            .call()
-            .map_err(|error| anyhow!("Download failed for {}: {error}", contract.name))?;
-        if response
-            .headers()
-            .get("content-length")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok())
-            .is_some_and(|size| size != contract.size_bytes)
-        {
-            return Err(anyhow!(
-                "Download size for {} does not match this build",
-                contract.name
-            ));
-        }
-        let mut reader = response.into_body().into_reader();
-        let mut output = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp_path)?;
-        let mut hasher = sha2::Sha256::new();
-        let mut downloaded = 0_u64;
-        let mut buffer = [0_u8; 128 * 1024];
-        loop {
-            if stop_signal.load(std::sync::atomic::Ordering::Relaxed) {
-                return Err(anyhow!("Download cancelled"));
-            }
-            let read = reader.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            downloaded = downloaded
-                .checked_add(read as u64)
-                .filter(|bytes| *bytes <= contract.size_bytes)
-                .ok_or_else(|| anyhow!("Download for {} exceeds its limit", contract.name))?;
-            output.write_all(&buffer[..read])?;
-            use sha2::Digest as _;
-            hasher.update(&buffer[..read]);
-            on_progress(downloaded, contract.size_bytes);
-            let progress = downloaded as f32 / contract.size_bytes as f32 * 100.0;
-            if let Ok(mut state) = crate::overlay::realtime_webview::state::REALTIME_STATE.lock() {
-                state.download_progress = progress;
-            }
-        }
-        output.flush()?;
-        output.sync_all()?;
-        use sha2::Digest as _;
-        let digest = format!("{:x}", hasher.finalize());
-        if downloaded != contract.size_bytes || !digest.eq_ignore_ascii_case(contract.sha256) {
-            return Err(anyhow!(
-                "Downloaded {} failed integrity verification",
-                contract.name
-            ));
-        }
-        drop(output);
-        replace_managed_file(&temp_path, path)?;
-        on_progress(contract.size_bytes, contract.size_bytes);
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp_path);
-    }
-    result
-}
-
-fn replace_managed_file(temp_path: &Path, path: &Path) -> Result<()> {
-    if !path.exists() {
-        fs::rename(temp_path, path)?;
-        return Ok(());
-    }
-
-    let backup_path = path.with_extension("unverified-backup");
-    if backup_path.exists() {
-        fs::remove_file(&backup_path)?;
-    }
-    fs::rename(path, &backup_path)?;
-    if let Err(error) = fs::rename(temp_path, path) {
-        let _ = fs::rename(&backup_path, path);
-        return Err(error.into());
-    }
-    fs::remove_file(backup_path)?;
-    Ok(())
-}
-
 pub fn get_parakeet_model_dir() -> PathBuf {
     crate::paths::app_models_dir().join("parakeet")
 }
@@ -469,6 +370,10 @@ pub fn download_parakeet_model(
                 &dir.join(filename),
                 &stop_signal,
                 |done, _| {
+                    report_model_download_progress(
+                        completed_bytes.saturating_add(done),
+                        total_bytes,
+                    );
                     if let Some(badge) = &badge {
                         badge.report(completed_bytes.saturating_add(done), total_bytes);
                     }
@@ -495,14 +400,38 @@ pub fn download_parakeet_model(
     }
 
     if let Err(err) = &result {
+        crate::log_info!("[Parakeet] model download ended error={err:#}");
         if !err.to_string().contains("cancelled") {
             set_parakeet_action_error(err.to_string());
         }
     } else {
+        crate::log_info!("[Parakeet] model download ready");
         clear_parakeet_action_error();
     }
 
     result
+}
+
+pub(crate) fn report_model_download_progress(done: u64, total: u64) {
+    use crate::overlay::realtime_webview::state::{REALTIME_HWND, REALTIME_STATE};
+    if let Ok(mut state) = REALTIME_STATE.lock() {
+        state.download_progress = if total == 0 {
+            0.0
+        } else {
+            (done.min(total) as f64 / total as f64 * 100.0) as f32
+        };
+    }
+    unsafe {
+        let hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+        if !hwnd.is_invalid() {
+            let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                Some(hwnd),
+                super::WM_DOWNLOAD_PROGRESS,
+                windows::Win32::Foundation::WPARAM(0),
+                windows::Win32::Foundation::LPARAM(0),
+            );
+        }
+    }
 }
 
 #[cfg(all(test, not(feature = "recorder-worker")))]

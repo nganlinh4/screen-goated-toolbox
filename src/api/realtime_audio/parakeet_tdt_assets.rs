@@ -159,6 +159,10 @@ pub fn download_parakeet_tdt_model(stop_signal: Arc<AtomicBool>, use_badge: bool
                 &dir.join(filename),
                 &stop_signal,
                 |done, _| {
+                    super::model_loader::report_model_download_progress(
+                        completed_bytes.saturating_add(done),
+                        total_bytes,
+                    );
                     if let Some(badge) = &badge {
                         badge.report(completed_bytes.saturating_add(done), total_bytes);
                     }

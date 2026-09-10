@@ -4,6 +4,9 @@ use std::time::Duration;
 use ureq::http::HeaderMap;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
+#[path = "client/download_transport.rs"]
+mod download_transport;
+
 const STREAM_RESPONSE_START_TIMEOUT: Duration = Duration::from_secs(120);
 const STREAM_PROGRESS_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -94,19 +97,12 @@ fn build_download_agent() -> ureq::Agent {
 }
 
 fn build_download_agent_with_read_timeout(read_timeout: Duration) -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .user_agent(concat!(
-            env!("CARGO_PKG_NAME"),
-            "/",
-            env!("CARGO_PKG_VERSION")
-        ))
-        .timeout_connect(Some(Duration::from_secs(30)))
-        .timeout_send_request(Some(Duration::from_secs(30)))
-        .timeout_recv_response(Some(Duration::from_secs(120)))
-        .timeout_recv_body(Some(read_timeout))
-        .tls_config(platform_tls_config())
-        .build()
-        .into()
+    download_transport::build(
+        platform_tls_config(),
+        concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")),
+        Duration::from_secs(120),
+        read_timeout,
+    )
 }
 
 fn build_stream_agent(http_status_as_error: bool) -> ureq::Agent {
