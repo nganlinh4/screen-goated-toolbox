@@ -153,7 +153,6 @@ where
     let mut has_spoken = false;
     let mut first_speech: Option<Instant> = None;
     let mut last_active = Instant::now();
-    let mut activity = crate::api::audio::activity::SpeechActivity::default();
 
     let mut audio_mode = AudioMode::Normal;
     let mut mode_start = Instant::now();
@@ -400,7 +399,7 @@ where
         if auto_stop && !pause_signal.load(Ordering::Relaxed) {
             let rms =
                 f32::from_bits(crate::overlay::recording::CURRENT_RMS.load(Ordering::Relaxed));
-            if activity.observe(rms, Instant::now()) {
+            if crate::api::audio::activity::auto_stop_activity(rms) {
                 if !has_spoken {
                     first_speech = Some(Instant::now());
                 }

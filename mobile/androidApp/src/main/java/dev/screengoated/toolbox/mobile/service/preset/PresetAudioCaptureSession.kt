@@ -71,7 +71,6 @@ internal class PresetAudioCaptureSession(
     private var onCancelledCallback: (() -> Unit)? = null
     private val capturedSamples = StreamingAudioAttachment()
     private var hasSpoken = false
-    private var activity = dev.screengoated.toolbox.mobile.shared.live.SpeechActivity()
     private var firstSpeechAtMs: Long? = null
     private var lastActiveAtMs: Long = 0L
     private var processingRequested = false
@@ -146,7 +145,6 @@ internal class PresetAudioCaptureSession(
         capturedSamples.clear()
         pendingStreamingChunks.clear()
         hasSpoken = false
-        activity = dev.screengoated.toolbox.mobile.shared.live.SpeechActivity()
         firstSpeechAtMs = null
         lastActiveAtMs = SystemClock.elapsedRealtime()
         if (!resolvedPreset.preset.hideRecordingUi) {
@@ -492,7 +490,7 @@ internal class PresetAudioCaptureSession(
         }
         if (!paused) {
             val now = SystemClock.elapsedRealtime()
-            if (activity.observe(rms.toDouble(), now)) {
+            if (dev.screengoated.toolbox.mobile.shared.live.SpeechActivity.autoStopActivity(rms)) {
                 if (!hasSpoken) {
                     firstSpeechAtMs = now
                 }
@@ -558,7 +556,6 @@ internal class PresetAudioCaptureSession(
     private companion object {
         private const val TAG = "PresetAudioCapture"
         const val WARMUP_THRESHOLD = 0.001f
-        const val NOISE_THRESHOLD = 0.015f
         const val SILENCE_LIMIT_MS = 800L
         const val MIN_RECORDING_MS = 2_000L
     }

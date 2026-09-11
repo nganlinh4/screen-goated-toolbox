@@ -224,7 +224,6 @@ where
 
     let mut has_spoken = false;
     let mut last_active = std::time::Instant::now();
-    let mut activity = crate::api::audio::activity::SpeechActivity::default();
     let mut first_speech: Option<std::time::Instant> = None;
 
     // 5. Processing Loop
@@ -270,7 +269,7 @@ where
             }
 
             if auto_stop_recording {
-                if activity.observe(rms, std::time::Instant::now()) {
+                if crate::api::audio::activity::auto_stop_activity(rms) {
                     last_active = std::time::Instant::now();
                     if !has_spoken {
                         has_spoken = true;

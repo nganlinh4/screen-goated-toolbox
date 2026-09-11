@@ -26,7 +26,7 @@
   - launching it again while processing aborts/closes
 - Record sessions respect the Windows RMS/auto-stop thresholds:
   - warmup threshold `0.001`
-  - maximum speech threshold `0.015`, adapted down to `0.001` by shared noise-relative activity
+  - auto-stop activity strictly above RMS `0.015`, independent of permissive live-transcription activity; steady quieter background cannot reset the silence timer. Audio below this threshold is still captured, but cannot arm auto-stop by itself.
   - silence cutoff `800ms`
   - minimum speech window `2000ms`
 - Built-in mic presets intended for one-shot speech capture keep `auto_stop_recording` aligned with the Windows defaults. This includes `preset_transcribe`, `preset_fix_pronunciation`, `preset_transcribe_retranslate`, `preset_quicker_foreigner_reply`, `preset_quick_ai_question`, `preset_voice_search`, and `preset_quick_record`.

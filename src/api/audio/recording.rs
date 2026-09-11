@@ -311,7 +311,6 @@ pub fn record_audio_and_transcribe(
     let mut first_speech_time: Option<std::time::Instant> = None;
     let mut last_active_time = std::time::Instant::now();
 
-    let mut activity = super::activity::SpeechActivity::default();
     const SILENCE_LIMIT_MS: u128 = 800;
     const MIN_RECORDING_MS: u128 = 2000;
 
@@ -328,7 +327,7 @@ pub fn record_audio_and_transcribe(
             let rms_bits = crate::overlay::recording::CURRENT_RMS.load(Ordering::Relaxed);
             let current_rms = f32::from_bits(rms_bits);
 
-            if activity.observe(current_rms, std::time::Instant::now()) {
+            if super::activity::auto_stop_activity(current_rms) {
                 if !has_spoken {
                     first_speech_time = Some(std::time::Instant::now());
                 }

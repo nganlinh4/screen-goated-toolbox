@@ -1,5 +1,14 @@
 {
   "version": 1,
+  "autoStopCases": [
+    { "rms": 0.0, "active": false },
+    { "rms": 0.003, "active": false },
+    { "rms": 0.014, "active": false },
+    { "rms": 0.015, "active": false },
+    { "rms": 0.016, "active": true },
+    { "rms": 0.04, "active": true },
+    { "rms": -0.04, "active": false }
+  ],
   "policy": {"initialNoise":0.0003,"minimumRms":0.001,"maximumRms":0.015,"noiseMultiplier":3.0,"noiseMargin":0.0002,"noiseTimeConstantMs":500,"maximumObservationGapMs":200},
   "cases": [
     {"name":"quiet_voice_after_quiet_background","frames":[{"ms":0,"rms":0.0002,"active":false},{"ms":100,"rms":0.0002,"active":false},{"ms":200,"rms":0.002,"active":true},{"ms":300,"rms":0.004,"active":true},{"ms":800,"rms":0.0002,"active":false}]},

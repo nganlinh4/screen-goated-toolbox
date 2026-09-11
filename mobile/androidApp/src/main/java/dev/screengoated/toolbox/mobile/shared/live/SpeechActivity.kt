@@ -2,6 +2,10 @@ package dev.screengoated.toolbox.mobile.shared.live
 
 /** Canonical noise-relative level evidence. Does not alter PCM or recognize speech. */
 internal class SpeechActivity {
+    companion object {
+        fun autoStopActivity(rms: Float): Boolean = rms.isFinite() && rms > 0.015f
+    }
+
     private var noise = 0.0003
     private var lastMs: Long? = null
 

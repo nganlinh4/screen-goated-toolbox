@@ -131,7 +131,10 @@ formats and a callback-partition-independent PCM converter. It applies no gain.
 Its activity summaries report frame counts and peak frame RMS, in addition to
 cumulative capture levels. Quiet speech uses the noise-relative activity contract
 in `parity-fixtures/preset-system/microphone-activity.json`; local activity is not
-proof of linguistic speech. Continuous preset audio attachments are complete or
+proof of linguistic speech. Recording auto-stop separately retains its fixed
+RMS > 0.015 trigger, 800 ms silence cutoff, and 2-second minimum speech window.
+Quieter audio is captured unchanged but does not arm/reset auto-stop.
+Continuous preset audio attachments are complete or
 absent: after ten minutes they are omitted, while transcription continues.
 Pending capture/reconnect audio is bounded to sixty seconds; overflow is logged.
 
