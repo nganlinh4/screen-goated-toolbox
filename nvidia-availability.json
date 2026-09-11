@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-11T11:28:34Z",
+ "generatedAt": "2026-09-11T16:33:08Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -18,8 +18,16 @@
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 1571,
+   "p50_ms": 1836,
    "success_rate": 0.917,
+   "runs": 24
+  },
+  {
+   "id": "deepseek-ai/deepseek-v4-flash-0731",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 2953,
+   "success_rate": 0.208,
    "runs": 24
   }
  ]
