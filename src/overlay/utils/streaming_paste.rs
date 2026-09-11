@@ -1,10 +1,12 @@
 //! Session-bound automatic insertion. Provider polling never waits for editor I/O.
 
+mod diagnostics;
 mod editor;
-mod input_activity;
+mod handoff;
 mod policy;
 #[cfg(test)]
 mod policy_tests;
+mod routing;
 
 use std::collections::VecDeque;
 use std::sync::{
@@ -27,6 +29,7 @@ const MAX_TEXT_BYTES: usize = 128 * 1024;
 
 #[derive(Default)]
 struct Mailbox {
+    received: u64,
     queue: VecDeque<Event>,
     accepting: bool,
     ready: bool,
@@ -38,6 +41,7 @@ struct Mailbox {
 
 #[derive(Default)]
 struct Shared {
+    generation: u64,
     state: Mutex<Mailbox>,
     changed: Condvar,
 }
@@ -63,22 +67,15 @@ impl StreamingAutoPaste {
             return Self { shared: None };
         }
         let foreground = unsafe { GetForegroundWindow() }.0 as usize;
-        let input_watch = match input_activity::InputWatch::start() {
-            Ok(watch) => watch,
-            Err(_) => {
-                WORKERS.fetch_sub(1, Ordering::SeqCst);
-                crate::log_info!("[AutoPaste] suspended reason=input_observation_unavailable");
-                return Self { shared: None };
-            }
-        };
-        let input_tick = last_input_tick();
-        let shared = Arc::new(Shared::default());
+        let shared = Arc::new(Shared {
+            generation,
+            ..Default::default()
+        });
         shared.state.lock().unwrap().accepting = true;
         let worker_shared = shared.clone();
         if std::thread::Builder::new()
             .name("preset-auto-paste".into())
             .spawn(move || {
-                let _input_watch = input_watch;
                 let _completion = Completion(worker_shared.clone());
                 let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
                 if initialized {
@@ -87,7 +84,6 @@ impl StreamingAutoPaste {
                         generation,
                         abort,
                         HWND(foreground as *mut _),
-                        input_tick,
                     );
                     unsafe {
                         CoUninitialize();
@@ -144,6 +140,16 @@ impl StreamingAutoPaste {
         if state.draining && matches!(event, Event::Interim(_)) {
             return;
         }
+        state.received += 1;
+        diagnostics::received(shared.generation, state.received, &event);
+        crate::log_info!(
+            "[AutoPaste] session={} received={} kind={} chars={} queued={}",
+            shared.generation,
+            state.received,
+            event.kind(),
+            event.chars(),
+            state.queue.len()
+        );
         enqueue(&mut state, event);
         shared.changed.notify_one();
     }
@@ -201,16 +207,31 @@ enum Target {
     BestEffort(BestEffortTarget),
 }
 impl Target {
+    fn backend(&self) -> &'static str {
+        match self {
+            Self::Replace(_) => "verified_range",
+            Self::Append(_) => "verified_append",
+            Self::BestEffort(_) => "unverified_keyboard",
+        }
+    }
     fn capture(foreground: HWND) -> anyhow::Result<Self> {
         Editor::capture(foreground)
             .map(Self::Replace)
             .or_else(|error| {
+                if error.is::<editor::UnsafeCapture>() {
+                    return Err(error);
+                }
                 crate::log_info!(
                     "[AutoPaste] fallback=keyboard_revisions_best_effort detail={error:#}"
                 );
                 BestEffortTarget::capture(foreground).map(Self::BestEffort)
             })
-            .or_else(|_| AppendTarget::capture(foreground).map(Self::Append))
+            .or_else(|error| {
+                if error.is::<editor::UnsafeCapture>() {
+                    return Err(error);
+                }
+                AppendTarget::capture(foreground).map(Self::Append)
+            })
     }
     fn check(&self) -> anyhow::Result<()> {
         match self {
@@ -231,19 +252,10 @@ impl Target {
     }
 }
 
-fn run_worker(
-    shared: &Shared,
-    generation: u64,
-    abort: Arc<AtomicBool>,
-    foreground: HWND,
-    tick: u64,
-) {
+fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foreground: HWND) {
     let mut target = {
         let _lease = INPUT_LEASE.lock().unwrap();
-        if tick != last_input_tick()
-            || abort.load(Ordering::SeqCst)
-            || GENERATION.load(Ordering::SeqCst) != generation
-        {
+        if abort.load(Ordering::SeqCst) || GENERATION.load(Ordering::SeqCst) != generation {
             return;
         }
         match Target::capture(foreground) {
@@ -254,9 +266,6 @@ fn run_worker(
             }
         }
     };
-    if tick != last_input_tick() {
-        return;
-    }
     let mut policy = Policy::new(matches!(target, Target::Replace(_) | Target::BestEffort(_)));
     {
         let mut state = shared.state.lock().unwrap();
@@ -267,15 +276,19 @@ fn run_worker(
         shared.changed.notify_all();
     }
     crate::log_info!(
-        "[AutoPaste] ready replaceable={}",
+        "[AutoPaste] session={generation} ready backend={} replaceable={}",
+        target.backend(),
         matches!(target, Target::Replace(_) | Target::BestEffort(_))
     );
     let mut last_interim = Instant::now() - Duration::from_secs(1);
     let mut handoff = false;
-    let mut boundary_pending = false;
-    let mut segment_open = false;
-    let mut settled_target = (0usize, 0u64, Instant::now());
+    let mut routing = routing::Routing::default();
+    let mut settled_target = (0usize, Instant::now());
+    let mut dispatched = 0u64;
     loop {
+        if handoff {
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let mut state = shared.state.lock().unwrap();
         if state.queue.is_empty() && !state.overflow && !abort.load(Ordering::SeqCst) {
             state = shared
@@ -288,6 +301,13 @@ fn run_worker(
         if state.expired {
             break;
         }
+        // Retain queued speech through a shortcut, without suspending ownership.
+        // Ctrl+Backspace is not a character deletion; deliver after release.
+        if !cancelled && editor::shortcut_held() {
+            drop(state);
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        }
         let event = if cancelled {
             Some(Event::Finish)
         } else {
@@ -298,48 +318,52 @@ fn run_worker(
         if GENERATION.load(Ordering::SeqCst) != generation {
             break;
         }
+        #[cfg(test)]
+        if editor::require_test_target(unsafe { GetForegroundWindow() }).is_err() {
+            crate::log_info!("[AutoPaste] UI test stopped: foreground left the test process");
+            break;
+        }
         if !handoff && let Err(error) = target.check() {
             policy.suspend();
             handoff = true;
-            boundary_pending = segment_open;
-            settled_target = (0, 0, Instant::now());
+            routing.detach();
+            settled_target = (0, Instant::now());
             crate::log_info!("[AutoPaste] handoff=waiting detail={error:#}");
         }
         if handoff {
-            if cancelled
-                || shared.state.lock().unwrap().draining
-                || matches!(event, Some(Event::Finish))
-            {
+            if cancelled || matches!(event, Some(Event::Finish)) {
                 break;
             }
-            // Never move an in-progress hypothesis or its late final to another field.
-            if boundary_pending {
-                if matches!(event, Some(Event::Final(_))) {
-                    boundary_pending = false;
-                    segment_open = false;
-                }
-                continue;
-            }
             let foreground = unsafe { GetForegroundWindow() };
-            let tick = last_input_tick();
-            if (foreground.0 as usize, tick) != (settled_target.0, settled_target.1) {
-                settled_target = (foreground.0 as usize, tick, Instant::now());
+            if foreground.0 as usize != settled_target.0 {
+                settled_target = (foreground.0 as usize, Instant::now());
             }
-            if settled_target.2.elapsed() < Duration::from_millis(250) {
-                boundary_pending = matches!(event, Some(Event::Interim(_)));
+            if settled_target.1.elapsed() < Duration::from_millis(250) {
+                defer_event(shared, event);
                 continue;
             }
             match Target::capture(foreground) {
-                Ok(next) if tick == last_input_tick() => {
+                Ok(next) => {
+                    if !handoff::ready(&next, shared, generation, &abort) {
+                        defer_event(shared, event);
+                        settled_target = (0, Instant::now());
+                        crate::log_info!(
+                            "[AutoPaste] session={generation} handoff=candidate_changed queued_speech_retained=true"
+                        );
+                        continue;
+                    }
                     target = next;
                     policy =
                         Policy::new(matches!(target, Target::Replace(_) | Target::BestEffort(_)));
                     handoff = false;
-                    crate::log_info!("[AutoPaste] handoff=resumed");
+                    crate::log_info!(
+                        "[AutoPaste] session={generation} handoff=resumed backend={}",
+                        target.backend()
+                    );
                 }
                 _ => {
-                    boundary_pending = matches!(event, Some(Event::Interim(_)));
-                    settled_target.2 = Instant::now();
+                    defer_event(shared, event);
+                    settled_target.1 = Instant::now();
                     continue;
                 }
             }
@@ -347,7 +371,6 @@ fn run_worker(
         let Some(event) = event else {
             continue;
         };
-        segment_open = matches!(event, Event::Interim(_));
         if matches!(event, Event::Interim(_)) && shared.state.lock().unwrap().draining {
             continue;
         }
@@ -378,20 +401,69 @@ fn run_worker(
                 abort.load(Ordering::SeqCst),
             )
         };
-        if let Some(replacement) = policy.plan(&event)
+        dispatched += 1;
+        let (routed_event, cut) = routing.project(&event);
+        if cut != 0 {
+            crate::log_info!(
+                "[AutoPaste] session={generation} dispatch={dispatched} handoff=routed source_chars={} destination_chars={}",
+                event.chars(),
+                routed_event.chars()
+            );
+        }
+        let replacement = policy.plan(&routed_event);
+        if let Some(replacement) = &replacement {
+            diagnostics::dispatched(
+                generation,
+                dispatched,
+                event.kind(),
+                &replacement.old,
+                &replacement.new,
+            );
+        }
+        crate::log_info!(
+            "[AutoPaste] session={generation} dispatch={dispatched} kind={} backend={} old_chars={} new_chars={} mutation={}",
+            event.kind(),
+            target.backend(),
+            replacement.as_ref().map_or(0, |r| r.old.chars().count()),
+            replacement.as_ref().map_or(0, |r| r.new.chars().count()),
+            replacement.is_some()
+        );
+        if let Some(replacement) = replacement
             && let Err(error) = target.replace(&replacement.old, &replacement.new, &allowed)
         {
             policy.suspend();
-            crate::log_info!("[AutoPaste] suspended reason=unverified_mutation detail={error:#}");
             handoff = true;
-            boundary_pending = matches!(event, Event::Interim(_));
-            settled_target = (0, 0, Instant::now());
+            settled_target = (0, Instant::now());
+            if error.is::<editor::BeforeMutation>() && !matches!(event, Event::Finish) {
+                routing.detach();
+                defer_event(shared, Some(event));
+                crate::log_info!(
+                    "[AutoPaste] session={generation} dispatch={dispatched} handoff=retry_unwritten detail={error:#}"
+                );
+                continue;
+            }
+            crate::log_info!(
+                "[AutoPaste] session={generation} dispatch={dispatched} suspended reason=unverified_mutation detail={error:#}"
+            );
+            // Consume the attempted source span for routing, without claiming
+            // delivery. Never replay an uncertain effect, but keep future speech.
+            routing.accept(&event, cut, true);
+            routing.detach();
             if matches!(event, Event::Finish) {
                 break;
             }
             continue;
         }
-        policy.accept(&event);
+        policy.accept(&routed_event);
+        routing.accept(
+            &event,
+            cut,
+            matches!(target, Target::Replace(_) | Target::BestEffort(_)),
+        );
+        crate::log_info!(
+            "[AutoPaste] session={generation} dispatch={dispatched} accepted backend={}",
+            target.backend()
+        );
         if matches!(event, Event::Finish) {
             break;
         }
@@ -409,15 +481,31 @@ fn permits(state: &Mailbox, event: &Event, current: bool, aborted: bool) -> bool
         && (matches!(event, Event::Finish) || !aborted)
 }
 
-fn last_input_tick() -> u64 {
-    input_activity::epoch()
-}
-
 fn enqueue(state: &mut Mailbox, event: Event) {
     if matches!(event, Event::Interim(_)) && matches!(state.queue.back(), Some(Event::Interim(_))) {
         state.queue.pop_back();
     }
     state.queue.push_back(event);
+    enforce_capacity(state);
+}
+
+fn defer_event(shared: &Shared, event: Option<Event>) {
+    let Some(event) = event else { return };
+    let mut state = shared.state.lock().unwrap();
+    if matches!(event, Event::Interim(_))
+        && (state.draining
+            || matches!(
+                state.queue.front(),
+                Some(Event::Interim(_) | Event::Final(_))
+            ))
+    {
+        return;
+    }
+    state.queue.push_front(event);
+    enforce_capacity(&mut state);
+}
+
+fn enforce_capacity(state: &mut Mailbox) {
     let bytes: usize = state
         .queue
         .iter()

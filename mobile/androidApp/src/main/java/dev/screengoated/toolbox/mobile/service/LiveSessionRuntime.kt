@@ -320,7 +320,7 @@ class LiveSessionRuntime(
             GeminiTranscribeVocabulary.replace(repository.currentConfig().customVocabulary)
             val usesInterimTranscripts =
                 GeneratedLiveModelCatalog.endpointProfile(model)?.protocol == "live-transcribe"
-            val committedTranscript = StringBuilder()
+            val delivery = dev.screengoated.toolbox.mobile.shared.live.TranscriptionDelivery()
             liveSocketClient.runSession(
                 apiKey = apiKey,
                 model = model,
@@ -331,12 +331,10 @@ class LiveSessionRuntime(
                 onTranscript = { transcript, isFinal ->
                     repository.markListening()
                     if (usesInterimTranscripts) {
-                        if (isFinal) {
-                            appendTranscriptSegment(committedTranscript, transcript)
-                        }
+                        delivery.update(transcript, isFinal)
                         repository.setTranscriptSegments(
-                            committed = committedTranscript.toString(),
-                            draft = if (isFinal) "" else transcript,
+                            committed = delivery.committed,
+                            draft = delivery.interim,
                             nowMs = SystemClock.elapsedRealtime(),
                         )
                     } else {
@@ -348,16 +346,6 @@ class LiveSessionRuntime(
                 },
             )
         }
-    }
-
-    private fun appendTranscriptSegment(target: StringBuilder, segment: String) {
-        if (target.isNotEmpty() &&
-            !target.last().isWhitespace() &&
-            segment.firstOrNull()?.isWhitespace() != true
-        ) {
-            target.append(' ')
-        }
-        target.append(segment.trimStart().takeIf { target.isEmpty() } ?: segment)
     }
 
 

@@ -6,12 +6,14 @@
     "src/overlay/translation_gummy/runtime/setup.rs"
   ],
   "vad": {
+    "quietInputPolicy": "forward_continuously_local_activity_only_adds_boundaries",
+    "activityPolicy": "../preset-system/microphone-activity.json",
     "speechRms": 0.015,
     "trailingAudioMs": 180,
     "endSilenceMs": 420,
     "prerollChunks": 2,
-    "_prerollBasis": "Windows canonical pre-roll is expressed in samples: LOCAL_INPUT_PREROLL_SAMPLES = 3200 (= 2 chunks of CHUNK_SAMPLES=1600). Android audio chunk size is device-dependent, so the cross-platform contract is the chunk count (2), not a raw sample count. Android asserts LOCAL_INPUT_PREROLL_CHUNKS == prerollChunks; Windows asserts LOCAL_INPUT_PREROLL_SAMPLES == prerollChunks * 1600.",
-    "_prerollSamplesWindows": 3200,
+    "_prerollBasis": "Normal input is forwarded continuously on both platforms. Android retains two chunks only for its playback/barge-in suppression handoff; Windows normal input needs no preroll.",
+    "_prerollSamplesWindows": 0,
     "_chunkSamplesWindows": 1600
   },
   "setup": {

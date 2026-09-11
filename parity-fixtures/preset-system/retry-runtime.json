@@ -73,7 +73,7 @@
     "audio_transcribe": "groq-whisper-large-v3-audio",
     "audio_continuous": "google-gemini-3-5-transcribe-live-audio",
     "audio_direct_translate": "google-gemini-3-5-flash-lite-audio",
-    "audio_offline_transcribe": "local-parakeet-120m-v1-audio"
+    "audio_device_continuous": "google-gemini-3-5-transcribe-live-audio"
   },
   "recommended_settings_update": {
     "apply_changed_builtin_model_slots": true,

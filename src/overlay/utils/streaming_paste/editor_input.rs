@@ -1,4 +1,4 @@
-use super::super::input_activity::{INSERTION_TAG, epoch};
+const INSERTION_TAG: usize = 0x53475450;
 use super::MAX_INPUT_UNITS;
 use anyhow::{Result, ensure};
 use std::time::{Duration, Instant};
@@ -16,31 +16,14 @@ pub(super) fn validate_input(text: &str) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn no_held_modifiers() -> Result<()> {
-    for key in [
-        VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN, VK_LBUTTON, VK_RBUTTON, VK_MBUTTON,
-    ] {
-        ensure!(
-            unsafe { GetAsyncKeyState(key.0 as i32) } >= 0,
-            "keyboard modifier or mouse button is held"
-        );
-    }
-    Ok(())
+pub(super) fn input_settled(state: &mut Option<Instant>) -> bool {
+    state.get_or_insert_with(Instant::now).elapsed() >= Duration::from_millis(20)
 }
 
-pub(super) fn input_epoch() -> u64 {
-    epoch()
-}
-
-pub(super) fn input_settled(state: &mut Option<(u64, Instant)>) -> bool {
-    let tick = input_epoch();
-    if let Some((previous, since)) = state
-        && *previous == tick
-    {
-        return since.elapsed() >= Duration::from_millis(20);
-    }
-    *state = Some((tick, Instant::now()));
-    false
+pub(super) fn shortcut_held() -> bool {
+    [VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN]
+        .into_iter()
+        .any(|key| unsafe { GetAsyncKeyState(key.0 as i32) } < 0)
 }
 
 pub(super) fn send_unicode(text: &str, selected_deletion: bool) -> Result<()> {

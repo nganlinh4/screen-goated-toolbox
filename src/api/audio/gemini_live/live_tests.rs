@@ -1,17 +1,27 @@
-//! Explicit provider acceptance using generated public speech, never a microphone.
+//! Explicit provider acceptance using supplied public speech, never a microphone.
 
 use super::*;
 use std::time::Instant;
 
 #[test]
-#[ignore = "requires credentials and explicitly supplied generated public speech"]
+#[ignore = "requires credentials and explicitly supplied public speech"]
 fn transcription_commit_latency_probe() -> anyhow::Result<()> {
     use crate::api::gemini_live::ready_session::LivePoll;
     let path = std::env::var("SGT_PUBLIC_SPEECH_WAV")?;
     let mut reader = hound::WavReader::open(path)?;
     let spec = reader.spec();
     anyhow::ensure!(spec.channels == 1 && spec.sample_rate == 16_000 && spec.bits_per_sample == 16);
-    let speech = reader.samples::<i16>().collect::<Result<Vec<_>, _>>()?;
+    let mut speech = reader.samples::<i16>().collect::<Result<Vec<_>, _>>()?;
+    if let Ok(value) = std::env::var("SGT_TEST_SPEECH_PEAK") {
+        let target: f64 = value.parse()?;
+        anyhow::ensure!(target > 0.0 && target <= 1.0, "invalid test speech peak");
+        let peak = speech.iter().map(|s| (*s as f64).abs()).fold(0.0, f64::max);
+        anyhow::ensure!(peak > 0.0, "synthetic speech fixture is silent");
+        for sample in &mut speech {
+            *sample = (*sample as f64 * target * 32767.0 / peak).round() as i16;
+        }
+        eprintln!("[SpeechAcceptance] normalized_fixture_peak={target}");
+    }
     let model = std::env::var("SGT_TRANSCRIPTION_TEST_MODEL")?;
     let mode = std::env::var("SGT_PROBE_MODE").unwrap_or_else(|_| "SMART".into());
     let boundary_ms: usize = std::env::var("SGT_PROBE_BOUNDARY_MS")
@@ -60,6 +70,15 @@ fn transcription_commit_latency_probe() -> anyhow::Result<()> {
         match session.poll()? {
             LivePoll::Frame(frame) => {
                 let ms = started.elapsed().as_millis();
+                eprintln!(
+                    "PROBE_FRAME {}",
+                    serde_json::json!({
+                        "ms": ms,
+                        "interim": frame.interim_input_transcript,
+                        "final": frame.input_transcript,
+                        "audio_active": !ended,
+                    })
+                );
                 if let Some(text) = frame.interim_input_transcript {
                     eprintln!("INTERIM ms={ms} text={text:?}");
                 }
@@ -89,7 +108,17 @@ fn continuous_preset_finalization_provider_acceptance() -> anyhow::Result<()> {
         spec.channels == 1 && spec.sample_rate == 16_000 && spec.bits_per_sample == 16,
         "expected 16 kHz mono PCM16"
     );
-    let speech = reader.samples::<i16>().collect::<Result<Vec<_>, _>>()?;
+    let mut speech = reader.samples::<i16>().collect::<Result<Vec<_>, _>>()?;
+    if let Ok(value) = std::env::var("SGT_TEST_SPEECH_PEAK") {
+        let target: f64 = value.parse()?;
+        anyhow::ensure!(target > 0.0 && target <= 1.0, "invalid test speech peak");
+        let peak = speech.iter().map(|s| (*s as f64).abs()).fold(0.0, f64::max);
+        anyhow::ensure!(peak > 0.0, "synthetic speech fixture is silent");
+        for sample in &mut speech {
+            *sample = (*sample as f64 * target * 32767.0 / peak).round() as i16;
+        }
+        eprintln!("[SpeechAcceptance] normalized_fixture_peak={target}");
+    }
     let model = std::env::var("SGT_TRANSCRIPTION_TEST_MODEL")?;
     anyhow::ensure!(
         crate::api::gemini_transcribe::is_live_transcribe(&model),
@@ -109,7 +138,7 @@ fn continuous_preset_finalization_provider_acceptance() -> anyhow::Result<()> {
         let mut first_turn_chars = 0;
         for frame_index in 0..360 {
             let offset = frame_index % 180 * 1_600;
-            let frame = (0..1_600).map(|index| speech.get(offset + index).copied().unwrap_or(200));
+            let frame = (0..1_600).map(|index| speech.get(offset + index).copied().unwrap_or(0));
             producer_buffer.lock().unwrap().extend(frame);
             if frame_index == 179 {
                 first_turn_chars = producer_committed.lock().unwrap().chars().count();

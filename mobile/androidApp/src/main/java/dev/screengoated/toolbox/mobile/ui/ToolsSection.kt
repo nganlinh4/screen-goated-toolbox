@@ -182,7 +182,7 @@ private val toolCategories = listOf(
         presets = listOf(
             ToolPresetItem("study_language", "Study language", "Học ngoại ngữ", "언어 학습", R.drawable.ms_school),
             ToolPresetItem("record_device", "Device Record", "Thu âm máy", "시스템 녹음", R.drawable.ms_surround_sound),
-            ToolPresetItem("transcribe_english_offline", "Transcribe English", "Chép lời TA", "영어 받아쓰기", R.drawable.ms_speech_to_text),
+            ToolPresetItem("transcribe_english_offline", "Continuous transcription", "Chép liên tục", "연속 받아쓰기", R.drawable.ms_speech_to_text),
         ),
     ),
 )

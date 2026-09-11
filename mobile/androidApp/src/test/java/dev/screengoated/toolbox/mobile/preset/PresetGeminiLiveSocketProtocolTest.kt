@@ -146,6 +146,7 @@ class PresetGeminiLiveSocketProtocolTest {
 
     @Test
     fun `dedicated final segments may repeat without being mistaken for cumulative text`() {
+        val delivery = dev.screengoated.toolbox.mobile.shared.live.TranscriptionDelivery()
         val transcript = StringBuilder()
         val finalTranscript = StringBuilder()
         val chunks = mutableListOf<String>()
@@ -153,7 +154,7 @@ class PresetGeminiLiveSocketProtocolTest {
             handleGeminiLiveMessage(
                 """{"serverContent":{"inputTranscription":{"text":"hello"}}}""",
                 CompletableDeferred(), LinkedBlockingDeque(), transcript, finalTranscript,
-                dedicatedTranscribe = true, onChunk = chunks::add,
+                dedicatedTranscribe = true, delivery = delivery, onChunk = chunks::add,
             )
         }
         assertEquals("hello hello", finalTranscript.toString())
@@ -162,6 +163,7 @@ class PresetGeminiLiveSocketProtocolTest {
 
     @Test
     fun `streaming typing consumes shared authoritative segment events only`() {
+        val delivery = dev.screengoated.toolbox.mobile.shared.live.TranscriptionDelivery()
         val fixturePath = "parity-fixtures/preset-system/streaming-typing.json"
         val fixture = json.parseToJsonElement(File(repoRoot(), fixturePath).readText()).jsonObject
         val transcript = StringBuilder()
@@ -182,6 +184,7 @@ class PresetGeminiLiveSocketProtocolTest {
                 org.json.JSONObject().put("serverContent", content).toString(),
                 CompletableDeferred(), LinkedBlockingDeque(), transcript, finalTranscript,
                 dedicatedTranscribe = true,
+                delivery = delivery,
                 onInterim = { display = finalTranscript.toString() + it },
                 onChunk = { chunks.add(it); display = finalTranscript.toString() },
             )

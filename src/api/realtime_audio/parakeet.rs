@@ -67,7 +67,7 @@ fn load_parakeet_model_with_repair(
 pub fn run_parakeet_transcription(
     stop_signal: Arc<AtomicBool>,
     dummy_pause_signal: Arc<AtomicBool>,
-    full_audio_buffer: Option<Arc<Mutex<Vec<i16>>>>,
+    full_audio_buffer: Option<Arc<Mutex<crate::api::audio::retention::AudioAttachment>>>,
     hide_recording_ui: bool,
     hwnd_overlay: Option<HWND>,
     state: Arc<Mutex<RealtimeState>>,
@@ -109,7 +109,7 @@ pub fn run_parakeet_transcription(
 pub struct ParakeetSessionOptions {
     pub stop_signal: Arc<AtomicBool>,
     pub pause_signal: Arc<AtomicBool>,
-    pub full_audio_buffer: Option<Arc<Mutex<Vec<i16>>>>,
+    pub full_audio_buffer: Option<Arc<Mutex<crate::api::audio::retention::AudioAttachment>>>,
     pub overlay_hwnd_opt: Option<HWND>,
     pub hide_recording_ui: bool,
     pub use_badge: bool,
@@ -224,6 +224,7 @@ where
 
     let mut has_spoken = false;
     let mut last_active = std::time::Instant::now();
+    let mut activity = crate::api::audio::activity::SpeechActivity::default();
     let mut first_speech: Option<std::time::Instant> = None;
 
     // 5. Processing Loop
@@ -269,7 +270,7 @@ where
             }
 
             if auto_stop_recording {
-                if rms > 0.015 {
+                if activity.observe(rms, std::time::Instant::now()) {
                     last_active = std::time::Instant::now();
                     if !has_spoken {
                         has_spoken = true;
@@ -296,7 +297,12 @@ where
             if let Some(full_buf) = &full_audio_buffer
                 && let Ok(mut full) = full_buf.lock()
             {
-                full.extend(new_samples.iter().map(|&s| (s * 32768.0) as i16));
+                let pcm: Vec<_> = new_samples.iter().map(|&s| (s * 32768.0) as i16).collect();
+                if full.extend(&pcm) {
+                    crate::log_info!(
+                        "[AudioCapture] owner=local-stream attachment_limit=600s transcription_continues=true"
+                    );
+                }
             }
 
             sample_accumulator.extend(new_samples);

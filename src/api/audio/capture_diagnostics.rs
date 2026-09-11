@@ -20,6 +20,7 @@ struct Inner {
     started: Instant,
     stats: Mutex<Stats>,
     skipped: AtomicU64,
+    callback_max_us: AtomicU64,
 }
 
 #[derive(Default, Clone)]
@@ -65,6 +66,7 @@ struct Stats {
     suppressed: u64,
     malformed: u64,
     last_callback: Option<Instant>,
+    max_callback_gap_us: u128,
     selected: Option<String>,
 }
 
@@ -72,7 +74,7 @@ impl Inner {
     fn report(&self, phase: &str) {
         let Ok(stats) = self.stats.lock() else { return };
         crate::log_info!(
-            "[AudioCapture] id={} phase={} uptime_ms={} callbacks={} suppressed={} malformed={} skipped_observations={} since_callback_ms={:?} channels={} raw={} mono_before_resample={} delivered={} stop_pause={:?}",
+            "[AudioCapture] id={} phase={} uptime_ms={} callbacks={} suppressed={} malformed={} skipped_observations={} since_callback_ms={:?} callback_max_us={} max_callback_gap_us={} channels={} raw={} mono_before_resample={} delivered={} stop_pause={:?}",
             self.id,
             phase,
             self.started.elapsed().as_millis(),
@@ -81,6 +83,8 @@ impl Inner {
             stats.malformed,
             self.skipped.load(Ordering::Relaxed),
             stats.last_callback.map(|time| time.elapsed().as_millis()),
+            self.callback_max_us.load(Ordering::Relaxed),
+            stats.max_callback_gap_us,
             stats.channels,
             serde_json::Value::Array(stats.raw.iter().map(Level::json).collect()),
             stats.mono.json(),
@@ -111,6 +115,7 @@ impl CaptureDiagnostics {
             started: Instant::now(),
             stats: Mutex::new(Stats::default()),
             skipped: AtomicU64::new(0),
+            callback_max_us: AtomicU64::new(0),
         });
         crate::log_info!(
             "[AudioCapture] id={} phase=opening pid={} owner={:?} source={:?}",
@@ -189,6 +194,13 @@ impl CaptureDiagnostics {
         );
     }
 
+    pub(crate) fn callback_finished(&self, started: Instant) {
+        self.0.callback_max_us.fetch_max(
+            started.elapsed().as_micros().min(u64::MAX as u128) as u64,
+            Ordering::Relaxed,
+        );
+    }
+
     pub(crate) fn raw(&self, samples: impl Iterator<Item = f64>, suppressed: bool) {
         let Ok(mut stats) = self.0.stats.try_lock() else {
             self.0.skipped.fetch_add(1, Ordering::Relaxed);
@@ -196,7 +208,13 @@ impl CaptureDiagnostics {
         };
         stats.callbacks += 1;
         stats.suppressed += u64::from(suppressed);
-        stats.last_callback = Some(Instant::now());
+        let now = Instant::now();
+        if let Some(previous) = stats.last_callback {
+            stats.max_callback_gap_us = stats
+                .max_callback_gap_us
+                .max(now.duration_since(previous).as_micros());
+        }
+        stats.last_callback = Some(now);
         let channels = stats.channels.max(1);
         let mut count = 0;
         let mut sum = 0.0;
@@ -245,6 +263,7 @@ mod tests {
 
     fn observer() -> CaptureDiagnostics {
         CaptureDiagnostics(Arc::new(Inner {
+            callback_max_us: AtomicU64::new(0),
             id: 0,
             started: Instant::now(),
             skipped: AtomicU64::new(0),

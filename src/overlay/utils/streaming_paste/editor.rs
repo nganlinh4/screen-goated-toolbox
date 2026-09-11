@@ -9,7 +9,6 @@ use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::Variant::VT_BOOL;
 use windows::Win32::UI::Accessibility::*;
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-use windows::core::BSTR;
 
 const MAX_TEXT_UNITS: usize = 262_144;
 const MAX_INPUT_UNITS: usize = 16_384;
@@ -17,8 +16,34 @@ const MAX_INPUT_UNITS: usize = 16_384;
 mod best_effort;
 #[path = "editor_input.rs"]
 mod input;
+#[path = "editor_ranges.rs"]
+mod ranges;
 pub(super) use best_effort::BestEffortTarget;
-use input::{input_epoch, input_settled, no_held_modifiers, send_unicode, validate_input};
+use input::{input_settled, send_unicode, validate_input};
+pub(super) use ranges::UnsafeCapture;
+
+#[derive(Debug)]
+pub(super) struct BeforeMutation;
+
+impl std::fmt::Display for BeforeMutation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("target changed before any editor mutation")
+    }
+}
+pub(super) fn shortcut_held() -> bool {
+    input::shortcut_held()
+}
+
+#[cfg(test)]
+pub(super) fn require_test_target(foreground: HWND) -> Result<()> {
+    let mut process = 0;
+    unsafe { GetWindowThreadProcessId(foreground, Some(&mut process)) };
+    ensure!(
+        process == std::process::id(),
+        "UI test cannot target another process"
+    );
+    Ok(())
+}
 
 struct Target {
     automation: IUIAutomation2,
@@ -31,6 +56,8 @@ struct Target {
 
 impl Target {
     fn capture(expected: HWND) -> Result<Self> {
+        #[cfg(test)]
+        require_test_target(expected)?;
         unsafe {
             ensure!(
                 !expected.is_invalid() && GetForegroundWindow() == expected,
@@ -72,6 +99,14 @@ impl Target {
                 _apartment: PhantomData,
             };
             target.check()?;
+            crate::log_info!(
+                "[AutoPasteTarget] pid={} thread={} control_type={} framework={:?} class={:?}",
+                process,
+                thread,
+                target.element.CurrentControlType()?.0,
+                target.element.CurrentFrameworkId()?,
+                target.element.CurrentClassName()?
+            );
             Ok(target)
         }
     }
@@ -135,7 +170,9 @@ impl Editor {
                 .context("focused control has no verifiable text ranges")?;
             ensure_editable(&target.element, &text)?;
             let (before, selected, after, _) = snapshot(&text)?;
-            ensure!(selected.is_empty(), "initial selection is not collapsed");
+            if !selected.is_empty() {
+                return Err(UnsafeCapture.into());
+            }
             let editor = Self {
                 target,
                 text,
@@ -144,6 +181,7 @@ impl Editor {
                 after,
             };
             editor.check()?;
+            ranges::probe(&editor)?;
             Ok(editor)
         }
     }
@@ -168,7 +206,7 @@ impl Editor {
         allowed: &dyn Fn() -> bool,
     ) -> Result<()> {
         ensure!(allowed(), "input session is no longer current");
-        self.check()?;
+        self.check().context(BeforeMutation)?;
         ensure!(
             old_tail.len() <= self.before.len().saturating_sub(self.anchor_bytes),
             "replacement crosses the original user-text boundary"
@@ -188,43 +226,41 @@ impl Editor {
         if old_tail == new_tail {
             return Ok(());
         }
-        no_held_modifiers()?;
-        let input_tick = input_epoch();
+        let unchanged = old_tail
+            .chars()
+            .zip(new_tail.chars())
+            .take_while(|(old, new)| old == new)
+            .map(|(character, _)| character.len_utf8())
+            .sum::<usize>();
+        let unchanged_chars = old_tail[..unchanged].chars().count();
+        let full_old = old_tail;
+        let full_new = new_tail;
+        let original_prefix = prefix;
+        let mut prefix = format!("{original_prefix}{}", &old_tail[..unchanged]);
+        let mut old_tail = &old_tail[unchanged..];
+        let mut new_tail = &new_tail[unchanged..];
+        crate::log_info!(
+            "[AutoPasteRange] preserved_chars={unchanged_chars} selected_chars={} inserted_chars={} surrounding_before_chars={} surrounding_after_chars={}",
+            old_tail.chars().count(),
+            new_tail.chars().count(),
+            prefix.chars().count(),
+            self.after.chars().count()
+        );
+
         let (_, _, _, caret) = snapshot(&self.text)?;
-        let range = if old_tail.is_empty() {
-            unsafe { caret.Clone()? }
-        } else {
-            // Find actual provider endpoints instead of guessing whether a UIA
-            // Character unit means a scalar, UTF-16 unit, or grapheme cluster.
-            let preceding = unsafe { self.text.DocumentRange()? };
-            unsafe {
-                preceding.MoveEndpointByRange(
-                    TextPatternRangeEndpoint_End,
-                    &caret,
-                    TextPatternRangeEndpoint_Start,
-                )?;
-                let found = preceding.FindText(&BSTR::from(old_tail), true, false)?;
-                ensure!(
-                    found.CompareEndpoints(
-                        TextPatternRangeEndpoint_End,
-                        &caret,
-                        TextPatternRangeEndpoint_Start
-                    )? == 0,
-                    "owned tail is not adjacent to caret"
-                );
-                found
-            }
-        };
+        let range = ranges::suffix(&caret, old_tail).or_else(|_| {
+            // A shared scalar prefix can end inside a provider character unit.
+            // Widen only to the complete, still-owned tail, never user text.
+            old_tail = full_old;
+            new_tail = full_new;
+            prefix = original_prefix;
+            ranges::suffix(&caret, old_tail)
+        })?;
         ensure!(
             range_text(&range)? == old_tail,
             "provider returned an ambiguous replacement range"
         );
-        self.check()?;
-        let current_tick = input_epoch();
-        ensure!(
-            current_tick == input_tick,
-            "input changed before selection: previous={input_tick} current={current_tick}"
-        );
+        self.check().context(BeforeMutation)?;
         ensure!(allowed(), "input session ended before selection");
         unsafe {
             range.Select()?;
@@ -243,22 +279,25 @@ impl Editor {
                 "provider selected different endpoints"
             );
         }
-        let current_tick = input_epoch();
-        ensure!(
-            current_tick == input_tick,
-            "input changed before replacement: previous={input_tick} current={current_tick}"
-        );
-        no_held_modifiers()?;
+
         self.target.check()?;
         ensure!(allowed(), "input session ended before replacement");
         send_unicode(new_tail, !old_tail.is_empty())?;
         let deadline = Instant::now() + Duration::from_millis(350);
         let mut settled = None;
-        let mut last_error = String::new();
         loop {
+            let last_error;
             self.target.check()?;
             let matches = match snapshot(&self.text) {
                 Ok((before, selected, after, _)) => {
+                    last_error = format!(
+                        "expected_before_units={} observed_before_units={} selected_units={} expected_after_units={} observed_after_units={}",
+                        next_before.encode_utf16().count(),
+                        before.encode_utf16().count(),
+                        selected.encode_utf16().count(),
+                        self.after.encode_utf16().count(),
+                        after.encode_utf16().count()
+                    );
                     selected.is_empty() && before == next_before && after == self.after
                 }
                 Err(error) => {
@@ -370,15 +409,11 @@ impl AppendTarget {
 
     pub(super) fn append(&mut self, text: &str, allowed: &dyn Fn() -> bool) -> Result<()> {
         ensure!(allowed(), "input session is no longer current");
-        let input_epoch_before = input_epoch();
+
         validate_input(text)?;
-        self.check()?;
-        no_held_modifiers()?;
-        self.check()?;
-        ensure!(
-            input_epoch() == input_epoch_before,
-            "user input changed before append"
-        );
+        self.check().context(BeforeMutation)?;
+
+        self.check().context(BeforeMutation)?;
         ensure!(allowed(), "input session ended before append");
         send_unicode(text, false)?;
         if let Some((before, _)) = &mut self.snapshot {
@@ -407,29 +442,9 @@ unsafe fn ensure_editable(
     element: &IUIAutomationElement,
     text: &IUIAutomationTextPattern,
 ) -> Result<()> {
-    unsafe {
-        if let Ok(value) =
-            element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
-        {
-            ensure!(
-                !value.CurrentIsReadOnly()?.as_bool(),
-                "focused value is read-only"
-            );
-        } else {
-            ensure!(
-                element.CurrentControlType()? == UIA_EditControlTypeId,
-                "document-only text providers cannot be revised"
-            );
-            let read_only = text
-                .DocumentRange()?
-                .GetAttributeValue(UIA_IsReadOnlyAttributeId)?;
-            ensure!(
-                read_only.vt() == VT_BOOL && !bool::try_from(&read_only)?,
-                "editable text capability is unverified"
-            );
-        }
-        Ok(())
-    }
+    // Writable text capability, not control type, determines whether a document
+    // may be revised. Exact selection and mutation postconditions remain required.
+    unsafe { ensure_append_writable(element, text) }
 }
 
 unsafe fn ensure_append_writable(

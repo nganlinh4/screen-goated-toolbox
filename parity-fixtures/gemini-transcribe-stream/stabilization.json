@@ -1,0 +1,62 @@
+{
+  "revisionWords": 10,
+  "revisionScalars": 64,
+  "cases": [
+    {"name":"delivered_final_completes_older_overlap_evidence", "events":[
+      {"interim":"old wording alpha beta gamma delta epsilon zeta eta theta iota kappa lambda", "display":"old wording alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"},
+      {"final":"new wording alpha beta gamma delta epsilon zeta eta theta iota kappa lambda omega.", "display":"old wording alpha beta gamma delta epsilon zeta eta theta iota kappa lambda omega."},
+      {"interim":"old wording alpha beta gamma delta epsilon zeta eta theta iota kappa lambda omega.Next words", "display":"old wording alpha beta gamma delta epsilon zeta eta theta iota kappa lambda omega. Next words"},
+      {"final":"Next words", "display":"old wording alpha beta gamma delta epsilon zeta eta theta iota kappa lambda omega. Next words"}
+    ]},
+    {"name":"carryover_keeps_streaming_beyond_revision_budget", "events":[
+      {"final":"alpha beta gamma delta", "display":"alpha beta gamma delta"},
+      {"interim":"alpha beta gamma delta one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen", "display":"alpha beta gamma delta one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen"},
+      {"interim":"alpha beta gamma delta one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen", "display":"alpha beta gamma delta one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen"},
+      {"final":"one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen", "display":"alpha beta gamma delta one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen"}
+    ]},
+    {"name":"small_overlap_with_reworded_opening", "events":[
+      {"final":"shiny metal object", "display":"shiny metal object"},
+      {"interim":"new shiny metal object now", "display":"shiny metal object now"},
+      {"final":"now", "display":"shiny metal object now"}
+    ]},
+    {"name":"late_word_edit_keeps_independent_tail", "events":[
+      {"interim":"one two three four five six seven eight nine ten eleven", "display":"one two three four five six seven eight nine ten eleven"},
+      {"final":"ONE two three four five six seven eight nine ten eleven twelve", "display":"one two three four five six seven eight nine ten eleven twelve"}
+    ]},
+    {"name":"reworded_overlap_streams_tail", "events":[
+      {"final":"previous adjusted instrument was working correctly", "display":"previous adjusted instrument was working correctly"},
+      {"interim":"different adjusted instrument was working correctly next", "display":"previous adjusted instrument was working correctly next"},
+      {"final":"next", "display":"previous adjusted instrument was working correctly next"}
+    ]},
+    {"name":"short_revision", "events":[
+      {"interim":"meet Tuesday", "display":"meet Tuesday"},
+      {"final":"Meet Wednesday.", "display":"Meet Wednesday."}
+    ]},
+    {"name":"overlap_streams_tail", "events":[
+      {"final":"alpha beta gamma delta", "display":"alpha beta gamma delta"},
+      {"interim":"alpha beta gamma delta new words", "display":"alpha beta gamma delta new words"},
+      {"interim":"alpha beta gamma delta new words keep arriving", "display":"alpha beta gamma delta new words keep arriving"},
+      {"final":"new words", "display":"alpha beta gamma delta new words"}
+    ]},
+    {"name":"real_repetition_is_preserved", "events":[
+      {"final":"alpha beta gamma delta", "display":"alpha beta gamma delta"},
+      {"interim":"alpha beta gamma delta again", "display":"alpha beta gamma delta again"},
+      {"final":"alpha beta gamma delta again", "display":"alpha beta gamma delta alpha beta gamma delta again"}
+    ]},
+    {"name":"overlap_candidate_does_not_latch", "events":[
+      {"final":"alpha beta gamma delta", "display":"alpha beta gamma delta"},
+      {"interim":"alpha", "display":"alpha beta gamma delta"},
+      {"interim":"alpha has another meaning", "display":"alpha beta gamma delta alpha has another meaning"},
+      {"final":"alpha has another meaning", "display":"alpha beta gamma delta alpha has another meaning"}
+    ]},
+    {"name":"internal_match_does_not_hide_new_words", "events":[
+      {"final":"alpha beta gamma delta epsilon", "display":"alpha beta gamma delta epsilon"},
+      {"interim":"alpha beta gamma fresh words", "display":"alpha beta gamma delta epsilon alpha beta gamma fresh words"}
+    ]},
+    {"name":"ordinary_next_segment_streams", "events":[
+      {"final":"alpha beta gamma delta", "display":"alpha beta gamma delta"},
+      {"interim":"fresh words", "display":"alpha beta gamma delta fresh words"},
+      {"final":"Fresh words.", "display":"alpha beta gamma delta Fresh words."}
+    ]}
+  ]
+}

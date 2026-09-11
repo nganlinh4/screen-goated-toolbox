@@ -14,12 +14,13 @@ use windows::core::PCWSTR;
 
 pub(super) fn snapshot(selected: Option<&str>, inventory: bool) -> String {
     unsafe {
-        let com = CoInitializeEx(None, COINIT_MULTITHREADED);
-        if let Err(error) = com.ok() {
-            return json!({"com_error": format!("{error:?}")}).to_string();
-        }
+        // A pre-existing apartment can enumerate endpoints too. Only release
+        // the initialization reference acquired by this call.
+        let initialized = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
         let result = snapshot_inner(selected, inventory);
-        CoUninitialize();
+        if initialized {
+            CoUninitialize();
+        }
         result
             .unwrap_or_else(|error| json!({"error": format!("{error:#}")}))
             .to_string()

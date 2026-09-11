@@ -126,6 +126,15 @@ cargo clippy --all-targets -- -D warnings
 
 ## User diagnostic log
 
+Speech capture uses `src/api/audio/pcm_capture.rs` for common integer/float
+formats and a callback-partition-independent PCM converter. It applies no gain.
+Its activity summaries report frame counts and peak frame RMS, in addition to
+cumulative capture levels. Quiet speech uses the noise-relative activity contract
+in `parity-fixtures/preset-system/microphone-activity.json`; local activity is not
+proof of linguistic speech. Continuous preset audio attachments are complete or
+absent: after ten minutes they are omitted, while transcription continues.
+Pending capture/reconnect audio is bounded to sixty seconds; overflow is logged.
+
 All Windows microphone capture uses `src/audio_input.rs`, compiled by both the
 host and recorder worker: audio presets, realtime transcription/translation,
 Computer Control, Translation Gummy, TTS Playground source/reference recording,
@@ -152,12 +161,51 @@ distinguish silent input from conversion problems. At most 32 input devices and
 Stream errors are persisted. These diagnostics do not store audio or transcripts
 and do not change device selection, gain, conversion, or the UI.
 
-Preset `autoPaste` streams into a bound destination. Revisable hypotheses use a
-verified, replaceable provisional tail; unsupported editors receive final chunks
-only. Ownership loss suspends the session's writes rather than guessing what to
-erase. Dedicated transcription retains the shared speech-end reducer, so speech
+Preset `autoPaste` streams into a bound destination. Writable text-range providers
+use a verified, replaceable provisional tail. Windows editors without that
+capability can use explicitly unverified keyboard revisions; protected targets
+remain excluded. Ownership loss abandons the old tail without erasing it, then
+permits rebinding after 250 ms of stable foreground and a further 250 ms of valid
+captured destination identity/capability, without waiting for a provider
+final. Pending events are retained; only the continuing segment tail is routed
+to the new destination. Corrections crossing that boundary are delivered there
+without rewriting the old editor. Uncertain mutations are not retried. Dedicated
+transcription retains the shared speech-end reducer, so speech
 pauses finalize chunks without ending capture. See the
 [preset audio contract](../.claude/parity/preset-audio.md).
+`[AutoPaste]` records a session ID, received/dispatched ordering, event kind,
+queue depth, text lengths, selected backend, and mutation acceptance/failure.
+`[AutoPasteRange]` records preserved-prefix and selected/inserted lengths;
+postcondition failures include expected/observed surrounding lengths.
+`[AutoPasteKeyboard]` explicitly labels counted Backspace delivery unverified.
+Windows dictation does not monitor global keyboard/mouse events or cancel on
+input activity. Shortcut modifiers temporarily defer dispatch until release,
+without abandoning the provisional tail. Actual destination identity and verified
+text-range postconditions are still checked; unverified keyboard delivery cannot
+distinguish concurrent user edits from its own output.
+These records contain no transcript or document text. A keyboard batch accepted
+by Windows is not proof that the destination applied it correctly.
+Capture health also records maximum callback processing time and observed callback
+gap in microseconds; these distinguish slow application callbacks from delivery gaps
+when investigating audio-buffer discontinuities. They do not measure lost audio directly.
+`[TranscriptionDelivery]` records raw/delivered lengths, trimmed overlap length, and whether stabilization
+changed an update. The shared ten-word / 64-scalar delivery policy applies to
+dedicated transcription in presets and Live Translate, including provider finals.
+Matched carryover prefixes are trimmed from interims without withholding their new tail. Normal
+conclude preserves already delivered provisional text. With the text diagnostics
+flag below, `[TranscriptionDeliveryText]` also preserves bounded raw-provider and
+delivered text separately; insertion diagnostics then describe delivered text.
+
+For an explicitly consented transcript comparison, launch with
+`SGT_AUTOPASTE_TEXT_DIAGNOSTICS=1`. This opt-in adds `[AutoPasteText]` JSON
+records to the same bounded local log: raw and sanitized received hypotheses,
+plus attempted old/new owned tails keyed by process, session and sequence.
+Use the matching acceptance/failure records to distinguish attempted input from
+acknowledged dispatch; neither is destination readback. Whitespace and Unicode
+are preserved with scalar, UTF-16 and byte counts. Each text field is bounded to
+4,096 scalars and explicitly marks truncation. No surrounding document text or
+audio is captured. This mode records potentially sensitive dictated content;
+leave it unset for ordinary use and review the log before sharing it.
 `[ModelDownload]` records verified model-file requests, bounded byte progress,
 integrity verification, cancellation, and contextual failures. These records
 distinguish an active transfer from a failed or cancelled first-use installation.

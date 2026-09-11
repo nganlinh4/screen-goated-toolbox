@@ -1,4 +1,14 @@
 {
+  "windows_input_activity": {
+    "global_input_watcher": false,
+    "ordinary_input": "does_not_suspend",
+    "held_shortcut": "defer_dispatch_until_release_without_losing_ownership"
+  },
+  "windows_verified_replacement": {
+    "capability": "reversible_collapsed_caret_probe",
+    "range": "exact_caret_anchored_owned_suffix",
+    "uncertain_restoration": "exclude_keyboard_fallback"
+  },
   "canonical_windows_files": [
     "src/config/preset/defaults/audio.rs",
     "src/hotkey/processor.rs",
@@ -15,6 +25,7 @@
     "third_launch_while_processing": "abort_and_close"
   },
   "auto_stop_thresholds": {
+    "activity_policy": "microphone-activity.json",
     "warmup_rms": 0.001,
     "speech_rms": 0.015,
     "silence_ms": 800,
@@ -59,13 +70,14 @@
       "combined_frame_policy": "authoritative_final_takes_precedence"
     }
   },
-  "android_explicit_unsupported_presets": [
-    {
-      "preset_id": "preset_transcribe_english_offline",
-      "model_id": "local-parakeet-120m-v1-audio",
-      "reason": "MODEL_PROVIDER_NOT_READY"
-    }
-  ],
+  "continuous_device_preset": {
+    "preset_id": "preset_transcribe_english_offline",
+    "name_vi": "Chép liên tục",
+    "model_id": "google-gemini-3-5-transcribe-live-audio",
+    "auto_paste": true,
+    "auto_stop": false
+  },
+  "android_explicit_unsupported_presets": [],
   "realtime_contract": {
     "preset_operation_supported": false,
     "official_launcher": "live-translate-mini-app"

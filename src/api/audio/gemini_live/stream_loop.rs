@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::api::audio::retention::retain_pending;
 use crate::api::gemini_live::ready_session::{LivePoll, ReadyLiveSession};
 use crate::api::gemini_live::transcription_recovery::TranscriptionRecovery;
 use crate::api::gemini_live::transport::is_recoverable_anyhow_socket_error;
@@ -58,13 +59,13 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
     loop {
         if stop_signal.load(Ordering::Relaxed) || abort_signal.load(Ordering::Relaxed) {
             println!("[GeminiLiveStream] Cancellation received during reconnection.");
-            silence_buffer.extend(reconnect_buffer);
+            retain_pending(silence_buffer, &reconnect_buffer);
             return false;
         }
 
         {
             let mut buf = audio_buffer.lock().unwrap();
-            reconnect_buffer.extend(std::mem::take(&mut *buf));
+            retain_pending(&mut reconnect_buffer, &std::mem::take(&mut *buf));
         }
 
         match super::open_ready_session(api_key, model, vocabulary, || {
@@ -73,11 +74,11 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
             Ok(new_session) => {
                 {
                     let mut buf = audio_buffer.lock().unwrap();
-                    reconnect_buffer.extend(std::mem::take(&mut *buf));
+                    retain_pending(&mut reconnect_buffer, &std::mem::take(&mut *buf));
                 }
 
                 silence_buffer.clear();
-                silence_buffer.extend(reconnect_buffer);
+                retain_pending(silence_buffer, &reconnect_buffer);
                 *audio_mode = AudioMode::CatchUp;
                 *mode_start = Instant::now();
                 *session = new_session;
@@ -89,7 +90,7 @@ fn try_reconnect(context: ReconnectContext<'_>) -> bool {
             }
             Err(e) => {
                 if stop_signal.load(Ordering::Relaxed) || abort_signal.load(Ordering::Relaxed) {
-                    silence_buffer.extend(reconnect_buffer);
+                    retain_pending(silence_buffer, &reconnect_buffer);
                     return false;
                 }
                 println!(
@@ -152,6 +153,7 @@ where
     let mut has_spoken = false;
     let mut first_speech: Option<Instant> = None;
     let mut last_active = Instant::now();
+    let mut activity = crate::api::audio::activity::SpeechActivity::default();
 
     let mut audio_mode = AudioMode::Normal;
     let mut mode_start = Instant::now();
@@ -220,14 +222,14 @@ where
                     }
                 }
                 AudioMode::Silence => {
-                    silence_buffer.extend(real_audio);
+                    retain_pending(&mut silence_buffer, &real_audio);
                     let silence: Vec<i16> = vec![0i16; SAMPLES_PER_100MS];
                     if send_audio(session, &silence).is_err() {
                         break;
                     }
                 }
                 AudioMode::CatchUp => {
-                    silence_buffer.extend(real_audio);
+                    retain_pending(&mut silence_buffer, &real_audio);
                     let double_chunk = SAMPLES_PER_100MS * 2;
                     let to_send: Vec<i16> = if silence_buffer.len() >= double_chunk {
                         silence_buffer.drain(..double_chunk).collect()
@@ -398,7 +400,7 @@ where
         if auto_stop && !pause_signal.load(Ordering::Relaxed) {
             let rms =
                 f32::from_bits(crate::overlay::recording::CURRENT_RMS.load(Ordering::Relaxed));
-            if rms > 0.015 {
+            if activity.observe(rms, Instant::now()) {
                 if !has_spoken {
                     first_speech = Some(Instant::now());
                 }

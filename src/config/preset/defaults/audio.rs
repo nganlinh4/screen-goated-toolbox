@@ -4,7 +4,7 @@ use crate::config::preset::Preset;
 use crate::config::preset::{BlockBuilder, PresetBuilder};
 use crate::model_config::{
     DEFAULT_TEXT_MODEL_ID, PRESET_AUDIO_CONTINUOUS_MODEL_ID,
-    PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID, PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID,
+    PRESET_AUDIO_DEVICE_CONTINUOUS_MODEL_ID, PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID,
     PRESET_AUDIO_TRANSCRIBE_MODEL_ID, PRESET_SEARCH_MODEL_ID,
 };
 
@@ -170,14 +170,14 @@ pub fn create_audio_presets() -> Vec<Preset> {
             ])
             .build(),
 
-        // Chép lời TA - Transcribe English (Offline)
-        PresetBuilder::new("preset_transcribe_english_offline", "Chép lời TA")
+        // Continuous device-audio transcription; retain the stable preset identity.
+        PresetBuilder::new("preset_transcribe_english_offline", "Chép liên tục")
             .audio_device()
             .auto_paste()
             // No auto_stop
             .blocks(vec![
-                BlockBuilder::audio(PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID)
-                    .language("English")
+                BlockBuilder::audio(PRESET_AUDIO_DEVICE_CONTINUOUS_MODEL_ID)
+                    .language("Auto")
                     .show_overlay(false)
                     .auto_copy()
                     .build(),

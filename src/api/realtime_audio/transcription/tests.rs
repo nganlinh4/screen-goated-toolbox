@@ -19,11 +19,14 @@ fn dedicated_transcript_replaces_interim_and_commits_authoritative_text() {
             transcript.replace_interim(&interim);
         }
     }
-    assert_eq!(transcript.committed, fixture["expectedCommitted"]);
-    assert_eq!(transcript.interim, fixture["expectedInterim"]);
+    assert_eq!(
+        transcript.delivery.committed(),
+        fixture["expectedCommitted"]
+    );
+    assert_eq!(transcript.delivery.interim(), fixture["expectedInterim"]);
     transcript.commit_final("Bring the agenda.");
     assert_eq!(
-        transcript.committed,
+        transcript.delivery.committed(),
         "Meet Wednesday at 2:00 PM. Bring the agenda."
     );
 }

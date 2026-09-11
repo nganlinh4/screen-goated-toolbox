@@ -45,17 +45,17 @@ internal val defaultDeviceAudioPresets: List<Preset> = listOf(
 
     Preset(
         id = "preset_transcribe_english_offline",
-        nameEn = "Transcribe English",
-        nameVi = "Ch\u00e9p l\u1eddi TA",
-        nameKo = "\uc601\uc5b4 \ubc1b\uc544\uc4f0\uae30",
+        nameEn = "Continuous transcription",
+        nameVi = "Chép liên tục",
+        nameKo = "연속 받아쓰기",
         presetType = PresetType.DEVICE_AUDIO,
         audioSource = "device",
         autoPaste = true,
         blocks = listOf(
             audioBlock(
-                PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID,
+                PRESET_AUDIO_DEVICE_CONTINUOUS_MODEL_ID,
                 "",
-                "language1" to "English",
+                "language1" to "Auto",
             ).copy(
                 showOverlay = false,
                 autoCopy = true,

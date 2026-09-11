@@ -3,9 +3,13 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::api::gemini_live::setup::{LiveSetupBuilder, TranscriptionMode};
+#[cfg(test)]
+mod replay_tests;
+mod stabilization;
 
 pub(crate) const ROTATE_AT: Duration = Duration::from_secs(9 * 60);
-const SPEECH_RMS: f32 = 0.015;
+#[cfg(test)]
+const SPEECH_RMS: f32 = crate::api::audio::activity::MAX_SPEECH_RMS;
 const TRAILING_AUDIO: Duration = Duration::from_millis(180);
 const END_SILENCE: Duration = Duration::from_millis(420);
 const MAX_VOCABULARY: usize = 1_000;
@@ -94,16 +98,23 @@ pub(crate) fn set_vocabulary(lines: &str) {
 pub(crate) struct TranscriptState {
     committed: String,
     interim: String,
+    delivery: stabilization::Stabilizer,
+    diagnostic_id: u64,
+    sequence: u64,
+    finished: bool,
 }
 
 impl TranscriptState {
-    /// Only an authoritative final can produce an irreversible consumer delta.
+    /// Finals commit the bounded delivered segment, not a replacement raw result.
     /// When a frame contains both fields, the final supersedes its hypothesis.
     pub(crate) fn apply_update(
         &mut self,
         interim: Option<&str>,
         final_text: Option<&str>,
     ) -> Option<String> {
+        if self.finished {
+            return None;
+        }
         if let Some(text) = final_text {
             Some(self.commit_final(text))
         } else {
@@ -114,18 +125,77 @@ impl TranscriptState {
         }
     }
     pub(crate) fn replace_interim(&mut self, text: &str) {
-        self.interim = text.to_string();
+        if self.finished {
+            return;
+        }
+        self.delivery.update(text, false);
+        self.interim.clone_from(&self.delivery.visible);
+        self.log_delivery(text, false);
     }
 
     pub(crate) fn commit_final(&mut self, text: &str) -> String {
+        if self.finished {
+            return String::new();
+        }
         let before = self.committed.len();
-        append_segment(&mut self.committed, text);
+        self.delivery.update(text, true);
+        self.log_delivery(text, true);
+        append_segment(&mut self.committed, &self.delivery.visible);
+        self.delivery.finish_segment(text);
         self.interim.clear();
         self.committed[before..].to_string()
     }
 
     pub(crate) fn committed(&self) -> &str {
         &self.committed
+    }
+
+    pub(crate) fn interim(&self) -> &str {
+        &self.interim
+    }
+
+    /// Normal stop keeps already delivered text; cancellation does not call this.
+    pub(crate) fn finish_pending(&mut self) -> String {
+        if self.finished {
+            return String::new();
+        }
+        self.finished = true;
+        let before = self.committed.len();
+        append_segment(&mut self.committed, &self.interim);
+        self.interim.clear();
+        self.delivery = Default::default();
+        self.committed[before..].to_owned()
+    }
+
+    fn log_delivery(&mut self, raw: &str, final_text: bool) {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        if self.diagnostic_id == 0 {
+            self.diagnostic_id = NEXT.fetch_add(1, Ordering::Relaxed);
+        }
+        self.sequence += 1;
+        static TEXT: LazyLock<bool> =
+            LazyLock::new(|| std::env::var("SGT_AUTOPASTE_TEXT_DIAGNOSTICS").as_deref() == Ok("1"));
+        crate::log_info!(
+            "[TranscriptionDelivery] session={} sequence={} final={} raw_chars={} delivered_chars={} changed={} overlap_chars={}",
+            self.diagnostic_id,
+            self.sequence,
+            final_text,
+            raw.chars().count(),
+            self.delivery.visible.chars().count(),
+            raw != self.delivery.visible,
+            self.delivery.overlap_chars
+        );
+        if *TEXT {
+            crate::log_info!(
+                "[TranscriptionDeliveryText] {}",
+                serde_json::json!({
+                    "pid": std::process::id(), "session": self.diagnostic_id, "sequence": self.sequence,
+                    "final": final_text, "raw": raw.chars().take(4096).collect::<String>(),
+                    "delivered": self.delivery.visible.chars().take(4096).collect::<String>(),
+                    "truncated": raw.chars().count() > 4096 || self.delivery.visible.chars().count() > 4096
+                })
+            );
+        }
     }
 
     pub(crate) fn display(&self) -> String {
@@ -153,6 +223,7 @@ fn append_segment(target: &mut String, text: &str) {
 
 #[derive(Default)]
 pub(crate) struct HybridVad {
+    activity: crate::api::audio::activity::SpeechActivity,
     turn_active: bool,
     last_speech_at: Option<Instant>,
     end_sent: bool,
@@ -164,7 +235,7 @@ impl HybridVad {
     }
 
     pub(crate) fn observe(&mut self, rms: f32, now: Instant) -> bool {
-        if rms >= SPEECH_RMS {
+        if self.activity.observe(rms, now) {
             self.turn_active = true;
             self.last_speech_at = Some(now);
             self.end_sent = false;
@@ -191,6 +262,7 @@ impl HybridVad {
     }
 
     pub(crate) fn reset_connection(&mut self) {
+        self.activity = Default::default();
         self.turn_active = false;
         self.last_speech_at = None;
         self.end_sent = false;
@@ -200,6 +272,38 @@ impl HybridVad {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_stabilization_contract() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/gemini-transcribe-stream/stabilization.json"
+        )))
+        .unwrap();
+        assert_eq!(fixture["revisionWords"], stabilization::REVISION_WORDS);
+        assert_eq!(fixture["revisionScalars"], stabilization::REVISION_SCALARS);
+        for case in fixture["cases"].as_array().unwrap() {
+            let mut state = TranscriptState::default();
+            for event in case["events"].as_array().unwrap() {
+                state.apply_update(event["interim"].as_str(), event["final"].as_str());
+                assert_eq!(
+                    state.display(),
+                    event["display"].as_str().unwrap(),
+                    "{}",
+                    case["name"]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn normal_stop_keeps_delivered_provisional_text_once() {
+        let mut state = TranscriptState::default();
+        state.replace_interim("still speaking");
+        assert_eq!(state.finish_pending(), "still speaking");
+        assert_eq!(state.committed(), "still speaking");
+        assert!(state.finish_pending().is_empty());
+    }
 
     #[test]
     fn continuous_typing_only_emits_authoritative_final_deltas() {

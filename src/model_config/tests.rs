@@ -83,8 +83,8 @@ fn recommended_defaults_match_the_shared_retry_fixture() {
         Some(PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID)
     );
     assert_eq!(
-        models["audio_offline_transcribe"].as_str(),
-        Some(PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID)
+        models["audio_device_continuous"].as_str(),
+        Some(PRESET_AUDIO_DEVICE_CONTINUOUS_MODEL_ID)
     );
     assert_eq!(update["enable_recommended_providers"].as_bool(), Some(true));
     assert_eq!(update["disable_other_providers"].as_bool(), Some(false));

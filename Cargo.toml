@@ -51,6 +51,7 @@ urlencoding = "2.1"
 # Language Data
 isolang = { package = "sgt-language-catalog", path = "native/language_catalog" }
 unicode-normalization = "0.1"
+unicode-segmentation = "1.12"
 encoding_rs = "0.8"
 
 # GUI & Media

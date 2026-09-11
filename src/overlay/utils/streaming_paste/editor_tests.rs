@@ -10,6 +10,89 @@ use windows::core::{PCWSTR, w};
 
 static ACCEPTANCE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[test]
+#[ignore = "types stabilized transcripts only into a disposable owned native editor"]
+fn owned_edit_stabilized_delivery_and_conclude() {
+    use super::super::super::StreamingAutoPaste;
+    use std::sync::{Arc, atomic::AtomicBool};
+    let _exclusive = ACCEPTANCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let window = OwnedWindow::new();
+    window.prepare("prefix ", 7);
+    let paste = StreamingAutoPaste::new(true, Arc::new(AtomicBool::new(false)));
+    let mut text = crate::api::gemini_transcribe::TranscriptState::default();
+    let old = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
+    text.replace_interim(old);
+    paste.interim(text.interim());
+    window.wait_text(&format!("prefix {}", text.display()));
+    let delta = text.commit_final(&format!("{} nu", old.replace("alpha", "ALPHA")));
+    paste.final_text(&delta);
+    window.wait_text(&format!("prefix {}", text.display()));
+    text.replace_interim("theta iota kappa lambda mu nu fresh words");
+    paste.interim(&text.display()[text.committed().len()..]);
+    window.wait_text(&format!("prefix {} fresh words", text.committed()));
+    text.replace_interim("theta iota kappa lambda mu nu fresh words still arriving");
+    paste.interim(&text.display()[text.committed().len()..]);
+    window.wait_text(&format!("prefix {}", text.display()));
+    let delta = text.finish_pending();
+    paste.final_text(&delta);
+    paste.finish();
+    window.wait_text(&format!("prefix {}", text.committed()));
+    assert!(text.committed().starts_with("alpha beta"));
+    assert!(text.committed().ends_with("fresh words still arriving"));
+}
+
+#[test]
+#[ignore = "holds and releases Ctrl while typing only in a disposable owned editor"]
+fn owned_edit_shortcut_release_resumes_without_provider_final() {
+    use super::super::super::StreamingAutoPaste;
+    use std::sync::{Arc, atomic::AtomicBool};
+    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+    struct HeldControl;
+    fn control(up: bool) {
+        let event = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VK_CONTROL,
+                    dwFlags: if up {
+                        KEYEVENTF_KEYUP
+                    } else {
+                        KEYBD_EVENT_FLAGS(0)
+                    },
+                    ..Default::default()
+                },
+            },
+        };
+        assert_eq!(
+            unsafe { SendInput(&[event], std::mem::size_of::<INPUT>() as i32) },
+            1
+        );
+    }
+    impl Drop for HeldControl {
+        fn drop(&mut self) {
+            control(true);
+        }
+    }
+    let _exclusive = ACCEPTANCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let window = OwnedWindow::new();
+    window.prepare("prefix ", 7);
+    let session = StreamingAutoPaste::new(true, Arc::new(AtomicBool::new(false)));
+    session.interim("draft");
+    window.wait_text("prefix draft");
+    std::thread::sleep(Duration::from_millis(100));
+    control(false);
+    let held = HeldControl;
+    std::thread::sleep(Duration::from_millis(50));
+    session.interim("corrected while held");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(window.read(), "prefix draft");
+    drop(held);
+    window.wait_text("prefix corrected while held");
+    session.final_text("completed");
+    session.finish();
+    window.wait_text("prefix completed");
+}
+
 #[path = "editor_provider_tests.rs"]
 mod provider_tests;
 
@@ -26,15 +109,19 @@ fn owned_edit_destination_handoff_acceptance() {
     first.wait_text("first old draft");
     let second = OwnedWindow::new();
     second.prepare("second ", 7);
-    session.final_text("old corrected final");
-    std::thread::sleep(Duration::from_millis(700));
-    session.interim("new draft");
-    second.wait_text("second new draft");
-    session.final_text("new final");
-    second.wait_text("second new final");
+    session.interim("old draft continuing");
+    second.wait_text("second  continuing");
+    session.interim("old draft continuing now");
+    second.wait_text("second  continuing now");
+    session.final_text("old draft continuing now.");
+    second.wait_text("second  continuing now.");
+    session.interim(" Next segment");
+    second.wait_text("second  continuing now. Next segment");
+    session.final_text(" Next segment.");
+    second.wait_text("second  continuing now. Next segment.");
     session.finish();
     assert_eq!(first.read(), "first old draft");
-    assert_eq!(second.read(), "second new final");
+    assert_eq!(second.read(), "second  continuing now. Next segment.");
 }
 
 #[test]
@@ -43,7 +130,7 @@ fn owned_edit_best_effort_acceptance() {
     let _exclusive = ACCEPTANCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
     assert!(initialized);
-    let _watch = super::super::input_activity::InputWatch::start().unwrap();
+
     let window = OwnedWindow::new();
     window.prepare("prefix ", 7);
     let target = BestEffortTarget::capture(unsafe { GetForegroundWindow() }).unwrap();
@@ -57,8 +144,28 @@ fn owned_edit_best_effort_acceptance() {
 }
 
 #[test]
+#[ignore = "opens and types only into disposable owned native Edit controls"]
+fn owned_edit_destination_handoff_drains_final_without_next_segment() {
+    use super::super::super::StreamingAutoPaste;
+    use std::sync::{Arc, atomic::AtomicBool};
+    let _exclusive = ACCEPTANCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let first = OwnedWindow::new();
+    first.prepare("first ", 6);
+    let session = StreamingAutoPaste::new(true, Arc::new(AtomicBool::new(false)));
+    session.interim("old words");
+    first.wait_text("first old words");
+    let second = OwnedWindow::new();
+    second.prepare("second", 6);
+    session.begin_drain();
+    session.final_text("old words new ending.");
+    session.finish();
+    first.wait_text("first old words");
+    second.wait_text("second new ending.");
+}
+
+#[test]
 #[ignore = "opens and types only into a disposable owned native Edit control"]
-fn owned_edit_worker_acceptance_streams_and_stops_on_lost_ownership() {
+fn owned_edit_worker_acceptance_streams_and_rebinds_after_user_edit() {
     use super::super::super::StreamingAutoPaste;
     use std::sync::{
         Arc,
@@ -91,7 +198,7 @@ fn owned_edit_worker_acceptance_streams_and_stops_on_lost_ownership() {
     window.prepare("user replacement", 16);
     session.final_text("late final");
     session.finish();
-    assert_eq!(window.read(), "user replacement");
+    assert_eq!(window.read(), "user replacementlate final");
     drop(session);
 
     window.prepare("keep ", 5);
@@ -123,6 +230,43 @@ fn append_requires_positive_writable_capability() {
     assert!(!append_writable(Some(true), Some(false)));
     assert!(!append_writable(None, Some(true)));
     assert!(!append_writable(None, None));
+}
+
+#[test]
+#[ignore = "opens and inspects only a disposable owned native Edit control"]
+fn owned_edit_caret_relative_ranges_and_capture_guards() {
+    let _exclusive = ACCEPTANCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    unsafe {
+        CoInitializeEx(None, COINIT_MULTITHREADED).unwrap();
+    }
+
+    let window = OwnedWindow::new();
+    let prefix = "repeat repeat 🦀 e\u{301}";
+    window.prepare(&format!("{prefix} suffix"), prefix.encode_utf16().count());
+    let editor = Editor::capture(window.hwnd).unwrap();
+    editor.check().unwrap();
+    let (_, _, _, caret) = snapshot(&editor.text).unwrap();
+    for tail in ["", "e\u{301}", "🦀 e\u{301}", prefix] {
+        assert_eq!(
+            range_text(&ranges::suffix(&caret, tail).unwrap()).unwrap(),
+            tail
+        );
+    }
+    assert!(ranges::suffix(&caret, "repeat").is_err());
+    assert_eq!(window.read(), format!("{prefix} suffix"));
+    window.act(Action::Select(0, 6));
+    assert!(
+        Editor::capture(window.hwnd)
+            .err()
+            .unwrap()
+            .is::<UnsafeCapture>()
+    );
+    assert!(super::super::Target::capture(window.hwnd).is_err());
+    assert_eq!(window.read(), format!("{prefix} suffix"));
+    drop(editor);
+    unsafe {
+        CoUninitialize();
+    }
 }
 
 enum Action {
@@ -269,27 +413,12 @@ impl OwnedWindow {
     fn prepare(&self, text: &str, caret: usize) {
         self.act(Action::SetText(text.into()));
         self.act(Action::Select(caret, caret));
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let mut tick = input_epoch();
-        let mut stable = Instant::now();
-        loop {
-            std::thread::sleep(Duration::from_millis(20));
-            let current = input_epoch();
-            if current != tick {
-                eprintln!(
-                    "[StreamingEditorAcceptance] setup_input_changed previous={tick} current={current}"
-                );
-                tick = current;
-                stable = Instant::now();
-            }
-            if stable.elapsed() >= Duration::from_millis(200) {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "external desktop input did not become idle for owned editor test"
-            );
-        }
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(
+            unsafe { GetForegroundWindow() },
+            self.hwnd,
+            "UI acceptance blocked: disposable editor did not retain foreground"
+        );
     }
 
     fn read(&self) -> String {
@@ -307,7 +436,7 @@ impl OwnedWindow {
             }
             assert!(
                 Instant::now() < deadline,
-                "owned editor mismatch: expected_bytes={} actual_bytes={}",
+                "owned editor mismatch: expected_bytes={} actual_bytes={} expected={expected:?} actual={actual:?}",
                 expected.len(),
                 actual.len()
             );
@@ -331,7 +460,7 @@ fn owned_edit_acceptance_preserves_text_focus_selection_and_unicode() {
     let _exclusive = ACCEPTANCE_LOCK
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    let _input_watch = super::super::input_activity::InputWatch::start().unwrap();
+
     unsafe {
         CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap();
     }
@@ -343,6 +472,20 @@ fn owned_edit_acceptance_preserves_text_focus_selection_and_unicode() {
     editor.replace("", "hello", &|| true).unwrap();
     editor.replace("hello", "help 🦀", &|| true).unwrap();
     assert_eq!(window.read(), "prefix help 🦀suffix");
+    editor
+        .replace("help 🦀", "help 🦀 e\u{301} revisable suffix", &|| true)
+        .unwrap();
+    editor
+        .replace(
+            "help 🦀 e\u{301} revisable suffix",
+            "help 🦀 é corrected",
+            &|| true,
+        )
+        .unwrap();
+    assert_eq!(window.read(), "prefix help 🦀 é correctedsuffix");
+    editor
+        .replace("help 🦀 é corrected", "help 🦀", &|| true)
+        .unwrap();
     editor.check().unwrap();
     // A committed chunk needs no range rebasing: empty old tail appends.
     editor.replace("", " next", &|| true).unwrap();
@@ -383,7 +526,12 @@ fn owned_edit_acceptance_preserves_text_focus_selection_and_unicode() {
     window.prepare("keep", 4);
     let mut editor = Editor::capture(window.hwnd).unwrap();
     window.act(Action::FocusOther);
-    assert!(editor.replace("", "bad", &|| true).is_err());
+    assert!(
+        editor
+            .replace("", "bad", &|| true)
+            .unwrap_err()
+            .is::<BeforeMutation>()
+    );
     assert_eq!(window.read(), "keep");
     drop(editor);
 

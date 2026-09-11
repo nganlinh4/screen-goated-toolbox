@@ -173,7 +173,7 @@
     "PRESET_AUDIO_TRANSCRIBE_MODEL_ID": "groq-whisper-large-v3-audio",
     "PRESET_AUDIO_CONTINUOUS_MODEL_ID": "google-gemini-3-5-transcribe-live-audio",
     "PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID": "google-gemini-3-5-flash-lite-audio",
-    "PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID": "local-parakeet-120m-v1-audio"
+    "PRESET_AUDIO_DEVICE_CONTINUOUS_MODEL_ID": "google-gemini-3-5-transcribe-live-audio"
   },
   "provider_defaults": {
     "use_groq": true,

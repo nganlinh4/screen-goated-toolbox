@@ -16,9 +16,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use super::utils::{
-    WindowGuard, calculate_result_rects, create_streaming_overlay, encode_wav, resample_to_16khz,
-};
+use super::utils::{WindowGuard, calculate_result_rects, create_streaming_overlay};
 use crate::APP;
 use crate::api::gemini_live::ready_session::{ConnectedLiveSocket, OpenOptions, ReadyLiveSession};
 use crate::config::Preset;
@@ -127,10 +125,8 @@ pub fn record_and_stream_gemini_live(
         }
     };
 
-    let sample_rate = config.sample_rate();
-    let channels = config.channels() as usize;
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
-    let full_audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
+    let full_audio_buffer = Arc::new(Mutex::new(super::retention::AudioAttachment::default()));
     let accumulated_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     let mut transcribe_text = crate::api::gemini_transcribe::TranscriptState::default();
     let audio_buffer_clone = audio_buffer.clone();
@@ -143,8 +139,8 @@ pub fn record_and_stream_gemini_live(
         audio_buffer_clone,
         full_buffer_clone,
         pause_clone,
-        sample_rate,
-        channels,
+        stop_signal.clone(),
+        &preset.audio_source,
     );
 
     let stream = match stream {
@@ -212,6 +208,15 @@ pub fn record_and_stream_gemini_live(
         });
     }
 
+    if !abort_signal.load(Ordering::SeqCst)
+        && crate::api::gemini_transcribe::is_live_transcribe(&gemini_live_model)
+    {
+        let delta = transcribe_text.finish_pending();
+        if !delta.is_empty() {
+            auto_paste.final_text(&delta);
+        }
+        *accumulated_text.lock().unwrap() = transcribe_text.committed().to_owned();
+    }
     let _ = session.close();
     auto_paste.finish();
     let final_text = accumulated_text.lock().unwrap().clone();
@@ -235,7 +240,7 @@ pub fn record_and_stream_gemini_live(
     let (rect, retrans) = calculate_result_rects(&preset);
     let final_wav = {
         let samples = full_audio_buffer.lock().unwrap();
-        encode_wav(&samples, 16000, 1)
+        samples.wav()
     };
 
     crate::overlay::process::show_audio_result(
@@ -277,90 +282,57 @@ fn setup_audio_device(preset: &Preset) -> Option<(cpal::Device, cpal::SupportedS
     config.ok().map(|c| (device, c))
 }
 
-/// Build audio input stream for capturing
+/// Build capture through the same format, diagnostic, and resampling adapter.
 fn build_audio_stream(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
     audio_buffer: Arc<Mutex<Vec<i16>>>,
-    full_buffer: Arc<Mutex<Vec<i16>>>,
+    full_buffer: Arc<Mutex<super::retention::AudioAttachment>>,
     pause_signal: Arc<AtomicBool>,
-    sample_rate: u32,
-    channels: usize,
+    stop_signal: Arc<AtomicBool>,
+    source: &str,
 ) -> Option<cpal::Stream> {
-    match config.sample_format() {
-        cpal::SampleFormat::F32 => {
-            let stream = device.build_input_stream(
-                (*config).into(),
-                move |data: &[f32], _: &_| {
-                    if pause_signal.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    let mut rms = 0.0;
-                    for &x in data {
-                        rms += x * x;
-                    }
-                    rms = (rms / data.len() as f32).sqrt();
-                    crate::overlay::recording::update_audio_viz(rms);
-
-                    let mono: Vec<i16> = if channels > 1 {
-                        data.chunks(channels)
-                            .map(|c| {
-                                ((c.iter().sum::<f32>() / channels as f32) * i16::MAX as f32) as i16
-                            })
-                            .collect()
-                    } else {
-                        data.iter().map(|&f| (f * i16::MAX as f32) as i16).collect()
-                    };
-                    let resampled = resample_to_16khz(&mono, sample_rate);
-                    if let Ok(mut buf) = audio_buffer.lock() {
-                        buf.extend(resampled.clone());
-                    }
-                    if let Ok(mut full) = full_buffer.lock() {
-                        full.extend(resampled);
-                    }
-                },
-                |e| eprintln!("Stream error: {}", e),
-                None,
+    let diagnostics = super::capture_diagnostics::CaptureDiagnostics::new("preset-live", source);
+    let callback_diagnostics = diagnostics.clone();
+    let result = super::pcm_capture::build(
+        device,
+        config,
+        super::pcm_capture::CaptureOptions {
+            interleaved: false,
+            stop: stop_signal,
+            pause: pause_signal,
+            diagnostics: diagnostics.clone(),
+        },
+        move |pcm| {
+            crate::overlay::recording::update_audio_viz(
+                crate::api::gemini_transcribe::compute_i16_rms(&pcm),
             );
-            stream.ok()
+            if let Ok(mut buffer) = audio_buffer.lock() {
+                let dropped = super::retention::append_pending(&mut buffer, &pcm);
+                if dropped > 0 {
+                    callback_diagnostics
+                        .event("pending_overflow", &format!("dropped_samples={dropped}"));
+                }
+            }
+            if let Ok(mut full) = full_buffer.lock()
+                && full.extend(&pcm)
+            {
+                callback_diagnostics.event(
+                    "attachment_limit",
+                    "audio attachment omitted after 600 seconds; transcription continues",
+                );
+            }
+        },
+        |_| {},
+    );
+    match result {
+        Ok(stream) => {
+            diagnostics.event("configured_stream", "target_rate=16000 mono");
+            Some(stream)
         }
-        cpal::SampleFormat::I16 => {
-            let stream = device.build_input_stream(
-                (*config).into(),
-                move |data: &[i16], _: &_| {
-                    if pause_signal.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    let mut rms = 0.0;
-                    for &x in data {
-                        let f = x as f32 / i16::MAX as f32;
-                        rms += f * f;
-                    }
-                    rms = (rms / data.len() as f32).sqrt();
-                    crate::overlay::recording::update_audio_viz(rms);
-
-                    let mono: Vec<i16> = if channels > 1 {
-                        data.chunks(channels)
-                            .map(|c| {
-                                (c.iter().map(|&s| s as i32).sum::<i32>() / c.len() as i32) as i16
-                            })
-                            .collect()
-                    } else {
-                        data.to_vec()
-                    };
-                    let resampled = resample_to_16khz(&mono, sample_rate);
-                    if let Ok(mut buf) = audio_buffer.lock() {
-                        buf.extend(resampled.clone());
-                    }
-                    if let Ok(mut full) = full_buffer.lock() {
-                        full.extend(resampled);
-                    }
-                },
-                |e| eprintln!("Stream error: {}", e),
-                None,
-            );
-            stream.ok()
+        Err(error) => {
+            diagnostics.event("open_error", &format!("{error:#}"));
+            None
         }
-        _ => None,
     }
 }

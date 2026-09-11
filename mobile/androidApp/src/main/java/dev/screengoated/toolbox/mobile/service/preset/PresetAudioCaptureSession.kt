@@ -69,8 +69,9 @@ internal class PresetAudioCaptureSession(
     private var paused = false
     private var overlayReady = false
     private var onCancelledCallback: (() -> Unit)? = null
-    private val capturedSamples = ArrayList<Short>(16_000 * 30)
+    private val capturedSamples = StreamingAudioAttachment()
     private var hasSpoken = false
+    private var activity = dev.screengoated.toolbox.mobile.shared.live.SpeechActivity()
     private var firstSpeechAtMs: Long? = null
     private var lastActiveAtMs: Long = 0L
     private var processingRequested = false
@@ -145,6 +146,7 @@ internal class PresetAudioCaptureSession(
         capturedSamples.clear()
         pendingStreamingChunks.clear()
         hasSpoken = false
+        activity = dev.screengoated.toolbox.mobile.shared.live.SpeechActivity()
         firstSpeechAtMs = null
         lastActiveAtMs = SystemClock.elapsedRealtime()
         if (!resolvedPreset.preset.hideRecordingUi) {
@@ -172,7 +174,9 @@ internal class PresetAudioCaptureSession(
                         if (captureGeneration != sessionGeneration || paused || processingRequested) {
                             return@collect
                         }
-                        chunk.forEach(capturedSamples::add)
+                        if (capturedSamples.append(chunk, runtimeKind != PresetAudioRuntimeKind.STANDARD)) {
+                            Log.i(TAG, "audio attachment omitted after 600 seconds; transcription continues")
+                        }
                         runCatching { appendStreamingChunk(chunk) }
                             .onFailure { error ->
                                 Log.w(TAG, "Streaming session degraded to standard mode", error)
@@ -234,7 +238,7 @@ internal class PresetAudioCaptureSession(
             }
             try {
                 val wavBytes = withContext(Dispatchers.Default) {
-                    PresetAudioCodec.encodePcm16MonoWav(capturedSamples.toShortArray())
+                    if (capturedSamples.omitted) byteArrayOf() else PresetAudioCodec.encodePcm16MonoWav(capturedSamples.toShortArray())
                 }
                 val streamingTranscript = finalizeStreamingOrFallback(
                     finalize = { finalizeStreamingTranscript() },
@@ -242,7 +246,10 @@ internal class PresetAudioCaptureSession(
                 )
                 provisionalDelivery?.finish()
                 streamingPaste.invalidate()
-                if (wavBytes.size <= 44) {
+                if (capturedSamples.omitted && streamingTranscript?.transcript.isNullOrBlank()) {
+                    error("Streaming transcription unavailable and session exceeded the audio attachment limit")
+                }
+                if (wavBytes.size <= 44 && streamingTranscript?.transcript.isNullOrBlank()) {
                     onCancelled()
                 } else {
                     onRecordingComplete(
@@ -451,6 +458,10 @@ internal class PresetAudioCaptureSession(
             return
         }
         pendingStreamingChunks += chunk.copyOf()
+        while (pendingStreamingChunks.sumOf { it.size } > 16_000 * 60) {
+            val dropped = pendingStreamingChunks.removeFirst().size
+            Log.w(TAG, "pending capture overflow droppedSamples=$dropped")
+        }
     }
 
     private suspend fun finalizeStreamingTranscript(): AudioStreamingTranscriptResult? {
@@ -481,7 +492,7 @@ internal class PresetAudioCaptureSession(
         }
         if (!paused) {
             val now = SystemClock.elapsedRealtime()
-            if (rms > NOISE_THRESHOLD) {
+            if (activity.observe(rms.toDouble(), now)) {
                 if (!hasSpoken) {
                     firstSpeechAtMs = now
                 }

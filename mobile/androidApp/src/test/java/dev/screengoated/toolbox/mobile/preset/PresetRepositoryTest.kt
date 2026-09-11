@@ -181,6 +181,12 @@ class PresetRepositoryTest {
     @Test
     fun audioRuntimeFixtureMatchesAndroidAudioDefaultsAndExplicitGaps() {
         val fixture = audioRuntimeFixture()
+        val continuous = fixture.getValue("continuous_device_preset").jsonObject
+        val devicePreset = requireNotNull(DefaultPresetLookup.byId(continuous.getValue("preset_id").jsonPrimitive.content))
+        assertEquals(continuous.getValue("name_vi").jsonPrimitive.content, devicePreset.nameVi)
+        assertEquals(continuous.getValue("model_id").jsonPrimitive.content, devicePreset.blocks.first().model)
+        assertEquals(true, devicePreset.autoPaste)
+        assertEquals(false, devicePreset.autoStopRecording)
         val repository = createRepository(InMemoryPresetOverrideStore())
         val thresholds = fixture.getValue("auto_stop_thresholds").jsonObject
 
@@ -232,6 +238,8 @@ class PresetRepositoryTest {
         val fixture = audioRuntimeFixture()
         assertEquals(
             setOf(
+                "windows_input_activity",
+                "windows_verified_replacement",
                 "canonical_windows_files",
                 "recording_toggle_contract",
                 "auto_stop_thresholds",
@@ -240,6 +248,7 @@ class PresetRepositoryTest {
                 "shared_mic_button_contract",
                 "streaming_capture_contract",
                 "android_explicit_unsupported_presets",
+                "continuous_device_preset",
                 "realtime_contract",
                 "android_launch_contract",
                 "bubble_capture_host_contract",

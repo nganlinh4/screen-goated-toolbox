@@ -1,5 +1,38 @@
 use super::policy::{Event, Policy};
 
+#[test]
+fn handoff_retains_final_order_and_coalesces_only_same_segment_interims() {
+    use super::{Shared, defer_event, enqueue};
+    let shared = Shared::default();
+    enqueue(
+        &mut shared.state.lock().unwrap(),
+        Event::Interim("latest".into()),
+    );
+    defer_event(&shared, Some(Event::Interim("older".into())));
+    defer_event(&shared, Some(Event::Final("previous final".into())));
+    let queue = &shared.state.lock().unwrap().queue;
+    assert_eq!(
+        queue.iter().cloned().collect::<Vec<_>>(),
+        vec![
+            Event::Final("previous final".into()),
+            Event::Interim("latest".into())
+        ]
+    );
+}
+
+#[test]
+fn handoff_keeps_final_during_drain_and_enforces_mailbox_budget() {
+    use super::{MAX_TEXT_BYTES, Shared, defer_event};
+    let shared = Shared::default();
+    shared.state.lock().unwrap().draining = true;
+    defer_event(&shared, Some(Event::Interim("preview".into())));
+    assert!(shared.state.lock().unwrap().queue.is_empty());
+    defer_event(&shared, Some(Event::Final("completed".into())));
+    assert_eq!(shared.state.lock().unwrap().queue.len(), 1);
+    defer_event(&shared, Some(Event::Final("x".repeat(MAX_TEXT_BYTES))));
+    assert!(shared.state.lock().unwrap().overflow);
+}
+
 fn apply(policy: &mut Policy, event: &Event, text: &mut String, caret: &mut usize) -> usize {
     let writes = if let Some(replacement) = policy.plan(event) {
         let start = *caret - replacement.old.len();

@@ -23,7 +23,6 @@ const STREAMING_UNFIXED_TOKENS: usize = 5;
 const TRANSCRIBE_INTERVAL_MS: u64 = 500;
 const SILENCE_COMMIT_MS: u64 = 1_200;
 const MIN_TRANSCRIBE_SAMPLES: usize = 8_000;
-const VOICE_ACTIVITY_RMS: f32 = 0.015;
 /// Qwen3-ASR model variant (0.6B or 1.7B)
 #[derive(Clone, Copy, Debug)]
 pub enum Qwen3ModelVariant {
@@ -110,6 +109,7 @@ pub fn run_qwen3_transcription_variant(
     let mut last_request_sample_count = 0usize;
     let mut last_request_at = Instant::now() - Duration::from_millis(TRANSCRIBE_INTERVAL_MS);
     let mut last_voice_activity = Instant::now();
+    let mut activity = crate::api::audio::activity::SpeechActivity::default();
     let mut last_draft_change = Instant::now();
     let mut last_draft_text = String::new();
     // After 3s of no new draft text, append a visual period to signal sentence boundary
@@ -137,7 +137,7 @@ pub fn run_qwen3_transcription_variant(
             if rms > 0.001 {
                 crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
             }
-            if rms > VOICE_ACTIVITY_RMS {
+            if activity.observe(rms, Instant::now()) {
                 last_voice_activity = Instant::now();
             }
             if !overlay_hwnd.is_invalid() {

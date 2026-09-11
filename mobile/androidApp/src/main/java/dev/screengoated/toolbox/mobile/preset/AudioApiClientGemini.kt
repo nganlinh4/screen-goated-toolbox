@@ -142,6 +142,7 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
     val setupReady = kotlinx.coroutines.CompletableDeferred<Unit>()
     val transcript = StringBuilder()
     val finalTranscript = StringBuilder()
+    val delivery = dev.screengoated.toolbox.mobile.shared.live.TranscriptionDelivery()
     val closed = AtomicBoolean(false)
     val dedicatedTranscribe = GeneratedLiveModelCatalog.endpointProfile(model.fullName)?.protocol == "live-transcribe"
     val inputBoundary = GeminiLiveInputTurnBoundary(dedicatedTranscribe, android.os.SystemClock::elapsedRealtime)
@@ -211,6 +212,7 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                     onChunk = onChunk,
                     onInterim = onInterim,
                     dedicatedTranscribe = dedicatedTranscribe,
+                    delivery = delivery,
                 )
             }
 
@@ -225,6 +227,7 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                     onChunk = onChunk,
                     onInterim = onInterim,
                     dedicatedTranscribe = dedicatedTranscribe,
+                    delivery = delivery,
                 )
             }
 
@@ -296,6 +299,14 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                         GeminiLiveInputEvent.FinalTranscript -> concludeUntil = android.os.SystemClock.elapsedRealtime() + 700
                         GeminiLiveInputEvent.Closed -> break
                         null -> kotlinx.coroutines.delay(50)
+                    }
+                }
+                if (dedicatedTranscribe) {
+                    synchronized(delivery) {
+                        val delta = delivery.finishPending()
+                        if (delta.isNotEmpty()) onChunk(delta)
+                        finalTranscript.clear()
+                        finalTranscript.append(delivery.committed)
                     }
                 }
                 return AudioStreamingTranscriptResult(
@@ -403,6 +414,7 @@ internal fun handleGeminiLiveMessage(
     transcript: StringBuilder,
     finalTranscript: StringBuilder,
     dedicatedTranscribe: Boolean = false,
+    delivery: dev.screengoated.toolbox.mobile.shared.live.TranscriptionDelivery? = null,
     onInterim: (String) -> Unit = {},
     onChunk: (String) -> Unit,
 ) {
@@ -415,6 +427,29 @@ internal fun handleGeminiLiveMessage(
 
         frame.error?.let { error ->
             events.offer(GeminiLiveInputEvent.Error(error))
+            return
+        }
+
+        require(!dedicatedTranscribe || delivery != null)
+        if (dedicatedTranscribe && delivery != null) {
+            synchronized(delivery) {
+                if (delivery.finished) return
+                val final = frame.inputTranscript
+                val interim = frame.interimInputTranscript
+                if (final != null) {
+                    val delta = delivery.update(final, true).orEmpty()
+                    transcript.clear()
+                    transcript.append(delivery.committed)
+                    finalTranscript.clear()
+                    finalTranscript.append(delivery.committed)
+                    onChunk(delta)
+                    events.remove(GeminiLiveInputEvent.FinalTranscript)
+                    events.offer(GeminiLiveInputEvent.FinalTranscript)
+                } else if (interim != null) {
+                    delivery.update(interim, false)
+                    onInterim(delivery.provisional())
+                }
+            }
             return
         }
 

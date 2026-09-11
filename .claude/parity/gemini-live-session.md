@@ -12,6 +12,8 @@
 - Android setup-gated transport: [GeminiLiveReadySession.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/shared/live/GeminiLiveReadySession.kt)
 
 ## Behavior Contract
+- Dedicated live transcription uses `SMART` in every preset and Live Translate setup, including reconnects. Interim hypotheses remain revisable; this mode does not imply committed-prefix stability. Batch transcription is a separate contract.
+- Local transcription speech boundaries use the shared noise-relative activity contract in `parity-fixtures/preset-system/microphone-activity.json`; PCM amplitude is unchanged.
 
 - Windows and Android implement the shared fixture as a pure, clock-injected reducer. JSON decoding, sockets, sleeping, audio playback, and feature transcript state stay outside it.
 - The reducer input is `(state, event, monotonicNowMs, policy)` and its output is `(nextState, orderedEffects)`. An omitted field in `expectState` is not asserted; `expectEffects` is always an exact ordered list.

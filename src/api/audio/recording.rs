@@ -13,7 +13,7 @@ use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninit
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::transcription::execute_audio_processing_logic;
-use super::utils::{calculate_result_rects, create_streaming_overlay, encode_wav};
+use super::utils::{calculate_result_rects, create_streaming_overlay};
 use crate::config::Preset;
 use crate::overlay::result::update_window_text;
 
@@ -54,7 +54,7 @@ pub fn record_and_stream_parakeet(
         abort_signal.clone(),
     ));
     let accumulated_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
-    let full_audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
+    let full_audio_buffer = Arc::new(Mutex::new(super::retention::AudioAttachment::default()));
     let acc_clone = accumulated_text.clone();
     let callback_paste = auto_paste.clone();
 
@@ -131,7 +131,7 @@ pub fn record_and_stream_parakeet(
 
     let final_wav = {
         let samples = full_audio_buffer.lock().unwrap();
-        encode_wav(&samples, 16000, 1)
+        samples.wav()
     };
 
     // Save history
@@ -253,7 +253,6 @@ pub fn record_audio_and_transcribe(
 
     let sample_rate = config.sample_rate();
     let channels = config.channels();
-    diagnostics.configure(&device, &config);
 
     let spec = hound::WavSpec {
         channels,
@@ -262,82 +261,27 @@ pub fn record_audio_and_transcribe(
         sample_format: hound::SampleFormat::Int,
     };
 
-    let (tx, rx) = mpsc::channel::<Vec<f32>>();
-    let error_diagnostics = diagnostics.clone();
-    let err_fn = move |err| error_diagnostics.event("stream_error", &format!("{err:?}"));
-
-    // Threshold for "meaningful audio"
-    const WARMUP_RMS_THRESHOLD: f32 = 0.001;
-
-    let pause_signal_builder = pause_signal_audio.clone();
+    let (tx, rx) = mpsc::channel::<Vec<i16>>();
     let callback_diagnostics = diagnostics.clone();
-    let stream_res = match config.sample_format() {
-        cpal::SampleFormat::F32 => device.build_input_stream(
-            config.into(),
-            move |data: &[f32], _: &_| {
-                callback_diagnostics.raw(
-                    data.iter().map(|&s| s as f64),
-                    pause_signal_builder.load(Ordering::Relaxed),
-                );
-                if !pause_signal_builder.load(Ordering::Relaxed) {
-                    if tx.send(data.to_vec()).is_ok() {
-                        callback_diagnostics.delivered(data.iter().map(|&s| s as f64));
-                    }
-                    let mut rms = 0.0;
-                    for &x in data {
-                        rms += x * x;
-                    }
-                    rms = (rms / data.len() as f32).sqrt();
-                    crate::overlay::recording::update_audio_viz(rms);
-
-                    if rms > WARMUP_RMS_THRESHOLD {
-                        crate::overlay::recording::AUDIO_WARMUP_COMPLETE
-                            .store(true, Ordering::SeqCst);
-                    }
-                }
-            },
-            err_fn,
-            None,
-        ),
-        cpal::SampleFormat::I16 => device.build_input_stream(
-            config.into(),
-            move |data: &[i16], _: &_| {
-                callback_diagnostics.raw(
-                    data.iter().map(|&s| s as f64 / i16::MAX as f64),
-                    pause_signal_builder.load(Ordering::Relaxed),
-                );
-                if !pause_signal_builder.load(Ordering::Relaxed) {
-                    let f32_data: Vec<f32> =
-                        data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
-                    if tx.send(f32_data).is_ok() {
-                        callback_diagnostics
-                            .delivered(data.iter().map(|&s| s as f64 / i16::MAX as f64));
-                    }
-                    let mut rms = 0.0;
-                    for &x in data {
-                        let f = x as f32 / i16::MAX as f32;
-                        rms += f * f;
-                    }
-                    rms = (rms / data.len() as f32).sqrt();
-                    crate::overlay::recording::update_audio_viz(rms);
-
-                    if rms > WARMUP_RMS_THRESHOLD {
-                        crate::overlay::recording::AUDIO_WARMUP_COMPLETE
-                            .store(true, Ordering::SeqCst);
-                    }
-                }
-            },
-            err_fn,
-            None,
-        ),
-        _ => {
-            eprintln!(
-                "Unsupported audio sample format: {:?}",
-                config.sample_format()
-            );
-            Err(cpal::Error::new(cpal::ErrorKind::UnsupportedConfig))
-        }
-    };
+    let stream_res = super::pcm_capture::build(
+        &device,
+        &config,
+        super::pcm_capture::CaptureOptions {
+            interleaved: true,
+            stop: stop_signal.clone(),
+            pause: pause_signal_audio.clone(),
+            diagnostics: callback_diagnostics,
+        },
+        move |pcm| {
+            let rms = crate::api::gemini_transcribe::compute_i16_rms(&pcm);
+            crate::overlay::recording::update_audio_viz(rms);
+            if rms > 0.001 {
+                crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
+            }
+            let _ = tx.send(pcm);
+        },
+        |_| {},
+    );
 
     if let Err(e) = stream_res {
         diagnostics.event("open_error", &format!("build stream: {e}"));
@@ -358,7 +302,7 @@ pub fn record_audio_and_transcribe(
         return;
     }
 
-    let mut collected_samples: Vec<f32> = Vec::new();
+    let mut collected_samples: Vec<i16> = Vec::new();
     diagnostics.event("playing", "interleaved recording");
 
     // Auto-stop state
@@ -367,7 +311,7 @@ pub fn record_audio_and_transcribe(
     let mut first_speech_time: Option<std::time::Instant> = None;
     let mut last_active_time = std::time::Instant::now();
 
-    const NOISE_THRESHOLD: f32 = 0.015;
+    let mut activity = super::activity::SpeechActivity::default();
     const SILENCE_LIMIT_MS: u128 = 800;
     const MIN_RECORDING_MS: u128 = 2000;
 
@@ -384,7 +328,7 @@ pub fn record_audio_and_transcribe(
             let rms_bits = crate::overlay::recording::CURRENT_RMS.load(Ordering::Relaxed);
             let current_rms = f32::from_bits(rms_bits);
 
-            if current_rms > NOISE_THRESHOLD {
+            if activity.observe(current_rms, std::time::Instant::now()) {
                 if !has_spoken {
                     first_speech_time = Some(std::time::Instant::now());
                 }
@@ -440,10 +384,7 @@ pub fn record_audio_and_transcribe(
         collected_samples.extend(chunk);
     }
 
-    let samples: Vec<i16> = collected_samples
-        .iter()
-        .map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
-        .collect();
+    let samples = collected_samples;
 
     if samples.is_empty() {
         println!("Warning: Recorded audio buffer is empty.");

@@ -51,6 +51,7 @@ class TranslationGummyRuntime(
     private var lastBargeInCandidateAtMs: Long = 0L
     private val localInputPreRoll = ArrayDeque<ShortArray>()
     private var localInputTurnActive = false
+    private val inputActivity = dev.screengoated.toolbox.mobile.shared.live.SpeechActivity()
     private var lastLocalSpeechAtMs: Long = 0L
 
     fun start(scope: CoroutineScope) {
@@ -298,7 +299,7 @@ class TranslationGummyRuntime(
         nowMs: Long = SystemClock.elapsedRealtime(),
     ) {
         val rms = chunk.rmsLevel()
-        val isSpeech = rms >= LOCAL_INPUT_SPEECH_RMS
+        val isSpeech = inputActivity.observe(rms.toDouble(), nowMs)
         if (isSpeech) {
             if (!localInputTurnActive) {
                 val preRollCount = localInputPreRoll.size
@@ -317,13 +318,13 @@ class TranslationGummyRuntime(
         }
 
         if (!localInputTurnActive) {
-            bufferLocalInputPreRoll(chunk)
+            sendOutboundAudioChunk(debugSessionId, session, chunk)
             return
         }
 
         val silenceMs = ageMs(lastLocalSpeechAtMs, nowMs)
+        sendOutboundAudioChunk(debugSessionId, session, chunk)
         if (silenceMs <= LOCAL_INPUT_TRAILING_AUDIO_MS) {
-            sendOutboundAudioChunk(debugSessionId, session, chunk)
             return
         }
 

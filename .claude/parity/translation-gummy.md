@@ -9,6 +9,7 @@
 - Shared fixtures: [translation-gummy](../../parity-fixtures/translation-gummy)
 
 ## Contract
+- Local speech activity uses the shared noise-relative policy in `parity-fixtures/preset-system/microphone-activity.json`; `speechRms` is the maximum threshold, not a fixed quiet-speech gate.
 
 - Two profiles each require a language and may add accent/tone.
 - Detect the spoken profile and output only the translation in the other profile.
@@ -17,7 +18,7 @@
 - Enable input/output transcription, interruption on new activity, context compression, and the VAD/setup values locked by `vad-contract.json`.
 - Process every content part in a server event; Gemini 3.1 may combine audio and transcript parts.
 - Capture and media sending begin only after structural `setupComplete`; setup errors win over acknowledgement, and every active audio/stream-end send rejection terminates that transport attempt.
-- Local mic gating keeps preroll/trailing audio and sends `audioStreamEnd` after local end-of-speech.
+- Normal local mic input is forwarded continuously; local noise-relative activity adds `audioStreamEnd` after end-of-speech but cannot discard quiet input. Playback/barge-in suppression remains a separate echo-safety policy, with bounded preroll on Android.
 - Valid saved config auto-starts. Apply persists a valid draft, preserves transcript history, inserts the session separator, and restarts.
 - Start/Stop controls the last applied config. Socket loss reconnects without erasing transcript state.
 - Partial transcript rows update in place; final rows resolve to the matching language side; the visualizer reflects connection/readiness state.

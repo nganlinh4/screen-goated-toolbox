@@ -1,6 +1,6 @@
 //! Best-effort keyboard revisions when accessibility cannot describe an editor.
-use super::input::{input_epoch, no_held_modifiers, send_edit, validate_input};
-use anyhow::{Result, ensure};
+use super::input::{send_edit, validate_input};
+use anyhow::{Context, Result, ensure};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     GUITHREADINFO, GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId,
@@ -11,11 +11,12 @@ pub(crate) struct BestEffortTarget {
     focus: HWND,
     thread: u32,
     process: u32,
-    epoch: u64,
 }
 
 impl BestEffortTarget {
     pub(crate) fn capture(foreground: HWND) -> Result<Self> {
+        #[cfg(test)]
+        super::require_test_target(foreground)?;
         let mut process = 0;
         let thread = unsafe { GetWindowThreadProcessId(foreground, Some(&mut process)) };
         ensure!(thread != 0 && process != 0, "native target is unavailable");
@@ -24,7 +25,6 @@ impl BestEffortTarget {
             focus: focused_window(thread)?,
             thread,
             process,
-            epoch: input_epoch(),
         };
         target.check()?;
         Ok(target)
@@ -64,10 +64,6 @@ impl BestEffortTarget {
             focused_window(thread)? == self.focus,
             "native focus changed"
         );
-        ensure!(
-            input_epoch() == self.epoch,
-            "user input interrupted insertion"
-        );
         Ok(())
     }
 
@@ -75,8 +71,11 @@ impl BestEffortTarget {
         validate_input(old)?;
         validate_input(new)?;
         let (backspaces, suffix) = keyboard_delta(old, new);
-        no_held_modifiers()?;
-        self.check()?;
+        crate::log_info!(
+            "[AutoPasteKeyboard] backspaces={backspaces} inserted_chars={} delivery=unverified",
+            suffix.chars().count()
+        );
+        self.check().context(super::BeforeMutation)?;
         ensure!(allowed(), "input session is no longer current");
         // No retries: accepted input events do not prove application delivery.
         send_edit(suffix, false, backspaces)?;
@@ -94,6 +93,15 @@ fn keyboard_delta<'a>(old: &str, new: &'a str) -> (usize, &'a str) {
     (old[prefix_bytes..].chars().count(), &new[prefix_bytes..])
 }
 
+fn focused_window(thread: u32) -> Result<HWND> {
+    let mut info = GUITHREADINFO {
+        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
+    unsafe { GetGUIThreadInfo(thread, &mut info)? };
+    Ok(info.hwndFocus)
+}
+
 #[cfg(test)]
 mod tests {
     use super::keyboard_delta;
@@ -106,13 +114,4 @@ mod tests {
         assert_eq!(keyboard_delta("hello", "hello"), (0, ""));
         assert_eq!(keyboard_delta("tail", ""), (4, ""));
     }
-}
-
-fn focused_window(thread: u32) -> Result<HWND> {
-    let mut info = GUITHREADINFO {
-        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
-        ..Default::default()
-    };
-    unsafe { GetGUIThreadInfo(thread, &mut info)? };
-    Ok(info.hwndFocus)
 }

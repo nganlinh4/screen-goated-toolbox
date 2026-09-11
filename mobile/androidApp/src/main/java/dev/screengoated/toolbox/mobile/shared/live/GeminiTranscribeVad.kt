@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.shared.live
 
 /** Canonical speech-end reducer shared by continuous presets and Live Translate. */
 internal class GeminiTranscribeVad {
+    private var activity = SpeechActivity()
     private var active = false
     private var lastSpeechMs = 0L
     private var endSent = false
@@ -15,7 +16,7 @@ internal class GeminiTranscribeVad {
     }
 
     fun observeRms(rms: Double, nowMs: Long): Boolean {
-        if (rms >= SPEECH_RMS) {
+        if (activity.observe(rms, nowMs)) {
             active = true
             endSent = false
             lastSpeechMs = nowMs
@@ -34,6 +35,7 @@ internal class GeminiTranscribeVad {
     }
 
     fun reset() {
+        activity = SpeechActivity()
         active = false
         endSent = false
         lastSpeechMs = 0L

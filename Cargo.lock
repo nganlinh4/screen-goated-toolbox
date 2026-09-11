@@ -3688,6 +3688,7 @@ dependencies = [
  "tray-icon",
  "tungstenite",
  "unicode-normalization",
+ "unicode-segmentation",
  "ureq",
  "url",
  "urlencoding",

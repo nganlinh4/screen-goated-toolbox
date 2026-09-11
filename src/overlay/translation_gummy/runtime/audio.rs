@@ -1,8 +1,7 @@
 //! Local microphone plumbing and voice-activity detection (VAD).
 //!
-//! Drains captured PCM, runs a simple RMS-gated turn detector (pre-roll +
-//! trailing-audio grace + end-of-speech silence) and streams qualifying chunks
-//! to the websocket. The VAD constants here are the canonical parity contract
+//! Drains and forwards every captured PCM chunk. Noise-relative activity adds
+//! end-of-speech boundaries without discarding quiet input. Constants are the parity contract
 //! against the Android runtime — see `.claude/parity/translation-gummy.md`.
 
 use std::sync::{Arc, Mutex};
@@ -11,13 +10,13 @@ use std::time::Instant;
 use crate::api::realtime_audio::websocket::{send_audio_chunk, send_audio_stream_end};
 
 pub(super) const CHUNK_SAMPLES: usize = 1600;
-pub(super) const LOCAL_INPUT_SPEECH_RMS: f32 = 0.015;
+#[cfg(test)]
+pub(super) const LOCAL_INPUT_SPEECH_RMS: f32 = crate::api::audio::activity::MAX_SPEECH_RMS;
 pub(super) const LOCAL_INPUT_TRAILING_AUDIO_MS: u64 = 180;
 pub(super) const LOCAL_INPUT_END_SILENCE_MS: u64 = 420;
-pub(super) const LOCAL_INPUT_PREROLL_SAMPLES: usize = 3200;
 
 pub(super) struct LocalInputTurnState {
-    pub(super) pre_roll: Vec<i16>,
+    activity: crate::api::audio::activity::SpeechActivity,
     pub(super) turn_active: bool,
     pub(super) last_speech_at: Option<Instant>,
 }
@@ -25,7 +24,7 @@ pub(super) struct LocalInputTurnState {
 impl LocalInputTurnState {
     pub(super) fn new() -> Self {
         Self {
-            pre_roll: Vec::new(),
+            activity: Default::default(),
             turn_active: false,
             last_speech_at: None,
         }
@@ -49,12 +48,8 @@ pub(super) fn flush_audio(
         let chunk: Vec<i16> = pending_audio.drain(..CHUNK_SAMPLES).collect();
         let rms = calculate_rms(&chunk);
         super::super::publish_audio_level(calculate_audio_level(&chunk));
-        if rms >= LOCAL_INPUT_SPEECH_RMS {
+        if input_turn.activity.observe(rms, Instant::now()) {
             if !input_turn.turn_active {
-                if !input_turn.pre_roll.is_empty() {
-                    send_audio_chunk(socket, &input_turn.pre_roll)?;
-                    input_turn.pre_roll.clear();
-                }
                 input_turn.turn_active = true;
             }
             input_turn.last_speech_at = Some(Instant::now());
@@ -63,11 +58,8 @@ pub(super) fn flush_audio(
         }
 
         if !input_turn.turn_active {
-            input_turn.pre_roll.extend_from_slice(&chunk);
-            if input_turn.pre_roll.len() > LOCAL_INPUT_PREROLL_SAMPLES {
-                let overflow = input_turn.pre_roll.len() - LOCAL_INPUT_PREROLL_SAMPLES;
-                input_turn.pre_roll.drain(..overflow);
-            }
+            // Provider VAD receives quiet input too; local RMS only adds boundaries.
+            send_audio_chunk(socket, &chunk)?;
             continue;
         }
 
@@ -75,15 +67,14 @@ pub(super) fn flush_audio(
             .last_speech_at
             .map(|started| started.elapsed().as_millis() as u64)
             .unwrap_or(LOCAL_INPUT_END_SILENCE_MS);
+        send_audio_chunk(socket, &chunk)?;
         if silence_ms <= LOCAL_INPUT_TRAILING_AUDIO_MS {
-            send_audio_chunk(socket, &chunk)?;
             continue;
         }
         if silence_ms >= LOCAL_INPUT_END_SILENCE_MS {
             send_audio_stream_end(socket)?;
             input_turn.turn_active = false;
             input_turn.last_speech_at = None;
-            input_turn.pre_roll.clear();
         }
     }
     Ok(())
@@ -138,13 +129,10 @@ mod vad_contract_tests {
             "end-of-speech silence window drifted from fixture",
         );
 
-        // Windows expresses pre-roll in samples; the fixture locks the chunk count.
-        // Android (device-dependent chunk size) asserts the chunk count directly.
-        let preroll_chunks = vad["prerollChunks"].as_u64().expect("prerollChunks") as usize;
+        // Normal capture is continuous; Android retains pre-roll only for barge-in.
         assert_eq!(
-            LOCAL_INPUT_PREROLL_SAMPLES,
-            preroll_chunks * CHUNK_SAMPLES,
-            "Windows pre-roll samples must equal prerollChunks * CHUNK_SAMPLES",
+            vad["quietInputPolicy"],
+            "forward_continuously_local_activity_only_adds_boundaries"
         );
         assert_eq!(
             CHUNK_SAMPLES as u64,
@@ -154,7 +142,7 @@ mod vad_contract_tests {
             "Windows chunk size drifted from fixture",
         );
         assert_eq!(
-            LOCAL_INPUT_PREROLL_SAMPLES as u64,
+            0,
             vad["_prerollSamplesWindows"]
                 .as_u64()
                 .expect("_prerollSamplesWindows"),

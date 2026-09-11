@@ -1,0 +1,38 @@
+{
+  "platform": "windows",
+  "cases": [
+    {"name":"unfinished_segment_follows_destination", "events":[
+      {"kind":"interim","text":"first words","tail":"first words"},
+      {"kind":"switch"},
+      {"kind":"interim","text":"first words continue","tail":" continue"},
+      {"kind":"interim","text":"first words continued here","tail":" continued here"},
+      {"kind":"final","text":"first words continued here.","tail":" continued here."},
+      {"kind":"interim","text":" Next segment","tail":" Next segment"}
+    ]},
+    {"name":"repeated_switches_do_not_replay", "events":[
+      {"kind":"interim","text":"one","tail":"one"},
+      {"kind":"switch"},
+      {"kind":"interim","text":"one two","tail":" two"},
+      {"kind":"switch"},
+      {"kind":"interim","text":"one two three","tail":" three"},
+      {"kind":"final","text":"one two three","tail":" three"}
+    ]},
+    {"name":"cross_boundary_correction_is_not_lost", "events":[
+      {"kind":"interim","text":"old draft","tail":"old draft"},
+      {"kind":"switch"},
+      {"kind":"final","text":"old corrected final","tail":"corrected final"}
+    ]},
+    {"name":"correction_before_cut_keeps_destination_tail", "events":[
+      {"kind":"interim","text":"some old words","tail":"some old words"},
+      {"kind":"switch"},
+      {"kind":"interim","text":"some old words new tail","tail":" new tail"},
+      {"kind":"final","text":"Some old words new tail","tail":" new tail"}
+    ]},
+    {"name":"unicode_and_partial_words", "events":[
+      {"kind":"interim","text":"café 🦀 hel","tail":"café 🦀 hel"},
+      {"kind":"switch"},
+      {"kind":"interim","text":"café 🦀 hello","tail":"hello"},
+      {"kind":"final","text":"café 🦀 hello!","tail":"hello!"}
+    ]}
+  ]
+}

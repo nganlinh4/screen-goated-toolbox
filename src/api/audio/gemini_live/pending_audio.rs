@@ -44,7 +44,12 @@ impl Drop for PendingAudio {
         }
         if let Ok(mut tail) = self.capture_tail.lock() {
             let replay_samples = self.samples.len();
-            self.samples.append(&mut tail);
+            let dropped = crate::api::audio::retention::append_pending(&mut self.samples, &tail);
+            if dropped > 0 {
+                crate::log_info!(
+                    "[AudioCapture] owner=pending-handoff pending_dropped_samples={dropped}"
+                );
+            }
             *tail = std::mem::take(&mut self.samples);
             crate::log_info!("[GeminiLiveStream] pending_audio_handoff samples={replay_samples}");
         }

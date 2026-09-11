@@ -105,6 +105,27 @@ mod tests {
     use super::get_default_presets;
 
     #[test]
+    fn continuous_device_transcription_matches_shared_contract() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/preset-system/audio-runtime.json"
+        )))
+        .unwrap();
+        let contract = &fixture["continuous_device_preset"];
+        let preset = get_default_presets()
+            .into_iter()
+            .find(|p| p.id == contract["preset_id"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(preset.name, contract["name_vi"].as_str().unwrap());
+        assert_eq!(
+            preset.blocks[0].model,
+            contract["model_id"].as_str().unwrap()
+        );
+        assert!(preset.auto_paste && !preset.auto_stop_recording);
+        assert_eq!(preset.audio_source, "device");
+    }
+
+    #[test]
     fn make_game_allows_game_appropriate_input() {
         let preset = get_default_presets()
             .into_iter()

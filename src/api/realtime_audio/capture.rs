@@ -97,7 +97,8 @@ pub fn start_device_loopback_capture(
 
     // Resample to 16kHz if needed
     let target_rate = 16000u32;
-    let resample_ratio = target_rate as f64 / sample_rate as f64;
+    let mut converter =
+        crate::api::audio::pcm::PcmConverter::new(channels, sample_rate, target_rate)?;
 
     let stop_signal_audio = stop_signal.clone();
     let pause_signal_audio = pause_signal.clone();
@@ -135,25 +136,20 @@ pub fn start_device_loopback_capture(
                             .is_playing
                             .load(Ordering::SeqCst)
                     {
+                        converter.reset();
                         return;
                     }
 
-                    // Convert to mono and i16
-                    let mono_samples: Vec<i16> = data
-                        .chunks(channels)
-                        .map(|frame| {
-                            let sum: f32 = frame.iter().sum();
-                            let avg = sum / channels as f32;
-                            (avg.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
-                        })
-                        .collect();
-
-                    // Simple resampling (linear interpolation)
-                    let resampled: Vec<i16> =
-                        crate::api::audio::resample_linear_i16(&mono_samples, resample_ratio);
+                    let resampled = converter.push(data.iter().map(|sample| *sample as f64));
 
                     if let Ok(mut buf) = audio_buffer_clone.lock() {
-                        buf.extend(resampled.iter().cloned());
+                        let dropped =
+                            crate::api::audio::retention::append_pending(&mut buf, &resampled);
+                        if dropped > 0 {
+                            crate::log_info!(
+                                "[AudioCapture] owner=loopback pending_dropped_samples={dropped}"
+                            );
+                        }
                     }
 
                     // Calculate RMS for volume visualization
@@ -183,24 +179,21 @@ pub fn start_device_loopback_capture(
                             .is_playing
                             .load(Ordering::SeqCst)
                     {
+                        converter.reset();
                         return;
                     }
 
-                    // Convert to mono
-                    let mono_samples: Vec<i16> = data
-                        .chunks(channels)
-                        .map(|frame| {
-                            let sum: i32 = frame.iter().map(|&s| s as i32).sum();
-                            (sum / channels as i32) as i16
-                        })
-                        .collect();
-
-                    // Simple resampling
-                    let resampled: Vec<i16> =
-                        crate::api::audio::resample_linear_i16(&mono_samples, resample_ratio);
+                    let resampled =
+                        converter.push(data.iter().map(|sample| *sample as f64 / 32768.0));
 
                     if let Ok(mut buf) = audio_buffer_clone.lock() {
-                        buf.extend(resampled.iter().cloned());
+                        let dropped =
+                            crate::api::audio::retention::append_pending(&mut buf, &resampled);
+                        if dropped > 0 {
+                            crate::log_info!(
+                                "[AudioCapture] owner=loopback pending_dropped_samples={dropped}"
+                            );
+                        }
                     }
 
                     // Calculate RMS for volume visualization
@@ -315,64 +308,31 @@ fn start_mic_capture_diagnosed(
     let device = concrete_default_input_device()
         .ok_or_else(|| anyhow::anyhow!("No microphone available. Please connect a microphone."))?;
     let config = device.default_input_config()?;
-    diagnostics.configure(&device, &config);
 
-    let sample_rate = config.sample_rate();
-    let channels = config.channels() as usize;
-    let audio_buffer_clone = audio_buffer.clone();
-    let target_rate = 16000u32;
-    let resample_ratio = target_rate as f64 / sample_rate as f64;
-    let stop_signal_audio = stop_signal.clone();
-    let pause_signal_audio = pause_signal.clone();
-    let error_diagnostics = diagnostics.clone();
-    let err_fn = move |error| {
-        error_diagnostics.event("stream_error", &format!("{error:?}"));
-        handle_capture_stream_error(error);
-    };
     let callback_diagnostics = diagnostics.clone();
-
-    let stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => device.build_input_stream(
-            config.into(),
-            move |data: &[f32], _: &_| {
-                let suppressed = stop_signal_audio.load(Ordering::Relaxed)
-                    || pause_signal_audio.load(Ordering::Relaxed);
-                callback_diagnostics.raw(data.iter().map(|&s| s as f64), suppressed);
-                if suppressed {
-                    return;
+    let stream = crate::api::audio::pcm_capture::build(
+        &device,
+        &config,
+        crate::api::audio::pcm_capture::CaptureOptions {
+            interleaved: false,
+            stop: stop_signal,
+            pause: pause_signal,
+            diagnostics: callback_diagnostics,
+        },
+        move |pcm| {
+            let rms = crate::api::gemini_transcribe::compute_i16_rms(&pcm);
+            REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+            if let Ok(mut buffer) = audio_buffer.lock() {
+                let dropped = crate::api::audio::retention::append_pending(&mut buffer, &pcm);
+                if dropped > 0 {
+                    crate::log_info!(
+                        "[AudioCapture] owner=realtime pending_dropped_samples={dropped}"
+                    );
                 }
-
-                let mono_samples: Vec<i16> = data
-                    .chunks(channels)
-                    .map(|frame| {
-                        let sum: f32 = frame.iter().sum();
-                        let avg = sum / channels as f32;
-                        (avg.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
-                    })
-                    .collect();
-
-                let resampled: Vec<i16> =
-                    crate::api::audio::resample_linear_i16(&mono_samples, resample_ratio);
-
-                if let Ok(mut buf) = audio_buffer_clone.lock() {
-                    buf.extend(resampled.iter().cloned());
-                    callback_diagnostics.delivered(resampled.iter().map(|&s| s as f64 / 32768.0));
-                }
-
-                if !resampled.is_empty() {
-                    let sum_sq: f64 = resampled
-                        .iter()
-                        .map(|&s| (s as f64 / 32768.0).powi(2))
-                        .sum();
-                    let rms = (sum_sq / resampled.len() as f64).sqrt() as f32;
-                    REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
-                }
-            },
-            err_fn,
-            None,
-        )?,
-        _ => return Err(anyhow::anyhow!("Unsupported audio format")),
-    };
+            }
+        },
+        handle_capture_stream_error,
+    )?;
 
     stream.play()?;
     diagnostics.event("playing", "target_rate=16000 mono");

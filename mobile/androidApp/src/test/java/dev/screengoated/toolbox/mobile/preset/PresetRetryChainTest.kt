@@ -5,7 +5,7 @@ import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_TEXT_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_CONTINUOUS_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID
-import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_DEVICE_CONTINUOUS_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_TRANSCRIBE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_SEARCH_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_TEXT_ARENA_FAST_MODEL_ID
@@ -247,8 +247,8 @@ class PresetRetryChainTest {
             PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID,
         )
         assertEquals(
-            recommendedModels.getValue("audio_offline_transcribe").jsonPrimitive.content,
-            PRESET_AUDIO_OFFLINE_TRANSCRIBE_MODEL_ID,
+            recommendedModels.getValue("audio_device_continuous").jsonPrimitive.content,
+            PRESET_AUDIO_DEVICE_CONTINUOUS_MODEL_ID,
         )
         assertEquals(
             providerSettings.getValue("use_groq").jsonPrimitive.boolean,

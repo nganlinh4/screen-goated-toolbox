@@ -7,6 +7,22 @@ pub(super) enum Event {
     Finish,
 }
 
+impl Event {
+    pub(super) fn kind(&self) -> &'static str {
+        match self {
+            Self::Interim(_) => "interim",
+            Self::Final(_) => "final",
+            Self::Finish => "finish",
+        }
+    }
+    pub(super) fn chars(&self) -> usize {
+        match self {
+            Self::Interim(text) | Self::Final(text) => text.chars().count(),
+            Self::Finish => 0,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub(super) struct Replacement {
     pub old: String,

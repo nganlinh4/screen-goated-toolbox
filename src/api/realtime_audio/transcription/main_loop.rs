@@ -1,3 +1,4 @@
+use crate::api::audio::retention::retain_pending;
 use anyhow::Result;
 use std::sync::{
     Arc, Mutex,
@@ -25,35 +26,20 @@ pub(super) enum AudioMode {
 
 #[derive(Default)]
 struct DedicatedTranscriptState {
-    committed: String,
-    interim: String,
+    delivery: crate::api::gemini_transcribe::TranscriptState,
 }
 
 impl DedicatedTranscriptState {
     fn replace_interim(&mut self, text: &str) {
-        self.interim = text.to_string();
+        self.delivery.replace_interim(text);
     }
 
     fn commit_final(&mut self, text: &str) {
-        if self.committed.is_empty() {
-            self.committed = text.trim_start().to_string();
-        } else if self
-            .committed
-            .chars()
-            .last()
-            .is_some_and(char::is_whitespace)
-            || text.chars().next().is_some_and(char::is_whitespace)
-        {
-            self.committed.push_str(text);
-        } else {
-            self.committed.push(' ');
-            self.committed.push_str(text);
-        }
-        self.interim.clear();
+        self.delivery.commit_final(text);
     }
 
     fn apply_to(&self, state: &mut crate::api::realtime_audio::state::RealtimeState) -> String {
-        state.set_transcript_segments(&self.committed, &self.interim);
+        state.set_transcript_segments(self.delivery.committed(), self.delivery.interim());
         state.display_transcript.clone()
     }
 }
@@ -250,7 +236,7 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                     }
                 }
                 AudioMode::Silence => {
-                    silence_buffer.extend(real_audio);
+                    retain_pending(&mut silence_buffer, &real_audio);
                     let silence: Vec<i16> = vec![0i16; SAMPLES_PER_100MS];
                     if send_audio(&mut session, &silence).is_err() {
                         break;
@@ -259,7 +245,7 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                     sent_samples += silence.len();
                 }
                 AudioMode::CatchUp => {
-                    silence_buffer.extend(real_audio);
+                    retain_pending(&mut silence_buffer, &real_audio);
                     let chunk_size = SAMPLES_PER_100MS * 2;
                     let to_send: Vec<i16> = if silence_buffer.len() >= chunk_size {
                         silence_buffer.drain(..chunk_size).collect()

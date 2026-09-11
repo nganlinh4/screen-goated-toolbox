@@ -1,3 +1,4 @@
+use crate::api::audio::retention::retain_pending;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -29,7 +30,10 @@ pub(super) fn try_reconnect(context: ReconnectContext<'_>) -> bool {
         if reconnect_cancelled(context.stop_signal) {
             return false;
         }
-        reconnect_buffer.extend(std::mem::take(&mut *context.audio_buffer.lock().unwrap()));
+        retain_pending(
+            &mut reconnect_buffer,
+            &std::mem::take(&mut *context.audio_buffer.lock().unwrap()),
+        );
         let (_, vocabulary) = super::dedicated::vocabulary_snapshot();
         let handle = (attempt == 1)
             .then_some(context.resumption_handle.as_deref())
@@ -38,9 +42,12 @@ pub(super) fn try_reconnect(context: ReconnectContext<'_>) -> bool {
             reconnect_cancelled(context.stop_signal)
         }) {
             Ok(new_session) => {
-                reconnect_buffer.extend(std::mem::take(&mut *context.audio_buffer.lock().unwrap()));
+                retain_pending(
+                    &mut reconnect_buffer,
+                    &std::mem::take(&mut *context.audio_buffer.lock().unwrap()),
+                );
                 context.silence_buffer.clear();
-                context.silence_buffer.extend(reconnect_buffer);
+                retain_pending(context.silence_buffer, &reconnect_buffer);
                 *context.audio_mode = AudioMode::CatchUp;
                 *context.mode_start = Instant::now();
                 *context.session = new_session;
