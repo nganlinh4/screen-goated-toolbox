@@ -24,6 +24,7 @@ html, body {
     --control-scale: 1;
     position: absolute;
     display: flex;
+    width: max-content;
     gap: calc(4px * var(--control-scale));
     padding: calc(2px * var(--control-scale));
     pointer-events: auto;
@@ -45,6 +46,7 @@ html, body {
 }
 
 .btn {
+    flex-shrink: 0;
     width: calc(24px * var(--control-scale));
     height: calc(24px * var(--control-scale));
     border-radius: calc(6px * var(--control-scale));
@@ -232,7 +234,8 @@ html, body {
     border-radius: calc(6px * var(--control-scale));
 }
 
-.opacity-btn-expandable:not(.vertical-slider):hover {
+.opacity-btn-expandable:not(.vertical-slider):hover,
+.control-measure-expanded .opacity-btn-expandable:not(.vertical-slider) {
     width: calc(110px * var(--control-scale)) !important;
     background: var(--btn-hover-bg) !important;
     transform: none !important;
@@ -244,11 +247,14 @@ html, body {
     padding: calc(4px * var(--control-scale)) 0 !important;
 }
 
-.opacity-btn-expandable.vertical-slider:hover {
+.opacity-btn-expandable.vertical-slider:hover,
+.control-measure-expanded .opacity-btn-expandable.vertical-slider {
     height: calc(110px * var(--control-scale)) !important;
     background: var(--btn-hover-bg) !important;
     transform: none !important;
 }
+
+.control-measure-expanded .opacity-btn-expandable { transition: none !important; }
 
 .opacity-icon-wrapper {
     width: calc(16px * var(--control-scale));

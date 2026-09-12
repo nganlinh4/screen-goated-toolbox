@@ -14,7 +14,9 @@ test('opacity changes never reveal mounted hidden cards or alter content', () =>
     getElementById: () => ({ style: {} }),
     querySelector: () => { throw new Error('controls must not mutate result visuals'); },
   } });
-  for (const script of ['host_command_runtime.js', 'button_scene_runtime.js']) {
+  for (const script of ['control_surface/source_anchor.js', 'control_surface/source_dock.js',
+    'control_surface/placement.js', 'control_surface/source_geometry.js',
+    'surface_runtime.js', 'host_command_runtime.js', 'button_scene_runtime.js']) {
     vm.runInContext(readFileSync(join(__dirname, script), 'utf8'), context);
   }
   for (const opacity of [100, 50, 0, 1, 100, 0, 100, -1, 101]) {

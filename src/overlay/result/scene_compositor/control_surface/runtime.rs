@@ -109,7 +109,12 @@ function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false, gest
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         const maxRadius = 150;
-        const proximityOpacity = group.classList.contains('proximity-pinned')
+        const geometry = window.registeredWindows[group.dataset.hwnd]?.sourceGeometry;
+        const now = performance.now();
+        if (window.__SGT_SOURCE_NEAR__?.(geometry, cursorX, cursorY, 40)) group.sourceRevealUntil = now + 1000;
+        const heldVisible = geometry?.source && (now < (group.sourceRevealUntil || 0)
+            || group.contains(document.activeElement) || group.matches(':hover'));
+        const proximityOpacity = heldVisible || group.classList.contains('proximity-pinned')
             ? 1 : Math.max(0, Math.min(1, 1 - (dist / maxRadius)));
         const pulseOpacity = Math.max(0, Math.min(1, Number(group.dataset.pulseOpacity || 0)));
         const opacity = Math.max(proximityOpacity, pulseOpacity);
@@ -149,7 +154,11 @@ function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false, gest
                 const isVertical = group.classList.contains('vertical');
                 let region;
 
-                if (isVertical) {
+                if (window.registeredWindows[group.dataset.hwnd]?.sourceGeometry) {
+                    // Measured on every expansion frame; source discovery must
+                    // not turn the surrounding empty canvas into an input area.
+                    region = { x: rect.left, y: rect.top, w: rect.width + padding, h: rect.height + padding };
+                } else if (isVertical) {
                     region = {
                         x: rect.left + 1,
                         y: rect.top - 200,
@@ -187,46 +196,6 @@ function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false, gest
     }
 }
 
-function calculateButtonPosition(winRect, controlScale) {
-    const screenW = window.innerWidth;
-    const screenH = window.innerHeight;
-    const longDim = 300 * controlScale;
-    const shortDim = 32 * controlScale;
-    const margin = 4;
-    const spaceBottom = screenH - (winRect.y + winRect.h);
-    const spaceTop = winRect.y;
-    const spaceRight = screenW - (winRect.x + winRect.w);
-    const spaceLeft = winRect.x;
-    const clamp = (val, max) => Math.max(0, Math.min(val, max));
-
-    if (spaceBottom >= shortDim + margin) {
-        let x = winRect.x + winRect.w - longDim;
-        x = clamp(x, screenW - longDim);
-        return { x: x, y: winRect.y + winRect.h + margin, direction: 'bottom' };
-    }
-    else if (spaceRight >= shortDim + margin) {
-        let y = winRect.y + (winRect.h - longDim) / 2;
-        y = clamp(y, screenH - longDim);
-        return { x: winRect.x + winRect.w + margin, y: y, direction: 'right' };
-    }
-    else if (spaceLeft >= shortDim + margin) {
-        let y = winRect.y + (winRect.h - longDim) / 2;
-        y = clamp(y, screenH - longDim);
-        return { x: winRect.x - shortDim - margin, y: y, direction: 'left' };
-    }
-    else if (spaceTop >= shortDim + margin) {
-        let x = winRect.x + (winRect.w - longDim) / 2;
-        x = clamp(x, screenW - longDim);
-        return { x: x, y: winRect.y - shortDim - margin, direction: 'top' };
-    }
-    else {
-        let x = winRect.x + (winRect.w - longDim) / 2;
-        x = clamp(x, screenW - longDim);
-        let y = winRect.y + winRect.h - shortDim - margin;
-        y = Math.max(winRect.y, y);
-        return { x: x, y: y, direction: 'inside' };
-    }
-}
 
 function escapeText(value) {
     return String(value).replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch]);
@@ -341,131 +310,6 @@ function action(hwnd, cmd) {
     window.ipc.postMessage(JSON.stringify({ action: cmd, hwnd: hwnd }));
 }
 
-function updateWindows(windowsData) {
-    window.registeredWindows = windowsData;
-
-    const container = document.getElementById('button-container');
-    const screenW = window.innerWidth;
-    const screenH = window.innerHeight;
-
-    const existingGroups = new Map();
-    container.querySelectorAll('.button-group').forEach(el => {
-        existingGroups.set(el.dataset.hwnd, el);
-    });
-
-    for (const [hwnd, data] of Object.entries(windowsData)) {
-        const state = data.state || {};
-        const rawAnchor = state.controlAnchor;
-        const deviceScale = window.devicePixelRatio || 1;
-        const placementRect = Array.isArray(rawAnchor) && rawAnchor.length === 4
-            ? { x: rawAnchor[0] / deviceScale, y: rawAnchor[1] / deviceScale,
-                w: rawAnchor[2] / deviceScale, h: rawAnchor[3] / deviceScale }
-            : data.rect;
-        const controlScale = Math.max(0.5, Math.min(3, Number(state.controlScalePercent || 100) / 100));
-        let pos = calculateButtonPosition(placementRect, controlScale);
-        let group = existingGroups.get(hwnd);
-
-        if (!group) {
-            group = document.createElement('div');
-            group.className = 'button-group';
-            group.style.opacity = '0';
-            group.dataset.hwnd = hwnd;
-            container.appendChild(group);
-        } else {
-            existingGroups.delete(hwnd);
-        }
-
-        const { opacityPercent, ...structuralState } = state;
-        const isVertical = pos.direction === 'left' || pos.direction === 'right';
-        const newStateStr = JSON.stringify(structuralState) + isVertical;
-        const hasPersistentEditor = Boolean(
-            window.__SGT_REFINE_EDITOR__?.reconcile(group, hwnd, state));
-        if (!hasPersistentEditor && group.dataset.lastState !== newStateStr) {
-            group.innerHTML = generateButtonsHTML(hwnd, state, isVertical);
-        }
-        group.dataset.lastState = newStateStr;
-        group.classList.toggle('proximity-pinned', hasPersistentEditor);
-        const opacity = group.querySelector('.opacity-slider-inline');
-        const opacityLabel = group.querySelector('.opacity-value-inline');
-        if (opacity && opacityPercent != null) {
-            opacity.value = opacityPercent;
-            if (opacityLabel) opacityLabel.textContent = opacityPercent + '%';
-        }
-        if (state.controlColor) {
-            group.style.setProperty('--chain-control-color', state.controlColor);
-        } else {
-            group.style.removeProperty('--chain-control-color');
-        }
-        const localSurface = contrastingControlSurface(state.controlColor);
-        group.classList.toggle('local-control-surface-light', localSurface === 'light');
-        group.classList.toggle('local-control-surface-dark', localSurface === 'dark');
-        group.style.setProperty('--control-scale', String(controlScale));
-        if (isVertical) {
-            group.classList.add('vertical');
-        } else {
-            group.classList.remove('vertical');
-        }
-        const actualW = group.offsetWidth || (isVertical ? 50 : 400);
-        const actualH = group.offsetHeight || (isVertical ? 400 : 50);
-        let finalX = pos.x;
-        let finalY = pos.y;
-        if (pos.direction === 'bottom') {
-            finalX = placementRect.x + placementRect.w - actualW;
-            finalY = placementRect.y + placementRect.h + 4;
-        } else if (pos.direction === 'top') {
-            finalX = placementRect.x + (placementRect.w - actualW) / 2;
-            finalY = placementRect.y - actualH - 4;
-        } else if (pos.direction === 'right') {
-            finalX = placementRect.x + placementRect.w + 4;
-            finalY = placementRect.y + (placementRect.h - actualH) / 2;
-        } else if (pos.direction === 'left') {
-            finalX = placementRect.x - actualW - 4;
-            finalY = placementRect.y + (placementRect.h - actualH) / 2;
-        } else {
-            finalX = placementRect.x + placementRect.w - actualW - 8;
-            finalY = placementRect.y + placementRect.h - actualH - 8;
-            finalX = Math.max(placementRect.x, finalX);
-            finalY = Math.max(placementRect.y, finalY);
-        }
-        const clamp = (val, size, max) => Math.max(0, Math.min(val, max - size));
-
-        finalX = clamp(finalX, actualW, screenW);
-        finalY = clamp(finalY, actualH, screenH);
-
-        if (pos.direction === 'bottom' || pos.direction === 'right') {
-            group.style.left = 'auto';
-            group.style.right = (screenW - (finalX + actualW)) + 'px';
-        } else {
-            group.style.left = finalX + 'px';
-            group.style.right = 'auto';
-        }
-
-        if (isVertical) {
-            group.style.top = 'auto';
-            group.style.bottom = (screenH - (finalY + actualH)) + 'px';
-        } else {
-            group.style.top = finalY + 'px';
-            group.style.bottom = 'auto';
-        }
-    }
-
-    existingGroups.forEach((el, key) => {
-        el.remove();
-        lastVisibleState.delete(key);
-        lastSentRegions.delete(key);
-    });
-
-    window.__SGT_REFINE_EDITOR__?.settleFocusMode();
-
-    updateButtonOpacity();
-    if (container.querySelectorAll('.button-group').length === 0) {
-        window.ipc.postMessage(JSON.stringify({
-            action: "update_clickable_regions", scale: window.devicePixelRatio || 1, regions: []
-        }));
-    }
-}
-
-window.updateWindows = updateWindows;
 window.updateButtonOpacity = updateButtonOpacity;
 "#
 }

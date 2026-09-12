@@ -392,6 +392,7 @@ pub(super) fn handle_renderer_event(body: &str) {
     match body {
         "renderer_ready" => {
             RENDERER_READY.store(true, Ordering::SeqCst);
+            evaluate_script(&super::control_surface::monitor_work_areas_script());
             emit_event(ChildEvent::Ready);
             let hwnd_value = HOST_HWND.load(Ordering::SeqCst);
             if hwnd_value != 0 {
@@ -523,6 +524,7 @@ fn resize_host(hwnd: HWND) {
             );
         }
     }
+    evaluate_script(&super::control_surface::monitor_work_areas_script());
     super::region::update(hwnd, true);
 }
 

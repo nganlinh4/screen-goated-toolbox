@@ -1,5 +1,6 @@
 (function() {
   const models = new Map();
+  const controlGeometry = window.__SGT_CONTROL_GEOMETRY_CACHE__();
   let externalDrag = false;
   let nativeDrag = 0;
   let awaitingDragSettle = 0;
@@ -16,6 +17,7 @@
     if (model.controls) current.controls = model.controls;
     if (model.visible !== undefined) current.visible = Boolean(model.visible);
     if (model.stack_order !== undefined) current.stackOrder = Number(model.stack_order || 0);
+    controlGeometry.merge(current, model);
     models.set(key, current);
   }
 
@@ -60,7 +62,8 @@
           w: model.controlRect.width / scale,
           h: model.controlRect.height / scale
         },
-        state: model.controls
+        state: model.controls,
+        sourceGeometry: controlGeometry.get(model, models, scale)
       };
     }
     if (restoreControlsAfterLayout) {
@@ -83,6 +86,7 @@
   function apply(command) {
     if (command.type === 'snapshot') {
       models.clear();
+      controlGeometry.clear();
       for (const card of command.cards || []) mergeCard(card);
     } else if (command.type === 'upsert') {
       mergeCard(command.card);
@@ -114,6 +118,7 @@
     } else if (command.type === 'remove') {
       const key = String(command.id);
       models.delete(key);
+      controlGeometry.clear();
       completedCards.delete(key);
     } else if (command.type === 'refine_text') {
       window.setRefineText(String(command.id), String(command.text || ''), Boolean(command.is_insert));

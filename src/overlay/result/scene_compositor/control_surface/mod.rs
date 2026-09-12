@@ -6,6 +6,9 @@ mod drag_runtime;
 mod refine_runtime;
 mod runtime;
 mod theme;
+mod work_areas;
+
+pub(super) use work_areas::script as monitor_work_areas_script;
 
 pub(crate) fn document_css() -> &'static str {
     css::get_base_css()
@@ -42,6 +45,11 @@ pub(crate) fn document_script() -> String {
     .to_string();
     [
         runtime::get_javascript(),
+        include_str!("source_anchor.js"),
+        include_str!("source_dock.js"),
+        include_str!("placement.js"),
+        include_str!("source_geometry.js"),
+        include_str!("layout_runtime.js"),
         drag_runtime::get_javascript(),
         refine_runtime::get_javascript(),
     ]
@@ -73,7 +81,7 @@ mod tests {
 
     #[test]
     fn opacity_updates_preserve_the_active_slider_element() {
-        let script = super::runtime::get_javascript();
+        let script = include_str!("layout_runtime.js");
         let actions = include_str!("actions.rs");
 
         assert!(script.contains("const { opacityPercent, ...structuralState } = state;"));
@@ -85,12 +93,14 @@ mod tests {
 
     #[test]
     fn refinement_editor_is_persistent_typed_and_ime_aware() {
-        let controls = super::runtime::get_javascript();
+        let controls = include_str!("layout_runtime.js");
         let editor = super::refine_runtime::get_javascript();
 
-        assert!(controls.contains("const hasPersistentEditor"));
-        assert!(controls.contains("!hasPersistentEditor && group.dataset.lastState"));
-        assert!(controls.contains("classList.toggle('proximity-pinned', hasPersistentEditor)"));
+        assert!(
+            controls.contains("const editor = Boolean(window.__SGT_REFINE_EDITOR__?.reconcile")
+        );
+        assert!(controls.contains("!editor && group.dataset.lastState"));
+        assert!(controls.contains("classList.toggle('proximity-pinned', editor)"));
         assert!(!controls.contains("generateRefineInputHTML"));
         assert!(editor.contains("group.replaceChildren(editor.bar)"));
         assert!(editor.contains("request_refine_focus"));
@@ -154,7 +164,8 @@ mod tests {
 
         assert!(script.contains("state.controlAnchor"));
         assert!(script.contains("state.controlScalePercent"));
-        assert!(script.contains("placementRect.x + placementRect.w"));
+        assert!(script.contains("data.sourceGeometry"));
+        assert!(script.contains("measureControlOrientations"));
         assert!(script.contains("e.button === 0 && groupActions"));
         assert!(script.contains("result_all_drag_start"));
         assert!(script.contains("function renderResultDragPreview"));
