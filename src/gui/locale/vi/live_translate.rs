@@ -9,7 +9,7 @@ pub(super) fn get() -> LiveTranslateLocaleText {
         live_translate_translation_title: "Dịch",
         live_translate_display_title: "Lớp phủ",
         live_translate_font_size: "Cỡ chữ",
-        live_translate_hotkey_label: "Phím tắt toàn cục",
+        live_translate_hotkey_label: "Phím tắt",
         live_translate_hotkey_unset: "Chưa đặt phím tắt",
         live_translate_start: "Bắt đầu",
         live_translate_stop: "Dừng",

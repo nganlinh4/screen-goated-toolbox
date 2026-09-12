@@ -9,7 +9,7 @@ pub(super) fn get() -> LiveTranslateLocaleText {
         live_translate_translation_title: "번역",
         live_translate_display_title: "오버레이",
         live_translate_font_size: "글자 크기",
-        live_translate_hotkey_label: "전역 단축키",
+        live_translate_hotkey_label: "단축키",
         live_translate_hotkey_unset: "설정된 단축키 없음",
         live_translate_start: "시작",
         live_translate_stop: "중지",
