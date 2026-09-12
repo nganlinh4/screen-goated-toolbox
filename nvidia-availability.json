@@ -3,16 +3,24 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-12T07:12:11Z",
+ "generatedAt": "2026-09-12T12:12:33Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "deepseek-ai/deepseek-v4-flash-0731",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 490,
-   "success_rate": 0.25,
+   "p50_ms": 307,
+   "success_rate": 0.292,
    "runs": 24
+  },
+  {
+   "id": "z-ai/glm-5.3-flash",
+   "control": "effort-low",
+   "modality": "vision",
+   "p50_ms": 446,
+   "success_rate": 0.75,
+   "runs": 4
   },
   {
    "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
