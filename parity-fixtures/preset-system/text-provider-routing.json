@@ -1,4 +1,15 @@
 {
+  "structured_text_contract": {
+    "default": "provider-enforced",
+    "locally_validated_stream": {
+      "requires_caller_validation_and_recovery": true,
+      "groq_response_format": null,
+      "temperature": 0,
+      "groq_short_rate_limit_retry": {"attempts": 1, "max_delay_seconds": 2},
+      "unary_preserves_provider_enforcement": true
+    },
+    "android_locally_validated_caller": false
+  },
   "ordinary_request_policy": {
     "search_capability_is_metadata": true,
     "implicit_provider_tools": false,

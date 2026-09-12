@@ -119,13 +119,15 @@ fn compatible(
     left: &DetectedTextRegion,
     right: &DetectedTextRegion,
 ) -> bool {
+    let shared = a.owner.is_some() && a.owner == b.owner;
+    let size_ratio = if shared { 1.6 } else { 1.25 };
     // Ink height changes with ascenders and descenders even at one font size.
     // Require the detector's cross-axis extent to corroborate a size boundary.
     if a.table != b.table
         || a.owner.zip(b.owner).is_some_and(|(x, y)| x != y)
-        || (a.em.max(b.em) > a.em.min(b.em) * 1.25
+        || (a.em.max(b.em) > a.em.min(b.em) * size_ratio
             && cross_size(a.box_).max(cross_size(b.box_)) as f32
-                > cross_size(a.box_).min(cross_size(b.box_)) as f32 * 1.25)
+                > cross_size(a.box_).min(cross_size(b.box_)) as f32 * size_ratio)
     {
         return false;
     }
@@ -138,14 +140,14 @@ fn compatible(
         }
         if x.foreground_confidence >= 3
             && y.foreground_confidence >= 3
-            && let (Some(x), Some(y)) = (x.foreground_rgb, y.foreground_rgb)
-            && distance(x, y) > 48
+            && let (Some(fx), Some(fy)) = (x.foreground_rgb, y.foreground_rgb)
+            && distance(fx, fy) > 48
+            && !same_ink_direction(fx, x.background_rgb, fy, y.background_rgb)
         {
             return false;
         }
     }
     let (x, y) = (a.box_, b.box_);
-    let shared = a.owner.is_some() && a.owner == b.owner;
     if vertical(x) || vertical(y) {
         return shared
             && vertical(x)
@@ -162,9 +164,15 @@ fn compatible(
             && y.x >= x.x + x.width
             && y.x.saturating_sub(x.x + x.width) as f32 <= a.em * 0.7;
     }
+    // A shared paragraph may be centered or right-aligned, and its first line
+    // may be shorter than its continuation. Keep conservative alignment when
+    // there is no common layout owner; separators still veto every join.
+    let left_aligned =
+        x.x.abs_diff(y.x) as f32 <= a.em * 0.7 && x.width as f32 >= y.width as f32 * 0.65;
+    let centered = (2 * x.x + x.width).abs_diff(2 * y.x + y.width) as f32 <= a.em * 1.4;
+    let right_aligned = (x.x + x.width).abs_diff(y.x + y.width) as f32 <= a.em * 0.7;
     if y.y <= x.y
-        || x.x.abs_diff(y.x) as f32 > a.em * 0.7
-        || (x.width as f32) < y.width as f32 * 0.65
+        || !(left_aligned || (shared && (centered || right_aligned)))
         || y.y.saturating_sub(x.y + x.height) as f32 > a.em * (if shared { 1.6 } else { 0.8 })
         || overlap(x.x, x.width, y.x, y.width) * 4 < x.width.min(y.width) * 3
     {
@@ -179,6 +187,17 @@ fn distance(a: [u8; 3], b: [u8; 3]) -> u8 {
         .map(|(x, y)| x.abs_diff(y))
         .max()
         .unwrap_or(0)
+}
+
+fn same_ink_direction(a: [u8; 3], bg_a: [u8; 3], b: [u8; 3], bg_b: [u8; 3]) -> bool {
+    // Antialiasing changes ink intensity, not its direction from the surface
+    // color. Do not treat two samples of the same ink as different styles.
+    let a = std::array::from_fn::<_, 3, _>(|i| f64::from(a[i]) - f64::from(bg_a[i]));
+    let b = std::array::from_fn::<_, 3, _>(|i| f64::from(b[i]) - f64::from(bg_b[i]));
+    let dot: f64 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+    let length_a: f64 = a.iter().map(|x| x * x).sum();
+    let length_b: f64 = b.iter().map(|x| x * x).sum();
+    dot > 0.0 && dot * dot >= 0.98 * length_a * length_b
 }
 
 fn separator(

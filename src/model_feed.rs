@@ -9,10 +9,9 @@
 //! What the feed decides, and what it does not:
 //!
 //! - it may **offer** models, which appear as [`ModelSource::Discovered`];
-//! - it may offer live candidates to the adaptive tail below the two local
-//!   leaders when the configured chain contains both;
-//! - it may never displace those leaders. They carry the primary and immediate
-//!   proven fallback before remote availability can influence the chain.
+//! - it may offer live candidates below the chain's protected authored prefix;
+//! - it may never displace that prefix: four text or two image choices remain
+//!   ahead of automatic remote offers when the configured chain contains them.
 //!
 //! Feed eligibility is an operational reliability gate. Stable catalog quality
 //! tiers and latency then form a bounded tradeoff for eligible models. A sample
@@ -210,7 +209,7 @@ impl CandidateRank {
     }
 }
 
-/// Interleaves adaptive candidates while keeping up to two configured local
+/// Interleaves adaptive candidates while keeping the configured protected
 /// leaders and the relative order of every non-adaptive fallback intact.
 ///
 /// Each candidate lands before the first slower or weaker configured fallback.
@@ -224,7 +223,14 @@ pub fn merge_into_chain(
     offered: &[String],
     rank_for: impl Fn(&str) -> CandidateRank,
 ) -> Vec<String> {
-    merge_into_chain_with_overrides(chain, offered, &[], &[], rank_for)
+    merge_into_chain_with_overrides(chain, offered, &[], &[], 2, rank_for)
+}
+
+pub fn protected_local_leaders(model_type: crate::model_config::ModelType) -> usize {
+    match model_type {
+        crate::model_config::ModelType::Text => 4,
+        _ => 2,
+    }
 }
 
 pub fn merge_into_chain_with_overrides(
@@ -232,13 +238,13 @@ pub fn merge_into_chain_with_overrides(
     offered: &[String],
     pinned: &[String],
     excluded: &[String],
+    protected_local_leaders: usize,
     rank_for: impl Fn(&str) -> CandidateRank,
 ) -> Vec<String> {
     if chain.is_empty() {
         return chain.to_vec();
     }
     const MAX_ADAPTIVE_OFFERS: usize = 5;
-    const PROTECTED_LOCAL_LEADERS: usize = 2;
     let protected_head = &chain[0];
     let is_pinned = |id: &String| {
         pinned.iter().any(|candidate| candidate == id)
@@ -269,7 +275,7 @@ pub fn merge_into_chain_with_overrides(
         })
         .map(|(_, id)| id.clone())
         .collect();
-    if merged.len() >= PROTECTED_LOCAL_LEADERS {
+    if merged.len() >= protected_local_leaders {
         for id in adaptive {
             if merged.iter().any(|existing| existing == id) {
                 continue;
@@ -278,7 +284,7 @@ pub fn merge_into_chain_with_overrides(
             let insert_at = merged
                 .iter()
                 .enumerate()
-                .skip(PROTECTED_LOCAL_LEADERS)
+                .skip(protected_local_leaders.max(1))
                 .find(|(_, existing)| !rank_for(existing).outranks_or_ties(candidate_rank))
                 .map(|(index, _)| index)
                 .unwrap_or(merged.len());
@@ -297,6 +303,46 @@ pub fn merge_into_chain_with_overrides(
         let pinned_id = merged.remove(current_index);
         let target_index = authored_index.min(merged.len());
         merged.insert(target_index, pinned_id);
+    }
+    // Restoring a pin can pull an automatic row above the protected boundary.
+    // Keep pin slots fixed and fill every other leading slot with authored rows.
+    let is_automatic = |id: &String| {
+        id != protected_head && !is_pinned(id) && offered.iter().any(|offered| offered == id)
+    };
+    let leading_slots = merged
+        .iter()
+        .take(protected_local_leaders)
+        .filter(|id| !is_pinned(id))
+        .count();
+    let leading: Vec<usize> = merged
+        .iter()
+        .enumerate()
+        .filter(|(_, id)| !is_pinned(id) && !is_automatic(id))
+        .take(leading_slots)
+        .map(|(index, _)| index)
+        .collect();
+    if leading.len() < leading_slots {
+        // A shortened chain cannot fill the protected prefix around distant pins.
+        merged.retain(|id| !is_automatic(id));
+        return merged;
+    }
+    let mut unpinned = leading
+        .iter()
+        .map(|index| &merged[*index])
+        .chain(
+            merged
+                .iter()
+                .enumerate()
+                .filter(|(index, id)| !is_pinned(id) && !leading.contains(index))
+                .map(|(_, id)| id),
+        )
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_iter();
+    for id in &mut merged {
+        if !is_pinned(id) {
+            *id = unpinned.next().expect("one value per unpinned slot");
+        }
     }
     merged
 }

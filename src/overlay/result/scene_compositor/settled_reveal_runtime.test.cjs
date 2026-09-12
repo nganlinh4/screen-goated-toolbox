@@ -9,6 +9,7 @@ function harness(reduced = false) {
   const scope = vm.createContext({
     Element: { prototype: { animate() {} } },
     window: { matchMedia: () => ({ matches: reduced }) },
+    document: { timeline: { currentTime: 123 } },
     requestAnimationFrame: callback => frames.push(callback),
   });
   vm.runInContext(readFileSync(join(__dirname, 'settled_reveal_runtime.js'), 'utf8')
@@ -31,6 +32,7 @@ function harness(reduced = false) {
   return {
     reveal: scope.reveal,
     entry: ready => ({ visualSurface: element(), directHost: element(), card: element(),
+      backdrop: Object.assign(element(), { dataset: {} }),
       contentRevision: 1, directState: { sourceLayoutReady: ready } }),
     async tick() {
       for (const callback of frames.splice(0)) callback();
@@ -50,12 +52,18 @@ test('a ready card reveals independently; only its text blurs and moves', async 
   assert.equal(slow.visualSurface.animations.length, 0);
   assert.equal(ready.visualSurface.animations.length, 1);
   assert.equal(ready.visualSurface.animations[0].keys[0].filter, undefined);
+  assert.equal(ready.backdrop.animations.length, 1);
+  assert.equal(ready.backdrop.animations[0].startTime, 123);
+  assert.equal(ready.visualSurface.animations[0].startTime, 123);
   const text = ready.directHost.animations[0];
   assert.equal(text.keys[0].filter, 'blur(8px)');
   assert.equal(text.options.duration, 350);
+  assert.equal(text.startTime, 123);
   text.finish();
   assert.equal(painted, 1);
   assert.equal(ready.visualSurface.style.opacity, '1');
+  assert.equal(ready.backdrop.style.opacity, '1');
+  assert.equal(ready.backdrop.animations[0].cancelled, true);
   assert.equal(ready.directHost.style.willChange, '');
   assert.equal(text.cancelled, true);
 });
@@ -68,6 +76,7 @@ test('reduced motion reveals without animation', async () => {
   assert.equal(painted, 1);
   assert.equal(entry.directHost.animations.length, 0);
   assert.equal(entry.visualSurface.style.opacity, '1');
+  assert.equal(entry.backdrop.style.opacity, '1');
 });
 
 test('cancel and stale revisions cannot reveal or report old content', async () => {
@@ -81,5 +90,6 @@ test('cancel and stale revisions cannot reveal or report old content', async () 
   h.reveal.cancel(entry);
   assert.equal(entry.directHost.animations[0].cancelled, true);
   assert.equal(entry.visualSurface.animations[0].cancelled, true);
+  assert.equal(entry.backdrop.animations[0].cancelled, true);
   assert.equal(entry.sourceReplacementReveal, null);
 });

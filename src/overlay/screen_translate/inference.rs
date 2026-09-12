@@ -10,13 +10,9 @@ use crate::retry_model_chain::{
     record_model_success, release_model_probe, resolve_next_retry_model,
 };
 
-use super::contract::{
-    DetectedTextRegion, TranslationDocument, TranslationRegion, parse_response,
-    prompt_with_instruction, response_schema,
-};
+use super::contract::{DetectedTextRegion, TranslationDocument, TranslationRegion};
+use super::request::{completed_response, prepare};
 use super::stream_parser::TranslationStreamParser;
-
-mod context;
 
 pub(super) struct TranslationOutcome {
     pub document: TranslationDocument,
@@ -100,16 +96,17 @@ where
         if let Some(document) = completed_document(candidates, &accepted, &covered) {
             return Ok(document.into());
         }
-        let schema = response_schema(pending.len());
-        let mut request_text =
-            prompt_with_instruction(target_language, translation_prompt, &pending)?;
-        context::append(
-            &mut request_text,
-            if scene.is_empty() { candidates } else { scene },
+        let prepared = prepare(
+            &current,
+            target_language,
+            translation_prompt,
             &pending,
+            if scene.is_empty() { candidates } else { scene },
             prior_translations,
             &accepted,
         )?;
+        let request_text = &prepared.text;
+        let schema = &prepared.schema;
         let request_timeout = crate::retry_model_chain::interactive_request_timeouts(
             &current.id,
             &config,
@@ -159,6 +156,7 @@ where
                 pending.len(),
             );
             let mut parser = TranslationStreamParser::new(&pending);
+            let mut streamed_regions = Vec::with_capacity(pending.len());
             let confirm_copied_batch = attempt_sequence == 1 && {
                 let mut excluded = failed.clone();
                 excluded.push(current.id.clone());
@@ -171,33 +169,23 @@ where
                 )
                 .is_some()
             };
-            attempt_trace.request(&request_text, &schema, target_language);
+            attempt_trace.request(request_text, schema, target_language);
             let covered_before_attempt = covered.len();
             let attempt_cancel = Arc::clone(&cancel);
-            let mut reasoning = serde_json::json!({"messages": []});
-            crate::api::apply_ordinary_openai_reasoning_policy(
-                &mut reasoning,
-                &current.provider,
-                &current.full_name,
-            );
-            let needs_reasoning = reasoning
-                .get("reasoning_effort")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|effort| effort != "none");
             let transport = translate_text_streaming(
                 TranslateTextRequest {
                     groq_api_key: &config.api_key,
                     gemini_api_key: &config.gemini_api_key,
                     text: request_text.clone(),
-                    instruction: format!(
-                        "Translate into {target_language}. Return only the requested structured screen translation."
-                    ),
+                    instruction: prepared.instruction.clone(),
                     model: current.full_name.clone(),
                     provider: current.provider.clone(),
                     streaming_enabled: true,
                     use_json_format: true,
-                    response_schema: Some(&schema),
-                    max_output_tokens: Some(completion_budget(&pending, needs_reasoning)),
+                    response_schema: Some(crate::api::text::TranslationSchema::LocallyValidated(
+                        schema,
+                    )),
+                    max_output_tokens: Some(prepared.max_output_tokens),
                     search_label: None,
                     ui_language: &config.ui_language,
                     cancel_token: Some(attempt_cancel),
@@ -207,6 +195,7 @@ where
                 |chunk| {
                     attempt_trace.observe_chunk(chunk);
                     for (_, region) in parser.push(chunk) {
+                        streamed_regions.push(region.clone());
                         // An unchanged label is valid, but a wholly echoed batch
                         // needs one independent attempt before accepting it.
                         if confirm_copied_batch
@@ -224,7 +213,7 @@ where
             attempt_trace.transport_complete();
             attempt_trace.response(&transport);
             let response = transport
-                .and_then(|response| parse_response(&response, &pending))
+                .and_then(|response| completed_response(&response, &pending, streamed_regions))
                 .and_then(|document| {
                     if confirm_copied_batch
                         && super::translation_validation::is_copied_batch(&document.regions)
@@ -361,19 +350,6 @@ fn finish_confirmation(
         }
     }
     unresolved_outcome(candidates, accepted, covered)
-}
-
-fn completion_budget(candidates: &[DetectedTextRegion], needs_reasoning: bool) -> u32 {
-    // Some endpoints cannot disable reasoning. Their completion cap also owns
-    // internal tokens, so a short visible answer still needs bounded headroom.
-    candidates
-        .iter()
-        .fold(64_u32, |budget, region| {
-            budget
-                .saturating_add((region.source_text.len() as u32).saturating_mul(2))
-                .saturating_add(12)
-        })
-        .clamp(if needs_reasoning { 1024 } else { 256 }, 8192)
 }
 
 fn pending_candidates(

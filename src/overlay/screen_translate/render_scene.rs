@@ -8,6 +8,7 @@ use super::geometry::{PixelRegion, normalized_region};
 use crate::overlay::selection::CapturedRegion;
 
 mod connectivity;
+mod ownership;
 use connectivity::connected_components;
 
 pub(super) struct PreparedSource {
@@ -92,6 +93,14 @@ pub(super) fn prepare_scene(
                 .map(|ids| (None, ids))
                 .collect()
         });
+    let owned_regions = ownership::partition(
+        &components
+            .iter()
+            .enumerate()
+            .flat_map(|(owner, (_, ids))| ids.iter().map(move |id| (*id, owner)))
+            .map(|(id, owner)| (id, owner, sources[&id].pixels))
+            .collect::<Vec<_>>(),
+    )?;
     for (unit, member_ids) in components {
         if !super::runtime::is_current(job_id) {
             break;
@@ -101,21 +110,35 @@ pub(super) fn prepare_scene(
             .filter_map(|id| sources.get(id))
             .collect::<Vec<_>>();
         let layout = union(members.iter().map(|source| source.pixels));
-        let shape_regions = members
+        let shape_regions = member_ids
             .iter()
-            .map(|source| source.pixels)
+            .flat_map(|id| owned_regions[id].iter().copied())
             .collect::<Vec<_>>();
         let background = members
             .iter()
             .filter_map(|source| source.background)
             .max_by_key(|(_, confidence)| *confidence);
+        let shape_regions = ownership::join_lines(
+            shape_regions,
+            &members.iter().map(|s| s.pixels).collect::<Vec<_>>(),
+            &sources
+                .iter()
+                .filter(|(id, _)| !member_ids.contains(id))
+                .map(|(_, s)| s.pixels)
+                .collect::<Vec<_>>(),
+        );
         let preferred_font_size = super::text_metrics::preferred_font_size(
             &capture.image,
             members
                 .iter()
                 .map(|source| (source.pixels, source.background)),
         );
-        let vertical_text = dominant_orientation_is_vertical(&shape_regions);
+        let vertical_text = dominant_orientation_is_vertical(
+            &members
+                .iter()
+                .map(|source| source.pixels)
+                .collect::<Vec<_>>(),
+        );
         let source_lanes = if let Some(unit) = unit {
             vec![SourceLane {
                 member_ids: vec![unit.id],
@@ -144,7 +167,7 @@ pub(super) fn prepare_scene(
             .into_iter()
             .map(|lane| lane.member_ids)
             .collect();
-        let (backdrop, inferred_foreground) = reconstruct_shaped_blob(
+        let backdrop = reconstruct_shaped_blob(
             &capture.image,
             layout,
             &all_regions,
@@ -157,7 +180,17 @@ pub(super) fn prepare_scene(
         let foreground = reliable_background
             .and_then(|(background, _)| most_contrasting_foreground(&members, background))
             .map(super::appearance::color_hex)
-            .unwrap_or(inferred_foreground);
+            .unwrap_or_else(|| {
+                let source = image::imageops::crop_imm(
+                    &capture.image,
+                    layout.x,
+                    layout.y,
+                    layout.width,
+                    layout.height,
+                )
+                .to_image();
+                super::backdrop::foreground_color(&source, &backdrop)
+            });
         let translation_ids = unit.map(|unit| vec![unit.id]).unwrap_or(member_ids);
         blocks.push(PreparedBlock {
             member_ids: translation_ids,
@@ -436,156 +469,4 @@ fn union(regions: impl Iterator<Item = PixelRegion>) -> PixelRegion {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::connectivity::touches;
-    use super::*;
-
-    fn prepared(pixels: PixelRegion) -> PreparedSource {
-        PreparedSource {
-            pixels,
-            source_text: String::new(),
-            foreground: String::new(),
-            foreground_rgb: None,
-            background: None,
-        }
-    }
-
-    #[test]
-    fn touching_rectangles_share_a_component_without_changing_their_bounds() {
-        let first = PixelRegion {
-            x: 10,
-            y: 10,
-            width: 20,
-            height: 10,
-        };
-        let second = PixelRegion {
-            x: 30,
-            y: 15,
-            width: 15,
-            height: 10,
-        };
-        let separate = PixelRegion {
-            x: 46,
-            y: 15,
-            width: 10,
-            height: 10,
-        };
-        assert!(touches(first, second));
-        assert!(!touches(second, separate));
-        assert_eq!(
-            first,
-            PixelRegion {
-                x: 10,
-                y: 10,
-                width: 20,
-                height: 10
-            }
-        );
-    }
-
-    #[test]
-    fn dominant_area_keeps_a_mixed_component_vertical() {
-        let regions = [
-            PixelRegion {
-                x: 0,
-                y: 0,
-                width: 40,
-                height: 240,
-            },
-            PixelRegion {
-                x: 45,
-                y: 210,
-                width: 80,
-                height: 20,
-            },
-        ];
-        assert!(dominant_orientation_is_vertical(&regions));
-    }
-
-    #[test]
-    fn foreground_contrast_is_measured_against_the_merged_background() {
-        let background = [109, 7, 18];
-        assert!(
-            luminance([235, 210, 170]).abs_diff(luminance(background))
-                > luminance([147, 16, 42]).abs_diff(luminance(background))
-        );
-    }
-
-    #[test]
-    fn overlapping_detector_rows_become_non_overlapping_text_lanes() {
-        let sources = [
-            prepared(PixelRegion {
-                x: 10,
-                y: 10,
-                width: 40,
-                height: 20,
-            }),
-            prepared(PixelRegion {
-                x: 50,
-                y: 10,
-                width: 30,
-                height: 20,
-            }),
-            prepared(PixelRegion {
-                x: 10,
-                y: 25,
-                width: 70,
-                height: 20,
-            }),
-        ];
-        let references = sources.iter().collect::<Vec<_>>();
-        let lanes = source_lanes(
-            &[1, 2, 3],
-            &references,
-            PixelRegion {
-                x: 10,
-                y: 10,
-                width: 70,
-                height: 35,
-            },
-            false,
-        );
-
-        assert_eq!(lanes.len(), 2);
-        assert_eq!(lanes[0].member_ids, [1, 2]);
-        assert_eq!(lanes[1].member_ids, [3]);
-        assert!(
-            lanes[0].region.y + lanes[0].region.height <= lanes[1].region.y,
-            "lane rectangles must not paint over each other"
-        );
-    }
-
-    #[test]
-    fn gaps_in_one_row_remain_distinct_text_lanes() {
-        let sources = [
-            prepared(PixelRegion {
-                x: 0,
-                y: 0,
-                width: 20,
-                height: 10,
-            }),
-            prepared(PixelRegion {
-                x: 30,
-                y: 0,
-                width: 20,
-                height: 10,
-            }),
-        ];
-        let references = sources.iter().collect::<Vec<_>>();
-        let lanes = source_lanes(
-            &[1, 2],
-            &references,
-            PixelRegion {
-                x: 0,
-                y: 0,
-                width: 50,
-                height: 10,
-            },
-            false,
-        );
-
-        assert_eq!(lanes.len(), 2);
-        assert_eq!(lanes[0].member_ids, [1]);
-        assert_eq!(lanes[1].member_ids, [2]);
-    }
-}
+mod tests;

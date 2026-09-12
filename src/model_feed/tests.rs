@@ -230,7 +230,15 @@ fn adaptive_priority_policy_matches_the_shared_platform_fixture() {
     assert_eq!(policy["reset_clears_row_overrides"], true);
     assert_eq!(policy["refresh_reorders_only_while_enabled"], true);
     assert_eq!(policy["maximum_offers_per_chain"], 5);
-    assert_eq!(policy["minimum_unpinned_live_position"], 3);
+    use crate::model_config::ModelType;
+    assert_eq!(
+        policy["minimum_unpinned_live_position"]["text_to_text"],
+        protected_local_leaders(ModelType::Text) + 1
+    );
+    assert_eq!(
+        policy["minimum_unpinned_live_position"]["image_to_text"],
+        protected_local_leaders(ModelType::Vision) + 1
+    );
     assert_eq!(policy["live_rows_show_ranking_latency"], true);
     assert_eq!(policy["publisher_owns_offer_admission"], true);
     assert_eq!(
@@ -280,6 +288,39 @@ fn a_model_already_in_the_chain_is_not_duplicated() {
     assert_eq!(merged.iter().filter(|id| *id == "nvidia/fast").count(), 1);
     assert_eq!(merged.len(), chain.len());
     assert_eq!(merged, ["local-leader", "local-third", "nvidia/fast"]);
+}
+
+#[test]
+fn text_feed_prefix_pins_and_exclusions_match_shared_cases() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/parity-fixtures/model-catalog/presentation.json"
+    )))
+    .unwrap();
+    for case in fixture["adaptive_priority"]["merge_cases"]
+        .as_array()
+        .unwrap()
+    {
+        let strings =
+            |field: &str| -> Vec<String> { serde_json::from_value(case[field].clone()).unwrap() };
+        let offered = strings("offered");
+        let merged = merge_into_chain_with_overrides(
+            &strings("chain"),
+            &offered,
+            &strings("pinned"),
+            &strings("excluded"),
+            protected_local_leaders(crate::model_config::ModelType::Text),
+            |id| CandidateRank {
+                quality_tier: 4,
+                latency_ms: if offered.iter().any(|value| value == id) {
+                    1
+                } else {
+                    1000
+                },
+            },
+        );
+        assert_eq!(merged, strings("expected"), "{case}");
+    }
 }
 
 #[test]
@@ -334,6 +375,7 @@ fn pinned_live_rows_stay_in_the_authored_baseline_while_other_offers_refresh() {
         &offered,
         &["nvidia/pinned".to_string()],
         &[],
+        2,
         |id| CandidateRank {
             quality_tier: 4,
             latency_ms: match id {
@@ -370,6 +412,7 @@ fn excluded_live_rows_are_neither_kept_nor_reintroduced() {
         &offered,
         &[],
         &["nvidia/removed".to_string()],
+        2,
         flat_rank,
     );
 

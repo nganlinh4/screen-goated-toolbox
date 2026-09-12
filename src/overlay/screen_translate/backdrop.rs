@@ -4,12 +4,12 @@ use image::ImageEncoder as _;
 use image::codecs::png::PngEncoder;
 
 use super::geometry::{PixelRegion, background_sample_region};
-pub(super) fn reconstruct_blob_image_with_background(
+fn reconstruct_blob_image_with_background(
     image: &image::RgbaImage,
     target: PixelRegion,
     text_regions: &[PixelRegion],
     background: Option<([u8; 3], u8)>,
-) -> (image::RgbaImage, String) {
+) -> image::RgbaImage {
     let sample = background_sample_region(target, image.width(), image.height());
     let context = image::imageops::crop_imm(image, sample.x, sample.y, sample.width, sample.height)
         .to_image();
@@ -17,18 +17,14 @@ pub(super) fn reconstruct_blob_image_with_background(
         .filter(|(_, confidence)| *confidence >= super::appearance::RELIABLE_BACKGROUND_PERCENT)
         .map(|(rgb, _)| image::Rgba([rgb[0], rgb[1], rgb[2], 255]));
     let reconstructed = inpaint_regions(&context, sample, text_regions, trusted_background);
-    let repaired = image::imageops::crop_imm(
+    image::imageops::crop_imm(
         &reconstructed,
         target.x - sample.x,
         target.y - sample.y,
         target.width,
         target.height,
     )
-    .to_image();
-    let source = image::imageops::crop_imm(image, target.x, target.y, target.width, target.height)
-        .to_image();
-    let foreground = foreground_color(&source, &repaired);
-    (repaired, foreground)
+    .to_image()
 }
 pub(super) fn reconstruct_shaped_blob(
     image: &image::RgbaImage,
@@ -36,27 +32,36 @@ pub(super) fn reconstruct_shaped_blob(
     text_regions: &[PixelRegion],
     shape_regions: &[PixelRegion],
     background: Option<([u8; 3], u8)>,
-) -> (image::RgbaImage, String) {
-    let (mut repaired, _) =
+) -> image::RgbaImage {
+    let mut repaired =
         reconstruct_blob_image_with_background(image, target, text_regions, background);
-    for y in 0..repaired.height() {
-        for x in 0..repaired.width() {
-            let source_x = target.x.saturating_add(x);
-            let source_y = target.y.saturating_add(y);
-            if !shape_regions.iter().any(|region| {
-                source_x >= region.x
-                    && source_x < region.x.saturating_add(region.width)
-                    && source_y >= region.y
-                    && source_y < region.y.saturating_add(region.height)
-            }) {
-                repaired.get_pixel_mut(x, y).0[3] = 0;
-            }
+    // Rasterize the rectangles once. Testing every fragment at every pixel
+    // becomes expensive when a source footprint contains several cutouts.
+    let width = repaired.width() as usize;
+    let mut owned = vec![false; width * repaired.height() as usize];
+    for region in shape_regions {
+        let left = region.x.saturating_sub(target.x).min(target.width) as usize;
+        let top = region.y.saturating_sub(target.y).min(target.height) as usize;
+        let right = region
+            .x
+            .saturating_add(region.width)
+            .saturating_sub(target.x)
+            .min(target.width) as usize;
+        let bottom = region
+            .y
+            .saturating_add(region.height)
+            .saturating_sub(target.y)
+            .min(target.height) as usize;
+        for y in top..bottom {
+            owned[y * width + left..y * width + right].fill(true);
         }
     }
-    let source = image::imageops::crop_imm(image, target.x, target.y, target.width, target.height)
-        .to_image();
-    let foreground = foreground_color(&source, &repaired);
-    (repaired, foreground)
+    for (pixel, owned) in repaired.pixels_mut().zip(owned) {
+        if !owned {
+            pixel.0[3] = 0;
+        }
+    }
+    repaired
 }
 pub(super) fn encode_data_url(image: &image::RgbaImage) -> Result<String> {
     let mut png = Vec::new();
@@ -276,17 +281,11 @@ struct ColorBucket {
     samples: u32,
 }
 
-fn foreground_color(source: &image::RgbaImage, backdrop: &image::RgbaImage) -> String {
+pub(super) fn foreground_color(source: &image::RgbaImage, backdrop: &image::RgbaImage) -> String {
     if source.dimensions() != backdrop.dimensions() || source.is_empty() {
         return contrast_color(backdrop);
     }
-    let mut differences = source
-        .pixels()
-        .zip(backdrop.pixels())
-        .map(|(pixel, background)| color_distance(*pixel, *background))
-        .collect::<Vec<_>>();
-    differences.sort_unstable();
-    let threshold = differences[differences.len() * 2 / 3].max(16);
+    let threshold = difference_threshold(source, backdrop);
     let mut buckets = [ColorBucket::default(); 512];
     for y in 0..source.height() {
         for x in 0..source.width() {
@@ -342,6 +341,24 @@ fn foreground_color(source: &image::RgbaImage, backdrop: &image::RgbaImage) -> S
     format!("#{:02X}{:02X}{:02X}", color[0], color[1], color[2])
 }
 
+fn difference_threshold(source: &image::RgbaImage, backdrop: &image::RgbaImage) -> u16 {
+    // Distances have only 256 values. Preserve the exact order statistic
+    // without allocating and sorting one entry per source pixel.
+    let mut counts = [0_usize; 256];
+    for (pixel, background) in source.pixels().zip(backdrop.pixels()) {
+        counts[usize::from(color_distance(*pixel, *background))] += 1;
+    }
+    let rank = source.as_raw().len() / 4 * 2 / 3;
+    let mut cumulative = 0;
+    for (difference, count) in counts.into_iter().enumerate() {
+        cumulative += count;
+        if cumulative > rank {
+            return (difference as u16).max(16);
+        }
+    }
+    16
+}
+
 fn relative_luminance(rgb: [u8; 3]) -> f64 {
     let linear = |value: u8| {
         let channel = f64::from(value) / 255.0;
@@ -381,220 +398,4 @@ fn local_edge(image: &image::RgbaImage, x: u32, y: u32) -> u16 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reconstructed_blob_uses_surrounding_pixels_and_matches_the_detector_region() {
-        let background = image::Rgba([72, 96, 120, 255]);
-        let glyph = image::Rgba([244, 232, 210, 255]);
-        let mut source = image::RgbaImage::from_pixel(80, 40, background);
-        for y in 12..28 {
-            for x in [28, 29, 30, 43, 44, 45] {
-                source.put_pixel(x, y, glyph);
-            }
-        }
-        let target = PixelRegion {
-            x: 20,
-            y: 10,
-            width: 40,
-            height: 20,
-        };
-        let (painted, color) =
-            reconstruct_blob_image_with_background(&source, target, &[target], None);
-        let url = encode_data_url(&painted).unwrap();
-        assert!(url.starts_with("data:image/png;base64,"));
-        assert_eq!(color, "#F4E8D2");
-        let png = base64::engine::general_purpose::STANDARD
-            .decode(url.trim_start_matches("data:image/png;base64,"))
-            .unwrap();
-        let decoded = image::load_from_memory(&png).unwrap().to_rgba8();
-        assert_eq!(decoded.dimensions(), (40, 20));
-        assert!(decoded.pixels().all(|pixel| pixel[3] == 255));
-        assert!(decoded.pixels().all(|pixel| {
-            pixel[0].abs_diff(72) <= 2 && pixel[1].abs_diff(96) <= 2 && pixel[2].abs_diff(120) <= 2
-        }));
-    }
-
-    #[test]
-    fn trusted_uniform_surface_does_not_create_directional_bands() {
-        let mut source = image::RgbaImage::from_pixel(100, 40, image::Rgba([250, 250, 250, 255]));
-        for y in 8..32 {
-            for x in 10..90 {
-                source.put_pixel(x, y, image::Rgba([5, 5, 5, 255]));
-            }
-        }
-        let target = PixelRegion {
-            x: 10,
-            y: 8,
-            width: 80,
-            height: 24,
-        };
-        let (painted, _) = reconstruct_blob_image_with_background(
-            &source,
-            target,
-            &[target],
-            Some(([250, 250, 250], 90)),
-        );
-        assert!(
-            painted
-                .pixels()
-                .all(|pixel| pixel.0 == [250, 250, 250, 255])
-        );
-    }
-
-    #[test]
-    fn foreground_sampling_preserves_each_regions_glyph_color() {
-        let cases = [
-            ([221, 181, 38, 255], [22, 45, 72, 255]),
-            ([31, 34, 36, 255], [173, 178, 184, 255]),
-            ([240, 240, 240, 255], [194, 48, 116, 255]),
-        ];
-        for (background, glyph) in cases {
-            let backdrop = image::RgbaImage::from_pixel(30, 20, image::Rgba(background));
-            let mut source = backdrop.clone();
-            for y in 3..17 {
-                for x in 8..13 {
-                    source.put_pixel(x, y, image::Rgba(glyph));
-                }
-            }
-            assert_eq!(
-                foreground_color(&source, &backdrop),
-                format!("#{:02X}{:02X}{:02X}", glyph[0], glyph[1], glyph[2])
-            );
-        }
-    }
-
-    #[test]
-    fn low_contrast_sample_falls_back_to_a_readable_neutral() {
-        let backdrop = image::RgbaImage::from_pixel(40, 24, image::Rgba([112, 6, 20, 255]));
-        let mut source = backdrop.clone();
-        for y in 4..20 {
-            for x in 16..24 {
-                source.put_pixel(x, y, image::Rgba([145, 17, 43, 255]));
-            }
-        }
-        assert_eq!(foreground_color(&source, &backdrop), "#FFFFFF");
-    }
-
-    #[test]
-    fn background_inpainting_has_no_horizontal_or_vertical_preference() {
-        let image = image::RgbaImage::from_fn(44, 30, |x, y| {
-            image::Rgba([
-                (20 + x * 3) as u8,
-                (30 + y * 5) as u8,
-                (40 + x + y * 2) as u8,
-                255,
-            ])
-        });
-        let region = PixelRegion {
-            x: 9,
-            y: 7,
-            width: 24,
-            height: 14,
-        };
-        let sample = PixelRegion {
-            x: 0,
-            y: 0,
-            width: image.width(),
-            height: image.height(),
-        };
-        let filled = inpaint_regions(&image, sample, &[region], None);
-        let transposed =
-            image::RgbaImage::from_fn(image.height(), image.width(), |x, y| *image.get_pixel(y, x));
-        let transposed_region = PixelRegion {
-            x: region.y,
-            y: region.x,
-            width: region.height,
-            height: region.width,
-        };
-        let transposed_sample = PixelRegion {
-            x: 0,
-            y: 0,
-            width: transposed.width(),
-            height: transposed.height(),
-        };
-        let transposed_filled =
-            inpaint_regions(&transposed, transposed_sample, &[transposed_region], None);
-        for y in 0..image.height() {
-            for x in 0..image.width() {
-                assert_eq!(filled.get_pixel(x, y), transposed_filled.get_pixel(y, x));
-            }
-        }
-    }
-
-    #[test]
-    fn background_inpainting_reconstructs_a_smooth_plane_without_diagonal_seams() {
-        let image = image::RgbaImage::from_fn(64, 40, |x, y| {
-            image::Rgba([
-                (20 + x * 2 + y) as u8,
-                (30 + x + y * 2) as u8,
-                (40 + x + y) as u8,
-                255,
-            ])
-        });
-        let region = PixelRegion {
-            x: 12,
-            y: 9,
-            width: 38,
-            height: 22,
-        };
-        let sample = PixelRegion {
-            x: 0,
-            y: 0,
-            width: image.width(),
-            height: image.height(),
-        };
-        let filled = inpaint_regions(&image, sample, &[region], None);
-        for y in region.y..region.y + region.height {
-            for x in region.x..region.x + region.width {
-                let expected = image.get_pixel(x, y);
-                let actual = filled.get_pixel(x, y);
-                assert!(
-                    expected
-                        .0
-                        .iter()
-                        .zip(actual.0)
-                        .all(|(expected, actual)| expected.abs_diff(actual) <= 1),
-                    "pixel ({x},{y}) expected={expected:?} actual={actual:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn background_inpainting_preserves_a_boundary_between_backgrounds() {
-        let mut image = image::RgbaImage::from_fn(60, 30, |x, _| {
-            if x < 30 {
-                image::Rgba([32, 64, 96, 255])
-            } else {
-                image::Rgba([224, 192, 160, 255])
-            }
-        });
-        let region = PixelRegion {
-            x: 12,
-            y: 8,
-            width: 36,
-            height: 14,
-        };
-        for y in region.y + 2..region.y + region.height - 2 {
-            for x in [18, 19, 20] {
-                image.put_pixel(x, y, image::Rgba([238, 238, 238, 255]));
-            }
-            for x in [39, 40, 41] {
-                image.put_pixel(x, y, image::Rgba([12, 12, 12, 255]));
-            }
-        }
-        let sample = PixelRegion {
-            x: 0,
-            y: 0,
-            width: image.width(),
-            height: image.height(),
-        };
-        let filled = inpaint_regions(&image, sample, &[region], None);
-        let left = filled.get_pixel(19, 15);
-        let right = filled.get_pixel(40, 15);
-        assert!(left[0] < 100, "left={left:?}");
-        assert!(right[0] > 156, "right={right:?}");
-    }
-}
+mod tests;

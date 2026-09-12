@@ -85,3 +85,12 @@ evidence. It therefore needs a debug build present at
 `%LOCALAPPDATA%\SGT-Development\cache\cargo\dev\debug\screen-goated-toolbox.exe`,
 an interactive desktop session, and `SGT_SCREEN_TRANSLATE_AUTO_EVIDENCE=1` for
 evidence capture. It is a manual acceptance tool, not a CI gate.
+
+For a bounded translation-only comparison, the ignored Rust test
+`replay_structured_translation_modes` replays semicolon-separated saved `run.json`
+paths from `SGT_TRANSLATION_REPLAY_INPUTS`, using existing Groq credentials and
+the production transport/parser. Set `SGT_TRANSLATION_REPLAY_OUTPUT` to a fresh
+external directory. Optional `SGT_TRANSLATION_REPLAY_MODES` selects `strict`,
+`json`, `prompt`, or `compact`; `SGT_TRANSLATION_REPLAY_REPEATS` defaults to two,
+and `SGT_TRANSLATION_REPLAY_PACE_SECONDS` defaults to 60. Reports separate first
+validated output, full completion, item coverage, envelope validity, and failures.

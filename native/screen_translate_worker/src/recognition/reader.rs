@@ -109,7 +109,9 @@ impl Reader {
         let mut order = (0..regions.len()).collect::<Vec<_>>();
         let ratio = |index: usize| crops[index].width() as f32 / crops[index].height() as f32;
         order.sort_by(|&a, &b| ratio(a).total_cmp(&ratio(b)));
-        for indices in order.chunks(BATCH) {
+        // Keep width-compatible batch membership and padding unchanged, but
+        // deliver text-rich strips before isolated narrow marks.
+        for indices in order.chunks(BATCH).rev() {
             check_cancel(cancel)?;
             let mut tiles = Vec::new();
             for (index, &source) in indices.iter().enumerate() {

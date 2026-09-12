@@ -2,6 +2,7 @@ use super::{
     local_support, prefer_reading,
     reader::Reader,
     router::{Route, Router},
+    supported_alternative,
 };
 use anyhow::{Result, bail};
 use image::RgbImage;
@@ -25,7 +26,7 @@ pub(super) struct Capture<'a> {
 pub(super) fn recognize(
     routers: &mut [Router; 2],
     readers: &mut [(String, Reader)],
-    alphabet: &HashSet<char>,
+    alphabets: &[HashSet<char>],
     capture: Capture<'_>,
     emit: &mut impl FnMut(&Completion) -> Result<()>,
 ) -> Result<()> {
@@ -40,7 +41,7 @@ pub(super) fn recognize(
     let mut crops = Vec::with_capacity(regions.len());
     for region in regions {
         check(cancel)?;
-        let crop = crate::localization::crop(image, region)?;
+        let crop = crate::localization::crop(image, region, regions)?;
         pixels += u64::from(crop.width()) * u64::from(crop.height());
         if pixels > 80_000_000 {
             bail!("reader crop set exceeds memory budget");
@@ -50,7 +51,7 @@ pub(super) fn recognize(
     // Independent sessions bound CPU work without changing recognition batch
     // membership or its padding geometry.
     let next = AtomicUsize::new(0);
-    let routes = std::thread::scope(|scope| -> Result<Vec<Route>> {
+    let mut routes = std::thread::scope(|scope| -> Result<Vec<Route>> {
         let (left, right) = routers.split_at_mut(1);
         let first = scope.spawn(|| classify(&mut left[0], &crops, &next, cancel));
         let second = classify(&mut right[0], &crops, &next, cancel);
@@ -67,6 +68,11 @@ pub(super) fn recognize(
         regions.len()
     );
     let primary_routes = routes.iter().map(|r| r.readers[0]).collect::<Vec<_>>();
+    for (i, route) in routes.iter_mut().enumerate() {
+        if let Some(alternative) = supported_alternative(i, &primary_routes, regions) {
+            route.readers[1] = alternative;
+        }
+    }
     let ids = regions
         .iter()
         .enumerate()
@@ -78,7 +84,21 @@ pub(super) fn recognize(
     for (i, route) in routes.iter().enumerate() {
         groups[route.readers[0]].push(i);
     }
-    for ((name, reader), indices) in readers.iter_mut().zip(groups) {
+    let mut primary_groups = readers.iter_mut().zip(groups).collect::<Vec<_>>();
+    // Catalog order is not capture priority. Schedule the largest normalized
+    // text workload first; all readers retain the same regions and batches.
+    primary_groups.sort_by_cached_key(|(_, indices)| {
+        std::cmp::Reverse(
+            indices
+                .iter()
+                .map(|&i| {
+                    (super::lines::HEIGHT as u64 * u64::from(crops[i].width()))
+                        .div_ceil(u64::from(crops[i].height()))
+                })
+                .sum::<u64>(),
+        )
+    });
+    for ((name, reader), indices) in primary_groups {
         if indices.is_empty() {
             continue;
         }
@@ -136,6 +156,15 @@ pub(super) fn recognize(
                 let primary = retries[ids[&completion.region_id]]
                     .take()
                     .ok_or_else(|| anyhow::anyhow!("missing primary reading"))?;
+                let alphabet = &alphabets[primary_routes[ids[&completion.region_id]]];
+                if primary_routes[ids[&completion.region_id]] != 0
+                    && matches!(&primary.reading, Reading::Text(text)
+                        if text.chars().any(|c| c.is_alphabetic() && !alphabets[0].contains(&c)))
+                {
+                    // Nearby text may use another script. A readable primary
+                    // alphabet is stronger evidence than its neighbors.
+                    return emit(&primary);
+                }
                 emit(&prefer_reading(primary, completion.clone(), alphabet))
             },
         )?;
@@ -177,14 +206,9 @@ fn should_retry(route: Route, reading: &Reading, neighbor_support: bool) -> bool
     let [primary, alternative] = route.readers;
     primary != alternative
         && if primary == 0 {
-            neighbor_support
-                || (route.alternative_observed
-                    && match reading {
-                        Reading::Unresolved(_) => true,
-                        Reading::Text(text) => !text.chars().any(char::is_alphanumeric),
-                    })
+            neighbor_support || route.alternative_observed
         } else {
-            matches!(reading, Reading::Unresolved(_))
+            (alternative != 0 && neighbor_support) || matches!(reading, Reading::Unresolved(_))
         }
 }
 
@@ -192,7 +216,7 @@ fn should_retry(route: Route, reading: &Reading, neighbor_support: bool) -> bool
 mod tests {
     use super::*;
     #[test]
-    fn recovery_requires_evidence_and_preserves_numbers_and_words() {
+    fn recovery_requires_visual_or_neighbor_evidence_even_for_mixed_script_words() {
         let weak = Route {
             readers: [0, 1],
             alternative_observed: false,
@@ -214,7 +238,7 @@ mod tests {
             false
         ));
         for text in ["123", "3.14", "word", "文字"] {
-            assert!(!should_retry(supported, &Reading::Text(text.into()), false));
+            assert!(should_retry(supported, &Reading::Text(text.into()), false));
         }
         assert!(should_retry(weak, &Reading::Text("word".into()), true));
     }

@@ -287,8 +287,9 @@ sample.
 
 Use the selected latest run's full-result median for the catalog's user-facing
 latency. The warm-only median, output length, provider retry evidence, and
-full-result throughput may diagnose outliers, but no first-token proxy enters
-benchmark reports or catalog decisions.
+full-result throughput may diagnose outliers, but no first-token proxy replaces
+catalog latency or enters ranking decisions. Structured diagnostics may report
+parser progress separately from full-result timing.
 The same ten cases, exact source images, and round-major interleaving make model
 comparisons fair. Within-run latency dispersion still combines task-size
 sensitivity with provider variability; it is not a pure same-prompt load test.
@@ -352,11 +353,21 @@ This wait is excluded from measured model latency.
 
 ## Screen-text localization diagnostic
 
-This non-history probe is deliberately bounded to three difficulty levels and
-every enabled model in the default text-to-text priority stack. Each level may
-contain multiple scripts and layouts. It uses Screen Translate's exact OCR-region
-prompt, strict response schema, detector-owned ids, streaming transport, and
-parser. Its latency is full-result completion like every other benchmark path.
+Benchmark day automatically runs the existing six localization fixtures across
+three difficulty levels for selected structured-capable text models. The explicit
+standalone command below defaults to the text-priority stack. Both use Screen
+Translate's shared request builder: prompt and instruction, output-token budget,
+locally validated schema mode, provider reasoning controls, streaming transport,
+and complete-item parser recovery. The versioned diagnostic suite is excluded
+from catalog history; general text rankings remain protocol 13.
+
+Each attempt retains the output ceiling, input size, first content and first
+validated-item times, content-chunk count, missing/rejected items, and full errors.
+The summary exposes full-result P95, single-chunk responses, and failures alongside
+median parser progress. Complete structured output still requires human quality
+review; parser progress is not a painted frame or acceptance of an echoed batch.
+Credential rotation and pacing stay unchanged. These are per-request diagnostics,
+not claims about single-account burst capacity or whole-chain completion time.
 The reviewed boxes remain attached only to ids, so the language model cannot
 change geometry.
 

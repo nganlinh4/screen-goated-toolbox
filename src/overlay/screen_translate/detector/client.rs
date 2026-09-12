@@ -33,17 +33,16 @@ impl WarmupProgress {
     pub(super) fn start(title: &'static str, message: &'static str) -> Self {
         let badge =
             crate::overlay::auto_copy_badge::DownloadProgressBadge::with_text(title, message);
-        let message = format!("≈ {message}");
-        badge.set_phase(&message, 0.0);
+        badge.set_phase(message, 0.0);
         let state = Arc::new(AtomicU8::new(0));
         let worker_state = Arc::clone(&state);
         std::thread::spawn(move || {
             let started = Instant::now();
             loop {
                 match worker_state.load(Ordering::Acquire) {
-                    0 => badge.set_phase(&message, estimated_loading_percent(started.elapsed())),
+                    0 => badge.set_phase(message, estimated_loading_percent(started.elapsed())),
                     1 => {
-                        badge.set_phase(&message, 100.0);
+                        badge.set_phase(message, 100.0);
                         std::thread::sleep(Duration::from_millis(350));
                         break;
                     }

@@ -2,6 +2,8 @@
 //! grow model-name conditionals or implement incompatible retry policies.
 
 pub mod batch;
+mod retry;
+pub(crate) use retry::{groq_rate_limit_retry_delay, retry_after_seconds, wait_for_groq_retry};
 
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;

@@ -391,33 +391,12 @@ function selectSurface(entry, documentHtml) {
     loadIsolatedDocument(entry, documentHtml);
   }
 }
-function applyGeometry(entry, model) {
-  const preservePosition = window.shouldPreserveResultDragGeometry?.(entry.card.dataset.id) === true;
-  const scale = window.devicePixelRatio || 1; entry.card.style.setProperty('--sgt-box-radius', (__SGT_BOX_RADIUS_PX__ / scale) + 'px');
-  const width = model.rect.width / scale;
-  const height = model.rect.height / scale;
-  const widthCss = width + 'px';
-  const heightCss = height + 'px';
-  const resized = entry.card.style.width !== widthCss || entry.card.style.height !== heightCss;
-  if (!preservePosition) {
-    entry.card.style.translate = '';
-    entry.card.style.transform = 'translate3d(' + (model.rect.x / scale) + 'px,' +
-      (model.rect.y / scale) + 'px,0)';
-  }
-  entry.card.style.width = widthCss;
-  entry.card.style.height = heightCss;
-  entry.processing.resize(width, height, scale);
-  if (resized && entry.ready && entry.visible) {
-    clearTimeout(entry.resizeFit);
-    entry.resizeFit = setTimeout(function() { queueFit(entry, entry.streaming); }, 40);
-  }
-}
 function applyAppearance(entry, model) {
   const becameVisible = !entry.visible && model.visible;
   entry.card.dataset.presentation = model.presentation || 'standard';
   entry.sourceReplacement = model.source_replacement === true;
   entry.card.dataset.sourceReplacement = entry.sourceReplacement ? 'true' : 'false';
-  setSourceReplacementSurface(entry, entry.sourceReplacement);
+  setSourceReplacementSurface(entry, entry.sourceReplacement, model.backdrop_data_url || '');
   entry.sourceVertical = model.source_vertical === true;
   entry.sourceRegions = Array.isArray(model.source_regions) ? model.source_regions : [];
   entry.sourceSegments = Array.isArray(model.source_segments) ? model.source_segments : [];
@@ -453,6 +432,7 @@ function applyAppearance(entry, model) {
     entry.card.style.pointerEvents = '';
     entry.card.hidden = !model.visible;
   }
+  syncSourceBackdrop(entry);
   return becameVisible;
 }
 function applyContentModel(entry, model, type) {
@@ -521,6 +501,7 @@ function updateGeometry(model) {
   const becameVisible = !entry.visible && model.visible;
   entry.visible = model.visible;
   entry.card.hidden = !model.visible;
+  syncSourceBackdrop(entry);
   activateCard(entry, becameVisible);
 }
 function reportNavigation(id, entry) {

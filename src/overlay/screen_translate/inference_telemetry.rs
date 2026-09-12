@@ -11,6 +11,8 @@ pub(super) struct AttemptTrace<'a> {
     first_chunk_ms: Option<f64>,
     first_validated_ms: Option<f64>,
     transport_ms: Option<f64>,
+    content_chunks: usize,
+    output_bytes: usize,
     content: Option<serde_json::Value>,
 }
 
@@ -34,11 +36,17 @@ impl<'a> AttemptTrace<'a> {
             first_chunk_ms: None,
             first_validated_ms: None,
             transport_ms: None,
+            content_chunks: 0,
+            output_bytes: 0,
             content: None,
         }
     }
 
     pub(super) fn observe_chunk(&mut self, chunk: &str) {
+        if !chunk.is_empty() {
+            self.content_chunks += 1;
+            self.output_bytes += chunk.len();
+        }
         if let Some(content) = &mut self.content {
             let serde_json::Value::String(mut current) = content["streamedResponse"].take() else {
                 unreachable!("stream evidence is initialized as text");
@@ -90,7 +98,7 @@ impl<'a> AttemptTrace<'a> {
     pub(super) fn finish(self, outcome: &str, accepted: usize, unresolved: usize, rejected: usize) {
         let total_ms = self.elapsed_ms();
         crate::log_info!(
-            "[ScreenTranslateModelPerf] trace={} attempt={} model_id={} api_model={} provider={} outcome={} pending={} accepted={} unresolved={} rejected={} first_chunk_ms={} first_validated_ms={} transport_ms={} total_ms={:.1}",
+            "[ScreenTranslateModelPerf] trace={} attempt={} model_id={} api_model={} provider={} outcome={} pending={} accepted={} unresolved={} rejected={} first_chunk_ms={} first_validated_ms={} transport_ms={} total_ms={:.1} content_chunks={} output_bytes={}",
             self.trace_id,
             self.sequence,
             self.model_id,
@@ -105,6 +113,8 @@ impl<'a> AttemptTrace<'a> {
             optional_ms(self.first_validated_ms),
             optional_ms(self.transport_ms),
             total_ms,
+            self.content_chunks,
+            self.output_bytes,
         );
         super::diagnostics_model_attempts::record(
             self.trace_id,
@@ -122,6 +132,8 @@ impl<'a> AttemptTrace<'a> {
                 first_validated_ms: self.first_validated_ms,
                 transport_ms: self.transport_ms,
                 total_ms,
+                content_chunks: self.content_chunks,
+                output_bytes: self.output_bytes,
                 content: self.content,
             },
         );
@@ -168,5 +180,10 @@ mod tests {
         let content = records[0].content.as_ref().unwrap();
         assert_eq!(content["prompt"], "Members: source text");
         assert_eq!(content["response"], content["streamedResponse"]);
+        assert_eq!(records[0].content_chunks, 2);
+        assert_eq!(
+            records[0].output_bytes,
+            content["response"].as_str().unwrap().len()
+        );
     }
 }

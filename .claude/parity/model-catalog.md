@@ -43,8 +43,10 @@
   as the tie-breaker. Runtime priority/retry chains retain the relative order of
   authored rows. Eligible unpinned live-feed rows may enter before a slower
   authored fallback without truncating user-authored rows, but only from position
-  3 onward: the primary and immediate local fallback stay ahead of automatic
-  remote offers. An explicit user pin may retain its authored anchor.
+  5 onward for Text-to-Text and position 3 onward for Image-to-Text. The first
+  four authored text rows and first two authored image rows stay ahead of
+  automatic remote offers. Shorter chains do not acquire automatic offers above
+  that boundary. An explicit user pin may retain its authored anchor.
 - Windows and Android expose one persisted adaptive-model toggle beside each priority-chain
   title. While enabled, its formula-ranked live-feed entries render as ordinary
   selectable, draggable, removable chain rows. Moving a live row pins that row at

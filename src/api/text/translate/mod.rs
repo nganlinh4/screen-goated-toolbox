@@ -18,6 +18,14 @@ pub fn supports_structured_translation(provider: &str) -> bool {
     )
 }
 
+#[derive(Clone, Copy)]
+pub enum TranslationSchema<'a> {
+    ProviderEnforced(&'a serde_json::Value),
+    /// The caller validates completed items and retries unresolved items.
+    /// Providers without schema streaming may use unconstrained text transport.
+    LocallyValidated(&'a serde_json::Value),
+}
+
 pub struct TranslateTextRequest<'a> {
     pub groq_api_key: &'a str,
     pub gemini_api_key: &'a str,
@@ -27,7 +35,7 @@ pub struct TranslateTextRequest<'a> {
     pub provider: String,
     pub streaming_enabled: bool,
     pub use_json_format: bool,
-    pub response_schema: Option<&'a serde_json::Value>,
+    pub response_schema: Option<TranslationSchema<'a>>,
     /// Optional output cap for OpenAI-compatible translation providers.
     pub max_output_tokens: Option<u32>,
     pub search_label: Option<String>,
@@ -41,6 +49,7 @@ pub struct TranslateTextRequest<'a> {
 
 #[derive(Clone, Copy)]
 struct TranslateTransportOptions<'a> {
+    locally_validated_schema: bool,
     max_output_tokens: Option<u32>,
     streaming_enabled: bool,
     ui_language: &'a str,
@@ -126,7 +135,16 @@ fn translate_text_streaming_inner(
 
     let full_content;
     let prompt = format!("{}\n\n{}", instruction, text);
+    let locally_validated_schema = matches!(
+        response_schema,
+        Some(TranslationSchema::LocallyValidated(_))
+    );
+    let response_schema = response_schema.map(|schema| match schema {
+        TranslationSchema::ProviderEnforced(schema)
+        | TranslationSchema::LocallyValidated(schema) => schema,
+    });
     let transport = TranslateTransportOptions {
+        locally_validated_schema,
         max_output_tokens,
         streaming_enabled,
         ui_language,

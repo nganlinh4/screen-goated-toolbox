@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 /// Read-only context has a separate identity namespace from requested slots.
 /// Prefer nearby source text; bound prompt growth independently of scene size.
-pub(super) fn append(
+pub(in crate::overlay::screen_translate) fn append(
     prompt: &mut String,
     scene: &[DetectedTextRegion],
     pending: &[DetectedTextRegion],

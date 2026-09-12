@@ -1,6 +1,10 @@
 package dev.screengoated.toolbox.mobile.ui
 
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
+import dev.screengoated.toolbox.mobile.preset.AdaptiveCandidateRank
+import dev.screengoated.toolbox.mobile.preset.PresetRetryChainKind
+import dev.screengoated.toolbox.mobile.preset.mergeAdaptiveModels
+import dev.screengoated.toolbox.mobile.preset.protectedLocalLeaders
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -104,7 +108,11 @@ class ModelPerformancePrefixTest {
         assertTrue(adaptive.getValue("reset_clears_row_overrides").jsonPrimitive.content.toBoolean())
         assertTrue(adaptive.getValue("refresh_reorders_only_while_enabled").jsonPrimitive.content.toBoolean())
         assertEquals(5, adaptive.getValue("maximum_offers_per_chain").jsonPrimitive.int)
-        assertEquals(3, adaptive.getValue("minimum_unpinned_live_position").jsonPrimitive.int)
+        val positions = adaptive.getValue("minimum_unpinned_live_position").jsonObject
+        assertEquals(PresetRetryChainKind.TEXT_TO_TEXT.protectedLocalLeaders() + 1,
+            positions.getValue("text_to_text").jsonPrimitive.int)
+        assertEquals(PresetRetryChainKind.IMAGE_TO_TEXT.protectedLocalLeaders() + 1,
+            positions.getValue("image_to_text").jsonPrimitive.int)
         assertTrue(adaptive.getValue("live_rows_show_ranking_latency").jsonPrimitive.content.toBoolean())
         assertTrue(adaptive.getValue("publisher_owns_offer_admission").jsonPrimitive.content.toBoolean())
         assertTrue(
@@ -130,6 +138,22 @@ class ModelPerformancePrefixTest {
         assertTrue(size.getValue("user_limit").toString() == "null")
         assertEquals(10, size.getValue("prepared_image_default_target").jsonPrimitive.int)
         assertEquals(12, size.getValue("prepared_text_default_target").jsonPrimitive.int)
+    }
+
+    @Test
+    fun textFeedPrefixPinsAndExclusionsMatchSharedCases() {
+        val cases = fixture().getValue("adaptive_priority").jsonObject
+            .getValue("merge_cases").jsonArray
+        cases.forEach { value ->
+            val case = value.jsonObject
+            fun strings(field: String) = case.getValue(field).jsonArray.map { it.jsonPrimitive.content }
+            val offered = strings("offered")
+            val actual = mergeAdaptiveModels(
+                strings("chain"), offered, strings("pinned"), strings("excluded"),
+                PresetRetryChainKind.TEXT_TO_TEXT.protectedLocalLeaders(),
+            ) { id -> AdaptiveCandidateRank(4, if (id in offered) 1 else 1000) }
+            assertEquals(case.toString(), strings("expected"), actual)
+        }
     }
 
     @Test

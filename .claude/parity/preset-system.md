@@ -75,6 +75,16 @@
 
 ## Provider Contract
 
+- Structured text callers explicitly choose provider-enforced schemas or
+  locally validated streaming. The latter is permitted only when the caller
+  validates each completed item and owns recovery for missing items. On Groq,
+  that mode omits provider JSON mode while keeping deterministic sampling;
+  unary calls retain provider enforcement. Ordinary presets keep their existing
+  request behavior. Windows Screen Translate owns the locally validated mode;
+  Android has no corresponding Screen Translate caller yet. Its Groq transport
+  may retry an HTTP 429 once when structural `Retry-After` is at most two
+  seconds, using the same cancellable policy as vision. Longer or absent delays
+  continue through the normal model chain.
 - Android preset capability checks use the same runtime-dispatch capability
   table as the text, vision, and audio clients. A provider that the client can
   execute—including NVIDIA and Gemini Live—must not be rejected by a stale

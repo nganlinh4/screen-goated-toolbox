@@ -20,6 +20,7 @@ window.applyHostCommand = function(command) {
       // Prewarmed source cards stay mounted, but opacity must not reveal them.
       entry.card.style.opacity = entry.visible
         ? String(Math.max(0, Math.min(100, command.opacity)) / 100) : '0';
+      syncSourceBackdrop(entry);
     }
   } else if (command.type === 'theme') applyTheme(command.theme);
   else if (command.type === 'raise') {

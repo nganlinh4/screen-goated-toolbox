@@ -7,6 +7,8 @@ pub(super) struct Groups {
     completed: HashSet<u16>,
     dispatched: bool,
     ready_since: Option<Instant>,
+    ready_count: usize,
+    last_progress: Option<Instant>,
 }
 
 impl Groups {
@@ -18,6 +20,8 @@ impl Groups {
             completed: HashSet::new(),
             dispatched: false,
             ready_since: None,
+            ready_count: 0,
+            last_progress: None,
         }
     }
     pub(super) fn completed(&mut self, id: u16) {
@@ -44,12 +48,21 @@ impl Groups {
             .sum();
         let budget = Duration::from_millis(600);
         let elapsed = now.saturating_duration_since(since);
+        // A faster translation can finish in the middle of an active OCR wave.
+        // Briefly coalesce that wave instead of dispatching a nearly complete
+        // tail twice. Stalled OCR keeps the original idle bound; continuing
+        // progress cannot extend the absolute bound indefinitely.
+        let coalescing_active_tail = self.dispatched
+            && elapsed < budget * 2
+            && self.last_progress.is_some_and(|progress| {
+                now.saturating_duration_since(progress) < Duration::from_millis(250)
+            });
         // Keep an early reveal, then amortize subsequent requests over actual
         // text volume rather than counts of tiny labels. A bounded deadline
         // still releases ready text if other OCR regions stall.
         if !complete
             && ready_bytes < 12_000
-            && elapsed < budget
+            && (elapsed < budget || coalescing_active_tail)
             && (self.dispatched || ready_count < 8 || elapsed < Duration::from_millis(100))
         {
             return Vec::new();
@@ -80,6 +93,8 @@ impl Groups {
         });
         self.dispatched |= !ready.is_empty();
         self.ready_since = None;
+        self.ready_count = 0;
+        self.last_progress = None;
         ready
     }
 
@@ -95,9 +110,14 @@ impl Groups {
             .count();
         if ready_count == 0 {
             self.ready_since = None;
+            self.last_progress = None;
         } else {
             self.ready_since.get_or_insert(now);
+            if ready_count > self.ready_count {
+                self.last_progress = Some(now);
+            }
         }
+        self.ready_count = ready_count;
         ready_count
     }
     pub(super) fn is_empty(&self) -> bool {
@@ -108,6 +128,57 @@ impl Groups {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_tail_coalesces_but_cannot_extend_its_absolute_deadline() {
+        let candidates = (0..40)
+            .map(|id| region(id, 0, 0, "text"))
+            .collect::<Vec<_>>();
+        let mut groups = Groups::new(&candidates);
+        let start = Instant::now();
+        for id in 0..8 {
+            groups.completed(id);
+        }
+        assert!(groups.take_ready(&candidates, start).is_empty());
+        assert_eq!(
+            groups
+                .take_ready(&candidates, start + Duration::from_millis(100))
+                .len(),
+            8
+        );
+        groups.completed(8);
+        let tail = start + Duration::from_millis(200);
+        groups.observe_ready(&candidates, tail);
+        groups.completed(9);
+        groups.observe_ready(&candidates, tail + Duration::from_millis(580));
+        assert!(
+            groups
+                .take_ready(&candidates, tail + Duration::from_millis(650))
+                .is_empty()
+        );
+        assert_eq!(
+            groups
+                .take_ready(&candidates, tail + Duration::from_millis(830))
+                .len(),
+            2
+        );
+
+        groups.completed(10);
+        let tail = tail + Duration::from_secs(1);
+        groups.observe_ready(&candidates, tail);
+        for id in 11..=22 {
+            groups.completed(id);
+            let now = tail + Duration::from_millis(u64::from(id - 10) * 100);
+            groups.observe_ready(&candidates, now);
+            let ready = groups.take_ready(&candidates, now);
+            if id < 22 {
+                assert!(ready.is_empty());
+            } else {
+                assert_eq!(ready.len(), 13);
+            }
+        }
+    }
+
     fn region(id: u16, left: u16, top: u16, text: &str) -> DetectedTextRegion {
         DetectedTextRegion {
             id,

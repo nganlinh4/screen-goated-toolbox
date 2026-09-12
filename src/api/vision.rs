@@ -9,10 +9,7 @@ use crate::api::providers::Provider;
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
 use std::io::BufReader;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Arc, atomic::AtomicBool};
 use std::time::{Duration, Instant};
 
 mod image_payload;
@@ -20,10 +17,9 @@ mod payloads;
 mod repetition;
 mod request_policy;
 mod telemetry;
+use super::groq::{groq_rate_limit_retry_delay, retry_after_seconds, wait_for_groq_retry};
 use image_payload::{GROQ_SAFE_REQUEST_BYTES, prepare_image_payload};
 use payloads::{groq_vision_payload, nvidia_vision_payload, openrouter_vision_payload};
-
-const GROQ_MAX_RATE_LIMIT_WAIT_SECS: u64 = 2;
 
 pub struct TranslateImageRequest<'a> {
     pub groq_api_key: &'a str,
@@ -39,42 +35,6 @@ pub struct TranslateImageRequest<'a> {
     pub response_schema: Option<serde_json::Value>,
     pub cancel_token: Option<Arc<AtomicBool>>,
     pub request_timeout: Option<crate::api::client::RequestTimeouts>,
-}
-
-fn retry_after_seconds(headers: &ureq::http::HeaderMap) -> Option<u64> {
-    headers
-        .get("retry-after")?
-        .to_str()
-        .ok()?
-        .parse::<f64>()
-        .ok()
-        .map(f64::ceil)
-        .map(|seconds| seconds as u64)
-}
-
-fn groq_rate_limit_retry_delay(
-    status: u16,
-    rate_attempt: u8,
-    retry_after: Option<u64>,
-) -> Option<u64> {
-    (status == 429 && rate_attempt == 0)
-        .then_some(retry_after)
-        .flatten()
-        .filter(|seconds| *seconds <= GROQ_MAX_RATE_LIMIT_WAIT_SECS)
-}
-
-fn wait_for_groq_retry(seconds: u64, cancel_token: &Option<Arc<AtomicBool>>) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(seconds);
-    while Instant::now() < deadline {
-        if cancel_token
-            .as_ref()
-            .is_some_and(|token| token.load(Ordering::Relaxed))
-        {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    true
 }
 
 fn groq_error_message(status: u16, body: &str) -> String {

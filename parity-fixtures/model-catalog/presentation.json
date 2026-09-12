@@ -1,5 +1,5 @@
 {
-  "version": 20,
+  "version": 21,
   "id_rule": {
     "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-(?:text|vision|audio|search)$",
     "forbidden_lifecycle_segments": [
@@ -129,7 +129,37 @@
     "reset_clears_row_overrides": true,
     "refresh_reorders_only_while_enabled": true,
     "maximum_offers_per_chain": 5,
-    "minimum_unpinned_live_position": 3,
+    "minimum_unpinned_live_position": {
+      "image_to_text": 3,
+      "text_to_text": 5
+    },
+    "merge_cases": [
+      {
+        "chain": ["a", "b", "live", "c", "d", "e"],
+        "offered": ["live"], "pinned": [], "excluded": [],
+        "expected": ["a", "b", "c", "d", "live", "e"]
+      },
+      {
+        "chain": ["a", "live", "b", "c", "d"],
+        "offered": ["live", "new"], "pinned": ["live"], "excluded": [],
+        "expected": ["a", "live", "b", "c", "new", "d"]
+      },
+      {
+        "chain": ["a", "b", "c"],
+        "offered": ["live"], "pinned": [], "excluded": [],
+        "expected": ["a", "b", "c"]
+      },
+      {
+        "chain": ["a", "b", "c", "d", "live"],
+        "offered": ["live", "new"], "pinned": [], "excluded": ["live"],
+        "expected": ["a", "b", "c", "d", "new"]
+      },
+      {
+        "chain": ["a", "b", "c", "live", "pinned", "d", "e"],
+        "offered": ["live", "pinned"], "pinned": ["pinned"], "excluded": [],
+        "expected": ["a", "b", "c", "d", "pinned", "live", "e"]
+      }
+    ],
     "live_rows_show_ranking_latency": true,
     "publisher_owns_offer_admission": true,
     "feed_absence_removes_nvidia_from_live_routing": true,

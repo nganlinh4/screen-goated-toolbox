@@ -243,10 +243,10 @@ impl RetryChainKind {
     }
 
     /// The chain to actually walk, with eligible availability-feed models
-    /// interleaved below the two local leaders by quality-adjusted latency.
+    /// interleaved below the protected authored prefix by quality-adjusted latency.
     ///
     /// The feed can lengthen the fallback but cannot displace the configured
-    /// primary and immediate fallback when both exist. With no feed, no
+    /// leading choices. With no feed, no
     /// credential, or the provider disabled, this is the configured chain unchanged.
     pub fn effective_chain(self, config: &Config) -> Vec<String> {
         let configured = self.configured_chain(config);
@@ -278,6 +278,7 @@ impl RetryChainKind {
                 &offered_ids,
                 &overrides.pinned,
                 &overrides.excluded,
+                crate::model_feed::protected_local_leaders(wanted),
                 |id| {
                     let model =
                         crate::model_config::get_model_by_id_with_custom(id, &config.custom_models);

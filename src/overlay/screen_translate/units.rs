@@ -173,6 +173,22 @@ mod tests {
         }
     }
     #[test]
+    fn shared_centered_paragraph_keeps_short_opening_and_closing_lines() {
+        use sgt_screen_text_detector_protocol::stream::LayoutKind;
+        let image = image::RgbaImage::from_pixel(1000, 1000, image::Rgba([255; 4]));
+        let mut sources = vec![source(1, 10, 120), source(2, 35, 180), source(3, 60, 130)];
+        sources[0].bounds.left = 100;
+        sources[1].bounds.left = 40;
+        sources[2].bounds.left = 90;
+        let layout = [LayoutRegion {
+            bounds: [30.0, 0.0, 190.0, 90.0],
+            kind: LayoutKind::Text,
+        }];
+        let plan = Plan::new(&image, &mut sources, &layout);
+        assert_eq!(plan.units[0].members, [1, 2, 3]);
+    }
+
+    #[test]
     fn paragraph_owns_its_short_tail_and_waits_only_for_its_members() {
         let image = image::RgbaImage::from_pixel(1000, 1000, image::Rgba([255; 4]));
         let mut sources = vec![

@@ -31,7 +31,8 @@ mod debug {
         target_language: String,
         configured_model: String,
         translation_prompt: String,
-        source_jpeg: Vec<u8>,
+        source_image: Vec<u8>,
+        source_writer: Option<std::thread::JoinHandle<()>>,
         candidates: Vec<DetectedTextRegion>,
     }
 
@@ -114,17 +115,16 @@ mod debug {
                 height: capture.height,
             };
             super::super::diagnostics_model_attempts::begin_trace(trace_id);
-            if source_jpeg.starts_with(b"\x89PNG") {
-                spawn_write(directory.join("source.png"), source_jpeg.to_vec());
-            }
-            let source_jpeg = match super::encoding::source_jpeg(capture, source_jpeg) {
-                Ok(encoded) => encoded,
-                Err(error) => {
-                    crate::log_info!("[Screen Translate] evidence encoding failed: {error}");
-                    return Self { state: None };
-                }
-            };
-            spawn_write(directory.join("source.jpg"), source_jpeg.clone());
+            let source_writer =
+                match super::encoding::spawn_source(&directory, source_jpeg.to_vec()) {
+                    Ok(writer) => Some(writer),
+                    Err(error) => {
+                        crate::log_info!(
+                            "[Screen Translate] source evidence scheduling failed: {error}"
+                        );
+                        None
+                    }
+                };
             crate::log_info!(
                 "[Screen Translate] trace={trace_id} evidence={}",
                 directory.display()
@@ -139,7 +139,8 @@ mod debug {
                     target_language: target_language.to_string(),
                     configured_model: configured_model.to_string(),
                     translation_prompt: translation_prompt.to_string(),
-                    source_jpeg,
+                    source_image: source_jpeg.to_vec(),
+                    source_writer,
                     candidates: Vec::new(),
                 }),
             }
@@ -154,8 +155,8 @@ mod debug {
                 return;
             };
             state.candidates = candidates.to_vec();
-            super::super::diagnostic_raw::save(&state.directory, &state.source_jpeg, raw);
-            let source = state.source_jpeg.clone();
+            super::super::diagnostic_raw::save(&state.directory, &state.source_image, raw);
+            let source = state.source_image.clone();
             let candidates = state.candidates.clone();
             let size = (state.selection.width, state.selection.height);
             let path = state.directory.join("detector.jpg");
@@ -250,7 +251,7 @@ mod debug {
 
     #[allow(clippy::too_many_arguments)]
     fn finalize(
-        state: State,
+        mut state: State,
         status: &str,
         failed_stage: Option<String>,
         error: Option<String>,
@@ -269,6 +270,9 @@ mod debug {
                 } else {
                     "not_applicable".to_string()
                 };
+                if let Some(writer) = state.source_writer.take() {
+                    let _ = writer.join();
+                }
                 let record = build_record(
                     &state,
                     status,

@@ -6,5 +6,6 @@ mod translate;
 
 pub use refine::{RefineTextRequest, refine_text_streaming};
 pub use translate::{
-    TranslateTextRequest, supports_structured_translation, translate_text_streaming,
+    TranslateTextRequest, TranslationSchema, supports_structured_translation,
+    translate_text_streaming,
 };

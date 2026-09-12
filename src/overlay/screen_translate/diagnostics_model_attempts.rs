@@ -16,6 +16,8 @@ pub(super) struct ModelAttemptRecord {
     pub first_validated_ms: Option<f64>,
     pub transport_ms: Option<f64>,
     pub total_ms: f64,
+    pub content_chunks: usize,
+    pub output_bytes: usize,
     pub content: Option<serde_json::Value>,
 }
 
@@ -93,6 +95,8 @@ mod tests {
                 first_validated_ms: Some(12.0),
                 transport_ms: Some(20.0),
                 total_ms: 21.0,
+                content_chunks: 2,
+                output_bytes: 40,
                 content: None,
             },
         );

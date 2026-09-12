@@ -228,4 +228,5 @@ jobs:
             benchmark-history/latest.json
             benchmark-history/latest.md
             discovery/catalog-model-discovery.json
+            fragments/*/screen-translate
           if-no-files-found: error

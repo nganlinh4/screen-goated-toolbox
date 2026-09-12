@@ -70,6 +70,7 @@ internal fun PresetRetryChainKind.adaptiveChain(
         offered = offered.map(Pair<String, Int>::first),
         pinned = overrides.pinned,
         excluded = overrides.excluded,
+        protectedLocalLeaders = protectedLocalLeaders(),
     ) { id ->
         val model = PresetModelCatalog.getById(id)
         AdaptiveCandidateRank(
@@ -130,6 +131,7 @@ internal fun mergeAdaptiveModels(
     offered: List<String>,
     pinned: List<String>,
     excluded: List<String>,
+    protectedLocalLeaders: Int = 2,
     rankFor: (String) -> AdaptiveCandidateRank,
 ): List<String> {
     if (configured.isEmpty()) return configured
@@ -149,11 +151,11 @@ internal fun mergeAdaptiveModels(
     val merged = configured.filterIndexed { index, id ->
         index == 0 || id !in excluded && (isPinned(id) || id !in offered)
     }.toMutableList()
-    if (merged.size >= PROTECTED_LOCAL_LEADERS) {
+    if (merged.size >= protectedLocalLeaders) {
         adaptive.forEach { id ->
             if (id in merged) return@forEach
             val candidateRank = rankFor(id)
-            val index = merged.indices.drop(PROTECTED_LOCAL_LEADERS).firstOrNull {
+            val index = merged.indices.drop(protectedLocalLeaders.coerceAtLeast(1)).firstOrNull {
                 !rankFor(merged[it]).outranksOrTies(candidateRank)
             } ?: merged.size
             merged.add(index, id)
@@ -167,6 +169,17 @@ internal fun mergeAdaptiveModels(
                 merged.add(minOf(authoredIndex, merged.size), id)
             }
         }
+    // Pin restoration must not pull automatic rows into the authored prefix.
+    fun isAutomatic(id: String) = id != protectedHead && !isPinned(id) && id in offered
+    val leadingSlots = merged.take(protectedLocalLeaders).count { !isPinned(it) }
+    val leading = merged.indices.filter { !isPinned(merged[it]) && !isAutomatic(merged[it]) }.take(leadingSlots)
+    if (leading.size < leadingSlots) return merged.filterNot(::isAutomatic)
+    val unpinned = (leading.map { merged[it] } + merged.filterIndexed { index, id ->
+        !isPinned(id) && index !in leading
+    }).iterator()
+    merged.indices.forEach { index ->
+        if (!isPinned(merged[index])) merged[index] = unpinned.next()
+    }
     return merged
 }
 
@@ -231,4 +244,8 @@ private fun resolveFeedEndpoint(
 }
 
 private const val MAXIMUM_ADAPTIVE_OFFERS = 5
-private const val PROTECTED_LOCAL_LEADERS = 2
+
+internal fun PresetRetryChainKind.protectedLocalLeaders(): Int = when (this) {
+    PresetRetryChainKind.IMAGE_TO_TEXT -> 2
+    PresetRetryChainKind.TEXT_TO_TEXT -> 4
+}

@@ -51,6 +51,8 @@ fn ink_em_size(
                     };
                     color_distance(pixel, background) >= threshold
                 })
+                // Occupancy is a threshold decision, not a complete ink count.
+                .take(required as usize)
                 .count() as u32;
             ink >= required
         })
@@ -86,4 +88,37 @@ fn color_distance(pixel: [u8; 4], background: [u8; 3]) -> u8 {
         .abs_diff(background[0])
         .max(pixel[1].abs_diff(background[1]))
         .max(pixel[2].abs_diff(background[2]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn occupancy_threshold_keeps_sparse_and_dense_horizontal_and_vertical_extents() {
+        for vertical in [false, true] {
+            for count in [0, 1, 2, 80, 160] {
+                let (width, height) = if vertical { (24, 160) } else { (160, 24) };
+                let image = image::RgbaImage::from_fn(width, height, |x, y| {
+                    let (major, minor) = if vertical { (x, y) } else { (y, x) };
+                    let value = if (5..19).contains(&major) && minor < count {
+                        20
+                    } else {
+                        245
+                    };
+                    image::Rgba([value, value, value, 255])
+                });
+                let region = PixelRegion {
+                    x: 0,
+                    y: 0,
+                    width,
+                    height,
+                };
+                assert_eq!(
+                    ink_em_size(&image, region, Some(([245; 3], 90))),
+                    (count >= 2).then_some(14)
+                );
+            }
+        }
+    }
 }

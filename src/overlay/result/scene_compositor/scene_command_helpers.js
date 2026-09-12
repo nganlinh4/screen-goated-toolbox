@@ -1,3 +1,26 @@
+function applyGeometry(entry, model) {
+  const preservePosition = window.shouldPreserveResultDragGeometry?.(entry.card.dataset.id) === true;
+  const scale = window.devicePixelRatio || 1; entry.card.style.setProperty('--sgt-box-radius', (__SGT_BOX_RADIUS_PX__ / scale) + 'px');
+  const width = model.rect.width / scale;
+  const height = model.rect.height / scale;
+  const widthCss = width + 'px';
+  const heightCss = height + 'px';
+  const resized = entry.card.style.width !== widthCss || entry.card.style.height !== heightCss;
+  if (!preservePosition) {
+    entry.card.style.translate = '';
+    entry.card.style.transform = 'translate3d(' + (model.rect.x / scale) + 'px,' +
+      (model.rect.y / scale) + 'px,0)';
+  }
+  entry.card.style.width = widthCss;
+  entry.card.style.height = heightCss;
+  syncSourceBackdrop(entry);
+  entry.processing.resize(width, height, scale);
+  if (resized && entry.ready && entry.visible) {
+    clearTimeout(entry.resizeFit);
+    entry.resizeFit = setTimeout(function() { queueFit(entry, entry.streaming); }, 40);
+  }
+}
+
 function activateCard(entry, becameVisible) {
   if (!entry.visible || entry.navigationDepth !== 0) return;
   if (entry.mode === 'direct' && entry.pendingContent) {
@@ -31,6 +54,7 @@ function removeCard(id) {
   entry.processing.destroy();
   sourceReplacementReveal.cancel(entry);
   if (entry.commandPort) entry.commandPort.close();
+  entry.sourceBackdropSurface?.remove();
   entry.card.remove();
   cards.delete(key);
 }

@@ -7,7 +7,7 @@ use crate::gui::widgets::{dialog_header, filled_button, removable_chip};
 use crate::retry_model_chain::RetryChainKind;
 use eframe::egui;
 
-const DIALOG_WIDTH: f32 = 560.0;
+const DIALOG_WIDTH: f32 = 840.0;
 
 impl SettingsApp {
     pub(super) fn render_screen_translate_dialog(
@@ -27,8 +27,9 @@ impl SettingsApp {
             |ui| {
                 // Establish width before the header so its close button is laid out
                 // against the final right edge, not the width of the title alone.
-                ui.set_min_width(DIALOG_WIDTH);
-                ui.set_max_width(DIALOG_WIDTH);
+                let width = (ctx.content_rect().width() - 48.0).clamp(280.0, DIALOG_WIDTH);
+                ui.set_min_width(width);
+                ui.set_max_width(width);
                 let mut restore_requested = false;
                 if dialog_header(
                     ui,
@@ -38,12 +39,12 @@ impl SettingsApp {
                     |ui| {
                         if filled_button(
                             ui,
-                            text.workspace.restore_preset_btn,
+                            text.screen_translate.screen_translate_restore_label,
                             theme.restore_fill(),
                             theme.on_accent(),
                             8,
                         )
-                        .on_hover_text(text.workspace.restore_preset_tooltip)
+                        .on_hover_text(text.screen_translate.screen_translate_restore_hint)
                         .clicked()
                         {
                             restore_requested = true;
@@ -58,17 +59,33 @@ impl SettingsApp {
                         .restore_defaults_preserving_hotkeys();
                     self.save_and_sync();
                 }
-                render_intro(ui, &theme, text);
-                ui.add_space(8.0);
-                self.render_screen_translate_language(ui, text);
-                ui.add_space(8.0);
-                self.render_screen_translate_opacity(ui, &theme, text);
-                ui.add_space(8.0);
-                self.render_screen_translate_models(ui, &theme, text);
-                ui.add_space(8.0);
-                self.render_screen_translate_prompt(ui, &theme, text);
-                ui.add_space(8.0);
-                self.render_screen_translate_hotkeys(ui, &theme, text);
+                egui::ScrollArea::vertical()
+                    .id_salt("screen_translate_settings_scroll")
+                    .max_height((ctx.content_rect().height() - 150.0).max(180.0))
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                        render_intro(ui, &theme, text);
+                        ui.add_space(8.0);
+                        if ui.available_width() >= 760.0 {
+                            ui.columns(2, |columns| {
+                                self.render_screen_translate_output(&mut columns[0], &theme, text);
+                                columns[0].add_space(8.0);
+                                self.render_screen_translate_models(&mut columns[0], &theme, text);
+                                self.render_screen_translate_prompt(&mut columns[1], &theme, text);
+                                columns[1].add_space(8.0);
+                                self.render_screen_translate_hotkeys(&mut columns[1], &theme, text);
+                            });
+                        } else {
+                            self.render_screen_translate_output(ui, &theme, text);
+                            ui.add_space(8.0);
+                            self.render_screen_translate_models(ui, &theme, text);
+                            ui.add_space(8.0);
+                            self.render_screen_translate_prompt(ui, &theme, text);
+                            ui.add_space(8.0);
+                            self.render_screen_translate_hotkeys(ui, &theme, text);
+                        }
+                    });
             },
         );
         if modal.should_close() {
@@ -81,7 +98,7 @@ impl SettingsApp {
         }
     }
 
-    fn render_screen_translate_opacity(
+    fn render_screen_translate_output(
         &mut self,
         ui: &mut egui::Ui,
         theme: &AppTheme,
@@ -97,8 +114,11 @@ impl SettingsApp {
                 crate::gui::theme::space::GAP,
             ))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(text.screen_translate.screen_translate_opacity_label);
+                self.render_screen_translate_language(ui, text);
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(text.screen_translate.screen_translate_opacity_label)
+                        .on_hover_text(text.screen_translate.screen_translate_opacity_hint);
                     changed = ui
                         .add(
                             egui::Slider::new(
@@ -144,59 +164,27 @@ impl SettingsApp {
                 crate::gui::theme::space::GAP,
             ))
             .show(ui, |ui| {
-                egui::Grid::new("screen_translate_model_pipeline")
-                    .num_columns(3)
-                    .spacing(egui::vec2(8.0, 6.0))
-                    .show(ui, |ui| {
-                        render_step_number(ui, theme, "1");
-                        ui.label(
-                            egui::RichText::new(
-                                text.screen_translate.screen_translate_locator_label,
-                            )
-                            .small()
-                            .color(theme.on_surface_variant()),
-                        );
-                        ui.horizontal(|ui| {
-                            icons::draw_icon_static(ui, Icon::TextSelect, None);
-                            ui.label(
-                                egui::RichText::new(
-                                    text.screen_translate.screen_translate_locator_model,
-                                )
-                                .strong(),
-                            );
-                            ui.label(
-                                egui::RichText::new(
-                                    text.screen_translate.screen_translate_fixed_badge,
-                                )
-                                .small()
-                                .color(theme.on_surface_variant()),
-                            );
-                        });
-                        ui.end_row();
-
-                        render_step_number(ui, theme, "2");
-                        ui.label(
-                            egui::RichText::new(text.screen_translate.screen_translate_model_label)
-                                .small()
-                                .color(theme.on_surface_variant()),
-                        );
-                        ui.horizontal(|ui| {
-                            changed |= model_selector::render_model_combo(
-                                ui,
-                                "screen_translate_translation_model",
-                                &mut self.config.screen_translate.translation_model,
-                                RetryChainKind::TextToText,
-                                &self.config.ui_language,
-                            );
-                        });
-                        ui.end_row();
-                    });
-                ui.add_space(3.0);
-                ui.label(
-                    egui::RichText::new(text.screen_translate.screen_translate_model_fallback_hint)
-                        .small()
-                        .color(theme.on_surface_variant()),
-                );
+                let labels = &text.screen_translate;
+                render_step(ui, theme, "1", labels.screen_translate_recognition_label)
+                    .on_hover_text(format!(
+                        "{}\n\n{}",
+                        labels.screen_translate_recognition_hint,
+                        labels.screen_translate_setup_hint
+                    ));
+                ui.horizontal_wrapped(|ui| {
+                    render_step_number(ui, theme, "2");
+                    ui.strong(labels.screen_translate_model_label)
+                        .on_hover_text(labels.screen_translate_model_fallback_hint);
+                    changed |= model_selector::render_model_combo(
+                        ui,
+                        "screen_translate_translation_model",
+                        &mut self.config.screen_translate.translation_model,
+                        RetryChainKind::TextToText,
+                        &self.config.ui_language,
+                    );
+                });
+                render_step(ui, theme, "3", labels.screen_translate_presentation_label)
+                    .on_hover_text(labels.screen_translate_presentation_hint);
             });
         if changed {
             self.save_and_sync();
@@ -219,13 +207,15 @@ impl SettingsApp {
                 crate::gui::theme::space::GAP,
             ))
             .show(ui, |ui| {
+                ui.strong(text.screen_translate.screen_translate_prompt_label)
+                    .on_hover_text(text.screen_translate.screen_translate_prompt_hint);
                 changed = node_graph::utils::show_prompt_editor(
                     ui,
-                    text.screen_translate.screen_translate_prompt_label,
-                    text.screen_translate.screen_translate_prompt_hint,
+                    "",
+                    "",
                     &mut self.config.screen_translate.translation_prompt,
                     ui.available_width(),
-                    2,
+                    5,
                 );
             });
         if changed {
@@ -323,6 +313,14 @@ impl SettingsApp {
             }
         }
     }
+}
+
+fn render_step(ui: &mut egui::Ui, theme: &AppTheme, number: &str, label: &str) -> egui::Response {
+    ui.horizontal(|ui| {
+        render_step_number(ui, theme, number);
+        ui.add(egui::Label::new(egui::RichText::new(label).strong()).wrap());
+    })
+    .response
 }
 
 fn render_step_number(ui: &mut egui::Ui, theme: &AppTheme, value: &str) {

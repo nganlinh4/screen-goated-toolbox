@@ -111,6 +111,8 @@ class PresetModelFeedTest {
         val configured = listOf(
             "groq-qwen-3-8-27b-text",
             "groq-qwen-3-6-27b-text",
+            "groq-gpt-oss-20b-text",
+            "groq-gpt-oss-120b-text",
             "google-gemini-3-5-flash-lite-text",
         )
         val settings = PresetRuntimeSettings(
@@ -121,9 +123,9 @@ class PresetModelFeedTest {
             ApiKeys(nvidiaKey = "test-key"),
         )
 
-        assertEquals(configured.take(2), merged.take(2))
-        assertTrue(merged.indexOf(liveFast) in 2 until merged.size)
-        assertTrue(merged.indexOf(liveNext) in 2 until merged.size)
+        assertEquals(configured.take(4), merged.take(4))
+        assertTrue(merged.indexOf(liveFast) in 4 until merged.size)
+        assertTrue(merged.indexOf(liveNext) in 4 until merged.size)
 
         val oneRemoved = commitAdaptiveEdits(
             visible = merged.filterNot { it == liveNext },
@@ -155,6 +157,8 @@ class PresetModelFeedTest {
                 textToText = listOf(
                     "groq-qwen-3-8-27b-text",
                     "groq-qwen-3-6-27b-text",
+                    "groq-gpt-oss-20b-text",
+                    "groq-gpt-oss-120b-text",
                     "nvidia-nemotron-3-5-lightning-text",
                     "nvidia-nemotron-3-super-120b-text",
                 ),
@@ -165,6 +169,8 @@ class PresetModelFeedTest {
             listOf(
                 "groq-qwen-3-8-27b-text",
                 "groq-qwen-3-6-27b-text",
+                "groq-gpt-oss-20b-text",
+                "groq-gpt-oss-120b-text",
                 "nvidia-nemotron-3-5-lightning-text",
             ),
             PresetRetryChainKind.TEXT_TO_TEXT.effectiveChain(

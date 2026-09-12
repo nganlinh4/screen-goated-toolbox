@@ -127,7 +127,7 @@ fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() 
     let host_commands = include_str!("host_command_runtime.js");
     assert!(host_commands.contains("hasReleasedDragPreview?.() === true"));
     assert!(host_commands.contains("if (!preservePreview)"));
-    let scene = include_str!("scene_runtime.js");
+    let scene = include_str!("scene_command_helpers.js");
     assert!(scene.contains("const preservePosition = window.shouldPreserveResultDragGeometry?."));
     assert!(scene.contains("if (!preservePosition)"));
     assert!(pointer.contains("settlingResultDragTargets = new Set(drag.targets)"));

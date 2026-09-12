@@ -116,6 +116,9 @@ pub(crate) fn response_schema(region_count: usize) -> serde_json::Value {
     super::schema::response_schema(region_count.clamp(1, MAX_CANDIDATES), MAX_TEXT_CHARS)
 }
 
+pub(crate) const COMPACT_OUTPUT_INSTRUCTION: &str =
+    "\nReturn compact JSON only: no code fences or whitespace outside strings.";
+
 pub(crate) fn prompt_with_instruction(
     target_language: &str,
     translation_instruction: &str,
@@ -229,38 +232,17 @@ fn validated_translation(
     };
     let translation = clean_text(&response.translation, MAX_TEXT_CHARS)
         .context("translation is empty or too long")?;
-    build_region(&[selection], &[], &[translation], candidates)
-}
-
-fn build_region(
-    selections: &[TranslationSelection],
-    joins: &[MemberJoin],
-    translated_segments: &[String],
-    candidates: &[DetectedTextRegion],
-) -> Result<TranslationRegion> {
-    let member_ids = selections
-        .iter()
-        .map(|item| item.region_id)
-        .collect::<Vec<_>>();
-    let bounds = super::cell_validation::validate_cell_members(&member_ids, joins, candidates)?;
-    let source_text = selections
-        .iter()
-        .map(|item| item.source_text.as_str())
-        .collect::<Vec<_>>()
-        .join(" ");
+    // The request owns an immutable local unit. The provider supplies text,
+    // never geometry; neighboring request membership cannot invalidate it.
     Ok(TranslationRegion {
-        id: member_ids[0],
-        member_ids,
-        member_joins: joins.to_vec(),
-        selections: selections.to_vec(),
-        semantic_role: if selections.len() > 1 {
-            SemanticRole::Paragraph
-        } else {
-            SemanticRole::Standalone
-        },
-        source_text,
-        translated_segments: translated_segments.to_vec(),
-        bounds,
+        id: candidate.id,
+        member_ids: vec![candidate.id],
+        member_joins: Vec::new(),
+        selections: vec![selection],
+        semantic_role: SemanticRole::Standalone,
+        source_text: candidate.source_text.clone(),
+        translated_segments: vec![translation],
+        bounds: candidate.bounds,
         background_color: None,
         text_color: None,
     })
@@ -372,6 +354,28 @@ mod tests {
         assert_eq!(parsed.regions.len(), 2);
         assert_eq!(parsed.regions[0].member_ids, [1]);
         assert_eq!(parsed.regions[1].translated_segments, ["dòng hai"]);
+    }
+
+    #[test]
+    fn text_acceptance_is_independent_of_other_units_in_the_request() {
+        let mut candidates = candidates();
+        candidates[0].bounds = [0, 0, 200, 800].into();
+        candidates[1].bounds = [150, 200, 190, 500].into();
+        let response = r#"{"translations":{"0":"translated heading","1":"translated caption"}}"#;
+        let together = parse_response(response, &candidates).unwrap();
+        assert_eq!(together.regions.len(), 2);
+        let alone = parse_response(
+            r#"{"translations":{"0":"translated heading"}}"#,
+            &candidates[..1],
+        )
+        .unwrap();
+        assert_eq!(together.regions[0].bounds, candidates[0].bounds);
+        assert_eq!(together.regions[0].bounds, alone.regions[0].bounds);
+        assert_eq!(together.regions[0].member_ids, alone.regions[0].member_ids);
+        assert_eq!(
+            together.regions[0].translated_segments,
+            alone.regions[0].translated_segments
+        );
     }
 
     #[test]

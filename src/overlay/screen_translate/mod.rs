@@ -3,7 +3,6 @@
 mod appearance;
 mod backdrop;
 mod capture;
-mod cell_validation;
 pub(crate) mod contract;
 mod detector;
 #[cfg(debug_assertions)]
@@ -20,6 +19,7 @@ mod render;
 mod render_scene;
 #[cfg(debug_assertions)]
 mod replay;
+pub(crate) mod request;
 mod runtime;
 mod schema;
 pub(crate) mod stream_parser;

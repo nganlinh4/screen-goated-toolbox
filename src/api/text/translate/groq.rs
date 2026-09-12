@@ -228,11 +228,22 @@ pub(super) fn translate_groq_standard<F>(
     use_json_format: bool,
     response_schema: Option<&serde_json::Value>,
     transport: TranslateTransportOptions<'_>,
-    mut on_chunk: F,
+    on_chunk: F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
+    let payload = standard_payload(model, prompt, use_json_format, response_schema, transport);
+    send_standard_payload(groq_api_key, &payload, use_json_format, transport, on_chunk)
+}
+
+fn standard_payload(
+    model: &str,
+    prompt: &str,
+    use_json_format: bool,
+    response_schema: Option<&serde_json::Value>,
+    transport: TranslateTransportOptions<'_>,
+) -> serde_json::Value {
     let mut payload = serde_json::json!({
         "model": model,
         "messages": [
@@ -244,11 +255,15 @@ where
         // Exact source-to-slot translation needs focused sampling, not the
         // endpoint's creative default. Leave ordinary free-form calls unchanged.
         payload["temperature"] = 0.into();
-        payload["response_format"] = crate::api::groq::structured_response_format(
-            model,
-            "translation_result",
-            schema.clone(),
-        );
+        // Groq JSON modes buffer content. Only callers that explicitly own
+        // per-item validation and recovery may trade server enforcement for SSE.
+        if !transport.streaming_enabled || !transport.locally_validated_schema {
+            payload["response_format"] = crate::api::groq::structured_response_format(
+                model,
+                "translation_result",
+                schema.clone(),
+            );
+        }
     } else if use_json_format {
         payload["response_format"] = crate::api::groq::structured_response_format(
             model,
@@ -266,19 +281,53 @@ where
         payload["max_completion_tokens"] = limit.into();
     }
 
-    let request = UREQ_RESPONSE_AGENT
-        .post("https://api.groq.com/openai/v1/chat/completions")
-        .header("Authorization", &format!("Bearer {}", groq_api_key));
-    let resp = crate::api::client::with_request_timeouts(request, transport.request_timeout)
-        .send_json(payload)
-        .map_err(|error| {
-            anyhow::anyhow!(crate::api::client::transport_error_message(
-                "Groq transport error",
-                &error,
-            ))
-        })?;
-    record_usage_simple(resp.headers(), model);
-    let resp = require_success(resp)?;
+    payload
+}
+
+fn send_standard_payload<F>(
+    groq_api_key: &str,
+    payload: &serde_json::Value,
+    use_json_format: bool,
+    transport: TranslateTransportOptions<'_>,
+    mut on_chunk: F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+{
+    let model = payload["model"].as_str().unwrap_or_default();
+    let mut rate_attempt = 0;
+    let resp = loop {
+        let request = UREQ_RESPONSE_AGENT
+            .post(crate::api::groq::CHAT_COMPLETIONS_URL)
+            .header("Authorization", &format!("Bearer {}", groq_api_key));
+        let response =
+            crate::api::client::with_request_timeouts(request, transport.request_timeout)
+                .send_json(payload)
+                .map_err(|error| {
+                    anyhow::anyhow!(crate::api::client::transport_error_message(
+                        "Groq transport error",
+                        &error,
+                    ))
+                })?;
+        record_usage_simple(response.headers(), model);
+        let delay = crate::api::groq::groq_rate_limit_retry_delay(
+            response.status().as_u16(),
+            rate_attempt,
+            crate::api::groq::retry_after_seconds(response.headers()),
+        );
+        if transport.locally_validated_schema
+            && let Some(seconds) = delay
+        {
+            let _ = response.into_body().read_to_string();
+            crate::log_info!("[translate] Groq token limit reached; retrying once in {seconds}s");
+            if !crate::api::groq::wait_for_groq_retry(seconds, transport.cancel_token) {
+                anyhow::bail!("Groq translation request cancelled");
+            }
+            rate_attempt += 1;
+            continue;
+        }
+        break require_success(response)?;
+    };
 
     let mut full_content = String::new();
 
@@ -323,6 +372,10 @@ where
     Ok(full_content)
 }
 
+#[cfg(test)]
+#[path = "groq_replay_probe.rs"]
+mod replay_probe;
+
 fn require_success(
     response: ureq::http::Response<ureq::Body>,
 ) -> Result<ureq::http::Response<ureq::Body>> {
@@ -355,7 +408,65 @@ fn groq_error_message(status: u16, body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::groq_error_message;
+    use super::*;
+
+    #[test]
+    fn local_validation_is_an_explicit_streaming_only_choice() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../parity-fixtures/preset-system/text-provider-routing.json"
+        ))
+        .unwrap();
+        let contract = &fixture["structured_text_contract"];
+        assert_eq!(contract["default"], "provider-enforced");
+        assert_eq!(
+            contract["locally_validated_stream"]["requires_caller_validation_and_recovery"],
+            true
+        );
+        let schema = serde_json::json!({"type":"object"});
+        for streaming_enabled in [false, true] {
+            for locally_validated_schema in [false, true] {
+                let transport = TranslateTransportOptions {
+                    locally_validated_schema,
+                    streaming_enabled,
+                    max_output_tokens: Some(512),
+                    ui_language: "en",
+                    cancel_token: &None,
+                    request_timeout: None,
+                };
+                let payload = standard_payload(
+                    "openai/gpt-oss-20b",
+                    "request",
+                    true,
+                    Some(&schema),
+                    transport,
+                );
+                assert_eq!(
+                    payload["temperature"],
+                    contract["locally_validated_stream"]["temperature"]
+                );
+                assert_eq!(payload["max_completion_tokens"], 512);
+                if streaming_enabled && locally_validated_schema {
+                    assert_eq!(
+                        payload["response_format"],
+                        contract["locally_validated_stream"]["groq_response_format"]
+                    );
+                    assert!(payload.get("response_format").is_none());
+                } else {
+                    assert_eq!(payload["response_format"]["json_schema"]["strict"], true);
+                }
+                let ordinary =
+                    standard_payload("openai/gpt-oss-20b", "request", false, None, transport);
+                assert!(ordinary.get("temperature").is_none());
+                assert!(ordinary.get("response_format").is_none());
+                let legacy_json =
+                    standard_payload("openai/gpt-oss-20b", "request", true, None, transport);
+                assert_eq!(
+                    legacy_json["response_format"]["json_schema"]["strict"],
+                    true
+                );
+            }
+        }
+    }
 
     #[test]
     fn structured_error_keeps_bounded_provider_reason() {

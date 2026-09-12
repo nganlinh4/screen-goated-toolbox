@@ -21,9 +21,13 @@ body{font-family:'Google Sans Flex';user-select:none}
 .result-card[data-surface="native"]{background:transparent!important;box-shadow:none!important}
 .region-backdrop{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:0}
 .card-visual-surface{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:auto}
+.source-backdrops{position:absolute;inset:0;pointer-events:none;z-index:0}
+.source-backdrop-card{position:absolute;left:0;top:0;overflow:hidden;pointer-events:none}
 .direct-host,.result-frame{position:absolute;inset:0;z-index:1;display:block;width:100%;height:100%;border:0;background:transparent;user-select:text}
 .direct-host,.result-frame{pointer-events:auto}
 .result-frame{border-radius:inherit;clip-path:inset(0 round var(--sgt-box-radius,__SGT_BOX_RADIUS_PX__px))}
+.result-card[data-source-replacement="true"]{border-radius:0;box-shadow:none}
+.result-card[data-source-replacement="true"] .result-frame{border-radius:0;clip-path:none}
 .direct-host[hidden],.result-frame[hidden]{display:none!important}
 .result-card[data-presentation="text_only"] .direct-host,.result-card[data-presentation="text_only"] .result-frame{user-select:text;cursor:text}
 .resize-handle{position:absolute;z-index:4;touch-action:none;user-select:none}

@@ -11,11 +11,54 @@ use super::setup::{Credentials, Pacer};
 use crate::api::{TranslateTextRequest, translate_text_streaming};
 use crate::model_config::{ModelConfig, ModelType};
 use crate::overlay::screen_translate::contract::{
-    DetectedTextRegion, NormalizedBounds, parse_response, prompt_with_instruction, response_schema,
+    DetectedTextRegion, NormalizedBounds, parse_response,
 };
+use crate::overlay::screen_translate::request::{completed_response, prepare};
 
 mod review;
 mod scoring;
+
+const SUITE: &str = "screen-translate-structured-text-v2";
+
+/// These diagnostic rows accompany benchmark day, but never own catalog quality.
+pub(super) fn run_for_benchmark_day(
+    manifest: &Manifest,
+    models: &[ModelConfig],
+    credentials: &Credentials,
+    pacer: &mut Pacer,
+    timeout: Option<Duration>,
+    recorder: &mut Recorder,
+) -> Result<()> {
+    let completed = super::report::successful_attempt_keys(&super::setup::resume_inputs())?;
+    let output = recorder.output_dir().join("screen-translate");
+    let mut reviews = Vec::new();
+    for case in &manifest.localization_cases {
+        for model in models
+            .iter()
+            .filter(|model| crate::api::text::supports_structured_translation(&model.provider))
+        {
+            let key = (
+                SUITE.to_string(),
+                model.id.clone(),
+                case.difficulty,
+                case.id.clone(),
+            );
+            if completed.contains(&key) {
+                continue;
+            }
+            pacer.wait(model);
+            let (attempt, review) = run_case(manifest, case, model, credentials, timeout, &output);
+            recorder.push(attempt)?;
+            if let Some(review) = review {
+                reviews.push(review);
+            }
+        }
+    }
+    if !reviews.is_empty() {
+        review::write_review(&output, &reviews)?;
+    }
+    Ok(())
+}
 
 pub(super) fn run() -> Result<()> {
     let manifest = Manifest::load()?;
@@ -92,10 +135,14 @@ fn run_case(
         }
     };
     let candidates = reference_candidates(case, image.width(), image.height());
-    let request_text = match prompt_with_instruction(
+    let prepared = match prepare(
+        model,
         &case.target_language,
         &crate::config::types::ScreenTranslateSettings::default_prompt(),
         &candidates,
+        &candidates,
+        &[],
+        &[],
     ) {
         Ok(value) => value,
         Err(error) => {
@@ -105,23 +152,30 @@ fn run_case(
             );
         }
     };
-    let schema = response_schema(candidates.len());
+    let schema = &prepared.schema;
     let started = Instant::now();
     let mut parser =
         crate::overlay::screen_translate::stream_parser::TranslationStreamParser::new(&candidates);
+    let mut streamed_regions = Vec::new();
+    let mut first_chunk_ms = None;
+    let mut first_validated_ms = None;
+    let mut content_chunks = 0_usize;
+    let mut output_bytes = 0_usize;
     let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_text_streaming(
             TranslateTextRequest {
-                max_output_tokens: None,
+                max_output_tokens: Some(prepared.max_output_tokens),
                 groq_api_key: Credentials::groq_key_for(&model.provider, provider_key),
                 gemini_api_key: provider_key,
-                text: request_text.clone(),
-                instruction: "Return only the requested structured screen translation.".to_string(),
+                text: prepared.text.clone(),
+                instruction: prepared.instruction.clone(),
                 model: model.full_name.clone(),
                 provider: model.provider.clone(),
                 streaming_enabled: true,
                 use_json_format: true,
-                response_schema: Some(&schema),
+                response_schema: Some(crate::api::text::TranslationSchema::LocallyValidated(
+                    schema,
+                )),
                 search_label: None,
                 ui_language: "en",
                 cancel_token: None,
@@ -129,59 +183,74 @@ fn run_case(
                 target_language: Some(case.target_language.clone()),
             },
             |chunk| {
-                parser.push(chunk);
+                if !chunk.is_empty() {
+                    first_chunk_ms.get_or_insert_with(|| started.elapsed().as_millis());
+                    content_chunks += 1;
+                    output_bytes += chunk.len();
+                }
+                streamed_regions.extend(parser.push(chunk).into_iter().map(|(_, region)| region));
+                if !streamed_regions.is_empty() {
+                    first_validated_ms.get_or_insert_with(|| started.elapsed().as_millis());
+                }
             },
         )
     });
     let latency_ms = started.elapsed().as_millis();
+    let transport_details = json!({
+        "request_contract": "screen-translate-v2",
+        "max_output_tokens": prepared.max_output_tokens,
+        "input_bytes": prepared.text.len(),
+        "input_regions": candidates.len(),
+        "first_chunk_ms": first_chunk_ms,
+        "first_validated_item_ms": first_validated_ms,
+        "content_chunks": content_chunks,
+        "output_bytes": output_bytes,
+        "stream_validated_regions": streamed_regions.len(),
+        "stream_rejected_regions": parser.rejected_count(),
+    });
+    let failed = |status: &str, error: String| {
+        let mut attempt = failed_attempt(case, model, status, error, latency_ms);
+        attempt.details = transport_details.clone();
+        attempt
+    };
     let response = match result {
         Ok(response) if !response.trim().is_empty() => response,
         Ok(_) => {
             return (
-                failed_attempt(
-                    case,
-                    model,
-                    "empty",
-                    "provider returned an empty response".to_string(),
-                    latency_ms,
-                ),
+                failed("empty", "provider returned an empty response".to_string()),
                 None,
             );
         }
         Err(error) => {
-            return (
-                failed_attempt(case, model, "request_error", error.to_string(), latency_ms),
-                None,
-            );
+            return (failed("request_error", error.to_string()), None);
         }
     };
-    let document = match parse_response(&response, &candidates) {
+    let envelope_valid = parse_response(&response, &candidates).is_ok();
+    let document = match completed_response(&response, &candidates, streamed_regions) {
         Ok(document) => document,
         Err(error) => {
-            let mut attempt =
-                failed_attempt(case, model, "parse_error", error.to_string(), latency_ms);
+            let mut attempt = failed("parse_error", error.to_string());
             attempt.response = Some(response);
             return (attempt, None);
         }
     };
     let evaluation = scoring::evaluate(case, &document, image.width(), image.height());
     let changed_ratio = changed_translation_ratio(&document);
-    let strict_pass = !document.regions.is_empty() && changed_ratio >= 0.5;
+    let strict_pass = document.regions.len() == candidates.len();
     let score = 0.5 * evaluation.metrics.region_recall + 0.5 * changed_ratio;
     let overlays =
         review::write_overlays(output, &model.id, "text-schema", case, &image, &evaluation);
     let (raw_image, painted_image) = match overlays {
         Ok(paths) => paths,
         Err(error) => {
-            let mut attempt =
-                failed_attempt(case, model, "artifact_error", error.to_string(), latency_ms);
+            let mut attempt = failed("artifact_error", error.to_string());
             attempt.response = Some(response);
             return (attempt, None);
         }
     };
     let response_chars = response.chars().count();
     let attempt = Attempt {
-        suite: "screen-translate-structured-text".to_string(),
+        suite: SUITE.to_string(),
         round: case.difficulty,
         difficulty: case.difficulty,
         case_id: case.id.clone(),
@@ -189,30 +258,45 @@ fn run_case(
         model_name: model.full_name.clone(),
         provider: model.provider.clone(),
         reasoning_policy: reasoning_policy_label(model),
-        status: "success".to_string(),
+        status: if strict_pass { "success" } else { "incomplete" }.to_string(),
         latency_ms,
         output_chars: Some(response_chars),
         end_to_end_chars_per_second: rate(response_chars, latency_ms),
         score: Some(score),
         strict_pass: Some(strict_pass),
         response: Some(response),
-        error: None,
-        details: json!({
-            "schema_parse": true,
-            "changed_translation_ratio": changed_ratio,
-            "returned_regions": document.regions.len(),
-            "input_regions": candidates.len(),
-            "stream_rejected_regions": parser.rejected_count(),
-            "metrics": evaluation.metrics,
-            "matches": evaluation.matches,
+        error: (!strict_pass).then(|| {
+            format!(
+                "{} requested text unit(s) unresolved",
+                candidates.len().saturating_sub(document.regions.len())
+            )
         }),
+        details: {
+            let mut details = transport_details;
+            details.as_object_mut().unwrap().extend(
+                json!({
+                "schema_parse": envelope_valid,
+                "changed_translation_ratio": changed_ratio,
+                "returned_regions": document.regions.len(),
+                "unresolved_regions": candidates.len().saturating_sub(document.regions.len()),
+                "input_regions": candidates.len(),
+                "stream_rejected_regions": parser.rejected_count(),
+                "metrics": evaluation.metrics,
+                "matches": evaluation.matches,
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            );
+            details
+        },
         reference: Some("Valid production schema with detector-owned ids and geometry".to_string()),
         rubric: vec![
             "Return the strict production schema".to_string(),
             "Preserve only supplied detector region ids".to_string(),
             "Translate readable language instead of echoing source text".to_string(),
         ],
-        manual_review_required: false,
+        manual_review_required: true,
     };
     let entry = review::ReviewEntry {
         model_id: model.id.clone(),
@@ -234,7 +318,7 @@ fn failed_attempt(
     latency_ms: u128,
 ) -> Attempt {
     Attempt {
-        suite: "screen-translate-structured-text".to_string(),
+        suite: SUITE.to_string(),
         round: case.difficulty,
         difficulty: case.difficulty,
         case_id: case.id.clone(),
@@ -388,6 +472,40 @@ fn reference_candidates(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixtures_use_the_bounded_live_request_contract() {
+        let manifest = Manifest::load().unwrap();
+        for case in &manifest.localization_cases {
+            let (width, height) =
+                image::image_dimensions(manifest.image_path(&case.image)).unwrap();
+            let candidates = reference_candidates(case, width, height);
+            for model in crate::model_config::get_all_models()
+                .iter()
+                .filter(|model| model.model_type == ModelType::Text && model.provider == "groq")
+            {
+                let request = prepare(
+                    model,
+                    &case.target_language,
+                    &crate::config::types::ScreenTranslateSettings::default_prompt(),
+                    &candidates,
+                    &candidates,
+                    &[],
+                    &[],
+                )
+                .unwrap();
+                assert!((256..=8192).contains(&request.max_output_tokens));
+                assert_eq!(
+                    request.schema,
+                    crate::overlay::screen_translate::contract::response_schema(candidates.len())
+                );
+                assert!(request.text.ends_with(
+                    crate::overlay::screen_translate::contract::COMPACT_OUTPUT_INSTRUCTION
+                ));
+                assert!(request.instruction.contains(&case.target_language));
+            }
+        }
+    }
 
     #[test]
     fn changed_ratio_distinguishes_translations_from_echoes() {

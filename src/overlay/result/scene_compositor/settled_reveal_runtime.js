@@ -37,8 +37,12 @@ const sourceReplacementReveal = (function() {
     if (value.entry.sourceReplacementReveal === value) {
       value.entry.sourceReplacementReveal = null;
     }
-    if (reportPaint) value.surface.style.opacity = '1';
+    if (reportPaint) {
+      value.surface.style.opacity = '1';
+      value.entry.backdrop.style.opacity = '1';
+    }
     if (value.animation) value.animation.cancel();
+    if (value.backdropAnimation) value.backdropAnimation.cancel();
     if (value.textAnimation) value.textAnimation.cancel();
     value.entry.directHost.style.willChange = value.priorTextWillChange;
     value.surface.style.willChange = value.priorWillChange;
@@ -62,11 +66,19 @@ const sourceReplacementReveal = (function() {
     // backdrop remains registered to the captured pixels and native coverage.
     value.animation = value.surface.animate([{ opacity: 0 }, { opacity: 1 }],
       { duration: 180, easing: 'ease-out', fill: 'both' });
+    value.backdropAnimation = value.entry.backdrop.animate([{ opacity: 0 }, { opacity: 1 }],
+      { duration: 180, easing: 'ease-out', fill: 'both' });
+    const startTime = document.timeline.currentTime;
+    if (startTime !== null) {
+      value.animation.startTime = startTime;
+      value.backdropAnimation.startTime = startTime;
+    }
     value.entry.directHost.style.willChange = 'filter,transform,opacity';
     value.textAnimation = value.entry.directHost.animate([
       { filter: 'blur(8px)', transform: 'translate3d(0,4px,0)', opacity: 0 },
       { filter: 'blur(0)', transform: 'translate3d(0,0,0)', opacity: 1 }
     ], { duration: 350, easing: 'cubic-bezier(0.2,0,0.2,1)', fill: 'both' });
+    if (startTime !== null) value.textAnimation.startTime = startTime;
     value.textAnimation.addEventListener('finish', function() {
       dispose(value, true);
     }, { once: true });
@@ -103,6 +115,7 @@ const sourceReplacementReveal = (function() {
       priorWillChange: entry.sourceSurfacePrewarmed ? '' : surface.style.willChange,
       revision: entry.contentRevision,
       animation: null,
+      backdropAnimation: null,
       textAnimation: null,
       priorTextWillChange: entry.directHost.style.willChange,
       complete: complete,
@@ -139,6 +152,7 @@ function prepareSettledReveal(entry, contentRevision) {
     // Descendants may explicitly override inherited visibility. Ancestor
     // opacity gates every pixel until the settled reveal owns the surface.
     entry.visualSurface.style.opacity = '0';
+    entry.backdrop.style.opacity = '0';
     entry.visualSurface.style.visibility = 'hidden';
   } else {
     setSettledSurfaceVisibility(entry, false);

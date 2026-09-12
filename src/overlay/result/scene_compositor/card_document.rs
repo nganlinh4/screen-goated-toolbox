@@ -203,8 +203,10 @@ mod tests {
         assert!(reveal.contains("blur(8px)"));
         assert!(document.contains("entry.visualSurface.style.visibility = 'hidden'"));
         assert!(reveal.contains("entry.visualSurface.style.opacity = '0'"));
-        assert!(reveal.contains("if (reportPaint) value.surface.style.opacity = '1'"));
-        assert!(document.contains("surface.appendChild(entry.backdrop)"));
+        assert!(reveal.contains("value.surface.style.opacity = '1'"));
+        assert!(reveal.contains("value.entry.backdrop.style.opacity = '1'"));
+        assert!(document.contains("background.appendChild(entry.backdrop)"));
+        assert!(!document.contains("surface.appendChild(entry.backdrop)"));
         assert!(document.contains("surface.appendChild(entry.directHost)"));
         assert!(document.contains("entry.card.dataset.sourceReplacement"));
         assert!(document.contains("entry.sourceReplacementReveal = value"));
@@ -212,7 +214,8 @@ mod tests {
         assert!(document.contains("backdrop.decode()"));
         assert!(document.contains("entry.directState.sourceLayoutReady"));
         assert!(reveal.contains("value.entry.contentRevision !== value.revision"));
-        assert!(!document.contains("value.animation.startTime ="));
+        assert!(reveal.contains("value.backdropAnimation.startTime = startTime"));
+        assert!(reveal.contains("value.textAnimation.startTime = startTime"));
         assert!(document.contains("value.ready = Promise.all(readiness)"));
         assert!(!reveal.contains("Promise.all(cohort.map("));
         assert!(reveal.contains("value.ready.then(function()"));

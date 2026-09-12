@@ -41,7 +41,19 @@ window.__SGT_FIT_FOOTPRINT__ = function(item) {
 
   function fallback() {
     for (const child of [...box.children]) if (child !== text) child.remove();
-    const r = regions.reduce((a, b) => a[2] * a[3] >= b[2] * b[3] ? a : b);
+    // Adjacent bands can contain a larger rectangle than any one source piece.
+    // Solve once from the compact band plan, not by revisiting shaped text.
+    let r = regions.reduce((a, b) => a[2] * a[3] >= b[2] * b[3] ? a : b);
+    for (let start = 0; start < bands.length; start++) {
+      let left = 0, right = width;
+      for (let end = start; end < bands.length; end++) {
+        left = Math.max(left, bands[end].left);
+        right = Math.min(right, bands[end].right);
+        if (right <= left) break;
+        const h = bands[end].bottom - bands[start].y;
+        if ((right - left) * h > r[2] * r[3]) r = [left, bands[start].y, right - left, h];
+      }
+    }
     const holder = document.createElement('span');
     holder.style.cssText = 'position:absolute;display:flex;align-items:center;justify-content:center;overflow:hidden;';
     holder.style.left = r[0] + 'px'; holder.style.top = r[1] + 'px';
@@ -54,7 +66,7 @@ window.__SGT_FIT_FOOTPRINT__ = function(item) {
   }
   // CSS floats are a horizontal flow primitive. Vertical paragraphs retain
   // native vertical shaping in a contained rectangular source region.
-  if (item.vertical || regions.length === 1) return fallback();
+  if (!item.wrap || item.vertical || regions.length === 1) return fallback();
   const occupied = bands.filter(b => b.right > b.left);
   const anchor = Math.max(...occupied.map(b => b.left));
   if (!occupied.length || anchor > Math.min(...occupied.map(b => b.right))) return fallback();

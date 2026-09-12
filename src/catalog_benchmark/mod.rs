@@ -72,7 +72,7 @@ fn catalog_benchmark_transport_probe() {
 }
 
 #[test]
-#[ignore = "requires CATALOG_BENCH_LOCALIZATION_PROBE=1 and real vision credentials"]
+#[ignore = "requires CATALOG_BENCH_LOCALIZATION_PROBE=1 and real text credentials"]
 fn catalog_benchmark_localization_probe() {
     assert_eq!(
         std::env::var("CATALOG_BENCH_LOCALIZATION_PROBE").as_deref(),

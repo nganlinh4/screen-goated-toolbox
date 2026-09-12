@@ -66,6 +66,7 @@ function renderResultDragPreview() {
         if (card && origin) {
             card.style.transform = 'translate3d(' + (origin.x + dx) + 'px,' +
                 (origin.y + dy) + 'px,0)';
+            window.__SGT_SYNC_SOURCE_BACKDROP__?.(id);
         }
         const group = document.querySelector('.button-group[data-hwnd="' + id + '"]');
         if (group) group.style.translate = offset;

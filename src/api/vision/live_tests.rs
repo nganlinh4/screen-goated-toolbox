@@ -82,10 +82,14 @@ fn groq_retry_headers_and_error_bodies_are_structural() {
         "/parity-fixtures/preset-system/vision-payload.json"
     )))
     .expect("vision payload parity fixture parses");
+    let maximum = fixture["groq"]["short_retry_after_max_seconds"]
+        .as_u64()
+        .unwrap();
     assert_eq!(
-        fixture["groq"]["short_retry_after_max_seconds"],
-        GROQ_MAX_RATE_LIMIT_WAIT_SECS
+        groq_rate_limit_retry_delay(429, 0, Some(maximum)),
+        Some(maximum)
     );
+    assert_eq!(groq_rate_limit_retry_delay(429, 0, Some(maximum + 1)), None);
     assert_eq!(groq_rate_limit_retry_delay(429, 0, Some(2)), Some(2));
     assert_eq!(groq_rate_limit_retry_delay(429, 0, Some(3)), None);
     assert_eq!(groq_rate_limit_retry_delay(429, 1, Some(1)), None);

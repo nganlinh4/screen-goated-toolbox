@@ -240,15 +240,48 @@ window.__SGT_QUEUE_SOURCE_FIT__ = (function() {
   return queue;
 })();
 
-function setSourceReplacementSurface(entry, enabled) {
+let sourceBackdropLayer = null;
+function syncSourceBackdrop(entry) {
+  const background = entry.sourceBackdropSurface;
+  if (!background) return;
+  const style = entry.card.style;
+  for (const key of ['transform', 'translate', 'width', 'height', 'opacity']) {
+    if (background.style[key] !== style[key]) background.style[key] = style[key];
+  }
+  background.hidden = entry.card.hidden;
+}
+window.__SGT_SYNC_SOURCE_BACKDROP__ = function(id) {
+  const entry = cards.get(String(id));
+  if (entry) syncSourceBackdrop(entry);
+};
+
+function setSourceReplacementSurface(entry, enabled, backdropUrl) {
   const surface = entry.visualSurface;
+  // Clip after text blur/translation as well as during fitting. The immutable
+  // alpha footprint is shared by erasure and text, independent of paint order.
+  surface.style.maskImage = enabled && backdropUrl ? 'url("' + backdropUrl + '")' : '';
+  surface.style.maskSize = '100% 100%';
+  surface.style.maskRepeat = 'no-repeat';
   if (enabled && !surface.isConnected) {
-    surface.appendChild(entry.backdrop);
+    if (!sourceBackdropLayer) {
+      sourceBackdropLayer = document.createElement('div');
+      sourceBackdropLayer.className = 'source-backdrops';
+      scene.prepend(sourceBackdropLayer);
+    }
+    const background = document.createElement('div');
+    background.className = 'source-backdrop-card';
+    entry.sourceBackdropSurface = background;
+    entry.backdrop.style.opacity = '0';
+    background.appendChild(entry.backdrop);
+    sourceBackdropLayer.appendChild(background);
     surface.appendChild(entry.directHost);
     surface.appendChild(entry.frame);
     entry.card.insertBefore(surface, entry.processing.element);
   } else if (!enabled && surface.isConnected) {
     entry.card.insertBefore(entry.backdrop, surface);
+    entry.backdrop.style.opacity = '';
+    entry.sourceBackdropSurface?.remove();
+    entry.sourceBackdropSurface = null;
     entry.card.insertBefore(entry.directHost, surface);
     entry.card.insertBefore(entry.frame, surface);
     surface.remove();

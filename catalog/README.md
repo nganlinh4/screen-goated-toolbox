@@ -261,9 +261,9 @@ latency, accuracy, provider diversity, quota, and endpoint lifecycle. A
 translation-only service, search-specialized model, soon-retired endpoint, or
 model with nonrepresentative sparse evidence must not lead a general chain.
 
-Signed-feed adaptation starts after the two configured local leaders. This keeps
-the reviewed primary and immediate fallback ahead of availability-only changes
-without hardcoding either model identity; user-pinned live rows may retain a
+Signed-feed adaptation starts after four configured text leaders or two configured
+image leaders. This keeps the authored leading choices ahead of availability-only
+changes without hardcoding model identities; user-pinned live rows may retain a
 manually authored anchor. Adaptive priority rows display the same current feed
 p50 used by the ranking formula, while Live-off and ordinary catalog surfaces
 continue to show durable benchmark latency.

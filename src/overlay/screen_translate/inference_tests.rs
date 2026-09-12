@@ -1,5 +1,7 @@
 use super::*;
 use crate::overlay::screen_translate::contract::NormalizedBounds;
+use crate::overlay::screen_translate::contract::parse_response;
+use crate::overlay::screen_translate::request::{completion_budget, context};
 use crate::overlay::screen_translate::stream_parser::TranslationStreamParser;
 
 fn candidate(id: u16, top: u16) -> DetectedTextRegion {
@@ -162,6 +164,47 @@ fn completion_requires_every_detected_member() {
     let accepted = candidates[..18].iter().map(translated).collect::<Vec<_>>();
     let covered = (1..=18).collect::<HashSet<_>>();
     assert!(completed_document(&candidates, &accepted, &covered).is_none());
+}
+
+#[test]
+fn incomplete_envelope_only_completes_after_every_owned_value_is_validated() {
+    let candidates = vec![candidate(1, 20), candidate(2, 40)];
+    let mut parser = TranslationStreamParser::new(&candidates);
+    let mut accepted = Vec::new();
+    let mut covered = HashSet::new();
+    for chunk in [r#"{"translations":{"0":"first","1":"sec"#, r#"ond"}"#] {
+        for (_, region) in parser.push(chunk) {
+            accept_region(&mut accepted, &mut covered, region, &candidates);
+        }
+        assert_eq!(
+            completed_document(&candidates, &accepted, &covered).is_some(),
+            covered.len() == 2
+        );
+    }
+    assert_eq!(covered.len(), 2);
+    assert_eq!(accepted[1].translated_segments, ["second"]);
+    assert!(parse_response(r#"{"translations":{"0":"first","1":"second"}"#, &candidates).is_err());
+}
+
+#[test]
+fn complete_stream_retains_the_same_copied_batch_confirmation() {
+    let candidates = vec![candidate(1, 20), candidate(2, 40)];
+    for (first, copied) in [("source-1", true), ("translated", false)] {
+        let response = format!(r#"{{"translations":{{"0":"{first}","1":"source-2"}}"#);
+        let mut parser = TranslationStreamParser::new(&candidates);
+        let regions = parser
+            .push(&response)
+            .into_iter()
+            .map(|(_, region)| region)
+            .collect::<Vec<_>>();
+        assert!(completed_response(&response, &candidates, regions[..1].to_vec()).is_err());
+        let document = completed_response(&response, &candidates, regions).unwrap();
+        assert_eq!(
+            super::super::translation_validation::is_copied_batch(&document.regions),
+            copied
+        );
+        assert_eq!(document.regions.len(), 2);
+    }
 }
 
 #[test]

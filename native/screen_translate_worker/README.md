@@ -12,12 +12,19 @@ CTC recognition. Every detected region is submitted; there is no text-size or
 confidence admission gate and no generative-reader fallback. A visual script
 classifier normalizes foreground/background polarity independently of the reader
 pixels and selects a reader per line and at most one alternative. Nearby script
-evidence can corroborate an alternative alphabet; the general reading is retained
-unless the alternative supplies that missing alphabet or recovers an empty result.
-Repeated alternative script evidence can also recover empty or symbol-only output;
+evidence includes overlapping expanded line boxes and can corroborate an alternative
+alphabet; readable specialist alphabets are not replaced by a neighboring script.
+Parallel overlapping reading strips divide context along their centerlines,
+including tilted neighbors, without changing source geometry. Crossing and
+coincident lines do not clip one another's reading strips.
+The general reading is retained unless the alternative supplies its missing
+alphabet or recovers an empty result.
+Repeated alternative script evidence can also recover missing mixed-script text;
 ordinary words and numbers do not trigger this recovery by themselves.
-All readers warm before readiness. Width-sorted batches
-retain region identities. Worker startup does not select delivery sources.
+All readers warm before readiness. Width-compatible batches retain region
+identities and prioritize longer strips; reader scheduling follows normalized
+text workload rather than catalog order. No region is omitted by scheduling.
+Worker startup does not select delivery sources.
 
 Advisory document layout runs on DirectML alongside localization. Geometry carries
 both the complete OCR inventory and separate layout regions; layout never filters

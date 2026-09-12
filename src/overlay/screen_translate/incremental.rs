@@ -79,6 +79,7 @@ pub(super) fn translate_region(
     let no_text = crate::gui::locale::LocaleText::get(&config.ui_language)
         .screen_translate
         .screen_translate_no_text;
+    crate::overlay::result::latency::mark(&trace_id, "ocr_dispatched");
     std::thread::scope(|scope| -> Result<()> {
         let work_cancel = Arc::new(AtomicBool::new(false));
         let (sender, receiver) = mpsc::sync_channel(32);
@@ -155,6 +156,7 @@ pub(super) fn translate_region(
                     Ok(Message::Ocr(Event::Geometry {
                         regions, layout, ..
                     })) => {
+                        crate::overlay::result::latency::mark(&trace_id, "geometry_received");
                         let capture = capture.take().context("duplicate capture geometry")?;
                         candidates = regions
                             .iter()

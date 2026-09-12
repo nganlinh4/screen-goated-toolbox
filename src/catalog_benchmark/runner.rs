@@ -101,6 +101,16 @@ pub fn run() -> Result<()> {
             }
         }
     }
+    if suites.text {
+        super::localization_probe::run_for_benchmark_day(
+            &manifest,
+            &text_models,
+            &credentials,
+            &mut pacer,
+            timeout,
+            &mut recorder,
+        )?;
+    }
     recorder.finish()
 }
 

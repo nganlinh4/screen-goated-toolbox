@@ -58,9 +58,6 @@ fn ranges(width: usize) -> Vec<(Range<usize>, Range<usize>)> {
 
 impl Tile {
     pub fn owns_step(&self, step: usize, steps: usize, padded_width: usize) -> bool {
-        if self.owned == (0..self.image.width() as usize) {
-            return true;
-        }
         // Keep a single spatial owner per timestep. Context supplies boundary
         // glyph evidence; it is never appended twice or text-deduplicated.
         let center = (2 * step + 1) * padded_width;
