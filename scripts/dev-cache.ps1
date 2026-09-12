@@ -231,6 +231,19 @@ Get-ChildItem -LiteralPath $cargoRoot -Directory -Force -ErrorAction SilentlyCon
         })
     }
 
+# Component packers historically wrote named candidates directly below
+# `packages`. Treat those directories as cache entries too; release checkpoints
+# retain their existing lane protection above.
+Get-ChildItem -LiteralPath $known.Packages -Directory -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notin @("jobs", "release", "promoted", "promotion") } |
+    ForEach-Object {
+        $candidates.Add([pscustomobject]@{
+            Path = $_.FullName
+            LastWriteUtc = Get-NewestWriteTime $_.FullName
+            Protected = $false
+        })
+    }
+
 $candidates.Add([pscustomobject]@{
     Path = $known.PackageCargo
     LastWriteUtc = Get-NewestWriteTime $known.PackageCargo
@@ -241,6 +254,42 @@ $candidates.Add([pscustomobject]@{
     LastWriteUtc = Get-NewestWriteTime $known.DevCargo
     Protected = $ProtectLane -eq "dev"
 })
+
+# A running debug executable protects its Cargo lane, but does not use
+# incremental compiler state. Rustc command lines include the exact incremental
+# path while compiling, so Remove-CacheEntry still keeps an active compilation.
+foreach ($cargoLanePath in @($known.DevCargo, $known.PackageCargo)) {
+    Get-ChildItem -LiteralPath $cargoLanePath -Directory -Filter "incremental" -Recurse -Force `
+        -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            $candidates.Add([pscustomobject]@{
+                Path = $_.FullName
+                LastWriteUtc = Get-NewestWriteTime $_.FullName
+                Protected = $false
+            })
+        }
+}
+
+# Older development scripts created additional top-level lanes. They are still
+# owned by this cache root and must participate in the same age/size bound.
+$managedTopLevel = @(
+    "cargo",
+    "packages",
+    "evidence",
+    "staging",
+    "runtime",
+    "performance",
+    "promotion"
+)
+Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notin $managedTopLevel } |
+    ForEach-Object {
+        $candidates.Add([pscustomobject]@{
+            Path = $_.FullName
+            LastWriteUtc = Get-NewestWriteTime $_.FullName
+            Protected = $false
+        })
+    }
 
 foreach ($candidate in $candidates | Where-Object {
     -not $_.Protected -and $_.LastWriteUtc -lt $cutoff

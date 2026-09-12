@@ -37,8 +37,12 @@ repository `target/` tree. Logs use the same external cache under
 `evidence/dev-run-logs`. The separate package-build lane is `cargo/package`, so
 routine host iteration does not invalidate expensive worker/package artifacts.
 The cache is capped at 28 GiB by default and prunes inactive evidence,
-candidate packages, and unprotected Cargo lanes. It never deletes a repository,
-source checkout, user output, or the lane used by the current command.
+candidate packages, legacy development lanes, and unprotected Cargo lanes. A
+protected Cargo lane may shed unused incremental compiler state when no rustc
+process is using it, while its current executable and other artifacts remain.
+The pruner never deletes a repository, source checkout, user output, staging
+contract, runtime installation, promotion record, or artifact used by the
+current command.
 
 ```powershell
 .\scripts\dev-cache.ps1 -Action Status
