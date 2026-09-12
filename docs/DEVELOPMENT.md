@@ -109,6 +109,9 @@ Close the staging debug app before pruning its runtime cache.
 
 ## Rust validation
 
+Shortcut naming, capture adapters, and audited consumers are documented in
+[`src/hotkey/README.md`](../src/hotkey/README.md).
+
 During implementation, run the narrowest relevant test and a fast host check:
 
 ```powershell

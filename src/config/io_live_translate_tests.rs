@@ -16,10 +16,10 @@ fn migrate_config_moves_live_translate_out_of_every_profile() {
         ..Default::default()
     };
 
-    let existing = Hotkey::new(0x70, "F1", 0);
-    let profile_key = Hotkey::new(0x71, "F2", 0);
-    let mirror_only = Hotkey::new(0x72, "F3", 0);
-    let second_profile_key = Hotkey::new(0x73, "F4", 0);
+    let existing = Hotkey::new(0x70, 0);
+    let profile_key = Hotkey::new(0x71, 0);
+    let mirror_only = Hotkey::new(0x72, 0);
+    let second_profile_key = Hotkey::new(0x73, 0);
     let first = PresetProfile::new_default(
         vec![
             normal("before"),

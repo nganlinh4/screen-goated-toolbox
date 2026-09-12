@@ -3,7 +3,6 @@
 // and hotkey reload signaling via the hidden listener window.
 
 use crate::APP;
-use crate::config::Hotkey;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -22,63 +21,6 @@ pub(super) fn trigger_hotkey_reload() {
         {
             let _ = PostMessageW(Some(hwnd), WM_RELOAD_HOTKEYS, WPARAM(0), LPARAM(0));
         }
-    }
-}
-
-pub(super) fn js_code_to_vk(code: &str) -> Option<u32> {
-    match code {
-        c if c.starts_with("Key") => {
-            let chars: Vec<char> = c.chars().collect();
-            if chars.len() == 4 {
-                Some(chars[3] as u32)
-            } else {
-                None
-            }
-        }
-        c if c.starts_with("Digit") => {
-            let chars: Vec<char> = c.chars().collect();
-            if chars.len() == 6 {
-                Some(chars[5] as u32)
-            } else {
-                None
-            }
-        }
-        c if c.starts_with("F") && c.len() <= 3 => c[1..].parse::<u32>().ok().map(|n| 0x70 + n - 1),
-        "Space" => Some(0x20),
-        "Enter" => Some(0x0D),
-        "Escape" => Some(0x1B),
-        "Backspace" => Some(0x08),
-        "Tab" => Some(0x09),
-        "Delete" => Some(0x2E),
-        "Insert" => Some(0x2D),
-        "Home" => Some(0x24),
-        "End" => Some(0x23),
-        "PageUp" => Some(0x21),
-        "PageDown" => Some(0x22),
-        "ArrowUp" => Some(0x26),
-        "ArrowDown" => Some(0x28),
-        "ArrowLeft" => Some(0x25),
-        "ArrowRight" => Some(0x27),
-        "Backquote" => Some(0xC0),
-        "Minus" => Some(0xBD),
-        "Equal" => Some(0xBB),
-        "BracketLeft" => Some(0xDB),
-        "BracketRight" => Some(0xDD),
-        "Backslash" => Some(0xDC),
-        "Semicolon" => Some(0xBA),
-        "Quote" => Some(0xDE),
-        "Comma" => Some(0xBC),
-        "Period" => Some(0xBE),
-        "Slash" => Some(0xBF),
-        c if c.starts_with("Numpad") => {
-            let chars: Vec<char> = c.chars().collect();
-            if chars.len() == 7 {
-                Some(chars[6] as u32 + 0x30)
-            } else {
-                None
-            }
-        }
-        _ => None,
     }
 }
 
@@ -103,9 +45,7 @@ pub(super) fn handle_remove_hotkey(args: &serde_json::Value) -> Result<serde_jso
 pub(super) fn handle_set_hotkey(args: &serde_json::Value) -> Result<serde_json::Value, String> {
     let code_str = args["code"].as_str().ok_or("Missing code")?;
     let mods_arr = args["modifiers"].as_array().ok_or("Missing modifiers")?;
-    let key_name = args["key"].as_str().unwrap_or("Unknown");
-
-    let vk_code = js_code_to_vk(code_str).ok_or(format!("Unsupported key code: {}", code_str))?;
+    let key = args["key"].as_str().unwrap_or("");
 
     let mut modifiers = 0;
     for m in mods_arr {
@@ -118,43 +58,26 @@ pub(super) fn handle_set_hotkey(args: &serde_json::Value) -> Result<serde_json::
         }
     }
 
+    let hotkey = crate::hotkey::web_binding::from_web_event(
+        key,
+        code_str,
+        modifiers & MOD_CONTROL != 0,
+        modifiers & MOD_ALT != 0,
+        modifiers & MOD_SHIFT != 0,
+        modifiers & MOD_WIN != 0,
+    )
+    .ok_or_else(|| format!("Unsupported key code: {code_str}"))?;
+
     {
         let app = APP.lock().unwrap();
-        if let Some(conflict) = app.config.check_hotkey_conflict(vk_code, modifiers, None) {
+        if let Some(conflict) =
+            app.config
+                .check_hotkey_conflict(hotkey.code, hotkey.modifiers, None)
+        {
             let text = crate::gui::locale::LocaleText::get(&app.config.ui_language);
             return Err(text.hotkey_conflict_message(&conflict));
         }
     }
-
-    let mut name_parts = Vec::new();
-    if (modifiers & MOD_CONTROL) != 0 {
-        name_parts.push("Ctrl");
-    }
-    if (modifiers & MOD_ALT) != 0 {
-        name_parts.push("Alt");
-    }
-    if (modifiers & MOD_SHIFT) != 0 {
-        name_parts.push("Shift");
-    }
-    if (modifiers & MOD_WIN) != 0 {
-        name_parts.push("Win");
-    }
-
-    let formatted_key = if key_name.len() == 1 {
-        key_name.to_uppercase()
-    } else {
-        match key_name {
-            " " => "Space".to_string(),
-            _ => key_name.to_string(),
-        }
-    };
-    name_parts.push(&formatted_key);
-
-    let hotkey = Hotkey {
-        code: vk_code,
-        modifiers,
-        name: name_parts.join(" + "),
-    };
 
     {
         let mut app = APP.lock().unwrap();

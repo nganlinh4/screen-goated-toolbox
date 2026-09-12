@@ -101,7 +101,7 @@ pub fn process_selected_text(preset_idx: usize, clipboard_text: String) {
         let cancel_hotkey = preset
             .hotkeys
             .first()
-            .map(|h| h.name.clone())
+            .map(|h| h.display_name())
             .unwrap_or_default();
 
         crate::overlay::process::start_text_processing(
@@ -213,9 +213,6 @@ pub fn try_instant_process(preset_idx: usize) -> bool {
                 let mut hotkey_name = persistent_name;
                 if hotkey_name.is_empty() {
                     hotkey_name = latest_name;
-                }
-                if hotkey_name.is_empty() {
-                    hotkey_name = "Hotkey".to_string();
                 }
                 let preset_name = {
                     if let Ok(app) = APP.lock() {

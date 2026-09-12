@@ -182,11 +182,7 @@ pub unsafe extern "system" fn input_wnd_proc(
                         t
                     };
                     let hotkey = CFG_CANCEL.lock().unwrap();
-                    let ch = if hotkey.is_empty() {
-                        "Esc".to_string()
-                    } else {
-                        format!("Esc / {}", hotkey)
-                    };
+                    let ch = crate::hotkey::names::with_escape(&hotkey);
                     (
                         title,
                         locale.preset_editor.text_input_footer_submit.to_string(),
@@ -201,26 +197,24 @@ pub unsafe extern "system" fn input_wnd_proc(
                 let _ = SetWindowTextW(hwnd, &HSTRING::from(&title));
 
                 let css = get_editor_css(is_dark);
-                let css_escaped = css.replace("`", "\\`");
 
                 // Construct footer HTML
                 let footer_html =
                     format!("{}  |  {}  |  {} {}", submit, newline, cancel_hint, cancel);
-                let placeholder_escaped = placeholder.replace("'", "\\'"); // rudimentary escape
 
                 let script = format!(
                     r#"
                 if (document.getElementById('theme-style')) {{
-                   document.getElementById('theme-style').innerHTML = `{}`;
+                   document.getElementById('theme-style').textContent = {};
                 }}
                 if (document.getElementById('headerTitle')) {{
-                   document.getElementById('headerTitle').innerText = `{}`;
+                   document.getElementById('headerTitle').textContent = {};
                 }}
                 if (document.getElementById('footerRegion')) {{
-                   document.getElementById('footerRegion').innerHTML = `{}`;
+                   document.getElementById('footerRegion').textContent = {};
                 }}
                 if (document.getElementById('editor')) {{
-                   document.getElementById('editor').placeholder = '{}';
+                   document.getElementById('editor').placeholder = {};
                 }}
                 document.documentElement.setAttribute('data-theme', '{}');
                 const passiveCapture = {};
@@ -235,10 +229,10 @@ pub unsafe extern "system" fn input_wnd_proc(
                     }}
                 }}, 10);
                 "#,
-                    css_escaped,
-                    title,
-                    footer_html,
-                    placeholder_escaped,
+                    serde_json::json!(css),
+                    serde_json::json!(title),
+                    serde_json::json!(footer_html),
+                    serde_json::json!(placeholder),
                     if is_dark { "dark" } else { "light" },
                     passive_capture
                 );

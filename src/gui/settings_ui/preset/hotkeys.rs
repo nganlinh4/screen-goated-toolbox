@@ -51,8 +51,13 @@ pub(super) fn render_hotkeys(
 
         let mut hotkey_to_remove = None;
         for (h_idx, hotkey) in hotkeys.iter().enumerate() {
-            let response =
-                removable_chip(ui, &hotkey.name, hotkey_item_fill, egui::Color32::WHITE, 10);
+            let response = removable_chip(
+                ui,
+                &hotkey.display_name(),
+                hotkey_item_fill,
+                egui::Color32::WHITE,
+                10,
+            );
             if response.clicked() {
                 hotkey_to_remove = Some(h_idx);
             }

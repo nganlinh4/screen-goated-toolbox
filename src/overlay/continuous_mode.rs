@@ -102,50 +102,16 @@ pub fn show_activation_notification(preset_id: &str, hotkey_name: &str) {
     };
     let title = format!("{} - {}", localized_name, suffix);
 
-    // 2. Prepare message from locale
     let locale = crate::gui::locale::LocaleText::get(&lang);
-    let mut message = locale.auxiliary.continuous_mode_activated.to_string();
-
-    // Remove Preset Name part (because it's in title now)
-    message = message
-        .replace("\"{preset}\"", "")
-        .replace("'{preset}'", "")
-        .replace("{preset}", "");
-
-    // 3. Hotkey Logic
-    // If triggered by UI (Bubble), hotkey_name is typically empty or generic "Hotkey"
-    // In that case, we want "... press ESC [ ] to exit" (removing the "or choice")
-    if hotkey_name.is_empty()
-        || hotkey_name.to_lowercase() == "hotkey"
-        || hotkey_name.to_lowercase() == "esc"
-    {
-        // Remove " or {hotkey}" variants
-        message = message
-            .replace(" hay {hotkey}", "")
-            .replace(" or {hotkey}", "")
-            .replace(" 또는 {hotkey}", "");
-
-        // Final cleanup for remaining {hotkey} if the structure was different
-        message = message.replace("{hotkey}", "");
-    } else {
-        // Specific Hotkey - keep the structure
-        message = message.replace("{hotkey}", hotkey_name);
-    }
-
-    // Clean up any double spaces introduced by removals
-    loop {
-        let new_msg = message.replace("  ", " ");
-        if new_msg == message {
-            break;
-        }
-        message = new_msg;
-    }
-    let message = message.trim();
+    let message = locale
+        .auxiliary
+        .continuous_mode_activated
+        .replace("{hotkey}", &crate::hotkey::names::with_escape(hotkey_name));
 
     // Call the detailed notification
     crate::overlay::auto_copy_badge::show_detailed_notification(
         &title,
-        message,
+        &message,
         crate::overlay::auto_copy_badge::NotificationType::Update,
     );
 }
@@ -174,40 +140,11 @@ pub fn show_image_continuous_notification(display_name: &str, hotkey_name: &str)
     };
     let title = format!("{} - {}", display_name, suffix);
 
-    // 2. Prepare message from locale
     let locale = crate::gui::locale::LocaleText::get(&lang);
-    let mut message = locale.auxiliary.continuous_mode_activated.to_string();
-
-    // Remove Preset Name part
-    message = message
-        .replace("\"{preset}\"", "")
-        .replace("'{preset}'", "")
-        .replace("{preset}", "");
-
-    // 3. Hotkey Logic
-    if hotkey_name.is_empty()
-        || hotkey_name.to_lowercase() == "hotkey"
-        || hotkey_name.to_lowercase() == "esc"
-        || hotkey_name.to_lowercase() == "bubble"
-    {
-        message = message
-            .replace(" hay {hotkey}", "")
-            .replace(" or {hotkey}", "")
-            .replace(" 또는 {hotkey}", "");
-        message = message.replace("{hotkey}", "");
-    } else {
-        message = message.replace("{hotkey}", hotkey_name);
-    }
-
-    // Clean up double spaces
-    loop {
-        let new_msg = message.replace("  ", " ");
-        if new_msg == message {
-            break;
-        }
-        message = new_msg;
-    }
-    let mut message = message.trim().to_string();
+    let mut message = locale
+        .auxiliary
+        .continuous_mode_activated
+        .replace("{hotkey}", &crate::hotkey::names::with_escape(hotkey_name));
 
     // 4. Add RIGHT MOUSE instruction for image continuous mode
     let right_mouse_hint = match lang.as_str() {

@@ -114,6 +114,7 @@ function applySnapshot(scene) {{
   place('notification', scene.notification_rect);
   if (scene.recording) {{
     place('recording', scene.recording.rect);
+    invoke('recording', 'updateSubtext', scene.recording.subtext);
     invoke('recording', 'updateState', scene.recording.state, scene.recording.rms);
     frameWindow('recording').document.body.classList.toggle('visible', scene.recording.visible);
     if (scene.recording.visible) show('recording'); else hide('recording');
@@ -154,6 +155,7 @@ window.applyStatusCommand = command => {{
     case 'snapshot': applySnapshot(command.scene); break;
     case 'theme': applyTheme(command.is_dark); break;
     case 'recording_prepare':
+      invoke('recording', 'updateSubtext', command.scene.subtext);
       place('recording', command.scene.rect); hide('recording'); invoke('recording', 'resetState'); break;
     case 'recording_show':
       place('recording', command.rect); show('recording');

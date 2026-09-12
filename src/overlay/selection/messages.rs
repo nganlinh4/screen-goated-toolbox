@@ -324,9 +324,6 @@ unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
             if hotkey_name.is_empty() {
                 hotkey_name = crate::overlay::continuous_mode::get_latest_hotkey_name();
             }
-            if hotkey_name.is_empty() {
-                hotkey_name = "Hotkey".to_string();
-            }
 
             crate::overlay::image_continuous_mode::enter(
                 final_target,
@@ -472,9 +469,6 @@ unsafe fn handle_continuous_check_timer(hwnd: HWND) {
                     let mut hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
                     if hotkey_name.is_empty() {
                         hotkey_name = crate::overlay::continuous_mode::get_latest_hotkey_name();
-                    }
-                    if hotkey_name.is_empty() {
-                        hotkey_name = "Hotkey".to_string();
                     }
 
                     crate::overlay::image_continuous_mode::enter(

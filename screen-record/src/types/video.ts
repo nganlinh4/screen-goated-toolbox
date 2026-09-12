@@ -190,6 +190,8 @@ export interface RawInputEvent {
   timestamp: number;
   vk?: number;
   key?: string;
+  /** Complete display label supplied by the native input formatter. */
+  label?: string;
   btn?: "left" | "right" | "middle";
   direction?: "up" | "down" | "none";
   modifiers?: InputModifiers;

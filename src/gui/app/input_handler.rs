@@ -133,7 +133,7 @@ fn process_text_content(text: String) {
         let cancel_hotkey = preset
             .hotkeys
             .first()
-            .map(|h| h.name.clone())
+            .map(|h| h.display_name())
             .unwrap_or_default();
 
         // Spawn processing in background thread
@@ -182,7 +182,7 @@ fn process_text_parallel(rx: mpsc::Receiver<Option<String>>) {
         let cancel_hotkey = preset
             .hotkeys
             .first()
-            .map(|h| h.name.clone())
+            .map(|h| h.display_name())
             .unwrap_or_default();
 
         spawn_detached(TaskClass::Interactive, "dropped-text-receive", move || {

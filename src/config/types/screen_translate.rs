@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn restoring_defaults_keeps_user_hotkeys() {
-        let hotkeys = vec![crate::config::Hotkey::new(9, "Translate", 10)];
+        let hotkeys = vec![crate::config::Hotkey::new(9, 10)];
         let mut settings = ScreenTranslateSettings {
             target_language: "Korean".to_string(),
             translation_model: "custom".to_string(),

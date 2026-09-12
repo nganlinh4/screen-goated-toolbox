@@ -8,7 +8,7 @@ pub(super) fn get() -> ShellLocaleText {
         tray_favorite_bubble_disabled: "Show favorite bubble (No favorites set yet)",
         favorites_empty: "Please favorite some presets using the star button",
         favorites_keep_open: "Keep Open",
-        recording_subtext: "Press ESC/Hotkey to stop",
+        recording_subtext: "Press {hotkey} to stop",
         recording_paused: "Paused",
         auto_copied_badge: "Auto-copied",
         auto_copied_image_badge: "Image copied",

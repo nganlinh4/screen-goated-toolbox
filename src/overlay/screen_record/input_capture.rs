@@ -19,9 +19,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
-mod key_names;
-
-use key_names::vk_to_name;
+use crate::hotkey::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, names};
+use windows::Win32::UI::Input::KeyboardAndMouse::HKL;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InputModifiers {
@@ -40,7 +39,8 @@ pub struct RawInputEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vk: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<&'static str>,
+    pub key: Option<String>,
+    pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub btn: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -69,6 +69,7 @@ struct QueuedInputEvent {
     timestamp_ns: u64,
     code: u32,
     modifiers: u8,
+    layout: usize,
 }
 
 static CAPTURE_STATE: LazyLock<Mutex<CaptureState>> =
@@ -252,6 +253,7 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
                     timestamp_ns: relative_timestamp_ns(),
                     code: vk,
                     modifiers: snapshot_modifiers_bits(),
+                    layout: names::input_layout().0 as usize,
                 });
             }
             WM_KEYUP | WM_SYSKEYUP => {
@@ -264,6 +266,7 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
                     timestamp_ns: relative_timestamp_ns(),
                     code: vk,
                     modifiers: snapshot_modifiers_bits(),
+                    layout: names::input_layout().0 as usize,
                 });
             }
             _ => {}
@@ -299,6 +302,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                     timestamp_ns: relative_timestamp_ns(),
                     code: message,
                     modifiers,
+                    layout: 0,
                 });
             }
             WM_MOUSEWHEEL => {
@@ -308,6 +312,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                     timestamp_ns: relative_timestamp_ns(),
                     code: delta as i32 as u32,
                     modifiers,
+                    layout: 0,
                 });
             }
             _ => {}
@@ -363,24 +368,32 @@ fn drain_events() -> Vec<RawInputEvent> {
 fn convert_event(event: QueuedInputEvent) -> RawInputEvent {
     let timestamp = event.timestamp_ns as f64 / 1_000_000_000.0;
     let modifiers = modifiers_from_bits(event.modifiers);
-    match event.kind {
+    let mut result = match event.kind {
         QueuedEventKind::KeyboardDown => RawInputEvent {
             event_type: "keyboard",
             timestamp,
             vk: Some(event.code),
-            key: vk_to_name(event.code),
+            key: Some(names::key_name_for_layout(
+                event.code,
+                HKL(event.layout as *mut _),
+            )),
             btn: None,
             direction: Some("down"),
             modifiers,
+            label: String::new(),
         },
         QueuedEventKind::KeyboardUp => RawInputEvent {
             event_type: "keyboard",
             timestamp,
             vk: Some(event.code),
-            key: vk_to_name(event.code),
+            key: Some(names::key_name_for_layout(
+                event.code,
+                HKL(event.layout as *mut _),
+            )),
             btn: None,
             direction: Some("up"),
             modifiers,
+            label: String::new(),
         },
         QueuedEventKind::MouseButtonDown => RawInputEvent {
             event_type: "mousedown",
@@ -390,6 +403,7 @@ fn convert_event(event: QueuedInputEvent) -> RawInputEvent {
             btn: Some(mouse_button_name(event.code)),
             direction: Some("down"),
             modifiers,
+            label: String::new(),
         },
         QueuedEventKind::MouseButtonUp => RawInputEvent {
             event_type: "mousedown",
@@ -399,6 +413,7 @@ fn convert_event(event: QueuedInputEvent) -> RawInputEvent {
             btn: Some(mouse_button_name(event.code)),
             direction: Some("up"),
             modifiers,
+            label: String::new(),
         },
         QueuedEventKind::Wheel => {
             let delta = event.code as i32 as i16;
@@ -417,9 +432,33 @@ fn convert_event(event: QueuedInputEvent) -> RawInputEvent {
                 btn: None,
                 direction: Some(direction),
                 modifiers,
+                label: String::new(),
             }
         }
-    }
+    };
+    let flags = (if result.modifiers.ctrl {
+        MOD_CONTROL
+    } else {
+        0
+    }) | (if result.modifiers.alt { MOD_ALT } else { 0 })
+        | (if result.modifiers.shift { MOD_SHIFT } else { 0 })
+        | (if result.modifiers.win { MOD_WIN } else { 0 });
+    let key = match result.event_type {
+        "keyboard" => result.key.clone().unwrap_or_default(),
+        "mousedown" => names::key_name(match result.btn {
+            Some("left") => 0x01,
+            Some("right") => 0x02,
+            _ => 0x04,
+        }),
+        _ => match result.direction {
+            Some("up") => "\u{2191} Scroll",
+            Some("down") => "\u{2193} Scroll",
+            _ => "Scroll",
+        }
+        .to_string(),
+    };
+    result.label = names::with_modifiers(&key, flags);
+    result
 }
 
 fn modifiers_from_bits(bits: u8) -> InputModifiers {

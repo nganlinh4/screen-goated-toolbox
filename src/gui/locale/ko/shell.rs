@@ -8,7 +8,7 @@ pub(super) fn get() -> ShellLocaleText {
         tray_favorite_bubble_disabled: "즐겨찾기 버블 표시 (즐겨찾기 없음)",
         favorites_empty: "별 버튼으로 프리셋을 즐겨찾기에 추가해 주세요",
         favorites_keep_open: "열린 상태 유지",
-        recording_subtext: "ESC/단축키를 눌러 중지",
+        recording_subtext: "{hotkey}를 눌러 중지",
         recording_paused: "일시 중지됨",
         auto_copied_badge: "자동으로 복사됨",
         auto_copied_image_badge: "이미지가 복사됨",

@@ -1,6 +1,7 @@
 // --- RECORDING MODULE ---
 // Audio recording overlay with WebView-based waveform visualization.
 
+mod hint;
 mod messages;
 mod state;
 pub(crate) mod ui;

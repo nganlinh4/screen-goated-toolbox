@@ -153,7 +153,7 @@ pub fn start_text_processing(
                         let hk_name = p
                             .hotkeys
                             .first()
-                            .map(|h| h.name.clone())
+                            .map(|h| h.display_name())
                             .unwrap_or_default();
 
                         let new_guide_text = if !hk_name.is_empty() {

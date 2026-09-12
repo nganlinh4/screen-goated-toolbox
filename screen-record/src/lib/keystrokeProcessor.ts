@@ -35,6 +35,8 @@ function modifierPrefix(mods: InputModifiers): string {
 }
 
 function formatLabel(event: RawInputEvent, mods: InputModifiers): string {
+  if (event.label) return event.label;
+  // Older recordings carry individual key names without a complete label.
   const prefix = modifierPrefix(mods);
 
   if (event.type === 'wheel') {

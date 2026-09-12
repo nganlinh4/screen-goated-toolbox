@@ -261,12 +261,15 @@ fn apply_native_state(command: &HostCommand) {
             scene.recording = Some(recording.clone())
         }
         HostCommand::RecordingShow { rect } => {
-            scene.recording = Some(RecordingScene {
+            let recording = scene.recording.get_or_insert_with(|| RecordingScene {
                 rect: *rect,
                 visible: true,
                 state: "warmup".to_string(),
                 rms: 0.0,
+                subtext: String::new(),
             });
+            recording.rect = *rect;
+            recording.visible = true;
         }
         HostCommand::RecordingUpdate { state, rms } => {
             if let Some(recording) = scene.recording.as_mut() {
@@ -376,6 +379,7 @@ fn move_recording_drag() {
         visible: true,
         state: String::new(),
         rms: 0.0,
+        subtext: String::new(),
     }));
     if let Ok(rect) = serde_json::to_string(&rect) {
         execute_script(&format!("window.moveStatusRecording({rect});"));

@@ -37,7 +37,7 @@ mod tests {
     #[test]
     fn overlay_controls_sync_without_clobbering_preflight_or_unrelated_settings() {
         let mut modal = Config::default();
-        modal.live_translate.hotkeys = vec![Hotkey::new(7, "Live Translate", 3)];
+        modal.live_translate.hotkeys = vec![Hotkey::new(7, 3)];
         modal.ui_language = "ko".to_string();
 
         let mut overlay = modal.clone();

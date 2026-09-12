@@ -60,8 +60,18 @@ pub(super) fn activate_continuous_from_panel(preset_idx: usize) {
         return;
     }
 
-    // Use "Bubble" as the hotkey name for panel-triggered continuous mode
-    let hotkey_name = "Bubble".to_string();
+    let hotkey_name = APP
+        .lock()
+        .ok()
+        .and_then(|app| {
+            app.config
+                .presets
+                .get(preset_idx)?
+                .hotkeys
+                .first()
+                .map(crate::config::Hotkey::display_name)
+        })
+        .unwrap_or_default();
 
     if p_type == "image" {
         // IMAGE CONTINUOUS MODE: Directly enter non-blocking image continuous mode

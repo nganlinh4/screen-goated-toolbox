@@ -129,7 +129,7 @@ impl SettingsApp {
                         for hotkey in &self.config.computer_control_hotkeys {
                             if removable_chip(
                                 ui,
-                                &hotkey.name,
+                                &hotkey.display_name(),
                                 theme.hotkey_item_fill(),
                                 egui::Color32::WHITE,
                                 10,

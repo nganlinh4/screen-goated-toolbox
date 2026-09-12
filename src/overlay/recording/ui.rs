@@ -38,7 +38,7 @@ pub fn generate_html() -> String {
                 "ko" => "연결 중...",
                 _ => "Connecting...",
             },
-            locale.shell.recording_subtext,
+            super::hint::stop_hint(locale.shell.recording_subtext, &[]),
             locale.shell.recording_paused,
             is_dark,
         )
@@ -130,7 +130,7 @@ pub fn generate_html() -> String {
         flex-direction: column;
         align-items: flex-start;
         justify-content: center;
-        flex-grow: 1;
+        flex: 1 1 0;
         min-width: 0;
         margin-left: 5px;
     }}
@@ -149,8 +149,11 @@ pub fn generate_html() -> String {
         color: {subtext_color};
         margin-bottom: 0;
         white-space: nowrap;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
         font-family: 'Google Sans Flex', sans-serif;
-        font-variation-settings: 'opsz' 14;
+        font-variation-settings: 'opsz' 14, 'wdth' 100;
     }}
 
     #volume-canvas {{
@@ -242,6 +245,41 @@ pub fn generate_html() -> String {
 
         let currentState = "warmup";
 
+        const subtextEl = document.querySelector('.sub-text');
+        const textGroup = document.querySelector('.text-group');
+
+        function fitSubtext() {{
+            const available = textGroup.clientWidth;
+            if (!available) return;
+            const range = document.createRange();
+            range.selectNodeContents(subtextEl);
+            const setWidth = width => {{
+                subtextEl.style.fontVariationSettings = `'opsz' 14, 'wdth' ${{width}}`;
+            }};
+            setWidth(100);
+            if (range.getBoundingClientRect().width <= available) return;
+            let low = 25;
+            let high = 100;
+            setWidth(low);
+            if (range.getBoundingClientRect().width > available) return;
+            for (let step = 0; step < 8; step++) {{
+                const middle = (low + high) / 2;
+                setWidth(middle);
+                if (range.getBoundingClientRect().width <= available) low = middle;
+                else high = middle;
+            }}
+            setWidth(low);
+        }}
+
+        new ResizeObserver(fitSubtext).observe(textGroup);
+        document.fonts.ready.then(fitSubtext);
+
+        function updateSubtext(text) {{
+            subtextEl.textContent = text;
+            subtextEl.title = text;
+            fitSubtext();
+        }}
+
         const volumeCanvas = document.getElementById('volume-canvas');
         const volumeCtx = volumeCanvas ? volumeCanvas.getContext('2d') : null;
 
@@ -289,7 +327,6 @@ pub fn generate_html() -> String {
             }} else if (state === 'paused') {{
                  statusEl.innerText = TEXT_PAUSED;
                  currentColors = COLORS.paused;
-                 for (let i = 0; i < barHeights.length; i++) barHeights[i] = 6;
                  pauseBtn.style.visibility = 'visible';
                  pauseBtn.style.pointerEvents = 'auto';
                  iconPause.classList.add('hidden');
@@ -323,7 +360,9 @@ pub fn generate_html() -> String {
             lastTime = timestamp;
 
             const speed = currentState === 'processing' ? 0.06 : 0.15;
-            scrollProgress += dt / speed;
+            if (currentState !== 'paused') {{
+                scrollProgress += dt / speed;
+            }}
 
             if (currentState === 'processing') {{
                 const decayFactor = 0.95;
@@ -345,8 +384,6 @@ pub fn generate_html() -> String {
                     displayRMS = 0.12 + 0.2 * Math.abs(Math.sin(timestamp / 120));
                 }} else if (currentState === 'initializing') {{
                     displayRMS = 0.08 + 0.12 * Math.abs(Math.sin(timestamp / 300));
-                }} else if (currentState === 'paused') {{
-                    displayRMS = 0.02;
                 }} else if (currentState === 'warmup') {{
                     displayRMS = 0.02;
                 }}

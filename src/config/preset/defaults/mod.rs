@@ -106,10 +106,9 @@ mod tests {
 
     #[test]
     fn continuous_device_transcription_matches_shared_contract() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/parity-fixtures/preset-system/audio-runtime.json"
-        )))
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../parity-fixtures/preset-system/audio-runtime.json"
+        ))
         .unwrap();
         let contract = &fixture["continuous_device_preset"];
         let preset = get_default_presets()

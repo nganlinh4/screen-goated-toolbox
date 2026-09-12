@@ -38,6 +38,7 @@ pub struct RecordingScene {
     pub visible: bool,
     pub state: String,
     pub rms: f32,
+    pub subtext: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

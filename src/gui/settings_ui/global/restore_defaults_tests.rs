@@ -431,11 +431,11 @@ fn non_default_config() -> Config {
     let mut edited_builtin = defaults.presets[0].clone();
     edited_builtin.name = "Edited built-in".to_string();
     edited_builtin.blocks.clear();
-    edited_builtin.hotkeys = vec![Hotkey::new(0x31, "Ctrl + 1", 2)];
+    edited_builtin.hotkeys = vec![Hotkey::new(0x31, 2)];
     let custom = Preset {
         id: "custom-user-preset".to_string(),
         name: "Custom user preset".to_string(),
-        hotkeys: vec![Hotkey::new(0x32, "Ctrl + 2", 2)],
+        hotkeys: vec![Hotkey::new(0x32, 2)],
         ..Default::default()
     };
     let first_profile = PresetProfile {
@@ -446,12 +446,12 @@ fn non_default_config() -> Config {
     };
     let mut second_builtin = defaults.presets[1].clone();
     second_builtin.name = "Second edited built-in".to_string();
-    second_builtin.hotkeys = vec![Hotkey::new(0x33, "Ctrl + 3", 2)];
+    second_builtin.hotkeys = vec![Hotkey::new(0x33, 2)];
     second_builtin.is_favorite = !defaults.presets[1].is_favorite;
     let second_custom = Preset {
         id: "custom-active-preset".to_string(),
         name: "Active custom preset".to_string(),
-        hotkeys: vec![Hotkey::new(0x34, "Ctrl + 4", 2)],
+        hotkeys: vec![Hotkey::new(0x34, 2)],
         is_favorite: true,
         ..Default::default()
     };
@@ -515,8 +515,8 @@ fn non_default_config() -> Config {
         favorite_bubble_position: Some((12, 34)),
         favorites_keep_open: true,
         favorite_bubble_size: 40,
-        screen_record_hotkeys: vec![Hotkey::new(1, "A", 2)],
-        computer_control_hotkeys: vec![Hotkey::new(3, "B", 4)],
+        screen_record_hotkeys: vec![Hotkey::new(1, 2)],
+        computer_control_hotkeys: vec![Hotkey::new(3, 4)],
         screen_record_window_size: (1111, 777),
         ..defaults
     };
@@ -540,12 +540,12 @@ fn non_default_config() -> Config {
     config.vieneu_settings.emotion = "storytelling".to_string();
     config.voxtral_settings.voice = "voxtral-voice".to_string();
     config.tts_playground.draft_text = "changed draft".to_string();
-    config.translation_gummy.hotkey = Some(Hotkey::new(5, "Legacy", 6));
-    config.translation_gummy.hotkeys = vec![Hotkey::new(7, "Gummy", 8)];
+    config.translation_gummy.hotkey = Some(Hotkey::new(5, 6));
+    config.translation_gummy.hotkeys = vec![Hotkey::new(7, 8)];
     config.translation_gummy.guide_seen = true;
     config.screen_translate.target_language = "Korean".to_string();
-    config.screen_translate.hotkeys = vec![Hotkey::new(9, "Translate", 10)];
-    config.live_translate.hotkeys = vec![Hotkey::new(11, "Live", 12)];
+    config.screen_translate.hotkeys = vec![Hotkey::new(9, 10)];
+    config.live_translate.hotkeys = vec![Hotkey::new(11, 12)];
     config
 }
 

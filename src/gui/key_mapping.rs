@@ -63,6 +63,10 @@ pub fn egui_key_to_vk(key: &egui::Key) -> Option<u32> {
         egui::Key::F18 => Some(0x81),
         egui::Key::F19 => Some(0x82),
         egui::Key::F20 => Some(0x83),
+        egui::Key::F21 => Some(0x84),
+        egui::Key::F22 => Some(0x85),
+        egui::Key::F23 => Some(0x86),
+        egui::Key::F24 => Some(0x87),
         // Navigation / Editing
         egui::Key::Escape => Some(0x1B),
         egui::Key::Insert => Some(0x2D),
@@ -80,9 +84,10 @@ pub fn egui_key_to_vk(key: &egui::Key) -> Option<u32> {
         egui::Key::Space => Some(0x20),
         egui::Key::Tab => Some(0x09),
         // Symbols
-        egui::Key::Backtick => Some(0xC0),     // `
-        egui::Key::Minus => Some(0xBD),        // -
-        egui::Key::Plus => Some(0xBB),         // = (Plus is usually shift+=)
+        egui::Key::Backtick => Some(0xC0), // `
+        egui::Key::Minus => Some(0xBD),    // -
+        egui::Key::Plus | egui::Key::Equals => Some(0xBB),
+        egui::Key::Quote => Some(0xDE),
         egui::Key::OpenBracket => Some(0xDB),  // [
         egui::Key::CloseBracket => Some(0xDD), // ]
         egui::Key::Backslash => Some(0xDC),    // \

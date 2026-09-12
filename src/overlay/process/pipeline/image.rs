@@ -31,7 +31,7 @@ pub fn start_processing_pipeline(
         let cancel_hotkey = preset
             .hotkeys
             .first()
-            .map(|h| h.name.clone())
+            .map(|h| h.display_name())
             .unwrap_or_default();
 
         let png_data = Arc::new(png_data);

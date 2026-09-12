@@ -320,10 +320,10 @@ fn migrate_config_moves_computer_control_out_of_every_profile() {
         ..Default::default()
     };
 
-    let profile_key = Hotkey::new(0x70, "F1", 0);
-    let second_profile_key = Hotkey::new(0x71, "F2", 0);
-    let mirror_only = Hotkey::new(0x72, "F3", 0);
-    let existing = Hotkey::new(0x73, "F4", 0);
+    let profile_key = Hotkey::new(0x70, 0);
+    let second_profile_key = Hotkey::new(0x71, 0);
+    let mirror_only = Hotkey::new(0x72, 0);
+    let existing = Hotkey::new(0x73, 0);
     let first = PresetProfile::new_default(
         vec![
             normal("before"),
@@ -408,8 +408,8 @@ fn retired_builtin_migrates_to_its_replacement_in_every_profile() {
         is_favorite,
         ..Default::default()
     };
-    let duplicate = Hotkey::new(0x70, "F1", 0);
-    let backtick = Hotkey::new(default_code, "Backtick", default_modifiers);
+    let duplicate = Hotkey::new(0x70, 0);
+    let backtick = Hotkey::new(default_code, default_modifiers);
     let first = PresetProfile::new_default(
         vec![
             preset(replacement_id, vec![duplicate.clone()], false),
@@ -417,7 +417,7 @@ fn retired_builtin_migrates_to_its_replacement_in_every_profile() {
         ],
         1,
     );
-    let second_key = Hotkey::new(0x71, "F2", 0);
+    let second_key = Hotkey::new(0x71, 0);
     let second = PresetProfile::new_default(
         vec![
             preset("before", Vec::new(), false),
@@ -501,7 +501,7 @@ fn accurate_retranslate_retirement_uses_the_standard_retranslate_chain() {
     assert!(retirement["transfer_favorite"].as_bool().unwrap());
     assert!(retirement["redirect_active_selection"].as_bool().unwrap());
 
-    let migrated_hotkey = Hotkey::new(0x72, "F3", 0);
+    let migrated_hotkey = Hotkey::new(0x72, 0);
     let mut config = legacy_config_with_presets(vec![
         Preset {
             id: replacement_id.to_string(),
@@ -545,7 +545,7 @@ fn add_preset_profile_clones_active_preset_config() {
         is_favorite: true,
         ..Default::default()
     };
-    preset.hotkeys.push(Hotkey::new(65, "A", 2));
+    preset.hotkeys.push(Hotkey::new(65, 2));
 
     let mut config = legacy_config_with_presets(vec![preset]);
     migrate_config(&mut config);
@@ -556,7 +556,7 @@ fn add_preset_profile_clones_active_preset_config() {
     assert_eq!(config.active_preset_profile_idx, 1);
     assert_eq!(config.presets[0].id, "profile_source_preset");
     assert!(config.presets[0].is_favorite);
-    assert_eq!(config.presets[0].hotkeys, vec![Hotkey::new(65, "A", 2)]);
+    assert_eq!(config.presets[0].hotkeys, vec![Hotkey::new(65, 2)]);
 }
 
 #[test]

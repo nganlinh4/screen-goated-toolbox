@@ -1,3 +1,4 @@
+mod hotkey_capture;
 mod hotkeys;
 mod init;
 pub mod input_handler;
@@ -130,6 +131,7 @@ impl eframe::App for SettingsApp {
         // Register the lightweight off-screen tray child while the root UI is
         // available. Tray interactions later address only this child HWND.
         crate::overlay::tray_popup::render(ctx);
+        self.sync_hotkey_capture(ctx);
     }
 
     fn on_exit(&mut self) {

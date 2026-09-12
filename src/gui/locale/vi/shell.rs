@@ -8,7 +8,7 @@ pub(super) fn get() -> ShellLocaleText {
         tray_favorite_bubble_disabled: "Hiện bong bóng yêu thích (Chưa có mục yêu thích)",
         favorites_empty: "Vui lòng đưa vài cấu hình vào ưa thích bằng nút ngôi sao",
         favorites_keep_open: "Giữ mở",
-        recording_subtext: "Nhấn ESC/Hotkey để dừng",
+        recording_subtext: "Nhấn {hotkey} để dừng",
         recording_paused: "Đã tạm dừng",
         auto_copied_badge: "Đã tự động copy",
         auto_copied_image_badge: "Ảnh đã được sao chép",

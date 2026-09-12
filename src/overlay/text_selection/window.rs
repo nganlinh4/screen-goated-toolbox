@@ -211,9 +211,6 @@ pub fn internal_create_tag_thread() {
                                 hotkey_name =
                                     crate::overlay::continuous_mode::get_latest_hotkey_name();
                             }
-                            if hotkey_name.is_empty() {
-                                hotkey_name = "Hotkey".to_string();
-                            }
 
                             let p_name = {
                                 if let Ok(app) = APP.lock() {

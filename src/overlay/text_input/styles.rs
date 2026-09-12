@@ -341,11 +341,7 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
     };
     let cancel_hint = {
         let sub = CFG_CANCEL.lock().unwrap();
-        if sub.is_empty() {
-            "Esc".to_string()
-        } else {
-            format!("Esc / {}", sub)
-        }
+        crate::hotkey::names::with_escape(&sub)
     };
     let title_text = {
         let t = CFG_TITLE.lock().unwrap();
@@ -520,7 +516,7 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
         placeholder = escaped_placeholder,
         submit_txt = submit_txt,
         newline_txt = newline_txt,
-        cancel_hint = cancel_hint,
+        cancel_hint = crate::overlay::utils::escape_html(&cancel_hint),
         cancel_txt = cancel_txt,
         close_svg = crate::overlay::html_components::icons::get_icon_svg("close"),
         mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),

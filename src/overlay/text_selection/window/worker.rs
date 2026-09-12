@@ -143,9 +143,6 @@ fn maybe_activate_continuous_mode(preset_idx: &mut usize) {
     if hotkey_name.is_empty() {
         hotkey_name = dbg_latest;
     }
-    if hotkey_name.is_empty() {
-        hotkey_name = "Hotkey".to_string();
-    }
 
     let preset_name = {
         if let Ok(app) = APP.lock() {

@@ -62,19 +62,24 @@ fn begin_session(hwnd: HWND, preset_idx: usize) {
     start_audio_thread(hwnd, preset_idx);
     RECORDING_STATE.store(2, Ordering::SeqCst);
 
-    let hidden = APP
-        .lock()
-        .unwrap()
-        .config
-        .presets
-        .get(preset_idx)
-        .is_some_and(|preset| preset.hide_recording_ui);
+    let (hidden, subtext) = {
+        let app = APP.lock().unwrap();
+        let preset = app.config.presets.get(preset_idx);
+        let locale = crate::gui::locale::LocaleText::get(&app.config.ui_language);
+        (
+            preset.is_some_and(|preset| preset.hide_recording_ui),
+            super::hint::stop_hint(
+                locale.shell.recording_subtext,
+                preset.map_or(&[], |preset| preset.hotkeys.as_slice()),
+            ),
+        )
+    };
     CURRENT_RECORDING_HIDDEN.store(hidden, Ordering::SeqCst);
     LAST_SHOW_TIME.store(now_ms(), Ordering::SeqCst);
     if hidden {
         crate::overlay::status_compositor::recording_hide();
     } else {
-        crate::overlay::status_compositor::recording_prepare(recording_rect());
+        crate::overlay::status_compositor::recording_prepare(recording_rect(), subtext);
         unsafe {
             let _ = SetTimer(Some(hwnd), 99, 500, None);
         }

@@ -4,9 +4,26 @@ use crate::gui::key_mapping::{egui_key_to_vk, egui_pointer_to_vk};
 use eframe::egui;
 
 impl SettingsApp {
+    pub(crate) fn sync_hotkey_capture(&self, ctx: &egui::Context) {
+        let owner = if self.recording_computer_control_hotkey {
+            Some(usize::MAX)
+        } else if self.recording_screen_translate_hotkey {
+            Some(usize::MAX - 1)
+        } else if self.recording_live_translate_hotkey {
+            Some(usize::MAX - 2)
+        } else if self.recording_sr_hotkey {
+            Some(usize::MAX - 3)
+        } else {
+            self.recording_hotkey_for_preset
+        };
+        let owner = owner.filter(|_| ctx.input(|input| input.focused));
+        crate::hotkey::set_binding_capture(owner.is_some());
+        super::hotkey_capture::sync(unsafe { super::utils::main_window_hwnd() }, owner, ctx);
+    }
+
     pub(crate) fn update_hotkey_recording(&mut self, ctx: &egui::Context) {
         if let Some(preset_idx) = self.recording_hotkey_for_preset {
-            let mut key_recorded: Option<(u32, u32, String)> = None;
+            let mut key_recorded: Option<(u32, u32)> = None;
             let mut cancel = false;
 
             ctx.input(|i| {
@@ -24,7 +41,7 @@ impl SettingsApp {
             if cancel {
                 self.recording_hotkey_for_preset = None;
                 self.hotkey_conflict_msg = None;
-            } else if let Some((vk, mods, key_name)) = key_recorded {
+            } else if let Some((vk, mods)) = key_recorded {
                 self.sync_global_hotkeys();
                 if let Some(conflict) = self.check_hotkey_conflict(vk, mods, preset_idx) {
                     self.hotkey_conflict_msg = Some(conflict);
@@ -32,7 +49,6 @@ impl SettingsApp {
                     let new_hotkey = Hotkey {
                         code: vk,
                         modifiers: mods,
-                        name: format_hotkey_name(mods, key_name),
                     };
 
                     if let Some(preset) = self.config.presets.get_mut(preset_idx)
@@ -53,7 +69,7 @@ impl SettingsApp {
 
     pub(crate) fn update_sr_hotkey_recording(&mut self, ctx: &egui::Context) {
         if self.recording_sr_hotkey {
-            let mut key_recorded: Option<(u32, u32, String)> = None;
+            let mut key_recorded: Option<(u32, u32)> = None;
             let mut cancel = false;
 
             ctx.input(|i| {
@@ -70,11 +86,10 @@ impl SettingsApp {
 
             if cancel {
                 self.recording_sr_hotkey = false;
-            } else if let Some((vk, mods, key_name)) = key_recorded {
+            } else if let Some((vk, mods)) = key_recorded {
                 let new_hotkey = Hotkey {
                     code: vk,
                     modifiers: mods,
-                    name: format_hotkey_name(mods, key_name),
                 };
 
                 self.sync_global_hotkeys();
@@ -94,7 +109,7 @@ impl SettingsApp {
             return;
         }
 
-        let mut key_recorded: Option<(u32, u32, String)> = None;
+        let mut key_recorded: Option<(u32, u32)> = None;
         let mut cancel = false;
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) {
@@ -114,7 +129,7 @@ impl SettingsApp {
             return;
         }
 
-        let Some((vk, mods, key_name)) = key_recorded else {
+        let Some((vk, mods)) = key_recorded else {
             return;
         };
 
@@ -127,7 +142,6 @@ impl SettingsApp {
         self.config.computer_control_hotkeys.push(Hotkey {
             code: vk,
             modifiers: mods,
-            name: format_hotkey_name(mods, key_name),
         });
         self.recording_computer_control_hotkey = false;
         self.computer_control_hotkey_conflict_msg = None;
@@ -158,7 +172,7 @@ impl SettingsApp {
             self.screen_translate_hotkey_conflict_msg = None;
             return;
         }
-        let Some((code, modifiers, key_name)) = key_recorded else {
+        let Some((code, modifiers)) = key_recorded else {
             return;
         };
 
@@ -167,11 +181,10 @@ impl SettingsApp {
             self.screen_translate_hotkey_conflict_msg = Some(conflict);
             return;
         }
-        self.config.screen_translate.hotkeys.push(Hotkey {
-            code,
-            modifiers,
-            name: format_hotkey_name(modifiers, key_name),
-        });
+        self.config
+            .screen_translate
+            .hotkeys
+            .push(Hotkey { code, modifiers });
         self.recording_screen_translate_hotkey = false;
         self.screen_translate_hotkey_conflict_msg = None;
         self.save_and_sync();
@@ -201,7 +214,7 @@ impl SettingsApp {
             self.live_translate_hotkey_conflict_msg = None;
             return;
         }
-        let Some((code, modifiers, key_name)) = key_recorded else {
+        let Some((code, modifiers)) = key_recorded else {
             return;
         };
 
@@ -210,11 +223,10 @@ impl SettingsApp {
             self.live_translate_hotkey_conflict_msg = Some(conflict);
             return;
         }
-        self.config.live_translate.hotkeys.push(Hotkey {
-            code,
-            modifiers,
-            name: format_hotkey_name(modifiers, key_name),
-        });
+        self.config
+            .live_translate
+            .hotkeys
+            .push(Hotkey { code, modifiers });
         self.recording_live_translate_hotkey = false;
         self.live_translate_hotkey_conflict_msg = None;
         self.save_and_sync();
@@ -232,14 +244,24 @@ fn current_modifiers_bitmap(input: &egui::InputState) -> u32 {
     if input.modifiers.shift {
         modifiers_bitmap |= MOD_SHIFT;
     }
+    if unsafe {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_LWIN, VK_RWIN};
+        GetKeyState(VK_LWIN.0 as i32) < 0 || GetKeyState(VK_RWIN.0 as i32) < 0
+    } {
+        modifiers_bitmap |= MOD_WIN;
+    }
     modifiers_bitmap
 }
 
 fn collect_keyboard_hotkey(
     input: &egui::InputState,
     modifiers_bitmap: u32,
-    key_recorded: &mut Option<(u32, u32, String)>,
+    key_recorded: &mut Option<(u32, u32)>,
 ) {
+    if let Some(binding) = super::hotkey_capture::take() {
+        *key_recorded = Some(binding);
+        return;
+    }
     for event in &input.events {
         if let egui::Event::Key {
             key, pressed: true, ..
@@ -247,8 +269,7 @@ fn collect_keyboard_hotkey(
             && let Some(vk) = egui_key_to_vk(key)
             && !matches!(vk, 16 | 17 | 18 | 91 | 92)
         {
-            let key_name = format!("{:?}", key).trim_start_matches("Key").to_string();
-            *key_recorded = Some((vk, modifiers_bitmap, key_name));
+            *key_recorded = Some((vk, modifiers_bitmap));
         }
     }
 }
@@ -256,7 +277,7 @@ fn collect_keyboard_hotkey(
 fn collect_mouse_hotkey(
     input: &egui::InputState,
     modifiers_bitmap: u32,
-    key_recorded: &mut Option<(u32, u32, String)>,
+    key_recorded: &mut Option<(u32, u32)>,
 ) {
     for btn in [
         egui::PointerButton::Middle,
@@ -266,33 +287,8 @@ fn collect_mouse_hotkey(
         if input.pointer.button_pressed(btn)
             && let Some(vk) = egui_pointer_to_vk(&btn)
         {
-            let name = match btn {
-                egui::PointerButton::Middle => "Middle Click",
-                egui::PointerButton::Extra1 => "Mouse Back",
-                egui::PointerButton::Extra2 => "Mouse Forward",
-                _ => "Mouse",
-            }
-            .to_string();
-            *key_recorded = Some((vk, modifiers_bitmap, name));
+            *key_recorded = Some((vk, modifiers_bitmap));
             break;
         }
     }
-}
-
-fn format_hotkey_name(mods: u32, key_name: String) -> String {
-    let mut name_parts = Vec::new();
-    if (mods & MOD_CONTROL) != 0 {
-        name_parts.push("Ctrl".to_string());
-    }
-    if (mods & MOD_ALT) != 0 {
-        name_parts.push("Alt".to_string());
-    }
-    if (mods & MOD_SHIFT) != 0 {
-        name_parts.push("Shift".to_string());
-    }
-    if (mods & MOD_WIN) != 0 {
-        name_parts.push("Win".to_string());
-    }
-    name_parts.push(key_name);
-    name_parts.join(" + ")
 }

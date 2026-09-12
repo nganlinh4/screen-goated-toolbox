@@ -222,8 +222,8 @@ mod tests {
     };
     use crate::config::{Config, Hotkey, Preset};
 
-    fn hotkey(code: u32, name: &str) -> Hotkey {
-        Hotkey::new(code, name, crate::hotkey::MOD_CONTROL)
+    fn hotkey(code: u32) -> Hotkey {
+        Hotkey::new(code, crate::hotkey::MOD_CONTROL)
     }
 
     #[test]
@@ -233,7 +233,7 @@ mod tests {
         assert!(changed_model_slots(&baseline_models, &builtin_preset_model_defaults()).is_empty());
 
         defaults[0].name.push_str(" user name");
-        defaults[0].hotkeys.push(hotkey(0x41, "Ctrl + A"));
+        defaults[0].hotkeys.push(hotkey(0x41));
         defaults[0].blocks[0].prompt.push_str(" user prompt");
         assert!(
             changed_model_slots(&baseline_models, &preset_model_defaults(&defaults)).is_empty()
@@ -397,12 +397,12 @@ mod tests {
         let defaults = Config::default();
         let mut edited_builtin = defaults.presets[0].clone();
         edited_builtin.name = "User-edited built-in".to_string();
-        edited_builtin.hotkeys = vec![hotkey(0x41, "Ctrl + A")];
+        edited_builtin.hotkeys = vec![hotkey(0x41)];
         edited_builtin.is_favorite = !defaults.presets[0].is_favorite;
         let custom = Preset {
             id: "custom-workflow".to_string(),
             name: "Custom workflow".to_string(),
-            hotkeys: vec![hotkey(0x42, "Ctrl + B")],
+            hotkeys: vec![hotkey(0x42)],
             ..Default::default()
         };
         let profile = PresetProfile {
@@ -415,12 +415,12 @@ mod tests {
             presets: profile.presets.clone(),
             active_preset_idx: 1,
             preset_profiles: vec![profile],
-            screen_record_hotkeys: vec![hotkey(0x43, "Ctrl + C")],
-            computer_control_hotkeys: vec![hotkey(0x44, "Ctrl + D")],
+            screen_record_hotkeys: vec![hotkey(0x43)],
+            computer_control_hotkeys: vec![hotkey(0x44)],
             ..Default::default()
         };
-        config.translation_gummy.hotkey = Some(hotkey(0x45, "Ctrl + E"));
-        config.translation_gummy.hotkeys = vec![hotkey(0x46, "Ctrl + F")];
+        config.translation_gummy.hotkey = Some(hotkey(0x45));
+        config.translation_gummy.hotkeys = vec![hotkey(0x46)];
         let global_hotkeys = (
             config.screen_record_hotkeys.clone(),
             config.computer_control_hotkeys.clone(),
@@ -485,7 +485,7 @@ mod tests {
     fn individual_preset_restore_keeps_hotkeys_and_favorite_star() {
         let defaults = get_default_presets();
         let mut preset = defaults[0].clone();
-        preset.hotkeys = vec![hotkey(0x47, "Ctrl + G")];
+        preset.hotkeys = vec![hotkey(0x47)];
         preset.is_favorite = !defaults[0].is_favorite;
         preset.blocks.clear();
         let expected_favorite = preset.is_favorite;
@@ -496,7 +496,7 @@ mod tests {
             serde_json::to_value(&preset.blocks).unwrap(),
             serde_json::to_value(&defaults[0].blocks).unwrap()
         );
-        assert_eq!(preset.hotkeys, vec![hotkey(0x47, "Ctrl + G")]);
+        assert_eq!(preset.hotkeys, vec![hotkey(0x47)]);
         assert_eq!(preset.is_favorite, expected_favorite);
     }
 
@@ -512,12 +512,12 @@ mod tests {
         inherited.name = "User preset name".to_string();
         inherited.blocks[0].model = old_model.clone();
         inherited.blocks[0].prompt = "User prompt".to_string();
-        inherited.hotkeys = vec![hotkey(0x48, "Ctrl + H")];
+        inherited.hotkeys = vec![hotkey(0x48)];
         inherited.is_favorite = true;
 
         let mut overridden = inherited.clone();
         overridden.blocks[0].model = "user-selected-model".to_string();
-        overridden.hotkeys = vec![hotkey(0x49, "Ctrl + I")];
+        overridden.hotkeys = vec![hotkey(0x49)];
 
         let mut custom = overridden.clone();
         custom.id = "custom-preset".to_string();
@@ -546,12 +546,12 @@ mod tests {
                 },
             ],
             pending_preset_model_update: Some(marker),
-            screen_record_hotkeys: vec![hotkey(0x50, "Ctrl + P")],
-            computer_control_hotkeys: vec![hotkey(0x51, "Ctrl + Q")],
+            screen_record_hotkeys: vec![hotkey(0x50)],
+            computer_control_hotkeys: vec![hotkey(0x51)],
             ..Default::default()
         };
-        base.translation_gummy.hotkey = Some(hotkey(0x52, "Ctrl + R"));
-        base.translation_gummy.hotkeys = vec![hotkey(0x53, "Ctrl + S")];
+        base.translation_gummy.hotkey = Some(hotkey(0x52));
+        base.translation_gummy.hotkeys = vec![hotkey(0x53)];
         base.use_groq = false;
         base.use_gemini = false;
         base.use_openrouter = false;

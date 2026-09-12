@@ -52,12 +52,13 @@ pub(crate) fn update_theme(is_dark: bool) {
     parent::send_if_running(HostCommand::Theme { is_dark });
 }
 
-pub(crate) fn recording_prepare(rect: PhysicalRect) {
+pub(crate) fn recording_prepare(rect: PhysicalRect, subtext: String) {
     let scene = RecordingScene {
         rect,
         visible: false,
         state: "warmup".to_string(),
         rms: 0.0,
+        subtext,
     };
     parent::SNAPSHOT.lock().unwrap().recording = Some(scene.clone());
     parent::send(HostCommand::RecordingPrepare { scene });
@@ -70,6 +71,7 @@ pub(crate) fn recording_show(rect: PhysicalRect) {
         visible: true,
         state: "warmup".to_string(),
         rms: 0.0,
+        subtext: String::new(),
     });
     scene.rect = rect;
     scene.visible = true;

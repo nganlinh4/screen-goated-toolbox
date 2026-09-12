@@ -1,8 +1,10 @@
-//! Shared conversion for keyboard events sent by WebView mini apps.
+//! DOM input adapters. Binding labels are owned by `names`.
 
+use super::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, names};
 use crate::config::Hotkey;
-
-use super::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    HKL, MAPVK_VSC_TO_VK_EX, MapVirtualKeyExW, VkKeyScanExW,
+};
 
 pub(crate) fn from_web_event(
     key: &str,
@@ -12,149 +14,171 @@ pub(crate) fn from_web_event(
     shift: bool,
     meta: bool,
 ) -> Option<Hotkey> {
-    let key_name = normalize_key_name(key, code)?;
-    let vk = map_virtual_key(code, key)?;
     let modifiers = (if ctrl { MOD_CONTROL } else { 0 })
         | (if alt { MOD_ALT } else { 0 })
         | (if shift { MOD_SHIFT } else { 0 })
         | (if meta { MOD_WIN } else { 0 });
-
-    Some(Hotkey {
-        code: vk,
-        name: label(modifiers, &key_name),
-        modifiers,
-    })
+    let layout = names::input_layout();
+    let vk = if code.is_empty() || code == "Unidentified" {
+        logical_key(key, modifiers, layout)?
+    } else {
+        let code_vk = code_to_vk(code, layout)?;
+        if matches!(code_vk, 0x60..=0x69 | 0x6E)
+            && matches!(
+                key,
+                "Insert"
+                    | "Delete"
+                    | "End"
+                    | "PageDown"
+                    | "Clear"
+                    | "Home"
+                    | "PageUp"
+                    | "ArrowDown"
+                    | "ArrowLeft"
+                    | "ArrowRight"
+                    | "ArrowUp"
+            )
+        {
+            named_key(key)?
+        } else {
+            code_vk
+        }
+    };
+    (!names::is_modifier(vk)).then(|| Hotkey::new(vk, modifiers))
 }
 
-pub(crate) fn label(modifiers: u32, key_name: &str) -> String {
-    let mut parts = Vec::new();
-    if modifiers & MOD_CONTROL != 0 {
-        parts.push("Ctrl");
+fn logical_key(key: &str, modifiers: u32, layout: HKL) -> Option<u32> {
+    if let Some(vk) = named_key(key) {
+        return Some(vk);
     }
-    if modifiers & MOD_ALT != 0 {
-        parts.push("Alt");
+    let mut chars = key.chars();
+    let character = chars.next()?;
+    if chars.next().is_some() || character.len_utf16() != 1 {
+        return None;
     }
-    if modifiers & MOD_SHIFT != 0 {
-        parts.push("Shift");
+    let mapping = unsafe { VkKeyScanExW(character as u16, layout) };
+    if mapping == -1 {
+        return None;
     }
-    if modifiers & MOD_WIN != 0 {
-        parts.push("Win");
-    }
-    parts.push(key_name);
-    parts.join("+")
+    let required = ((mapping as u16) >> 8) as u32;
+    let required_modifiers = (if required & 1 != 0 { MOD_SHIFT } else { 0 })
+        | (if required & 2 != 0 { MOD_CONTROL } else { 0 })
+        | (if required & 4 != 0 { MOD_ALT } else { 0 });
+    (required & !7 == 0 && modifiers & required_modifiers == required_modifiers)
+        .then_some((mapping as u16 & 0xFF) as u32)
 }
 
-fn normalize_key_name(key: &str, code: &str) -> Option<String> {
-    let code = code.trim();
-    if let Some(letter) = code.strip_prefix("Key") {
-        return Some(letter.to_string());
+fn code_to_vk(code: &str, layout: HKL) -> Option<u32> {
+    if let Some(vk) = named_key(code) {
+        return Some(vk);
     }
-    if let Some(digit) = code.strip_prefix("Digit") {
-        return Some(digit.to_string());
-    }
-    if let Some(function) = code.strip_prefix('F')
-        && function.parse::<u8>().is_ok()
+    if let Some(digit) = code.strip_prefix("Numpad")
+        && let [digit @ b'0'..=b'9'] = digit.as_bytes()
     {
-        return Some(code.to_string());
+        return Some(0x60 + u32::from(digit - b'0'));
     }
-
-    match code {
-        "Space" => Some("Space".to_string()),
-        "Minus" => Some("-".to_string()),
-        "Equal" => Some("=".to_string()),
-        "BracketLeft" => Some("[".to_string()),
-        "BracketRight" => Some("]".to_string()),
-        "Backslash" => Some("\\".to_string()),
-        "Semicolon" => Some(";".to_string()),
-        "Quote" => Some("'".to_string()),
-        "Comma" => Some(",".to_string()),
-        "Period" => Some(".".to_string()),
-        "Slash" => Some("/".to_string()),
-        "Backquote" => Some("`".to_string()),
-        "Escape" => Some("Esc".to_string()),
-        "Tab" => Some("Tab".to_string()),
-        "Enter" => Some("Enter".to_string()),
-        "ArrowUp" => Some("Up".to_string()),
-        "ArrowDown" => Some("Down".to_string()),
-        "ArrowLeft" => Some("Left".to_string()),
-        "ArrowRight" => Some("Right".to_string()),
-        "Insert" => Some("Insert".to_string()),
-        "Delete" => Some("Delete".to_string()),
-        "Home" => Some("Home".to_string()),
-        "End" => Some("End".to_string()),
-        "PageUp" => Some("PageUp".to_string()),
-        "PageDown" => Some("PageDown".to_string()),
-        _ => match key {
-            "Control" | "Shift" | "Alt" | "Meta" => None,
-            _ if key.chars().count() == 1 => Some(key.to_uppercase()),
-            _ => None,
-        },
-    }
+    let scan = if let Some(letter) = code.strip_prefix("Key") {
+        let [letter @ b'A'..=b'Z'] = letter.as_bytes() else {
+            return None;
+        };
+        const LETTER_SCANS: [u32; 26] = [
+            0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23, 0x17, 0x24, 0x25, 0x26, 0x32, 0x31,
+            0x18, 0x19, 0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D, 0x15, 0x2C,
+        ];
+        LETTER_SCANS[(letter - b'A') as usize]
+    } else if let Some(digit) = code.strip_prefix("Digit") {
+        let [digit @ b'0'..=b'9'] = digit.as_bytes() else {
+            return None;
+        };
+        if *digit == b'0' {
+            0x0B
+        } else {
+            u32::from(digit - b'0') + 1
+        }
+    } else {
+        match code {
+            "Minus" => 0x0C,
+            "Equal" => 0x0D,
+            "BracketLeft" => 0x1A,
+            "BracketRight" => 0x1B,
+            "Semicolon" => 0x27,
+            "Quote" => 0x28,
+            "Backquote" => 0x29,
+            "Backslash" => 0x2B,
+            "Comma" => 0x33,
+            "Period" => 0x34,
+            "Slash" => 0x35,
+            "IntlBackslash" => 0x56,
+            "IntlRo" => 0x73,
+            "IntlYen" => 0x7D,
+            _ => return None,
+        }
+    };
+    let vk = unsafe { MapVirtualKeyExW(scan, MAPVK_VSC_TO_VK_EX, Some(layout)) };
+    (vk != 0).then_some(vk)
 }
 
-fn map_virtual_key(code: &str, key: &str) -> Option<u32> {
-    if let Some(letter) = code.strip_prefix("Key") {
-        return letter.as_bytes().first().copied().map(u32::from);
+fn named_key(code: &str) -> Option<u32> {
+    if let Some(number) = code.strip_prefix('F') {
+        let index = number.parse::<u32>().ok()?;
+        return ((1..=24).contains(&index) && number == index.to_string()).then(|| 0x6F + index);
     }
-    if let Some(digit) = code.strip_prefix("Digit") {
-        return digit.as_bytes().first().copied().map(u32::from);
-    }
-    if let Some(number) = code.strip_prefix('F')
-        && let Ok(index) = number.parse::<u32>()
-    {
-        return (1..=24).contains(&index).then_some(111 + index);
-    }
-
     Some(match code {
-        "Space" => 0x20,
+        "Backspace" => 0x08,
         "Tab" => 0x09,
-        "Enter" => 0x0D,
+        "Clear" => 0x0C,
+        "Enter" | "NumpadEnter" => 0x0D,
+        "Pause" => 0x13,
+        "CapsLock" => 0x14,
+        "KanaMode" => 0x15,
         "Escape" => 0x1B,
+        "Convert" => 0x1C,
+        "NonConvert" => 0x1D,
+        "Space" | " " => 0x20,
+        "PageUp" => 0x21,
+        "PageDown" => 0x22,
+        "End" => 0x23,
+        "Home" => 0x24,
         "ArrowLeft" => 0x25,
         "ArrowUp" => 0x26,
         "ArrowRight" => 0x27,
         "ArrowDown" => 0x28,
+        "PrintScreen" => 0x2C,
         "Insert" => 0x2D,
         "Delete" => 0x2E,
-        "Home" => 0x24,
-        "End" => 0x23,
-        "PageUp" => 0x21,
-        "PageDown" => 0x22,
-        "Minus" => 0xBD,
-        "Equal" => 0xBB,
-        "BracketLeft" => 0xDB,
-        "BracketRight" => 0xDD,
-        "Backslash" => 0xDC,
-        "Semicolon" => 0xBA,
-        "Quote" => 0xDE,
-        "Comma" => 0xBC,
-        "Period" => 0xBE,
-        "Slash" => 0xBF,
-        "Backquote" => 0xC0,
-        _ => {
-            return normalize_key_name(key, code)
-                .and_then(|name| name.as_bytes().first().copied())
-                .map(u32::from);
-        }
+        "Help" => 0x2F,
+        "ContextMenu" => 0x5D,
+        "Sleep" => 0x5F,
+        "NumpadMultiply" => 0x6A,
+        "NumpadAdd" => 0x6B,
+        "NumpadComma" => 0x6C,
+        "NumpadSubtract" => 0x6D,
+        "NumpadDecimal" => 0x6E,
+        "NumpadDivide" => 0x6F,
+        "NumLock" => 0x90,
+        "ScrollLock" => 0x91,
+        "BrowserBack" => 0xA6,
+        "BrowserForward" => 0xA7,
+        "BrowserRefresh" => 0xA8,
+        "BrowserStop" => 0xA9,
+        "BrowserSearch" => 0xAA,
+        "BrowserFavorites" => 0xAB,
+        "BrowserHome" => 0xAC,
+        "AudioVolumeMute" => 0xAD,
+        "AudioVolumeDown" => 0xAE,
+        "AudioVolumeUp" => 0xAF,
+        "MediaTrackNext" => 0xB0,
+        "MediaTrackPrevious" => 0xB1,
+        "MediaStop" => 0xB2,
+        "MediaPlayPause" => 0xB3,
+        "LaunchMail" => 0xB4,
+        "MediaSelect" => 0xB5,
+        "LaunchApp1" => 0xB6,
+        "LaunchApp2" => 0xB7,
+        _ => return None,
     })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::from_web_event;
-    use crate::hotkey::{MOD_CONTROL, MOD_SHIFT};
-
-    #[test]
-    fn web_event_maps_to_windows_binding_and_canonical_label() {
-        let hotkey = from_web_event("k", "KeyK", true, false, true, false).unwrap();
-        assert_eq!(hotkey.code, 0x4B);
-        assert_eq!(hotkey.modifiers, MOD_CONTROL | MOD_SHIFT);
-        assert_eq!(hotkey.name, "Ctrl+Shift+K");
-    }
-
-    #[test]
-    fn modifier_only_and_out_of_range_function_keys_are_rejected() {
-        assert!(from_web_event("Control", "ControlLeft", true, false, false, false).is_none());
-        assert!(from_web_event("F25", "F25", false, false, false, false).is_none());
-    }
-}
+#[path = "web_binding_tests.rs"]
+mod tests;

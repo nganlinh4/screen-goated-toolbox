@@ -144,7 +144,7 @@ impl Config {
             if h.code == vk && h.modifiers == mods {
                 return Some(HotkeyConflict::Global {
                     owner: GlobalHotkeyOwner::ScreenRecord,
-                    hotkey_name: h.name.clone(),
+                    hotkey_name: h.display_name(),
                 });
             }
         }
@@ -153,7 +153,7 @@ impl Config {
             if h.code == vk && h.modifiers == mods {
                 return Some(HotkeyConflict::Global {
                     owner: GlobalHotkeyOwner::TranslationGummy,
-                    hotkey_name: h.name.clone(),
+                    hotkey_name: h.display_name(),
                 });
             }
         }
@@ -162,7 +162,7 @@ impl Config {
             if h.code == vk && h.modifiers == mods {
                 return Some(HotkeyConflict::Global {
                     owner: GlobalHotkeyOwner::ScreenTranslate,
-                    hotkey_name: h.name.clone(),
+                    hotkey_name: h.display_name(),
                 });
             }
         }
@@ -171,7 +171,7 @@ impl Config {
             if h.code == vk && h.modifiers == mods {
                 return Some(HotkeyConflict::Global {
                     owner: GlobalHotkeyOwner::LiveTranslate,
-                    hotkey_name: h.name.clone(),
+                    hotkey_name: h.display_name(),
                 });
             }
         }
@@ -180,7 +180,7 @@ impl Config {
             if h.code == vk && h.modifiers == mods {
                 return Some(HotkeyConflict::Global {
                     owner: GlobalHotkeyOwner::ComputerControl,
-                    hotkey_name: h.name.clone(),
+                    hotkey_name: h.display_name(),
                 });
             }
         }
@@ -192,7 +192,7 @@ impl Config {
             for h in &preset.hotkeys {
                 if h.code == vk && h.modifiers == mods {
                     return Some(HotkeyConflict::Preset {
-                        hotkey_name: h.name.clone(),
+                        hotkey_name: h.display_name(),
                         preset_name: preset.name.clone(),
                     });
                 }
@@ -209,8 +209,8 @@ mod tests {
 
     #[test]
     fn computer_control_hotkeys_participate_in_global_conflict_checks() {
-        let global_key = Hotkey::new(0x75, "F6", 0);
-        let preset_key = Hotkey::new(0x41, "Ctrl + A", crate::hotkey::MOD_CONTROL);
+        let global_key = Hotkey::new(0x75, 0);
+        let preset_key = Hotkey::new(0x41, crate::hotkey::MOD_CONTROL);
         let config = Config {
             computer_control_hotkeys: vec![global_key.clone()],
             presets: vec![Preset {
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn live_translate_hotkeys_participate_in_global_conflict_checks() {
-        let hotkey = Hotkey::new(0x76, "F7", 0);
+        let hotkey = Hotkey::new(0x76, 0);
         let config = Config {
             live_translate: crate::config::types::LiveTranslateSettings {
                 hotkeys: vec![hotkey.clone()],

@@ -25,7 +25,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .build(),
                 ])
                 .build();
-            preset.hotkeys.push(Hotkey::new(192, "` / ~", 0));
+            preset.hotkeys.push(Hotkey::new(192, 0));
             preset
         },
 
@@ -305,10 +305,7 @@ mod tests {
             .iter()
             .find(|preset| preset.id == "preset_translate")
             .unwrap();
-        assert_eq!(
-            translate.hotkeys,
-            vec![crate::config::Hotkey::new(192, "` / ~", 0)]
-        );
+        assert_eq!(translate.hotkeys, vec![crate::config::Hotkey::new(192, 0)]);
         for retired_id in [
             "preset_extract_retranslate",
             "preset_extract_retrans_retrans",

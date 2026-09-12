@@ -35,12 +35,7 @@ mod unpack_dlls;
 mod usage_stats;
 mod win_types;
 
-mod hotkey {
-    pub const MOD_ALT: u32 = 0x0001;
-    pub const MOD_CONTROL: u32 = 0x0002;
-    pub const MOD_SHIFT: u32 = 0x0004;
-    pub const MOD_WIN: u32 = 0x0008;
-}
+mod hotkey;
 
 pub struct AppState {
     pub config: config::Config,

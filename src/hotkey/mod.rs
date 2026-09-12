@@ -1,6 +1,8 @@
 // --- HOTKEY MODULE ---
 // Hotkey registration, listener, and mouse hook.
 
+mod modifiers;
+pub(crate) mod names;
 mod processor;
 pub(crate) mod web_binding;
 
@@ -9,6 +11,7 @@ pub use processor::hotkey_proc;
 use crate::APP;
 use crate::config::Hotkey;
 use crate::win_types::{SendHhook, SendHwnd};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader::*;
@@ -20,10 +23,7 @@ use windows::core::*;
 // definition for the whole crate — imported by gui/app, translation_gummy, and
 // the screen-record IPC hotkey parser. NOTE: distinct from the u8 wire encoding
 // in screen_record/input_capture.rs.
-pub const MOD_ALT: u32 = 0x0001;
-pub const MOD_CONTROL: u32 = 0x0002;
-pub const MOD_SHIFT: u32 = 0x0004;
-pub const MOD_WIN: u32 = 0x0008;
+pub use modifiers::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 
 // Message constants
 pub const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
@@ -76,7 +76,7 @@ fn registration_outcome(
         Some(os_error) => Err(HotkeyRegistrationFailure {
             group,
             registration_id,
-            hotkey_name: hotkey.name.clone(),
+            hotkey_name: hotkey.display_name(),
             os_error,
         }),
     }
@@ -123,9 +123,37 @@ fn register_and_track(
 static LISTENER_HWND: LazyLock<Mutex<SendHwnd>> = LazyLock::new(|| Mutex::new(SendHwnd::default()));
 /// Global handle for the mouse hook.
 static MOUSE_HOOK: LazyLock<Mutex<SendHhook>> = LazyLock::new(|| Mutex::new(SendHhook::default()));
+static BINDING_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
+static REGISTRATION_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_binding_capture(active: bool) {
+    if BINDING_CAPTURE_ACTIVE.swap(active, Ordering::SeqCst) == active {
+        return;
+    }
+    if let Ok(hwnd) = LISTENER_HWND.lock()
+        && !hwnd.0.is_invalid()
+    {
+        unsafe {
+            let _ = PostMessageW(
+                Some(hwnd.0),
+                if active {
+                    WM_UNREGISTER_HOTKEYS
+                } else {
+                    WM_REGISTER_HOTKEYS
+                },
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    }
+}
 
 /// Register all hotkeys from config.
 pub fn register_all_hotkeys(hwnd: HWND) {
+    if BINDING_CAPTURE_ACTIVE.load(Ordering::SeqCst) {
+        return;
+    }
+    REGISTRATION_ENABLED.store(true, Ordering::SeqCst);
     let mut app = APP.lock().unwrap();
     let presets = &app.config.presets;
 
@@ -223,6 +251,7 @@ pub fn register_all_hotkeys(hwnd: HWND) {
 
 /// Unregister all hotkeys.
 pub fn unregister_all_hotkeys(hwnd: HWND) {
+    REGISTRATION_ENABLED.store(false, Ordering::SeqCst);
     let registered_ids = {
         let mut app = APP.lock().unwrap();
         std::mem::take(&mut app.registered_hotkey_ids)
@@ -245,6 +274,10 @@ pub(crate) fn reload_registrations() {
 
 /// Low-Level Mouse Hook Procedure.
 unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if BINDING_CAPTURE_ACTIVE.load(Ordering::SeqCst) || !REGISTRATION_ENABLED.load(Ordering::SeqCst)
+    {
+        return unsafe { CallNextHookEx(None, code, wparam, lparam) };
+    }
     unsafe {
         if code >= 0 {
             let msg = wparam.0 as u32;
@@ -480,7 +513,7 @@ mod tests {
 
     #[test]
     fn registration_outcome_tracks_success_and_structured_failure() {
-        let hotkey = Hotkey::new(0x75, "Ctrl + F6", MOD_CONTROL);
+        let hotkey = Hotkey::new(0x75, MOD_CONTROL);
 
         assert_eq!(
             registration_outcome(

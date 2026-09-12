@@ -35,7 +35,9 @@ pub unsafe extern "system" fn hotkey_proc(
     unsafe {
         match msg {
             WM_HOTKEY => {
-                handle_hotkey(wparam.0 as i32);
+                if !super::BINDING_CAPTURE_ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
+                    handle_hotkey(wparam.0 as i32);
+                }
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
@@ -230,7 +232,7 @@ fn handle_screen_translate_hotkey(id: i32) {
         .and_then(|app| app.config.screen_translate.hotkeys.get(index).cloned())
     {
         overlay::continuous_mode::set_current_hotkey(hotkey.modifiers, hotkey.code);
-        overlay::continuous_mode::set_latest_hotkey_name(hotkey.name);
+        overlay::continuous_mode::set_latest_hotkey_name(hotkey.display_name());
     }
     if !is_repeat {
         handle_image_capture_target(target, id, None);
@@ -267,9 +269,9 @@ fn get_preset_context(id: i32, preset_idx: usize) -> (String, String, bool, Stri
             let hk = &p.hotkeys[hk_idx];
             if overlay::continuous_mode::supports_continuous_mode(&p_type) {
                 overlay::continuous_mode::set_current_hotkey(hk.modifiers, hk.code);
-                overlay::continuous_mode::set_latest_hotkey_name(hk.name.clone());
+                overlay::continuous_mode::set_latest_hotkey_name(hk.display_name());
             }
-            hk.name.clone()
+            hk.display_name()
         } else {
             String::new()
         };
