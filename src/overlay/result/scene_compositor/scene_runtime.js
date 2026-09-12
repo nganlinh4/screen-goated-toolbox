@@ -70,10 +70,11 @@ function ensureCard(id) {
   backdrop.hidden = true;
   const visualSurface = document.createElement('div');
   visualSurface.className = 'card-visual-surface';
-  const processing = window.__SGT_CREATE_PROCESSING_AURA__();
+  const processing = window.__SGT_CREATE_RECTANGLE_GLOW__();
   card.appendChild(backdrop);
   card.appendChild(directHost);
-  card.appendChild(frame);
+  // A detached iframe has no browsing context. Direct text cards must not pay
+  // for an unused document (and recreate it when their surface is reparented).
   card.appendChild(processing.element);
   scene.appendChild(card);
   entry = {
@@ -381,6 +382,9 @@ function loadIsolatedDocument(entry, documentHtml) {
   entry.frame.removeAttribute('src');
   entry.frame.srcdoc = documentHtml.replace('__SGT_CARD_FRAME_IDENTITY__',
     entry.card.dataset.id + ':' + entry.revision);
+  if (!entry.frame.isConnected) {
+    (entry.sourceReplacement ? entry.visualSurface : entry.card).appendChild(entry.frame);
+  }
 }
 function selectSurface(entry, documentHtml) {
   const changed = documentKey(entry.document) !== documentKey(documentHtml);

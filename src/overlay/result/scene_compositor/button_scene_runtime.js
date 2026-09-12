@@ -34,6 +34,7 @@
     if (controlsHiddenForDrag) return;
     controlsHiddenForDrag = true;
     document.getElementById('button-container').style.visibility = 'hidden';
+    window.__SGT_PROCESSING_CONTROLS__?.hide(true);
     clearClickableRegions();
   }
 
@@ -54,7 +55,9 @@
     const scale = window.devicePixelRatio || 1;
     const windows = {};
     for (const [key, model] of models) {
-      if (!model.visible || !model.controlRect || !model.controls || model.controls.hidden) continue;
+      const sourceGeometry = controlGeometry.get(model, models, scale);
+      const processing = sourceGeometry?.source ? window.__SGT_PROCESSING_CONTOURS__?.controlState(key) : null;
+      if ((!model.visible && !processing) || !model.controlRect || !model.controls || model.controls.hidden) continue;
       windows[key] = {
         rect: {
           x: model.controlRect.x / scale,
@@ -63,12 +66,15 @@
           h: model.controlRect.height / scale
         },
         state: model.controls,
-        sourceGeometry: controlGeometry.get(model, models, scale)
+        previewOnly: !model.visible,
+        processing,
+        sourceGeometry
       };
     }
     if (restoreControlsAfterLayout) {
       container.style.visibility = '';
       controlsHiddenForDrag = false;
+      window.__SGT_PROCESSING_CONTROLS__?.hide(false);
     }
     window.updateWindows(windows);
     if (restoreGestureId !== undefined) {
@@ -84,7 +90,9 @@
   }
 
   function apply(command) {
-    if (command.type === 'snapshot') {
+    if (command.type === 'processing') {
+      rebuild(); return;
+    } else if (command.type === 'snapshot') {
       models.clear();
       controlGeometry.clear();
       for (const card of command.cards || []) mergeCard(card);
@@ -169,6 +177,7 @@
   }
 
   function tryPulseCompletion(key) {
+    if (window.__SGT_PROCESSING_CONTOURS__?.controlState(key)) return;
     const model = models.get(key);
     const token = Number(model?.controls?.onboardingPulseToken || 0);
     if (!token || completionPulseTokens.get(key) === token) return;

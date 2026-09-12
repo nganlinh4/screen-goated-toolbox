@@ -15,6 +15,7 @@ pub(crate) mod geometry;
 mod incremental;
 mod inference;
 mod inference_telemetry;
+mod processing;
 mod render;
 mod render_scene;
 #[cfg(debug_assertions)]

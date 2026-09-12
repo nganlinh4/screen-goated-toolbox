@@ -4,6 +4,7 @@ use super::protocol::HostCommand;
 pub(super) fn apply(command: &HostCommand) {
     let mut cards = CARDS.lock().unwrap();
     match command {
+        HostCommand::Processing { effects } => super::processing::apply(effects),
         HostCommand::Snapshot { cards: snapshot } => {
             cards.clear();
             cards.extend(snapshot.iter().cloned().map(|card| (card.id, card)));

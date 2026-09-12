@@ -55,6 +55,7 @@ pub(super) fn queue_snapshot() {
     pending
         .commands
         .replace_with_snapshot(super::parent::scene_snapshot());
+    pending.commands.push(super::processing::snapshot());
     pending.commands.push(HostCommand::Theme {
         theme: super::parent::current_theme(),
     });
@@ -128,6 +129,7 @@ fn take_pending() -> DeliveryBatch {
         pending
             .commands
             .replace_with_snapshot(super::parent::scene_snapshot());
+        pending.commands.push(super::processing::snapshot());
         pending.commands.push(HostCommand::Theme {
             theme: super::parent::current_theme(),
         });

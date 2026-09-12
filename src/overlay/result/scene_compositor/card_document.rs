@@ -75,7 +75,14 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
         .replace("__SGT_DIRECT_RUNTIME__", &direct_runtime)
         .replace(
             "__SGT_PROCESSING_RUNTIME__",
-            include_str!("processing_runtime.js"),
+            &[
+                include_str!("rectangle_glow.js"),
+                include_str!("contour_field.js"),
+                include_str!("contour_motion.js"),
+                include_str!("contour_gpu.js"),
+                include_str!("contour_runtime.js"),
+            ]
+            .concat(),
         )
         .replace(
             "__SGT_RESIZE_TYPOGRAPHY_RUNTIME__",

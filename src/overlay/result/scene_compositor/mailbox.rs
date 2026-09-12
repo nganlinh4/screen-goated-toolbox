@@ -147,7 +147,8 @@ impl CommandBuffer {
 
 fn can_replace_adjacent(previous: &HostCommand, next: &HostCommand) -> bool {
     match (previous, next) {
-        (HostCommand::Theme { .. }, HostCommand::Theme { .. })
+        (HostCommand::Processing { .. }, HostCommand::Processing { .. })
+        | (HostCommand::Theme { .. }, HostCommand::Theme { .. })
         | (HostCommand::ExternalDrag { .. }, HostCommand::ExternalDrag { .. }) => true,
         (HostCommand::Opacity { id: previous, .. }, HostCommand::Opacity { id: next, .. })
         | (HostCommand::Raise { id: previous, .. }, HostCommand::Raise { id: next, .. }) => {

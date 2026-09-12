@@ -1,5 +1,6 @@
 window.applyHostCommand = function(command) {
-  if (command.type === 'snapshot') {
+  if (command.type === 'processing') window.__SGT_PROCESSING_CONTOURS__.apply(command.effects);
+  else if (command.type === 'snapshot') {
     const incoming = new Set(command.cards.map(card => String(card.id)));
     for (const key of cards.keys()) if (!incoming.has(key)) removeCard(key);
     for (const card of command.cards) upsertCard(card);

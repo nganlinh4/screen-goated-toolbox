@@ -151,6 +151,7 @@ fn spawn_process() -> anyhow::Result<()> {
             theme: super::parent::current_theme(),
         },
     )?;
+    write_to(&mut stdin, &super::processing::snapshot())?;
 
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let pid = child.id();

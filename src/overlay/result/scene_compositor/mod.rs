@@ -21,6 +21,7 @@ mod mailbox;
 mod native_verification;
 mod parent;
 mod pointer_input;
+mod processing;
 pub(crate) mod protocol;
 mod reconciliation;
 mod region;
@@ -38,6 +39,7 @@ pub use parent::{
     defer_window_sync, go_back, go_forward, raise_window, register_window, remove_window,
     sync_geometry, sync_window, update_theme, warmup,
 };
+pub(crate) use processing::ProcessingGlow;
 pub(crate) use scene_groups::{
     SourceCardHandle, SourceCardSpec, SourceGroupHandle, SourceGroupRestoreSnapshot,
     group_ids as source_group_ids, is_group_alive as source_group_is_alive, prewarm_source_group,

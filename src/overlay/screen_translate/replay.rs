@@ -103,7 +103,7 @@ fn replay(run_directory: &Path, output: &Path) -> Result<usize> {
     let (job_id, _) = super::runtime::begin_job();
     let trace_id = format!("screen-translate-replay-{job_id}");
     crate::overlay::result::latency::begin(&trace_id);
-    let (mut overlay, _) = super::render::start(job_id, capture, candidates, &trace_id, units)?;
+    let mut overlay = super::render::start(job_id, capture, candidates, &trace_id, units, None)?;
     for region in &document.regions {
         overlay.send(region.clone());
     }

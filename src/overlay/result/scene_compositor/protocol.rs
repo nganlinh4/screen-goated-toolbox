@@ -168,6 +168,19 @@ pub struct SceneTheme {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ProcessingVisual {
+    pub id: u64,
+    #[serde(default)]
+    pub control_id: Option<isize>,
+    pub rect: SceneRect,
+    pub cells: Vec<[i32; 4]>,
+    pub revision: u64,
+    pub elapsed_ms: u64,
+    pub closing: bool,
+    pub finish: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ButtonAction {
     Copy,
@@ -200,6 +213,9 @@ pub enum DragOutcome {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HostCommand {
+    Processing {
+        effects: Vec<ProcessingVisual>,
+    },
     Snapshot {
         cards: Vec<SceneCard>,
     },
@@ -284,6 +300,14 @@ impl RendererFailureKind {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChildEvent {
+    ProcessingFinished {
+        id: u64,
+    },
+    ProcessingDiagnostic {
+        id: u64,
+        phase: String,
+        duration_ms: f64,
+    },
     Ready,
     Heartbeat,
     StackChanged,

@@ -25,6 +25,16 @@ fn ordinary_cards_use_one_shared_document_runtime() {
     assert!(COMPOSED.contains("entry.mode = 'direct'"));
     assert!(COMPOSED.contains("applyDirectContent(entry, message)"));
     assert!(!COMPOSED.contains("frame.src = '/card.html'"));
+    let creation = COMPOSED
+        .split("function ensureCard(")
+        .nth(1)
+        .unwrap()
+        .split("function postCardMessage(")
+        .next()
+        .unwrap();
+    assert!(!creation.contains("appendChild(frame)"));
+    assert!(COMPOSED.contains("if (!entry.frame.isConnected)"));
+    assert!(COMPOSED.contains("if (entry.frame.isConnected) surface.appendChild(entry.frame)"));
 }
 
 #[test]
@@ -155,23 +165,18 @@ fn result_card_outline_does_not_bleed_into_the_control_gap() {
 
 #[test]
 fn refining_cards_own_a_compositor_only_processing_signal() {
-    assert!(COMPOSED.contains("window.__SGT_CREATE_PROCESSING_AURA__()"));
+    assert!(COMPOSED.contains("window.__SGT_CREATE_RECTANGLE_GLOW__()"));
     assert!(COMPOSED.contains("const processing = entry.refining || entry.navigationLoading"));
     assert!(!COMPOSED.contains("processing_effect"));
     assert!(COMPOSED.contains("entry.processing.resize(width, height, scale)"));
 
     let document = super::super::card_document::compositor_document("http://127.0.0.1:32123");
-    assert!(document.contains("motion.setAttribute('type', 'rotate')"));
-    assert!(document.contains("gradient.setAttribute('gradientUnits', 'userSpaceOnUse')"));
-    assert!(document.contains("const halfSpan = Math.hypot(width, height) / 2"));
-    assert!(document.contains("const edge = stroke"));
+    assert!(document.contains("gpu = window.__SGT_PROCESSING_GPU__(canvas)"));
     assert!(document.contains("entry.processing.setState(processing)"));
-    assert!(document.contains("processing-runner-glow"));
     assert!(!document.contains("stroke-dasharray"));
     assert!(!document.contains("processing-scan"));
     assert!(!document.contains("#00ff00"));
-    assert!(document.contains("--processing-track"));
-    assert!(document.contains("pathLength', '100'"));
+    assert!(document.contains("if (!element.childElementCount) allocate()"));
     assert!(document.contains("prefers-reduced-motion: reduce"));
 }
 

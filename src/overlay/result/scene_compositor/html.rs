@@ -10,14 +10,7 @@ body{font-family:'Google Sans Flex';user-select:none}
 .result-card{position:absolute;overflow:hidden;border-radius:var(--sgt-box-radius,__SGT_BOX_RADIUS_PX__px);pointer-events:auto;
   left:0;top:0;box-shadow:inset 0 0 0 1px var(--result-outline);contain:layout paint style;user-select:text}
 .result-card[data-presentation="text_only"]{background:transparent!important;box-shadow:none;border-radius:3px;pointer-events:auto;user-select:text}
-.processing-aura{position:absolute;inset:0;z-index:3;width:100%;height:100%;overflow:visible;
-  pointer-events:none;opacity:0;transition:opacity 120ms ease-out}
-.processing-track,.processing-runner-glow,.processing-runner{fill:none;vector-effect:non-scaling-stroke}
-.processing-track{stroke:var(--processing-track);stroke-linecap:round}
-.processing-runner-glow,.processing-runner{stroke-linecap:round;stroke-linejoin:round}
-.processing-runner{opacity:.88}
-.processing-runner-glow{opacity:.3;filter:blur(1.5px)}
-.result-card[data-processing="true"] .processing-aura{opacity:1}
+.processing-glow{position:absolute;inset:0;z-index:3;width:100%;height:100%;overflow:hidden;pointer-events:none;opacity:0}
 .result-card[data-surface="native"]{background:transparent!important;box-shadow:none!important}
 .region-backdrop{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;z-index:0}
 .card-visual-surface{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:auto}

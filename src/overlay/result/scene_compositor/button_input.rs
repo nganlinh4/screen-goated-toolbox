@@ -40,6 +40,10 @@ pub(super) fn handle_renderer_message(
         update_regions(&message);
         return RendererInput::RefreshRegion;
     }
+    if action == "processing_control_regions" {
+        super::processing::control_regions(&message);
+        return RendererInput::RefreshRegion;
+    }
     if action == "update_clickable_regions" {
         update_regions(&message);
         return RendererInput::RefreshRegion;

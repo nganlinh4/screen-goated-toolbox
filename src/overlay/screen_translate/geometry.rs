@@ -11,6 +11,20 @@ pub(crate) struct PixelRegion {
 pub(super) const MIN_READABLE_WIDTH: u32 = 4;
 pub(super) const MIN_READABLE_HEIGHT: u32 = 8;
 
+pub(super) fn processing_cells(
+    candidates: &[super::contract::DetectedTextRegion],
+    width: u32,
+    height: u32,
+) -> Vec<[i32; 4]> {
+    candidates
+        .iter()
+        .map(|candidate| {
+            let r = normalized_region(candidate.bounds, width, height);
+            [r.x as i32, r.y as i32, r.width as i32, r.height as i32]
+        })
+        .collect()
+}
+
 pub(crate) fn normalized_region(
     bounds: NormalizedBounds,
     image_width: u32,

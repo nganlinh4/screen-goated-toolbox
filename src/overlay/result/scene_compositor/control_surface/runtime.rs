@@ -117,7 +117,7 @@ function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false, gest
         const proximityOpacity = heldVisible || group.classList.contains('proximity-pinned')
             ? 1 : Math.max(0, Math.min(1, 1 - (dist / maxRadius)));
         const pulseOpacity = Math.max(0, Math.min(1, Number(group.dataset.pulseOpacity || 0)));
-        const opacity = Math.max(proximityOpacity, pulseOpacity);
+        const opacity = group.dataset.previewOnly === 'true' ? 0 : Math.max(proximityOpacity, pulseOpacity);
 
         group.style.opacity = opacity;
 

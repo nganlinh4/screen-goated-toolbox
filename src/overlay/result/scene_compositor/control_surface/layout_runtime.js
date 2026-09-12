@@ -59,6 +59,7 @@ function updateWindows(windowsData) {
         w: raw[2] / deviceScale, h: raw[3] / deviceScale });
     const monitors = controlMonitors.map(m => ({ bounds: rect(m.bounds), work: rect(m.work) }));
     const existingGroups = new Map();
+    const processingIds = new Set();
     container.querySelectorAll('.button-group').forEach(el => existingGroups.set(el.dataset.hwnd, el));
 
     for (const [hwnd, data] of Object.entries(windowsData)) {
@@ -76,6 +77,9 @@ function updateWindows(windowsData) {
             container.appendChild(group);
             controlResizeObserver.observe(group);
         } else existingGroups.delete(hwnd);
+        group.inert = Boolean(data.previewOnly);
+        group.dataset.previewOnly = data.previewOnly ? 'true' : 'false';
+        group.style.visibility = data.previewOnly ? 'hidden' : '';
 
         const { opacityPercent, ...structuralState } = state;
         const stateKey = JSON.stringify(structuralState) + ':' + controlFontRevision;
@@ -141,7 +145,12 @@ function updateWindows(windowsData) {
             group.style.top = 'auto';
             group.style.bottom = (screenH - (pos.y + pos.h)) + 'px';
         } else { group.style.top = pos.y + 'px'; group.style.bottom = 'auto'; }
+        if (data.processing) {
+            processingIds.add(data.processing.id);
+            window.__SGT_PROCESSING_CONTROLS__.layout(group, data.processing, work);
+        }
     }
+    window.__SGT_PROCESSING_CONTROLS__.retain(processingIds);
     existingGroups.forEach((el, key) => {
         controlResizeObserver.unobserve(el);
         el.remove();

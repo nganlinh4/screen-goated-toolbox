@@ -73,6 +73,7 @@ pub(super) fn update(
         rects.push(card.rect.clone());
         rects.push(card.control_rect.clone());
     }
+    rects.extend(super::processing::visual_rects());
     if rects.is_empty() {
         hide(hwnd);
         return true;
@@ -120,7 +121,9 @@ fn apply(hwnd: HWND, rects: &[SceneRect], width: i32, height: i32) -> bool {
         }
         if unchanged {
             let _ = DeleteObject(combined.into());
-        } else if SetWindowRgn(hwnd, Some(combined), true) == 0 {
+        // DirectComposition owns the pixels. Region changes must not request a
+        // GDI erase/repaint of the shared surface and its already-visible cards.
+        } else if SetWindowRgn(hwnd, Some(combined), false) == 0 {
             let _ = DeleteObject(combined.into());
             hide(hwnd);
             return false;

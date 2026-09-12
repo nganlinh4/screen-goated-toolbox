@@ -65,10 +65,10 @@ pub(super) fn start(
     candidates: std::sync::Arc<[DetectedTextRegion]>,
     trace_id: &str,
     units: Option<std::sync::Arc<[super::units::Unit]>>,
-) -> Result<(TranslationOverlay, Receiver<()>)> {
+    processing_id: Option<u64>,
+) -> Result<TranslationOverlay> {
     let origin = (capture.left, capture.top);
     let (command_sender, command_receiver) = std::sync::mpsc::channel();
-    let (visible_sender, visible_receiver) = std::sync::mpsc::sync_channel(1);
     let (completion_sender, completion_receiver) = std::sync::mpsc::sync_channel(1);
     let trace_id = trace_id.to_string();
     std::thread::Builder::new()
@@ -81,19 +81,16 @@ pub(super) fn start(
                 candidates,
                 trace_id,
                 command_receiver,
-                visible_sender,
                 completion_sender,
                 units,
+                processing_id,
             );
         })
         .context("screen translation overlay thread could not start")?;
-    Ok((
-        TranslationOverlay {
-            sender: command_sender,
-            completion: completion_receiver,
-        },
-        visible_receiver,
-    ))
+    Ok(TranslationOverlay {
+        sender: command_sender,
+        completion: completion_receiver,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -104,9 +101,9 @@ fn run_overlay_thread(
     candidates: std::sync::Arc<[DetectedTextRegion]>,
     trace_id: String,
     receiver: Receiver<RenderCommand>,
-    first_visible: SyncSender<()>,
     completion: SyncSender<Result<usize, String>>,
     units: Option<std::sync::Arc<[super::units::Unit]>>,
+    processing_id: Option<u64>,
 ) {
     let appearance_started = std::time::Instant::now();
     let mut candidates = candidates.to_vec();
@@ -147,6 +144,12 @@ fn run_overlay_thread(
     };
     let chain_id = format!("screen-translate-{job_id}");
     let controller = create_controller_window(origin, &controls, &chain_id, &trace_id);
+    if let Some(id) = processing_id {
+        crate::overlay::result::scene_compositor::ProcessingGlow::bind_controls(
+            id,
+            controller.0 as isize,
+        );
+    }
     let specs = scene
         .blocks
         .iter()
@@ -181,7 +184,6 @@ fn run_overlay_thread(
     crate::overlay::result::latency::mark(&trace_id, "scene_prewarmed");
     let mut translations = HashMap::new();
     let mut had_visible = false;
-    let mut first_visible = Some(first_visible);
     loop {
         pump_messages();
         if !crate::overlay::result::scene_compositor::source_group_is_alive(group) {
@@ -201,9 +203,6 @@ fn run_overlay_thread(
                 if refresh_blocks(&mut blocks, &translations, &scene, &trace_id, true) {
                     had_visible = true;
                     super::runtime::register_overlay(job_id, chain_id.clone());
-                    if let Some(sender) = first_visible.take() {
-                        let _ = sender.send(());
-                    }
                 }
             }
             Ok(RenderCommand::Complete(document)) => {
@@ -212,17 +211,14 @@ fn run_overlay_thread(
                 }
                 if refresh_blocks(&mut blocks, &translations, &scene, &trace_id, false) {
                     super::runtime::register_overlay(job_id, chain_id.clone());
-                    if let Some(sender) = first_visible.take() {
-                        let _ = sender.send(());
-                    }
                 }
                 let rendered = blocks
                     .iter()
                     .filter(|block| block.rendered_segments.is_some())
                     .count();
                 let _ = completion.send(Ok(rendered));
-                // An empty result must release the hidden controller and the
-                // first-visible waiter, just like an aborted translation.
+                // An empty result releases its hidden controller, just like
+                // an aborted translation.
                 if rendered == 0 {
                     close_source_overlay(group, controller);
                     return;

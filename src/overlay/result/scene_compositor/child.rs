@@ -307,7 +307,7 @@ fn drain_commands(hwnd: HWND) {
             width,
             height,
         );
-        if applied.is_hidden {
+        if applied.is_hidden && !super::processing::is_visible() {
             super::visual_region::hide(hwnd);
         } else if !super::visual_region::stack_below_input(hwnd, input_hwnd) {
             super::visual_region::hide(hwnd);
@@ -420,7 +420,13 @@ pub(super) fn handle_renderer_event(body: &str) {
                     });
                 }
                 match event {
+                    ChildEvent::ProcessingFinished { id } => {
+                        super::processing::child_finished(id);
+                        super::region::update(HWND(HOST_HWND.load(Ordering::SeqCst) as _), true);
+                        emit_event(event);
+                    }
                     ChildEvent::Navigation { .. }
+                    | ChildEvent::ProcessingDiagnostic { .. }
                     | ChildEvent::NavigationRequest { .. }
                     | ChildEvent::Interaction { .. }
                     | ChildEvent::ButtonAction { .. }

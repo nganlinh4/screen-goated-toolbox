@@ -110,7 +110,7 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
             )
         });
     let text = crate::gui::locale::LocaleText::get(&ui_language);
-    let processing = crate::overlay::process::ProcessingIndicator::show(RECT {
+    let processing = crate::overlay::result::scene_compositor::ProcessingGlow::show(RECT {
         left: region.left,
         top: region.top,
         right: region.left.saturating_add(region_width),
@@ -146,6 +146,8 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
     crate::overlay::result::latency::mark(&trace_id, "detector_complete");
     super::appearance::annotate_backgrounds(&region.image, &mut accepted);
     let candidates = std::sync::Arc::<[super::contract::DetectedTextRegion]>::from(accepted);
+    let mut processing = super::processing::Progress::new(processing);
+    processing.geometry(&candidates, region.width, region.height);
     crate::overlay::result::latency::mark(&trace_id, "background_analysis_complete");
     evidence.detected(&candidates, &detected.raw);
     if candidates.is_empty() {
@@ -156,12 +158,13 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         return Ok(());
     }
 
-    let (mut overlay, first_visible) = match super::render::start(
+    let mut overlay = match super::render::start(
         job_id,
         region,
         std::sync::Arc::clone(&candidates),
         &trace_id,
         None,
+        Some(processing.id()),
     ) {
         Ok(renderer) => renderer,
         Err(error) => {
@@ -170,19 +173,6 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         }
     };
     crate::overlay::result::latency::mark(&trace_id, "translation_dispatched");
-    let paint_trace_id = trace_id.clone();
-    std::thread::spawn(move || {
-        if first_visible.recv().is_ok()
-            && !crate::overlay::result::latency::wait_for_phase(
-                &paint_trace_id,
-                "first_painted",
-                std::time::Duration::from_secs(3),
-            )
-        {
-            crate::log_info!("[Screen Translate] first result paint acknowledgement timed out");
-        }
-        processing.close();
-    });
     let mut provider_started = false;
     let outcome = match super::inference::translate(
         super::inference::TranslateInput {
@@ -200,6 +190,7 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
                 provider_started = true;
                 crate::overlay::result::latency::mark(&trace_id, "provider_first_output");
             }
+            processing.resolved(&region.member_ids);
             overlay.send(region);
         },
     ) {
@@ -227,6 +218,7 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         }
         evidence.finish_with_warning(evidence_document, region_count, warning);
         crate::log_info!("[Screen Translate] ready regions={region_count}");
+        processing.finish();
     }
     Ok(())
 }

@@ -49,6 +49,7 @@ pub(crate) fn document_script() -> String {
         include_str!("source_dock.js"),
         include_str!("placement.js"),
         include_str!("source_geometry.js"),
+        include_str!("processing_preview.js"),
         include_str!("layout_runtime.js"),
         drag_runtime::get_javascript(),
         refine_runtime::get_javascript(),

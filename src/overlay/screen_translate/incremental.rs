@@ -47,7 +47,7 @@ pub(super) fn translate_region(
         .clone();
     let settings = config.screen_translate.clone();
     let model = settings.translation_model.clone();
-    let processing = crate::overlay::process::ProcessingIndicator::show(RECT {
+    let processing = crate::overlay::result::scene_compositor::ProcessingGlow::show(RECT {
         left: region.left,
         top: region.top,
         right: region.left.saturating_add(i32::try_from(region.width)?),
@@ -127,7 +127,7 @@ pub(super) fn translate_region(
         });
         let mut capture = Some(region);
         let mut untranslated = Vec::new();
-        let mut processing = Some(processing);
+        let mut processing = super::processing::Progress::new(processing);
         let mut overlay = None;
         let mut candidates = Vec::new();
         let mut indices = HashMap::new();
@@ -162,6 +162,7 @@ pub(super) fn translate_region(
                             .iter()
                             .map(|r| candidate(r, width, height))
                             .collect::<Result<Vec<_>>>()?;
+                        processing.geometry(&candidates, width, height);
                         indices = candidates
                             .iter()
                             .enumerate()
@@ -169,6 +170,7 @@ pub(super) fn translate_region(
                             .collect();
                         let units =
                             super::units::Plan::new(&capture.image, &mut candidates, &layout);
+                        processing.partition(&units.units);
                         evidence.as_ref().unwrap().units(&units.units, &layout);
                         groups = Some(groups::Groups::new(&units.candidates));
                         let render_units = Arc::from(units.units.clone());
@@ -180,26 +182,15 @@ pub(super) fn translate_region(
                         );
                         plan = Some(units);
                         if !candidates.is_empty() {
-                            let (renderer, visible) = super::render::start(
+                            let renderer = super::render::start(
                                 job_id,
                                 capture,
                                 Arc::from(candidates.clone()),
                                 &trace_id,
                                 Some(render_units),
+                                Some(processing.id()),
                             )?;
                             overlay = Some(renderer);
-                            let indicator = processing.take().unwrap();
-                            let paint_trace = trace_id.clone();
-                            std::thread::spawn(move || {
-                                if visible.recv().is_ok() {
-                                    crate::overlay::result::latency::wait_for_phase(
-                                        &paint_trace,
-                                        "first_painted",
-                                        Duration::from_secs(3),
-                                    );
-                                }
-                                indicator.close();
-                            });
                         }
                         crate::overlay::result::latency::mark(&trace_id, "geometry_ready");
                     }
@@ -222,6 +213,13 @@ pub(super) fn translate_region(
                         let plan = plan.as_mut().context("OCR preceded unit partition")?;
                         if let Some(id) = plan.complete(index, &candidates) {
                             groups.completed(id);
+                            if plan
+                                .candidates
+                                .iter()
+                                .any(|c| c.id == id && c.source_text.is_empty())
+                            {
+                                processing.resolved(&[id]);
+                            }
                         }
                         groups.observe_ready(&plan.candidates, std::time::Instant::now());
                     }
@@ -242,11 +240,13 @@ pub(super) fn translate_region(
                             );
                         }
                         if let Some(overlay) = overlay.as_mut() {
+                            processing.resolved(&region.member_ids);
                             overlay.send(region);
                         }
                     }
                     Ok(Message::BatchDone(result)) => {
                         let translated = result.map_err(anyhow::Error::msg)?;
+                        processing.resolved(&translated.unresolved);
                         untranslated.extend(translated.unresolved);
                         document.regions.extend(translated.document.regions);
                         translating = false;
@@ -333,6 +333,8 @@ pub(super) fn translate_region(
         drop(receiver);
         if result.is_err() {
             work_cancel.store(true, Ordering::Release);
+        } else {
+            processing.finish();
         }
         if let Err(error) = &result
             && let Some(evidence) = evidence.take()

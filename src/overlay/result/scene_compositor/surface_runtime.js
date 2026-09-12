@@ -275,7 +275,7 @@ function setSourceReplacementSurface(entry, enabled, backdropUrl) {
     background.appendChild(entry.backdrop);
     sourceBackdropLayer.appendChild(background);
     surface.appendChild(entry.directHost);
-    surface.appendChild(entry.frame);
+    if (entry.frame.isConnected) surface.appendChild(entry.frame);
     entry.card.insertBefore(surface, entry.processing.element);
   } else if (!enabled && surface.isConnected) {
     entry.card.insertBefore(entry.backdrop, surface);
@@ -283,7 +283,7 @@ function setSourceReplacementSurface(entry, enabled, backdropUrl) {
     entry.sourceBackdropSurface?.remove();
     entry.sourceBackdropSurface = null;
     entry.card.insertBefore(entry.directHost, surface);
-    entry.card.insertBefore(entry.frame, surface);
+    if (entry.frame.isConnected) entry.card.insertBefore(entry.frame, surface);
     surface.remove();
   }
 }

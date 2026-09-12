@@ -437,6 +437,14 @@ pub(super) fn scene_snapshot() -> Vec<SceneCard> {
 
 pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
     match event {
+        ChildEvent::ProcessingFinished { id } => super::processing::finished(id),
+        ChildEvent::ProcessingDiagnostic {
+            id,
+            phase,
+            duration_ms,
+        } => crate::log_info!(
+            "[ProcessingContour] id={id} phase={phase} duration_ms={duration_ms:.1}"
+        ),
         ChildEvent::StackChanged => crate::overlay::process::window::request_stack_reconciliation(),
         ChildEvent::FontReady { duration_ms } => crate::log_info!(
             "[ResultCompositor] bundled_font_ready generation={generation} duration_ms={duration_ms:.1}"
