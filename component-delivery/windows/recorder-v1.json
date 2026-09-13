@@ -2,18 +2,18 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "screen-recorder-5.5.2-f67b8fb2f050b82a.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.5.2-f67b8fb2f050b82a.zip",
+      "asset": "screen-recorder-5.5.3-d64324c186f3b733.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.5.3-d64324c186f3b733.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "f54fbda9a1e213201feff2e6b2439c6e166d27f3ef7d488274541f6912c41ad5",
-          "sizeBytes": 9527296
+          "sha256": "260c12a919662e2d13932edb2225751a631ca597d8564aaff1975882089182c5",
+          "sizeBytes": 9528320
         },
         {
           "path": "licenses/worker/THIRD-PARTY-LICENSES.json",
-          "sha256": "70f9ee2fbd2e20626617e2595b1d627bc0de719a54e46833eb2760960c2edbeb",
-          "sizeBytes": 4187511
+          "sha256": "86db2e61e2fbb98f9e65b083e4432282eca1aabdebf300cca7047a72ea947702",
+          "sizeBytes": 4186915
         },
         {
           "path": "licenses/worker/THIRD-PARTY-NOTICES.txt",
@@ -117,8 +117,8 @@
         },
         {
           "path": "web/assets/index.js",
-          "sha256": "456eba5baccba03bc1781b710fabb9148f8b7eb08c8f8cb1660e28807f50421d",
-          "sizeBytes": 644420
+          "sha256": "fa24ac14300ac73513231ac3aed90f4ac3b0894c7d4dc5d26363c51c3d717e26",
+          "sizeBytes": 644446
         },
         {
           "path": "web/assets/rolldown-runtime.js",
@@ -1042,10 +1042,10 @@
         }
       ],
       "id": "screen-recorder",
-      "sha256": "f67b8fb2f050b82aed0de9da6d679b6d39336fd966f7c1419761ac78b18fa10e",
-      "sizeBytes": 6020898,
-      "unpackedSizeBytes": 16390102,
-      "version": "5.5.2"
+      "sha256": "d64324c186f3b733075a84185b83d6329e4b54cbe83d6bf8572fd2287be9f308",
+      "sizeBytes": 6013446,
+      "unpackedSizeBytes": 16390556,
+      "version": "5.5.3"
     }
   ],
   "schemaVersion": 1
