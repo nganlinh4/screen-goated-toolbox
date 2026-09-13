@@ -21,20 +21,22 @@
   runtime catalog.
 - The catalog owns the generic image default, accuracy-sensitive image default,
   preset-specific model defaults, provider defaults, and both retry chains.
-  Gemini 3.5 Flash Lite is the broad image default because it combines
-  near-fastest small-image OCR with robust coordinate behavior. Built-in image
+  Qwen 3.6 is the generic image default because the latest complete run gives it
+  the strongest small-image OCR quality at the lowest full-result median; Qwen
+  3.8 remains its immediate clean successor. Built-in image
   translation and accuracy-labeled OCR pipelines, structured tables, fact
   checking, comprehensive extraction, and ask-image all follow that broad
   stable default. Catalog availability or priority-chain membership does not
   make a model a built-in preset default. Authority-bearing Computer/Phone
   Control keeps its separate catalog-owned model chain.
 - The fast text-arena seed uses Groq GPT-OSS 20B. The general image retry
-  chain keeps Gemini 3.5 Flash Lite first, then prioritizes the fast reliable
-  Groq and OpenRouter OCR endpoints before higher-variance fallbacks. The text
-  chain keeps Gemini 3.5 Flash Lite first for answer quality, with Groq
-  GPT-OSS 20B as its speed-specialized fallback before the remaining hosted
-  endpoints. Exact order remains owned only by the shared catalog and
-  fixture.
+  chain keeps Qwen 3.6 first and Qwen 3.8 second, then prioritizes reliable
+  broad-image and provider-diverse OCR endpoints before higher-variance
+  fallbacks. The text chain keeps Qwen 3.8 first, with Qwen 3.6 and Groq
+  GPT-OSS as fast fallbacks before the remaining hosted endpoints. Most slow or
+  lower-reliability endpoints remain selectable outside the bounded shipped
+  chain; its final OpenRouter row preserves a provider-diverse fallback. Exact
+  order remains owned only by the shared catalog and fixture.
 - The Windows one-time post-update recommendation prompt compares the staged
   preset models, priority chains, and recommended-provider defaults. Applying
   updates changed built-in model slots, restores both priority chains, and
@@ -179,14 +181,17 @@
   streaming provider response internally for liveness without exposing partial
   content. Every interactive HTTP call uses catalog full-completion latency as a
   bounded deadline baseline, with encoded request bytes contributing only a small
-  upload allowance. Connect, send, response-start, progress-idle, and per-attempt
-  deadlines follow the shared retry fixture. Every unique dispatched model gets
-  its full model-specific attempt budget; earlier attempts never consume a later
-  candidate's budget. The finite effective priority chain therefore bounds total
-  runtime by the sum of its dispatched attempt budgets, with no separate attempt
-  cap or primary-model whole-chain deadline. DNS, TLS, connect, and request-send
+  upload allowance. Connect, send, response-start, first-token, and unary attempt
+  deadlines follow the shared retry fixture. Streaming waits for the first
+  nonempty output token using `clamp(2 × catalog latency, 3000ms, 8000ms)`.
+  Headers, keepalives, and thinking do not satisfy that deadline. After output
+  begins, neither an idle nor whole-response deadline interrupts generation;
+  cancellation remains active. Unary responses retain bounded completion.
+  Every dispatched attempt gets a fresh initial budget; earlier attempts never
+  consume a later candidate's budget. There is no separate attempt cap or
+  primary-model whole-chain deadline. DNS, TLS, connect, and request-send
   failures block sibling endpoints from that provider for the current request;
-  response-start, progress-idle, and whole-attempt timeouts remain model-specific.
+  response-start, first-token, and unary attempt timeouts remain model-specific.
   Retryable failures continue until a model succeeds, the user cancels, a terminal
   error occurs, or all compatible unique candidates are exhausted. Request or
   image size may adjust time allowance but never model eligibility or ordering.

@@ -295,6 +295,11 @@ where
     F: FnMut(&str),
 {
     let model = payload["model"].as_str().unwrap_or_default();
+    let _deadline = crate::api::client::first_token::FirstTokenGuard::new(
+        transport.streaming_enabled,
+        transport.request_timeout,
+        transport.cancel_token,
+    );
     let mut rate_attempt = 0;
     let resp = loop {
         let request = UREQ_RESPONSE_AGENT

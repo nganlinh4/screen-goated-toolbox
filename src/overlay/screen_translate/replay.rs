@@ -92,28 +92,40 @@ fn replay(run_directory: &Path, output: &Path) -> Result<usize> {
     } else {
         None
     };
+    let (left, top) = super::capture::image_origin(image.width(), image.height());
     let capture = CapturedRegion {
         width: image.width(),
         height: image.height(),
         image,
-        left: 420,
-        top: 160,
+        left,
+        top,
     };
     let selection = (capture.left, capture.top, capture.width, capture.height);
+    if !crate::overlay::result::scene_compositor::wait_until_ready(std::time::Duration::from_secs(
+        15,
+    )) {
+        bail!("replay renderer did not become ready");
+    }
     let (job_id, _) = super::runtime::begin_job();
     let trace_id = format!("screen-translate-replay-{job_id}");
     crate::overlay::result::latency::begin(&trace_id);
+    // Replayed translations are already available; paint attribution must
+    // still wait for their cards rather than timing out silently.
+    crate::overlay::result::latency::mark(&trace_id, "provider_first_output");
     let mut overlay = super::render::start(job_id, capture, candidates, &trace_id, units, None)?;
     for region in &document.regions {
         overlay.send(region.clone());
     }
     let rendered = overlay.complete(document)?;
-    let _ = crate::overlay::result::latency::wait_for_window_phase_count(
+    let painted = crate::overlay::result::latency::wait_for_window_phase_count(
         &trace_id,
         "final_painted",
         rendered,
         std::time::Duration::from_secs(3),
     );
+    if painted < rendered {
+        bail!("replay painted {painted} of {rendered} result cells");
+    }
     let (image, _) = super::evidence_capture::capture_stable_selection(selection)?;
     let image = image::DynamicImage::ImageRgba8(image).to_rgb8();
     let file = std::fs::File::create(output)?;

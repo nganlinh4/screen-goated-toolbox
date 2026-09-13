@@ -41,6 +41,7 @@ declare -A ICONS=(
   ["expand_less"]="expand_less"
   ["expand_more"]="expand_more"
   ["fiber_smart_record"]="fiber_smart_record"
+  ["filter"]="filter"
   ["folder"]="folder"
   ["format_quote"]="format_quote"
   ["gamepad"]="gamepad"

@@ -27,7 +27,9 @@ def show_source(image_path: Path, ready_path: Path) -> None:
     image = Image.open(image_path).convert("RGB")
     root = tk.Tk()
     root.overrideredirect(True)
-    root.geometry(f"{image.width}x{image.height}+420+160")
+    left = max(0, min(420, ctypes.windll.user32.GetSystemMetrics(0) - image.width - 16))
+    top = max(0, min(160, ctypes.windll.user32.GetSystemMetrics(1) - image.height - 16))
+    root.geometry(f"{image.width}x{image.height}+{left}+{top}")
     root.attributes("-topmost", True)
     photo = ImageTk.PhotoImage(image)
     canvas = tk.Canvas(root, width=image.width, height=image.height, highlightthickness=0)
@@ -133,6 +135,9 @@ def run(case_directory: Path, timeout_seconds: int = 90) -> dict:
         shutil.copy2(run_directory / "result.jpg", output / "result.jpg")
         shutil.copy2(run_directory / "run.json", output / "run.json")
         shutil.copy2(run_directory / "source.jpg", output / "source.jpg")
+        for name in ("source.png", "units.json"):
+            if (run_directory / name).is_file():
+                shutil.copy2(run_directory / name, output / name)
         return {
             "resultUrl": f"inputs/{case_directory.name}/production-preview/result.jpg",
             "record": record,
@@ -151,7 +156,7 @@ def run(case_directory: Path, timeout_seconds: int = 90) -> dict:
 
 def rerender(case_directory: Path, timeout_seconds: int = 20) -> dict:
     output = case_directory / "production-preview"
-    source = output / "source.jpg"
+    source = output / ("source.png" if (output / "source.png").is_file() else "source.jpg")
     if not source.is_file() or not (output / "run.json").is_file():
         raise RuntimeError("Run production once before replaying layout")
     host = ensure_warm_host()

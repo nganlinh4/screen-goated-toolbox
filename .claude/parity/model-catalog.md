@@ -90,6 +90,11 @@
   head only after the production request path shows no output-restatement defect.
   A clean but less-proven successor occupies the second slot until that evidence
   is complete.
+- The 2026-09-11 protocol-13 catalog checkpoint keeps Qwen 3.8 as the text
+  head and restores Qwen 3.6 as the image head; Qwen 3.8 remains the immediate
+  image successor. The choice uses reviewed text quality and representative OCR
+  completion latency, with coordinate rows retained as separate control-task
+  evidence.
 - Every model-selection surface, including the Android node editor, observes
   live-feed revisions and applies the shared provider-enabled predicate. A
   newly offered NVIDIA endpoint therefore appears without reopening the editor,

@@ -96,7 +96,7 @@ where
         if let Some(document) = completed_document(candidates, &accepted, &covered) {
             return Ok(document.into());
         }
-        let prepared = prepare(
+        let mut prepared = prepare(
             &current,
             target_language,
             translation_prompt,
@@ -105,6 +105,15 @@ where
             prior_translations,
             &accepted,
         )?;
+        super::request::append_copy_review(&mut prepared, &pending, &copied_response)?;
+        if !copied_response.is_empty() {
+            crate::log_info!(
+                "[ScreenTranslateReview] trace={trace_id} model={} copied_units={} requested_units={}",
+                current.id,
+                copied_response.len(),
+                pending.len()
+            );
+        }
         let request_text = &prepared.text;
         let schema = &prepared.schema;
         let request_timeout = crate::retry_model_chain::interactive_request_timeouts(
@@ -195,9 +204,13 @@ where
                 |chunk| {
                     attempt_trace.observe_chunk(chunk);
                     for (_, region) in parser.push(chunk) {
+                        let region = super::translation_validation::retain_equivalent_draft(
+                            region,
+                            &copied_response,
+                        );
                         streamed_regions.push(region.clone());
-                        // An unchanged label is valid, but a wholly echoed batch
-                        // needs one independent attempt before accepting it.
+                        // Hold copies until we know whether a recovery is needed.
+                        // Equality alone never rejects an individual translation.
                         if confirm_copied_batch
                             && super::translation_validation::is_unconfirmed_copy(&region)
                         {
@@ -212,20 +225,41 @@ where
             );
             attempt_trace.transport_complete();
             attempt_trace.response(&transport);
+            let streamed_copies = if confirm_copied_batch {
+                streamed_regions
+                    .iter()
+                    .filter(|region| super::translation_validation::is_unconfirmed_copy(region))
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let response = transport
-                .and_then(|response| completed_response(&response, &pending, streamed_regions))
-                .and_then(|document| {
-                    if confirm_copied_batch
-                        && super::translation_validation::is_copied_batch(&document.regions)
-                    {
-                        copied_response = document.regions;
-                        bail!("translation response copied the complete text batch; independent confirmation required");
-                    }
-                    Ok(document)
-                });
+                .and_then(|response| completed_response(&response, &pending, streamed_regions));
+            if confirm_copied_batch {
+                copied_response = match &response {
+                    Ok(document) => super::translation_validation::copies_for_recovery(
+                        &document.regions,
+                        pending.len(),
+                    ),
+                    Err(_) => streamed_copies,
+                };
+            }
+            let structural_recovery = response
+                .as_ref()
+                .map_or(true, |document| document.regions.len() < pending.len());
             let error = match response {
                 Ok(document) => {
                     for region in document.regions {
+                        if confirm_copied_batch
+                            && copied_response.iter().any(|draft| draft.id == region.id)
+                        {
+                            continue;
+                        }
+                        let region = super::translation_validation::retain_equivalent_draft(
+                            region,
+                            &copied_response,
+                        );
                         if accept_region(&mut accepted, &mut covered, region.clone(), candidates) {
                             attempt_trace.observe_validated_region();
                             on_event(region);
@@ -288,7 +322,7 @@ where
                 release_model_probe(&current.id);
                 bail!("screen translation was cancelled");
             }
-            if confirm_copied_batch && !copied_response.is_empty() {
+            if confirm_copied_batch && !copied_response.is_empty() && !structural_recovery {
                 // A valid unchanged response is not a provider-health failure.
                 release_model_probe(&current.id);
             } else {
@@ -309,13 +343,16 @@ where
                 parser.rejected_count(),
             );
             if !confirm_copied_batch && !copied_response.is_empty() {
-                return Ok(finish_confirmation(
+                let outcome = finish_confirmation(
                     &mut copied_response,
                     &mut accepted,
                     &mut covered,
                     candidates,
                     &mut on_event,
-                ));
+                );
+                if outcome.unresolved.is_empty() {
+                    return Ok(outcome);
+                }
             }
         }
         let Some(next) = resolve_next_retry_model(

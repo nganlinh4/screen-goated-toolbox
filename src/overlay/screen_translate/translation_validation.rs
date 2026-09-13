@@ -23,3 +23,38 @@ pub(super) fn is_copied_batch(regions: &[TranslationRegion]) -> bool {
     }
     distinct.len() >= 2
 }
+
+/// Reuse a needed structural retry to review copies, without making every
+/// correctly preserved name trigger another request.
+pub(super) fn copies_for_recovery(
+    regions: &[TranslationRegion],
+    requested: usize,
+) -> Vec<TranslationRegion> {
+    if regions.len() >= requested && !is_copied_batch(regions) {
+        return Vec::new();
+    }
+    regions
+        .iter()
+        .filter(|region| is_unconfirmed_copy(region))
+        .cloned()
+        .collect()
+}
+
+/// Prefer the original spelling and formatting when review is source-equivalent.
+/// Equality does not justify introducing identifier edits.
+pub(super) fn retain_equivalent_draft(
+    region: TranslationRegion,
+    drafts: &[TranslationRegion],
+) -> TranslationRegion {
+    drafts
+        .iter()
+        .find(|draft| {
+            draft.id == region.id
+                && super::contract::text_is_source_equivalent(
+                    &draft.translated_segments.join(" "),
+                    &region.translated_segments.join(" "),
+                )
+        })
+        .cloned()
+        .unwrap_or(region)
+}

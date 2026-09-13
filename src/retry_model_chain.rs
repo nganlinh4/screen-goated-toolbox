@@ -23,7 +23,7 @@ const MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS: u64 = 3_000;
 #[cfg(not(feature = "recorder-worker"))]
 const INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER: u64 = 3;
 #[cfg(not(feature = "recorder-worker"))]
-const INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER: u64 = 2;
+const INTERACTIVE_FIRST_TOKEN_LATENCY_MULTIPLIER: u64 = 2;
 #[cfg(not(feature = "recorder-worker"))]
 const INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER: u64 = 4;
 #[cfg(not(feature = "recorder-worker"))]
@@ -37,9 +37,9 @@ const MIN_INTERACTIVE_RESPONSE_START_MS: u64 = 2_500;
 #[cfg(not(feature = "recorder-worker"))]
 const MAX_INTERACTIVE_RESPONSE_START_MS: u64 = 15_000;
 #[cfg(not(feature = "recorder-worker"))]
-const MIN_INTERACTIVE_PROGRESS_IDLE_MS: u64 = 2_000;
+const MIN_INTERACTIVE_FIRST_TOKEN_MS: u64 = 3_000;
 #[cfg(not(feature = "recorder-worker"))]
-const MAX_INTERACTIVE_PROGRESS_IDLE_MS: u64 = 8_000;
+const MAX_INTERACTIVE_FIRST_TOKEN_MS: u64 = 8_000;
 #[cfg(not(feature = "recorder-worker"))]
 const MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS: u64 = 5_000;
 #[cfg(not(feature = "recorder-worker"))]
@@ -128,7 +128,7 @@ pub fn interactive_request_timeouts(
     timeouts.total = (timeouts.total + generation)
         .min(Duration::from_millis(MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS));
     timeouts.response_start = (timeouts.response_start + generation).min(timeouts.total);
-    timeouts.progress_idle = (timeouts.progress_idle + generation).min(timeouts.total);
+    timeouts.first_token = (timeouts.first_token + generation).min(timeouts.total);
     timeouts
 }
 
@@ -180,12 +180,12 @@ fn request_timeouts_from_latency(
                 ),
         )
         .min(total),
-        progress_idle: Duration::from_millis(
+        first_token: Duration::from_millis(
             latency_ms
-                .saturating_mul(INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER)
+                .saturating_mul(INTERACTIVE_FIRST_TOKEN_LATENCY_MULTIPLIER)
                 .clamp(
-                    MIN_INTERACTIVE_PROGRESS_IDLE_MS,
-                    MAX_INTERACTIVE_PROGRESS_IDLE_MS,
+                    MIN_INTERACTIVE_FIRST_TOKEN_MS,
+                    MAX_INTERACTIVE_FIRST_TOKEN_MS,
                 ),
         )
         .min(total),

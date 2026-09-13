@@ -326,3 +326,87 @@ fn unavailable_confirmation_retains_valid_copies_and_partial_success() {
         );
     }
 }
+
+#[test]
+fn mixed_complete_batch_does_not_add_a_review_request() {
+    use super::super::translation_validation::copies_for_recovery;
+    let changed = translated(&candidate(1, 0));
+    let mut copied = translated(&candidate(2, 20));
+    copied.translated_segments = vec![copied.source_text.clone()];
+    assert!(copies_for_recovery(&[changed.clone(), copied.clone()], 2).is_empty());
+    assert_eq!(copies_for_recovery(&[changed, copied.clone()], 3), [copied]);
+}
+
+#[test]
+fn review_keeps_equivalent_draft_but_accepts_new_meaning() {
+    use super::super::translation_validation::retain_equivalent_draft;
+    let mut draft = translated(&candidate(1, 0));
+    draft.translated_segments = vec!["@Account_42".into()];
+    let mut review = draft.clone();
+    review.translated_segments = vec!["@account-42".into()];
+    assert_eq!(
+        retain_equivalent_draft(review.clone(), std::slice::from_ref(&draft)),
+        draft
+    );
+    review.translated_segments = vec!["translated words @Account_42".into()];
+    assert_eq!(
+        retain_equivalent_draft(review.clone(), std::slice::from_ref(&draft)),
+        review
+    );
+    review.id = 2;
+    review.translated_segments = vec!["@account-42".into()];
+    assert_eq!(retain_equivalent_draft(review.clone(), &[draft]), review);
+}
+
+#[test]
+fn failed_review_restores_copies_without_covering_missing_units() {
+    let candidates = vec![candidate(1, 0), candidate(2, 20), candidate(3, 40)];
+    let mut draft = translated(&candidates[1]);
+    draft.translated_segments = vec![draft.source_text.clone()];
+    let mut copied = vec![draft];
+    let mut accepted = vec![translated(&candidates[0])];
+    let mut covered = HashSet::from([1]);
+    let mut events = Vec::new();
+    let outcome = finish_confirmation(
+        &mut copied,
+        &mut accepted,
+        &mut covered,
+        &candidates,
+        &mut |region| events.push(region),
+    );
+    assert_eq!(outcome.unresolved, [3]);
+    assert_eq!(events.len(), 1);
+    assert_eq!(pending_candidates(&candidates, &covered), candidates[2..]);
+    assert!(copied.is_empty());
+}
+
+#[test]
+fn review_drafts_use_current_local_slots_and_do_not_leak_context_slots() {
+    use super::super::request::{PreparedTranslationRequest, append_copy_review};
+    let candidates = vec![candidate(9, 0), candidate(4, 20)];
+    let drafts = vec![
+        translated(&candidate(4, 20)),
+        translated(&candidate(99, 40)),
+    ];
+    let mut request = PreparedTranslationRequest {
+        text: String::new(),
+        instruction: String::new(),
+        schema: serde_json::json!({}),
+        max_output_tokens: 256,
+    };
+    append_copy_review(&mut request, &candidates, &drafts).unwrap();
+    let data: serde_json::Value =
+        serde_json::from_str(request.text.lines().last().unwrap()).unwrap();
+    assert_eq!(
+        data,
+        serde_json::json!([{"slot":1,"translation":"translated-4"}])
+    );
+    assert!(
+        request
+            .text
+            .contains("Do not change text merely to make it different")
+    );
+    let previous = request.text.clone();
+    append_copy_review(&mut request, &candidates, &[]).unwrap();
+    assert_eq!(request.text, previous);
+}

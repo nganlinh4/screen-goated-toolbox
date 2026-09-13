@@ -4,12 +4,12 @@ use super::cooldown::{
 };
 use super::{
     INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER, INTERACTIVE_CONNECT_TIMEOUT_MS,
-    INTERACTIVE_DEFAULT_LATENCY_MS, INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER,
+    INTERACTIVE_DEFAULT_LATENCY_MS, INTERACTIVE_FIRST_TOKEN_LATENCY_MULTIPLIER,
     INTERACTIVE_REQUEST_BYTES_PER_SECOND, INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER,
     INTERACTIVE_SEND_BASE_MS, InteractiveRequestWorkload, MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS,
-    MAX_INTERACTIVE_PROGRESS_IDLE_MS, MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS,
+    MAX_INTERACTIVE_FIRST_TOKEN_MS, MAX_INTERACTIVE_REQUEST_ALLOWANCE_MS,
     MAX_INTERACTIVE_RESPONSE_START_MS, MAX_INTERACTIVE_SEND_TIMEOUT_MS,
-    MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS, MIN_INTERACTIVE_PROGRESS_IDLE_MS,
+    MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS, MIN_INTERACTIVE_FIRST_TOKEN_MS,
     MIN_INTERACTIVE_RESPONSE_START_MS, RetryChainKind, UNBENCHMARKED_FEED_QUALITY_TIER,
     interactive_request_timeouts, preflight_skip_reason, record_model_success, release_model_probe,
     request_timeouts_from_latency, resolve_next_configured_model, resolve_next_retry_model,
@@ -47,24 +47,24 @@ fn response_workload_extends_generation_budget_but_remains_bounded() {
         Duration::from_millis(MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS)
     );
     assert!(huge.response_start <= huge.total);
-    assert!(huge.progress_idle <= huge.total);
+    assert!(huge.first_token <= huge.total);
 }
 
 #[test]
 fn interactive_timeouts_use_benchmark_latency_and_bounded_workload_allowance() {
     let fast = request_timeouts_from_latency(1_195, 4_487);
     assert_eq!(fast.response_start, Duration::from_millis(3_603));
-    assert_eq!(fast.progress_idle, Duration::from_millis(2_390));
+    assert_eq!(fast.first_token, Duration::from_secs(3));
     assert_eq!(fast.total, Duration::from_secs(5));
 
     let slow = request_timeouts_from_latency(1_788, 4_487);
     assert_eq!(slow.response_start, Duration::from_millis(5_382));
-    assert_eq!(slow.progress_idle, Duration::from_millis(3_576));
+    assert_eq!(slow.first_token, Duration::from_millis(3_576));
     assert_eq!(slow.total, Duration::from_millis(7_170));
 
     let bounded = request_timeouts_from_latency(u64::MAX, u64::MAX);
     assert_eq!(bounded.response_start, Duration::from_secs(15));
-    assert_eq!(bounded.progress_idle, Duration::from_secs(8));
+    assert_eq!(bounded.first_token, Duration::from_secs(8));
     assert_eq!(bounded.total, Duration::from_secs(30));
 }
 
@@ -101,8 +101,8 @@ fn interactive_deadline_constants_match_mobile_parity_fixture() {
         INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER
     );
     assert_eq!(
-        deadlines["progress_idle_latency_multiplier"],
-        INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER
+        deadlines["first_token_latency_multiplier"],
+        INTERACTIVE_FIRST_TOKEN_LATENCY_MULTIPLIER
     );
     assert_eq!(
         deadlines["attempt_latency_multiplier"],
@@ -117,12 +117,12 @@ fn interactive_deadline_constants_match_mobile_parity_fixture() {
         MAX_INTERACTIVE_RESPONSE_START_MS
     );
     assert_eq!(
-        deadlines["minimum_progress_idle_timeout_ms"],
-        MIN_INTERACTIVE_PROGRESS_IDLE_MS
+        deadlines["minimum_first_token_timeout_ms"],
+        MIN_INTERACTIVE_FIRST_TOKEN_MS
     );
     assert_eq!(
-        deadlines["maximum_progress_idle_timeout_ms"],
-        MAX_INTERACTIVE_PROGRESS_IDLE_MS
+        deadlines["maximum_first_token_timeout_ms"],
+        MAX_INTERACTIVE_FIRST_TOKEN_MS
     );
     assert_eq!(
         deadlines["minimum_attempt_timeout_ms"],
@@ -135,8 +135,17 @@ fn interactive_deadline_constants_match_mobile_parity_fixture() {
     assert!(deadlines["dispatch_attempt_cap"].is_null());
     assert_eq!(
         deadlines["chain_budget_mode"],
-        "sum_of_unique_dispatched_attempt_budgets"
+        "fresh_initial_budget_per_dispatched_attempt"
     );
+    assert_eq!(
+        deadlines["streaming_deadline_ends_on"],
+        "first_nonempty_output_token"
+    );
+    assert_eq!(
+        deadlines["headers_keepalives_and_thinking_satisfy_deadline"],
+        false
+    );
+    assert!(deadlines["streaming_post_first_token_timeout_ms"].is_null());
     assert_eq!(
         deadlines["chain_traversal"],
         "until_success_cancellation_terminal_error_or_exhaustion"
@@ -147,7 +156,7 @@ fn interactive_deadline_constants_match_mobile_parity_fixture() {
     );
     assert_eq!(
         deadlines["model_scoped_timeout_phases"],
-        serde_json::json!(["response_start", "progress_idle", "attempt"])
+        serde_json::json!(["response_start", "first_token", "attempt"])
     );
 }
 
@@ -157,7 +166,7 @@ fn live_corpus_passes_enter_as_capable_fallbacks_pending_offline_benchmark() {
 }
 
 #[test]
-fn every_interactive_request_receives_a_hard_deadline() {
+fn every_interactive_request_receives_a_bounded_initial_budget() {
     let config = Config::default();
     let model = "groq-qwen-3-8-27b-vision";
     let timeouts =
@@ -302,7 +311,7 @@ fn search_capable_retry_skips_incompatible_priority_candidates() {
     )
     .expect("image chain should produce a next model");
 
-    assert_eq!(next.id, "google-gemini-3-1-flash-lite-vision");
+    assert_eq!(next.id, "google-gemini-3-flash-vision");
     assert!(crate::model_config::model_supports_search_by_id_with_custom(&next.id, &[]));
     assert_ne!(next.id, "google-gemma-4-31b-vision");
 }

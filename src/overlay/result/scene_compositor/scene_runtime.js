@@ -306,7 +306,6 @@ function applyDirectContent(entry, message) {
       message.type === 'finalize' ? 'final' : 'stream', message.content_revision);
     if (message.type === 'finalize') entry.directRuntime.initGrids();
     if (entry.sourceReplacement === true && message.type === 'finalize') {
-      reportCardDiagnostic(entry.card.dataset.id, entry, 'final_fit_completed', {});
       revealSettledContent(entry, message.content_revision);
       window.__SGT_BUTTON_SCENE__?.pulseCompletion(entry.card.dataset.id);
     } else {

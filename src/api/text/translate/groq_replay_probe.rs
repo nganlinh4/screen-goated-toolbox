@@ -79,12 +79,24 @@ fn replay_structured_translation_modes() -> Result<()> {
                     "{}\n\n{prompt}",
                     content["instruction"].as_str().context("instruction")?
                 );
-                let cap = candidates
+                let config = crate::model_config::get_all_models()
                     .iter()
-                    .fold(64_u32, |n, r| {
-                        n.saturating_add(r.source_text.len() as u32 * 2 + 12)
-                    })
-                    .clamp(256, 8192);
+                    .find(|config| config.provider == "groq" && config.full_name == model)
+                    .context("saved model is not in the current catalog")?;
+                // Replay the saved prompt, but use the live completion budget,
+                // including the allowance for endpoints that require reasoning.
+                let cap = crate::overlay::screen_translate::request::prepare(
+                    config,
+                    run["targetLanguage"].as_str().context("target language")?,
+                    run["translationPrompt"]
+                        .as_str()
+                        .context("translation prompt")?,
+                    &candidates,
+                    &candidates,
+                    &[],
+                    &[],
+                )?
+                .max_output_tokens;
                 let transport = TranslateTransportOptions {
                     locally_validated_schema: false,
                     max_output_tokens: Some(cap),

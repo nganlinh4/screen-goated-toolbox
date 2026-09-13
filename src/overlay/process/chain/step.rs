@@ -85,15 +85,7 @@ pub fn run_chain_step(request: ChainStepRequest) {
     // the feed no longer offers. Keep the preset unchanged and silently enter the
     // same priority/fallback machinery used after a normal provider failure.
     let block_model_id = block.model.clone();
-    let resolved = crate::model_config::get_model_by_id(&block_model_id)
-        .filter(|model| model.enabled)
-        .or_else(|| {
-            crate::retry_model_chain::resolve_unavailable_pinned_model(
-                &block.block_type,
-                &block_model_id,
-                &config,
-            )
-        });
+    let resolved = resolve_block_model(&block, &config, skip_execution);
     if let Some(fallback) = resolved.as_ref().filter(|model| model.id != block_model_id) {
         crate::log_info!(
             "[Chain] Preset model {block_model_id:?} is unavailable; continuing with priority model {:?}",
@@ -250,6 +242,25 @@ pub fn run_chain_step(request: ChainStepRequest) {
         my_rect,
         starting_rect,
     });
+}
+
+fn resolve_block_model(
+    block: &ProcessingBlock,
+    config: &Config,
+    already_produced: bool,
+) -> Option<crate::model_config::ModelConfig> {
+    crate::model_config::get_model_by_id_with_custom(&block.model, &config.custom_models)
+        .filter(|model| already_produced || model.enabled)
+        .or_else(|| {
+            if already_produced {
+                return None;
+            }
+            crate::retry_model_chain::resolve_unavailable_pinned_model(
+                &block.block_type,
+                &block.model,
+                config,
+            )
+        })
 }
 
 /// Create window for a block and return (hwnd, updated processing_indicator_hwnd).
@@ -454,4 +465,23 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
     }
 
     (my_hwnd, processing_indicator_hwnd)
+}
+
+#[cfg(test)]
+mod attribution_tests {
+    #[test]
+    fn completed_output_does_not_resolve_a_replacement_model() {
+        let block = crate::config::ProcessingBlock {
+            model: "unavailable-model".to_string(),
+            block_type: "text".to_string(),
+            ..Default::default()
+        };
+        let config = crate::config::Config {
+            api_key: "test-key".to_string(),
+            gemini_api_key: "test-key".to_string(),
+            ..Default::default()
+        };
+        assert!(super::resolve_block_model(&block, &config, true).is_none());
+        assert!(super::resolve_block_model(&block, &config, false).is_some());
+    }
 }

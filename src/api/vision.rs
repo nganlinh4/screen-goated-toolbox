@@ -430,6 +430,11 @@ where
         }
 
         trace.mark_provider_started();
+        let _deadline = super::client::first_token::FirstTokenGuard::new(
+            streaming_enabled,
+            request_timeout,
+            &cancel_token,
+        );
         let mut rate_attempt = 0;
         let resp = loop {
             let request = UREQ_RESPONSE_AGENT

@@ -6,6 +6,8 @@ use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
 #[path = "client/download_transport.rs"]
 mod download_transport;
+pub mod first_token;
+mod token_transport;
 
 const STREAM_RESPONSE_START_TIMEOUT: Duration = Duration::from_secs(120);
 const STREAM_PROGRESS_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -15,7 +17,7 @@ pub struct RequestTimeouts {
     pub connect: Duration,
     pub send: Duration,
     pub response_start: Duration,
-    pub progress_idle: Duration,
+    pub first_token: Duration,
     pub total: Duration,
 }
 
@@ -25,7 +27,7 @@ impl RequestTimeouts {
             connect: timeout,
             send: timeout,
             response_start: timeout,
-            progress_idle: timeout,
+            first_token: timeout,
             total: timeout,
         }
     }
@@ -79,7 +81,7 @@ fn platform_tls_config() -> TlsConfig {
 
 /// Build a ureq agent carrying our user-agent string and an end-to-end timeout.
 fn build_agent(timeout_global: Duration, http_status_as_error: bool) -> ureq::Agent {
-    ureq::Agent::config_builder()
+    let config = ureq::Agent::config_builder()
         .user_agent(concat!(
             env!("CARGO_PKG_NAME"),
             "/",
@@ -88,8 +90,8 @@ fn build_agent(timeout_global: Duration, http_status_as_error: bool) -> ureq::Ag
         .timeout_global(Some(timeout_global))
         .http_status_as_error(http_status_as_error)
         .tls_config(platform_tls_config())
-        .build()
-        .into()
+        .build();
+    token_transport::agent(config)
 }
 
 fn build_download_agent() -> ureq::Agent {
@@ -118,7 +120,7 @@ fn build_stream_agent_with_timeouts(
     response_start_timeout: Duration,
     progress_idle_timeout: Duration,
 ) -> ureq::Agent {
-    ureq::Agent::config_builder()
+    let config = ureq::Agent::config_builder()
         .user_agent(concat!(
             env!("CARGO_PKG_NAME"),
             "/",
@@ -130,8 +132,8 @@ fn build_stream_agent_with_timeouts(
         .timeout_recv_body(Some(progress_idle_timeout))
         .http_status_as_error(http_status_as_error)
         .tls_config(platform_tls_config())
-        .build()
-        .into()
+        .build();
+    token_transport::agent(config)
 }
 
 /// Apply a tighter end-to-end budget to one request without changing the
@@ -150,13 +152,27 @@ pub fn with_request_timeouts<B>(
     request: ureq::RequestBuilder<B>,
     timeouts: Option<RequestTimeouts>,
 ) -> ureq::RequestBuilder<B> {
+    if first_token::active() {
+        first_token::begin_attempt();
+        let mut config = request
+            .config()
+            .timeout_recv_response(None)
+            .timeout_recv_body(None)
+            .timeout_global(None);
+        if let Some(timeouts) = timeouts {
+            config = config
+                .timeout_connect(Some(timeouts.connect))
+                .timeout_send_request(Some(timeouts.send));
+        }
+        return config.build();
+    }
     match timeouts {
         Some(timeouts) => request
             .config()
             .timeout_connect(Some(timeouts.connect))
             .timeout_send_request(Some(timeouts.send))
             .timeout_recv_response(Some(timeouts.response_start))
-            .timeout_recv_body(Some(timeouts.progress_idle))
+            .timeout_recv_body(Some(timeouts.first_token))
             .timeout_global(Some(timeouts.total))
             .build(),
         None => request,
@@ -172,9 +188,8 @@ pub static UREQ_AGENT: LazyLock<ureq::Agent> =
 pub static UREQ_RESPONSE_AGENT: LazyLock<ureq::Agent> =
     LazyLock::new(|| build_agent(Duration::from_secs(120), false));
 
-/// Agent for streaming (SSE) requests. Response start and each body-read stall are
-/// bounded independently; there is no whole-response deadline while bytes keep
-/// arriving.
+/// Agent for streaming (SSE) requests. Scoped provider calls replace the default
+/// receive limits with first-output and renewable decoded-output idle deadlines.
 pub static UREQ_STREAM_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| build_stream_agent(true));
 
 /// Streaming agent that preserves HTTP error responses for bounded provider

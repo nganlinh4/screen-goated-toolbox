@@ -109,6 +109,7 @@ fn button_action(id: isize, name: &str, message: &serde_json::Value) -> Option<C
     };
     let action = match name {
         "copy" => ButtonAction::Copy,
+        "copy_image" => ButtonAction::CopyImage,
         "undo" => ButtonAction::Undo,
         "redo" => ButtonAction::Redo,
         "edit" => ButtonAction::Edit,

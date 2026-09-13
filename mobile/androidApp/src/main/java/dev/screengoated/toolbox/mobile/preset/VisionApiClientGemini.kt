@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.preset
 
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -38,7 +39,7 @@ internal suspend fun VisionApiClient.streamGeminiVision(
     var thinkingShown = false
     var contentStarted = false
 
-    httpClient.newPresetCall(request, model, streamingEnabled = true).execute().use { response ->
+    httpClient.newPresetCall(request, model, streamingEnabled = true, job = coroutineContext[Job]).execute().use { response ->
         ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
@@ -61,6 +62,7 @@ internal suspend fun VisionApiClient.streamGeminiVision(
                     thinkingShown = true
                 }
                 if (delta.content.isNotEmpty()) {
+                    response.firstOutputReceived()
                     if (!contentStarted && thinkingShown) {
                         contentStarted = true
                         fullContent.append(delta.content)

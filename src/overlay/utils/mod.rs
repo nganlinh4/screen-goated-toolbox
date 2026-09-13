@@ -3,7 +3,10 @@ mod error_messages;
 mod input;
 mod streaming_paste;
 
-pub use clipboard::{copy_image_to_clipboard, copy_to_clipboard, get_clipboard_image_bytes};
+pub use clipboard::{
+    copy_image_to_clipboard, copy_to_clipboard, get_clipboard_image_bytes,
+    try_copy_image_to_clipboard,
+};
 pub use error_messages::{
     get_error_message, is_billing_exhausted_error, should_advance_retry_chain,
     should_block_retry_provider, show_api_key_error_notification,

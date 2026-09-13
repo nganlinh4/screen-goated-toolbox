@@ -3,6 +3,8 @@ use crate::gui::locale::OverlayLocaleText;
 pub(super) fn get() -> OverlayLocaleText {
     OverlayLocaleText {
         overlay_copy_tooltip: "복사",
+        overlay_copy_image_tooltip: "번역된 이미지 복사",
+        overlay_copy_image_failed: "번역된 이미지를 복사하지 못했습니다. 다시 시도해 주세요.",
         overlay_undo_tooltip: "실행 취소",
         overlay_redo_tooltip: "다시 실행",
         overlay_edit_tooltip: "편집 / 다듬기",

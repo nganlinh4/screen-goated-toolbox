@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.preset
 
 import okhttp3.Call
+import kotlinx.coroutines.Job
 import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -15,47 +16,55 @@ internal fun OkHttpClient.newPresetCall(
     request: Request,
     model: PresetModelDescriptor,
     streamingEnabled: Boolean,
+    job: Job? = null,
 ): PresetCall {
     val encodedRequestBytes = runCatching { request.body?.contentLength() ?: 0L }
         .getOrDefault(0L)
         .coerceAtLeast(0L)
     val policy = presetRequestDeadlinePolicy(model, encodedRequestBytes)
     val readTimeout = if (streamingEnabled) {
-        minOf(policy.responseStartTimeoutMillis, policy.progressIdleTimeoutMillis)
+        0L
     } else {
         policy.responseStartTimeoutMillis
     }
-    val transportState = PresetTransportState(request.body != null)
+    val deadline = if (streamingEnabled) PresetFirstTokenDeadline(policy.firstTokenTimeoutMillis, job) else null
+    val transportState = PresetTransportState(request.body != null, deadline)
     val call = newBuilder()
         .eventListener(transportState)
         .connectTimeout(policy.connectTimeoutMillis, TimeUnit.MILLISECONDS)
         .writeTimeout(policy.sendTimeoutMillis, TimeUnit.MILLISECONDS)
         .readTimeout(readTimeout, TimeUnit.MILLISECONDS)
         .build()
-        .newCall(request)
-    call.timeout().timeout(policy.attemptTimeoutMillis, TimeUnit.MILLISECONDS)
-    return PresetCall(call, transportState)
+        .newCall(request.newBuilder().tag(PresetFirstTokenDeadline::class.java, deadline).build())
+    if (streamingEnabled) call.timeout().clearTimeout()
+    else call.timeout().timeout(policy.attemptTimeoutMillis, TimeUnit.MILLISECONDS)
+    return PresetCall(call, transportState, deadline)
 }
 
 internal class PresetCall(
     private val call: Call,
     private val transportState: PresetTransportState,
+    private val deadline: PresetFirstTokenDeadline? = null,
 ) {
     fun execute(): Response = try {
-        call.execute()
+        deadline?.attach(call)
+        val response = call.execute()
+        if (deadline == null) response else response.newBuilder().body(deadline.wrap(response.body)).build()
     } catch (error: IOException) {
+        deadline?.close()
         if (transportState.failedBeforeResponse() && !error.isCancellation()) {
             throw IOException(
                 "$PROVIDER_TRANSPORT_UNAVAILABLE: ${error.message ?: "transport failed"}",
                 error,
             )
         }
-        throw error
+        throw deadline?.failure(error) ?: error
     }
 }
 
 internal class PresetTransportState(
     private val requestHasBody: Boolean,
+    private val deadline: PresetFirstTokenDeadline? = null,
 ) : EventListener() {
     @Volatile
     private var phase = PresetTransportPhase.CONNECTING
@@ -65,11 +74,15 @@ internal class PresetTransportState(
     }
 
     override fun requestHeadersEnd(call: Call, request: Request) {
-        if (!requestHasBody) phase = PresetTransportPhase.AWAITING_RESPONSE
+        if (!requestHasBody) {
+            phase = PresetTransportPhase.AWAITING_RESPONSE
+            deadline?.start()
+        }
     }
 
     override fun requestBodyEnd(call: Call, byteCount: Long) {
         phase = PresetTransportPhase.AWAITING_RESPONSE
+        deadline?.start()
     }
 
     override fun responseHeadersStart(call: Call) {
@@ -91,7 +104,7 @@ internal data class PresetRequestDeadlinePolicy(
     val connectTimeoutMillis: Long,
     val sendTimeoutMillis: Long,
     val responseStartTimeoutMillis: Long,
-    val progressIdleTimeoutMillis: Long,
+    val firstTokenTimeoutMillis: Long,
     val attemptTimeoutMillis: Long,
 )
 
@@ -116,9 +129,9 @@ internal fun presetRequestDeadlinePolicy(
             .saturatingAdd(requestAllowance)
             .coerceIn(MINIMUM_INTERACTIVE_RESPONSE_START_MILLIS, MAXIMUM_INTERACTIVE_RESPONSE_START_MILLIS)
             .coerceAtMost(attemptTimeout),
-        progressIdleTimeoutMillis = latencyMillis
-            .saturatingMultiply(INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER)
-            .coerceIn(MINIMUM_INTERACTIVE_PROGRESS_IDLE_MILLIS, MAXIMUM_INTERACTIVE_PROGRESS_IDLE_MILLIS)
+        firstTokenTimeoutMillis = latencyMillis
+            .saturatingMultiply(INTERACTIVE_FIRST_TOKEN_LATENCY_MULTIPLIER)
+            .coerceIn(MINIMUM_INTERACTIVE_FIRST_TOKEN_MILLIS, MAXIMUM_INTERACTIVE_FIRST_TOKEN_MILLIS)
             .coerceAtMost(attemptTimeout),
         attemptTimeoutMillis = attemptTimeout,
     )
@@ -170,15 +183,15 @@ private const val INTERACTIVE_DEFAULT_LATENCY_MILLIS = 3_000L
 private const val INTERACTIVE_REQUEST_BYTES_PER_SECOND = 262_144L
 private const val MAXIMUM_INTERACTIVE_REQUEST_ALLOWANCE_MILLIS = 3_000L
 private const val INTERACTIVE_RESPONSE_START_LATENCY_MULTIPLIER = 3L
-private const val INTERACTIVE_PROGRESS_IDLE_LATENCY_MULTIPLIER = 2L
+private const val INTERACTIVE_FIRST_TOKEN_LATENCY_MULTIPLIER = 2L
 private const val INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER = 4L
 private const val INTERACTIVE_CONNECT_TIMEOUT_MILLIS = 5_000L
 private const val INTERACTIVE_SEND_BASE_MILLIS = 2_000L
 private const val MAXIMUM_INTERACTIVE_SEND_TIMEOUT_MILLIS = 10_000L
 private const val MINIMUM_INTERACTIVE_RESPONSE_START_MILLIS = 2_500L
 private const val MAXIMUM_INTERACTIVE_RESPONSE_START_MILLIS = 15_000L
-private const val MINIMUM_INTERACTIVE_PROGRESS_IDLE_MILLIS = 2_000L
-private const val MAXIMUM_INTERACTIVE_PROGRESS_IDLE_MILLIS = 8_000L
+private const val MINIMUM_INTERACTIVE_FIRST_TOKEN_MILLIS = 3_000L
+private const val MAXIMUM_INTERACTIVE_FIRST_TOKEN_MILLIS = 8_000L
 private const val MINIMUM_INTERACTIVE_ATTEMPT_MILLIS = 5_000L
 private const val MAXIMUM_INTERACTIVE_ATTEMPT_MILLIS = 30_000L
 internal const val PROVIDER_TRANSPORT_UNAVAILABLE = "PROVIDER_TRANSPORT_UNAVAILABLE"

@@ -3,6 +3,8 @@ use crate::gui::locale::OverlayLocaleText;
 pub(super) fn get() -> OverlayLocaleText {
     OverlayLocaleText {
         overlay_copy_tooltip: "Copy",
+        overlay_copy_image_tooltip: "Copy translated image",
+        overlay_copy_image_failed: "Could not copy the translated image. Please try again.",
         overlay_undo_tooltip: "Undo",
         overlay_redo_tooltip: "Redo",
         overlay_edit_tooltip: "Edit / Refine",

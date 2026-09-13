@@ -37,6 +37,27 @@ pub fn update_theme(is_dark: bool) {
     scene_compositor::update_theme(is_dark);
 }
 
+/// Publish the resolved request identity, independently of the preset selection.
+pub(crate) fn update_model(hwnd: HWND, model: &str, name: &str, provider: &str) {
+    let changed = {
+        let mut states = WINDOW_STATES.lock().unwrap();
+        let Some(state) = states.get_mut(&(hwnd.0 as isize)) else {
+            return;
+        };
+        if state.model_id == model && state.model_name == name && state.provider == provider {
+            false
+        } else {
+            state.model_id = model.to_string();
+            state.model_name = name.to_string();
+            state.provider = provider.to_string();
+            true
+        }
+    };
+    if changed {
+        scene_compositor::sync_controls(hwnd);
+    }
+}
+
 pub fn raise_window(hwnd: HWND) {
     raw_webview::raise_window(hwnd);
     scene_compositor::raise_window(hwnd);

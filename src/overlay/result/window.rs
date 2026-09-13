@@ -96,6 +96,8 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
         is_chain_root,
         latency_trace_id,
     } = params;
+    let model_name = crate::model_config::get_model_by_id(&model_id)
+        .map_or_else(|| model_id.clone(), |model| model.full_name);
     unsafe {
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("TranslationResult");
@@ -168,6 +170,7 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
                     is_refining: false,
                     is_streaming_active: streaming_enabled,
                     model_id,
+                    model_name,
                     provider,
                     streaming_enabled,
                     bg_color: custom_bg_color,

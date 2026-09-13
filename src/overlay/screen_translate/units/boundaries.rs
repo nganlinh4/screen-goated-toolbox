@@ -7,6 +7,7 @@ struct Feature {
     em: f32,
     owner: Option<usize>,
     table: Option<usize>,
+    independent: bool,
 }
 
 pub(super) fn partition(
@@ -14,7 +15,7 @@ pub(super) fn partition(
     sources: &[DetectedTextRegion],
     layout: &[LayoutRegion],
 ) -> Vec<Vec<usize>> {
-    let features = sources
+    let mut features = sources
         .iter()
         .map(|source| {
             let box_ = normalized_region(source.bounds, image.width(), image.height());
@@ -42,6 +43,7 @@ pub(super) fn partition(
                     .map(|(i, _)| i)
             };
             Feature {
+                independent: false,
                 box_,
                 owner: containing(false),
                 table: containing(true),
@@ -57,6 +59,26 @@ pub(super) fn partition(
             }
         })
         .collect::<Vec<_>>();
+    let row_cells = features
+        .iter()
+        .map(|feature| super::rows::Cell {
+            rect: feature.box_,
+            paragraph: feature.owner.is_some(),
+            table: feature.table.is_some(),
+        })
+        .collect::<Vec<_>>();
+    let independent = super::rows::independent(&row_cells, |a, b| {
+        continuous_surface(
+            image,
+            features[a].box_,
+            features[b].box_,
+            sources[a].appearance,
+            sources[b].appearance,
+        )
+    });
+    for (feature, independent) in features.iter_mut().zip(independent) {
+        feature.independent = independent;
+    }
     let mut order = (0..sources.len()).collect::<Vec<_>>();
     order.sort_by_key(|&i| (features[i].box_.y, features[i].box_.x));
     let mut used = vec![false; sources.len()];
@@ -102,6 +124,43 @@ pub(super) fn partition(
     result
 }
 
+fn continuous_surface(
+    image: &image::RgbaImage,
+    a: PixelRegion,
+    b: PixelRegion,
+    left: Option<super::super::appearance::VisualSignature>,
+    right: Option<super::super::appearance::VisualSignature>,
+) -> bool {
+    let (Some(left), Some(right)) = (left, right) else {
+        return false;
+    };
+    if left.background_confidence < 45
+        || right.background_confidence < 45
+        || distance(left.background_rgb, right.background_rgb) > 24
+    {
+        return false;
+    }
+    let start = a.x + a.width;
+    let end = b.x;
+    let top = a.y.max(b.y);
+    let bottom = (a.y + a.height).min(b.y + b.height);
+    if end <= start || bottom <= top {
+        return false;
+    }
+    let mut matching = 0;
+    // A fixed sample budget admits thin rules but rejects panel imagery and
+    // disconnected balloons. No work scales with gutter area or image pixels.
+    for row in 0..3 {
+        let y = top + (bottom - top - 1) * (row * 2 + 1) / 6;
+        for column in 0..32 {
+            let x = start + (end - start - 1) * (column * 2 + 1) / 64;
+            let p = image.get_pixel(x, y).0;
+            matching += usize::from(distance([p[0], p[1], p[2]], left.background_rgb) <= 32);
+        }
+    }
+    matching >= 80
+}
+
 fn vertical(a: PixelRegion) -> bool {
     a.height > a.width.saturating_mul(3) / 2
 }
@@ -123,7 +182,9 @@ fn compatible(
     let size_ratio = if shared { 1.6 } else { 1.25 };
     // Ink height changes with ascenders and descenders even at one font size.
     // Require the detector's cross-axis extent to corroborate a size boundary.
-    if a.table != b.table
+    if a.independent
+        || b.independent
+        || a.table != b.table
         || a.owner.zip(b.owner).is_some_and(|(x, y)| x != y)
         || (a.em.max(b.em) > a.em.min(b.em) * size_ratio
             && cross_size(a.box_).max(cross_size(b.box_)) as f32
@@ -142,7 +203,12 @@ fn compatible(
             && y.foreground_confidence >= 3
             && let (Some(fx), Some(fy)) = (x.foreground_rgb, y.foreground_rgb)
             && distance(fx, fy) > 48
-            && !same_ink_direction(fx, x.background_rgb, fy, y.background_rgb)
+            && (!same_ink_direction(fx, x.background_rgb, fy, y.background_rgb)
+                || (x.background_confidence >= 45
+                    && y.background_confidence >= 45
+                    && overlap(a.box_.y, a.box_.height, b.box_.y, b.box_.height) * 2
+                        < a.box_.height.min(b.box_.height)
+                    && contrast_boundary(fx, x.background_rgb, fy, y.background_rgb)))
         {
             return false;
         }
@@ -198,6 +264,14 @@ fn same_ink_direction(a: [u8; 3], bg_a: [u8; 3], b: [u8; 3], bg_b: [u8; 3]) -> b
     let length_a: f64 = a.iter().map(|x| x * x).sum();
     let length_b: f64 = b.iter().map(|x| x * x).sum();
     dot > 0.0 && dot * dot >= 0.98 * length_a * length_b
+}
+
+fn contrast_boundary(a: [u8; 3], bg_a: [u8; 3], b: [u8; 3], bg_b: [u8; 3]) -> bool {
+    // Modest intensity changes can be antialiasing. A large, corroborated
+    // contrast change between lines preserves primary/secondary hierarchy.
+    let a = u32::from(distance(a, bg_a));
+    let b = u32::from(distance(b, bg_b));
+    a.abs_diff(b) > 48 && a.max(b) * 5 > a.min(b) * 8
 }
 
 fn separator(

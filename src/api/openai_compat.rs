@@ -108,7 +108,12 @@ where
     H: FnOnce(&HeaderMap),
     J: FnOnce(&serde_json::Value),
 {
-    // Streaming responses use response-start and progress-idle deadlines without
+    let _deadline = crate::api::client::first_token::FirstTokenGuard::new(
+        streaming,
+        request_timeout,
+        cancel_token,
+    );
+    // Streaming responses use a first-output deadline without
     // a whole-response cap; unary calls use their workload-derived hard budget.
     let agent = if streaming {
         &*UREQ_STREAM_RESPONSE_AGENT
@@ -202,6 +207,7 @@ where
                             .and_then(|c| c.delta.content.as_ref())
                             .filter(|s| !s.is_empty())
                         {
+                            crate::api::client::first_token::received();
                             if !content_started && thinking_shown {
                                 content_started = true;
                                 full_content.push_str(content);
@@ -305,9 +311,13 @@ where
                     ));
                 }
                 if let Some(choice) = chunk.get("choices").and_then(|v| v.get(0)) {
-                    if let Some(content) = choice.pointer("/delta/content").and_then(|v| v.as_str())
+                    if let Some(content) = choice
+                        .pointer("/delta/content")
+                        .and_then(|v| v.as_str())
+                        .filter(|text| !text.is_empty())
                     {
                         full_content.push_str(content);
+                        crate::api::client::first_token::received();
                         on_chunk(content);
                     }
                     if choice.get("finish_reason").and_then(|v| v.as_str()) == Some("length") {

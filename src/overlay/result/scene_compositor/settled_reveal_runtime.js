@@ -56,6 +56,8 @@ const sourceReplacementReveal = (function() {
       dispose(value, false);
       return;
     }
+    reportCardDiagnostic(value.entry.card.dataset.id, value.entry, 'final_fit_completed', {});
+    reportCardDiagnostic(value.entry.card.dataset.id, value.entry, 'reveal_started', {});
     value.surface.style.visibility = 'visible';
     if (typeof Element.prototype.animate !== 'function'
         || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {

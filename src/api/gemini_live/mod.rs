@@ -138,6 +138,7 @@ where
     let show_thinking = false;
 
     // Send request to the manager
+    let first_output_received = Arc::new(AtomicBool::new(false));
     let (id, rx) = GEMINI_LIVE_MANAGER.request(LiveRequest {
         api_key,
         model,
@@ -146,6 +147,7 @@ where
         show_thinking,
         cancel_token: cancel_token.clone(),
         deadline,
+        first_output_received: first_output_received.clone(),
     });
     println!("[GeminiLive] Request queued with ID: {}", id);
 
@@ -158,7 +160,12 @@ where
 
     // Process events from the worker
     loop {
-        let event = match receive_live_event(&rx, &cancel_token, deadline, request_timeout) {
+        let active_deadline = if first_output_received.load(Ordering::SeqCst) {
+            None
+        } else {
+            deadline
+        };
+        let event = match receive_live_event(&rx, &cancel_token, active_deadline, request_timeout) {
             Ok(Some(event)) => event,
             Ok(None) => {
                 println!("[GeminiLive] Channel closed");

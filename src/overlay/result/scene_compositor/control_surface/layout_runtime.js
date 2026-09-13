@@ -123,6 +123,7 @@ function updateWindows(windowsData) {
             group.controlMeasuredSize = null;
         }
         group.dataset.lastState = newStateStr;
+        window.__SGT_SOURCE_IMAGE__?.decorate(group, hwnd);
         group.classList.toggle('vertical', pos.vertical);
         group.controlPlacement = pos;
         const natural = group.controlSizes[pos.vertical ? 'vertical' : 'horizontal'];

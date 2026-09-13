@@ -159,6 +159,14 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
             &current_provider,
             &current_model_full_name,
         );
+        if let Some(hwnd) = my_hwnd {
+            crate::overlay::result::update_model(
+                hwnd,
+                &current_model_id,
+                &current_model_full_name,
+                &current_provider,
+            );
+        }
         let request_timeout = Some(interactive_request_timeouts(
             &current_model_id,
             config,

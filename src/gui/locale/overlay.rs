@@ -1,5 +1,7 @@
 pub struct OverlayLocaleText {
     pub overlay_copy_tooltip: &'static str,
+    pub overlay_copy_image_tooltip: &'static str,
+    pub overlay_copy_image_failed: &'static str,
     pub overlay_undo_tooltip: &'static str,
     pub overlay_redo_tooltip: &'static str,
     pub overlay_edit_tooltip: &'static str,

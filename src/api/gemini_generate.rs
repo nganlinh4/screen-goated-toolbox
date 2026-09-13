@@ -110,6 +110,11 @@ where
         media_resolution,
         mut retry_observer,
     } = request;
+    let _deadline = crate::api::client::first_token::FirstTokenGuard::new(
+        streaming,
+        request_timeout,
+        cancel_token,
+    );
     let url = gemini_content_url(model, streaming);
 
     let payload = gemini_payload(parts, model, response_schema, media_resolution);
@@ -213,6 +218,9 @@ where
                                 .unwrap_or(false);
 
                             if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                if !is_thought && !text.is_empty() {
+                                    crate::api::client::first_token::received();
+                                }
                                 if is_thought {
                                     if !thinking_shown && !content_started {
                                         on_chunk(locale.global_settings.model_thinking);

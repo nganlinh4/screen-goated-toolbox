@@ -265,7 +265,10 @@ function generateButtonsHTML(hwnd, state, isVertical) {
         </svg>
     </div>`;
 
-    buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'download')" title="${window.L10N.download}">
+    if (state.copyImage) buttons += `<div class="btn copy-image-btn ${hideClass}" onclick="window.__SGT_SOURCE_IMAGE__.request('${hwnd}')" title="${window.L10N.copy_image}">
+        ${window.iconSvgs.filter}
+    </div>`;
+    else buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'download')" title="${window.L10N.download}">
         ${window.iconSvgs.download}
     </div>`;
 

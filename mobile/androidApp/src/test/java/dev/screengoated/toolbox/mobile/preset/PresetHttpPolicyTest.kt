@@ -21,18 +21,18 @@ class PresetHttpPolicyTest {
 
         val fast = presetRequestDeadlinePolicy(qwen38, encodedRequestBytes = 4_487)
         assertEquals(3_603L, fast.responseStartTimeoutMillis)
-        assertEquals(2_390L, fast.progressIdleTimeoutMillis)
+        assertEquals(3_000L, fast.firstTokenTimeoutMillis)
         assertEquals(5_000L, fast.attemptTimeoutMillis)
 
         val fallback = presetRequestDeadlinePolicy(qwen36, encodedRequestBytes = 4_487)
         assertEquals(5_382L, fallback.responseStartTimeoutMillis)
-        assertEquals(3_576L, fallback.progressIdleTimeoutMillis)
+        assertEquals(3_576L, fallback.firstTokenTimeoutMillis)
         assertEquals(7_170L, fallback.attemptTimeoutMillis)
 
         val boundedModel = base.copy(typicalLatencyMs = Int.MAX_VALUE)
         val bounded = presetRequestDeadlinePolicy(boundedModel, encodedRequestBytes = Long.MAX_VALUE)
         assertEquals(15_000L, bounded.responseStartTimeoutMillis)
-        assertEquals(8_000L, bounded.progressIdleTimeoutMillis)
+        assertEquals(8_000L, bounded.firstTokenTimeoutMillis)
         assertEquals(30_000L, bounded.attemptTimeoutMillis)
     }
 
@@ -64,13 +64,17 @@ class PresetHttpPolicyTest {
         assertEquals(2_000L, fixture.getLong("send_base_timeout_ms"))
         assertEquals(10_000L, fixture.getLong("maximum_send_timeout_ms"))
         assertEquals(3L, fixture.getLong("response_start_latency_multiplier"))
-        assertEquals(2L, fixture.getLong("progress_idle_latency_multiplier"))
+        assertEquals(2L, fixture.getLong("first_token_latency_multiplier"))
+        assertEquals(3_000L, fixture.getLong("minimum_first_token_timeout_ms"))
+        assertEquals("first_nonempty_output_token", fixture.getString("streaming_deadline_ends_on"))
+        assertFalse(fixture.getBoolean("headers_keepalives_and_thinking_satisfy_deadline"))
+        assertTrue(fixture.isNull("streaming_post_first_token_timeout_ms"))
         assertEquals(4L, fixture.getLong("attempt_latency_multiplier"))
         assertEquals(5_000L, fixture.getLong("minimum_attempt_timeout_ms"))
         assertEquals(30_000L, fixture.getLong("maximum_attempt_timeout_ms"))
         assertTrue(fixture.isNull("dispatch_attempt_cap"))
         assertEquals(
-            "sum_of_unique_dispatched_attempt_budgets",
+            "fresh_initial_budget_per_dispatched_attempt",
             fixture.getString("chain_budget_mode"),
         )
         assertEquals(
@@ -84,7 +88,7 @@ class PresetHttpPolicyTest {
             },
         )
         assertEquals(
-            listOf("response_start", "progress_idle", "attempt"),
+            listOf("response_start", "first_token", "attempt"),
             fixture.getJSONArray("model_scoped_timeout_phases").let { array ->
                 List(array.length(), array::getString)
             },

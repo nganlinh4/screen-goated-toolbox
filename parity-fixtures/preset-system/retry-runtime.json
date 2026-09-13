@@ -42,14 +42,17 @@
     "response_start_latency_multiplier": 3,
     "minimum_response_start_timeout_ms": 2500,
     "maximum_response_start_timeout_ms": 15000,
-    "progress_idle_latency_multiplier": 2,
-    "minimum_progress_idle_timeout_ms": 2000,
-    "maximum_progress_idle_timeout_ms": 8000,
+    "first_token_latency_multiplier": 2,
+    "minimum_first_token_timeout_ms": 3000,
+    "maximum_first_token_timeout_ms": 8000,
+    "streaming_deadline_ends_on": "first_nonempty_output_token",
+    "headers_keepalives_and_thinking_satisfy_deadline": false,
+    "streaming_post_first_token_timeout_ms": null,
     "attempt_latency_multiplier": 4,
     "minimum_attempt_timeout_ms": 5000,
     "maximum_attempt_timeout_ms": 30000,
     "dispatch_attempt_cap": null,
-    "chain_budget_mode": "sum_of_unique_dispatched_attempt_budgets",
+    "chain_budget_mode": "fresh_initial_budget_per_dispatched_attempt",
     "chain_traversal": "until_success_cancellation_terminal_error_or_exhaustion",
     "provider_blocking_transport_phases": [
       "dns",
@@ -59,13 +62,13 @@
     ],
     "model_scoped_timeout_phases": [
       "response_start",
-      "progress_idle",
+      "first_token",
       "attempt"
     ]
   },
   "recommended_model_defaults": {
-    "generic_image": "groq-qwen-3-8-27b-vision",
-    "image_ask": "groq-qwen-3-8-27b-vision",
+    "generic_image": "groq-qwen-3-6-27b-vision",
+    "image_ask": "groq-qwen-3-6-27b-vision",
     "generic_text": "groq-qwen-3-8-27b-text",
     "text_arena_fast": "groq-gpt-oss-20b-text",
     "text_game": "google-gemini-3-5-flash-lite-text",
@@ -84,16 +87,16 @@
   },
   "model_priority_chains": {
     "image_to_text": [
-      "groq-qwen-3-8-27b-vision",
       "groq-qwen-3-6-27b-vision",
-      "google-gemma-4-26b-a4b-vision",
+      "groq-qwen-3-8-27b-vision",
       "google-gemini-robotics-er-2-vision",
+      "google-gemini-3-flash-vision",
       "google-gemini-3-5-flash-lite-vision",
-      "google-gemini-3-1-flash-lite-vision",
-      "google-gemma-4-31b-vision",
       "openrouter-dots-3-note-vision",
+      "google-gemma-4-26b-a4b-vision",
+      "google-gemini-3-1-flash-lite-vision",
       "google-gemini-3-5-flash-vision",
-      "google-gemini-3-8-flash-vision"
+      "google-gemini-3-7-flash-vision"
     ],
     "text_to_text": [
       "groq-qwen-3-8-27b-text",
@@ -102,8 +105,8 @@
       "groq-gpt-oss-120b-text",
       "google-gemini-3-5-flash-lite-text",
       "google-gemini-robotics-er-2-text",
+      "google-gemini-3-flash-text",
       "google-gemma-4-26b-a4b-text",
-      "google-gemma-4-31b-text",
       "google-gemini-3-1-flash-lite-text",
       "google-gemini-3-5-flash-text",
       "google-gemini-3-8-flash-text",

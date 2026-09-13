@@ -127,6 +127,9 @@ fn start_refinement(hwnd: HWND, submission: RefineSubmission) {
                 streaming_enabled: streaming,
                 ui_language: &ui_language,
                 cancel_token: Some(api_cancel),
+                on_model_selected: &mut |model, name, provider| {
+                    super::update_model(capture_hwnd, model, name, provider);
+                },
             },
             move |chunk| {
                 if let Some(ref ct) = chain_token_cb

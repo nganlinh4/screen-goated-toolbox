@@ -18,19 +18,19 @@ fn every_nvidia_model_uses_the_same_endpoint_abbreviation_rule() {
 
 #[test]
 fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
-    assert_eq!(DEFAULT_IMAGE_MODEL_ID, "groq-qwen-3-8-27b-vision");
+    assert_eq!(DEFAULT_IMAGE_MODEL_ID, "groq-qwen-3-6-27b-vision");
     assert_eq!(
         default_image_to_text_priority_chain_ids().first().copied(),
         Some(DEFAULT_IMAGE_MODEL_ID)
     );
     let model = get_model_by_id(DEFAULT_IMAGE_MODEL_ID).expect("default vision model exists");
     assert_eq!(model.provider, "groq");
-    assert_eq!(model.full_name, "qwen/qwen3.8-27b");
-    assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(1110));
+    assert_eq!(model.full_name, "qwen/qwen3.6-27b");
+    assert_eq!(model.intelligence_tier, Some(4));
+    assert_eq!(model.typical_latency_ms, Some(966));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-09-03-protocol13:ocr-small-1024")
+        Some("benchmark-2026-09-11-protocol13:ocr-small-1024")
     );
 }
 
@@ -101,10 +101,10 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.8-27b");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(147));
+    assert_eq!(model.typical_latency_ms, Some(393));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-09-03-protocol13:text")
+        Some("benchmark-2026-09-11-protocol13:text")
     );
     // Ordered on reviewed measured merit: the clean successor leads, while the
     // 100%-reliable predecessor remains the immediate fallback.
@@ -121,14 +121,15 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
             Some(expected)
         );
     }
-    // The lower-reliability provider-diverse fallback remains at the tail.
+    // The provider-diverse fallback remains at the tail despite its lower
+    // reliability, after every stronger primary candidate.
     assert_eq!(
         default_text_to_text_priority_chain_ids().get(11).copied(),
         Some("openrouter-nemotron-3-super-120b-text")
     );
     let gemini_38 =
         get_model_by_id("google-gemini-3-8-flash-text").expect("Gemini 3.8 text fallback exists");
-    assert_eq!(gemini_38.typical_latency_ms, Some(3060));
+    assert_eq!(gemini_38.typical_latency_ms, Some(12021));
     assert_eq!(
         default_text_to_text_priority_chain_ids().get(10).copied(),
         Some("google-gemini-3-8-flash-text")
@@ -269,10 +270,10 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
     assert_eq!(qwen.max_output_tokens, Some(512));
     assert_eq!(qwen.structured_output, StructuredOutputPolicy::JsonObject);
     let qwen_model = get_model_by_id("groq-qwen-3-6-27b-vision").expect("Qwen vision model exists");
-    assert_eq!(qwen_model.typical_latency_ms, Some(1267));
+    assert_eq!(qwen_model.typical_latency_ms, Some(966));
     assert_eq!(
         qwen_model.performance_source.as_deref(),
-        Some("benchmark-2026-09-03-protocol13:ocr-small-1024")
+        Some("benchmark-2026-09-11-protocol13:ocr-small-1024")
     );
     let qwen_38 = vision_request_profile("groq", "qwen/qwen3.8-27b");
     assert_eq!(
@@ -292,10 +293,10 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
     assert_eq!(
         &default_image_to_text_priority_chain_ids()[..5],
         &[
-            "groq-qwen-3-8-27b-vision",
             "groq-qwen-3-6-27b-vision",
-            "google-gemma-4-26b-a4b-vision",
+            "groq-qwen-3-8-27b-vision",
             "google-gemini-robotics-er-2-vision",
+            "google-gemini-3-flash-vision",
             "google-gemini-3-5-flash-lite-vision",
         ]
     );

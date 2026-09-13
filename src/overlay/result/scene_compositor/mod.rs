@@ -26,6 +26,7 @@ pub(crate) mod protocol;
 mod reconciliation;
 mod region;
 mod scene_groups;
+mod source_image;
 mod supervisor;
 mod sync_scheduler;
 mod visual_region;

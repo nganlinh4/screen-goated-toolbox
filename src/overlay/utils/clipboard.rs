@@ -145,6 +145,46 @@ pub fn copy_image_to_clipboard(image_bytes: &[u8]) {
     }
 }
 
+/// Publish a decoded image with an acknowledged clipboard write.
+pub fn try_copy_image_to_clipboard(image_bytes: &[u8], hwnd: HWND) -> anyhow::Result<()> {
+    use anyhow::{Context, ensure};
+    // RGB DIB is broadly pasteable; PNG retains the exact encoded image for
+    // consumers that support the registered format. Allocate before opening.
+    let image = image::load_from_memory(image_bytes)?.to_rgb8();
+    let mut bmp = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bmp, image::ImageFormat::Bmp)?;
+    let bmp = bmp.into_inner();
+    ensure!(
+        bmp.starts_with(b"BM") && bmp.len() > 14,
+        "invalid clipboard bitmap"
+    );
+    unsafe {
+        for attempt in 0..5 {
+            if OpenClipboard(Some(hwnd)).is_ok() {
+                let result = (|| -> anyhow::Result<()> {
+                    EmptyClipboard().context("clipboard could not be cleared")?;
+                    ensure!(
+                        set_global_clipboard_data(8, &bmp[14..]),
+                        "clipboard bitmap publication failed"
+                    );
+                    let png_format = RegisterClipboardFormatW(w!("PNG"));
+                    if png_format != 0 {
+                        set_global_clipboard_data(png_format, image_bytes);
+                    }
+                    request_clipboard_history_capture();
+                    Ok(())
+                })();
+                let _ = CloseClipboard();
+                return result;
+            }
+            if attempt < 4 {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
+    anyhow::bail!("clipboard remained locked")
+}
+
 /// Read image bytes from clipboard (returns PNG-encoded bytes)
 /// Returns None if no image is available in clipboard
 pub fn get_clipboard_image_bytes() -> Option<Vec<u8>> {
@@ -268,5 +308,51 @@ pub fn get_clipboard_image_bytes() -> Option<Vec<u8>> {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "replaces the Windows clipboard with a generated image"]
+    fn copied_image_round_trips_pixels_through_native_clipboard() -> anyhow::Result<()> {
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WS_EX_TOOLWINDOW,
+                w!("STATIC"),
+                w!("Clipboard image verification"),
+                WS_POPUP,
+                0,
+                0,
+                1,
+                1,
+                None,
+                None,
+                None,
+                None,
+            )?
+        };
+        let result = (|| -> anyhow::Result<()> {
+            let image = image::RgbImage::from_fn(7, 5, |x, y| {
+                image::Rgb([x as u8 * 30, y as u8 * 40, 123])
+            });
+            let mut png = std::io::Cursor::new(Vec::new());
+            image.write_to(&mut png, image::ImageFormat::Png)?;
+            try_copy_image_to_clipboard(png.get_ref(), hwnd)?;
+            let readback = get_clipboard_image_bytes()
+                .ok_or_else(|| anyhow::anyhow!("missing clipboard bitmap"))?;
+            assert_eq!(image::load_from_memory(&readback)?.to_rgb8(), image);
+            let sequence = unsafe { GetClipboardSequenceNumber() };
+            assert!(try_copy_image_to_clipboard(b"invalid image", hwnd).is_err());
+            assert_eq!(unsafe { GetClipboardSequenceNumber() }, sequence);
+            Ok(())
+        })();
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        result
     }
 }

@@ -22,6 +22,7 @@ pub struct RefineTextRequest<'a> {
     pub streaming_enabled: bool,
     pub ui_language: &'a str,
     pub cancel_token: Option<Arc<AtomicBool>>,
+    pub on_model_selected: &'a mut dyn FnMut(&str, &str, &str),
 }
 
 struct RefineCatalogState {
@@ -154,6 +155,7 @@ where
         streaming_enabled,
         ui_language,
         cancel_token,
+        on_model_selected,
     } = request;
 
     let catalog_state = RefineCatalogState::load();
@@ -191,6 +193,7 @@ where
         }
     };
 
+    let target_model_id = target_id_or_name.clone();
     if let Some(conf) = crate::model_config::get_model_by_id_with_custom(
         &target_id_or_name,
         &catalog_state.custom_models,
@@ -198,6 +201,8 @@ where
         target_id_or_name = conf.full_name;
         target_provider = conf.provider;
     }
+
+    on_model_selected(&target_model_id, &target_id_or_name, &target_provider);
 
     let mut exec_text_only = |p_model: String, p_provider: String| -> Result<String> {
         refine_text_only(RefineTextOnlyRequest {
@@ -377,6 +382,33 @@ where
 #[cfg(test)]
 mod tests {
     use super::RefineCatalogState;
+
+    #[test]
+    fn refinement_reports_resolved_identity_before_provider_dispatch() {
+        let id = crate::model_config::DEFAULT_IMAGE_MODEL_ID;
+        let model = crate::model_config::get_model_by_id_with_custom(id, &[]).unwrap();
+        let mut selected = None;
+        let result = super::refine_text_streaming(
+            super::RefineTextRequest {
+                groq_api_key: "",
+                gemini_api_key: "",
+                context: crate::overlay::result::RefineContext::Image(Vec::new()),
+                previous_text: "previous output".to_string(),
+                user_prompt: "shorten".to_string(),
+                original_model_id: id,
+                original_provider: "stale-provider",
+                streaming_enabled: false,
+                ui_language: "en",
+                cancel_token: None,
+                on_model_selected: &mut |id, name, provider| {
+                    selected = Some((id.to_string(), name.to_string(), provider.to_string()));
+                },
+            },
+            |_| panic!("invalid image and missing credentials must not produce output"),
+        );
+        assert!(result.is_err());
+        assert_eq!(selected, Some((model.id, model.full_name, model.provider)));
+    }
 
     #[test]
     fn fallback_selection_follows_priority_and_provider_availability() {

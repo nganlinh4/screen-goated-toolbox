@@ -6,17 +6,19 @@ const vm = require('node:vm');
 
 function harness(reduced = false) {
   const frames = [];
+  const diagnostics = [];
   const scope = vm.createContext({
     Element: { prototype: { animate() {} } },
     window: { matchMedia: () => ({ matches: reduced }) },
     document: { timeline: { currentTime: 123 } },
     requestAnimationFrame: callback => frames.push(callback),
+    reportCardDiagnostic(id, entry, phase) { diagnostics.push({ entry, phase }); },
   });
   vm.runInContext(readFileSync(join(__dirname, 'settled_reveal_runtime.js'), 'utf8')
     + '\nglobalThis.reveal = sourceReplacementReveal;', scope);
   function element() {
     return {
-      isConnected: true, style: { willChange: '' }, animations: [],
+      isConnected: true, dataset: {id: '-1'}, style: { willChange: '' }, animations: [],
       animate(keys, options) {
         const listeners = {};
         const animation = { keys, options, cancelled: false,
@@ -31,6 +33,7 @@ function harness(reduced = false) {
   }
   return {
     reveal: scope.reveal,
+    diagnostics,
     entry: ready => ({ visualSurface: element(), directHost: element(), card: element(),
       backdrop: Object.assign(element(), { dataset: {} }),
       contentRevision: 1, directState: { sourceLayoutReady: ready } }),
@@ -50,6 +53,8 @@ test('a ready card reveals independently; only its text blurs and moves', async 
   h.reveal.enqueue(ready, () => painted++);
   await h.tick(); await h.tick();
   assert.equal(slow.visualSurface.animations.length, 0);
+  assert.equal(h.diagnostics.some(event => event.entry === slow), false);
+  assert.deepEqual(h.diagnostics.map(event => event.phase), ['final_fit_completed', 'reveal_started']);
   assert.equal(ready.visualSurface.animations.length, 1);
   assert.equal(ready.visualSurface.animations[0].keys[0].filter, undefined);
   assert.equal(ready.backdrop.animations.length, 1);

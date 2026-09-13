@@ -42,6 +42,7 @@ function activateCard(entry, becameVisible) {
   if (becameVisible && entry.ready) queueFit(entry, entry.streaming);
 }
 function removeCard(id) {
+  window.__SGT_SOURCE_IMAGE__?.forget(id);
   const key = String(id);
   const entry = cards.get(key);
   if (!entry) return;

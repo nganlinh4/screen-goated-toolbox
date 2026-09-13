@@ -6,8 +6,8 @@ use image::ExtendedColorType;
 use image::codecs::jpeg::JpegEncoder;
 use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetSystemMetrics, GetWindowRect, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    GetForegroundWindow, GetSystemMetrics, GetWindowRect, SM_CXSCREEN, SM_CXVIRTUALSCREEN,
+    SM_CYSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
 use crate::overlay::selection::CapturedRegion;
@@ -43,12 +43,13 @@ pub(super) fn start_image(path: std::path::PathBuf) {
             .with_context(|| format!("test image could not be opened: {}", path.display()))
             .map(|image| image.to_rgba8())
             .and_then(|image| {
+                let (left, top) = image_origin(image.width(), image.height());
                 let region = CapturedRegion {
                     width: image.width(),
                     height: image.height(),
                     image,
-                    left: 420,
-                    top: 160,
+                    left,
+                    top,
                 };
                 translate_region(job_id, Arc::clone(&cancel), region)
             });
@@ -61,6 +62,20 @@ pub(super) fn start_image(path: std::path::PathBuf) {
         }
         crate::overlay::set_is_busy(false);
     });
+}
+
+pub(super) fn image_origin(width: u32, height: u32) -> (i32, i32) {
+    // The lab source window uses the same physical-pixel placement, including
+    // cached-layout replay. Keep tall inputs inside the visible desktop.
+    let left = unsafe { GetSystemMetrics(SM_CXSCREEN) }
+        .saturating_sub(width as i32)
+        .saturating_sub(16)
+        .clamp(0, 420);
+    let top = unsafe { GetSystemMetrics(SM_CYSCREEN) }
+        .saturating_sub(height as i32)
+        .saturating_sub(16)
+        .clamp(0, 160);
+    (left, top)
 }
 
 pub(super) fn process_captured_region(image: image::RgbaImage, rect: RECT) {

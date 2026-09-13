@@ -52,8 +52,9 @@ pub struct LiveRequest {
     pub show_thinking: bool,
     /// Per-request cancellation; does not interrupt unrelated pooled requests.
     pub cancel_token: Option<Arc<AtomicBool>>,
-    /// Optional wall-clock boundary inherited from the caller.
+    /// Optional first-output boundary inherited from the caller.
     pub deadline: Option<Instant>,
+    pub first_output_received: Arc<AtomicBool>,
 }
 
 impl LiveRequest {
@@ -61,12 +62,15 @@ impl LiveRequest {
         self.cancel_token
             .as_ref()
             .is_some_and(|token| token.load(Ordering::SeqCst))
-            || self
-                .deadline
-                .is_some_and(|deadline| Instant::now() >= deadline)
+            || self.deadline.is_some_and(|deadline| {
+                !self.first_output_received.load(Ordering::SeqCst) && Instant::now() >= deadline
+            })
     }
 
     pub fn remaining(&self) -> Option<Duration> {
+        if self.first_output_received.load(Ordering::SeqCst) {
+            return None;
+        }
         self.deadline
             .map(|deadline| deadline.saturating_duration_since(Instant::now()))
     }
@@ -77,4 +81,30 @@ pub struct QueuedLiveRequest {
     pub req: LiveRequest,
     pub generation: u64,
     pub response_tx: mpsc::Sender<LiveEvent>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_output_removes_expiry_but_preserves_cancellation() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let request = LiveRequest {
+            api_key: String::new(),
+            model: String::new(),
+            content: LiveInputContent::Text(String::new()),
+            instruction: String::new(),
+            show_thinking: false,
+            cancel_token: Some(cancel.clone()),
+            deadline: Some(Instant::now()),
+            first_output_received: Arc::new(AtomicBool::new(false)),
+        };
+        assert!(request.is_cancelled_or_expired());
+        request.first_output_received.store(true, Ordering::SeqCst);
+        assert!(!request.is_cancelled_or_expired());
+        assert_eq!(request.remaining(), None);
+        cancel.store(true, Ordering::SeqCst);
+        assert!(request.is_cancelled_or_expired());
+    }
 }

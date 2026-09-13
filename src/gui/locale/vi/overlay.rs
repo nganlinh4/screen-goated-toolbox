@@ -3,6 +3,8 @@ use crate::gui::locale::OverlayLocaleText;
 pub(super) fn get() -> OverlayLocaleText {
     OverlayLocaleText {
         overlay_copy_tooltip: "Sao chép",
+        overlay_copy_image_tooltip: "Sao chép ảnh đã dịch",
+        overlay_copy_image_failed: "Không thể sao chép ảnh đã dịch. Vui lòng thử lại.",
         overlay_undo_tooltip: "Hoàn tác",
         overlay_redo_tooltip: "Làm lại",
         overlay_edit_tooltip: "Chỉnh sửa / Viết lại",

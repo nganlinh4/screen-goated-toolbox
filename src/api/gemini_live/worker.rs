@@ -106,7 +106,11 @@ fn serve(
                             let _ = request.response_tx.send(LiveEvent::Thinking);
                             thinking_sent = true;
                         }
-                    } else {
+                    } else if !text.is_empty() {
+                        request
+                            .req
+                            .first_output_received
+                            .store(true, Ordering::SeqCst);
                         content_started = true;
                         last_content_at = Some(Instant::now());
                         let _ = request.response_tx.send(LiveEvent::TextChunk(text));

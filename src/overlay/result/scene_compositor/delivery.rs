@@ -120,6 +120,8 @@ fn is_operation_after_snapshot(command: &HostCommand) -> bool {
             ..
         } | HostCommand::NavigateBack { .. }
             | HostCommand::NavigateForward { .. }
+            | HostCommand::SourceImage { .. }
+            | HostCommand::SourceImageStatus { .. }
     )
 }
 

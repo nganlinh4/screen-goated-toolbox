@@ -11,6 +11,7 @@ pub(in crate::overlay::result::scene_compositor) fn handle(id: isize, action: Bu
         crate::overlay::result::raise_window(hwnd);
     }
     match action {
+        ButtonAction::CopyImage => super::super::source_image::request(id),
         ButtonAction::Copy => post(
             hwnd,
             crate::overlay::result::event_handler::misc::WM_COPY_CLICK,

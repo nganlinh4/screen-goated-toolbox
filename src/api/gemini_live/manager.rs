@@ -84,6 +84,7 @@ mod tests {
             show_thinking: false,
             cancel_token: None,
             deadline: None,
+            first_output_received: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         });
         let queue = manager.work_queue.lock().unwrap();
         assert_eq!(queue.front().unwrap().req.api_key, "caller-key");

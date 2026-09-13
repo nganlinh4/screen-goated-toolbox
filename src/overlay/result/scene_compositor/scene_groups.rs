@@ -22,6 +22,7 @@ static CARD_GROUPS: LazyLock<Mutex<HashMap<isize, isize>>> =
 #[derive(Clone)]
 pub struct SourceCardSpec {
     pub target_rect: RECT,
+    pub image_rect: SceneRect,
     pub backdrop_data_url: String,
     pub foreground_color: String,
     pub preferred_font_size: f32,
@@ -53,6 +54,7 @@ pub(crate) struct SourceGroupRestoreSnapshot {
     pub opacity: u8,
     pub foreground_color: String,
     pub control_options: ResultControlOptions,
+    pub source_image: Option<std::sync::Arc<image::RgbaImage>>,
 }
 
 struct SourceCardState {
@@ -71,6 +73,7 @@ struct SourceGroupState {
     offset: (i32, i32),
     opacity: u8,
     controls_visible: bool,
+    source_image: Option<std::sync::Arc<image::RgbaImage>>,
 }
 
 pub fn prewarm_source_group(
@@ -78,6 +81,7 @@ pub fn prewarm_source_group(
     specs: Vec<SourceCardSpec>,
     opacity: u8,
     trace_id: &str,
+    source_image: Option<std::sync::Arc<image::RgbaImage>>,
 ) -> (SourceGroupHandle, Vec<SourceCardHandle>) {
     let root_id = controller.0 as isize;
     let mut cards = HashMap::with_capacity(specs.len());
@@ -116,6 +120,7 @@ pub fn prewarm_source_group(
             offset: (0, 0),
             opacity,
             controls_visible: false,
+            source_image,
         },
     );
     let mut scene_cards = source_group_cards(root_id);
@@ -203,7 +208,7 @@ pub fn owns_geometry(id: isize) -> bool {
 
 pub fn restore_snapshot(id: isize) -> Option<SourceGroupRestoreSnapshot> {
     let root_id = CARD_GROUPS.lock().unwrap().get(&id).copied()?;
-    let (cards, opacity) = {
+    let (cards, opacity, source_image) = {
         let groups = GROUPS.lock().unwrap();
         let group = groups.get(&root_id)?;
         let cards = group
@@ -223,7 +228,7 @@ pub fn restore_snapshot(id: isize) -> Option<SourceGroupRestoreSnapshot> {
                 }
             })
             .collect::<Vec<_>>();
-        (cards, group.opacity)
+        (cards, group.opacity, group.source_image.clone())
     };
     if cards.is_empty() {
         return None;
@@ -250,6 +255,36 @@ pub fn restore_snapshot(id: isize) -> Option<SourceGroupRestoreSnapshot> {
         opacity,
         foreground_color,
         control_options,
+        source_image,
+    })
+}
+
+pub(super) fn has_source_image(id: isize) -> bool {
+    GROUPS
+        .lock()
+        .unwrap()
+        .get(&id)
+        .is_some_and(|group| group.source_image.is_some())
+}
+
+pub(super) fn image_snapshot(id: isize) -> Option<super::source_image::Snapshot> {
+    let groups = GROUPS.lock().unwrap();
+    let group = groups.get(&id)?;
+    Some(super::source_image::Snapshot {
+        image: group.source_image.clone()?,
+        opacity: group.opacity,
+        cells: group
+            .card_order
+            .iter()
+            .filter_map(|id| {
+                let card = group.cards.get(id)?;
+                card.visible.then(|| super::source_image::Cell {
+                    id: *id,
+                    rect: card.spec.image_rect.clone(),
+                    segments: card.segments.clone(),
+                })
+            })
+            .collect(),
     })
 }
 
@@ -383,6 +418,7 @@ pub fn resize_card(id: isize, rect: SceneRect) -> Option<SceneGeometry> {
 }
 
 fn remove_group(root_id: isize) {
+    super::source_image::cancel(root_id);
     let Some(group) = GROUPS.lock().unwrap().remove(&root_id) else {
         return;
     };

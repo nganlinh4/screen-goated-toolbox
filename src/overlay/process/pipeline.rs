@@ -409,7 +409,11 @@ pub fn show_audio_result(
         connections: preset.block_connections.clone(),
         config,
         parent_hwnd: Arc::new(Mutex::new(None)),
-        context: RefineContext::Audio(wav_data),
+        context: if wav_data.is_empty() {
+            RefineContext::None
+        } else {
+            RefineContext::Audio(wav_data)
+        },
         skip_execution: true,
         processing_indicator_hwnd: processing_hwnd.map(SendHwnd),
         cancel_token: ChainCancelToken::new(),

@@ -99,7 +99,16 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
         )
         .replace(
             "__SGT_HOST_COMMAND_RUNTIME__",
-            include_str!("host_command_runtime.js"),
+            &[
+                include_str!("source_image_runtime.js"),
+                include_str!("host_command_runtime.js"),
+            ]
+            .concat(),
+        )
+        .replace(
+            "__SGT_EXPORT_FONT_CSS_JSON__",
+            &serde_json::to_string(&super::font::face_css("__SGT_EXPORT_FONT_URL__"))
+                .expect("font CSS must serialize"),
         )
         .replace(
             "__SGT_SETTLED_REVEAL_RUNTIME__",

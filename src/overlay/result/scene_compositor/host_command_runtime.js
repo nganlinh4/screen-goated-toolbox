@@ -1,5 +1,7 @@
 window.applyHostCommand = function(command) {
-  if (command.type === 'processing') window.__SGT_PROCESSING_CONTOURS__.apply(command.effects);
+  if (command.type === 'source_image') window.__SGT_SOURCE_IMAGE__.render(command.request);
+  else if (command.type === 'source_image_status') window.__SGT_SOURCE_IMAGE__.status(command.id, command.success);
+  else if (command.type === 'processing') window.__SGT_PROCESSING_CONTOURS__.apply(command.effects);
   else if (command.type === 'snapshot') {
     const incoming = new Set(command.cards.map(card => String(card.id)));
     for (const key of cards.keys()) if (!incoming.has(key)) removeCard(key);

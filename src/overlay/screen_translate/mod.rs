@@ -72,7 +72,6 @@ pub(crate) fn run_ui_test(image_path: Option<std::path::PathBuf>) {
 
 #[cfg(debug_assertions)]
 pub(crate) fn run_lab_queue(queue: std::path::PathBuf) {
-    prepare_detector();
     std::thread::Builder::new()
         .name("sgt-screen-translate-lab-queue".to_string())
         .spawn(move || {
@@ -92,6 +91,7 @@ pub(crate) fn run_lab_queue(queue: std::path::PathBuf) {
                             .map(std::path::PathBuf::from)
                             .filter(|path| path.is_absolute() && path.is_file())
                         {
+                            prepare_detector();
                             capture::start_image(image);
                         }
                     }

@@ -18,16 +18,18 @@ use std::sync::{
 use std::time::Duration;
 use windows::Win32::Foundation::RECT;
 
-mod groups;
+mod coordinator;
+mod workers;
 
 enum Message {
     Ocr(Event),
     OcrDone(Result<(), String>),
-    Translated(TranslationRegion),
-    BatchDone(Result<super::inference::TranslationOutcome, String>),
+    Translated(usize, TranslationRegion),
+    BatchDone(usize, Result<super::inference::TranslationOutcome, String>),
 }
 
 struct Batch {
+    sequence: usize,
     candidates: Vec<DetectedTextRegion>,
     scene: Vec<DetectedTextRegion>,
     prior_translations: Vec<TranslationRegion>,
@@ -94,37 +96,8 @@ pub(super) fn translate_region(
                 });
             let _ = ocr_sender.send(Message::OcrDone(result.map_err(|e| e.to_string())));
         });
-        let (requests, batches) = mpsc::sync_channel::<Batch>(1);
-        let translate_cancel = Arc::clone(&work_cancel);
-        let translate_trace = trace_id.clone();
-        scope.spawn(move || {
-            while let Ok(batch) = batches.recv() {
-                if translate_cancel.load(Ordering::Acquire) {
-                    break;
-                }
-                let result = super::inference::translate(
-                    super::inference::TranslateInput {
-                        trace_id: &translate_trace,
-                        target_language: &settings.target_language,
-                        translation_model: &model,
-                        translation_prompt: &settings.translation_prompt,
-                        candidates: &batch.candidates,
-                        scene: &batch.scene,
-                        prior_translations: &batch.prior_translations,
-                    },
-                    Arc::clone(&translate_cancel),
-                    |region| {
-                        let _ = sender.send(Message::Translated(region));
-                    },
-                );
-                if sender
-                    .send(Message::BatchDone(result.map_err(|e| e.to_string())))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
+        let requests = workers::start(scope, &sender, &work_cancel, &trace_id, &settings);
+        drop(sender);
         let mut capture = Some(region);
         let mut untranslated = Vec::new();
         let mut processing = super::processing::Progress::new(processing);
@@ -134,10 +107,11 @@ pub(super) fn translate_region(
         let mut groups = None;
         let mut plan: Option<super::units::Plan> = None;
         let mut ocr_done = false;
-        let mut translating = false;
+        let mut accepted_context = Vec::new();
         let mut unresolved = 0;
         let mut first_reading = true;
         let mut first_translation = true;
+        let mut batch_sequence = 0;
         let mut queued = None;
         let mut drained = 0;
         let mut document = TranslationDocument {
@@ -172,7 +146,7 @@ pub(super) fn translate_region(
                             super::units::Plan::new(&capture.image, &mut candidates, &layout);
                         processing.partition(&units.units);
                         evidence.as_ref().unwrap().units(&units.units, &layout);
-                        groups = Some(groups::Groups::new(&units.candidates));
+                        groups = Some(coordinator::Coordinator::new(&units.candidates, &model));
                         let render_units = Arc::from(units.units.clone());
                         crate::log_info!(
                             "[Screen Translate] trace={trace_id} source_regions={} translation_units={} layout_regions={}",
@@ -212,7 +186,7 @@ pub(super) fn translate_region(
                         let groups = groups.as_mut().context("OCR preceded geometry")?;
                         let plan = plan.as_mut().context("OCR preceded unit partition")?;
                         if let Some(id) = plan.complete(index, &candidates) {
-                            groups.completed(id);
+                            groups.completed(id, std::time::Instant::now());
                             if plan
                                 .candidates
                                 .iter()
@@ -221,7 +195,6 @@ pub(super) fn translate_region(
                                 processing.resolved(&[id]);
                             }
                         }
-                        groups.observe_ready(&plan.candidates, std::time::Instant::now());
                     }
                     Ok(Message::Ocr(Event::Finished { .. })) => {}
                     Ok(Message::Ocr(_)) => bail!("unexpected capture event"),
@@ -231,7 +204,16 @@ pub(super) fn translate_region(
                         crate::overlay::result::latency::mark(&trace_id, "detector_complete");
                         evidence.as_mut().unwrap().detected(&candidates, &[]);
                     }
-                    Ok(Message::Translated(region)) => {
+                    Ok(Message::Translated(lane, region)) => {
+                        groups
+                            .as_mut()
+                            .context("translation preceded scene")?
+                            .first_output(
+                                lane,
+                                region.source_text.len(),
+                                std::time::Instant::now(),
+                            );
+                        accepted_context.push(region.clone());
                         if first_translation {
                             first_translation = false;
                             crate::overlay::result::latency::mark(
@@ -244,12 +226,15 @@ pub(super) fn translate_region(
                             overlay.send(region);
                         }
                     }
-                    Ok(Message::BatchDone(result)) => {
+                    Ok(Message::BatchDone(lane, result)) => {
+                        groups
+                            .as_mut()
+                            .context("translation preceded scene")?
+                            .finished(lane, std::time::Instant::now());
                         let translated = result.map_err(anyhow::Error::msg)?;
                         processing.resolved(&translated.unresolved);
                         untranslated.extend(translated.unresolved);
                         document.regions.extend(translated.document.regions);
-                        translating = false;
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -259,8 +244,7 @@ pub(super) fn translate_region(
                 // Consume already-arrived completions before choosing a batch.
                 // Cache hits can arrive as a burst; splitting that burst adds an
                 // avoidable provider round trip. This never waits for new OCR.
-                if !translating
-                    && drained < super::contract::MAX_CANDIDATES
+                if drained < super::contract::MAX_CANDIDATES
                     && let Ok(message) = receiver.try_recv()
                 {
                     queued = Some(message);
@@ -268,28 +252,35 @@ pub(super) fn translate_region(
                     continue;
                 }
                 drained = 0;
-                if !translating && let Some(groups) = groups.as_mut() {
+                if let Some(groups) = groups.as_mut() {
                     let unit_candidates =
                         &plan.as_ref().context("unit partition missing")?.candidates;
-                    let ready = groups.take_ready(unit_candidates, std::time::Instant::now());
-                    if !ready.is_empty() {
+                    if let Some(dispatch) =
+                        groups.take_ready(unit_candidates, std::time::Instant::now())
+                    {
+                        batch_sequence += 1;
                         crate::overlay::result::latency::mark(&trace_id, "translation_dispatched");
-                        requests
+                        requests[dispatch.lane]
                             .send(Batch {
-                                candidates: ready,
+                                sequence: batch_sequence,
+                                candidates: dispatch.candidates,
                                 scene: unit_candidates.clone(),
-                                prior_translations: document.regions.clone(),
+                                prior_translations: accepted_context.clone(),
                             })
                             .context("translation worker stopped")?;
-                        translating = true;
                     }
                 }
-                if ocr_done && !translating && groups.as_ref().is_some_and(groups::Groups::is_empty)
-                {
+                if ocr_done && groups.as_ref().is_some_and(coordinator::Coordinator::done) {
                     break;
                 }
             }
+            if let Some(groups) = &groups {
+                groups.remember(&model);
+            }
             crate::overlay::result::latency::mark(&trace_id, "translation_complete");
+            document
+                .regions
+                .sort_by_key(|region| region.member_ids.iter().copied().min());
             let recorded = document.clone();
             let rendered = if let Some(overlay) = overlay.take() {
                 overlay.complete(document)?

@@ -146,6 +146,7 @@ pub struct WindowState {
 
     // Metadata for Refinement/Processing
     pub model_id: String,
+    pub model_name: String,
     pub provider: String,
     pub streaming_enabled: bool,
 

@@ -10,6 +10,7 @@ struct Trace {
     started: Instant,
     phases: HashMap<&'static str, f64>,
     window_phases: HashMap<&'static str, HashSet<isize>>,
+    expected_final_cells: Option<usize>,
 }
 
 static TRACES: LazyLock<Mutex<HashMap<String, Trace>>> =
@@ -35,6 +36,7 @@ pub(crate) fn begin(trace_id: &str) {
             started: Instant::now(),
             phases: HashMap::new(),
             window_phases: HashMap::new(),
+            expected_final_cells: None,
         },
     );
     drop(traces);
@@ -98,6 +100,31 @@ fn mark_id_after(id: isize, phase: &'static str, prerequisite: &'static str) {
     };
     if record_window_phase_after(&trace_id, id, phase, prerequisite) {
         mark(&trace_id, phase);
+        if phase == "final_painted" {
+            mark_scene_settled(&trace_id);
+        }
+    }
+}
+
+pub(crate) fn expect_final_cells(trace_id: &str, count: usize) {
+    if let Some(trace) = TRACES.lock().unwrap().get_mut(trace_id) {
+        trace.expected_final_cells = Some(count);
+    }
+    mark_scene_settled(trace_id);
+}
+
+fn mark_scene_settled(trace_id: &str) {
+    let complete = TRACES.lock().unwrap().get(trace_id).is_some_and(|trace| {
+        trace.expected_final_cells.is_some_and(|expected| {
+            trace
+                .window_phases
+                .get("final_painted")
+                .map_or(0, HashSet::len)
+                >= expected
+        })
+    });
+    if complete {
+        mark(trace_id, "all_cells_settled");
     }
 }
 
@@ -163,6 +190,7 @@ pub(crate) fn mark_card_phase(id: isize, phase: &str, payload_len: usize, text_l
             mark_id_after(id, "final_fit_completed", "provider_first_output");
             None
         }
+        "reveal_started" => Some("first_reveal_started"),
         "fit_timeout" => Some("fit_timeout"),
         _ => None,
     };
@@ -234,6 +262,46 @@ pub(crate) fn snapshot(trace_id: &str) -> Vec<(&'static str, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scene_completion_waits_for_all_unique_cells_in_either_event_order() {
+        for late_expectation in [false, true] {
+            let trace_id = format!("latency-scene-complete:{late_expectation}");
+            let ids = if late_expectation {
+                [-901_241, -901_242]
+            } else {
+                [-901_243, -901_244]
+            };
+            begin(&trace_id);
+            mark(&trace_id, "provider_first_output");
+            bind_logical_scene_ids(ids, &trace_id);
+            if !late_expectation {
+                expect_final_cells(&trace_id, 2);
+            }
+            mark_card_phase(ids[0], "final_painted", 1, 1);
+            mark_card_phase(ids[0], "final_painted", 1, 1);
+            assert!(
+                !TRACES.lock().unwrap()[&trace_id]
+                    .phases
+                    .contains_key("all_cells_settled")
+            );
+            mark_card_phase(ids[1], "final_painted", 1, 1);
+            if late_expectation {
+                assert!(
+                    !TRACES.lock().unwrap()[&trace_id]
+                        .phases
+                        .contains_key("all_cells_settled")
+                );
+                expect_final_cells(&trace_id, 2);
+            }
+            assert!(
+                TRACES.lock().unwrap()[&trace_id]
+                    .phases
+                    .contains_key("all_cells_settled")
+            );
+            unbind_logical_scene_ids(ids);
+        }
+    }
 
     #[test]
     fn each_phase_is_recorded_only_once() {

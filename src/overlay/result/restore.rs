@@ -29,6 +29,7 @@ struct RestorableWindowSnapshot {
     text_history: Vec<String>,
     redo_history: Vec<String>,
     model_id: String,
+    model_name: String,
     provider: String,
     preset_prompt: String,
     bg_color: u32,
@@ -272,6 +273,7 @@ fn spawn_restored_source_group(
             specs,
             snapshot.opacity,
             &trace_id,
+            snapshot.source_image.clone(),
         );
         for (card, handle) in snapshot.cards.iter().zip(handles) {
             super::scene_compositor::reveal_source_card(handle, card.segments.clone(), &trace_id);
@@ -347,6 +349,7 @@ fn spawn_restored_window(window: RestorableWindowSnapshot) -> Option<HWND> {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                 state.full_text = window.full_text.clone();
+                state.model_name = window.model_name.clone();
                 state.text_history = window.text_history.clone();
                 state.redo_history = window.redo_history.clone();
                 state.refine_session = super::refine_session::RefineSession::restored(
@@ -460,6 +463,7 @@ fn capture_snapshot(targets: &[HWND]) -> Option<RestoreBatchSnapshot> {
             text_history: state.text_history.clone(),
             redo_history: state.redo_history.clone(),
             model_id: state.model_id.clone(),
+            model_name: state.model_name.clone(),
             provider: state.provider.clone(),
             preset_prompt: state.preset_prompt.clone(),
             bg_color: state.bg_color,

@@ -156,6 +156,12 @@ fn run_overlay_thread(
         .map(
             |prepared| crate::overlay::result::scene_compositor::SourceCardSpec {
                 target_rect: block_target_rect(origin, prepared),
+                image_rect: crate::overlay::result::scene_compositor::protocol::SceneRect {
+                    x: prepared.layout.x as i32,
+                    y: prepared.layout.y as i32,
+                    width: prepared.layout.width as i32,
+                    height: prepared.layout.height as i32,
+                },
                 backdrop_data_url: prepared.backdrop.clone(),
                 foreground_color: prepared.foreground.clone(),
                 preferred_font_size: prepared.preferred_font_size,
@@ -169,6 +175,7 @@ fn run_overlay_thread(
         specs,
         controls.opacity_percent,
         &trace_id,
+        Some(std::sync::Arc::new(capture.image)),
     );
     let mut blocks = scene
         .blocks
@@ -216,6 +223,7 @@ fn run_overlay_thread(
                     .iter()
                     .filter(|block| block.rendered_segments.is_some())
                     .count();
+                crate::overlay::result::latency::expect_final_cells(&trace_id, rendered);
                 let _ = completion.send(Ok(rendered));
                 // An empty result releases its hidden controller, just like
                 // an aborted translation.

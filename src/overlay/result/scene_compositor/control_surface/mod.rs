@@ -19,6 +19,8 @@ pub(crate) fn document_script() -> String {
     let locale = crate::gui::locale::LocaleText::get(&lang);
     let l10n = serde_json::json!({
         "copy": locale.overlay.overlay_copy_tooltip,
+        "copy_image": locale.overlay.overlay_copy_image_tooltip,
+        "copy_image_failed": locale.overlay.overlay_copy_image_failed,
         "undo": locale.overlay.overlay_undo_tooltip,
         "redo": locale.overlay.overlay_redo_tooltip,
         "edit": locale.overlay.overlay_edit_tooltip,
@@ -39,6 +41,7 @@ pub(crate) fn document_script() -> String {
         "hourglass_empty": icon("hourglass_empty"), "stop": icon("stop"),
         "cleaning_services": icon("cleaning_services"), "content_copy": icon("content_copy"),
         "check": icon("check"), "download": icon("download"),
+        "filter": icon("filter"),
         "volume_up": icon("volume_up"), "mic": icon("mic"),
         "send": icon("send"), "opacity": icon("opacity"), "close": icon("close"),
     })

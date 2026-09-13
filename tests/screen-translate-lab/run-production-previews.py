@@ -43,7 +43,7 @@ def summarize(name: str, result: dict) -> dict:
         "regions": record.get("renderedRegionCount", 0),
         "detectorMs": phase_ms(record, "detector_complete"),
         "firstPaintMs": phase_ms(record, "first_painted"),
-        "completeMs": phase_ms(record, "final_painted"),
+        "completeMs": phase_ms(record, "all_cells_settled"),
     }
 
 

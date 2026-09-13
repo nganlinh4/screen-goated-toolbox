@@ -4,6 +4,7 @@ use super::geometry::normalized_region;
 use sgt_screen_text_detector_protocol::stream::LayoutRegion;
 
 mod boundaries;
+mod rows;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(super) struct Unit {
@@ -290,5 +291,89 @@ mod tests {
             vec![1, 2, 3]
         );
         assert_eq!(plan.units.len(), 3);
+    }
+
+    #[test]
+    fn cross_line_contrast_preserves_hierarchy_without_splitting_modest_ink_variation() {
+        use sgt_screen_text_detector_protocol::stream::LayoutKind;
+        for background in [0_u8, 255] {
+            for (contrasts, expected) in [([110_u8, 230], 2), ([180, 225], 1)] {
+                let mut image = image::RgbaImage::from_pixel(
+                    1000,
+                    1000,
+                    image::Rgba([background, background, background, 255]),
+                );
+                for (top, contrast) in [12, 42].into_iter().zip(contrasts) {
+                    let ink = background.abs_diff(contrast);
+                    for x in (12..190).step_by(12) {
+                        for dx in 0..4 {
+                            for y in top..top + 14 {
+                                image.put_pixel(x + dx, y, image::Rgba([ink, ink, ink, 255]));
+                            }
+                        }
+                    }
+                }
+                let mut sources = vec![source(1, 10, 210), source(2, 40, 210)];
+                let layout = [LayoutRegion {
+                    bounds: [0.0, 0.0, 250.0, 80.0],
+                    kind: LayoutKind::Text,
+                }];
+                assert_eq!(
+                    Plan::new(&image, &mut sources, &layout).units.len(),
+                    expected
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn table_rows_never_join_into_a_paragraph() {
+        use sgt_screen_text_detector_protocol::stream::LayoutKind;
+        let image = image::RgbaImage::from_pixel(1000, 1000, image::Rgba([255; 4]));
+        let mut sources = vec![source(1, 10, 510), source(2, 40, 490)];
+        let layout = [LayoutRegion {
+            bounds: [0.0, 0.0, 600.0, 100.0],
+            kind: LayoutKind::Table,
+        }];
+        let plan = Plan::new(&image, &mut sources, &layout);
+        assert_eq!(
+            plan.units
+                .iter()
+                .map(|unit| unit.members.clone())
+                .collect::<Vec<_>>(),
+            [vec![1], vec![2]]
+        );
+    }
+
+    #[test]
+    fn borderless_grid_requires_a_continuous_surface_but_admits_thin_rules() {
+        for stripe_width in [0, 2, 100] {
+            let mut image = image::RgbaImage::from_pixel(1000, 1000, image::Rgba([255; 4]));
+            for x in 90..90 + stripe_width {
+                for y in 0..100 {
+                    image.put_pixel(x, y, image::Rgba([40, 60, 80, 255]));
+                }
+            }
+            let mut sources = Vec::new();
+            for row in 0..3 {
+                let mut a = source(row * 2 + 1, 10 + row * 30, 70);
+                a.bounds.left = 20;
+                let mut b = source(row * 2 + 2, 10 + row * 30, 250);
+                b.bounds.left = 200;
+                sources.extend([a, b]);
+            }
+            let plan = Plan::new(&image, &mut sources, &[]);
+            if stripe_width <= 2 {
+                assert_eq!(plan.units.len(), 6);
+            } else {
+                assert_eq!(
+                    plan.units
+                        .iter()
+                        .map(|unit| unit.members.len())
+                        .collect::<Vec<_>>(),
+                    [3, 3]
+                );
+            }
+        }
     }
 }

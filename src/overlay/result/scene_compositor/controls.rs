@@ -174,6 +174,7 @@ fn from_state(
 ) -> SceneControls {
     let source_group_ids = super::scene_groups::group_ids(id);
     SceneControls {
+        copy_image: super::scene_groups::has_source_image(id),
         hidden: state.presentation == crate::overlay::result::ResultPresentation::TextOnly
             && state.control_options.is_none(),
         control_anchor: source_group_ids
@@ -214,26 +215,19 @@ fn from_state(
         is_editing: state.refine_session.is_editing(),
         input_text: state.refine_session.draft().to_string(),
         opacity_percent: state.opacity_percent,
-        model_label: model_label(&state.model_id, &state.provider),
+        model_label: model_label(&state.model_name, &state.provider),
         group_ids: source_group_ids.unwrap_or_else(|| connected_ids(id, states)),
         onboarding_pulse_token: state.onboarding_pulse_token,
     }
 }
 
-/// Resolves the API model name for display. Reads only the generated catalog, so
-/// it never takes a second lock while `WINDOW_STATES` is held. Unknown ids belong to
-/// custom or Ollama models, whose id is already the user-facing name.
-fn model_label(model_id: &str, provider: &str) -> String {
-    if model_id.trim().is_empty() {
+/// Format the captured request identity without resolving the preset or catalog.
+fn model_label(name: &str, provider: &str) -> String {
+    if name.trim().is_empty() {
         return String::new();
     }
-    let model = crate::model_config::get_model_by_id(model_id);
-    let name = model
-        .as_ref()
-        .map_or_else(|| model_id.to_string(), |model| model.full_name.clone());
-    let provider = model.as_ref().map_or(provider, |model| &model.provider);
     if provider.trim().is_empty() {
-        return name;
+        return name.to_string();
     }
     format!(
         "{} · {name}",
@@ -264,7 +258,7 @@ fn connected_ids(root: isize, states: &HashMap<isize, WindowState>) -> Vec<isize
 
 #[cfg(test)]
 mod tests {
-    use super::{connected_ids, from_state};
+    use super::{WINDOW_STATES, connected_ids, from_state};
     use crate::overlay::result::state::{
         RefineContext, ResultControlOptions, ResultPresentation, WindowState,
     };
@@ -290,6 +284,7 @@ mod tests {
             is_refining: false,
             is_streaming_active: false,
             model_id: String::new(),
+            model_name: String::new(),
             provider: String::new(),
             streaming_enabled: false,
             preset_prompt: String::new(),
@@ -311,6 +306,45 @@ mod tests {
             onboarding_pulse_claimed: false,
             onboarding_pulse_token: 0,
         }
+    }
+
+    #[test]
+    fn resolved_model_replaces_initial_identity_for_controls_and_refinement() {
+        let id = -8_230_451_isize;
+        let hwnd = HWND(id as *mut _);
+        let mut initial = state(Vec::new());
+        initial.model_id = "initial-model".to_string();
+        initial.provider = "initial-provider".to_string();
+        initial.preset_id = Some("unchanged-preset".to_string());
+        WINDOW_STATES.lock().unwrap().insert(id, initial);
+
+        crate::overlay::result::update_model(
+            hwnd,
+            "resolved-id",
+            "resolved-model",
+            "resolved-provider",
+        );
+        let resolved = WINDOW_STATES.lock().unwrap().remove(&id).unwrap();
+        let states = HashMap::from([(id, resolved)]);
+        let resolved = &states[&id];
+        let controls = from_state(id, resolved, &states);
+        assert_eq!(resolved.model_id, "resolved-id");
+        assert_eq!(resolved.model_name, "resolved-model");
+        assert_eq!(resolved.provider, "resolved-provider");
+        assert_eq!(resolved.preset_id.as_deref(), Some("unchanged-preset"));
+        assert!(controls.model_label.contains("resolved-model"));
+        assert!(!controls.model_label.contains("initial-model"));
+
+        crate::overlay::result::update_model(hwnd, "late-id", "late-model", "late-provider");
+        assert!(!WINDOW_STATES.lock().unwrap().contains_key(&id));
+    }
+
+    #[test]
+    fn explicit_request_provider_wins_over_catalog_provider() {
+        let model_id = crate::model_config::DEFAULT_IMAGE_MODEL_ID;
+        let label = super::model_label(model_id, "request-provider");
+        assert!(label.starts_with("request-provider · "), "{label}");
+        assert_eq!(super::model_label("", "request-provider"), "");
     }
 
     #[test]

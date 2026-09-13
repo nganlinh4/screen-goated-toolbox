@@ -90,6 +90,8 @@ pub(super) fn apply(command: &HostCommand) {
             cards.remove(id);
         }
         HostCommand::NavigateBack { .. }
+        | HostCommand::SourceImage { .. }
+        | HostCommand::SourceImageStatus { .. }
         | HostCommand::NavigateForward { .. }
         | HostCommand::Opacity { .. }
         | HostCommand::RefineText { .. }

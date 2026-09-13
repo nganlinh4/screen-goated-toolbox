@@ -427,6 +427,7 @@ pub(super) fn handle_renderer_event(body: &str) {
                     }
                     ChildEvent::Navigation { .. }
                     | ChildEvent::ProcessingDiagnostic { .. }
+                    | ChildEvent::SourceImageReady { .. }
                     | ChildEvent::NavigationRequest { .. }
                     | ChildEvent::Interaction { .. }
                     | ChildEvent::ButtonAction { .. }

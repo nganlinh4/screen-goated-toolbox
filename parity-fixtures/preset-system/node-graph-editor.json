@@ -2,7 +2,7 @@
   "version": 3,
   "default_models": {
     "text": "groq-qwen-3-8-27b-text",
-    "image": "groq-qwen-3-8-27b-vision",
+    "image": "groq-qwen-3-6-27b-vision",
     "audio": "groq-whisper-large-v3-audio"
   },
   "cases": [

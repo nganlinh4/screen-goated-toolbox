@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.preset
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -75,6 +76,7 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
                     thinkingShown = true
                 }
                 if (delta.content.isNotEmpty()) {
+                    response.firstOutputReceived()
                     if (!contentStarted && thinkingShown) {
                         contentStarted = true
                         fullContent.append(delta.content)
@@ -132,7 +134,7 @@ private suspend fun VisionApiClient.executeOpenAiVisionRequest(
     var retried = false
     while (true) {
         coroutineContext.ensureActive()
-        val response = httpClient.newPresetCall(request, model, streamingEnabled).execute()
+        val response = httpClient.newPresetCall(request, model, streamingEnabled, job = coroutineContext[Job]).execute()
         ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (response.isSuccessful) return response
 

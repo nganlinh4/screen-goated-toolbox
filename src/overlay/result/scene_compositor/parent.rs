@@ -437,6 +437,7 @@ pub(super) fn scene_snapshot() -> Vec<SceneCard> {
 
 pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
     match event {
+        ChildEvent::SourceImageReady { result } => super::source_image::complete(result),
         ChildEvent::ProcessingFinished { id } => super::processing::finished(id),
         ChildEvent::ProcessingDiagnostic {
             id,
