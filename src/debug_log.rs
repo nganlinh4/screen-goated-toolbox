@@ -8,6 +8,9 @@ use std::sync::LazyLock;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::Duration;
 
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) mod diagnostics;
+
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 #[cfg(windows)]
@@ -89,6 +92,11 @@ fn write_console_line(msg: &str) -> bool {
 }
 
 pub fn log_debug(msg: &str) {
+    // Unit tests exercise production call sites, but must not evict customer
+    // history from the real bounded session log.
+    if cfg!(test) {
+        return;
+    }
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     let _ = LOG_SENDER.send(format!("[{timestamp}] {msg}"));
 }
@@ -385,6 +393,12 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn unit_test_logging_does_not_start_the_customer_log_writer() {
+        log_debug("unit test diagnostic");
+        assert!(LazyLock::get(&LOG_SENDER).is_none());
+    }
 
     #[test]
     fn internal_compositors_keep_stdout_exclusive_to_protocol_frames() {

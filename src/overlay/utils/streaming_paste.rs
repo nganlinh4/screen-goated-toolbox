@@ -142,7 +142,7 @@ impl StreamingAutoPaste {
         }
         state.received += 1;
         diagnostics::received(shared.generation, state.received, &event);
-        crate::log_info!(
+        crate::log_paste_trace!(
             "[AutoPaste] session={} received={} kind={} chars={} queued={}",
             shared.generation,
             state.received,
@@ -404,7 +404,7 @@ fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foregrou
         dispatched += 1;
         let (routed_event, cut) = routing.project(&event);
         if cut != 0 {
-            crate::log_info!(
+            crate::log_paste_trace!(
                 "[AutoPaste] session={generation} dispatch={dispatched} handoff=routed source_chars={} destination_chars={}",
                 event.chars(),
                 routed_event.chars()
@@ -420,7 +420,7 @@ fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foregrou
                 &replacement.new,
             );
         }
-        crate::log_info!(
+        crate::log_paste_trace!(
             "[AutoPaste] session={generation} dispatch={dispatched} kind={} backend={} old_chars={} new_chars={} mutation={}",
             event.kind(),
             target.backend(),
@@ -460,11 +460,15 @@ fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foregrou
             cut,
             matches!(target, Target::Replace(_) | Target::BestEffort(_)),
         );
-        crate::log_info!(
+        crate::log_paste_trace!(
             "[AutoPaste] session={generation} dispatch={dispatched} accepted backend={}",
             target.backend()
         );
         if matches!(event, Event::Finish) {
+            crate::log_info!(
+                "[AutoPaste] session={generation} finished dispatched={dispatched} backend={}",
+                target.backend()
+            );
             break;
         }
         if matches!(event, Event::Interim(_)) {

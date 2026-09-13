@@ -1,3 +1,4 @@
+# Capture with SGT_VERBOSE_LOGS=1 to include intermediate rendering phases.
 param(
     [string]$LogPath = (Join-Path $env:LOCALAPPDATA 'SGT\logs\session.log'),
     [int]$Last = 20,

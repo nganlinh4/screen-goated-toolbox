@@ -54,12 +54,15 @@ pub(crate) fn mark(trace_id: &str, phase: &'static str) {
         trace.phases.insert(phase, elapsed_ms);
         elapsed_ms
     };
-    let message =
-        format!("[OverlayPerf] trace={trace_id} phase={phase} elapsed_ms={elapsed_ms:.1}");
-    if trace_id.starts_with("screen-translate-") {
-        crate::log_info!("{message}");
+    if matches!(
+        phase,
+        "final_fit_completed" | "all_cells_settled" | "fit_timeout"
+    ) {
+        crate::log_info!("[OverlayPerf] trace={trace_id} phase={phase} elapsed_ms={elapsed_ms:.1}");
     } else {
-        crate::debug_log::log_debug(&message);
+        crate::log_trace!(
+            "[OverlayPerf] trace={trace_id} phase={phase} elapsed_ms={elapsed_ms:.1}"
+        );
     }
 }
 

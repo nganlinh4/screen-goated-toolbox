@@ -76,7 +76,7 @@ where
             frames += 1;
             maximum_rms = maximum_rms.max(rms);
             active_frames += u64::from(activity.observe(rms, std::time::Instant::now()));
-            if last_summary.elapsed() >= std::time::Duration::from_secs(5) {
+            if last_summary.elapsed() >= crate::debug_log::diagnostics::health_interval() {
                 options.diagnostics.event("activity", &format!("callback_frames={frames} active_frames={active_frames} max_frame_rms={maximum_rms:.6}"));
                 frames = 0; active_frames = 0; maximum_rms = 0.0;
                 last_summary = std::time::Instant::now();

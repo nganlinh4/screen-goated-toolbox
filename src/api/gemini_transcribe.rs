@@ -168,6 +168,9 @@ impl TranscriptState {
     }
 
     fn log_delivery(&mut self, raw: &str, final_text: bool) {
+        if !crate::debug_log::diagnostics::paste_enabled() {
+            return;
+        }
         static NEXT: AtomicU64 = AtomicU64::new(1);
         if self.diagnostic_id == 0 {
             self.diagnostic_id = NEXT.fetch_add(1, Ordering::Relaxed);

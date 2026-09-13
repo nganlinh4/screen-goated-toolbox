@@ -71,7 +71,7 @@ impl BestEffortTarget {
         validate_input(old)?;
         validate_input(new)?;
         let (backspaces, suffix) = keyboard_delta(old, new);
-        crate::log_info!(
+        crate::log_paste_trace!(
             "[AutoPasteKeyboard] backspaces={backspaces} inserted_chars={} delivery=unverified",
             suffix.chars().count()
         );

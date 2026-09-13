@@ -18,7 +18,7 @@ pub(super) fn flush_completed_speech(
         end_audio_stream().inspect_err(|error| {
             crate::log_info!("[GeminiLiveStream] speech_boundary_failed error={error:#}");
         })?;
-        crate::log_info!(
+        crate::log_trace!(
             "[GeminiLiveStream] speech_boundary audio_stream_end=true recording_active=true"
         );
     }

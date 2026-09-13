@@ -350,7 +350,7 @@ fn remove_window_locked(hwnd: HWND) {
     DEFERRED_SYNC.lock().unwrap().remove(&id);
     super::geometry_delivery::remove(id);
     if SCENES.lock().unwrap().remove(&id).is_some() {
-        crate::log_info!("[ResultCard] id={id} host=remove");
+        crate::log_trace!("[ResultCard] id={id} host=remove");
         send_command(HostCommand::Remove { id });
     }
 }
@@ -442,9 +442,13 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
             id,
             phase,
             duration_ms,
-        } => crate::log_info!(
-            "[ProcessingContour] id={id} phase={phase} duration_ms={duration_ms:.1}"
-        ),
+        } => {
+            if phase != "field_ready" || crate::debug_log::diagnostics::verbose_enabled() {
+                crate::log_info!(
+                    "[ProcessingContour] id={id} phase={phase} duration_ms={duration_ms:.1}"
+                );
+            }
+        }
         ChildEvent::StackChanged => crate::overlay::process::window::request_stack_reconciliation(),
         ChildEvent::FontReady { duration_ms } => crate::log_info!(
             "[ResultCompositor] bundled_font_ready generation={generation} duration_ms={duration_ms:.1}"
@@ -544,9 +548,9 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
             input_rect_count,
         } => {
             super::reconciliation::acknowledge_revision(revision);
-            crate::debug_log::log_debug(&format!(
+            crate::log_trace!(
                 "[ResultCompositor] state_ack gen={generation} rev={revision} vis={visible_cards} rects={input_rect_count}"
-            ));
+            );
         }
         ChildEvent::Ready
         | ChildEvent::Heartbeat

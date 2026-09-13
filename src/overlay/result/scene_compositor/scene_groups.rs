@@ -402,7 +402,7 @@ fn remove_group(root_id: isize) {
             .collect::<Vec<_>>()
     };
     for id in removed {
-        crate::log_info!("[ResultCard] id={id} host=remove");
+        crate::log_trace!("[ResultCard] id={id} host=remove");
         send_command(HostCommand::Remove { id });
     }
 }

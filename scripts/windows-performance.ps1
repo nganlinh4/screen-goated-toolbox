@@ -142,7 +142,9 @@ function Measure-Smoke {
     $script:transientTargets.Add($stateRoot)
     $savedStateRoot = $env:SGT_RUNTIME_STATE_ROOT
     $savedOffscreen = $env:SGT_RESULT_COMPOSITOR_ACCEPTANCE_OFFSCREEN
+    $savedVerboseLogs = $env:SGT_VERBOSE_LOGS
     try {
+        $env:SGT_VERBOSE_LOGS = "1"
         $env:SGT_RUNTIME_STATE_ROOT = $stateRoot
         if ($Flag -eq "--result-compositor-smoke") {
             $env:SGT_RESULT_COMPOSITOR_ACCEPTANCE_OFFSCREEN = "1"
@@ -225,6 +227,12 @@ function Measure-Smoke {
         }
     }
     finally {
+        if ($null -eq $savedVerboseLogs) {
+            Remove-Item Env:SGT_VERBOSE_LOGS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:SGT_VERBOSE_LOGS = $savedVerboseLogs
+        }
         if ($null -eq $savedStateRoot) {
             Remove-Item Env:SGT_RUNTIME_STATE_ROOT -ErrorAction SilentlyContinue
         }

@@ -99,7 +99,18 @@ impl VisionCallTrace {
     }
 
     pub(super) fn finish(self, result: &Result<String>, output: &OutputObserver) {
-        crate::log_info!("{}", self.summary(result, output));
+        if result.is_err() || crate::debug_log::diagnostics::verbose_enabled() {
+            crate::log_info!("{}", self.summary(result, output));
+        } else {
+            crate::log_info!(
+                "[VisionPerf] call={} status=ok provider={:?} model={:?} total_ms={} retries={}",
+                self.call_id,
+                one_line(&self.provider, usize::MAX),
+                one_line(&self.model, usize::MAX),
+                self.started.elapsed().as_millis(),
+                self.retry_count
+            );
+        }
     }
 
     fn summary(&self, result: &Result<String>, output: &OutputObserver) -> String {

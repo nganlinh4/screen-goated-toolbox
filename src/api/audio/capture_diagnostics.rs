@@ -5,7 +5,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 mod endpoints;
 
@@ -147,7 +147,7 @@ impl CaptureDiagnostics {
                     inventory = false;
                     inner.report("health");
                     drop(inner);
-                    std::thread::sleep(Duration::from_secs(5));
+                    std::thread::sleep(crate::debug_log::diagnostics::health_interval());
                 }
             })
         {

@@ -13,34 +13,34 @@ pub(super) struct CardDiagnosticLog {
 }
 
 pub(super) fn log_card_diagnostic(event: CardDiagnosticLog) {
-    let crucial = event.error.is_some()
+    if !should_log_card_event(
+        &event.phase,
+        event.error.is_some(),
+        crate::debug_log::diagnostics::verbose_enabled(),
+    ) {
+        return;
+    }
+    write_card_diagnostic(event);
+}
+
+fn should_log_card_event(phase: &str, has_error: bool, verbose: bool) -> bool {
+    verbose
+        || has_error
         || matches!(
-            event.phase.as_str(),
-            "document_load_requested"
-                | "document_loaded"
-                | "bridge_ready"
-                | "interactive_document_alive"
-                | "interactive_surface_visible"
-                | "interactive_surface_rejected"
-                | "interactive_pixels_visible"
+            phase,
+            "interactive_surface_rejected"
                 | "interactive_pixels_rejected"
-                | "activate_font_received"
-                | "finalize_received"
-                | "finalize_applied"
-                | "run_fit_received"
                 | "command_rejected"
                 | "font_failed"
                 | "finalize_failed"
                 | "script_error"
                 | "promise_rejection"
                 | "grid_runtime_failed"
-                | "final_painted"
-                | "final_fit_completed"
                 | "fit_timeout"
-        );
-    if !crucial {
-        return;
-    }
+        )
+}
+
+fn write_card_diagnostic(event: CardDiagnosticLog) {
     crate::debug_log::log_debug(&format!(
         "[ResultCard] id={} phase={} revision={} visible={} ready={} payload_len={} text_len={} opacity={} error={}",
         event.id,
@@ -60,6 +60,9 @@ pub(super) fn log_card_diagnostic(event: CardDiagnosticLog) {
 }
 
 pub(super) fn log_host_command(command: &HostCommand, text_len: usize) {
+    if !crate::debug_log::diagnostics::verbose_enabled() {
+        return;
+    }
     match command {
         HostCommand::Upsert { card } => crate::debug_log::log_debug(&format!(
             "[ResultCard] id={} host=upsert visible={} streaming={} text_len={} rect={}x{}",
@@ -95,10 +98,27 @@ pub(super) fn log_fit_diagnostic(id: isize, payload: &serde_json::Value) {
     let painted_shrink_px_per_sec = payload["paintedShrinkPxPerSec"].as_f64().unwrap_or(0.0);
     let settle_before_reveal = payload["settleBeforeReveal"].as_bool().unwrap_or(false);
     let reason = payload["reason"].as_str().unwrap_or("none");
-    if streaming && duration < 16.0 && reason == "none" {
+    if reason == "none" && !crate::debug_log::diagnostics::verbose_enabled() {
         return;
     }
     crate::debug_log::log_debug(&format!(
         "[ResultCard] id={id} phase=fit action={action} fit_phase={phase} streaming={streaming} settle_before_reveal={settle_before_reveal} text_len={text_len} viewport={width}x{height} from_font_size={from_font_size:.1} target_font_size={font_size:.1} font_stretch={font_stretch:.1} painted_shrink_px_per_sec={painted_shrink_px_per_sec:.1} duration_ms={duration:.1} layout_probes={layout_probes} reason={reason}"
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_log_card_event;
+
+    #[test]
+    fn normal_logging_keeps_failures_without_successful_render_chatter() {
+        for phase in ["final_painted", "final_fit_completed", "stream_applied"] {
+            assert!(!should_log_card_event(phase, false, false));
+            assert!(should_log_card_event(phase, false, true));
+        }
+        for phase in ["script_error", "fit_timeout", "interactive_pixels_rejected"] {
+            assert!(should_log_card_event(phase, false, false));
+        }
+        assert!(should_log_card_event("new_phase", true, false));
+    }
 }

@@ -239,7 +239,7 @@ impl Editor {
         let mut prefix = format!("{original_prefix}{}", &old_tail[..unchanged]);
         let mut old_tail = &old_tail[unchanged..];
         let mut new_tail = &new_tail[unchanged..];
-        crate::log_info!(
+        crate::log_paste_trace!(
             "[AutoPasteRange] preserved_chars={unchanged_chars} selected_chars={} inserted_chars={} surrounding_before_chars={} surrounding_after_chars={}",
             old_tail.chars().count(),
             new_tail.chars().count(),

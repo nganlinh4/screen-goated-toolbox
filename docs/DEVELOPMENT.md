@@ -160,9 +160,18 @@ atomically compacts it to its newest 12 MiB at a complete-line boundary. The
 retention window is therefore activity-based rather than a fixed number of
 days. For support, request only `session.log`.
 
+Normal logging retains startup, session/backend transitions, completion summaries,
+retries, errors, and rendering failures. Repeated compositor acknowledgements,
+successful card/fit milestones, intermediate overlay timings, and individual
+transcription/paste updates require `SGT_VERBOSE_LOGS=1` at launch. This switch
+also restores detailed successful vision-call metrics and five-second capture
+health summaries. It does not enable transcript contents. Unit tests do not
+append to the user's session log or Computer Control JSONL logs.
+
 Microphone capture automatically writes `[AudioCapture]` records in development
 and release builds. Each stream has an ID and opening/configured/playing/released
-events, with five-second cumulative health summaries. These include the actual
+events, with one-minute cumulative health summaries (five seconds with verbose
+logging). These include the actual
 device and Windows default input roles, input inventory, endpoint mute/volume/peak,
 sample format/rate/channel count, callback age and suppression, and raw per-channel,
 averaged-mono and delivered signal levels. Zero/nonfinite/clipped sample counts
@@ -183,7 +192,8 @@ without rewriting the old editor. Uncertain mutations are not retried. Dedicated
 transcription retains the shared speech-end reducer, so speech
 pauses finalize chunks without ending capture. See the
 [preset audio contract](../.claude/parity/preset-audio.md).
-`[AutoPaste]` records a session ID, received/dispatched ordering, event kind,
+With verbose logging or the text-diagnostics flag below, `[AutoPaste]` records a
+session ID, received/dispatched ordering, event kind,
 queue depth, text lengths, selected backend, and mutation acceptance/failure.
 `[AutoPasteRange]` records preserved-prefix and selected/inserted lengths;
 postcondition failures include expected/observed surrounding lengths.
@@ -198,7 +208,8 @@ by Windows is not proof that the destination applied it correctly.
 Capture health also records maximum callback processing time and observed callback
 gap in microseconds; these distinguish slow application callbacks from delivery gaps
 when investigating audio-buffer discontinuities. They do not measure lost audio directly.
-`[TranscriptionDelivery]` records raw/delivered lengths, trimmed overlap length, and whether stabilization
+With either diagnostics flag, `[TranscriptionDelivery]` records raw/delivered
+lengths, trimmed overlap length, and whether stabilization
 changed an update. The shared ten-word / 64-scalar delivery policy applies to
 dedicated transcription in presets and Live Translate, including provider finals.
 Matched carryover prefixes are trimmed from interims without withholding their new tail. Normal
