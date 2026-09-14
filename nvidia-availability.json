@@ -3,15 +3,15 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-14T05:06:53Z",
+ "generatedAt": "2026-09-14T12:56:21Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "deepseek-ai/deepseek-v4-flash-0731",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 299,
-   "success_rate": 0.583,
+   "p50_ms": 305,
+   "success_rate": 0.625,
    "runs": 24
   },
   {
@@ -20,14 +20,6 @@
    "modality": "text",
    "p50_ms": 481,
    "success_rate": 1.0,
-   "runs": 24
-  },
-  {
-   "id": "poolside/laguna-xs-2.1",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 499,
-   "success_rate": 0.542,
    "runs": 24
   },
   {
@@ -42,7 +34,7 @@
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 1559,
+   "p50_ms": 1511,
    "success_rate": 0.875,
    "runs": 24
   },
@@ -50,7 +42,7 @@
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2066,
+   "p50_ms": 2083,
    "success_rate": 0.792,
    "runs": 24
   },
