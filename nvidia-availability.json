@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-15T04:59:29Z",
+ "generatedAt": "2026-09-15T11:50:48Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 494,
+   "p50_ms": 488,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -18,7 +18,7 @@
    "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
    "control": "effort-none",
    "modality": "vision",
-   "p50_ms": 510,
+   "p50_ms": 530,
    "success_rate": 0.875,
    "runs": 24
   },
@@ -26,16 +26,24 @@
    "id": "nvidia/nemotron-parse-2.0",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 669,
-   "success_rate": 0.438,
-   "runs": 16
+   "p50_ms": 683,
+   "success_rate": 0.471,
+   "runs": 17
+  },
+  {
+   "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 1044,
+   "success_rate": 0.583,
+   "runs": 24
   },
   {
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
    "p50_ms": 1588,
-   "success_rate": 0.875,
+   "success_rate": 0.917,
    "runs": 24
   },
   {
