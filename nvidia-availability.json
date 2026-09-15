@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-14T23:10:32Z",
+ "generatedAt": "2026-09-15T04:59:29Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 488,
+   "p50_ms": 494,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -26,9 +26,9 @@
    "id": "nvidia/nemotron-parse-2.0",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 663,
-   "success_rate": 0.4,
-   "runs": 15
+   "p50_ms": 669,
+   "success_rate": 0.438,
+   "runs": 16
   },
   {
    "id": "meta/llama-3.2-11b-vision-instruct",
