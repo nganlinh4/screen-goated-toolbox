@@ -46,6 +46,7 @@ pub struct LiveEndpointProfile {
     pub max_output_tokens: Option<u32>,
     pub automatic_activity_detection_default: bool,
     pub protocol: Option<&'static str>,
+    pub require_interaction_idle: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -392,7 +393,8 @@ pub fn is_gemini_live_translate_model_id(model_id: &str) -> bool {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn is_gemini_live_s2s_model_id(model_id: &str) -> bool {
-    is_gemini_live_translate_model_id(model_id)
+    GENERATED_REALTIME_S2S_MODEL_IDS
+        .contains(&normalize_realtime_transcription_model_id(model_id).as_str())
 }
 
 pub fn tts_gemini_model_options() -> &'static [(&'static str, &'static str)] {

@@ -1,5 +1,8 @@
 {
-  "platform": "windows",
+  "emptyEditableCaret": {"text":"", "start":-1, "end":-1, "normalizedStart":0, "normalizedEnd":0},
+  "platforms": ["windows", "android"],
+  "stableDestinationMillis": 500,
+  "drainMillis": 2000,
   "cases": [
     {"name":"unfinished_segment_follows_destination", "events":[
       {"kind":"interim","text":"first words","tail":"first words"},

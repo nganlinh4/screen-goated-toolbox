@@ -52,7 +52,7 @@ fn canonical_ocr_cases_match_the_built_in_rust_preset() {
         .iter()
         .filter(|case| case.instruction == block.prompt)
         .collect::<Vec<_>>();
-    assert_eq!(canonical.len(), 3);
+    assert_eq!(canonical.len(), 5);
     assert_eq!(
         canonical
             .iter()
@@ -154,7 +154,7 @@ fn attempts_fingerprint_the_current_production_reasoning_policy() {
         ("google-gemini-3-5-flash-lite-text", "gemini-level:minimal"),
         ("google-gemini-robotics-er-2-text", "gemini-budget:0"),
         ("google-gemini-3-8-flash-text", "gemini-level:low"),
-        ("groq-qwen-3-6-27b-vision", "openai-effort:none"),
+        ("groq-qwen-3-8-27b-vision", "openai-effort:none"),
     ];
     for (id, expected) in cases {
         let model = get_model_by_id(id).unwrap();

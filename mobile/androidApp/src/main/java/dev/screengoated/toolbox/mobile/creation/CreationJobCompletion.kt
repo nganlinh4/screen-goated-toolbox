@@ -115,6 +115,9 @@ internal class CreationJobFinisher(
                 event.quads.boundedCreationGeometryCount(tool),
             )
         } catch (failure: Throwable) {
+            if (dev.screengoated.toolbox.mobile.BuildConfig.DEBUG) {
+                android.util.Log.e("CreationCompletion", "Result validation failed", failure)
+            }
             files.deleteManagedPath(staging.absolutePath)
             throw failure
         }
@@ -231,6 +234,7 @@ internal fun creationHistoryMetadata(
             put("operation", request.operation)
             put("isSegmented", completed.segmented)
             request.generationMode?.let { put("generationMode", it) }
+            request.topology?.let { put("topology", it) }
             put("polycount", request.polycount)
             put("autoSegment", request.autoSegment)
             put("segmentationLevel", request.segmentationLevel)
@@ -309,15 +313,12 @@ private fun Long?.boundedCreationGeometryCount(tool: CreationTool): Long? =
             it in 0..CreationContract.MAXIMUM_GLB_ARTIFACT_BYTES
     }
 
-private fun validatedCreationCompanion(
+internal fun validatedCreationCompanion(
     request: CreationWorkerRequest,
     event: CreationWorkerEvent,
 ): File? {
     if (event.downloadPath == null && event.downloadName == null) return null
-    val companionOperation = request.operation == "generate" ||
-        (request.operation == "refine" &&
-            (request.refinementKind == "rig" ||
-                request.refinementKind?.startsWith("animate_") == true))
+    val companionOperation = request.operation in setOf("generate", "segment", "refine")
     require(request.tool == CreationTool.IMAGE_TO_3D.wireName && companionOperation) {
         "Creation returned an unexpected companion artifact"
     }

@@ -235,6 +235,11 @@ internal fun buildGeminiS2sSetupPayload(
             systemInstruction = instruction,
             transcriptionMode = GeminiLiveTranscriptionMode.BOTH,
             contextWindowCompression = true,
+            setupExtensions = buildJsonObject {
+                put("realtimeInputConfig", buildJsonObject {
+                    put("automaticActivityDetection", buildJsonObject { put("disabled", true) })
+                })
+            },
         ),
     ).toString()
 }
@@ -326,9 +331,9 @@ internal fun buildGeminiS2sAudioPayload(samples: ShortArray): String {
         .toString()
 }
 
-internal fun buildGeminiS2sAudioStreamEndPayload(): String {
+internal fun buildGeminiS2sActivityPayload(start: Boolean): String {
     return JSONObject()
-        .put("realtimeInput", JSONObject().put("audioStreamEnd", true))
+        .put("realtimeInput", JSONObject().put(if (start) "activityStart" else "activityEnd", JSONObject()))
         .toString()
 }
 

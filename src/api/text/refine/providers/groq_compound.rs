@@ -60,24 +60,21 @@ where
         ));
     }
 
-    let json: serde_json::Value = resp.into_body().read_json()?;
+    let json: serde_json::Value = resp.into_body().read_json().map_err(|error| {
+        anyhow::anyhow!("PROVIDER_RESPONSE_INVALID:Malformed provider completion: {error}")
+    })?;
     record_groq_json_usage(p_model, &json);
-    let mut full_content = String::new();
+    let full_content = crate::api::openai_compat::parse_chat_completion(&json)?;
 
     if let Some(choices) = json.get("choices").and_then(|c| c.as_array())
         && let Some(first_choice) = choices.first()
         && let Some(message) = first_choice.get("message")
+        && let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array())
     {
-        if let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array()) {
-            report_search_progress(executed_tools, final_prompt, &locale, on_chunk);
-        }
-
-        if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
-            full_content = content.to_string();
-            on_chunk(&full_content);
-        }
+        report_search_progress(executed_tools, final_prompt, &locale, on_chunk);
     }
 
+    on_chunk(&full_content);
     Ok(full_content)
 }
 

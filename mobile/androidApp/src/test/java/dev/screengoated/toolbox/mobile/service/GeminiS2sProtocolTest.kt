@@ -39,10 +39,11 @@ class GeminiS2sProtocolTest {
             buildGeminiS2sAudioPayload(shortArrayOf(1, 2)),
         ).jsonObject.getValue("realtimeInput").jsonObject.getValue("audio").jsonObject
         assertEquals("audio/pcm;rate=16000", audio.getValue("mimeType").jsonPrimitive.content)
-        val streamEnd = Json.parseToJsonElement(
-            buildGeminiS2sAudioStreamEndPayload(),
-        ).jsonObject.getValue("realtimeInput").jsonObject
-        assertTrue(streamEnd.getValue("audioStreamEnd").jsonPrimitive.content.toBoolean())
+        val fixture = Json.parseToJsonElement(loadSourceFile("parity-fixtures/live-translate/overlay-bootstrap.json").readText())
+            .jsonObject.getValue("nativeS2sBoundaries").jsonObject
+        assertEquals(fixture.getValue("realtimeInputConfig"), setup.getValue("realtimeInputConfig"))
+        assertEquals(fixture.getValue("start"), Json.parseToJsonElement(buildGeminiS2sActivityPayload(true)))
+        assertEquals(fixture.getValue("end"), Json.parseToJsonElement(buildGeminiS2sActivityPayload(false)))
     }
 
     @Test
@@ -81,7 +82,8 @@ class GeminiS2sProtocolTest {
             ),
         )
         assertTrue(segmentsSource.contains("if (!session.trySend(buildGeminiS2sAudioPayload("))
-        assertTrue(segmentsSource.contains("if (!session.trySend(buildGeminiS2sAudioStreamEndPayload()))"))
+        assertTrue(segmentsSource.contains("!session.trySend(buildGeminiS2sActivityPayload(true))"))
+        assertTrue(segmentsSource.contains("if (!session.trySend(buildGeminiS2sActivityPayload(false)))"))
         assertTrue(liveTranslateSource.contains("val sent = active.session.trySend(buildGeminiS2sAudioPayload(frame))"))
         assertFalse(socketSources.contains("BlockingWebSocketSession"))
         assertFalse(socketSources.contains("waitForGeminiS2sSetup"))
@@ -128,8 +130,8 @@ class GeminiS2sProtocolTest {
         assertTrue(isGeminiLiveTranslateApiModel(GeneratedLiveModelCatalog.GEMINI_LIVE_TRANSLATE_API_MODEL))
         assertFalse(isGeminiLiveTranslateApiModel(GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_3_1))
         assertFalse(isGeminiLiveTranslateApiModel("future-unknown-model"))
-        assertTrue(shouldSendAudioStreamEnd("future-unknown-model"))
-        assertFalse(shouldSendAudioStreamEnd(GeneratedLiveModelCatalog.GEMINI_LIVE_TRANSLATE_API_MODEL))
+        assertTrue(usesManualSpeechBoundaries("future-unknown-model"))
+        assertFalse(usesManualSpeechBoundaries(GeneratedLiveModelCatalog.GEMINI_LIVE_TRANSLATE_API_MODEL))
         assertEquals(
             "RealtimeLiveTranslateAndroid",
             geminiLiveAudioLogTag(GeneratedLiveModelCatalog.GEMINI_LIVE_TRANSLATE_API_MODEL),

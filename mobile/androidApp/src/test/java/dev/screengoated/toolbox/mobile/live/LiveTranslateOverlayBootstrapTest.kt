@@ -87,7 +87,6 @@ class LiveTranslateOverlayBootstrapTest {
     fun `active Android model picker labels stay human-readable`() {
         val fixture = loadFixture()
         val transcriptionOptions = RealtimeOverlayModelOptions.transcriptionOptions(
-            geminiS2sLabel = "Gemini S2S",
             unavailableSuffix = "Unavailable",
         )
         val translationOptions = RealtimeOverlayModelOptions.translationOptions(
@@ -95,6 +94,12 @@ class LiveTranslateOverlayBootstrapTest {
             gtxLabel = "Google Translate",
         )
         val allOptions = transcriptionOptions + translationOptions
+        fixture.transcriptionApiModels.forEach { (id, endpoint) ->
+            assertEquals(endpoint, RealtimeModelIds.defaultTranscriptionProvider(id).model)
+            assertEquals(id in fixture.s2sModelIds, RealtimeModelIds.isGeminiS2sModelId(id))
+            assertEquals(id in fixture.s2sModelIds,
+                dev.screengoated.toolbox.mobile.shared.live.LiveTranslateParity.targetLanguageChangeRequiresRestart("English", "Korean", id))
+        }
 
         assertEquals(fixture.requiredModels.androidTranscriptionProviders, transcriptionOptions.map { it.id })
         assertEquals(fixture.requiredModels.translationProviders, translationOptions.map { it.id })
@@ -106,27 +111,18 @@ class LiveTranslateOverlayBootstrapTest {
             assertTrue("Model picker label must not fall back to id: ${option.id}", option.label != option.id)
             assertTrue("Model picker label must not be blank: ${option.id}", option.label.isNotBlank())
         }
-        assertEquals("Gemini Live", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5 }.label)
-        assertEquals("Gemini S2S", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_GEMINI_3_1 }.label)
-        assertEquals("Gemini Translate", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_GEMINI_TRANSLATE }.label)
-        assertEquals("Gemini Transcribe", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_GEMINI_TRANSCRIBE }.label)
-        assertEquals("Parakeet (Unavailable)", transcriptionOptions.first { it.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET }.label)
-        assertEquals("Moonshine Tiny", transcriptionOptions.first { it.id == "moonshine-tiny-streaming" }.label)
-        assertEquals("Moonshine Small", transcriptionOptions.first { it.id == "moonshine-small-streaming" }.label)
-        assertEquals("Moonshine Medium", transcriptionOptions.first { it.id == "moonshine-medium-streaming" }.label)
-        assertEquals("Zipformer", transcriptionOptions.first { it.id == "zipformer" }.label)
-
+        transcriptionOptions.forEach { option ->
+            val expected = fixture.transcriptionLabels.getValue(option.id)
+            assertEquals(
+                if (option.enabled) expected else "$expected (Unavailable)",
+                option.label,
+            )
+        }
         val mainJsSource = loadRepoFile(OVERLAY_MAIN_JS_PATH).readText() +
             loadRepoFile(OVERLAY_MAIN_JS_PART2_PATH).readText()
-        assertTrue(mainJsSource.contains("'google-gemini-2-5-live-transcribe-audio': 'Gemini Live'"))
-        assertTrue(mainJsSource.contains("'google-gemini-3-1-live-transcribe-audio': 'Gemini S2S'"))
-        assertTrue(mainJsSource.contains("'google-gemini-3-5-live-translate-audio': 'Gemini Translate'"))
-        assertTrue(mainJsSource.contains("'google-gemini-3-5-transcribe-live-audio': 'Gemini Transcribe'"))
-        assertTrue(mainJsSource.contains("'moonshine-tiny-streaming': 'Moonshine Tiny'"))
-        assertTrue(mainJsSource.contains("'moonshine-small-streaming': 'Moonshine Small'"))
-        assertTrue(mainJsSource.contains("'moonshine-medium-streaming': 'Moonshine Medium'"))
-        assertTrue(mainJsSource.contains("'zipformer': 'Zipformer'"))
-        assertTrue(mainJsSource.contains("return 'Parakeet (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')'"))
+        assertTrue(mainJsSource.contains("overlayLocale.transcriptionModelLabels"))
+        assertTrue(mainJsSource.contains("transcriptionModelLabel(element.dataset.value)"))
+
     }
 
     @Test
@@ -250,7 +246,7 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(controllerSource.contains("previousConfig.transcriptionProvider.id"))
         assertTrue(controllerSource.contains("restartRequested()"))
         assertTrue(paritySource.contains("transcriptionProviderId == \"gemini-live-s2s\""))
-        assertTrue(paritySource.contains("transcriptionProviderId == \"google-gemini-3-5-live-translate-audio\""))
+        assertTrue(paritySource.contains("transcriptionProviderId in GeneratedLiveModelCatalog.realtimeS2sModelIds"))
     }
 
     @Test
@@ -393,6 +389,9 @@ class LiveTranslateOverlayBootstrapTest {
 
 @Serializable
 private data class OverlayFixture(
+    val transcriptionLabels: Map<String, String>,
+    val s2sModelIds: List<String>,
+    val transcriptionApiModels: Map<String, String>,
     val defaults: OverlayDefaults,
     val requiredModels: RequiredModels,
     val requiredControls: RequiredControls,

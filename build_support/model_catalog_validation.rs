@@ -460,7 +460,10 @@ fn validate_endpoints(manifest: &serde_json::Value, models: &[serde_json::Value]
 }
 
 fn validate_live_profile(endpoint: &str, metadata: &serde_json::Map<String, serde_json::Value>) {
-    if let Some(thinking) = metadata.get("live_thinking") {
+    if let Some(thinking) = metadata
+        .get("live_thinking")
+        .filter(|value| !value.is_null())
+    {
         let thinking = thinking
             .as_object()
             .unwrap_or_else(|| panic!("live_thinking for {endpoint} must be an object"));
@@ -488,6 +491,15 @@ fn validate_live_profile(endpoint: &str, metadata: &serde_json::Map<String, serd
                 .as_u64()
                 .is_some_and(|limit| (1..=u32::MAX as u64).contains(&limit)),
             "live_max_output_tokens for {endpoint} must be a positive u32"
+        );
+    }
+    if let Some(completion) = metadata.get("live_completion") {
+        assert!(
+            matches!(
+                completion.as_str(),
+                Some("turn-or-generation" | "interaction-idle")
+            ),
+            "invalid live_completion for {endpoint}"
         );
     }
     if let Some(value) = metadata.get("live_automatic_activity_detection_default") {

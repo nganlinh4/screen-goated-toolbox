@@ -85,10 +85,15 @@ SKIP_SUBSTRINGS = (
 )
 
 DEDICATED_TRANSLATION_TOKENS = {"translate", "translation", "translator"}
+WITHDRAWN_ENDPOINTS = set(json.loads(
+    (Path(__file__).resolve().parents[1] / "catalog" / "model_catalog.json").read_text(encoding="utf-8")
+)["withdrawn_models"])
 
 
 def published_modality(model: str, vision: object) -> str | None:
     """Generic capability advertised to clients, or None when it is dedicated."""
+    if f"nvidia:{model}" in WITHDRAWN_ENDPOINTS:
+        return None
     tokens = set("".join(c if c.isalnum() else " " for c in model.lower()).split())
     if tokens & DEDICATED_TRANSLATION_TOKENS:
         return None
@@ -140,12 +145,17 @@ def list_models(key: str) -> list[str]:
 
 def answer_of(payload: dict) -> tuple[str | None, int]:
     """Content and reasoning-character count of a completion."""
+    if payload.get("error") is not None:
+        return None, 0
     choices = payload.get("choices") or []
     if not choices:
         return None, 0
+    if choices[0].get("finish_reason") not in {None, "stop"}:
+        return None, 0
     message = choices[0].get("message") or {}
     reasoning = message.get("reasoning_content") or message.get("reasoning") or ""
-    content = (message.get("content") or "").strip()
+    content = message.get("content")
+    content = content.strip() if isinstance(content, str) else ""
     return (content or None), len(reasoning)
 
 
@@ -323,6 +333,9 @@ def run(history: dict, key: str, limit: int | None, only: list[str] | None = Non
     # an emergency check must not make every unselected model disappear.
     results: dict[str, dict] = dict(previous) if only is not None else {}
     for model in models:
+        if f"nvidia:{model}" in WITHDRAWN_ENDPOINTS:
+            results.pop(model, None)
+            continue
         known = previous.get(model, {})
         control = known.get("control")
         if not control:

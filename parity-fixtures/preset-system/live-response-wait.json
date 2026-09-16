@@ -1,0 +1,8 @@
+{
+  "maximumCancellationPollMillis": 50,
+  "firstOutputTimeoutMillis": 20000,
+  "idleCompletionMillis": 1200,
+  "emptyChunkStartsOutput": false,
+  "cancelBeforeOutput": "close_owned_socket",
+  "cancelDuringOutput": "close_owned_socket_without_late_chunks"
+}

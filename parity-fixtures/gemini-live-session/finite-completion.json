@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "hardResponseTimeoutMillis": 90000,
+  "endpointPolicies": [
+    {"endpoint":"gemini-3.8-live","thinking":null,"interactionIdle":false},
+    {"endpoint":"gemini-3.8-live-extended-thinking","thinking":{"thinkingLevel":"low"},"interactionIdle":true}
+  ],
+  "cases": [
+    {"frame":{"serverContent":{"turnComplete":true}},"ordinary":true,"interactionIdle":false},
+    {"frame":{"serverContent":{"generationComplete":true}},"ordinary":true,"interactionIdle":false},
+    {"frame":{"serverContent":{"turnComplete":true,"interactionStatus":"IN_PROGRESS"}},"ordinary":true,"interactionIdle":false},
+    {"frame":{"serverContent":{"turnComplete":true,"interactionStatus":"IDLE"}},"ordinary":true,"interactionIdle":true},
+    {"frame":{"serverContent":{"interactionStatus":"IDLE"}},"ordinary":false,"interactionIdle":true},
+    {"frame":{"serverContent":{"modelTurn":{"parts":[{"text":"IDLE"}]}}},"ordinary":false,"interactionIdle":false},
+    {"frame":{"interactionStatus":"IDLE"},"ordinary":false,"interactionIdle":false},
+    {"frame":{"serverContent":{"interactionStatus":"UNKNOWN"}},"ordinary":false,"interactionIdle":false}
+  ]
+}

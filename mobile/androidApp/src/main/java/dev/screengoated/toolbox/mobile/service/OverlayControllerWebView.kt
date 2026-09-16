@@ -310,9 +310,13 @@ private fun overlayLocaleJson(uiLanguage: String): String {
         put("toggleHeaderTitle", overlay.toggleHeaderTitle)
         put("micInputTitle", overlay.micInputTitle)
         put("deviceAudioTitle", overlay.deviceAudioTitle)
-        put("geminiLiveTitle", overlay.geminiLiveTitle)
-        put("geminiLive25Title", overlay.geminiLiveTitle)
-        put("geminiS2sTitle", overlay.geminiS2sTitle)
+        put("transcriptionModelLabels", JSONObject().apply {
+            dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
+                .realtimeTranscriptionOptions.forEach { put(it.id, it.label) }
+        })
+        put("s2sModelIds", org.json.JSONArray(
+            dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog.realtimeS2sModelIds.toList(),
+        ))
         put("unavailableSuffix", overlay.unavailableSuffix)
         put("llmLabel", overlay.llmLabel)
         put("gtxLabel", overlay.gtxLabel)

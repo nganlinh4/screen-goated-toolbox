@@ -15,6 +15,29 @@ import org.junit.Test
 
 class GeminiLiveProtocolTest {
     @Test
+    fun `finite completion matches shared contract`() {
+        val fixture = Json.parseToJsonElement(File(repoRoot(), "parity-fixtures/gemini-live-session/finite-completion.json").readText()).jsonObject
+        for (entry in fixture.getValue("cases").jsonArray) {
+            val case = entry.jsonObject
+            val frame = requireNotNull(parseGeminiLiveServerFrame(case.getValue("frame").toString()))
+            assertEquals(case.getValue("ordinary").jsonPrimitive.boolean, frame.finiteResponseComplete(false))
+            assertEquals(case.getValue("interactionIdle").jsonPrimitive.boolean, frame.finiteResponseComplete(true))
+        }
+        for (entry in fixture.getValue("endpointPolicies").jsonArray) {
+            val case = entry.jsonObject
+            val endpoint = case.getValue("endpoint").jsonPrimitive.content
+            val profile = requireNotNull(GeneratedLiveModelCatalog.endpointProfile(endpoint))
+            assertEquals(case.getValue("interactionIdle").jsonPrimitive.boolean, profile.requireInteractionIdle)
+            val expected = case.getValue("thinking")
+            if (expected == kotlinx.serialization.json.JsonNull) {
+                assertNull(profile.thinking)
+            } else {
+                assertEquals(GeneratedLiveThinkingConfig.Level(expected.jsonObject.getValue("thinkingLevel").jsonPrimitive.content), profile.thinking)
+            }
+        }
+    }
+
+    @Test
     fun `dedicated transcription distinguishes replaceable interim from final text`() {
         val root = Json.parseToJsonElement(
             File(repoRoot(), TRANSCRIBE_STREAM_FIXTURE_PATH).readText(),

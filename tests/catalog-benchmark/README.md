@@ -1,6 +1,20 @@
 # Catalog benchmark
 
-Latest completed catalog decision record for OCR and the image chain order:
+Protocol 15 accepts empty trailing completion metadata in the shared streaming
+parser while still rejecting post-completion output and errors. Earlier runs
+with rejected metadata events must be rerun before comparing reliability.
+
+Protocol 14 uses the preset's production streaming capability and interactive
+deadlines for OCR, and includes compact-label and thin-status synthetic crops.
+Earlier OCR timing is not directly comparable. Existing catalog performance
+values remain the last reviewed decisions; this protocol change does not rank
+models. Regenerate the two synthetic PNGs with
+`py -3 tests/catalog-benchmark/generate_geometry_fixtures.py` (Pillow required).
+
+Latest applied catalog decisions, full candidate ledger and explicit quota gaps:
+[`RESULTS-2026-09-16-PROTOCOL15.md`](RESULTS-2026-09-16-PROTOCOL15.md).
+
+Previous OCR and image-chain decision record:
 [`RESULTS-2026-08-20-PROTOCOL11-CLEAN.md`](RESULTS-2026-08-20-PROTOCOL11-CLEAN.md).
 
 Superseded OCR record:
@@ -39,9 +53,9 @@ Their completed live candidate evaluation is recorded in
 The post-Ling free-route screen is recorded in
 [`OPENROUTER-SCREEN-2026-07-24-R2.md`](OPENROUTER-SCREEN-2026-07-24-R2.md).
 
-Protocol 13 supersedes every earlier text row. Existing catalog values remain the
+Protocol 13 superseded every earlier text row. Existing catalog values remain the
 last reviewed decisions, but a new text result is catalog-ready only after a
-complete protocol-13 run and its structured human review.
+complete current-protocol run and its structured human review.
 
 This opt-in Rust benchmark exercises the production catalog and provider request paths. It measures diverse text transformation, image coordinate grounding, and image OCR. The ten text levels cover classification, extraction, translation, rewriting, summarization, structured extraction, reasoning, and synthesis; retained translation coverage includes Korean or mixed Korean to Vietnamese and Simplified Chinese to Vietnamese. Each catalog-history suite has ten cases of increasing difficulty. A separate three-level Screen Translate diagnostic tests the production structured text contract across the configured text-priority models; it never contributes to catalog history. Scheduling is round-major: every selected model sees difficulty 1 before any model moves to difficulty 2. Coordinate attempts reuse Computer Control's exact point prompt, schema, tolerant parser, 1600 px short-edge JPEG preparation, crosshair crop, verification prompt/schema/parser, and 70% acceptance threshold.
 
@@ -67,7 +81,7 @@ configuration.
 
 ```powershell
 $env:CATALOG_BENCH_LIVE = "1"
-$env:CATALOG_BENCH_MODELS = "groq-qwen-3-6-27b-vision,google-gemini-3-5-flash-lite-vision"
+$env:CATALOG_BENCH_MODELS = "groq-qwen-3-8-27b-vision,google-gemini-3-5-flash-lite-vision"
 cargo test catalog_benchmark_live -- --ignored --nocapture
 ```
 
@@ -76,7 +90,7 @@ Omit `CATALOG_BENCH_MODELS` to select every enabled catalog model that has usabl
 - `CATALOG_BENCH_SUITES=text,coordinate,ocr`
 - `CATALOG_BENCH_PROVIDERS=google,groq,nvidia` selects providers while retaining signed-feed discovery
 - `CATALOG_BENCH_MIN_INTERVAL_MS=2500` (per provider)
-- `CATALOG_BENCH_REQUEST_TIMEOUT_SECS=120`
+- `CATALOG_BENCH_REQUEST_TIMEOUT_SECS=120` (text and coordinate; OCR uses preset deadlines)
 - `CATALOG_BENCH_OUTPUT=target/catalog-benchmark/my-run`
 - `CATALOG_BENCH_HISTORY_ROOT=target/catalog-benchmark` changes the local history root
 - `CATALOG_BENCH_RESUME_INPUTS=target/catalog-benchmark/interrupted/attempts.jsonl` skips successful cells already present in one or more semicolon-separated reports
@@ -139,6 +153,39 @@ feed, so runnable curated and newly discovered NVIDIA endpoints use the same
 current request control as normal SGT operation. First-party documentation and
 the production payload must be rechecked during human review; if best practice
 changes, fix the shared adapter/profile and rerun under a new protocol.
+
+## Paired OCR diagnostics
+
+`ocr_paired_diagnostic` compares identical image/prompt inputs through the shared
+vision entry point with interactive streaming deadlines, relaxed streaming, and
+relaxed unary requests. This isolates transport behavior from the catalog OCR
+baseline, which currently uses unary requests. Raw OpenAI-compatible response
+capture reuses the production image and payload builders and preserves response
+framing and termination evidence. These diagnostic records never enter catalog
+history or establish model rankings.
+
+Set `OCR_DIAGNOSTIC_PLAN` to a JSON file containing:
+
+- `models`: objects with `provider` and exact API `model`, resolved as vision
+  models through the current registry and refreshed signed feed;
+- `cases`: objects with `id`, absolute `image` path, `prompt`, and `reference`;
+- `variants`: any of `interactive-stream`, `relaxed-stream`, `relaxed-unary`,
+  `raw-stream`, or `raw-unary` (raw capture supports Groq and NVIDIA);
+- `repetitions`: 1–10, and `spacing_ms`: pacing between requests.
+
+One credential is held fixed within each paired comparison; subsequent pairs
+rotate through the benchmark credential pool. Set pacing to respect that single
+credential's quota. Relaxed and raw variants use a 30-second budget. Raw response
+bodies are bounded to 1 MiB. Use public fixtures or synthetic inputs when sharing
+diagnostic evidence.
+
+```powershell
+$env:OCR_DIAGNOSTIC_PLAN = '<external-evidence-directory>/plan.json'
+$env:OCR_DIAGNOSTIC_OUTPUT = '<external-evidence-directory>/attempts.jsonl'
+cargo test ocr_paired_diagnostic -- --ignored --nocapture
+```
+
+The output path must not already exist. API keys are never written to the report.
 
 ## Local latest-run history
 
@@ -266,9 +313,10 @@ crosshair crop between them is excluded as product setup rather than model
 latency.
 
 Text requests stream, matching the normal interactive text path.
-Both coordinate calls and OCR requests are non-streaming, matching Rust
-Computer Control and the built-in `Extract text` preset respectively. OCR
-requests plain text.
+Both coordinate calls are non-streaming. Catalog OCR uses the preset's endpoint
+streaming capability and interactive deadlines, including the first-output
+deadline. OCR requests plain text. Paired OCR diagnostics can compare this
+production policy with explicitly relaxed streaming and unary controls.
 Vision JSON is reserved for callers that supply an explicit response schema;
 schema-less JSON would change model behavior without giving the caller a
 parseable contract. These request semantics belong to the benchmark protocol,
@@ -304,7 +352,8 @@ from its own rows.
 Every Windows vision-model call writes one copyable `[VisionPerf]` line to the
 normal session log. It records the provider/model, source and wire image sizes,
 image preparation time, provider-call start, observed transport retries and
-wait, first real output, provider time, total time, output length, status, and a
+wait, first-output and total request budgets, first real output, provider time,
+total time, output length, status, and a
 bounded one-line error. It never logs the prompt text, image content, API key,
 or model response.
 
@@ -316,12 +365,21 @@ Get-Content "$env:LOCALAPPDATA\SGT\logs\session.log" |
     Select-Object -Last 50
 ```
 
-For a non-streaming image preset, `first_output_ms` normally equals completion
-time because the provider returns the answer as one response. Compare
+`first_output_budget_ms` is the deadline for usable streamed text;
+`total_budget_ms` is the initial request budget, not an absolute cap on a stream
+that continues producing output. Compare
 `prepare_ms` with `provider_ms`: a large former value identifies local image
 conversion, while a large latter value identifies provider/network queueing or
 response work. Sequential error and success lines with different models expose
-fallback delay directly.
+fallback delay directly. `[PresetExecution]` lines give each block execution an
+ID, preserve its fallback reasons, and report total time and final model.
+
+To exercise the production OCR block and its fallback loop without a result
+window, set `OCR_CHAIN_PLAN` to a JSON file containing `models` (ordered catalog
+IDs), `image` (path), `prompt`, and `reference`, then run
+`cargo test --bin screen-goated-toolbox preset_image_chain_diagnostic -- --ignored --nocapture`.
+The diagnostic uses saved/environment benchmark credentials and verifies the
+final text against the supplied reference. It never enters catalog history.
 
 Focused reruns can replace failed cells in an earlier report without repeating successful provider calls. Inputs are applied left-to-right, with the latest matching model/suite/case/round winning:
 

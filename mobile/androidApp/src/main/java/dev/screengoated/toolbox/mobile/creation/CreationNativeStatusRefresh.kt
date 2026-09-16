@@ -58,6 +58,7 @@ internal fun refreshCreationNativeItems(
             stage = stage,
             status = status,
             generationMode = status.generationMode ?: item.generationMode,
+            topology = status.topology ?: item.topology,
             polycount = status.polycount ?: item.polycount,
             autoSegment = status.autoSegment ?: item.autoSegment,
             segmentationLevel = status.segmentationLevel ?: item.segmentationLevel,

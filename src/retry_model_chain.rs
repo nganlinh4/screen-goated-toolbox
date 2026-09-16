@@ -100,11 +100,10 @@ fn minimum_vision_request_tokens(provider: &str, api_model: &str) -> Option<u32>
 }
 
 #[cfg(not(feature = "recorder-worker"))]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct InteractiveRequestWorkload {
-    pub encoded_request_bytes: u64,
-    pub expected_response_bytes: u64,
-}
+#[path = "retry_model_chain/workload.rs"]
+mod workload;
+#[cfg(not(feature = "recorder-worker"))]
+pub use workload::InteractiveRequestWorkload;
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn interactive_request_timeouts(
@@ -386,6 +385,7 @@ pub fn preflight_skip_reason(
     // will reject the next one, so skip it rather than pay for the rejection.
     #[cfg(not(feature = "recorder-worker"))]
     if let Some(model) = get_model_by_id_with_custom(model_id, &config.custom_models)
+        && model.model_type == ModelType::Vision
         && let Some(minimum) = minimum_vision_request_tokens(&model.provider, &model.full_name)
         && let Some(wait) =
             budget::shortfall(&budget_key(&model.provider, &model.full_name), minimum)

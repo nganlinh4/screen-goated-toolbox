@@ -46,7 +46,7 @@ object RealtimeModelIds {
 
     fun isGeminiS2sModelId(modelId: String): Boolean {
         val normalized = normalizeTranscriptionModelId(modelId)
-        return normalized == TRANSCRIPTION_GEMINI_S2S || normalized == TRANSCRIPTION_GEMINI_TRANSLATE
+        return normalized in GeneratedLiveModelCatalog.realtimeS2sModelIds
     }
 
     fun isGeminiTranslateModelId(modelId: String): Boolean {

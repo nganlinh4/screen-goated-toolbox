@@ -16,11 +16,66 @@
     ]
   },
   "retry_circuit": {
+    "initial_failure_cases": [
+      {
+        "error": "EMPTY_MODEL_RESPONSE:No text returned",
+        "reason": "MODEL_INVALID_RESPONSE_COOLDOWN"
+      },
+      {
+        "error": "Provider API HTTP 503: service unavailable",
+        "reason": "MODEL_INVALID_RESPONSE_COOLDOWN"
+      },
+      {
+        "error": "Provider API HTTP 502: upstream failure",
+        "reason": "MODEL_INVALID_RESPONSE_COOLDOWN"
+      },
+      {
+        "error": "request timed out",
+        "reason": "MODEL_FIRST_TIMEOUT_COOLDOWN"
+      },
+      {
+        "error": "PROVIDER_RESPONSE_INVALID:Provider response error 500: capacity exhausted",
+        "reason": "MODEL_INVALID_RESPONSE_COOLDOWN"
+      },
+      {
+        "error": "PROVIDER_RESPONSE_INVALID:Malformed provider stream event",
+        "reason": "MODEL_INVALID_RESPONSE_COOLDOWN"
+      },
+      {
+        "error": "PROVIDER_RESPONSE_INVALID:Provider returned no output content",
+        "reason": "MODEL_INVALID_RESPONSE_COOLDOWN"
+      },
+      {
+        "error": "PROVIDER_RESPONSE_INVALID:Provider stream ended before completion",
+        "reason": "MODEL_INVALID_RESPONSE_COOLDOWN"
+      },
+      {
+        "error": "PROVIDER_RESPONSE_INVALID:Provider completion token limit reached",
+        "reason": ""
+      },
+      {
+        "error": "Cancelled",
+        "reason": ""
+      },
+      {
+        "error": "Failed to decode input image",
+        "reason": ""
+      }
+    ],
     "rate_limit_default_seconds": 300,
     "reported_rate_limit_min_seconds": 5,
     "reported_rate_limit_max_seconds": 21600,
-    "timeout_failure_threshold": 2,
-    "timeout_open_seconds": 1800,
+    "first_timeout_open_seconds": 15,
+    "invalid_response_open_seconds": 15,
+    "consecutive_timeout_cooldowns_seconds": [
+      15,
+      15,
+      60,
+      60
+    ],
+    "output_limit_opens_circuit": false,
+    "chain_owned_provider_retries": 0,
+    "timeout_open_seconds": 60,
     "unavailable_open_seconds": 21600,
     "billing_open_seconds": 21600,
     "half_open_probe_limit": 1,
@@ -67,8 +122,8 @@
     ]
   },
   "recommended_model_defaults": {
-    "generic_image": "groq-qwen-3-6-27b-vision",
-    "image_ask": "groq-qwen-3-6-27b-vision",
+    "generic_image": "groq-qwen-3-8-27b-vision",
+    "image_ask": "groq-qwen-3-8-27b-vision",
     "generic_text": "groq-qwen-3-8-27b-text",
     "text_arena_fast": "groq-gpt-oss-20b-text",
     "text_game": "google-gemini-3-5-flash-lite-text",
@@ -87,28 +142,28 @@
   },
   "model_priority_chains": {
     "image_to_text": [
-      "groq-qwen-3-6-27b-vision",
       "groq-qwen-3-8-27b-vision",
-      "google-gemini-robotics-er-2-vision",
-      "google-gemini-3-flash-vision",
       "google-gemini-3-5-flash-lite-vision",
-      "openrouter-dots-3-note-vision",
-      "google-gemma-4-26b-a4b-vision",
       "google-gemini-3-1-flash-lite-vision",
+      "google-gemini-3-flash-vision",
       "google-gemini-3-5-flash-vision",
-      "google-gemini-3-7-flash-vision"
+      "google-gemma-4-26b-a4b-vision",
+      "openrouter-dots-3-note-vision",
+      "google-gemini-robotics-er-2-vision",
+      "google-gemini-3-6-flash-vision",
+      "google-gemini-3-8-flash-vision"
     ],
     "text_to_text": [
       "groq-qwen-3-8-27b-text",
-      "groq-qwen-3-6-27b-text",
       "groq-gpt-oss-20b-text",
       "groq-gpt-oss-120b-text",
-      "google-gemini-3-5-flash-lite-text",
+      "google-gemini-3-1-flash-lite-text",
       "google-gemini-robotics-er-2-text",
       "google-gemini-3-flash-text",
       "google-gemma-4-26b-a4b-text",
-      "google-gemini-3-1-flash-lite-text",
+      "google-gemini-3-5-flash-lite-text",
       "google-gemini-3-5-flash-text",
+      "google-gemini-3-8-live-text",
       "google-gemini-3-8-flash-text",
       "openrouter-nemotron-3-super-120b-text"
     ]

@@ -4,7 +4,6 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +47,8 @@ internal class CreationNativeViewModel(
         CreationNativeUiState(outputDirectory = manager.files.defaultOutputDirectoryLabel(tool)),
     )
     val state: StateFlow<CreationNativeUiState> = mutableState.asStateFlow()
+    private val inputPreflight = CreationInputPreflight(manager.files, tool, viewModelScope, mutableState,
+        { lifetime.isClosed }, { ensureStatusMonitor(); schedule() })
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -63,12 +64,13 @@ internal class CreationNativeViewModel(
         if (!surfaceAcquired.compareAndSet(false, true) || lifetime.isClosed) return
         viewModelScope.launch(Dispatchers.IO) {
             manager.acquireSurface(tool, ownerId)
-            mutableState.update { current ->
-                current.copy(items = current.items.map(::withRuntimeCapabilities))
-            }
-            delay(1_000)
-            mutableState.update { current ->
-                current.copy(items = current.items.map(::withRuntimeCapabilities))
+            while (!lifetime.isClosed) {
+                val readiness = manager.preparationStatus(tool)
+                val modes = manager.generationModes()
+                mutableState.update { current ->
+                    current.copy(preparationStatus = readiness, generationModes = modes, items = current.items.map(::withRuntimeCapabilities))
+                }
+                delay(2_000)
             }
         }
     }
@@ -195,6 +197,10 @@ internal class CreationNativeViewModel(
         route3dItem(item.copy(autoSegment = enabled))
     }
 
+    fun setTopology(topology: String) = updateSelectedConfigurable { item ->
+        route3dItem(item.copy(topology = topology, autoSegment = item.autoSegment && topology != "quad"))
+    }
+
     fun setSegmentationLevel(level: String) = updateSelectedConfigurable { item ->
         item.copy(
             segmentationLevel = level.takeIf {
@@ -217,16 +223,18 @@ internal class CreationNativeViewModel(
 
     fun submitSelected() {
         val selected = mutableState.value.selectedItem ?: return
+        if (tool == CreationTool.IMAGE_TO_3D && mutableState.value.generationModes?.contains(selected.generationMode) == false) {
+            showError(IllegalStateException("This generation mode is unavailable. Choose an available mode."))
+            return
+        }
         if (tool == CreationTool.IMAGE_CREATOR && selected.prompt.isBlank()) {
             showError(IllegalArgumentException("Describe the image you want to create"))
             return
         }
-        mutableState.update { current ->
-            current.submitSelectedItem()
-        }
-        ensureStatusMonitor()
-        schedule()
+        inputPreflight.submit()
     }
+
+    fun dismissInputValidation() { mutableState.update { it.copy(inputValidation = null) } }
 
     fun cancelSelected() {
         val selected = mutableState.value.selectedItem ?: return
@@ -513,39 +521,7 @@ internal class CreationNativeViewModel(
                     (tool == CreationTool.IMAGE_CREATOR || !it.sourceImagePath.isNullOrBlank())
             }
             if (recovered.isEmpty()) return@launch
-            val items = recovered.map { status ->
-                val references = if (tool == CreationTool.IMAGE_CREATOR) {
-                    CreationImageSessions.statusReferences(status)
-                } else {
-                    listOf(requireNotNull(status.sourceImagePath))
-                }
-                val path = references.firstOrNull().orEmpty()
-                val polycount = status.polycount ?: CreationContract.DEFAULT_POLYCOUNT
-                val autoSegment = status.autoSegment ?: false
-                val generationMode = CreationGenerationMode
-                    .fromWireName(status.generationMode)
-                CreationNativeItem(
-                    id = status.jobId ?: "recovered_${UUID.randomUUID()}",
-                    batchId = "recovered_${status.jobId}",
-                    sourcePath = path,
-                    sourceName = path.takeIf(String::isNotBlank)?.let(::File)?.name.orEmpty(),
-                    referencePaths = references,
-                    generationMode = generationMode.wireName,
-                    polycount = polycount,
-                    model = status.model ?: "simple",
-                    backgroundMode = normalizeSvgBackgroundMode(status.backgroundMode),
-                    prompt = status.prompt.orEmpty(),
-                    instruction = status.instruction.orEmpty(),
-                    allowsInstruction = manager.supportsOptionalInstruction(
-                        generationMode.wireName,
-                    ),
-                    autoSegment = autoSegment,
-                    segmentationLevel = status.segmentationLevel ?: "detailed",
-                    submitted = true,
-                    stage = status.toNativeStage(),
-                    status = status,
-                )
-            }
+            val items = recovered.map { recoverCreationNativeItem(tool, it, manager::supportsOptionalInstruction) }
             mutableState.update { current ->
                 current.copy(
                     items = current.items + items.filter { item ->

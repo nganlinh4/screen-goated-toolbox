@@ -101,6 +101,7 @@ val playDebugBundle = layout.buildDirectory.file(
     "outputs/bundle/playDebug/androidApp-play-debug.aab",
 )
 val phoneControlDeviceSerial = providers.gradleProperty("phoneControlDeviceSerial")
+val localTestingAdbPath = providers.gradleProperty("localTestingAdbPath")
 val phoneControlDeviceKey = phoneControlDeviceSerial
     .map { serial -> serial.replace(Regex("[^A-Za-z0-9._-]"), "_") }
     .orElse("all-devices")
@@ -161,7 +162,7 @@ val capturePlayDebugDeviceSpec = tasks.register<JavaExec>(
                 "--device-id=$serial",
                 "--output=${playDebugDeviceSpec.get().asFile.absolutePath}",
                 "--overwrite",
-            ),
+            ) + localTestingAdbPath.orNull?.let { listOf("--adb=$it") }.orEmpty(),
         )
     }
 }
@@ -176,7 +177,7 @@ val buildPlayDebugLocalTestingApks = tasks.register<JavaExec>(
     classpath(bundletoolRuntime)
     mainClass.set("com.android.tools.build.bundletool.BundleToolMain")
     inputs.file(playDebugBundle)
-    inputs.file(playDebugDeviceSpec).optional()
+    if (phoneControlDeviceSerial.isPresent) inputs.file(playDebugDeviceSpec)
     inputs.property(
         "phoneControlDeviceSerial",
         phoneControlDeviceSerial.orElse("all-devices"),
@@ -215,7 +216,7 @@ tasks.register<JavaExec>("installPlayDebugLocalTesting") {
                 "install-apks",
                 "--apks=${playDebugLocalTestingApks.get().asFile.absolutePath}",
                 "--device-id=$serial",
-            ),
+            ) + localTestingAdbPath.orNull?.let { listOf("--adb=$it") }.orEmpty(),
         )
     }
 }

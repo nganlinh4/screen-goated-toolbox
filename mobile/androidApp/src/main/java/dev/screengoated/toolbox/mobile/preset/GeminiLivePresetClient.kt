@@ -6,6 +6,7 @@ import android.util.Base64
 import androidx.core.graphics.scale
 import dev.screengoated.toolbox.mobile.model.TtsDefaults
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveMediaResolution
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSetupSpec
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveTranscriptionMode
 import dev.screengoated.toolbox.mobile.shared.live.buildGeminiLiveSetup
@@ -16,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -25,7 +28,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.LinkedBlockingDeque
-import java.util.concurrent.TimeUnit
 
 private const val STILL_FRAME_STREAM_COUNT = 4
 private const val STILL_FRAME_INTERVAL_MS = 500L
@@ -84,6 +86,8 @@ private suspend fun OkHttpClient.streamGeminiLive(
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:google")
 
     val events = LinkedBlockingDeque<GeminiLivePresetEvent>()
+    val requireInteractionIdle = GeneratedLiveModelCatalog.endpointProfile(model.fullName)
+        ?.requireInteractionIdle == true
     val setupReady = CompletableDeferred<Unit>()
     val socket = newWebSocket(
         geminiLiveWebSocketRequest(apiKey),
@@ -93,11 +97,11 @@ private suspend fun OkHttpClient.streamGeminiLive(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                handleGeminiLivePresetMessage(text, setupReady, events)
+                handleGeminiLivePresetMessage(text, setupReady, events, requireInteractionIdle)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                handleGeminiLivePresetMessage(bytes.utf8(), setupReady, events)
+                handleGeminiLivePresetMessage(bytes.utf8(), setupReady, events, requireInteractionIdle)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -133,13 +137,18 @@ private suspend fun OkHttpClient.streamGeminiLive(
 
         val fullContent = StringBuilder()
         var contentStarted = false
+        val responseStarted = System.nanoTime()
         while (true) {
-            val event = events.poll(
-                if (contentStarted) LIVE_IDLE_COMPLETION_MS else 20_000L,
-                TimeUnit.MILLISECONDS,
+            val remaining = 90_000L - (System.nanoTime() - responseStarted) / 1_000_000L
+            if (requireInteractionIdle && remaining <= 0) {
+                throw IOException("Response did not reach interaction idle before deadline.")
+            }
+            val event = awaitGeminiLivePresetEvent(events,
+                if (requireInteractionIdle && contentStarted) remaining
+                else if (contentStarted) LIVE_IDLE_COMPLETION_MS else 20_000L,
             )
             if (event == null) {
-                if (contentStarted) {
+                if (contentStarted && !requireInteractionIdle) {
                     break
                 }
                 throw IOException("Gemini Live websocket timed out before producing output.")
@@ -147,6 +156,8 @@ private suspend fun OkHttpClient.streamGeminiLive(
 
             when (event) {
                 is GeminiLivePresetEvent.Chunk -> {
+                    coroutineContext.ensureActive()
+                    if (event.text.isEmpty()) continue
                     contentStarted = true
                     fullContent.append(event.text)
                     onChunk(event.text)
@@ -155,7 +166,7 @@ private suspend fun OkHttpClient.streamGeminiLive(
                 is GeminiLivePresetEvent.Error -> throw IOException(event.message)
                 GeminiLivePresetEvent.Complete -> break
                 GeminiLivePresetEvent.Closed -> {
-                    if (fullContent.isNotEmpty()) {
+                    if (fullContent.isNotEmpty() && !requireInteractionIdle) {
                         break
                     }
                     throw IOException("Gemini Live websocket closed before producing output.")
@@ -236,8 +247,14 @@ internal fun handleGeminiLivePresetMessage(
     message: String,
     setupReady: CompletableDeferred<Unit>,
     events: LinkedBlockingDeque<GeminiLivePresetEvent>,
+    requireInteractionIdle: Boolean = false,
 ) {
     parseGeminiLiveServerFrame(message)?.let { frame ->
+        frame.error?.let { error ->
+            if (!setupReady.isCompleted) setupReady.completeExceptionally(IOException(error))
+            events.offer(GeminiLivePresetEvent.Error(error))
+            return
+        }
         if (frame.setupComplete) {
             if (!setupReady.isCompleted) {
                 setupReady.complete(Unit)
@@ -245,15 +262,10 @@ internal fun handleGeminiLivePresetMessage(
             return
         }
 
-        frame.error?.let { error ->
-            events.offer(GeminiLivePresetEvent.Error(error))
-            return
-        }
-
         val outputText = frame.outputTranscript
         if (outputText != null) {
             events.offer(GeminiLivePresetEvent.Chunk(outputText))
-            if (frame.responseComplete) {
+            if (frame.finiteResponseComplete(requireInteractionIdle)) {
                 events.offer(GeminiLivePresetEvent.Complete)
             }
             return
@@ -262,7 +274,7 @@ internal fun handleGeminiLivePresetMessage(
         frame.visibleTextParts.forEach { text ->
             events.offer(GeminiLivePresetEvent.Chunk(text))
         }
-        if (frame.responseComplete) {
+        if (frame.finiteResponseComplete(requireInteractionIdle)) {
             events.offer(GeminiLivePresetEvent.Complete)
         }
     }

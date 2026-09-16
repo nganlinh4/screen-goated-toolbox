@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn live_translate_labels_match_shared_presentation_contract() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../parity-fixtures/live-translate/overlay-bootstrap.json"
+    ))
+    .unwrap();
+    for (id, label) in realtime_transcription_model_options() {
+        assert_eq!(fixture["transcriptionLabels"][id].as_str(), Some(*label));
+        let direct = fixture["s2sModelIds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value.as_str() == Some(*id));
+        assert_eq!(is_gemini_live_s2s_model_id(id), direct, "{id}");
+    }
+    for (id, endpoint) in fixture["transcriptionApiModels"].as_object().unwrap() {
+        assert_eq!(
+            realtime_transcription_api_model(id),
+            endpoint.as_str().unwrap()
+        );
+        assert!(model_is_non_llm(id));
+    }
+}
+
+#[test]
 fn every_nvidia_model_uses_the_same_endpoint_abbreviation_rule() {
     let models: Vec<ModelConfig> = get_all_models()
         .iter()
@@ -18,19 +42,19 @@ fn every_nvidia_model_uses_the_same_endpoint_abbreviation_rule() {
 
 #[test]
 fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
-    assert_eq!(DEFAULT_IMAGE_MODEL_ID, "groq-qwen-3-6-27b-vision");
+    assert_eq!(DEFAULT_IMAGE_MODEL_ID, "groq-qwen-3-8-27b-vision");
     assert_eq!(
         default_image_to_text_priority_chain_ids().first().copied(),
         Some(DEFAULT_IMAGE_MODEL_ID)
     );
     let model = get_model_by_id(DEFAULT_IMAGE_MODEL_ID).expect("default vision model exists");
     assert_eq!(model.provider, "groq");
-    assert_eq!(model.full_name, "qwen/qwen3.6-27b");
-    assert_eq!(model.intelligence_tier, Some(4));
-    assert_eq!(model.typical_latency_ms, Some(966));
+    assert_eq!(model.full_name, "qwen/qwen3.8-27b");
+    assert_eq!(model.intelligence_tier, Some(5));
+    assert_eq!(model.typical_latency_ms, Some(856));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-09-11-protocol13:ocr-small-1024")
+        Some("benchmark-2026-09-16-protocol15:ocr-small-1024")
     );
 }
 
@@ -101,18 +125,15 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.8-27b");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(393));
+    assert_eq!(model.typical_latency_ms, Some(322));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-09-11-protocol13:text")
+        Some("benchmark-2026-09-16-protocol15:text")
     );
-    // Ordered on reviewed measured merit: the clean successor leads, while the
-    // 100%-reliable predecessor remains the immediate fallback.
     for (index, expected) in [
-        (1, "groq-qwen-3-6-27b-text"),
-        (2, "groq-gpt-oss-20b-text"),
-        (3, "groq-gpt-oss-120b-text"),
-        (4, "google-gemini-3-5-flash-lite-text"),
+        (1, "groq-gpt-oss-20b-text"),
+        (2, "groq-gpt-oss-120b-text"),
+        (3, "google-gemini-3-1-flash-lite-text"),
     ] {
         assert_eq!(
             default_text_to_text_priority_chain_ids()
@@ -129,7 +150,7 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
     );
     let gemini_38 =
         get_model_by_id("google-gemini-3-8-flash-text").expect("Gemini 3.8 text fallback exists");
-    assert_eq!(gemini_38.typical_latency_ms, Some(12021));
+    assert_eq!(gemini_38.typical_latency_ms, Some(8545));
     assert_eq!(
         default_text_to_text_priority_chain_ids().get(10).copied(),
         Some("google-gemini-3-8-flash-text")
@@ -265,15 +286,18 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         );
     }
 
-    let qwen = vision_request_profile("groq", "qwen/qwen3.6-27b");
+    let qwen = vision_request_profile("groq", "qwen/qwen3.8-27b");
     assert_eq!(qwen.sampling, VisionSamplingPolicy::Qwen3GroqNonThinking);
     assert_eq!(qwen.max_output_tokens, Some(512));
-    assert_eq!(qwen.structured_output, StructuredOutputPolicy::JsonObject);
-    let qwen_model = get_model_by_id("groq-qwen-3-6-27b-vision").expect("Qwen vision model exists");
-    assert_eq!(qwen_model.typical_latency_ms, Some(966));
+    assert_eq!(
+        qwen.structured_output,
+        StructuredOutputPolicy::StrictJsonSchema
+    );
+    let qwen_model = get_model_by_id("groq-qwen-3-8-27b-vision").expect("Qwen vision model exists");
+    assert_eq!(qwen_model.typical_latency_ms, Some(856));
     assert_eq!(
         qwen_model.performance_source.as_deref(),
-        Some("benchmark-2026-09-11-protocol13:ocr-small-1024")
+        Some("benchmark-2026-09-16-protocol15:ocr-small-1024")
     );
     let qwen_38 = vision_request_profile("groq", "qwen/qwen3.8-27b");
     assert_eq!(
@@ -291,18 +315,25 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         OrdinaryReasoningPolicy::OpenAiEffort("none")
     );
     assert_eq!(
-        &default_image_to_text_priority_chain_ids()[..5],
+        &default_image_to_text_priority_chain_ids()[..4],
         &[
-            "groq-qwen-3-6-27b-vision",
             "groq-qwen-3-8-27b-vision",
-            "google-gemini-robotics-er-2-vision",
-            "google-gemini-3-flash-vision",
             "google-gemini-3-5-flash-lite-vision",
+            "google-gemini-3-1-flash-lite-vision",
+            "google-gemini-3-flash-vision",
         ]
     );
 
     let future = vision_request_profile("future-provider", "future-model");
     assert_eq!(future, VisionRequestProfile::SAFE_DEFAULT);
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../parity-fixtures/preset-system/vision-payload.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        future.max_output_tokens.map(u64::from),
+        fixture["ordinary_llm_profiles"]["default_max_output_tokens"].as_u64()
+    );
 }
 
 #[test]

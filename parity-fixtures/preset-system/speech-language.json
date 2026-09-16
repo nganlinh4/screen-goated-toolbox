@@ -1,0 +1,12 @@
+{
+  "catalog": "catalog/whisper-languages.json",
+  "key": "input_language",
+  "cases": [
+    {"input": null, "expected": null},
+    {"input": "auto", "expected": null},
+    {"input": "", "expected": null},
+    {"input": "unsupported", "expected": null},
+    {"input": " VI ", "expected": "vi"},
+    {"input": "ko", "expected": "ko"}
+  ]
+}

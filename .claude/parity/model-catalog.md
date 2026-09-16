@@ -10,6 +10,10 @@
 
 ## Behavior Contract
 
+- Candidate evaluation uses exact provider-qualified production profiles from
+  the shared catalog on both platforms. Historical rejection does not substitute
+  for a current evaluation; provisional candidates do not enter recommended
+  defaults or chains until their complete benchmark is reviewed.
 - Built-in model IDs, endpoint profiles, localized names, quotas, search
   capability, default search-tool behavior, reasoning policy, intelligence
   tiers, and typical latency come only from the shared catalog.
@@ -68,7 +72,12 @@
   that signed offer set owns NVIDIA operational availability. Feed-absent NVIDIA
   rows are removed from the effective chain and generic fallback search; newly
   offered rows become immediately selectable and routable. Reviewed withdrawn
-  endpoints remain the only catalog-level veto.
+  endpoints remain the only catalog-level veto, including reviewed specialized
+  endpoints whose input/output contract is unsupported by ordinary chat adapters.
+- Unprofiled vision endpoints use the catalog's finite default output budget on
+  both platforms. NVIDIA spells that budget `max_tokens`; Groq spells it
+  `max_completion_tokens`. Image area alone never gates endpoint eligibility or
+  causes automatic padding; the benchmark includes compact and thin crops.
 - Every selector projects NVIDIA inventory from the newest verified feed whether
   adaptive ordering is on or off. The Live toggle controls formula ownership of
   priority order; it never makes a stale compiled NVIDIA endpoint look available.
@@ -90,11 +99,11 @@
   head only after the production request path shows no output-restatement defect.
   A clean but less-proven successor occupies the second slot until that evidence
   is complete.
-- The 2026-09-11 protocol-13 catalog checkpoint keeps Qwen 3.8 as the text
-  head and restores Qwen 3.6 as the image head; Qwen 3.8 remains the immediate
-  image successor. The choice uses reviewed text quality and representative OCR
-  completion latency, with coordinate rows retained as separate control-task
-  evidence.
+- The 2026-09-16 protocol-15 checkpoint keeps Qwen 3.8 as both generic heads.
+  Flash Lite 3.1 leads the Google text fallbacks; Flash Lite 3.5 is the immediate
+  image fallback. Gemini 3.8 Live is a text fallback. Quality, reliability and
+  representative OCR completion latency own these choices; coordinate evidence
+  remains separate and does not change the control chain.
 - Every model-selection surface, including the Android node editor, observes
   live-feed revisions and applies the shared provider-enabled predicate. A
   newly offered NVIDIA endpoint therefore appears without reopening the editor,

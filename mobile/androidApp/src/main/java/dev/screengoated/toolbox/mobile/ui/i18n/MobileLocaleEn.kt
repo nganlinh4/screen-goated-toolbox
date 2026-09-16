@@ -448,7 +448,7 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                     transcriptionLanguageTitle = "Transcription language",
                     unavailableSuffix = "Unavailable",
                     targetLanguageTitle = "Target language",
-                    s2sTranslationModelTitle = "Gemini S2S uses the TTS Gemini Live model",
+                    s2sTranslationModelTitle = "Gemini S2S uses the selected speech model",
                     s2sTargetLanguageTitle = "Change target language and restart the current S2S session",
                 ),
                 controls = OverlayControlLocale(

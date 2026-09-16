@@ -159,6 +159,7 @@ internal class CreationJobManager internal constructor(context: Context) {
     fun closeOwner(tool: CreationTool, ownerId: String) =
         ownerCloseCoordinator.requestWithRetry(scope, ownerId, tool)
     fun preparationStatus(tool: CreationTool) = surfaces.preparationStatus(tool)
+    fun generationModes(): Set<String>? = surfaces.generationModes()
     fun supportsOptionalInstruction(mode: String) = surfaces.supportsOptionalInstruction(mode)
     fun removeRuntime() = surfaces.removeRuntime()
     fun startJob(

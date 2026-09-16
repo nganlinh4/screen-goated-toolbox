@@ -6,19 +6,18 @@
 //! thin wrappers that only build their payload + provider-specific preamble.
 
 use crate::api::client::{UREQ_RESPONSE_AGENT, UREQ_STREAM_RESPONSE_AGENT, is_auth_error};
-use crate::api::types::{ChatCompletionResponse, StreamChunk};
 use crate::gui::locale::LocaleText;
 use anyhow::Result;
 use flate2::{Compression, write::GzEncoder};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Arc, atomic::AtomicBool};
 use ureq::http::HeaderMap;
 
 const MAX_PROVIDER_ERROR_BODY_BYTES: u64 = 8 * 1024;
 const MAX_PROVIDER_ERROR_MESSAGE_CHARS: usize = 1_024;
+
+mod completion;
+pub use completion::parse_chat_completion;
 
 /// POST to an OpenAI-compatible `/chat/completions` endpoint and stream (or
 /// parse) the response, invoking `on_chunk` for each piece of content.
@@ -163,7 +162,7 @@ where
         ));
     }
 
-    let mut full_content = String::new();
+    let full_content;
 
     if streaming {
         let reader = BufReader::new(resp.into_body().into_reader());
@@ -171,73 +170,31 @@ where
         let mut content_started = false;
         let locale = LocaleText::get(ui_language);
 
-        for line in reader.lines() {
-            if let Some(ct) = cancel_token
-                && ct.load(Ordering::Relaxed)
+        full_content = completion::consume_stream(reader, cancel_token, |content, reasoning| {
+            if (!reasoning.is_empty() || reasoning_fallback) && !content_started && !thinking_shown
             {
-                return Err(anyhow::anyhow!("Cancelled"));
+                on_chunk(locale.global_settings.model_thinking);
+                thinking_shown = true;
             }
-            let line = line?;
-            if let Some(data) = line.strip_prefix("data: ") {
-                if data == "[DONE]" {
-                    break;
+            if !content.is_empty() {
+                if !content_started && thinking_shown {
+                    on_chunk(&format!("{}{}", crate::api::WIPE_SIGNAL, content));
+                } else {
+                    on_chunk(content);
                 }
-
-                match serde_json::from_str::<StreamChunk>(data) {
-                    Ok(chunk) => {
-                        if let Some(reasoning) = chunk
-                            .choices
-                            .first()
-                            .and_then(|c| c.delta.reasoning.as_ref())
-                            .filter(|s| !s.is_empty())
-                        {
-                            if !thinking_shown && !content_started {
-                                on_chunk(locale.global_settings.model_thinking);
-                                thinking_shown = true;
-                            }
-                            let _ = reasoning;
-                        } else if reasoning_fallback && !content_started && !thinking_shown {
-                            on_chunk(locale.global_settings.model_thinking);
-                            thinking_shown = true;
-                        }
-
-                        if let Some(content) = chunk
-                            .choices
-                            .first()
-                            .and_then(|c| c.delta.content.as_ref())
-                            .filter(|s| !s.is_empty())
-                        {
-                            crate::api::client::first_token::received();
-                            if !content_started && thinking_shown {
-                                content_started = true;
-                                full_content.push_str(content);
-                                let wipe_content =
-                                    format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
-                                on_chunk(&wipe_content);
-                            } else {
-                                content_started = true;
-                                full_content.push_str(content);
-                                on_chunk(content);
-                            }
-                        }
-                    }
-                    Err(_) => continue,
-                }
+                content_started = true;
             }
-        }
+        })?;
     } else {
-        let root: serde_json::Value = resp
-            .into_body()
-            .read_json()
-            .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+        let root: serde_json::Value = resp.into_body().read_json().map_err(|e| {
+            anyhow::anyhow!(
+                "PROVIDER_RESPONSE_INVALID:Malformed provider completion: {}",
+                e
+            )
+        })?;
         on_json_usage(&root);
-        let chat_resp: ChatCompletionResponse = serde_json::from_value(root)
-            .map_err(|e| anyhow::anyhow!("Failed to decode non-streaming response: {}", e))?;
-
-        if let Some(choice) = chat_resp.choices.first() {
-            full_content = choice.message.content.clone();
-            on_chunk(&full_content);
-        }
+        full_content = parse_chat_completion(&root)?;
+        on_chunk(&full_content);
     }
 
     Ok(full_content)
@@ -291,46 +248,11 @@ where
     R: BufRead,
     F: FnMut(&str),
 {
-    let mut full_content = String::new();
-    for line in reader.lines() {
-        if let Some(ct) = cancel_token
-            && ct.load(Ordering::Relaxed)
-        {
-            return Err(anyhow::anyhow!("Cancelled"));
+    completion::consume_stream(reader, cancel_token, |content, _| {
+        if !content.is_empty() {
+            on_chunk(content);
         }
-        let line = line?;
-        if let Some(data) = line.strip_prefix("data: ") {
-            if data == "[DONE]" {
-                break;
-            }
-            if let Ok(chunk) = serde_json::from_str::<serde_json::Value>(data) {
-                if chunk.get("error").is_some_and(|error| !error.is_null()) {
-                    return Err(anyhow::anyhow!(
-                        "Provider stream error: {}",
-                        provider_error_message(200, data)
-                    ));
-                }
-                if let Some(choice) = chunk.get("choices").and_then(|v| v.get(0)) {
-                    if let Some(content) = choice
-                        .pointer("/delta/content")
-                        .and_then(|v| v.as_str())
-                        .filter(|text| !text.is_empty())
-                    {
-                        full_content.push_str(content);
-                        crate::api::client::first_token::received();
-                        on_chunk(content);
-                    }
-                    if choice.get("finish_reason").and_then(|v| v.as_str()) == Some("length") {
-                        return Err(anyhow::anyhow!("Provider completion token limit reached"));
-                    }
-                }
-            }
-        }
-    }
-    if full_content.is_empty() {
-        return Err(anyhow::anyhow!("Provider returned no output content"));
-    }
-    Ok(full_content)
+    })
 }
 
 #[cfg(test)]
@@ -353,7 +275,7 @@ mod tests {
             parse("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n").is_err()
         );
         assert_eq!(
-            parse("data: {\"choices\":[{\"delta\":{\"content\":\"result\"}}]}\ndata: [DONE]\n")
+            parse("data: {\"choices\":[{\"delta\":{\"content\":\"result\"}}]}\n\ndata: [DONE]\n\n")
                 .unwrap(),
             "result"
         );

@@ -2,7 +2,7 @@
 window.__SGT_STATIC_PROCESSING_GLOW__ = function() {
   const element = document.createElement('div');
   element.setAttribute('aria-hidden', 'true');
-  element.style.cssText = 'position:absolute;inset:0;pointer-events:none;border-radius:28px;'
+  element.style.cssText = 'position:absolute;inset:0;pointer-events:none;border-radius:8px;'
     + 'box-shadow:inset 0 0 0 2px white,inset 0 0 14px 3px #8870ff';
   return element;
 };

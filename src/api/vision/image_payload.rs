@@ -231,7 +231,7 @@ mod tests {
             serde_json::json!(GROQ_RESIZE_DIMENSIONS)
         );
         let qwen = &groq["qwen_portable_tpm"];
-        let profile = crate::model_config::vision_request_profile("groq", "qwen/qwen3.6-27b");
+        let profile = crate::model_config::vision_request_profile("groq", "qwen/qwen3.8-27b");
         let completion_token_reserve =
             profile.max_output_tokens.expect("Qwen output limit") as usize;
         assert_eq!(qwen["limit"], QWEN_PORTABLE_TPM_LIMIT);
@@ -281,13 +281,13 @@ mod tests {
     #[test]
     fn qwen_rejects_tpm_oversize_locally_without_reducing_other_models() {
         let completion_reserve =
-            crate::model_config::vision_request_profile("groq", "qwen/qwen3.6-27b")
+            crate::model_config::vision_request_profile("groq", "qwen/qwen3.8-27b")
                 .max_output_tokens
                 .expect("Qwen output limit") as usize;
         assert!(ensure_qwen_prompt_fits_portable_tpm(60_000, completion_reserve).is_err());
         assert!(ensure_qwen_prompt_fits_portable_tpm(1_000, completion_reserve).is_ok());
 
         let image = ImageBuffer::from_pixel(64, 64, Rgba([20, 40, 60, 255]));
-        assert!(prepare_image_payload("groq", "qwen/qwen3.6-27b", image, None, 60_000).is_err());
+        assert!(prepare_image_payload("groq", "qwen/qwen3.8-27b", image, None, 60_000).is_err());
     }
 }

@@ -214,6 +214,7 @@ internal fun PresetOverlayResultModule.updateResultWindowSupport(active: ActiveP
             html = loadingHtml(active.windowState.loadingStatusText ?: loadingStatusText()),
             isRawHtmlDocument = false,
         )
+        !active.runtimeState.isMarkdown -> PresetRenderedContent(plainPresetResult(active.windowState.markdownText), false)
         else -> renderer.render(active.windowState.markdownText, isDarkTheme())
     }
     val updated = active.copy(runtimeState = active.runtimeState.copy(isRawHtml = rendered.isRawHtmlDocument))

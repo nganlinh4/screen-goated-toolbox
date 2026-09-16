@@ -60,6 +60,7 @@ internal data class GeminiLiveServerFrame(
     val contentParts: List<GeminiLiveContentPart> = emptyList(),
     val turnComplete: Boolean = false,
     val generationComplete: Boolean = false,
+    val interactionStatus: String? = null,
     val interrupted: Boolean = false,
     val goAway: Boolean = false,
     val goAwayTimeLeft: String? = null,
@@ -73,6 +74,9 @@ internal data class GeminiLiveServerFrame(
 ) {
     val responseComplete: Boolean
         get() = turnComplete || generationComplete
+
+    fun finiteResponseComplete(requireInteractionIdle: Boolean): Boolean =
+        if (requireInteractionIdle) interactionStatus == "IDLE" else responseComplete
 
     val audioParts: List<GeminiLiveInlineData>
         get() = contentParts.mapNotNull(GeminiLiveContentPart::inlineData)
@@ -196,6 +200,7 @@ internal fun parseGeminiLiveServerFrame(message: String): GeminiLiveServerFrame?
             contentParts = parts,
             turnComplete = serverContent?.booleanOrFalse("turnComplete") == true,
             generationComplete = serverContent?.booleanOrFalse("generationComplete") == true,
+            interactionStatus = serverContent?.stringOrNull("interactionStatus"),
             interrupted = serverContent?.booleanOrFalse("interrupted") == true,
             goAway = goAway,
             goAwayTimeLeft = goAwayTimeLeft,

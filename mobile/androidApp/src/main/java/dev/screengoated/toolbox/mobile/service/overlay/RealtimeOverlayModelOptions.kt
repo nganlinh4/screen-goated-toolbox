@@ -19,16 +19,10 @@ internal object RealtimeOverlayModelOptions {
     )
 
     fun transcriptionOptions(
-        geminiS2sLabel: String,
         unavailableSuffix: String,
     ): List<RealtimeOverlayModelOption> {
         return GeneratedLiveModelCatalog.realtimeTranscriptionOptions.map { option ->
             when (option.id) {
-                RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S -> RealtimeOverlayModelOption(
-                    option.id,
-                    geminiS2sLabel,
-                )
-
                 RealtimeModelIds.TRANSCRIPTION_PARAKEET -> RealtimeOverlayModelOption(
                     id = option.id,
                     label = parakeetLabel(unavailableSuffix),
@@ -51,7 +45,9 @@ internal object RealtimeOverlayModelOptions {
     }
 
     fun parakeetLabel(unavailableSuffix: String): String {
-        return "Parakeet ($unavailableSuffix)"
+        val label = GeneratedLiveModelCatalog.realtimeTranscriptionOptions
+            .first { it.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET }.label
+        return "$label ($unavailableSuffix)"
     }
 
 }

@@ -8,6 +8,28 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ModelUsageStatsTest {
+    @Test
+    fun imageAdmissionReserveDoesNotBlockTextOnTheSameEndpoint() {
+        val models = PresetModelCatalog.runtimeModels()
+        val vision = models.first { candidate ->
+            candidate.provider == PresetModelProvider.GROQ && candidate.modelType == PresetModelType.VISION &&
+                models.any { it.provider == candidate.provider && it.fullName == candidate.fullName && it.modelType == PresetModelType.TEXT }
+        }
+        ModelUsageStats.update(vision.provider, vision.fullName, headers(
+            "x-ratelimit-limit-tokens" to "8000",
+            "x-ratelimit-remaining-tokens" to "1000",
+            "x-ratelimit-reset-tokens" to "22s",
+        ))
+        for (model in models.filter { it.provider == vision.provider && it.fullName == vision.fullName }) {
+            val reason = preflightSkipReason(model.id, model.provider, ApiKeys(groqKey = "test-key"), emptySet(), PresetRuntimeSettings())
+            if (model.modelType == PresetModelType.VISION) {
+                org.junit.Assert.assertTrue(reason?.startsWith("MODEL_TOKEN_BUDGET:") == true)
+            } else {
+                assertNull(reason)
+            }
+        }
+    }
+
     @After
     fun resetStore() {
         ModelUsageStats.clear()

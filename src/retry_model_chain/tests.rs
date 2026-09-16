@@ -1,6 +1,7 @@
 use super::cooldown::{
-    MODEL_TIMEOUT_COOLDOWN, claim_model_attempt_at, model_cooldown_skip_reason_at,
-    rate_limit_error, record_model_failure_at, unavailable_model_error,
+    MODEL_INITIAL_FAILURE_COOLDOWN, MODEL_TIMEOUT_COOLDOWN, claim_model_attempt_at,
+    model_cooldown_skip_reason_at, rate_limit_error, record_model_failure_at,
+    unavailable_model_error,
 };
 use super::{
     INTERACTIVE_ATTEMPT_LATENCY_MULTIPLIER, INTERACTIVE_CONNECT_TIMEOUT_MS,
@@ -175,26 +176,99 @@ fn every_interactive_request_receives_a_bounded_initial_budget() {
 }
 
 #[test]
-fn two_timeout_failures_open_the_model_circuit() {
-    let model_id = "test-timeout-threshold-vision";
-    let started = Instant::now();
-    record_model_success(model_id);
-
-    record_model_failure_at(model_id, "transport error: timeout", started);
+fn initial_failure_cooldowns_match_shared_fixture() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../parity-fixtures/preset-system/retry-runtime.json"
+    ))
+    .unwrap();
+    let policy = &fixture["retry_circuit"];
     assert_eq!(
-        model_cooldown_skip_reason_at(model_id, started + Duration::from_secs(1)),
-        None
+        policy["first_timeout_open_seconds"],
+        MODEL_INITIAL_FAILURE_COOLDOWN.as_secs()
     );
+    assert_eq!(
+        policy["invalid_response_open_seconds"],
+        MODEL_INITIAL_FAILURE_COOLDOWN.as_secs()
+    );
+    assert_eq!(
+        policy["timeout_open_seconds"],
+        MODEL_TIMEOUT_COOLDOWN.as_secs()
+    );
+    for (index, case) in policy["initial_failure_cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        let model = format!("shared-initial-failure-{index}");
+        let now = Instant::now();
+        record_model_success(&model);
+        record_model_failure_at(&model, case["error"].as_str().unwrap(), now);
+        let reason = case["reason"].as_str().unwrap();
+        if reason.is_empty() {
+            assert_eq!(claim_model_attempt_at(&model, now), None);
+        } else {
+            assert_eq!(
+                claim_model_attempt_at(&model, now),
+                Some(format!("{reason}:{model}:15s"))
+            );
+            assert!(claim_model_attempt_at(&model, now + Duration::from_secs(14)).is_some());
+            let probe_at = now + MODEL_INITIAL_FAILURE_COOLDOWN;
+            assert_eq!(claim_model_attempt_at(&model, probe_at), None);
+            assert!(
+                claim_model_attempt_at(&model, probe_at)
+                    .unwrap()
+                    .starts_with("MODEL_COOLDOWN_PROBE_IN_FLIGHT:")
+            );
+            // A request-dependent failure must also release a recovery probe.
+            record_model_failure_at(
+                &model,
+                "PROVIDER_RESPONSE_INVALID:Provider completion token limit reached",
+                probe_at,
+            );
+            assert_eq!(claim_model_attempt_at(&model, probe_at), None);
+        }
+        record_model_success(&model);
+    }
+}
 
-    record_model_failure_at(
-        model_id,
-        "request timed out",
-        started + Duration::from_secs(2),
-    );
-    let reason = model_cooldown_skip_reason_at(model_id, started + Duration::from_secs(3))
-        .expect("the second timeout should open the circuit");
-    assert!(reason.starts_with("MODEL_TIMEOUT_COOLDOWN:"));
+#[test]
+fn timeout_backoff_is_gradual_capped_and_resets_after_success() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../parity-fixtures/preset-system/retry-runtime.json"
+    ))
+    .unwrap();
+    let durations = fixture["retry_circuit"]["consecutive_timeout_cooldowns_seconds"]
+        .as_array()
+        .unwrap();
+    let model_id = "test-timeout-threshold-vision";
+    let mut now = Instant::now();
     record_model_success(model_id);
+    for _ in 0..2 {
+        for seconds in durations {
+            let seconds = seconds.as_u64().unwrap();
+            record_model_failure_at(model_id, "request timed out", now);
+            assert!(
+                claim_model_attempt_at(model_id, now)
+                    .unwrap()
+                    .ends_with(&format!(":{seconds}s"))
+            );
+            // Concurrent failures during a cooldown must not escalate or extend it.
+            record_model_failure_at(model_id, "timeout", now + Duration::from_secs(1));
+            now += Duration::from_secs(seconds);
+            assert!(claim_model_attempt_at(model_id, now - Duration::from_millis(1)).is_some());
+            assert_eq!(claim_model_attempt_at(model_id, now), None);
+            assert!(
+                claim_model_attempt_at(model_id, now)
+                    .unwrap()
+                    .starts_with("MODEL_COOLDOWN_PROBE_IN_FLIGHT:")
+            );
+            release_model_probe(model_id);
+            assert_eq!(claim_model_attempt_at(model_id, now), None);
+        }
+        record_model_success(model_id);
+        assert_eq!(claim_model_attempt_at(model_id, now), None);
+    }
 }
 
 #[test]
@@ -205,11 +279,13 @@ fn success_resets_timeout_failures() {
 
     record_model_failure_at(model_id, "timeout", started);
     record_model_success(model_id);
+    assert_eq!(claim_model_attempt_at(model_id, started), None);
     record_model_failure_at(model_id, "timeout", started + Duration::from_secs(1));
 
-    assert_eq!(
-        model_cooldown_skip_reason_at(model_id, started + Duration::from_secs(2)),
-        None
+    assert!(
+        model_cooldown_skip_reason_at(model_id, started + Duration::from_secs(2))
+            .unwrap()
+            .starts_with("MODEL_FIRST_TIMEOUT_COOLDOWN:")
     );
     record_model_success(model_id);
 }
@@ -221,9 +297,9 @@ fn open_circuit_does_not_extend_and_allows_only_one_probe() {
     record_model_success(model_id);
     record_model_failure_at(model_id, "timeout", started);
     record_model_failure_at(model_id, "timeout", started + Duration::from_secs(1));
-    record_model_failure_at(model_id, "timeout", started + Duration::from_secs(60));
+    record_model_failure_at(model_id, "timeout", started + Duration::from_secs(10));
 
-    let expiry = started + Duration::from_secs(1) + MODEL_TIMEOUT_COOLDOWN;
+    let expiry = started + MODEL_INITIAL_FAILURE_COOLDOWN;
     assert_eq!(model_cooldown_skip_reason_at(model_id, expiry), None);
     assert_eq!(claim_model_attempt_at(model_id, expiry), None);
     assert_eq!(
@@ -311,7 +387,7 @@ fn search_capable_retry_skips_incompatible_priority_candidates() {
     )
     .expect("image chain should produce a next model");
 
-    assert_eq!(next.id, "google-gemini-3-flash-vision");
+    assert_eq!(next.id, "google-gemini-3-1-flash-lite-vision");
     assert!(crate::model_config::model_supports_search_by_id_with_custom(&next.id, &[]));
     assert_ne!(next.id, "google-gemma-4-31b-vision");
 }
@@ -344,13 +420,13 @@ fn an_unavailable_pin_silently_enters_the_configured_priority_chain() {
     };
     config.model_priority_chains.text_to_text = vec![
         "missing-model".to_string(),
-        "groq-qwen-3-6-27b-text".to_string(),
+        "groq-qwen-3-8-27b-text".to_string(),
     ];
 
     let fallback = resolve_unavailable_pinned_model("text", "missing-model", &config)
         .expect("the next usable priority model should be selected");
 
-    assert_eq!(fallback.id, "groq-qwen-3-6-27b-text");
+    assert_eq!(fallback.id, "groq-qwen-3-8-27b-text");
     assert!(resolve_unavailable_pinned_model("audio", "missing-model", &config).is_none());
 }
 
@@ -366,13 +442,13 @@ fn ordinary_text_auto_retry_excludes_search_tool_endpoints() {
         .filter(|model| {
             model.model_type == crate::model_config::ModelType::Text
                 && !model.search_tool_enabled_by_default
-                && model.id != "groq-qwen-3-6-27b-text"
+                && model.id != "groq-qwen-3-8-27b-text"
         })
         .map(|model| model.id)
         .collect::<Vec<_>>();
 
     let next = resolve_next_retry_model(
-        "groq-qwen-3-6-27b-text",
+        "groq-qwen-3-8-27b-text",
         &failed,
         &HashSet::new(),
         RetryChainKind::TextToText,
@@ -409,7 +485,7 @@ fn a_reported_rate_limit_window_replaces_the_fixed_cooldown() {
     // flat 300s would have re-probed a model that could not work for 19 minutes.
     assert_eq!(
         reported_cooldown(
-            "Groq vision API HTTP 429: Rate limit reached for model `qwen/qwen3.6-27b`              in organization `org_x` service tier `on_demand` on tokens per day (TPD):              Limit 200000, Used 199568, Requested 3048. Please try again in 18m50.112s.              Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing"
+            "Groq vision API HTTP 429: Rate limit reached for model `qwen/qwen3.8-27b`              in organization `org_x` service tier `on_demand` on tokens per day (TPD):              Limit 200000, Used 199568, Requested 3048. Please try again in 18m50.112s.              Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing"
         ),
         Some(Duration::from_secs_f64(18.0 * 60.0 + 50.112))
     );
@@ -445,18 +521,33 @@ fn a_reported_rate_limit_window_replaces_the_fixed_cooldown() {
 fn real_groq_rate_headers_populate_the_token_budget() {
     use crate::retry_model_chain::{budget, budget_key, record_token_budget};
 
-    // Values captured verbatim from a live Groq vision response on 2026-08-19.
+    // An image's admission floor must not reserve image tokens for a text row.
     let mut headers = ureq::http::HeaderMap::new();
     headers.insert("x-ratelimit-limit-tokens", "8000".parse().unwrap());
     headers.insert("x-ratelimit-remaining-tokens", "1000".parse().unwrap());
     headers.insert("x-ratelimit-reset-tokens", "22.012s".parse().unwrap());
-    record_token_budget("groq", "qwen/qwen3.6-27b", &headers);
+    record_token_budget("groq", "qwen/qwen3.8-27b", &headers);
 
-    let key = budget_key("groq", "qwen/qwen3.6-27b");
+    let key = budget_key("groq", "qwen/qwen3.8-27b");
     // 1000 left cannot cover the cheapest measured call plus its output reserve.
     assert!(budget::shortfall(&key, budget::MEASURED_MIN_IMAGE_TOKENS + 512).is_some());
     // ... but it comfortably covers a hypothetical tiny one, so nothing is blocked.
     assert_eq!(budget::shortfall(&key, 500), None);
+    let config = Config {
+        api_key: "test-key".into(),
+        ..Default::default()
+    };
+    for model in crate::model_config::get_all_models()
+        .iter()
+        .filter(|model| model.provider == "groq" && model.full_name == "qwen/qwen3.8-27b")
+    {
+        let reason = preflight_skip_reason(&model.id, &model.provider, &config, &HashSet::new());
+        if model.model_type == crate::model_config::ModelType::Vision {
+            assert!(reason.unwrap().starts_with("MODEL_TOKEN_BUDGET:"));
+        } else {
+            assert_eq!(reason, None);
+        }
+    }
 
     // A response without the headers must leave admission untouched.
     record_token_budget("groq", "unmetered-model", &ureq::http::HeaderMap::new());

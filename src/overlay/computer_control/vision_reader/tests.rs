@@ -8,25 +8,25 @@ use crate::config::Config;
 fn grounding_chain_never_inherits_general_vision_models() {
     let mut config = Config::default();
     config.model_priority_chains.image_to_text = vec![
-        "groq-qwen-3-6-27b-vision".into(),
+        "groq-qwen-3-8-27b-vision".into(),
         "google-gemma-4-26b-a4b-vision".into(),
     ];
     let grounding = chain_ids(&config, &[], VisionTask::Grounding);
     assert!(!grounding.is_empty());
     assert!(
         !grounding.iter().any(|id| {
-            id == "groq-qwen-3-6-27b-vision" || id == "google-gemma-4-26b-a4b-vision"
+            id == "groq-qwen-3-8-27b-vision" || id == "google-gemma-4-26b-a4b-vision"
         })
     );
     assert_eq!(
         chain_ids(&config, &[], VisionTask::General),
-        ["groq-qwen-3-6-27b-vision", "google-gemma-4-26b-a4b-vision"]
+        ["groq-qwen-3-8-27b-vision", "google-gemma-4-26b-a4b-vision"]
     );
     assert_eq!(
         grounding,
         chain_ids(
             &config,
-            &["groq-qwen-3-6-27b-vision"],
+            &["groq-qwen-3-8-27b-vision"],
             VisionTask::Grounding
         ),
         "a preferred general model must not enter the grounding chain"

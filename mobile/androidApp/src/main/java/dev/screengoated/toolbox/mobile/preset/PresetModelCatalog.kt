@@ -100,6 +100,7 @@ data class PresetModelDescriptor(
     val nameVi: String = displayName,
     val nameKo: String = displayName,
     val isNonLlm: Boolean = false,
+    val inputLanguageSet: String = "",
     val quotaEn: String = "",
     val quotaVi: String = "",
     val quotaKo: String = "",
@@ -112,7 +113,7 @@ data class PresetModelDescriptor(
         PresetVisionMediaResolution.PROVIDER_DEFAULT,
     val visionSamplingPolicy: PresetVisionSamplingPolicy =
         PresetVisionSamplingPolicy.PROVIDER_DEFAULT,
-    val visionMaxOutputTokens: Int? = null,
+    val visionMaxOutputTokens: Int? = dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_VISION_MAX_OUTPUT_TOKENS,
     val structuredOutputPolicy: PresetStructuredOutputPolicy =
         PresetStructuredOutputPolicy.UNSUPPORTED,
     val restatesOutput: Boolean = false,

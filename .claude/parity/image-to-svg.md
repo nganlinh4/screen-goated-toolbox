@@ -251,11 +251,12 @@
   cancel the required rerun.
 
 ## Platform Deviations
+- Android submission validation is bound to the selected immutable draft snapshot. A changed selection or configuration invalidates the result. The validation dialog preserves prior artifacts and uses the same choose/retry outcomes as Windows.
 
-- Windows now checks input validity before submission and shows an accessible
+- Both platforms check input validity before submission and show an accessible
   Choose another image dialog for rejected input; unavailable checks offer
-  Retry. Its maximum submission size is 4,490,000 bytes. Android's matching
-  preflight/dialog port is outstanding. Dismissal submits nothing and preserves
+  Retry. The maximum submission size is 4,490,000 bytes. Android also validates
+  the job-owned image before queueing. Dismissal submits nothing and preserves
   existing generated results.
 
 - Both platforms default to the user's Downloads folder. Windows uses the

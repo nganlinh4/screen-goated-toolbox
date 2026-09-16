@@ -1,8 +1,10 @@
 {
-  "version": 2,
+  "version": 3,
   "modelOutputLimits": {
     "gemini-2.5-flash-native-audio-preview-12-2025": 8192,
-    "gemini-3.1-flash-live-preview": 65536
+    "gemini-3.1-flash-live-preview": 65536,
+    "gemini-3.8-live": 65536,
+    "gemini-3.8-live-extended-thinking": 65536
   },
   "setupComplete": {
     "payload": {

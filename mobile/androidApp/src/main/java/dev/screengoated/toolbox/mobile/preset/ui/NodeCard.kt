@@ -327,6 +327,8 @@ internal fun NodeCard(
                         }
                     }
 
+                    SpeechLanguagePicker(block, lang, onBlockUpdated)
+
                     // Row 2: "Lệnh:" label + "+ Ngôn ngữ" button (only for LLM models)
                     if (!isNonLlm) {
                         Row(

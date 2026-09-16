@@ -1,6 +1,6 @@
 //! Per-model cooldown and circuit-breaker state for the retry chain.
 //!
-//! A model that rate-limits, times out repeatedly, runs out of credit, or is
+//! A model that rate-limits, times out, returns an invalid response, or is
 //! withdrawn by its provider is benched here so later chain steps stop paying
 //! for a failure that is already known.
 
@@ -11,18 +11,21 @@ use std::time::{Duration, Instant};
 #[cfg(not(feature = "recorder-worker"))]
 pub(super) const MODEL_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(300);
 #[cfg(not(feature = "recorder-worker"))]
-pub(super) const MODEL_TIMEOUT_COOLDOWN: Duration = Duration::from_secs(30 * 60);
+pub(super) const MODEL_TIMEOUT_COOLDOWN: Duration = Duration::from_secs(60);
 #[cfg(not(feature = "recorder-worker"))]
 pub(super) const MODEL_UNAVAILABLE_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
 #[cfg(not(feature = "recorder-worker"))]
 pub(super) const MODEL_BILLING_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
 #[cfg(not(feature = "recorder-worker"))]
-pub(super) const MODEL_TIMEOUT_FAILURE_THRESHOLD: u8 = 2;
+pub(super) const MODEL_INITIAL_FAILURE_COOLDOWN: Duration = Duration::from_secs(15);
 
 #[cfg(not(feature = "recorder-worker"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ModelCooldownKind {
     RateLimit,
+    FirstTimeout,
+    SecondTimeout,
+    InvalidResponse,
     Timeout,
     Unavailable,
     Billing,
@@ -33,6 +36,9 @@ impl ModelCooldownKind {
     fn duration(self) -> Duration {
         match self {
             Self::RateLimit => MODEL_RATE_LIMIT_COOLDOWN,
+            Self::FirstTimeout | Self::SecondTimeout | Self::InvalidResponse => {
+                MODEL_INITIAL_FAILURE_COOLDOWN
+            }
             Self::Timeout => MODEL_TIMEOUT_COOLDOWN,
             Self::Unavailable => MODEL_UNAVAILABLE_COOLDOWN,
             Self::Billing => MODEL_BILLING_COOLDOWN,
@@ -42,7 +48,9 @@ impl ModelCooldownKind {
     fn reason(self) -> &'static str {
         match self {
             Self::RateLimit => "MODEL_RATE_LIMIT_COOLDOWN",
-            Self::Timeout => "MODEL_TIMEOUT_COOLDOWN",
+            Self::FirstTimeout => "MODEL_FIRST_TIMEOUT_COOLDOWN",
+            Self::InvalidResponse => "MODEL_INVALID_RESPONSE_COOLDOWN",
+            Self::SecondTimeout | Self::Timeout => "MODEL_TIMEOUT_COOLDOWN",
             Self::Unavailable => "MODEL_UNAVAILABLE_COOLDOWN",
             Self::Billing => "MODEL_BILLING_COOLDOWN",
         }
@@ -52,9 +60,7 @@ impl ModelCooldownKind {
 #[cfg(not(feature = "recorder-worker"))]
 #[derive(Clone, Copy, Debug)]
 pub(super) enum ModelCircuitState {
-    Monitoring {
-        timeout_failures: u8,
-    },
+    Monitoring,
     Open {
         kind: ModelCooldownKind,
         until: Instant,
@@ -196,23 +202,22 @@ pub(super) fn record_model_failure_at(model_id: &str, error: &str, now: Instant)
     let is_timeout = timeout_error(error);
     let is_unavailable = unavailable_model_error(error);
     let is_billing = billing_error(error);
+    let is_invalid = error.starts_with("EMPTY_MODEL_RESPONSE")
+        || (error.starts_with("PROVIDER_RESPONSE_INVALID:")
+            && !error.contains("Provider completion token limit reached"))
+        || crate::overlay::utils::extract_http_status_code(error)
+            .is_some_and(|code| (500..=599).contains(&code));
     // A provider that tells us when it reopens is more accurate than any constant.
     let reported = is_rate_limit.then(|| reported_cooldown(error)).flatten();
     let cooldown_for = |kind: ModelCooldownKind| match kind {
         ModelCooldownKind::RateLimit => reported.unwrap_or_else(|| kind.duration()),
         other => other.duration(),
     };
-    if !is_rate_limit && !is_timeout && !is_unavailable && !is_billing {
+    if !is_rate_limit && !is_timeout && !is_unavailable && !is_billing && !is_invalid {
         if let Ok(mut circuits) = MODEL_CIRCUITS.lock()
-            && let Some(ModelCircuitState::HalfOpen { kind }) = circuits.get(model_id).copied()
+            && let Some(ModelCircuitState::HalfOpen { .. }) = circuits.get(model_id)
         {
-            circuits.insert(
-                model_id.to_string(),
-                ModelCircuitState::Open {
-                    kind,
-                    until: now + kind.duration(),
-                },
-            );
+            circuits.remove(model_id);
         }
         return;
     }
@@ -222,14 +227,12 @@ pub(super) fn record_model_failure_at(model_id: &str, error: &str, now: Instant)
     };
     let state = circuits
         .entry(model_id.to_string())
-        .or_insert(ModelCircuitState::Monitoring {
-            timeout_failures: 0,
-        });
+        .or_insert(ModelCircuitState::Monitoring);
 
-    if matches!(*state, ModelCircuitState::Open { until, .. } if until <= now) {
-        *state = ModelCircuitState::Monitoring {
-            timeout_failures: 0,
-        };
+    if let ModelCircuitState::Open { kind, until } = *state
+        && until <= now
+    {
+        *state = ModelCircuitState::HalfOpen { kind };
     }
 
     match *state {
@@ -240,9 +243,17 @@ pub(super) fn record_model_failure_at(model_id: &str, error: &str, now: Instant)
             } else if is_rate_limit {
                 ModelCooldownKind::RateLimit
             } else if is_timeout {
-                ModelCooldownKind::Timeout
+                match kind {
+                    ModelCooldownKind::FirstTimeout => ModelCooldownKind::SecondTimeout,
+                    ModelCooldownKind::SecondTimeout | ModelCooldownKind::Timeout => {
+                        ModelCooldownKind::Timeout
+                    }
+                    _ => ModelCooldownKind::FirstTimeout,
+                }
             } else if is_unavailable {
                 ModelCooldownKind::Unavailable
+            } else if is_invalid {
+                ModelCooldownKind::InvalidResponse
             } else {
                 kind
             };
@@ -251,38 +262,37 @@ pub(super) fn record_model_failure_at(model_id: &str, error: &str, now: Instant)
                 until: now + cooldown_for(kind),
             };
         }
-        ModelCircuitState::Monitoring { .. } if is_billing => {
+        ModelCircuitState::Monitoring if is_billing => {
             let kind = ModelCooldownKind::Billing;
             *state = ModelCircuitState::Open {
                 kind,
                 until: now + kind.duration(),
             };
         }
-        ModelCircuitState::Monitoring { .. } if is_rate_limit => {
+        ModelCircuitState::Monitoring if is_rate_limit => {
             let kind = ModelCooldownKind::RateLimit;
             *state = ModelCircuitState::Open {
                 kind,
                 until: now + cooldown_for(kind),
             };
         }
-        ModelCircuitState::Monitoring { .. } if is_unavailable => {
+        ModelCircuitState::Monitoring if is_unavailable => {
             let kind = ModelCooldownKind::Unavailable;
             *state = ModelCircuitState::Open {
                 kind,
                 until: now + kind.duration(),
             };
         }
-        ModelCircuitState::Monitoring { timeout_failures } if is_timeout => {
-            let timeout_failures = timeout_failures.saturating_add(1);
-            if timeout_failures >= MODEL_TIMEOUT_FAILURE_THRESHOLD {
-                let kind = ModelCooldownKind::Timeout;
-                *state = ModelCircuitState::Open {
-                    kind,
-                    until: now + kind.duration(),
-                };
+        ModelCircuitState::Monitoring if is_timeout || is_invalid => {
+            let kind = if is_timeout {
+                ModelCooldownKind::FirstTimeout
             } else {
-                *state = ModelCircuitState::Monitoring { timeout_failures };
-            }
+                ModelCooldownKind::InvalidResponse
+            };
+            *state = ModelCircuitState::Open {
+                kind,
+                until: now + kind.duration(),
+            };
         }
         _ => {}
     }
@@ -321,7 +331,7 @@ pub(super) fn claim_model_attempt_at(model_id: &str, now: Instant) -> Option<Str
     let state = circuits.get_mut(model_id)?;
 
     match *state {
-        ModelCircuitState::Monitoring { .. } => None,
+        ModelCircuitState::Monitoring => None,
         ModelCircuitState::Open { kind, until } if until > now => Some(format!(
             "{}:{model_id}:{}s",
             kind.reason(),
@@ -358,7 +368,7 @@ pub(super) fn model_cooldown_skip_reason_at(model_id: &str, now: Instant) -> Opt
     let state = circuits.get_mut(model_id)?;
 
     match *state {
-        ModelCircuitState::Monitoring { .. } => None,
+        ModelCircuitState::Monitoring => None,
         ModelCircuitState::Open { kind, until } if until > now => Some(format!(
             "{}:{model_id}:{}s",
             kind.reason(),

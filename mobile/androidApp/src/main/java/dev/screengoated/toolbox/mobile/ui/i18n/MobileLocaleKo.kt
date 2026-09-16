@@ -448,7 +448,7 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                     transcriptionLanguageTitle = "자막 언어",
                     unavailableSuffix = "사용 불가",
                     targetLanguageTitle = "대상 언어",
-                    s2sTranslationModelTitle = "Gemini S2S는 TTS Gemini Live 모델을 사용합니다",
+                    s2sTranslationModelTitle = "Gemini S2S는 선택한 음성 모델을 사용합니다",
                     s2sTargetLanguageTitle = "대상 언어를 변경하고 현재 S2S 세션을 다시 시작",
                 ),
                 controls = OverlayControlLocale(

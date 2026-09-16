@@ -192,6 +192,9 @@ fn transcribe_with_gemini_live(
     use crate::overlay::recording::AUDIO_INITIALIZING;
 
     let is_translate = target_language.is_some();
+    let manual_activity = !is_translate
+        && crate::model_config::live_endpoint_profile(model)
+            .is_some_and(|profile| profile.protocol == Some("native-audio"));
     println!(
         "[GeminiLiveInput] Starting {}, WAV data size: {} bytes",
         if is_translate {
@@ -223,7 +226,7 @@ fn transcribe_with_gemini_live(
     let setup_result = if let Some(target_language) = target_language {
         send_live_translate_setup_message(&mut socket, model, target_language)
     } else {
-        send_setup_message(&mut socket, model)
+        send_setup_message(&mut socket, model, manual_activity)
     };
     if let Err(e) = setup_result {
         println!("[GeminiLiveInput] Setup message failed: {}", e);
@@ -328,6 +331,14 @@ fn transcribe_with_gemini_live(
     };
 
     println!("[GeminiLiveInput] Sending audio chunks...");
+    if manual_activity {
+        socket.write(tungstenite::Message::Text(
+            crate::api::gemini_live::client_message::activity_boundary(true)
+                .to_string()
+                .into(),
+        ))?;
+        socket.flush()?;
+    }
     while offset < pcm_samples.len() {
         let end = (offset + chunk_size).min(pcm_samples.len());
         let chunk = &pcm_samples[offset..end];
@@ -388,17 +399,30 @@ fn transcribe_with_gemini_live(
     }
 
     println!(
-        "[GeminiLiveInput] Sent {} chunks, waiting 2s for final transcriptions...",
+        "[GeminiLiveInput] Sent {} chunks, waiting for final transcriptions...",
         chunks_sent
     );
 
-    let _ = send_audio_stream_end(&mut socket);
+    if manual_activity {
+        socket.write(tungstenite::Message::Text(
+            crate::api::gemini_live::client_message::activity_boundary(false)
+                .to_string()
+                .into(),
+        ))?;
+        socket.flush()?;
+    } else {
+        send_audio_stream_end(&mut socket)?;
+    }
 
-    // Wait 2 seconds after sending all audio for final transcriptions
+    // Allow speech-boundary transcripts to arrive before applying the tail idle limit.
     let conclude_start = Instant::now();
-    let conclude_duration = Duration::from_secs(2);
+    let conclude_duration = Duration::from_secs(15);
+    let mut last_transcript_at = (!accumulated_text.is_empty()).then(Instant::now);
 
     while conclude_start.elapsed() < conclude_duration {
+        if last_transcript_at.is_some_and(|last| last.elapsed() >= Duration::from_secs(2)) {
+            break;
+        }
         match socket.read() {
             Ok(tungstenite::Message::Text(msg)) => {
                 let msg = msg.as_str();
@@ -410,6 +434,7 @@ fn transcribe_with_gemini_live(
                     && !transcript.is_empty()
                 {
                     println!("[GeminiLiveInput] Got final transcript: '{}'", transcript);
+                    last_transcript_at = Some(Instant::now());
                     transcripts_received += 1;
                     accumulated_text.push_str(&transcript);
                 }
@@ -423,6 +448,7 @@ fn transcribe_with_gemini_live(
                         "[GeminiLiveInput] Got final transcript (binary): '{}'",
                         transcript
                     );
+                    last_transcript_at = Some(Instant::now());
                     transcripts_received += 1;
                     accumulated_text.push_str(&transcript);
                 }

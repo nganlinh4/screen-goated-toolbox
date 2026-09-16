@@ -77,6 +77,10 @@ internal object CreationJobFactory {
         )
         val source = runtimeSources.firstOrNull().orEmpty()
         return try {
+        runtimeSources.forEach { path ->
+            val error = inspectCreationInput(files, tool, path, modeRoute?.mode?.wireName.orEmpty())
+            require(error == null) { "Selected image no longer meets the generation input requirements" }
+        }
         val descriptors = runtimeSources.map { path ->
             CreationSourceDescriptor(
                 path = path,
@@ -102,6 +106,7 @@ internal object CreationJobFactory {
             sourceDescriptors = descriptors,
             tool = tool.wireName,
             generationMode = modeRoute?.mode?.wireName,
+            topology = modeRoute?.let { CreationContract.initialTopology(it.mode, it.autoSegment, args.string("topology")) },
             operation = if (tool == CreationTool.IMAGE_CREATOR) {
                 CreationContract.IMAGE_CREATOR_OPERATION
             } else {
@@ -140,6 +145,7 @@ internal object CreationJobFactory {
         dispatchId = request.dispatchId,
         operation = request.operation,
         generationMode = request.generationMode,
+        topology = request.topology,
         polycount = request.polycount.takeIf { tool == CreationTool.IMAGE_TO_3D },
         autoSegment = request.autoSegment.takeIf { tool == CreationTool.IMAGE_TO_3D },
         segmentationLevel = request.segmentationLevel.takeIf {

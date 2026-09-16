@@ -4,11 +4,22 @@ internal data class PasteSnapshot(val text: String, val start: Int, val end: Int
     val collapsed: Boolean get() = start == end && start in 0..text.length
 }
 
+internal fun editablePasteSnapshot(text: String, start: Int, end: Int): PasteSnapshot? {
+    val value = if (text.isEmpty() && start == -1 && end == -1) PasteSnapshot(text, 0, 0)
+        else PasteSnapshot(text, start, end)
+    return value.takeIf { it.collapsed }
+}
+
 /** A target never rebinds: null snapshots and uncertain effects permanently revoke ownership. */
+internal enum class PasteMutationOutcome { NO_EFFECT, VERIFIED, UNCERTAIN }
+
 internal interface ProvisionalPasteTarget {
+    val identity: Any get() = this
     val replaceable: Boolean
     fun snapshot(): PasteSnapshot?
     fun replace(expected: PasteSnapshot, replacement: PasteSnapshot): Boolean
+    fun mutate(expected: PasteSnapshot, replacement: PasteSnapshot): PasteMutationOutcome =
+        if (replace(expected, replacement)) PasteMutationOutcome.VERIFIED else PasteMutationOutcome.UNCERTAIN
 }
 
 /** Canonical session-owned tail; committed segments and surrounding user text are immutable. */
@@ -23,13 +34,20 @@ internal class ProvisionalPasteSession(private val target: ProvisionalPasteTarge
         private set
     var attempted = false
         private set
+    var lastMutationAttempted = false
+        private set
+    val replaceable: Boolean get() = target?.replaceable == true
+    fun ownsDestination(): Boolean = !suspended && expected != null && target?.snapshot() == expected
+    fun abandon() { suspended = true }
 
     fun interim(text: String): Boolean {
+        lastMutationAttempted = false
         if (closed || draining || suspended || target?.replaceable != true) return false
         return replaceTail(normalizeStreamingText(text), commit = false)
     }
 
     fun finalSegment(text: String): Boolean {
+        lastMutationAttempted = false
         if (closed || suspended) return false
         return replaceTail(normalizeStreamingText(text), commit = true)
     }
@@ -56,8 +74,10 @@ internal class ProvisionalPasteSession(private val target: ProvisionalPasteTarge
         val caret = prefix.length + text.length
         val after = PasteSnapshot(prefix + text + suffix, caret, caret)
         if (after != before) {
-            attempted = true
-            if (!backend.replace(before, after) || backend.snapshot() != after) {
+            val outcome = backend.mutate(before, after)
+            lastMutationAttempted = outcome != PasteMutationOutcome.NO_EFFECT
+            attempted = attempted || lastMutationAttempted
+            if (outcome != PasteMutationOutcome.VERIFIED || backend.snapshot() != after) {
                 suspended = true
                 return false
             }

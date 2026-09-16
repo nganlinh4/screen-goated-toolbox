@@ -10,6 +10,7 @@ internal fun AudioApiClient.transcribeWithGroq(
     model: PresetModelDescriptor,
     wavBytes: ByteArray,
     apiKey: String,
+    inputLanguage: String? = null,
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:groq")
 
@@ -24,6 +25,11 @@ internal fun AudioApiClient.transcribeWithGroq(
                 "audio.wav",
                 tempFile.asRequestBody("audio/wav".toMediaType()),
             )
+            .apply {
+                if (model.inputLanguageSet == "whisper") {
+                    whisperLanguageCode(inputLanguage)?.let { addFormDataPart("language", it) }
+                }
+            }
             .build()
 
         val request = Request.Builder()

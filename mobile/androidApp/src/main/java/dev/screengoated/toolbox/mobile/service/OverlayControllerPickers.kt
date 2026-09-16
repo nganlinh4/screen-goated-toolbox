@@ -64,7 +64,6 @@ internal fun OverlayController.showTranscriptionModelPicker() {
     val anchor = transcriptionWindow?.currentBounds() ?: return
     val overlayLocale = currentOverlayLocale()
     val options = RealtimeOverlayModelOptions.transcriptionOptions(
-        geminiS2sLabel = overlayLocale.geminiS2sTitle,
         unavailableSuffix = overlayLocale.unavailableSuffix,
     )
     val currentId = repository.transcriptionModelId()
@@ -87,7 +86,6 @@ internal fun OverlayController.showTranscriptionModelPicker() {
 internal fun OverlayController.onTranscriptionModelSelected(label: String) {
     val overlayLocale = currentOverlayLocale()
     val modelId = RealtimeOverlayModelOptions.transcriptionOptions(
-        geminiS2sLabel = overlayLocale.geminiS2sTitle,
         unavailableSuffix = overlayLocale.unavailableSuffix,
     ).firstOrNull { it.label == label }?.id ?: return
     updateTranscriptionModel(modelId)
@@ -176,12 +174,12 @@ internal fun OverlayController.updateTranscriptionModel(modelId: String) {
 
 internal fun OverlayController.defaultTranscriptionLanguageFor(modelId: String): String {
     return if (
-        RealtimeModelIds.isGeminiS2sModelId(modelId) ||
-        modelId == RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5
+        dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog.endpointProfile(
+            RealtimeModelIds.defaultTranscriptionProvider(modelId).model,
+        )?.protocol != null
     ) {
         "all"
     } else {
         "en"
     }
 }
-

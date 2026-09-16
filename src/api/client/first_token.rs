@@ -97,10 +97,9 @@ pub(super) fn read_timeout() -> Result<Option<Duration>, ureq::Error> {
             .as_ref()
             .is_some_and(|value| value.load(Ordering::Relaxed))
         {
-            return Err(ureq::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "Cancelled",
-            )));
+            // Buffered readers retry Interrupted indefinitely. Cancellation is
+            // terminal for this request, so it must escape that retry loop.
+            return Err(ureq::Error::Io(std::io::Error::other("Cancelled")));
         }
         let poll = Duration::from_millis(100);
         let budget = if deadline.received {

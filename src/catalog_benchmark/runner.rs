@@ -90,14 +90,7 @@ pub fn run() -> Result<()> {
                     continue;
                 }
                 pacer.wait(model);
-                recorder.push(run_ocr(
-                    model,
-                    case,
-                    round,
-                    &manifest,
-                    &credentials,
-                    timeout,
-                ))?;
+                recorder.push(run_ocr(model, case, round, &manifest, &credentials))?;
             }
         }
     }
@@ -241,8 +234,8 @@ fn run_ocr(
     round: u8,
     manifest: &Manifest,
     credentials: &Credentials,
-    timeout: Option<Duration>,
 ) -> Attempt {
+    let _retry_owner = crate::api::client::retry_policy::ChainRetryGuard::new(true);
     let image_path = manifest.image_path(&case.image);
     let (image, original_bytes) = match load_ocr_image(&image_path, case.crop_px, case.input_mode) {
         Ok(value) => value,
@@ -262,6 +255,13 @@ fn run_ocr(
     let image_width = image.width();
     let image_height = image.height();
     let prompt = case.instruction.clone();
+    let streaming_enabled =
+        crate::api::endpoint_supports_progress_streaming(&model.provider, &model.full_name);
+    let timeouts = crate::retry_model_chain::interactive_request_timeouts(
+        &model.id,
+        &crate::config::Config::default(),
+        crate::retry_model_chain::InteractiveRequestWorkload::for_input(prompt.len(), image_bytes),
+    );
     let started = Instant::now();
     let result = credentials.with_provider_key(&model.provider, |provider_key| {
         translate_image_streaming(
@@ -273,10 +273,10 @@ fn run_ocr(
                 provider: model.provider.clone(),
                 image,
                 original_bytes: Some(original_bytes),
-                streaming_enabled: false,
+                streaming_enabled,
                 response_schema: None,
                 cancel_token: None,
-                request_timeout: timeout.map(crate::api::client::RequestTimeouts::uniform),
+                request_timeout: Some(timeouts),
             },
             |_| {},
         )
@@ -309,6 +309,9 @@ fn run_ocr(
                     "input_image_width": image_width,
                     "input_image_height": image_height,
                     "input_mode": case.input_mode.as_str(),
+                    "streaming": streaming_enabled,
+                    "first_output_budget_ms": timeouts.first_token.as_millis(),
+                    "total_budget_ms": timeouts.total.as_millis(),
                     "vision_request_profile":
                         crate::model_config::vision_request_profile(
                             &model.provider,

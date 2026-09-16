@@ -44,7 +44,8 @@ rg -n '<internal-id>|<api-model>|supports_thinking|supports_search|model_is_non_
    all-case median and P95 retain large-image stress evidence.
    Focused recovery reports may be merged into the same logical run before that
    complete report is registered; never register recovery fragments
-   independently. Every manual-review suite needs complete structured human review. Increment
+   independently. Every manual-review suite needs complete structured direct review
+   with reviewer provenance; agent review is not human sign-off. Increment
    `benchmark_protocol_version` before collecting results when benchmark
    scoring or request semantics change.
 5. Edit the manifest and every relevant manifest section: endpoint profile,
@@ -89,7 +90,7 @@ The validator and Cargo build reject duplicate IDs, permanent migration tables,
 incomplete lifecycle metadata, and deprecated/retired runtime defaults.
 
 When `build_support/model_catalog.rs` changes the generated Rust output shape or
-constant mappings, increment `MODEL_CATALOG_GENERATOR_SCHEMA` in `build.rs` in
+constant mappings, increment `GENERATOR_SCHEMA` in `build_support/model_catalog.rs` in
 the same change. This invalidates a cached build-script executable instead of
 letting it regenerate the catalog with old generator logic. Validate through the
 managed warm cache with:

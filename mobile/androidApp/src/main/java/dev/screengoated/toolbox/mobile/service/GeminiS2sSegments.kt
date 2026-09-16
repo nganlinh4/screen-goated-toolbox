@@ -231,6 +231,10 @@ private suspend fun GeminiS2sClient.runAttempt(
             logTag,
             "start segment=${segment.id} gen=${segment.generation} attempt=$attempt audio_ms=${segment.audioMs} context_chars=${contextText.length}",
         )
+        if (usesManualSpeechBoundaries(model) && !session.trySend(buildGeminiS2sActivityPayload(true))) {
+            output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
+            return
+        }
         for (offset in segment.samples.indices step FRAME_SAMPLES) {
             val end = minOf(offset + FRAME_SAMPLES, segment.samples.size)
             if (!session.trySend(buildGeminiS2sAudioPayload(segment.samples.copyOfRange(offset, end)))) {
@@ -238,8 +242,8 @@ private suspend fun GeminiS2sClient.runAttempt(
                 return
             }
         }
-        if (shouldSendAudioStreamEnd(model)) {
-            if (!session.trySend(buildGeminiS2sAudioStreamEndPayload())) {
+        if (usesManualSpeechBoundaries(model)) {
+            if (!session.trySend(buildGeminiS2sActivityPayload(false))) {
                 output.send(S2sRaceEvent.Retry(segment.id, segment.generation, attempt))
                 return
             }

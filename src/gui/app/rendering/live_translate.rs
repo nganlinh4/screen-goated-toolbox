@@ -463,7 +463,7 @@ fn transcription_model_label(model: &str) -> &'static str {
         .iter()
         .find(|(id, _)| *id == model)
         .map(|(_, label)| *label)
-        .unwrap_or("Gemini Translate")
+        .unwrap_or_else(|| crate::model_config::realtime_transcription_model_options()[0].1)
 }
 
 fn transcription_languages() -> [(&'static str, &'static str); 8] {

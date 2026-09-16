@@ -87,7 +87,8 @@ internal fun preflightSkipReason(
         return "Model config not found: $modelId"
     }
     val model = PresetModelCatalog.getById(modelId)
-    val minimumTokens = model?.visionMaxOutputTokens?.let { 770 + it }
+    val minimumTokens = model?.takeIf { it.modelType == PresetModelType.VISION }
+        ?.visionMaxOutputTokens?.let { 770 + it }
     if (model != null && minimumTokens != null) {
         ModelUsageStats.tokenBudgetWaitSeconds(model.provider, model.fullName, minimumTokens)
             ?.let { return "MODEL_TOKEN_BUDGET:$modelId:${it.coerceAtLeast(1)}s" }
@@ -96,6 +97,7 @@ internal fun preflightSkipReason(
 }
 
 internal fun shouldAdvanceRetryChain(error: String): Boolean {
+    if (error.startsWith("PROVIDER_RESPONSE_INVALID:")) return true
     if (
         error.contains("NO_API_KEY") ||
         error.contains("INVALID_API_KEY") ||
@@ -228,7 +230,7 @@ private fun providerKey(provider: PresetModelProvider): String = when (provider)
     PresetModelProvider.TAALAS -> "taalas"
 }
 
-private fun extractHttpStatusCode(error: String): Int? {
+internal fun extractHttpStatusCode(error: String): Int? {
     val regex = Regex("""\b(4\d{2}|5\d{2})\b""")
     return regex.find(error)?.value?.toIntOrNull()
 }

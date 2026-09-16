@@ -1,0 +1,33 @@
+{
+  "stream": [
+    {"name":"repeated-finish-with-usage", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\"}],\"usage\":{\"completion_tokens\":1}}\n\ndata: [DONE]\n\n", "output":"ready"},
+    {"name":"empty-delta-after-finish", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":null,\"tool_calls\":[]},\"finish_reason\":null}]}\n\n", "output":"ready"},
+    {"name":"content-after-finish", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"extra\"}}]}\n\n", "error":"Provider emitted output after completion"},
+    {"name":"reasoning-after-finish", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":{\"reasoning_content\":\"extra\"}}]}\n\n", "error":"Provider emitted output after completion"},
+    {"name":"tool-call-after-finish", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0}]}}]}\n\n", "error":"Provider emitted output after completion"},
+    {"name":"error-after-finish", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"error\":{\"message\":\"capacity exhausted\"}}\n\n", "error":"capacity exhausted"},
+    {"name":"failed-finish-after-success", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n", "error":"Provider completion token limit reached"},
+    {"name":"malformed-delta-after-finish", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":null,\"finish_reason\":\"stop\"}]}\n\n", "error":"Malformed provider stream event"},
+    {"name":"invalid-delta-after-content", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\ndata: {\"choices\":[{\"delta\":null,\"finish_reason\":\"stop\"}]}\n\n", "error":"Malformed provider stream event"},
+    {"name":"nontext-content", "body":"data: {\"choices\":[{\"delta\":{\"content\":42},\"finish_reason\":\"stop\"}]}\n\n", "error":"Malformed provider stream event"},
+    {"name":"complete", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"ready\"}}]}\n\ndata: [DONE]\n\n", "output":"ready"},
+    {"name":"finish-without-sentinel", "body":"data:{\"choices\":[{\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\n", "output":"ready"},
+    {"name":"usage-and-comments", "body":": ping\n\ndata: {\"choices\":[],\"usage\":{}}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", "output":"ready"},
+    {"name":"multiline-event", "body":"data: {\"choices\":[\n data: ignored\n", "error":"Malformed provider stream event"},
+    {"name":"multiline-json", "body":"data: {\"choices\":[\ndata: {\"delta\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}\n\n", "output":"ready"},
+    {"name":"provider-error", "body":"data: {\"error\":{\"message\":\"capacity exhausted\",\"code\":503}}\n\ndata: [DONE]\n\n", "error":"capacity exhausted"},
+    {"name":"error-after-content", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\ndata: {\"error\":{\"message\":\"capacity exhausted\"}}\n\n", "error":"capacity exhausted"},
+    {"name":"token-limit", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n", "error":"Provider completion token limit reached"},
+    {"name":"filtered", "body":"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"content_filter\"}]}\n\n", "error":"Provider completion did not succeed"},
+    {"name":"truncated", "body":"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n", "error":"Provider stream ended before completion"},
+    {"name":"malformed", "body":"data: {broken}\n\ndata: [DONE]\n\n", "error":"Malformed provider stream event"},
+    {"name":"empty", "body":"data: [DONE]\n\n", "error":"Provider returned no output content"}
+  ],
+  "unary": [
+    {"name":"complete", "body":{"choices":[{"message":{"content":"ready"},"finish_reason":"stop"}]}, "output":"ready"},
+    {"name":"complete-envelope", "body":{"choices":[{"message":{"content":"ready"}}]}, "output":"ready"},
+    {"name":"token-limit", "body":{"choices":[{"message":{"content":"partial"},"finish_reason":"length"}]}, "error":"Provider completion token limit reached"},
+    {"name":"provider-error", "body":{"error":{"message":"capacity exhausted","code":503}}, "error":"capacity exhausted"},
+    {"name":"empty", "body":{"choices":[{"message":{"content":""},"finish_reason":"stop"}]}, "error":"Provider returned no output content"}
+  ]
+}

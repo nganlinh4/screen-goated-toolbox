@@ -81,7 +81,8 @@ test('edge travel settles without overshoot or a velocity snap; softness clears 
 
 test('capture-edge intersections remain rounded with finite exterior distances', () => {
   const field = build(300,200,[[0,0,300,200]]);
-  assert.ok(distance(field,300,200,1,1) > 5, 'the final corner must turn inward, not be cropped square');
+  assert.ok(distance(field,300,200,1,1) > 0, 'the final corner must turn inward, not be cropped square');
+  assert.ok(distance(field,300,200,8,8) < 0, 'the capture corner retains the compact eight-pixel radius');
   assert.ok(distance(field,300,200,150,15) < 0);
   assert.ok(distance(field,300,200,150,100) > -110, 'the crop edge has a real exterior');
   const joined = build(400,300,[[0,40,150,25],[70,100,200,30],[30,170,70,25]]);

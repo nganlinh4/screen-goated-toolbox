@@ -190,7 +190,7 @@ class RealtimeTranslationClientParityTest {
         assertTrue(modelOptionsSource.contains("RealtimeModelIds.TRANSCRIPTION_PARAKEET"))
         assertTrue(modelOptionsSource.contains("parakeetLabel(unavailableSuffix)"))
         assertTrue(overlaySource.contains("modelName === 'parakeet'"))
-        assertTrue(overlaySource.contains("'Parakeet (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')'"))
+        assertTrue(overlaySource.contains("labels[modelName] + ' (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')'"))
         assertTrue(runtimeSource.contains("config.transcriptionProvider.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET"))
         assertTrue(runtimeSource.contains("Parakeet is visible for Windows parity but is not available on Android yet."))
     }

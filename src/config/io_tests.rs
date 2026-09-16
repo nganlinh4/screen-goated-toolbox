@@ -146,7 +146,7 @@ fn migrate_config_sanitizes_model_priority_chains() {
         "google-gemini-3-1-flash-lite-vision".to_string(),
         "google-gtx-translate-text".to_string(),
         "missing-model".to_string(),
-        "groq-qwen-3-6-27b-vision".to_string(),
+        "groq-qwen-3-8-27b-vision".to_string(),
     ];
     config.model_priority_chains.text_to_text = vec![
         "retired_text_model".to_string(),
@@ -161,7 +161,7 @@ fn migrate_config_sanitizes_model_priority_chains() {
         config.model_priority_chains.image_to_text,
         vec![
             "google-gemini-3-1-flash-lite-vision".to_string(),
-            "groq-qwen-3-6-27b-vision".to_string()
+            "groq-qwen-3-8-27b-vision".to_string()
         ]
     );
     assert_eq!(

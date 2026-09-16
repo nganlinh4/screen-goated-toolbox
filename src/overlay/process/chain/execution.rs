@@ -23,6 +23,11 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::visibility::claim_result_reveal;
+#[cfg(test)]
+#[path = "execution_diagnostic.rs"]
+mod execution_diagnostic;
+#[path = "execution_trace.rs"]
+mod execution_trace;
 
 pub struct ExecuteBlockRequest<'a> {
     pub block: &'a ProcessingBlock,
@@ -93,19 +98,20 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     let retry_chain_kind = RetryChainKind::from_block_type(&block.block_type)
         .filter(|_| !crate::model_config::model_is_non_llm(model_id));
 
-    let encoded_media_bytes = match context {
-        RefineContext::Image(bytes) => (bytes.len() as u64).saturating_mul(4).saturating_add(2) / 3,
+    let media_bytes = match context {
+        RefineContext::Image(bytes) => bytes.len(),
         _ => 0,
     };
-    let workload = InteractiveRequestWorkload {
-        encoded_request_bytes: (final_prompt.len() as u64)
-            .saturating_add(input_text.len() as u64)
-            .saturating_add(encoded_media_bytes),
-        ..Default::default()
-    };
+    let workload = InteractiveRequestWorkload::for_input(
+        final_prompt.len().saturating_add(input_text.len()),
+        media_bytes,
+    );
     let window_shown = Arc::new(Mutex::new(block.block_type != "image"));
     let processing_hwnd_arc = Arc::new(Mutex::new(processing_hwnd_shared));
 
+    let trace = execution_trace::ExecutionTrace::start(block_idx, model_id);
+    let _retry_owner =
+        crate::api::client::retry_policy::ChainRetryGuard::new(retry_chain_kind.is_some());
     // Retry loop
     let res = loop {
         let acc_clone = accumulated.clone();
@@ -140,6 +146,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 chain_kind,
                 config,
             ) {
+                trace.fallback(&current_model_id, &next_model.id, &skip_reason);
                 current_model_id = next_model.id;
                 current_provider = next_model.provider;
                 current_model_full_name = next_model.full_name;
@@ -248,6 +255,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                         chain_kind,
                         config,
                     ) {
+                        trace.fallback(&current_model_id, &next_model.id, &e.to_string());
                         current_model_id = next_model.id;
                         current_provider = next_model.provider;
                         current_model_full_name = next_model.full_name;
@@ -265,6 +273,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
         }
     };
 
+    trace.finish(&current_model_id, &res);
     // Handle result
     handle_execution_result(
         res,

@@ -4,7 +4,6 @@ use super::client::{
 };
 use super::gemini_generate::{GeminiGenerateRequest, stream_gemini_generate};
 use super::openai_compat::stream_openai_compat_payload;
-use super::types::ChatCompletionResponse;
 use crate::api::providers::Provider;
 use anyhow::Result;
 use image::{ImageBuffer, Rgba};
@@ -105,6 +104,13 @@ where
             } else {
                 content
             }
+        })
+        .and_then(|content| {
+            anyhow::ensure!(
+                !content.trim().is_empty(),
+                "PROVIDER_RESPONSE_INVALID:Provider returned no output content"
+            );
+            Ok(content)
         });
     trace.finish(&result, &output_observer);
     result
@@ -167,7 +173,7 @@ where
     let mime_type = prepared_image.mime_type;
     let original_bytes = prepared_image.original_bytes;
 
-    let mut full_content = String::new();
+    let full_content;
 
     if Provider::from_wire(&provider) == Some(Provider::Ollama) {
         // Ollama Local API
@@ -477,18 +483,15 @@ where
             full_content =
                 crate::api::openai_compat::consume_content_stream(reader, &cancel_token, on_chunk)?;
         } else {
-            let root: serde_json::Value = resp
-                .into_body()
-                .read_json()
-                .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+            let root: serde_json::Value = resp.into_body().read_json().map_err(|e| {
+                anyhow::anyhow!(
+                    "PROVIDER_RESPONSE_INVALID:Malformed provider completion: {}",
+                    e
+                )
+            })?;
             record_groq_json_usage(&model, &root);
-            let chat_resp: ChatCompletionResponse = serde_json::from_value(root)
-                .map_err(|e| anyhow::anyhow!("Failed to decode non-streaming response: {}", e))?;
-
-            if let Some(choice) = chat_resp.choices.first() {
-                full_content = choice.message.content.clone();
-                on_chunk(&full_content);
-            }
+            full_content = super::openai_compat::parse_chat_completion(&root)?;
+            on_chunk(&full_content);
         }
     }
 
@@ -497,3 +500,6 @@ where
 
 #[cfg(test)]
 mod live_tests;
+
+#[cfg(test)]
+mod diagnostic_tests;

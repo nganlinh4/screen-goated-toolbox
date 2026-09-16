@@ -21,6 +21,7 @@ internal fun routeCreationNativeItem(
         generationMode = route.mode.wireName,
         polycount = route.polycount,
         autoSegment = route.autoSegment,
+        topology = CreationContract.initialTopology(route.mode, route.autoSegment, item.topology),
         allowsInstruction = allowed,
         instruction = item.instruction.takeIf { allowed }.orEmpty(),
     )
@@ -55,6 +56,7 @@ internal fun creationSubmissionArgs(
         put("imagePath", item.sourcePath)
     }
     put("generationMode", item.generationMode)
+    if (tool == CreationTool.IMAGE_TO_3D) put("topology", item.topology)
     put("polycount", item.polycount)
     put("autoSegment", item.autoSegment)
     put("segmentationLevel", item.segmentationLevel)

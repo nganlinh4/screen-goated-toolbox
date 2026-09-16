@@ -80,7 +80,7 @@ class PresetModelFeedTest {
             modelPriorityChains = PresetModelPriorityChains(
                 imageToText = listOf(
                     "groq-qwen-3-8-27b-vision",
-                    "groq-qwen-3-6-27b-vision",
+                    "google-gemini-3-5-flash-lite-vision",
                 ),
             ),
         )
@@ -110,7 +110,6 @@ class PresetModelFeedTest {
         )
         val configured = listOf(
             "groq-qwen-3-8-27b-text",
-            "groq-qwen-3-6-27b-text",
             "groq-gpt-oss-20b-text",
             "groq-gpt-oss-120b-text",
             "google-gemini-3-5-flash-lite-text",
@@ -156,10 +155,10 @@ class PresetModelFeedTest {
             modelPriorityChains = PresetModelPriorityChains(
                 textToText = listOf(
                     "groq-qwen-3-8-27b-text",
-                    "groq-qwen-3-6-27b-text",
                     "groq-gpt-oss-20b-text",
                     "groq-gpt-oss-120b-text",
                     "nvidia-nemotron-3-5-lightning-text",
+                    "google-gemini-3-5-flash-lite-text",
                     "nvidia-nemotron-3-super-120b-text",
                 ),
             ),
@@ -168,9 +167,9 @@ class PresetModelFeedTest {
         assertEquals(
             listOf(
                 "groq-qwen-3-8-27b-text",
-                "groq-qwen-3-6-27b-text",
                 "groq-gpt-oss-20b-text",
                 "groq-gpt-oss-120b-text",
+                "google-gemini-3-5-flash-lite-text",
                 "nvidia-nemotron-3-5-lightning-text",
             ),
             PresetRetryChainKind.TEXT_TO_TEXT.effectiveChain(

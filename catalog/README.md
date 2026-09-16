@@ -7,6 +7,13 @@ display performance metadata.
 Windows and Android generated catalogs must consume it; feature code must not
 create a second model registry.
 
+`realtime_transcription_labels` owns the versioned names in Live Translate's
+transcription selectors. Generators and overlays consume these labels directly;
+they do not substitute preset nicknames or locale-specific model abbreviations.
+`realtime_s2s_model_ids` owns which selectors run direct speech translation.
+Those choices use their catalog endpoint independently of the TTS model setting;
+their ordinary preset audio rows retain their existing modality behavior.
+
 ## Endpoint Profiles
 
 `input_language_set` optionally selects the supported input-language catalog
@@ -168,6 +175,13 @@ platforms and must not be reimplemented with model-name heuristics.
   exceptions and use bounded `LOW` thinking. Thought output is exposed only to
   the control runtime, never to ordinary model calls.
 
+Live endpoint metadata explicitly owns setup thinking and finite completion.
+`live_thinking: null` omits unsupported thinking configuration; it differs from a
+zero budget. `live_completion: interaction-idle` requires the structural server
+idle status before returning a finite response, even after a turn boundary or
+partial output. The default `turn-or-generation` retains ordinary completion.
+Both platforms generate these settings from the same endpoint profile.
+
 ## Vision Request Policy
 
 `vision_request_profiles` is keyed by `<provider>:<exact API full_name>` and
@@ -184,12 +198,11 @@ The current policies come from production-path transport probes:
   text-first ordering.
 - Media resolution remains provider-default. Lower resolution reduced Gemini
   input-token accounting but did not produce a durable end-to-end latency win.
-- Groq Qwen 3.6 and 3.8 use the shared Groq-accepted subset of their documented non-thinking
+- Groq Qwen 3.8 uses the shared Groq-accepted subset of its documented non-thinking
   sampling profile (`temperature: 0.7`, `top_p: 0.8`,
   `presence_penalty: 1.5`) together with the separate catalog-owned
-  `reasoning_effort: none`. The shared path omits `top_k` and `min_p`; Qwen 3.6
-  live endpoint probes reject both fields, so a future per-endpoint sampling
-  extension requires its own production-path probe.
+  `reasoning_effort: none`. The shared path omits `top_k` and `min_p`;
+  a future per-endpoint sampling extension requires its own production-path probe.
 - Every ordinary vision endpoint reserves 512 output tokens. A production-path
   OCR probe used 220 completion tokens, while the ten benchmark responses were at
   most 390 characters, so the ceiling is generous for extraction while bounding
@@ -203,17 +216,20 @@ The current policies come from production-path transport probes:
   `json-object` and `strict-json-schema` select documented constrained modes.
   Plain OCR normally requests plain text. The one exception is a `json-object`
   endpoint serving a non-streaming plain-text caller: those requests carry a
-  `{"text": ...}` envelope and are unwrapped on the way out, because Qwen 3.6
-  otherwise appends a re-tokenized repetition of the text it just emitted. The
+  `{"text": ...}` envelope and are unwrapped on the way out. The
   envelope is a wire detail; callers still receive plain text. A structural caller must provide a schema, and
   the provider adapter may attach it only when the exact profile allows it.
   Qwen 3.8 uses its documented strict JSON Schema mode for structural callers
   and keeps ordinary OCR as unconstrained plain text. Its ordinary OCR profile
-  shares Qwen 3.6's endpoint-scoped salvage guard because both endpoints can
-  append the same fragmented restatement after a correct extraction.
+  uses the catalog-selected restatement guard.
 
-OCR catalog timing measures full-answer completion through the real
-non-streaming preset path. Time-to-first-token is not benchmark evidence.
+OCR catalog timing measures full-answer completion through the preset's shared
+transport policy and interactive deadlines. Presentation settings do not change
+the provider transport. The ten-case suite includes compact and thin text crops.
+Unprofiled vision endpoints use `constants.default_vision_max_output_tokens`;
+reviewed specialized endpoints with unsupported ordinary-chat contracts belong
+in `withdrawn_models` so signed-feed offers cannot reintroduce them.
+Time-to-first-token is not benchmark evidence.
 
 Dedicated transcription endpoints remain Audio models, not generic language
 models. Gemini 3.5 Transcribe therefore has separate catalog rows for unary

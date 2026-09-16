@@ -79,6 +79,12 @@ def extract_match_arm_asset(source_file: Path, arm_name: str) -> str:
 def generate(args: argparse.Namespace) -> None:
     output = args.output / "preset_overlay"
     output.mkdir(parents=True, exist_ok=True)
+    selection_source = getattr(args, "selection_source", None)
+    if selection_source:
+        selection = extract_raw_string(read(selection_source), "pub fn get_html(")
+        selection = selection.replace("{{", "{").replace("}}", "}")
+        selection = selection.replace("{font_css}", "{{FONT_CSS}}").replace("{text}", "{{TEXT}}")
+        write(output / "windows_selection_badge.html", selection)
 
     fit_script = extract_concat_includes(
         args.fit_source,
@@ -212,6 +218,7 @@ def generate(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--selection-source", type=Path)
     for name in (
         "fit_source",
         "css_source",

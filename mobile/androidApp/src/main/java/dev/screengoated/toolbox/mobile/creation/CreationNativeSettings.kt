@@ -53,6 +53,8 @@ internal fun Creation3dSettings(
     onAutoSegment: (Boolean) -> Unit,
     onSegmentationLevel: (String) -> Unit,
     onInstruction: (String) -> Unit,
+    onTopology: (String) -> Unit,
+    availableModes: Set<String>?,
 ) {
     val mode = CreationGenerationMode.fromWireName(item.generationMode)
     val route = CreationContract.route3dMode(mode, item.polycount, item.autoSegment)
@@ -72,7 +74,7 @@ internal fun Creation3dSettings(
                 ModeToggle(
                     selected = mode == CreationGenerationMode.FAST,
                     label = strings.fast,
-                    enabled = enabled,
+                    enabled = enabled && availableModes?.contains("fast") != false,
                     shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
                     accent = accent,
                     onClick = { onGenerationMode(CreationGenerationMode.FAST.wireName) },
@@ -83,7 +85,7 @@ internal fun Creation3dSettings(
                 ModeToggle(
                     selected = mode == CreationGenerationMode.QUALITY,
                     label = strings.quality,
-                    enabled = enabled,
+                    enabled = enabled && availableModes?.contains("quality") != false,
                     shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
                     accent = accent,
                     onClick = { onGenerationMode(CreationGenerationMode.QUALITY.wireName) },
@@ -110,6 +112,9 @@ internal fun Creation3dSettings(
                     placeholder = { Text(strings.instructionHint) },
                 )
             }
+        }
+        if (mode == CreationGenerationMode.QUALITY) {
+            CreationInitialTopology(item.topology, strings.refinement, enabled, onTopology)
         }
         UtilityExpressiveCard(accent = accent) {
             UtilityHeaderRow(

@@ -1,22 +1,25 @@
 package dev.screengoated.toolbox.mobile.preset
 
 private const val RATE_LIMIT_DEFAULT_MILLIS = 5L * 60L * 1_000L
-private const val TIMEOUT_OPEN_MILLIS = 30L * 60L * 1_000L
+private const val TIMEOUT_OPEN_MILLIS = 60_000L
 private const val UNAVAILABLE_OPEN_MILLIS = 6L * 60L * 60L * 1_000L
 private const val BILLING_OPEN_MILLIS = 6L * 60L * 60L * 1_000L
 private const val MINIMUM_REPORTED_MILLIS = 5_000L
 private const val MAXIMUM_REPORTED_MILLIS = 6L * 60L * 60L * 1_000L
-private const val TIMEOUT_FAILURE_THRESHOLD = 2
+private const val INITIAL_FAILURE_MILLIS = 15_000L
 
 internal enum class PresetCircuitKind(val reason: String, val durationMillis: Long) {
     RATE_LIMIT("MODEL_RATE_LIMIT_COOLDOWN", RATE_LIMIT_DEFAULT_MILLIS),
+    FIRST_TIMEOUT("MODEL_FIRST_TIMEOUT_COOLDOWN", INITIAL_FAILURE_MILLIS),
+    SECOND_TIMEOUT("MODEL_TIMEOUT_COOLDOWN", INITIAL_FAILURE_MILLIS),
+    INVALID_RESPONSE("MODEL_INVALID_RESPONSE_COOLDOWN", INITIAL_FAILURE_MILLIS),
     TIMEOUT("MODEL_TIMEOUT_COOLDOWN", TIMEOUT_OPEN_MILLIS),
     UNAVAILABLE("MODEL_UNAVAILABLE_COOLDOWN", UNAVAILABLE_OPEN_MILLIS),
     BILLING("MODEL_BILLING_COOLDOWN", BILLING_OPEN_MILLIS),
 }
 
 private sealed interface PresetCircuitState {
-    data class Monitoring(val timeoutFailures: Int) : PresetCircuitState
+    data object Monitoring : PresetCircuitState
     data class Open(val kind: PresetCircuitKind, val untilMillis: Long) : PresetCircuitState
     data class HalfOpen(val kind: PresetCircuitKind) : PresetCircuitState
 }
@@ -57,15 +60,25 @@ internal fun recordPresetModelFailureAt(modelId: String, error: String, nowMilli
     val timedOut = isTimeoutError(error)
     val unavailable = isUnavailableModelError(error)
     val billing = isBillingError(error)
+    val invalid = error.startsWith("EMPTY_MODEL_RESPONSE") ||
+        (error.startsWith("PROVIDER_RESPONSE_INVALID:") &&
+        !error.contains("Provider completion token limit reached")) ||
+        extractHttpStatusCode(error)?.let { it in 500..599 } == true
     val reported = if (rateLimited) reportedCooldownMillis(error) else null
     fun duration(kind: PresetCircuitKind): Long =
         if (kind == PresetCircuitKind.RATE_LIMIT) reported ?: kind.durationMillis
         else kind.durationMillis
 
     synchronized(presetCircuitLock) {
-        var state = presetCircuits[modelId] ?: PresetCircuitState.Monitoring(0)
+        if (!rateLimited && !timedOut && !unavailable && !billing && !invalid) {
+            if (presetCircuits[modelId] is PresetCircuitState.HalfOpen) {
+                presetCircuits.remove(modelId)
+            }
+            return
+        }
+        var state = presetCircuits[modelId] ?: PresetCircuitState.Monitoring
         if (state is PresetCircuitState.Open && state.untilMillis <= nowMillis) {
-            state = PresetCircuitState.Monitoring(0)
+            state = PresetCircuitState.HalfOpen(state.kind)
         }
         val next = when {
             state is PresetCircuitState.Open && state.untilMillis > nowMillis -> state
@@ -73,8 +86,13 @@ internal fun recordPresetModelFailureAt(modelId: String, error: String, nowMilli
                 val kind = when {
                     billing -> PresetCircuitKind.BILLING
                     rateLimited -> PresetCircuitKind.RATE_LIMIT
-                    timedOut -> PresetCircuitKind.TIMEOUT
+                    timedOut -> when (state.kind) {
+                        PresetCircuitKind.FIRST_TIMEOUT -> PresetCircuitKind.SECOND_TIMEOUT
+                        PresetCircuitKind.SECOND_TIMEOUT, PresetCircuitKind.TIMEOUT -> PresetCircuitKind.TIMEOUT
+                        else -> PresetCircuitKind.FIRST_TIMEOUT
+                    }
                     unavailable -> PresetCircuitKind.UNAVAILABLE
+                    invalid -> PresetCircuitKind.INVALID_RESPONSE
                     else -> state.kind
                 }
                 PresetCircuitState.Open(kind, nowMillis + duration(kind))
@@ -91,26 +109,14 @@ internal fun recordPresetModelFailureAt(modelId: String, error: String, nowMilli
                 PresetCircuitKind.UNAVAILABLE,
                 nowMillis + UNAVAILABLE_OPEN_MILLIS,
             )
-            timedOut && state is PresetCircuitState.Monitoring -> {
-                val failures = state.timeoutFailures + 1
-                if (failures >= TIMEOUT_FAILURE_THRESHOLD) {
-                    PresetCircuitState.Open(
-                        PresetCircuitKind.TIMEOUT,
-                        nowMillis + TIMEOUT_OPEN_MILLIS,
-                    )
-                } else {
-                    PresetCircuitState.Monitoring(failures)
-                }
+            timedOut || invalid -> {
+                val kind = if (timedOut) PresetCircuitKind.FIRST_TIMEOUT
+                    else PresetCircuitKind.INVALID_RESPONSE
+                PresetCircuitState.Open(kind, nowMillis + INITIAL_FAILURE_MILLIS)
             }
             else -> state
         }
-        if (next is PresetCircuitState.Monitoring && next.timeoutFailures == 0 &&
-            !rateLimited && !timedOut && !unavailable && !billing
-        ) {
-            presetCircuits.remove(modelId)
-        } else {
-            presetCircuits[modelId] = next
-        }
+        presetCircuits[modelId] = next
     }
 }
 

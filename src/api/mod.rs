@@ -15,7 +15,6 @@ pub mod realtime_audio;
 pub mod taalas;
 pub mod text;
 pub mod tts;
-pub mod types;
 pub mod vision;
 
 pub use audio::{record_and_stream_gemini_live, record_audio_and_transcribe};
@@ -258,7 +257,6 @@ mod tests {
     #[test]
     fn openai_compatible_reasoning_comes_from_exact_catalog_profiles() {
         for (provider, model, expected) in [
-            ("groq", "qwen/qwen3.6-27b", "none"),
             ("groq", "qwen/qwen3.8-27b", "none"),
             ("groq", "openai/gpt-oss-120b", "low"),
             ("groq", "openai/gpt-oss-20b", "low"),

@@ -20,7 +20,10 @@ fn continuous_transcription_provider_acceptance() -> Result<()> {
     let model = std::env::var("SGT_TRANSCRIPTION_TEST_MODEL")
         .unwrap_or_else(|_| crate::model_config::GEMINI_LIVE_API_MODEL_3_1.to_owned());
     let uses_interim_transcripts = crate::api::gemini_transcribe::is_live_transcribe(&model);
-    let api_key = crate::APP.lock().unwrap().config.gemini_api_key.clone();
+    let api_key = std::env::var("GEMINI_API_KEY")
+        .ok()
+        .filter(|key| !key.trim().is_empty())
+        .unwrap_or_else(|| crate::APP.lock().unwrap().config.gemini_api_key.clone());
     anyhow::ensure!(
         !api_key.trim().is_empty(),
         "Gemini credentials are required"
@@ -55,7 +58,7 @@ fn continuous_transcription_provider_acceptance() -> Result<()> {
         audio_buffer: buffer,
         stop_signal: stop.clone(),
         overlay_hwnd: HWND::default(),
-        state,
+        state: state.clone(),
         gemini_live_model: &model,
         gemini_api_key: &api_key,
         capture_label: "synthetic",
@@ -65,8 +68,18 @@ fn continuous_transcription_provider_acceptance() -> Result<()> {
     });
     stop.store(true, Ordering::SeqCst);
     producer.join().unwrap();
-    result?;
     let observations = observations.lock().unwrap();
+    if let Some(path) = std::env::var_os("SGT_TRANSCRIPTION_TEST_OUTPUT") {
+        let report = serde_json::json!({
+            "model": model,
+            "setup": build_realtime_transcription_setup(&model, &[], None),
+            "observations": &*observations,
+            "transcript": state.lock().unwrap().full_transcript,
+            "error": result.as_ref().err().map(ToString::to_string),
+        });
+        std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;
+    }
+    result?;
     eprintln!(
         "[TranscriptionAcceptance] model={} updates={} updates_after_first_flush={} first_no_result_reconnect_ms={:?} interim_updates={} final_updates={}",
         model,

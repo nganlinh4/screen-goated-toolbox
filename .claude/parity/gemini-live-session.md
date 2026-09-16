@@ -1,5 +1,10 @@
 # Gemini Live Session Parity
 
+- Native Live endpoints are selectable through the shared catalog for text,
+  vision, input transcription, custom audio, and TTS. Gemini 3.8 Live uses the
+  existing modality routes with its exact endpoint profile, omitting thinking
+  configuration. Adding a choice does not change a feature's saved/default model.
+
 ## Canonical Source
 
 - Windows structural frame decoder: [src/api/gemini_live/server_frame.rs](../../src/api/gemini_live/server_frame.rs)
@@ -28,6 +33,11 @@
 - Ordered effects are transport-neutral commands such as `openSocket`, `sendSetup`, `deliverContent`, `finalizeResponse`, `finalizeGeneration`, `finalizeTurn`, `stopPlayback`, `discardQueuedOutput`, `dispatchTools`, `cancelTools`, `closeSocket`, `scheduleReconnect`, `reportFailure`, and `cancelSession`.
 - All content in a frame is delivered before a completion effect from that same frame. All audio/content parts remain available to the feature adapter. If a continuous frame carries both completion fields, `finalizeTurn` is emitted before `finalizeGeneration`; neither boundary is dropped.
 - Completion semantics remain distinct:
+  - A finite endpoint with catalog `live_completion: interaction-idle` completes
+    only on structural `serverContent.interactionStatus: IDLE`. Turn/generation
+    boundaries, silence after partial content, and socket closure cannot finalize
+    its response. Its hard response deadline remains bounded on both platforms.
+    An explicit null `live_thinking` omits thinking configuration from setup.
   - A finite request completes on either `turnComplete` or `generationComplete` according to its policy.
   - A continuous session treats `generationComplete` as a generation boundary and `turnComplete` as a turn boundary; neither closes the socket.
   - An agent session never promotes `generationComplete` into `turnComplete`.

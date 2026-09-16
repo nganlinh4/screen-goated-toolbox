@@ -20,7 +20,7 @@ pub(super) fn get() -> RealtimeLocaleText {
         realtime_custom_vocabulary_prompt: "용어를 입력한 뒤 Enter 또는 +를 누르세요. 쉼표나 줄바꿈으로 구분한 용어를 붙여넣을 수도 있습니다.",
         realtime_tooltip_transcription_language: "전사 언어",
         realtime_tooltip_translation_model: "번역 모델",
-        realtime_tooltip_s2s_translation_model: "Gemini S2S는 TTS Gemini Live 모델을 사용합니다",
+        realtime_tooltip_s2s_translation_model: "Gemini S2S는 선택한 음성 모델을 사용합니다",
         realtime_tooltip_direct_speech: "직접 음성 출력 설정",
         realtime_tooltip_tts_settings: "텍스트 음성 변환 설정",
         realtime_tooltip_target_language: "대상 언어",

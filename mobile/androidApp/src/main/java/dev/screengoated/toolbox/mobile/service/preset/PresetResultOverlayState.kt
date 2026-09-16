@@ -19,6 +19,7 @@ internal data class PresetResultWindowRuntimeState(
     val historyBaseIndex: Int = 0,
     val isBrowsing: Boolean = false,
     val isRawHtml: Boolean = false,
+    val isMarkdown: Boolean = true,
     val copySuccess: Boolean = false,
     val disabledActions: Set<String> = emptySet(),
     val ttsRequestId: Long = 0L,

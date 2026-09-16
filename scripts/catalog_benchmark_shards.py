@@ -49,6 +49,9 @@ def build_shards(catalog: dict, requested_models: set[str], requested_suites: se
             suites.add("text")
         if any(model["model_type"] == "Vision" for model in models):
             suites.update(requested_suites.intersection({"coordinate", "ocr"}))
+        if provider == "nvidia" and not requested_models:
+            # Feed offers can add modalities absent from the compiled catalog.
+            suites.update(requested_suites)
         if not suites:
             continue
         identity = f"{provider}:{scope}"

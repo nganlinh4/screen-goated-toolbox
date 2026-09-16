@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-pub(crate) const GENERATOR_SCHEMA: u32 = 2;
+pub(crate) const GENERATOR_SCHEMA: u32 = 5;
 
 #[path = "model_catalog_validation.rs"]
 mod validation;
@@ -22,10 +22,6 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
         ("GEMINI_EMBEDDING_API_MODEL", "gemini_embedding_api_model"),
         ("GEMINI_LIVE_API_MODEL_2_5", "gemini_live_api_model_2_5"),
         ("GEMINI_LIVE_API_MODEL_3_1", "gemini_live_api_model_3_1"),
-        (
-            "GEMINI_LIVE_AUDIO_MODEL_ID_2_5",
-            "gemini_live_audio_model_id_2_5",
-        ),
         (
             "GEMINI_LIVE_AUDIO_MODEL_ID_3_1",
             "gemini_live_audio_model_id_3_1",
@@ -69,6 +65,13 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
         ));
     }
 
+    let vision_limit = constants["default_vision_max_output_tokens"]
+        .as_u64()
+        .filter(|value| *value > 0 && *value <= i32::MAX as u64)
+        .expect("default vision output budget must be a positive signed 32-bit integer");
+    lines.push(format!(
+        "pub const DEFAULT_VISION_MAX_OUTPUT_TOKENS: u32 = {vision_limit};"
+    ));
     lines.push(format!(
         "pub const DEFAULT_GEMINI_LIVE_TTS_MODEL: &str = {};",
         rust_string(manifest_string(defaults, "tts_gemini_live_model"))
@@ -133,8 +136,12 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
             .and_then(serde_json::Value::as_str)
             .map(|protocol| format!("Some({})", rust_string(protocol)))
             .unwrap_or_else(|| "None".to_string());
+        let require_interaction_idle = metadata
+            .get("live_completion")
+            .and_then(serde_json::Value::as_str)
+            == Some("interaction-idle");
         lines.push(format!(
-            "        {} => Some(LiveEndpointProfile {{ lifecycle: {}, thinking: {thinking}, max_output_tokens: {limit}, automatic_activity_detection_default: {automatic_activity_detection_default}, protocol: {protocol} }}),",
+            "        {} => Some(LiveEndpointProfile {{ lifecycle: {}, thinking: {thinking}, max_output_tokens: {limit}, automatic_activity_detection_default: {automatic_activity_detection_default}, protocol: {protocol}, require_interaction_idle: {require_interaction_idle} }}),",
             rust_string(endpoint),
             rust_string(manifest_string(metadata.as_object().unwrap(), "lifecycle")),
         ));
@@ -218,15 +225,6 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
             "strict-json-schema" => "StructuredOutputPolicy::StrictJsonSchema",
             value => panic!("unsupported structured output policy {value:?}"),
         };
-        let min_reliable_pixels = match profile.get("min_reliable_pixels") {
-            None | Some(serde_json::Value::Null) => "None".to_string(),
-            Some(value) => format!(
-                "Some({}u32)",
-                value
-                    .as_u64()
-                    .expect("vision min_reliable_pixels must be an unsigned integer")
-            ),
-        };
         // Absent means "no known fault", so a new endpoint is trusted until it
         // has been measured rather than guarded on suspicion.
         let restates_output = profile
@@ -241,7 +239,7 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
             .split_once(':')
             .unwrap_or_else(|| panic!("vision request profile key must be provider:api-model"));
         lines.push(format!(
-            "        ({}, {}) => Some(VisionRequestProfile {{ input_order: {input_order}, media_resolution: {media_resolution}, sampling: {sampling}, max_output_tokens: {max_output_tokens}, structured_output: {structured_output}, min_reliable_pixels: {min_reliable_pixels}, restates_output: {restates_output} }}),",
+            "        ({}, {}) => Some(VisionRequestProfile {{ input_order: {input_order}, media_resolution: {media_resolution}, sampling: {sampling}, max_output_tokens: {max_output_tokens}, structured_output: {structured_output}, restates_output: {restates_output} }}),",
             rust_string(provider),
             rust_string(api_model)
         ));
@@ -311,6 +309,12 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
     lines.push("];".to_string());
     lines.push(String::new());
 
+    lines.push("#[cfg(not(feature = \"recorder-worker\"))]".to_string());
+    lines.push("pub const GENERATED_REALTIME_S2S_MODEL_IDS: &[&str] = &[".to_string());
+    for id in manifest_array(&manifest, "realtime_s2s_model_ids") {
+        lines.push(format!("    {},", rust_string(id.as_str().unwrap())));
+    }
+    lines.push("];".to_string());
     let realtime_options = manifest_object(&manifest, "realtime_transcription_options");
     lines.push(
         "pub const GENERATED_REALTIME_TRANSCRIPTION_OPTIONS: &[(&str, &str)] = &[".to_string(),
@@ -530,21 +534,10 @@ fn realtime_transcription_option_label<'a>(
     manifest: &'a serde_json::Value,
     id: &'a str,
 ) -> &'a str {
-    let _ = manifest;
-    match id {
-        "google-gemini-2-5-live-transcribe-audio" => "Gemini Live",
-        "google-gemini-3-1-live-transcribe-audio" => "Gemini S2S",
-        "google-gemini-3-5-live-translate-audio" => "Gemini Translate",
-        "google-gemini-3-5-transcribe-live-audio" => "Gemini Transcribe",
-        "parakeet" => "Parakeet",
-        "local-qwen-3-asr-600m-audio" => "Qwen3-ASR 0.6B",
-        "local-qwen-3-asr-1-7b-audio" => "Qwen3-ASR 1.7B",
-        "zipformer" => "Zipformer",
-        "moonshine-tiny-streaming" => "Moonshine Tiny",
-        "moonshine-small-streaming" => "Moonshine Small",
-        "moonshine-medium-streaming" => "Moonshine Medium",
-        _ => id,
-    }
+    manifest["realtime_transcription_labels"][id]
+        .as_str()
+        .filter(|label| !label.trim().is_empty())
+        .unwrap_or_else(|| panic!("missing realtime transcription label for {id}"))
 }
 
 fn localized_model_name(

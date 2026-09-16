@@ -68,7 +68,7 @@ pub(super) fn nvidia_vision_payload(
         "temperature": 0
     });
     if let Some(limit) = profile.max_output_tokens {
-        payload["max_completion_tokens"] = limit.into();
+        payload["max_tokens"] = limit.into();
     }
     if let Some(schema) = response_schema {
         match profile.structured_output {

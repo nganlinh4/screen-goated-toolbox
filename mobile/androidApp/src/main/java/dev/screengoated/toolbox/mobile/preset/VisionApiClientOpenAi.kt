@@ -62,15 +62,9 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
 
     executeOpenAiVisionRequest(request, providerName, model, streamingEnabled = true).use { response ->
         val body = response.body
-        body.charStream().buffered().useLines { lines ->
-            lines.forEach { rawLine ->
-                coroutineContext.ensureActive()
-                val line = rawLine.trim()
-                if (!line.startsWith("data: ")) return@forEach
-                val data = line.removePrefix("data: ").trim()
-                if (data.isBlank() || data == "[DONE]") return@forEach
-
-                val delta = extractOpenAiDelta(data)
+        val context = coroutineContext
+        body.charStream().buffered().use { reader ->
+            consumeOpenAiCompletion(reader, { context.ensureActive() }) { delta ->
                 if (delta.reasoning.isNotEmpty() && !thinkingShown && !contentStarted) {
                     onChunk(thinkingLabel(uiLanguage))
                     thinkingShown = true
@@ -109,16 +103,7 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
         .build()
 
     executeOpenAiVisionRequest(request, providerName, model, streamingEnabled = false).use { response ->
-        val content = try {
-            JSONObject(response.body.string().orEmpty())
-                .optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content", "")
-                .orEmpty()
-        } catch (_: JSONException) {
-            ""
-        }
+        val content = parseOpenAiCompletion(response.body.string())
         if (content.isBlank()) throw IOException("$providerName vision returned blank content.")
         onChunk(content)
         return content
@@ -274,6 +259,8 @@ internal fun openAiVisionPayload(
             .put("top_p", 0.8)
             .put("presence_penalty", 1.5)
     }
-    model.visionMaxOutputTokens?.let { payload.put("max_completion_tokens", it) }
+    model.visionMaxOutputTokens?.let {
+        payload.put(if (provider == PresetModelProvider.NVIDIA) "max_tokens" else "max_completion_tokens", it)
+    }
     return applyFastReasoningPolicy(payload, provider, fullName)
 }

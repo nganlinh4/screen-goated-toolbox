@@ -21,7 +21,20 @@ internal fun PresetOverlayController.launchPreset(
     if (closePanel) {
         panelModule.dismiss()
     }
-    val resolved = presetRepository.getResolvedPreset(presetId) ?: return
+    val stored = presetRepository.getResolvedPreset(presetId) ?: return
+    val resolved = if (continuousMode &&
+        stored.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.TEXT_INPUT) {
+        stored.copy(preset = stored.preset.copy(continuousInput = true))
+    } else stored
+    if (continuousMode && continuousSelection.presetId == presetId) {
+        selectionCaptureGeneration++
+        selectionCapturePending = false
+        continuousSelection.close()
+        return
+    }
+    selectionCaptureGeneration++
+    selectionCapturePending = false
+    continuousSelection.close()
     if (audioCaptureSession.toggleOrAbortIfMatching(presetId)) {
         return
     }
@@ -62,41 +75,10 @@ internal fun PresetOverlayController.launchPreset(
             return
         }
 
-        // Capture selected text, then decide flow based on promptMode
-        val svc = SgtAccessibilityService.instance
-        val treeText = svc?.getSelectedText()
-        if (!treeText.isNullOrBlank()) {
-            executeTextSelectWithCapturedText(resolved, treeText)
+        if (continuousMode) {
+            continuousSelection.open(resolved)
         } else {
-            // Click system "Copy" button to put selection into clipboard
-            svc?.eagerCaptureSelection()
-            processingIndicator.show(uiPreferencesProvider().themeMode, PresetStatusAccent.SUCCESS)
-
-            // Try reading clipboard via accessibility overlay (no visual artifact)
-            svc?.readClipboardAsync { overlayResult ->
-                if (!overlayResult.isNullOrBlank()) {
-                    processingIndicator.dismiss()
-                    executeTextSelectWithCapturedText(resolved, overlayResult)
-                } else {
-                    // Fallback: transparent Activity (brief visual flash)
-                    dev.screengoated.toolbox.mobile.service.ClipboardReaderActivity.launch(context) { clipboardText ->
-                        processingIndicator.dismiss()
-                        executeTextSelectWithCapturedText(resolved, clipboardText)
-                    }
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        if (processingIndicator.isShowing) {
-                            processingIndicator.dismiss()
-                            val lang = uiLanguage()
-                            val msg = when (lang) {
-                                "vi" -> "Hãy copy text trước, sau đó bấm lại preset này"
-                                "ko" -> "먼저 텍스트를 복사한 후 이 프리셋을 다시 누르세요"
-                                else -> "Copy text first, then tap this preset again"
-                            }
-                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                        }
-                    }, 5000)
-                }
-            }
+            capturePresetSelection(resolved)
         }
     } else if (resolved.preset.presetType == dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE) {
         launchImagePreset(resolved, continuousMode)
@@ -148,6 +130,7 @@ internal fun PresetOverlayController.launchDefaultMicPreset() {
                         wavBytes = capture.wavBytes,
                         apiKeys = buildApiKeys(),
                         uiLanguage = uiLanguage(),
+                        inputLanguage = audioBlock.languageVars["input_language"],
                         onChunk = {},
                     )
                     result.getOrNull()?.takeIf { it.isNotBlank() }?.let { text ->

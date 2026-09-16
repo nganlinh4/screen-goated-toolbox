@@ -116,6 +116,9 @@ internal object CreationContract {
         }
     }
 
+    fun initialTopology(mode: CreationGenerationMode, autoSegment: Boolean, requested: String?): String =
+        if (mode == CreationGenerationMode.FAST || autoSegment || requested == "triangle") "triangle" else "quad"
+
     fun canContinueSegmentation(
         isSegmented: Boolean,
         runtimeAllowsContinuation: Boolean,

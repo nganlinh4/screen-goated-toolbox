@@ -2,7 +2,6 @@
 // Groq compound and standard API translation handlers.
 
 use crate::api::client::{UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_simple};
-use crate::api::types::ChatCompletionResponse;
 use crate::gui::locale::LocaleText;
 use crate::overlay::utils::get_context_quote;
 use anyhow::Result;
@@ -70,153 +69,149 @@ where
     record_usage_simple(resp.headers(), model);
     let resp = require_success(resp)?;
 
-    let json: serde_json::Value = resp
-        .into_body()
-        .read_json()
-        .map_err(|e| anyhow::anyhow!("Failed to parse compound response: {}", e))?;
+    let json: serde_json::Value = resp.into_body().read_json().map_err(|e| {
+        anyhow::anyhow!(
+            "PROVIDER_RESPONSE_INVALID:Malformed provider completion: {}",
+            e
+        )
+    })?;
     record_groq_json_usage(model, &json);
 
-    let mut full_content = String::new();
+    let full_content = crate::api::openai_compat::parse_chat_completion(&json)?;
 
     if let Some(choices) = json.get("choices").and_then(|c| c.as_array())
         && let Some(first_choice) = choices.first()
         && let Some(message) = first_choice.get("message")
+        && let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array())
     {
-        if let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array()) {
-            let mut search_queries = Vec::new();
-            for tool in executed_tools {
-                if let Some(tool_type) = tool.get("type").and_then(|t| t.as_str())
-                    && tool_type == "search"
-                    && let Some(args) = tool.get("arguments").and_then(|a| a.as_str())
-                    && let Ok(args_json) = serde_json::from_str::<serde_json::Value>(args)
-                    && let Some(query) = args_json.get("query").and_then(|q| q.as_str())
-                {
-                    search_queries.push(query.to_string());
-                }
-            }
-
-            let context_quote = get_context_quote(prompt);
-            if !search_queries.is_empty() {
-                let phase1_header = match &search_label {
-                    Some(label) => format!(
-                        "{}\n\n🔍 {} {}...\n\n",
-                        context_quote,
-                        locale.workspace.search_doing.to_uppercase(),
-                        label.to_uppercase()
-                    ),
-                    None => format!(
-                        "{}\n\n🔍 {} {}...\n\n",
-                        context_quote,
-                        locale.workspace.search_doing.to_uppercase(),
-                        locale.workspace.search_searching.to_uppercase()
-                    ),
-                };
-                let mut phase1 = phase1_header;
-                phase1.push_str(&format!("{}\n", locale.workspace.search_query_label));
-                for (i, query) in search_queries.iter().enumerate() {
-                    phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, query));
-                }
-                on_chunk(&phase1);
-                std::thread::sleep(std::time::Duration::from_millis(800));
-            }
-
-            let mut all_sources = Vec::new();
-            for tool in executed_tools {
-                if let Some(search_results) = tool
-                    .get("search_results")
-                    .and_then(|s| s.get("results"))
-                    .and_then(|r| r.as_array())
-                {
-                    for result in search_results {
-                        let title = result
-                            .get("title")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or(locale.workspace.search_no_title);
-                        let url = result.get("url").and_then(|u| u.as_str()).unwrap_or("");
-                        let score = result.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
-                        let content = result.get("content").and_then(|c| c.as_str()).unwrap_or("");
-
-                        all_sources.push((
-                            title.to_string(),
-                            url.to_string(),
-                            score,
-                            content.to_string(),
-                        ));
-                    }
-                }
-            }
-
-            if !all_sources.is_empty() {
-                all_sources
-                    .sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-
-                let context_quote = get_context_quote(prompt);
-                let mut phase2 = format!(
-                    "{}\n\n{}\n\n",
-                    context_quote,
-                    locale
-                        .workspace
-                        .search_found_sources
-                        .replace("{}", &all_sources.len().to_string())
-                );
-                phase2.push_str(&format!("{}\n\n", locale.workspace.search_sources_label));
-
-                for (i, (title, url, score, content)) in all_sources.iter().take(6).enumerate() {
-                    let title_display = if title.chars().count() > 60 {
-                        format!("{}...", title.chars().take(57).collect::<String>())
-                    } else {
-                        title.clone()
-                    };
-
-                    let domain = url.split('/').nth(2).unwrap_or(url);
-                    let score_pct = (score * 100.0) as i32;
-
-                    phase2.push_str(&format!("{}. {} [{}%]\n", i + 1, title_display, score_pct));
-                    phase2.push_str(&format!("   🔗 {}\n", domain));
-
-                    if !content.is_empty() {
-                        let preview = if content.len() > 100 {
-                            format!(
-                                "{}...",
-                                content
-                                    .chars()
-                                    .take(100)
-                                    .collect::<String>()
-                                    .replace('\n', " ")
-                            )
-                        } else {
-                            content.replace('\n', " ")
-                        };
-                        phase2.push_str(&format!("   📄 {}\n", preview));
-                    }
-                    phase2.push('\n');
-                }
-
-                on_chunk(&phase2);
-                std::thread::sleep(std::time::Duration::from_millis(1200));
-
-                let context_quote = get_context_quote(prompt);
-                let phase3 = format!(
-                    "{}\n\n{}\n\n{}\n{}\n",
-                    context_quote,
-                    locale.workspace.search_synthesizing,
-                    locale
-                        .workspace
-                        .search_analyzed_sources
-                        .replace("{}", &all_sources.len().min(6).to_string()),
-                    locale.workspace.search_processing
-                );
-                on_chunk(&phase3);
-                std::thread::sleep(std::time::Duration::from_millis(600));
+        let mut search_queries = Vec::new();
+        for tool in executed_tools {
+            if let Some(tool_type) = tool.get("type").and_then(|t| t.as_str())
+                && tool_type == "search"
+                && let Some(args) = tool.get("arguments").and_then(|a| a.as_str())
+                && let Ok(args_json) = serde_json::from_str::<serde_json::Value>(args)
+                && let Some(query) = args_json.get("query").and_then(|q| q.as_str())
+            {
+                search_queries.push(query.to_string());
             }
         }
 
-        if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
-            full_content = content.to_string();
-            on_chunk(&full_content);
+        let context_quote = get_context_quote(prompt);
+        if !search_queries.is_empty() {
+            let phase1_header = match &search_label {
+                Some(label) => format!(
+                    "{}\n\n🔍 {} {}...\n\n",
+                    context_quote,
+                    locale.workspace.search_doing.to_uppercase(),
+                    label.to_uppercase()
+                ),
+                None => format!(
+                    "{}\n\n🔍 {} {}...\n\n",
+                    context_quote,
+                    locale.workspace.search_doing.to_uppercase(),
+                    locale.workspace.search_searching.to_uppercase()
+                ),
+            };
+            let mut phase1 = phase1_header;
+            phase1.push_str(&format!("{}\n", locale.workspace.search_query_label));
+            for (i, query) in search_queries.iter().enumerate() {
+                phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, query));
+            }
+            on_chunk(&phase1);
+            std::thread::sleep(std::time::Duration::from_millis(800));
+        }
+
+        let mut all_sources = Vec::new();
+        for tool in executed_tools {
+            if let Some(search_results) = tool
+                .get("search_results")
+                .and_then(|s| s.get("results"))
+                .and_then(|r| r.as_array())
+            {
+                for result in search_results {
+                    let title = result
+                        .get("title")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or(locale.workspace.search_no_title);
+                    let url = result.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                    let score = result.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
+                    let content = result.get("content").and_then(|c| c.as_str()).unwrap_or("");
+
+                    all_sources.push((
+                        title.to_string(),
+                        url.to_string(),
+                        score,
+                        content.to_string(),
+                    ));
+                }
+            }
+        }
+
+        if !all_sources.is_empty() {
+            all_sources.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
+            let context_quote = get_context_quote(prompt);
+            let mut phase2 = format!(
+                "{}\n\n{}\n\n",
+                context_quote,
+                locale
+                    .workspace
+                    .search_found_sources
+                    .replace("{}", &all_sources.len().to_string())
+            );
+            phase2.push_str(&format!("{}\n\n", locale.workspace.search_sources_label));
+
+            for (i, (title, url, score, content)) in all_sources.iter().take(6).enumerate() {
+                let title_display = if title.chars().count() > 60 {
+                    format!("{}...", title.chars().take(57).collect::<String>())
+                } else {
+                    title.clone()
+                };
+
+                let domain = url.split('/').nth(2).unwrap_or(url);
+                let score_pct = (score * 100.0) as i32;
+
+                phase2.push_str(&format!("{}. {} [{}%]\n", i + 1, title_display, score_pct));
+                phase2.push_str(&format!("   🔗 {}\n", domain));
+
+                if !content.is_empty() {
+                    let preview = if content.len() > 100 {
+                        format!(
+                            "{}...",
+                            content
+                                .chars()
+                                .take(100)
+                                .collect::<String>()
+                                .replace('\n', " ")
+                        )
+                    } else {
+                        content.replace('\n', " ")
+                    };
+                    phase2.push_str(&format!("   📄 {}\n", preview));
+                }
+                phase2.push('\n');
+            }
+
+            on_chunk(&phase2);
+            std::thread::sleep(std::time::Duration::from_millis(1200));
+
+            let context_quote = get_context_quote(prompt);
+            let phase3 = format!(
+                "{}\n\n{}\n\n{}\n{}\n",
+                context_quote,
+                locale.workspace.search_synthesizing,
+                locale
+                    .workspace
+                    .search_analyzed_sources
+                    .replace("{}", &all_sources.len().min(6).to_string()),
+                locale.workspace.search_processing
+            );
+            on_chunk(&phase3);
+            std::thread::sleep(std::time::Duration::from_millis(600));
         }
     }
 
+    on_chunk(&full_content);
     Ok(full_content)
 }
 
@@ -334,7 +329,7 @@ where
         break require_success(response)?;
     };
 
-    let mut full_content = String::new();
+    let full_content;
 
     if transport.streaming_enabled {
         let reader = BufReader::new(resp.into_body().into_reader());
@@ -344,19 +339,18 @@ where
             &mut on_chunk,
         )?;
     } else {
-        let root: serde_json::Value = resp
-            .into_body()
-            .read_json()
-            .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+        let root: serde_json::Value = resp.into_body().read_json().map_err(|e| {
+            anyhow::anyhow!(
+                "PROVIDER_RESPONSE_INVALID:Malformed provider completion: {}",
+                e
+            )
+        })?;
         record_groq_json_usage(model, &root);
-        let chat_resp: ChatCompletionResponse = serde_json::from_value(root)
-            .map_err(|e| anyhow::anyhow!("Failed to decode non-streaming response: {}", e))?;
-
-        if let Some(choice) = chat_resp.choices.first() {
-            let content_str = &choice.message.content;
+        {
+            let content_str = crate::api::openai_compat::parse_chat_completion(&root)?;
 
             if use_json_format {
-                if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
+                if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(&content_str) {
                     if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str())
                     {
                         full_content = translation.to_string();

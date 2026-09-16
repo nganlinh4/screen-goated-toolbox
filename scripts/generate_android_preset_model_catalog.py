@@ -130,7 +130,7 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
                 "input_order": "text-first",
                 "media_resolution": "provider-default",
                 "sampling": "provider-default",
-                "max_output_tokens": None,
+                "max_output_tokens": manifest["constants"]["default_vision_max_output_tokens"],
                 "structured_output": "unsupported",
                 "restates_output": False,
             },
@@ -151,6 +151,7 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
                 f"            nameVi = {kotlin_string(name_vi)},",
                 f"            nameKo = {kotlin_string(name_ko)},",
                 f"            isNonLlm = {str(model['id'] in non_llm_ids).lower()},",
+                f"            inputLanguageSet = {kotlin_string(profile.get('input_language_set', ''))},",
                 f"            quotaEn = {kotlin_string(profile['quota_en'])},",
                 f"            quotaVi = {kotlin_string(profile['quota_vi'])},",
                 f"            quotaKo = {kotlin_string(profile['quota_ko'])},",
@@ -245,6 +246,7 @@ def generate_preset_defaults_kotlin(manifest: dict, output_path: Path) -> None:
         "// Generated from catalog/model_catalog.json. Do not edit by hand.",
         f"const val DEFAULT_IMAGE_MODEL_ID = {kotlin_string(constants['default_image_model_id'])}",
         f"const val DEFAULT_TEXT_MODEL_ID = {kotlin_string(constants['default_text_model_id'])}",
+        f"const val DEFAULT_VISION_MAX_OUTPUT_TOKENS = {constants['default_vision_max_output_tokens']}",
     ]
 
     for const_name, model_id in preset_defaults.items():
@@ -265,19 +267,7 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
 
     provider_api_by_id = {item["id"]: item["api_model"] for item in live_translation_providers}
     def realtime_option_label(option_id: str) -> str:
-        return {
-            "google-gemini-2-5-live-transcribe-audio": "Gemini Live",
-            "google-gemini-3-1-live-transcribe-audio": "Gemini S2S",
-            "google-gemini-3-5-live-translate-audio": "Gemini Translate",
-            "google-gemini-3-5-transcribe-live-audio": "Gemini Transcribe",
-            "parakeet": "Parakeet",
-            "local-qwen-3-asr-600m-audio": "Qwen3-ASR 0.6B",
-            "local-qwen-3-asr-1-7b-audio": "Qwen3-ASR 1.7B",
-            "zipformer": "Zipformer",
-            "moonshine-tiny-streaming": "Moonshine Tiny",
-            "moonshine-small-streaming": "Moonshine Small",
-            "moonshine-medium-streaming": "Moonshine Medium",
-        }.get(option_id, option_id)
+        return manifest["realtime_transcription_labels"][option_id]
 
     lines: list[str] = [
         "package dev.screengoated.toolbox.mobile.shared.live",
@@ -304,9 +294,11 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         "    val maxOutputTokens: Long?,",
         "    val automaticActivityDetectionDefault: Boolean,",
         "    val protocol: String?,",
+        "    val requireInteractionIdle: Boolean,",
         ")",
         "",
         "object GeneratedLiveModelCatalog {",
+        "    val realtimeS2sModelIds: Set<String> = setOf(" + ", ".join(kotlin_string(item) for item in manifest["realtime_s2s_model_ids"]) + ")",
         f"    const val TRANSCRIPTION_GEMINI_2_5 = {kotlin_string(constants['gemini_live_audio_model_id_2_5'])}",
         f"    const val TRANSCRIPTION_GEMINI_3_1 = {kotlin_string(constants['gemini_live_audio_model_id_3_1'])}",
         f"    const val TRANSCRIPTION_GEMINI_S2S = {kotlin_string(constants['gemini_live_s2s_model_id'])}",
@@ -359,11 +351,12 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         ).lower()
         protocol = metadata.get("live_protocol")
         protocol_value = "null" if protocol is None else kotlin_string(protocol)
+        interaction_idle = str(metadata.get("live_completion") == "interaction-idle").lower()
         lines.append(
             f"        {kotlin_string(endpoint)} -> GeneratedLiveEndpointProfile("
             f"lifecycle = {kotlin_string(metadata['lifecycle'])}, thinking = {thinking_value}, "
             f"maxOutputTokens = {limit_value}, automaticActivityDetectionDefault = {activity_detection}, "
-            f"protocol = {protocol_value})"
+            f"protocol = {protocol_value}, requireInteractionIdle = {interaction_idle})"
         )
     lines.extend(["        else -> null", "    }", ""])
 
@@ -427,26 +420,18 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
             '                model = modelId,',
             "            )",
             "",
-            "            TRANSCRIPTION_GEMINI_S2S -> ProviderDescriptor(",
-            "                id = TRANSCRIPTION_GEMINI_S2S,",
-            "                model = GEMINI_LIVE_API_MODEL_3_1,",
-            "            )",
-            "",
-            "            TRANSCRIPTION_GEMINI_TRANSLATE -> ProviderDescriptor(",
-            "                id = TRANSCRIPTION_GEMINI_TRANSLATE,",
-            "                model = GEMINI_LIVE_TRANSLATE_API_MODEL,",
-            "            )",
-            "",
-            "            TRANSCRIPTION_GEMINI_TRANSCRIBE -> ProviderDescriptor(",
-            "                id = TRANSCRIPTION_GEMINI_TRANSCRIBE,",
-            "                model = GEMINI_TRANSCRIBE_API_MODEL,",
-            "            )",
-            "",
-            '            "google-gemini-3-1-live-transcribe-audio" -> ProviderDescriptor(',
-            '                id = "google-gemini-3-1-live-transcribe-audio",',
-            "                model = GEMINI_LIVE_API_MODEL_3_1,",
-            "            )",
-            "",
+        ]
+    )
+    for model in manifest["models"]:
+        if model["provider"] == "gemini-live" and model["model_type"] == "Audio" and model["enabled"]:
+            lines.extend([
+                f"            {kotlin_string(model['id'])} -> ProviderDescriptor(",
+                f"                id = {kotlin_string(model['id'])},",
+                f"                model = {kotlin_string(model['full_name'])},",
+                "            )",
+            ])
+    lines.extend(
+        [
             "            else -> ProviderDescriptor(",
             "                id = TRANSCRIPTION_GEMINI_2_5,",
             "                model = GEMINI_LIVE_API_MODEL_2_5,",
@@ -499,6 +484,22 @@ def main() -> None:
 
     if args.preset_output:
         generate_preset_kotlin(manifest, Path(args.preset_output))
+        languages = json.loads(Path(args.manifest_source).with_name("whisper-languages.json").read_text(encoding="utf-8"))
+        speech_lines = [
+            "package dev.screengoated.toolbox.mobile.preset",
+            "",
+            "// Generated from catalog/whisper-languages.json. Do not edit by hand.",
+            "internal val whisperSpeechLanguages: List<Pair<String, String>> = listOf(",
+        ]
+        speech_lines.extend(f"    {kotlin_string(row['value'])} to {kotlin_string(row['label'])}," for row in languages)
+        speech_lines.extend([
+            ")",
+            "",
+            "internal fun whisperLanguageCode(value: String?): String? =",
+            "    whisperSpeechLanguages.firstOrNull { it.first.equals(value?.trim(), ignoreCase = true) }?.first",
+            "",
+        ])
+        Path(args.preset_output).with_name("GeneratedSpeechLanguages.kt").write_text("\n".join(speech_lines), encoding="utf-8")
     if args.preset_defaults_output:
         generate_preset_defaults_kotlin(manifest, Path(args.preset_defaults_output))
     if args.live_output:

@@ -47,6 +47,7 @@ internal fun CreationActiveSettings(
 ) {
     val item = state.selectedItem
     if (state.tab != CreationNativeTab.JOBS || item == null) return
+    if (tool == CreationTool.IMAGE_TO_3D) CreationSharedSettingsCaption(state, locale)
     val enabled = if (tool == CreationTool.IMAGE_CREATOR) {
         !item.submitted && item.stage == CreationNativeStage.DRAFT
     } else {
@@ -71,6 +72,8 @@ internal fun CreationActiveSettings(
                 onAutoSegment = viewModel::setAutoSegment,
                 onSegmentationLevel = viewModel::setSegmentationLevel,
                 onInstruction = viewModel::setInstruction,
+                onTopology = viewModel::setTopology,
+                availableModes = state.generationModes,
             )
         }
         CreationTool.IMAGE_TO_SVG -> CreationSvgSettings(

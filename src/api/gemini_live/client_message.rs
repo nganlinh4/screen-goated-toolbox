@@ -34,9 +34,34 @@ pub fn audio_stream_end() -> Value {
     })
 }
 
+pub fn activity_boundary(start: bool) -> Value {
+    let field = if start {
+        "activityStart"
+    } else {
+        "activityEnd"
+    };
+    json!({ "realtimeInput": { (field): {} } })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_speech_markers_match_shared_contract() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../parity-fixtures/live-translate/overlay-bootstrap.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            activity_boundary(true),
+            fixture["nativeS2sBoundaries"]["start"]
+        );
+        assert_eq!(
+            activity_boundary(false),
+            fixture["nativeS2sBoundaries"]["end"]
+        );
+    }
 
     #[test]
     fn pcm_payload_is_little_endian_with_explicit_rate() {

@@ -97,7 +97,7 @@ pub fn get_error_message(error: &str, lang: &str, model_name: Option<&str>) -> S
 /// `error 500`, or a bare code delimited by non-alphanumeric characters. The
 /// boundary check keeps model names such as `llama-3.3-70b` or `qwen3-235b` from
 /// being mistaken for status codes.
-fn extract_http_status_code(error: &str) -> Option<u16> {
+pub(crate) fn extract_http_status_code(error: &str) -> Option<u16> {
     const CODE_PREFIXES: [&str; 5] = ["status code ", "http ", "http/1.1 ", "error ", "code "];
 
     let lower = error.to_ascii_lowercase();
@@ -428,6 +428,9 @@ pub fn is_billing_exhausted_error(error: &str) -> bool {
 }
 
 pub fn should_advance_retry_chain(error: &str) -> bool {
+    if error.starts_with("PROVIDER_RESPONSE_INVALID:") {
+        return true;
+    }
     if error.contains("NO_API_KEY")
         || error.contains("INVALID_API_KEY")
         || error.contains(crate::api::client::PROVIDER_TRANSPORT_UNAVAILABLE)

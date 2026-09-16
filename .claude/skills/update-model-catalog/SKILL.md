@@ -1,20 +1,20 @@
 ---
 name: benchmark-model-catalog
-description: Run one unified model-discovery and production-path benchmark day, human-review model quality, and apply verified catalog decisions for Screen Goated Toolbox.
+description: Run one unified model-discovery and production-path benchmark day, review model quality with explicit reviewer provenance, and apply verified catalog decisions for Screen Goated Toolbox.
 ---
 
 # Benchmark Model Catalog
 
 Discovery is the first phase of a benchmark day, never a separate workflow. The
 same session verifies current provider state, benchmarks every runnable general
-model, performs human quality review, audits production request parity, and only
+model, performs direct quality review, audits production request parity, and only
 then changes the shared catalog when authorized.
 
 ## Start
 
 1. From the repository root, read `.claude/commands/manage-model-catalog.md`, `catalog/README.md`, `tests/catalog-benchmark/README.md`, and `tests/catalog-benchmark/history-policy.json` completely.
 2. Inspect `git status --short`; preserve unrelated work.
-3. Treat discovery and benchmarking as read-only evidence unless catalog mutation is explicitly authorized.
+3. Treat discovery and benchmarking as read-only evidence unless catalog mutation is explicitly authorized. A request to benchmark and update the catalog authorizes the complete discovery, provisional-profile, benchmark, review, and catalog-decision workflow; carry it through without asking again.
 4. For cross-platform catalog changes, read `.claude/skills/enforce-mobile-parity/SKILL.md`, `.claude/parity/model-catalog.md`, and the affected feature parity spec before editing.
 
 ## Unified discovery phase
@@ -52,6 +52,13 @@ then changes the shared catalog when authorized.
   reasoning control. Do not turn a narrow preset sample into catalog-wide quality.
 - Treat missing access, quota exhaustion, lifecycle removal, and malformed request
   policy as different findings. Never expose credentials or authenticated URLs.
+- Reconcile every discovered endpoint with prior decision records and the current
+  disabled/withdrawn catalog state by exact provider and API identity. Record the
+  prior reason, any later reversal, and this run's disposition. Prior rejection is
+  historical evidence, not a permanent benchmark exclusion. When all candidates
+  are requested, retest every currently eligible endpoint, including previously
+  rejected and disabled candidates. Keep paid-only and incompatible dedicated
+  contracts explicitly accounted for instead of silently dropping them.
 
 Generate the current OpenRouter inventory with:
 
@@ -85,6 +92,10 @@ Do not infer sibling capabilities from a family name. Capability and default beh
 2. Ensure child processes receive the intended `.env` values explicitly. A saved app key can otherwise mask an edited `.env`. Compare only non-secret fingerprints when diagnosing key selection.
 3. Run all ten round-major levels for every runnable general model, including
    NVIDIA feed candidates. Use focused filters only for screening or recovery.
+   The enabled catalog is not the discovery boundary. With catalog edits
+   authorized, prepare exact production profiles for uncataloged candidates and
+   test them before deciding final admission. Reuse completed same-day cells only
+   when their protocol, fixtures, endpoint, and request policy remain compatible.
 4. Preserve request errors, malformed responses, overloads, retries, and quota failures. They are reliability evidence, not latency samples.
 5. Use resume inputs to skip successful cells. Merge recovery reports left-to-right into one logical run; never register a recovery fragment independently.
 6. Use only the latest complete protocol-compatible run. Do not average older runs.
@@ -99,6 +110,10 @@ Do not infer sibling capabilities from a family name. Capability and default beh
     model-scoped providers, keep account-wide providers serialized, retain
     structural retry/quota failures, and use resume/merge instead of wasting
     successful cells.
+    Budget baseline, verifier, retry, and supplemental calls together before
+    starting. Multiple keys do not imply independent account allowances. A full
+    grid of attempted cells is not full quality coverage when later rounds hit
+    quota; preserve the missing-case recovery list and defer unsupported decisions.
 
 For shortest wall time, dispatch `.github/workflows/catalog-benchmark-day.yml`.
 It compiles one Windows test binary, distributes quota-safe shards across hosted
@@ -122,6 +137,14 @@ latency, provider diversity, quota, and lifecycle. Keep authority-bearing
 Computer/Phone Control on its separate validated chain.
 
 Update parity specs, fixtures, focused assertions, and post-update recommendation expectations with the same decision. Never create a second platform model registry.
+
+Close the discovery ledger before claiming completion: each eligible endpoint
+must have complete benchmark evidence and an admission/rejection decision, or an
+explicit current access/quota/contract blocker. Separate never tested, previously
+rejected, retested, and excluded endpoints. Do not describe an enabled-catalog
+subset as the complete benchmark day. Apply authorized evidence-supported catalog
+changes and report unresolved gaps precisely. Preserve reviewer provenance;
+agent review must never be described as human sign-off.
 
 ## Validate
 

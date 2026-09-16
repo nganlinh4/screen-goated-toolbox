@@ -425,7 +425,7 @@ mod tests {
             state
                 .preferred_text_model("", "gemini", "openrouter", "")
                 .map(|model| model.0),
-            Some("google-gemini-3-5-flash-lite-text".to_string())
+            Some("google-gemini-3-1-flash-lite-text".to_string())
         );
 
         state.use_gemini = false;

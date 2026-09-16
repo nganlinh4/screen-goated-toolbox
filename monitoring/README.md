@@ -21,6 +21,9 @@ only one use case.
 So the rule is: **live monitoring gates operational health; broad, reviewed
 catalog benchmarks own durable quality.** Samples reported from a real preset may
 be added to that broad evaluation, but never become a preset-specific live ban.
+The shared catalog's reviewed `withdrawn_models` veto also applies to probing and
+publication. It covers unavailable endpoints and specialized input/output
+contracts that the product's ordinary chat adapters do not implement.
 
 The consequences of being wrong are not symmetric either, which settles where the
 risk belongs:

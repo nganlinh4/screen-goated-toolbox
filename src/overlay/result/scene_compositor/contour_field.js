@@ -91,7 +91,7 @@ function buildProcessingField(width, height, cells, fixedPadding) {
     const ox = i % ow, oy = Math.floor(i / ow), x = ox + border, y = oy + border;
     const at = dy => softened[Math.max(0, Math.min(h - 1, y + dy)) * w + x];
     const raw = (at(-step * 2) + 4 * at(-step) + 6 * at(0) + 4 * at(step) + at(step * 2)) / 16;
-    const radius = Math.min(28, width / 2, height / 2);
+    const radius = Math.min(8, width / 2, height / 2);
     const qx = Math.abs((ox + .5) * width / ow - width / 2) - (width / 2 - radius - 1);
     const qy = Math.abs((oy + .5) * height / oh - height / 2) - (height / 2 - radius - 1);
     const clip = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - radius;

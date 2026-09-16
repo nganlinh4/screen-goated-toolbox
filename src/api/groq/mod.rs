@@ -116,12 +116,10 @@ mod tests {
             structured_response_format("openai/gpt-oss-120b", "result", schema.clone());
         let strict_20b = structured_response_format("openai/gpt-oss-20b", "result", schema.clone());
         let generic = structured_response_format("future-vision-model", "result", schema.clone());
-        let qwen_36 = structured_response_format("qwen/qwen3.6-27b", "result", schema.clone());
         let qwen_38 = structured_response_format("qwen/qwen3.8-27b", "result", schema);
         assert_eq!(strict_120b["json_schema"]["strict"], true);
         assert_eq!(strict_20b["json_schema"]["strict"], true);
         assert_eq!(generic["type"], "json_object");
-        assert_eq!(qwen_36["type"], "json_object");
         assert_eq!(qwen_38["json_schema"]["strict"], true);
     }
 

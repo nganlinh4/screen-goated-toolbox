@@ -65,7 +65,7 @@ class VisionImageBudgetTest {
     @Test
     fun qwenDisablesReasoningAndHidesAnyReasoningOutput() {
         val payload = openAiVisionPayload(
-            model = requireNotNull(PresetModelCatalog.getById("groq-qwen-3-6-27b-vision")),
+            model = requireNotNull(PresetModelCatalog.getById("groq-qwen-3-8-27b-vision")),
             prompt = "Read this image",
             imageBase64 = "AA==",
             mimeType = "image/png",
@@ -82,7 +82,7 @@ class VisionImageBudgetTest {
         assertFalse(payload.has("min_p"))
         assertFalse(payload.has("response_format"))
         assertTrue(
-            requireNotNull(PresetModelCatalog.getById("groq-qwen-3-6-27b-vision"))
+            requireNotNull(PresetModelCatalog.getById("groq-qwen-3-8-27b-vision"))
                 .restatesOutput,
         )
     }
@@ -104,6 +104,8 @@ class VisionImageBudgetTest {
             stream = false,
         )
         assertEquals(0.0, payload.getDouble("temperature"), 0.0)
+        assertEquals(dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_VISION_MAX_OUTPUT_TOKENS, payload.getInt("max_tokens"))
+        assertFalse(payload.has("max_completion_tokens"))
     }
 
     @Test
@@ -150,7 +152,8 @@ class VisionImageBudgetTest {
         assertEquals(2, groq.getInt("short_retry_after_max_seconds"))
 
         val ordinary = root.getJSONObject("ordinary_llm_profiles")
-        assertEquals("non-streaming", ordinary.getString("ocr_transport"))
+        assertEquals("streaming", ordinary.getString("ocr_transport"))
+        assertEquals(ordinary.getInt("default_max_output_tokens"), dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_VISION_MAX_OUTPUT_TOKENS)
         val cases = ordinary.getJSONArray("cases")
         for (index in 0 until cases.length()) {
             val case = cases.getJSONObject(index)

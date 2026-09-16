@@ -55,6 +55,7 @@ class AudioApiClient(
         uiLanguage: String,
         onChunk: (String) -> Unit,
         streamingEnabled: Boolean = true,
+        inputLanguage: String? = null,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val model = resolveModel(modelId)
@@ -66,6 +67,7 @@ class AudioApiClient(
                     model = model,
                     wavBytes = wavBytes,
                     apiKey = apiKeys.groqKey,
+                    inputLanguage = inputLanguage,
                 )
 
                 PresetModelProvider.GOOGLE -> transcribeWithGemini(

@@ -18,6 +18,24 @@
 - Cross-platform Gemini Live lifecycle contract: [gemini-live-session.md](gemini-live-session.md)
 
 ## Behavior Contract
+- Transcription selector labels come from catalog `realtime_transcription_labels`
+  on both platforms, including overlay tooltips and native pickers. Names expose
+  model versions without Preview, Streaming, or language suffixes. The S2S mode
+  retains `S2S` immediately after `Gemini`; Parakeet is `Parakeet Realtime`.
+  Android may append its existing unavailable status to unsupported entries.
+- Selector order expresses recommendations: Live Translate, Transcribe Live,
+  S2S 3.8, S2S 3.1, Native Audio 2.5, local ASR choices, Zipformer, then Parakeet.
+  Windows local ASR choices are Qwen3-ASR 0.6B then 1.7B; Android retains its
+  existing Moonshine choices in that position. Consumers preserve catalog order.
+- Catalog `realtime_s2s_model_ids` owns direct speech routing on both platforms
+  and their overlays. Gemini S2S 3.1 Flash Live and Gemini S2S 3.8 Live use the
+  selected entry's endpoint, independently of the global TTS model. Source text
+  comes from input transcription; translated text and speech come from output.
+  Existing default selections remain unchanged. Preset input-transcription rows
+  retain their transcription-only behavior outside this mini app.
+- Native S2S segments are already bounded by local VAD. Their setup disables
+  automatic activity detection and each segment sends activityStart, PCM, then
+  activityEnd. Dedicated Live Translate retains its own continuous protocol.
 - Dedicated transcription delivery is stabilized by the same ten-word / 64-scalar reducer as presets; see [preset-audio.md](preset-audio.md) and `parity-fixtures/gemini-transcribe-stream/stabilization.json`. Both panes and translation source consume delivered segments, not raw finals. Cross-segment carryover is trimmed from interim prefixes while new tail text streams immediately; no overlap state waits for final. Raw provider text remains diagnostic evidence only. Overlap evidence includes the delivered final segment as well as the raw final and preceding interim, so final-added tail words are not repeated by a stale draft match.
 - Live Translate is an official mini app, not a preset. Its Windows footer launcher opens an egui preflight modal and its Android launcher remains an app-carousel entry. Neither platform publishes the mini app itself in the unified preset catalog, preset editor, preset wheel, or preset favorites. Dedicated transcription endpoints may also appear independently as Audio models in ordinary presets.
 - The preflight surface owns the persistent session choices: audio source, transcription provider/language, target language, translation provider, font size, and global hotkeys. Start/Stop acts on the one Live Translate session identity and never resolves a mutable preset index.

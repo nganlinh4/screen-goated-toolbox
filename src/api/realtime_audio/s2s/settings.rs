@@ -51,7 +51,6 @@ pub(super) fn load_settings() -> Result<S2sSettings> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("NO_API_KEY:google"));
     }
-    let model = app.config.tts_gemini_live_model.trim();
     let transcription_model = crate::model_config::normalize_realtime_transcription_model_id(
         &app.config.realtime_transcription_model,
     );
@@ -69,10 +68,8 @@ pub(super) fn load_settings() -> Result<S2sSettings> {
         api_key,
         model: if mode == S2sMode::LiveTranslate {
             crate::model_config::GEMINI_LIVE_TRANSLATE_API_MODEL.to_string()
-        } else if model.is_empty() {
-            crate::model_config::GEMINI_LIVE_API_MODEL_3_1.to_string()
         } else {
-            crate::model_config::normalize_tts_gemini_model(model).to_string()
+            crate::model_config::realtime_transcription_api_model(&transcription_model)
         },
         mode,
         voice: if voice.is_empty() {

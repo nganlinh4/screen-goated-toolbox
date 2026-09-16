@@ -122,6 +122,7 @@ val generatePresetOverlayAssets by tasks.registering(Exec::class) {
     )
     val gridJsSource = repoRoot.resolve("src/overlay/html_components/grid_js.rs")
     val recordingUiSource = repoRoot.resolve("src/overlay/recording/ui.rs")
+    val selectionBadgeSource = repoRoot.resolve("src/overlay/text_selection/html.rs")
     val iconsSource = repoRoot.resolve("src/overlay/html_components/icons.rs")
     inputs.file(fitSource)
     inputs.files(fitScriptSources)
@@ -131,6 +132,7 @@ val generatePresetOverlayAssets by tasks.registering(Exec::class) {
     inputs.file(buttonCanvasThemeSource)
     inputs.file(gridJsSource)
     inputs.file(recordingUiSource)
+    inputs.file(selectionBadgeSource)
     inputs.file(iconsSource)
     inputs.file(generator)
     inputs.dir(projectDir.resolve("src/main/assets/preset_overlay_static"))
@@ -144,6 +146,7 @@ val generatePresetOverlayAssets by tasks.registering(Exec::class) {
         "--button-theme-source", buttonCanvasThemeSource.absolutePath,
         "--grid-source", gridJsSource.absolutePath,
         "--recording-source", recordingUiSource.absolutePath,
+        "--selection-source", selectionBadgeSource.absolutePath,
         "--icons-source", iconsSource.absolutePath,
         "--static-assets", projectDir.resolve("src/main/assets/preset_overlay_static").absolutePath,
         "--output", generatedPresetOverlayAssets.get().asFile.absolutePath,
@@ -160,6 +163,8 @@ val generatePresetModelCatalog by tasks.registering(Exec::class) {
         .asFile
         .resolve("dev/screengoated/toolbox/mobile/preset/GeneratedPresetModelCatalogData.kt")
     outputs.file(outputFile)
+    inputs.file(repoRoot.resolve("catalog/whisper-languages.json"))
+    outputs.file(outputFile.resolveSibling("GeneratedSpeechLanguages.kt"))
     commandLine(
         "py",
         "-3",

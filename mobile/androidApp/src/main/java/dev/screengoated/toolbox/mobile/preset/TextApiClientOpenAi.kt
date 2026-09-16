@@ -1,12 +1,10 @@
 package dev.screengoated.toolbox.mobile.preset
 
-import android.util.Log
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
-import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import kotlin.coroutines.coroutineContext
@@ -58,15 +56,9 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
         }
 
         val body = response.body
-        body.charStream().buffered().useLines { lines ->
-            lines.forEach { rawLine ->
-                coroutineContext.ensureActive()
-                val line = rawLine.trim()
-                if (!line.startsWith("data: ")) return@forEach
-                val data = line.removePrefix("data: ").trim()
-                if (data.isBlank() || data == "[DONE]") return@forEach
-
-                val delta = extractOpenAiDelta(data)
+        val context = coroutineContext
+        body.charStream().buffered().use { reader ->
+            consumeOpenAiCompletion(reader, { context.ensureActive() }) { delta ->
                 if (delta.reasoning.isNotEmpty() && !thinkingShown && !contentStarted) {
                     onChunk(thinkingLabel(uiLanguage))
                     thinkingShown = true
@@ -88,20 +80,6 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
     }
 
     return fullContent.toString()
-}
-
-internal fun extractOpenAiDelta(payload: String): OpenAiDelta {
-    return try {
-        val root = JSONObject(payload)
-        val choice = root.optJSONArray("choices")?.optJSONObject(0) ?: return OpenAiDelta()
-        val delta = choice.optJSONObject("delta") ?: return OpenAiDelta()
-        OpenAiDelta(
-            content = delta.optString("content", ""),
-            reasoning = delta.optString("reasoning", ""),
-        )
-    } catch (_: JSONException) {
-        OpenAiDelta()
-    }
 }
 
 internal fun TextApiClient.runGroqCompound(
@@ -162,17 +140,7 @@ internal fun TextApiClient.runGroqCompound(
             throw IOException(response.providerFailureMessage("Groq request"))
         }
 
-        val body = response.body.string().orEmpty()
-        val content = try {
-            val root = JSONObject(body)
-            root.optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content", "")
-                .orEmpty()
-        } catch (_: JSONException) {
-            ""
-        }
+        val content = parseOpenAiCompletion(response.body.string())
 
         if (content.isBlank()) {
             throw IOException(
@@ -217,16 +185,7 @@ private suspend fun TextApiClient.generateOpenAiCompatibleBlocking(
             throw IOException(response.providerFailureMessage("$providerName request"))
         }
 
-        val content = try {
-            JSONObject(response.body.string().orEmpty())
-                .optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content", "")
-                .orEmpty()
-        } catch (_: JSONException) {
-            ""
-        }
+        val content = parseOpenAiCompletion(response.body.string())
         if (content.isBlank()) {
             throw IOException("$providerName returned blank content.")
         }

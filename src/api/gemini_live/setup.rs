@@ -112,7 +112,6 @@ impl LiveSetupBuilder {
         self
     }
 
-    #[cfg(not(feature = "recorder-worker"))]
     pub fn setup_field(mut self, name: &str, value: Value) -> Self {
         self.setup.insert(name.to_string(), value);
         self

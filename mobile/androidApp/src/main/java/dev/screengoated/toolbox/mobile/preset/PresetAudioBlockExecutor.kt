@@ -59,6 +59,7 @@ internal class PresetAudioBlockExecutor(
                     apiKeys = apiKeys(),
                     uiLanguage = uiLanguage(),
                     streamingEnabled = actualStreamingEnabled,
+                    inputLanguage = block.languageVars["input_language"],
                     onChunk = { chunk ->
                         blockBuffer.append(chunk)
                         if (shouldSurfaceStreaming) {

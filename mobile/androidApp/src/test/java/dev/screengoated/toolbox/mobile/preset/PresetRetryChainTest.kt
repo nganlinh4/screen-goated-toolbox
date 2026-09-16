@@ -109,19 +109,53 @@ class PresetRetryChainTest {
     }
 
     @Test
-    fun twoTimeoutsOpenCircuitAndSuccessClearsIt() {
+    fun initialFailureCooldownsMatchSharedFixture() {
+        val policy = json.parseToJsonElement(Files.readAllBytes(fixturePath()).decodeToString())
+            .jsonObject.getValue("retry_circuit").jsonObject
+        val duration = policy.getValue("first_timeout_open_seconds").jsonPrimitive.content.toLong() * 1_000L
+        assertEquals(duration, policy.getValue("invalid_response_open_seconds").jsonPrimitive.content.toLong() * 1_000L)
+        policy.getValue("initial_failure_cases").jsonArray.forEachIndexed { index, value ->
+            val case = value.jsonObject
+            val model = "shared-initial-failure-$index"
+            recordPresetModelFailureAt(model, case.getValue("error").jsonPrimitive.content, 1_000L)
+            val reason = case.getValue("reason").jsonPrimitive.content
+            if (reason.isEmpty()) {
+                assertNull(claimPresetModelAttemptAt(model, 1_000L))
+            } else {
+                assertEquals("$reason:$model:15s", claimPresetModelAttemptAt(model, 1_000L))
+                assertNotNull(claimPresetModelAttemptAt(model, 1_000L + duration - 1L))
+                assertNull(claimPresetModelAttemptAt(model, 1_000L + duration))
+                assertEquals("MODEL_COOLDOWN_PROBE_IN_FLIGHT:$model", claimPresetModelAttemptAt(model, 1_000L + duration))
+                recordPresetModelFailureAt(model, "PROVIDER_RESPONSE_INVALID:Provider completion token limit reached", 1_000L + duration)
+                assertNull(claimPresetModelAttemptAt(model, 1_000L + duration))
+            }
+            recordPresetModelSuccess(model)
+        }
+    }
+
+    @Test
+    fun timeoutBackoffIsGradualCappedAndResetsAfterSuccess() {
+        val policy = json.parseToJsonElement(Files.readAllBytes(fixturePath()).decodeToString())
+            .jsonObject.getValue("retry_circuit").jsonObject
+        val durations = policy.getValue("consecutive_timeout_cooldowns_seconds").jsonArray
         val modelId = "timeout-circuit-model"
-        recordPresetModelFailureAt(modelId, "request timed out", 1_000L)
-        assertNull(presetModelCircuitSkipReasonAt(modelId, 1_001L))
-
-        recordPresetModelFailureAt(modelId, "deadline exceeded", 2_000L)
-        assertTrue(
-            presetModelCircuitSkipReasonAt(modelId, 2_001L)
-                ?.startsWith("MODEL_TIMEOUT_COOLDOWN:$modelId:") == true,
-        )
-
-        recordPresetModelSuccess(modelId)
-        assertNull(presetModelCircuitSkipReasonAt(modelId, 2_002L))
+        var now = 1_000L
+        repeat(2) {
+            durations.forEach { value ->
+                val seconds = value.jsonPrimitive.content.toLong()
+                recordPresetModelFailureAt(modelId, "request timed out", now)
+                assertTrue(claimPresetModelAttemptAt(modelId, now)?.endsWith(":${seconds}s") == true)
+                recordPresetModelFailureAt(modelId, "timeout", now + 1_000L)
+                now += seconds * 1_000L
+                assertNotNull(claimPresetModelAttemptAt(modelId, now - 1L))
+                assertNull(claimPresetModelAttemptAt(modelId, now))
+                assertEquals("MODEL_COOLDOWN_PROBE_IN_FLIGHT:$modelId", claimPresetModelAttemptAt(modelId, now))
+                releasePresetModelProbeAt(modelId, now)
+                assertNull(claimPresetModelAttemptAt(modelId, now))
+            }
+            recordPresetModelSuccess(modelId)
+            assertNull(claimPresetModelAttemptAt(modelId, now))
+        }
     }
 
     @Test

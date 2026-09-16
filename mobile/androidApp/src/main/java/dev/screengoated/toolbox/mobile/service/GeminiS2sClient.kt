@@ -126,7 +126,7 @@ internal fun geminiLiveAudioLogTag(model: String): String {
     return if (isGeminiLiveTranslateApiModel(model)) "RealtimeLiveTranslateAndroid" else TAG
 }
 
-internal fun shouldSendAudioStreamEnd(model: String): Boolean {
+internal fun usesManualSpeechBoundaries(model: String): Boolean {
     return !isGeminiLiveTranslateApiModel(model)
 }
 

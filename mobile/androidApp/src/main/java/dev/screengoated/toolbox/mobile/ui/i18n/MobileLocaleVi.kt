@@ -446,7 +446,7 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                     transcriptionLanguageTitle = "Ngôn ngữ phụ đề",
                     unavailableSuffix = "Không khả dụng",
                     targetLanguageTitle = "Ngôn ngữ đích",
-                    s2sTranslationModelTitle = "Gemini S2S dùng mô hình TTS Gemini Live",
+                    s2sTranslationModelTitle = "Gemini S2S dùng mô hình giọng nói đã chọn",
                     s2sTargetLanguageTitle = "Đổi ngôn ngữ đích và khởi động lại phiên S2S hiện tại",
                 ),
                 controls = OverlayControlLocale(

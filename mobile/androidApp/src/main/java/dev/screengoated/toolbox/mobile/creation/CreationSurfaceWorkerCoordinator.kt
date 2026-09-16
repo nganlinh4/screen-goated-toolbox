@@ -19,6 +19,7 @@ internal class CreationSurfaceWorkerCoordinator(
     fun release(tool: CreationTool, ownerId: String) = workers.release(tool, "surface:$ownerId")
 
     fun preparationStatus(tool: CreationTool): String = workers.preparationStatus(tool)
+    fun generationModes(): Set<String>? = workers.generationModes()
 
     fun supportsOptionalInstruction(mode: String): Boolean =
         workers.supportsOptionalInstruction(mode)

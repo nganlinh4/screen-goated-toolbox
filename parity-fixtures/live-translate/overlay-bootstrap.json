@@ -1,5 +1,15 @@
 {
   "version": 1,
+  "nativeS2sBoundaries": {
+    "realtimeInputConfig": { "automaticActivityDetection": { "disabled": true } },
+    "start": { "realtimeInput": { "activityStart": {} } },
+    "end": { "realtimeInput": { "activityEnd": {} } }
+  },
+  "s2sModelIds": [
+    "google-gemini-3-5-live-translate-audio",
+    "google-gemini-3-1-live-transcribe-audio",
+    "google-gemini-3-8-live-transcribe-audio"
+  ],
   "launcher": {
     "productSurface": "official-mini-app",
     "windowsEntry": "footer-egui-preflight",
@@ -49,23 +59,25 @@
     "windowsTranscriptionProviders": [
       "google-gemini-3-5-live-translate-audio",
       "google-gemini-3-5-transcribe-live-audio",
-      "google-gemini-2-5-live-transcribe-audio",
+      "google-gemini-3-8-live-transcribe-audio",
       "google-gemini-3-1-live-transcribe-audio",
-      "parakeet",
+      "google-gemini-2-5-live-transcribe-audio",
       "local-qwen-3-asr-600m-audio",
       "local-qwen-3-asr-1-7b-audio",
-      "zipformer"
+      "zipformer",
+      "parakeet"
     ],
     "androidTranscriptionProviders": [
       "google-gemini-3-5-live-translate-audio",
       "google-gemini-3-5-transcribe-live-audio",
-      "google-gemini-2-5-live-transcribe-audio",
+      "google-gemini-3-8-live-transcribe-audio",
       "google-gemini-3-1-live-transcribe-audio",
-      "parakeet",
+      "google-gemini-2-5-live-transcribe-audio",
       "moonshine-tiny-streaming",
       "moonshine-small-streaming",
       "moonshine-medium-streaming",
-      "zipformer"
+      "zipformer",
+      "parakeet"
     ],
     "androidUnavailableTranscriptionProviders": [
       "parakeet"
@@ -322,5 +334,26 @@
     "ttsDisplayedSpeedSource": "runtime-effective-while-speaking",
     "localeUpdatePath": "discrete-js-no-html-reload",
     "dismissDragPersistence": "restore-pre-drag"
+  },
+  "transcriptionLabels": {
+    "google-gemini-3-5-live-translate-audio": "Gemini 3.5 Live Translate",
+    "google-gemini-3-5-transcribe-live-audio": "Gemini 3.5 Transcribe Live",
+    "google-gemini-2-5-live-transcribe-audio": "Gemini 2.5 Flash Native Audio",
+    "google-gemini-3-1-live-transcribe-audio": "Gemini S2S 3.1 Flash Live",
+    "parakeet": "Parakeet Realtime",
+    "local-qwen-3-asr-600m-audio": "Qwen3-ASR 0.6B",
+    "local-qwen-3-asr-1-7b-audio": "Qwen3-ASR 1.7B",
+    "zipformer": "Zipformer",
+    "moonshine-tiny-streaming": "Moonshine Tiny",
+    "moonshine-small-streaming": "Moonshine Small",
+    "moonshine-medium-streaming": "Moonshine Medium",
+    "google-gemini-3-8-live-transcribe-audio": "Gemini S2S 3.8 Live"
+  },
+  "transcriptionApiModels": {
+    "google-gemini-3-8-live-transcribe-audio": "gemini-3.8-live",
+    "google-gemini-2-5-live-transcribe-audio": "gemini-2.5-flash-native-audio-preview-12-2025",
+    "google-gemini-3-1-live-transcribe-audio": "gemini-3.1-flash-live-preview",
+    "google-gemini-3-5-transcribe-live-audio": "gemini-3.5-transcribe-live",
+    "google-gemini-3-5-live-translate-audio": "gemini-3.5-live-translate-preview"
   }
 }

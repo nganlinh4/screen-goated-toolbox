@@ -1,18 +1,8 @@
 {
   "ordinary_llm_profiles": {
     "source": "catalog/model_catalog.json#vision_request_profiles",
-    "ocr_transport": "non-streaming",
+    "ocr_transport": "streaming",
     "cases": [
-      {
-        "provider": "groq",
-        "api_model": "qwen/qwen3.6-27b",
-        "input_order": "text-first",
-        "media_resolution": "provider-default",
-        "sampling": "qwen3-groq-non-thinking",
-        "max_output_tokens": 512,
-        "structured_output": "json-object",
-        "restates_output": true
-      },
       {
         "provider": "groq",
         "api_model": "qwen/qwen3.8-27b",
@@ -153,7 +143,8 @@
       "structured_output_requires_an_explicit_caller_schema_and_endpoint_support",
       "media_resolution_stays_provider_default_until_a_comparable_probe_proves_a_better_policy",
       "openrouter_reasoning_policy_uses_nested_reasoning_effort_none"
-    ]
+    ],
+    "default_max_output_tokens": 512
   },
   "groq": {
     "safe_request_bytes": 3800000,

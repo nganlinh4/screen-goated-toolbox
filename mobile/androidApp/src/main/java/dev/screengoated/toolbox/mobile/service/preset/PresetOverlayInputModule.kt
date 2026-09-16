@@ -108,7 +108,7 @@ internal class PresetOverlayInputModule(
         historyNavigationIndex = null
         historyDraftText = ""
         if (activePreset?.preset?.continuousInput == true) {
-            inputWindow?.runScript("window.clearInput();")
+            inputWindow?.runScript("window.clearInput(); window.focusEditor();")
         } else {
             requestClose(animate = true)
         }

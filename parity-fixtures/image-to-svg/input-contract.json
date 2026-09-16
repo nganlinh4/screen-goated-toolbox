@@ -4,5 +4,10 @@
   "errors": {"image_too_large": "choose", "image_invalid": "choose", "validation_unavailable": "retry"},
   "dismissSubmits": false,
   "preservesExistingResults": true,
-  "androidParity": "pending"
+  "androidParity": "shared_validation",
+  "cases": [
+    {"width":1,"height":1,"bytes":4490000,"error":null},
+    {"width":1,"height":1,"bytes":4490001,"error":"image_too_large"},
+    {"width":0,"height":1,"bytes":100,"error":"image_invalid"}
+  ]
 }

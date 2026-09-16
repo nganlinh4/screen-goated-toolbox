@@ -410,8 +410,8 @@ impl Manifest {
             })
             .collect();
         ensure!(
-            preset_cases.len() == 3,
-            "exactly three OCR cases must use the canonical OCR preset prompt"
+            preset_cases.len() == 5,
+            "exactly five OCR cases must use the canonical OCR preset prompt"
         );
         ensure!(
             preset_cases

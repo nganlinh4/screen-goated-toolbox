@@ -72,6 +72,10 @@ fn build_s2s_setup_payload(
         .voice(&settings.voice)
         .system_instruction(&instruction)
         .transcription(crate::api::gemini_live::setup::TranscriptionMode::Both)
+        .setup_field(
+            "realtimeInputConfig",
+            serde_json::json!({"automaticActivityDetection": {"disabled": true}}),
+        )
         .context_window_compression()
         .build()
 }
@@ -98,6 +102,11 @@ pub(super) fn process_segment(
         final_attempt,
     } = params;
     let segment_id = segment.id;
+    if mode != S2sMode::LiveTranslate {
+        session.send_json(&crate::api::gemini_live::client_message::activity_boundary(
+            true,
+        ))?;
+    }
     for chunk in segment.samples.chunks(FRAME_SAMPLES) {
         if s2s_should_stop(stop_signal, cancel_signal) {
             return Ok(SegmentOutcome::RetryFresh);
@@ -105,7 +114,9 @@ pub(super) fn process_segment(
         session.send_audio_pcm(chunk, 16_000)?;
     }
     if mode != S2sMode::LiveTranslate {
-        session.end_audio_stream()?;
+        session.send_json(&crate::api::gemini_live::client_message::activity_boundary(
+            false,
+        ))?;
     }
 
     let started = Instant::now();
@@ -378,6 +389,46 @@ mod tests {
                 .get("outputAudioTranscription")
                 .is_none()
         );
+    }
+
+    #[test]
+    #[cfg(not(feature = "recorder-worker"))]
+    fn native_s2s_setup_uses_client_owned_speech_boundaries() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../parity-fixtures/live-translate/overlay-bootstrap.json"
+        ))
+        .unwrap();
+        for id in crate::model_config::GENERATED_REALTIME_S2S_MODEL_IDS {
+            if crate::model_config::is_gemini_live_translate_model_id(id) {
+                continue;
+            }
+            let model = crate::model_config::realtime_transcription_api_model(id);
+            let payload = build_s2s_setup_payload(
+                &settings(&model, "Korean"),
+                &S2sContextSnapshot {
+                    text: String::new(),
+                },
+            );
+            assert_eq!(
+                payload["setup"]["realtimeInputConfig"],
+                fixture["nativeS2sBoundaries"]["realtimeInputConfig"]
+            );
+            assert_eq!(
+                crate::model_config::normalize_tts_gemini_model(&model),
+                model
+            );
+            if crate::model_config::live_endpoint_profile(&model)
+                .unwrap()
+                .thinking
+                .is_none()
+            {
+                assert!(
+                    payload["setup"]["generationConfig"]
+                        .get("thinkingConfig")
+                        .is_none()
+                );
+            }
+        }
     }
 
     #[test]

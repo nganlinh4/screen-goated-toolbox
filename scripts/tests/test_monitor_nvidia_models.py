@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -16,6 +17,17 @@ SPEC.loader.exec_module(MONITOR)
 
 
 class NvidiaModelCapabilityTests(unittest.TestCase):
+    def test_unary_health_uses_the_shared_completion_contract(self) -> None:
+        fixture = json.loads((SCRIPTS.parent / "parity-fixtures/preset-system/chat-completion.json").read_text())
+        for case in fixture["unary"]:
+            with self.subTest(case=case["name"]):
+                self.assertEqual(MONITOR.answer_of(case["body"])[0], case.get("output"))
+
+    def test_reviewed_contract_withdrawal_overrides_image_acceptance(self) -> None:
+        with mock.patch.object(MONITOR, "WITHDRAWN_ENDPOINTS", {"nvidia:vendor/dedicated"}):
+            self.assertIsNone(MONITOR.published_modality("vendor/dedicated", {"passed": True}))
+            self.assertEqual(MONITOR.published_modality("vendor/general", {"passed": True}), "vision")
+
     def test_dedicated_translator_is_not_published_as_generic_text(self) -> None:
         self.assertIsNone(
             MONITOR.published_modality("vendor/translate-specialist", False),

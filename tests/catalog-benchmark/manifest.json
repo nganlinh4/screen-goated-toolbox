@@ -308,12 +308,12 @@
   ],
   "ocr_cases": [
     {
-      "id": "ocr-01-vietnamese-street-sign",
+      "id": "ocr-01-compact-label",
       "difficulty": 1,
-      "image": "images/ocr/01-vietnamese-street-sign.jpg",
+      "image": "images/ocr/compact-label.png",
       "input_mode": "screen-crop-png",
-      "instruction": "Transcribe all text on the blue street sign, in top-to-bottom order. Output ONLY the text.",
-      "reference": "HÀ NỘI\nPHỐ\nNHÀ CHUNG"
+      "instruction": "Extract all text from this image exactly as it appears. Output ONLY the text.",
+      "reference": "Ready to export"
     },
     {
       "id": "ocr-02-table",
@@ -363,12 +363,12 @@
       "reference": "The Sun.\nSTATE COMMITTEE AVOIDS ACTING ON THE SOCIALISTS, SWEET DEFENDS ASSEMBLY\nGERMAN PEACE IS RATIFIED; ENTENTE POWERS ALL SIGN, ONLY U. S. \"NOW AT WAR\""
     },
     {
-      "id": "ocr-12-near-duplicate-filenames",
+      "id": "ocr-02-thin-status",
       "difficulty": 2,
-      "image": "images/ocr/12-near-duplicate-filenames.png",
+      "image": "images/ocr/thin-status.png",
       "input_mode": "screen-crop-png",
-      "instruction": "Transcribe both file names exactly as they appear, left to right, one per line. Output ONLY the text.",
-      "reference": "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png"
+      "instruction": "Extract all text from this image exactly as it appears. Output ONLY the text.",
+      "reference": "Queue 07 / Items 24"
     },
     {
       "id": "ocr-07-tiny-status-bar",

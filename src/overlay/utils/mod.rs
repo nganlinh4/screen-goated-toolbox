@@ -2,6 +2,7 @@ mod clipboard;
 mod error_messages;
 mod input;
 mod streaming_paste;
+pub(crate) use error_messages::extract_http_status_code;
 
 pub use clipboard::{
     copy_image_to_clipboard, copy_to_clipboard, get_clipboard_image_bytes,

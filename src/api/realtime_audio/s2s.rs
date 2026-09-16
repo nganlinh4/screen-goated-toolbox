@@ -162,6 +162,9 @@ use session::run_single_segment_session;
 #[cfg(not(feature = "recorder-worker"))]
 use session::session_worker;
 
+#[cfg(all(test, not(feature = "recorder-worker")))]
+#[path = "s2s/live_tests.rs"]
+mod live_tests;
 #[path = "s2s/transport.rs"]
 pub(crate) mod transport;
 use transport::{open_fresh_socket_session, process_segment};

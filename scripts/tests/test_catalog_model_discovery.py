@@ -81,6 +81,16 @@ class CatalogModelDiscoveryTests(unittest.TestCase):
         self.assertEqual(report["groq"]["api_visible_not_documented_free"], ["allam-2-7b"])
         self.assertEqual(report["policy"]["catalog_mutation"], "never")
 
+    def test_shared_pricing_heading_covers_each_named_endpoint(self):
+        sections = MODULE.gemini_pricing_sections('''
+        <h2>Example Fast, Example Deep, and Example Live</h2>
+        <p>Free Tier: Free of charge</p>
+        <h2>Example Fast Plus</h2><p>Free Tier: Not available</p>
+        ''')
+        for name in ['Example Fast', 'Example Deep', 'Example Live']:
+            self.assertEqual(MODULE.gemini_pricing_status(name, sections)['status'], 'documented-free')
+        self.assertEqual(MODULE.gemini_pricing_status('Example Fast Plus', sections)['status'], 'documented-unavailable')
+
 
 if __name__ == "__main__":
     unittest.main()

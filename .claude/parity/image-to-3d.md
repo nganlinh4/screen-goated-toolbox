@@ -26,6 +26,8 @@
 - Readiness describes whether work can start, independently from the selected
   artifact's Ready label. Available reusable capacity counts as ready; active
   work or preparation without an available slot is preparing, not a failure.
+- A runtime may advertise a nonempty subset of supported generation modes. An unavailable mode disables only that choice; it must not invalidate the other creation tools or prevent installation. Missing or malformed capability metadata still fails closed.
+- Android preserves a waiting-for-user job as active and cancellable. Initial topology travels with the frozen request, status, history, and recovered draft. An open surface refreshes readiness independently of job polling; closing it stops both owners.
 
 - Windows validates the source again before submission. Fast mode requires both
   sides to be at least 32 pixels and a file no larger than 20,000,000 bytes.
@@ -216,6 +218,9 @@
   publication fails rather than silently losing an expected companion.
   A separation-compatible triangle base has no FBX companion and its committed
   GLB remains visible while the separated child revision runs.
+- Separation and refinement revisions may also return an FBX companion. Apply
+  the same paired publication, exact sibling-path, header, size, and ownership
+  checks as generation; the operation alone must not discard that artifact.
 - Segmented output preserves existing meaningful part nodes. A single-mesh
   result may be expanded by disconnected components when that produces useful
   parts.
@@ -372,6 +377,10 @@
 
 ## Verification
 
+- Converted model position bounds must describe the converted coordinates.
+  Decoding must not retain stale bounds after changing numeric representation;
+  the host continues to reject non-finite coordinates and invalid buffer ranges.
+
 - Shared fixture: `parity-fixtures/image-to-3d/state-contract.json`
 - Windows routing tests verify flow limits, topology clamping, separation
   visibility, queue state, cancellation, result validation, and history.
@@ -388,12 +397,12 @@
 
 ## Platform Deviations
 
-- The revised control groups and readiness presentation are Windows changes;
-  Android's matching control presentation has not yet been ported or verified.
-
-- The progress fixture's primary-action visibility, fresh manual-revision
-  presentation, and clarified shared-settings caption are verified on Windows.
-  Android presentation has not yet been ported or verified against this fixture.
+- Android uses native controls for initial topology and refinement choices.
+  Submitted queued and running jobs expose cancellation without a generation
+  action. Manual revisions begin with their own zero progress and elapsed time
+  while retaining the parent preview. The shared-settings caption counts only
+  unsubmitted drafts in the selected import. Readiness refreshes while the
+  creation surface remains open, including when no job is active.
 
 - Both platforms keep new project revisions in their app-managed creation
   library. Explicit export uses the system Downloads directory on Windows and
@@ -404,8 +413,10 @@
   same state contract but does not yet present the worker-owned WebView across
   its isolated process boundary; Android release acceptance must not treat a
   run that requires that interaction as passed.
-- The deferred capacity-verification badge is currently Windows-only. Android
-  does not advertise a verification action until its interactive host exists.
+- Deferred capacity verification is conditional on an actionable pending request;
+  automated preparation with no pending request exposes no verification action.
+  Android does not yet host the optional interaction surface and must fail clearly
+  if a selected runtime requires it.
 - Both platforms use the shared viewer document; only the WebView host and
   app-owned result-delivery adapter are platform-specific.
 - Platform delivery differs, but product settings, progress, cancellation,

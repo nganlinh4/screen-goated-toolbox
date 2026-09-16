@@ -47,6 +47,7 @@ pub struct LiveServerFrame {
     pub output_transcript: Option<String>,
     pub turn_complete: bool,
     pub generation_complete: bool,
+    pub interaction_status: Option<String>,
     pub interrupted: bool,
     pub error: Option<String>,
     pub error_retryable: bool,
@@ -63,6 +64,14 @@ impl LiveServerFrame {
     /// Finite response clients may stop on either server completion signal.
     pub fn response_complete(&self) -> bool {
         self.turn_complete || self.generation_complete
+    }
+
+    pub fn finite_response_complete(&self, require_interaction_idle: bool) -> bool {
+        if require_interaction_idle {
+            self.interaction_status.as_deref() == Some("IDLE")
+        } else {
+            self.response_complete()
+        }
     }
 
     /// Number of independently deliverable content observations in this frame.
@@ -118,6 +127,10 @@ pub fn parse_server_frame(message: &str) -> serde_json::Result<LiveServerFrame> 
     }
 
     if let Some(server_content) = root.get("serverContent") {
+        frame.interaction_status = server_content
+            .get("interactionStatus")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         frame.turn_complete =
             server_content.get("turnComplete").and_then(Value::as_bool) == Some(true);
         frame.generation_complete = server_content
@@ -249,6 +262,39 @@ fn protocol_error_is_retryable(error: &Value) -> bool {
 #[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finite_completion_matches_shared_contract() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/gemini-live-session/finite-completion.json"
+        )))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let frame = parse_server_frame(&case["frame"].to_string()).unwrap();
+            assert_eq!(
+                frame.finite_response_complete(false),
+                case["ordinary"].as_bool().unwrap()
+            );
+            assert_eq!(
+                frame.finite_response_complete(true),
+                case["interactionIdle"].as_bool().unwrap()
+            );
+        }
+        for case in fixture["endpointPolicies"].as_array().unwrap() {
+            let endpoint = case["endpoint"].as_str().unwrap();
+            let setup = crate::api::gemini_live::setup::LiveSetupBuilder::new(endpoint).build();
+            assert_eq!(
+                setup["setup"]["generationConfig"]["thinkingConfig"],
+                case["thinking"]
+            );
+            let profile = crate::model_config::live_endpoint_profile(endpoint).unwrap();
+            assert_eq!(
+                profile.require_interaction_idle,
+                case["interactionIdle"].as_bool().unwrap()
+            );
+        }
+    }
 
     #[test]
     fn setup_completion_requires_the_top_level_protocol_field() {

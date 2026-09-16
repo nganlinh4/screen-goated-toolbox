@@ -51,6 +51,13 @@ class CatalogBenchmarkShardTests(unittest.TestCase):
             self.assertEqual(len(provider_shards), 1)
         nvidia = next(shard for shard in shards if shard["provider"] == "nvidia")
         self.assertEqual(nvidia["models"], "")
+        self.assertEqual(nvidia["suites"], "text,coordinate,ocr")
+
+    def test_feed_vision_is_selected_without_catalog_vision_rows(self):
+        shards = MODULE.build_shards(self.catalog, set(), {"ocr"})
+        nvidia = next(shard for shard in shards if shard["provider"] == "nvidia")
+        self.assertEqual(nvidia["models"], "")
+        self.assertEqual(nvidia["suites"], "ocr")
 
 
 if __name__ == "__main__":

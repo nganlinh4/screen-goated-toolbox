@@ -45,6 +45,10 @@ internal class ProvisionalPasteMailbox {
 
     @Synchronized
     fun poll(): ProvisionalPasteEvent? = events.removeFirstOrNull()
+    @Synchronized
+    fun peek(): ProvisionalPasteEvent? = events.firstOrNull()
+    @Synchronized
+    fun consume(event: ProvisionalPasteEvent) { if (events.firstOrNull() === event) events.removeFirst() }
 
     private companion object {
         const val MAX_EVENTS = 128

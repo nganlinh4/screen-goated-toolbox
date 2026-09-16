@@ -150,6 +150,7 @@ where
         let body = read_error_body(response);
         let error = GeminiHttpError::parse(status, &body, header_delay);
         if error.retryable()
+            && crate::api::client::retry_policy::provider_retries_allowed()
             && retry_attempt < MAX_GEMINI_RETRIES
             && error
                 .retry_after

@@ -4,34 +4,34 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** One Main consumer owns Accessibility I/O; provider callbacks only enqueue bounded events. */
 internal class ProvisionalPasteDelivery(
     scope: CoroutineScope,
-    private val session: ProvisionalPasteSession,
+    session: ProvisionalPasteSession,
+    capture: (() -> ProvisionalPasteTarget?)? = null,
     private val onChanged: () -> Unit = {},
 ) {
+    private val routing = RebindingPasteSession(session, capture)
+    val attempted: Boolean get() = routing.attempted
+    private var finishDeadline: Long? = null
     private val mailbox = ProvisionalPasteMailbox()
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private val worker = scope.launch {
         try {
-            for (signal in wake) {
-                while (true) {
-                    when (val event = mailbox.poll() ?: break) {
-                        is ProvisionalPasteEvent.Interim -> {
-                            session.interim(event.text)
-                            onChanged()
-                            delay(100)
-                        }
-                        is ProvisionalPasteEvent.Final -> session.finalSegment(event.text)
-                        ProvisionalPasteEvent.Finish -> return@launch
-                    }
-                    onChanged()
-                }
+            while (true) {
+                if (finishDeadline?.let { System.nanoTime() >= it } == true) break
+                val event = mailbox.peek()
+                if (event == ProvisionalPasteEvent.Finish) break
+                if (event == null) { withTimeoutOrNull(50) { wake.receive() }; continue }
+                if (routing.deliver(event)) mailbox.consume(event)
+                onChanged()
+                delay(if (event is ProvisionalPasteEvent.Interim) 100 else 50)
             }
         } finally {
             mailbox.close(discard = true)
-            session.close()
+            routing.close()
             onChanged()
             wake.close()
         }
@@ -42,10 +42,10 @@ internal class ProvisionalPasteDelivery(
 
     fun beginDrain() {
         mailbox.beginDrain()
-        session.beginDrain()
     }
 
     suspend fun finish() {
+        finishDeadline = System.nanoTime() + 2_000_000_000
         mailbox.close(discard = false)
         wake.trySend(Unit)
         worker.join()
@@ -55,7 +55,7 @@ internal class ProvisionalPasteDelivery(
         mailbox.close(discard = true)
         worker.cancel()
         // Close synchronously before a newer capture can acquire an overlapping range.
-        session.close()
+        routing.close()
         onChanged()
     }
 

@@ -165,10 +165,13 @@ def gemini_pricing_status(display_name: str, sections: list[tuple[str, str]]) ->
     model_name = normalized_name(display_name)
     candidates: list[tuple[int, str, str]] = []
     for heading, section in sections:
-        heading_name = normalized_name(heading)
-        if not heading_name or not (model_name.startswith(heading_name) or heading_name.startswith(model_name)):
-            continue
-        candidates.append((min(len(model_name), len(heading_name)), heading, section))
+        names = [normalized_name(part) for part in re.split(r",\s*(?:and\s+)?|\s+and\s+", heading, flags=re.IGNORECASE)]
+        scores = [
+            len(model_name) * 2 if name == model_name else min(len(model_name), len(name))
+            for name in names if name and (model_name.startswith(name) or name.startswith(model_name))
+        ]
+        if scores:
+            candidates.append((max(scores), heading, section))
     if not candidates:
         return {"status": "not-documented", "pricing_heading": ""}
     longest = max(score for score, _, _ in candidates)

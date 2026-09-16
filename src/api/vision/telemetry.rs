@@ -23,6 +23,7 @@ pub(super) struct VisionCallTrace {
     prompt_bytes: usize,
     has_schema: bool,
     timeout_ms: Option<u128>,
+    first_output_budget_ms: Option<u128>,
     prepare_ms: Option<u128>,
     provider_started_ms: Option<u128>,
     wire_width: Option<u32>,
@@ -55,6 +56,9 @@ impl VisionCallTrace {
             timeout_ms: request
                 .request_timeout
                 .map(|timeouts| timeouts.total.as_millis()),
+            first_output_budget_ms: request
+                .request_timeout
+                .map(|timeouts| timeouts.first_token.as_millis()),
             prepare_ms: None,
             provider_started_ms: None,
             wire_width: None,
@@ -99,18 +103,7 @@ impl VisionCallTrace {
     }
 
     pub(super) fn finish(self, result: &Result<String>, output: &OutputObserver) {
-        if result.is_err() || crate::debug_log::diagnostics::verbose_enabled() {
-            crate::log_info!("{}", self.summary(result, output));
-        } else {
-            crate::log_info!(
-                "[VisionPerf] call={} status=ok provider={:?} model={:?} total_ms={} retries={}",
-                self.call_id,
-                one_line(&self.provider, usize::MAX),
-                one_line(&self.model, usize::MAX),
-                self.started.elapsed().as_millis(),
-                self.retry_count
-            );
-        }
+        crate::log_info!("{}", self.summary(result, output));
     }
 
     fn summary(&self, result: &Result<String>, output: &OutputObserver) -> String {
@@ -134,7 +127,7 @@ impl VisionCallTrace {
         let mut line = format!(
             "[VisionPerf] call={} status={} provider={:?} model={:?} stream={} \
              source={}x{} input_bytes={} rgba_bytes={} wire={} wire_bytes={} mime={} \
-             prompt_bytes={} schema={} timeout_ms={} prepare_ms={} provider_start_ms={} \
+             prompt_bytes={} schema={} total_budget_ms={} first_output_budget_ms={} prepare_ms={} provider_start_ms={} \
              retries={} retry_wait_ms={} \
              first_output_ms={} provider_first_output_ms={} provider_ms={} total_ms={} \
              output_chars={}",
@@ -153,6 +146,7 @@ impl VisionCallTrace {
             self.prompt_bytes,
             self.has_schema,
             optional(self.timeout_ms),
+            optional(self.first_output_budget_ms),
             optional(self.prepare_ms),
             optional(self.provider_started_ms),
             self.retry_count,

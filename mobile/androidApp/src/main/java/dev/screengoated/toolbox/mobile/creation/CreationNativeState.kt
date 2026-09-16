@@ -23,6 +23,7 @@ internal data class CreationNativeItem(
     val generationMode: String = CreationGenerationMode.QUALITY.wireName,
     val polycount: Int = CreationContract.DEFAULT_POLYCOUNT,
     val autoSegment: Boolean = false,
+    val topology: String = "quad",
     val segmentationLevel: String = "detailed",
     val model: String = "simple",
     val backgroundMode: String = "opaque",
@@ -43,8 +44,11 @@ internal data class CreationNativeUiState(
     val history: List<CreationHistoryEntry> = emptyList(),
     val selectedHistoryId: String? = null,
     val outputDirectory: String = "",
-    val preparationStatus: String = "ready",
+    val preparationStatus: String = "busy",
+    val generationModes: Set<String>? = null,
     val transientError: String? = null,
+    val inputValidation: CreationInputValidation? = null,
+    val validatingItemId: String? = null,
 ) {
     val selectedItem: CreationNativeItem?
         get() = items.firstOrNull { it.id == selectedItemId }
@@ -60,7 +64,7 @@ internal fun CreationJobStatus.toNativeStage(): CreationNativeStage = when (stag
     "done" -> CreationNativeStage.DONE
     "failed" -> CreationNativeStage.FAILED
     "cancelled" -> CreationNativeStage.CANCELLED
-    "preparing", "uploading",
+    "preparing", "uploading", "waiting_for_user",
     "generating", "segmenting", "refining", "finalizing" ->
         CreationNativeStage.RUNNING
     else -> CreationNativeStage.QUEUED

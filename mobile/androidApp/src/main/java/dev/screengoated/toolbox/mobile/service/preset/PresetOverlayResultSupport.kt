@@ -82,7 +82,7 @@ internal fun syncCanvasWindowSupport(
 }
 
 internal fun disabledActionsForWindowSupport(): Set<String> {
-    return setOf("markdown")
+    return emptySet()
 }
 
 internal fun resizeResultWindowSupport(

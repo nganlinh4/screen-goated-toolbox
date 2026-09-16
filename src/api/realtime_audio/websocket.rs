@@ -8,11 +8,18 @@ use std::net::TcpStream;
 pub fn send_setup_message(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,
     model: &str,
+    manual_activity: bool,
 ) -> Result<()> {
-    let setup = crate::api::gemini_live::setup::LiveSetupBuilder::new(model)
+    let mut builder = crate::api::gemini_live::setup::LiveSetupBuilder::new(model)
         .media_resolution(crate::api::gemini_live::setup::MediaResolution::Low)
-        .transcription(crate::api::gemini_live::setup::TranscriptionMode::Input)
-        .build();
+        .transcription(crate::api::gemini_live::setup::TranscriptionMode::Input);
+    if manual_activity {
+        builder = builder.setup_field(
+            "realtimeInputConfig",
+            serde_json::json!({"automaticActivityDetection": {"disabled": true}}),
+        );
+    }
+    let setup = builder.build();
 
     let msg_str = setup.to_string();
     socket.write(tungstenite::Message::Text(msg_str.into()))?;

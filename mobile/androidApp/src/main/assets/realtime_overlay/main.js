@@ -25,10 +25,6 @@
             toggleHeaderTitle: 'Toggle header',
             micInputTitle: 'Microphone input',
             deviceAudioTitle: 'Device audio',
-            geminiLive25Title: 'Gemini Live 2.5 (Cloud)',
-            geminiLiveTitle: 'Gemini Live (Cloud)',
-            geminiLive31Title: 'Gemini Live 3.1 (Cloud)',
-            geminiS2sTitle: 'Gemini S2S',
             unavailableSuffix: 'Unavailable',
             llmLabel: 'LLM',
             gtxLabel: 'Google Translate',
@@ -140,25 +136,16 @@
                 default: return modelName;
             }
         }
-        const TRANSCRIPTION_MODEL_LABELS = {
-            'google-gemini-2-5-live-transcribe-audio': 'Gemini Live',
-            'google-gemini-3-1-live-transcribe-audio': 'Gemini S2S',
-            'google-gemini-3-5-live-translate-audio': 'Gemini Translate',
-            'google-gemini-3-5-transcribe-live-audio': 'Gemini Transcribe',
-            'moonshine-tiny-streaming': 'Moonshine Tiny',
-            'moonshine-small-streaming': 'Moonshine Small',
-            'moonshine-medium-streaming': 'Moonshine Medium',
-            'zipformer': 'Zipformer',
-        };
 
         function transcriptionModelLabel(modelName) {
+            const labels = overlayLocale.transcriptionModelLabels || {};
             if (modelName === 'gemini-live-s2s') {
-                return TRANSCRIPTION_MODEL_LABELS['google-gemini-3-5-live-translate-audio'];
+                return labels['google-gemini-3-5-live-translate-audio'];
             }
             if (modelName === 'parakeet') {
-                return 'Parakeet (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')';
+                return labels[modelName] + ' (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')';
             }
-            return TRANSCRIPTION_MODEL_LABELS[modelName] || modelName;
+            return labels[modelName] || modelName;
         }
 
         function isLiveTranslateModel(modelName) {
@@ -233,7 +220,7 @@
             // Legacy
             const icons = document.querySelectorAll('.trans-model-icon');
             if (icons.length) setSelectedByDataValue(icons, modelName);
-            applyS2sMode(modelName === 'gemini-live-s2s' || modelName === 'google-gemini-3-5-live-translate-audio', modelName);
+            applyS2sMode(modelName === 'gemini-live-s2s' || (overlayLocale.s2sModelIds || []).includes(modelName), modelName);
         }
 
         function setFontSize(fontSize) {

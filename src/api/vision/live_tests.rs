@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn qwen_payload_stays_below_tpm_and_disables_reasoning() {
     let payload = groq_vision_payload(
-        "qwen/qwen3.6-27b",
+        "qwen/qwen3.8-27b",
         "prompt",
         "image/png",
         "AA==",
@@ -27,8 +27,28 @@ fn qwen_payload_stays_below_tpm_and_disables_reasoning() {
         false,
         None,
     );
-    assert!(generic.get("max_completion_tokens").is_none());
+    assert_eq!(
+        generic["max_completion_tokens"],
+        crate::model_config::DEFAULT_VISION_MAX_OUTPUT_TOKENS
+    );
     assert!(generic.get("reasoning_format").is_none());
+}
+
+#[test]
+fn unprofiled_nvidia_vision_has_a_finite_provider_output_budget() {
+    let payload = nvidia_vision_payload(
+        "future-vision-model",
+        "Read",
+        "image/png",
+        "AA==",
+        true,
+        None,
+    );
+    assert_eq!(
+        payload["max_tokens"],
+        crate::model_config::DEFAULT_VISION_MAX_OUTPUT_TOKENS
+    );
+    assert!(payload.get("max_completion_tokens").is_none());
 }
 
 #[test]
@@ -43,7 +63,7 @@ fn vision_schema_uses_generic_json_mode() {
         Some(&schema),
     );
     let qwen = groq_vision_payload(
-        "qwen/qwen3.6-27b",
+        "qwen/qwen3.8-27b",
         "prompt",
         "image/png",
         "AA==",
@@ -51,7 +71,7 @@ fn vision_schema_uses_generic_json_mode() {
         Some(&schema),
     );
     assert_eq!(generic["response_format"]["type"], "json_object");
-    assert_eq!(qwen["response_format"]["type"], "json_object");
+    assert_eq!(qwen["response_format"]["type"], "json_schema");
 }
 
 #[test]
@@ -134,7 +154,7 @@ fn groq_rust_pipeline_live() {
             gemini_api_key: "",
             prompt: std::env::var("GROQ_TEST_PROMPT")
                 .unwrap_or_else(|_| "Reply with only OK.".to_string()),
-            model: "qwen/qwen3.6-27b".to_string(),
+            model: "qwen/qwen3.8-27b".to_string(),
             provider: "groq".to_string(),
             image,
             original_bytes: None,
@@ -180,7 +200,7 @@ fn ocr_repetition_matrix() {
     const PROMPT: &str =
         "Extract all text from this image exactly as it appears. Output ONLY the text.";
     let models: Vec<String> = std::env::var("OCR_PROBE_MODELS")
-        .unwrap_or_else(|_| "qwen/qwen3.6-27b".to_string())
+        .unwrap_or_else(|_| "qwen/qwen3.8-27b".to_string())
         .split(',')
         .map(str::to_string)
         .collect();
@@ -311,7 +331,7 @@ fn only_endpoints_measured_to_restate_are_salvaged() {
 
     // The salvage edits replies, so only exact endpoints known to emit the
     // fragmented restatement are allowed to opt in.
-    for model in ["qwen/qwen3.6-27b", "qwen/qwen3.8-27b"] {
+    for model in ["qwen/qwen3.8-27b", "qwen/qwen3.8-27b"] {
         assert!(
             vision_request_profile("groq", model).restates_output,
             "{model} must retain its measured repetition policy"

@@ -1,0 +1,18 @@
+{
+  "activeStages": ["preparing", "uploading", "waiting_for_user", "generating", "segmenting", "refining", "finalizing"],
+  "initialReadiness": "busy",
+  "readinessPollMillis": 2000,
+  "companionOperations": ["generate", "segment", "refine"],
+  "capabilityModes": [
+    {"modes":["quality"],"compatible":true},
+    {"modes":["fast","quality"],"compatible":true},
+    {"modes":[],"compatible":false},
+    {"modes":["unknown"],"compatible":false}
+  ],
+  "topologyCases": [
+    {"mode":"fast","topology":"quad","autoSegment":false,"expected":"triangle"},
+    {"mode":"quality","topology":"quad","autoSegment":false,"expected":"quad"},
+    {"mode":"quality","topology":"triangle","autoSegment":false,"expected":"triangle"},
+    {"mode":"quality","topology":"quad","autoSegment":true,"expected":"triangle"}
+  ]
+}

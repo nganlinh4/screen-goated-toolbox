@@ -31,6 +31,7 @@ internal fun CreationBottomActions(
 ) {
     if (state.tab != CreationNativeTab.JOBS || state.selectedItem == null) return
     val item = requireNotNull(state.selectedItem)
+    val active = item.submitted && item.stage in setOf(CreationNativeStage.QUEUED, CreationNativeStage.RUNNING)
     if (tool == CreationTool.IMAGE_TO_3D && item.stage == CreationNativeStage.DONE) return
     val common = locale.creationApps.common
     val generate = when (tool) {
@@ -46,11 +47,11 @@ internal fun CreationBottomActions(
     val label = when {
         item.stage == CreationNativeStage.FAILED || item.stage == CreationNativeStage.CANCELLED ->
             common.retry
-        item.stage == CreationNativeStage.RUNNING -> common.cancel
+        active -> common.cancel
         item.stage == CreationNativeStage.DONE -> generateAgain
         else -> generate
     }
-    val action = if (item.stage == CreationNativeStage.RUNNING) {
+    val action = if (active) {
         viewModel::cancelSelected
     } else {
         viewModel::submitSelected
@@ -63,31 +64,18 @@ internal fun CreationBottomActions(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (
-                item.stage == CreationNativeStage.DONE &&
-                tool == CreationTool.IMAGE_TO_3D &&
-                item.status?.canSegment == true &&
-                !item.status.isSegmented
-            ) {
-                CreationActionButton(
-                    label = locale.creationApps.model3d.separate,
-                    accent = accent,
-                    onClick = viewModel::segmentSelected,
-                    modifier = Modifier.weight(1f),
-                )
-            }
             CreationActionButton(
                 label = label,
                 accent = accent,
                 onClick = action,
-                enabled = item.stage != CreationNativeStage.QUEUED &&
+                enabled = state.validatingItemId == null &&
                     (tool != CreationTool.IMAGE_CREATOR ||
                         item.prompt.isNotBlank() ||
-                        item.stage == CreationNativeStage.RUNNING),
-                cancel = item.stage == CreationNativeStage.RUNNING,
+                        active),
+                cancel = active,
                 modifier = Modifier
                     .weight(1f)
-                    .testTag("creation-primary-action"),
+                    .testTag(if (active) "creation-cancel-action" else "creation-primary-action"),
             )
         }
     }

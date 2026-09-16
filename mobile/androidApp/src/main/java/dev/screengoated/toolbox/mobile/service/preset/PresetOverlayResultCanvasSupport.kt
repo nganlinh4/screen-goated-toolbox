@@ -41,6 +41,13 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                 },
             )
         }
+        "markdown" -> {
+            val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
+            if (window.runtimeState.isRawHtml || window.runtimeState.isBrowsing) return
+            updateRuntimeState(window.id) { it.copy(isMarkdown = !it.isMarkdown) }
+            resultWindows[window.id]?.let(::updateResultWindowSupport)
+            setActiveResultWindow(window.id)
+        }
         "copy" -> {
             val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
             clipboardManager.setPrimaryClip(

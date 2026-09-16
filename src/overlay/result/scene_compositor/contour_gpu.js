@@ -12,7 +12,7 @@ window.__SGT_PROCESSING_GPU__ = function(canvas) {
     uniform float fieldRange,targetBand,morph,contract,softness,phase,alpha,retreat;
     uniform int controlCount;uniform vec4 controlBounds,controlWork,controlRects[16];uniform float controlRadii[16],controlAlpha;
     float rectangle(vec2 p,vec4 bounds){vec2 halfSize=(bounds.zw-bounds.xy)*.5;
-      float radius=min(28.,min(halfSize.x,halfSize.y));
+      float radius=min(8.,min(halfSize.x,halfSize.y));
       vec2 q=abs(p-(bounds.xy+bounds.zw)*.5)-(halfSize-vec2(radius));float interior=min(max(q.x,q.y),0.);
       float k=min(24.,-interior*.5),h=max(k-abs(q.x-q.y),0.);
       return length(max(q,0.))+interior+h*h/(4.*max(k,.0001))-radius;}

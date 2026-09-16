@@ -6,7 +6,6 @@ mod groq_compound;
 use crate::api::client::{UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_simple};
 use crate::api::gemini_generate::{GeminiGenerateRequest, stream_gemini_generate};
 use crate::api::openai_compat::stream_openai_compat_payload;
-use crate::api::types::ChatCompletionResponse;
 use anyhow::Result;
 use groq_compound::refine_groq_compound;
 use std::io::BufReader;
@@ -200,20 +199,19 @@ where
         return Err(anyhow::anyhow!("Groq Refine HTTP {status}: {body}"));
     }
 
-    let mut full_content = String::new();
+    let full_content;
 
     if streaming_enabled {
         let reader = BufReader::new(resp.into_body().into_reader());
         full_content =
             crate::api::openai_compat::consume_content_stream(reader, cancel_token, on_chunk)?;
     } else {
-        let root: serde_json::Value = resp.into_body().read_json()?;
+        let root: serde_json::Value = resp.into_body().read_json().map_err(|error| {
+            anyhow::anyhow!("PROVIDER_RESPONSE_INVALID:Malformed provider completion: {error}")
+        })?;
         record_groq_json_usage(p_model, &root);
-        let json: ChatCompletionResponse = serde_json::from_value(root)?;
-        if let Some(choice) = json.choices.first() {
-            full_content = choice.message.content.clone();
-            on_chunk(&full_content);
-        }
+        full_content = crate::api::openai_compat::parse_chat_completion(&root)?;
+        on_chunk(&full_content);
     }
 
     Ok(full_content)

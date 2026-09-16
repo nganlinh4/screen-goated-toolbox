@@ -365,7 +365,7 @@ class PresetOverlayHtmlTest {
             "actual_successful_retry_endpoint",
             modelBadge["identity"]!!.jsonPrimitive.content,
         )
-        assertTrue("markdown toggle exclusion should stay documented", "markdown_toggle" in unsupportedActions)
+        assertFalse("markdown toggle is supported", "markdown_toggle" in unsupportedActions)
         assertTrue("broom group/all exclusion should stay documented", "broom_group_all" in unsupportedActions)
         assertTrue(html.contains("""<div id="button-container"></div>"""))
         assertTrue(js.contains("window.setCanvasWindows"))

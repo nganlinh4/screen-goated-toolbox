@@ -108,6 +108,8 @@ internal class CreationWorkerPool private constructor(private val context: Conte
     fun setPreparationStateListener(listener: () -> Unit) {
         preparationStateListener = listener
     }
+    fun generationModes(): Set<String>? = runtime.factory()?.runtimeManifest()
+        ?.let { dev.screengoated.toolbox.mobile.creation.runtime.runtimeGenerationModes(it) }
 
     private fun schedulePreparation() {
         if (runtime.factory() == null) {

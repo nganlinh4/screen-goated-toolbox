@@ -294,6 +294,10 @@ Build or install a locally deliverable Play debug bundle with:
 The serial is mandatory for install and scopes the generated APK set. BundleTool
 refreshes the exact device specification before each targeted build, so a reused
 serial cannot silently reuse splits for a different ABI, density, locale, or SDK.
+Omit the serial when building an APK set for all supported devices. If multiple
+ADB installations exist, pass `-PlocalTestingAdbPath=<absolute-adb-path>` to select
+the executable used for device inspection and installation. Use
+`--no-configuration-cache` for these BundleTool tasks.
 
 After building the Play release bundle, verify native/model ownership, exact
 model bytes, the private confirmation proxy, and updater strings with:

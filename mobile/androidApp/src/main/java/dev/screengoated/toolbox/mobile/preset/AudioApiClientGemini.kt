@@ -113,6 +113,7 @@ internal suspend fun AudioApiClient.transcribeWithGeminiLiveInput(
         model = model,
         apiKey = apiKey,
         onChunk = onChunk,
+        manualActivity = GeneratedLiveModelCatalog.endpointProfile(model.fullName)?.protocol == "native-audio",
     )
     val samples = PresetAudioCodec.decodePcm16MonoWav(wavBytes)
     try {
@@ -136,6 +137,7 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
     apiKey: String,
     onChunk: (String) -> Unit,
     onInterim: (String) -> Unit = {},
+    manualActivity: Boolean = false,
 ): AudioStreamingSession {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:google")
     val events = LinkedBlockingDeque<GeminiLiveInputEvent>()
@@ -155,6 +157,12 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
                 val extensions = if (dedicatedTranscribe) {
                     buildJsonObject {
                         put("sessionResumption", buildJsonObject {})
+                    }
+                } else if (manualActivity) {
+                    buildJsonObject {
+                        put("realtimeInputConfig", buildJsonObject {
+                            put("automaticActivityDetection", buildJsonObject { put("disabled", true) })
+                        })
                     }
                 } else if (endpoint?.automaticActivityDetectionDefault == true) {
                     buildJsonObject {
@@ -254,7 +262,13 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
         closeSocketIfNeeded(socket, closed)
         throw error
     }
-    val sendEnd = { socket.send("{\"realtimeInput\":{\"audioStreamEnd\":true}}") }
+    if (manualActivity && !socket.send("{\"realtimeInput\":{\"activityStart\":{}}}")) {
+        closeSocketIfNeeded(socket, closed)
+        throw IOException("Gemini Live activity start failed")
+    }
+    val sendEnd = {
+        socket.send(if (manualActivity) "{\"realtimeInput\":{\"activityEnd\":{}}}" else "{\"realtimeInput\":{\"audioStreamEnd\":true}}")
+    }
     val boundaryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     if (dedicatedTranscribe) boundaryScope.launch {
         while (isActive && !closed.get()) {
@@ -290,13 +304,14 @@ internal suspend fun AudioApiClient.openGeminiLiveInputSession(
             boundaryScope.cancel()
             try {
                 inputBoundary.finish(sendEnd)
-                var concludeUntil = android.os.SystemClock.elapsedRealtime() + 1_200
-                val maxConcludeUntil = android.os.SystemClock.elapsedRealtime() + 5_000
+                val concludeStart = android.os.SystemClock.elapsedRealtime()
+                var concludeUntil = concludeStart + if (finalTranscript.isEmpty()) 15_000 else 2_000
+                val maxConcludeUntil = concludeStart + 15_000
                 while (android.os.SystemClock.elapsedRealtime() < concludeUntil && android.os.SystemClock.elapsedRealtime() < maxConcludeUntil) {
                     coroutineContext.ensureActive()
                     when (val event = events.poll()) {
                         is GeminiLiveInputEvent.Error -> throw IOException(event.message)
-                        GeminiLiveInputEvent.FinalTranscript -> concludeUntil = android.os.SystemClock.elapsedRealtime() + 700
+                        GeminiLiveInputEvent.FinalTranscript -> concludeUntil = android.os.SystemClock.elapsedRealtime() + 2_000
                         GeminiLiveInputEvent.Closed -> break
                         null -> kotlinx.coroutines.delay(50)
                     }

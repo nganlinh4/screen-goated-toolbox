@@ -1,0 +1,11 @@
+{
+  "persistLauncherOverride": false,
+  "submission": "clear_and_refocus_editor",
+  "selection": {"trigger":"explicit_touch", "stop":"invalidate_pending_capture", "source":"windows_selection_badge", "overlappingCapture":false,"reopenSamePreset":"reject_previous_badge_callbacks"},
+  "cases": [
+    {"configured":false,"held":false,"effective":false},
+    {"configured":false,"held":true,"effective":true},
+    {"configured":true,"held":false,"effective":true},
+    {"configured":true,"held":true,"effective":true}
+  ]
+}

@@ -11,6 +11,7 @@ internal fun presetButtonCanvasBaseHtmlTemplate(): String {
             <style id="theme-css">{{THEME_CSS}}</style>
             <style>{{BASE_CSS}}</style>
             <style>
+                .markdown-toggle[hidden] { display: none !important; }
                 .opacity-btn-expandable.touch-expanded:not(.vertical-slider) {
                     width: 110px !important;
                     background: var(--btn-hover-bg) !important;
@@ -87,8 +88,24 @@ internal fun mobileCanvasJavascript(): String {
 
         function applyMobileCanvasAdaptations() {
             document.querySelectorAll('.button-group').forEach(group => {
-                const markdownBtn = group.querySelector('[data-action="markdown"]');
-                if (markdownBtn) markdownBtn.remove();
+                let markdownBtn = group.querySelector('[data-action="markdown"]');
+                if (!markdownBtn) {
+                    markdownBtn = document.createElement('div');
+                    markdownBtn.className = 'btn markdown-toggle';
+                    markdownBtn.dataset.action = 'markdown';
+                    markdownBtn.setAttribute('role', 'button');
+                    markdownBtn.tabIndex = 0;
+                    markdownBtn.title = window.L10N.markdown;
+                    markdownBtn.setAttribute('aria-label', window.L10N.markdown);
+                    markdownBtn.onclick = () => action(group.dataset.hwnd, 'markdown');
+                    markdownBtn.onkeydown = event => {
+                        if (event.key === 'Enter' || event.key === ' ') markdownBtn.click();
+                    };
+                    group.appendChild(markdownBtn);
+                }
+                markdownBtn.hidden = group.dataset.rawHtml === 'true';
+                markdownBtn.innerHTML = window.iconSvgs[group.dataset.markdown === 'false' ? 'notes' : 'newsmode'];
+                markdownBtn.setAttribute('aria-pressed', group.dataset.markdown !== 'false');
                 const broomBtn = group.querySelector('.btn.broom');
                 if (broomBtn) broomBtn.remove();
             });
@@ -117,6 +134,8 @@ internal fun mobileCanvasJavascript(): String {
             const hwnd = String(windowData.id || '');
             const isVertical = !!windowData.vertical;
             const state = windowData.state || {};
+            group.dataset.rawHtml = state.isRawHtml ? 'true' : 'false';
+            group.dataset.markdown = state.isMarkdown === false ? 'false' : 'true';
             const nextStateKey = JSON.stringify(state) + ':' + (isVertical ? 'v' : 'h');
             if (group.dataset.lastState !== nextStateKey || renderedWindowId !== hwnd) {
                 group.innerHTML = generateButtonsHTML(hwnd, state, isVertical);

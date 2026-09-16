@@ -128,8 +128,9 @@ internal class PresetAudioCaptureSession(
                 AccessibilityProvisionalPasteTarget.capture(SgtAccessibilityService.instance),
             )
             val generation = streamingPaste.generation
-            provisionalDelivery = ProvisionalPasteDelivery(scope, paste) {
-                if (generation == streamingPaste.generation) streamingPaste.recordInsertion(paste.attempted)
+            provisionalDelivery = ProvisionalPasteDelivery(scope, paste,
+                capture = { AccessibilityProvisionalPasteTarget.capture(SgtAccessibilityService.instance) }) {
+                if (generation == streamingPaste.generation) streamingPaste.recordInsertion(provisionalDelivery?.attempted == true)
             }
             // This session owns delivery, including refusal; the final result cannot bypass it.
             streamingPaste.accept(streamingPaste.generation)

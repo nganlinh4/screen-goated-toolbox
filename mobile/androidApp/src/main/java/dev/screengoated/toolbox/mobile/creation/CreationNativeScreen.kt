@@ -76,6 +76,12 @@ internal fun CreationNativeScreen(
         CreationTool.IMAGE_CREATOR -> locale.creationApps.appImageCreatorTitle
     }
     val snackbar = remember { SnackbarHostState() }
+    state.inputValidation?.let { failure ->
+        CreationInputValidationDialog(failure.error, locale.localeCode,
+            viewModel::dismissInputValidation,
+            { viewModel.dismissInputValidation(); viewModel.submitSelected() },
+            { viewModel.dismissInputValidation(); onPickImages() })
+    }
     LaunchedEffect(viewModel) {
         withFrameNanos { }
         viewModel.activateSurface()

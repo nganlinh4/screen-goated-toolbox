@@ -53,11 +53,26 @@ PROFILE_FIELDS = (
 
 
 def validate_manifest(manifest: dict) -> None:
+    vision_limit = manifest.get("constants", {}).get("default_vision_max_output_tokens")
+    if type(vision_limit) is not int or not 0 < vision_limit <= 2_147_483_647:
+        raise ValueError("default vision output budget must be a positive signed 32-bit integer")
     if manifest.get("schema_version") != 8:
         raise ValueError("catalog schema_version must be 8")
     if "model_id_migrations" in manifest:
         raise ValueError("permanent model ID migrations are forbidden")
     models = manifest["models"]
+    rows_by_id = {model["id"]: model for model in models}
+    for model_id in manifest["realtime_s2s_model_ids"]:
+        row = rows_by_id.get(model_id)
+        if row is None or not row["enabled"] or row["model_type"] != "Audio" or row["provider"] != "gemini-live":
+            raise ValueError(f"S2S requires an enabled Gemini Live audio row: {model_id}")
+        if manifest["endpoints"][row["full_name"]].get("live_protocol") not in {"native-audio", "live-translate"}:
+            raise ValueError(f"S2S requires an audio-output protocol: {model_id}")
+    labels = manifest["realtime_transcription_labels"]
+    for options in manifest["realtime_transcription_options"].values():
+        for model_id in options:
+            if not isinstance(labels.get(model_id), str) or not labels[model_id].strip():
+                raise ValueError(f"missing realtime transcription label for {model_id}")
     presentation_variants = manifest["presentation_variants"]
     _validate_presentation_variants(models, presentation_variants)
     _validate_models(models, manifest["model_profiles"], presentation_variants)
@@ -99,7 +114,7 @@ def _validate_vision_request_profiles(manifest: dict) -> None:
         }
         # Optional because it records a fault measured on one endpoint. Requiring
         # it everywhere would declare every other endpoint sound unchecked.
-        optional = {"restates_output", "min_reliable_pixels"}
+        optional = {"restates_output"}
         missing = required - set(request_profile)
         if missing:
             raise ValueError(
@@ -112,11 +127,6 @@ def _validate_vision_request_profiles(manifest: dict) -> None:
             )
         if not isinstance(request_profile.get("restates_output", False), bool):
             raise ValueError(f"restates_output must be a boolean for {profile_key}")
-        floor = request_profile.get("min_reliable_pixels")
-        if floor is not None and (not isinstance(floor, int) or floor <= 0):
-            raise ValueError(
-                f"min_reliable_pixels must be a positive integer for {profile_key}"
-            )
         if request_profile.get("input_order") not in {"text-first", "image-first"}:
             raise ValueError(f"unsupported input_order for {profile_key}")
         if request_profile.get("media_resolution") != "provider-default":
@@ -485,7 +495,9 @@ def _validate_live_profile(endpoint: str, metadata: dict) -> None:
     protocol = metadata.get("live_protocol")
     if protocol is not None and (not isinstance(protocol, str) or not protocol.strip()):
         raise ValueError(f"invalid live_protocol for {endpoint}")
-    if protocol == "native-audio" and (thinking is None or limit is None):
+    if metadata.get("live_completion", "turn-or-generation") not in {"turn-or-generation", "interaction-idle"}:
+        raise ValueError(f"invalid live_completion for {endpoint}")
+    if protocol == "native-audio" and ("live_thinking" not in metadata or limit is None):
         raise ValueError(
             f"native-audio endpoint {endpoint} must define thinking and output policy"
         )

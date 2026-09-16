@@ -73,8 +73,6 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         let is_device = audio_source == "device";
 
         {
-            let gemini_id = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_2_5;
-            let gemini_3_1_id = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_3_1;
             let qwen3_0_6b_id = crate::model_config::QWEN3_ASR_0_6B_MODEL_ID;
 
             // Build transcription model dropdown options from the shared model catalog.
@@ -98,9 +96,9 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 let app = crate::APP.lock().unwrap();
                 app.config.realtime_transcription_language.clone()
             };
-            let is_all_lang = transcription_model == gemini_id
-                || transcription_model == gemini_3_1_id
-                || crate::model_config::is_gemini_live_s2s_model_id(transcription_model)
+            let is_all_lang = crate::model_config::get_all_models()
+                .iter()
+                .any(|model| model.id == transcription_model && model.provider == "gemini-live")
                 || transcription_model == qwen3_0_6b_id
                 || transcription_model == qwen3_1_7b_id;
             let is_en_only = transcription_model == "parakeet";
@@ -279,6 +277,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         crate::overlay::html_components::js_logic::get(placeholder_text, is_translation)
     );
     let l10n_json = serde_json::json!({
+        "s2sModelIds": crate::model_config::GENERATED_REALTIME_S2S_MODEL_IDS,
         "translationModel": text.realtime.realtime_tooltip_translation_model,
         "s2sTranslationModel": text.realtime.realtime_tooltip_s2s_translation_model,
         "targetLanguage": text.realtime.realtime_tooltip_target_language,

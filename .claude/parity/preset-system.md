@@ -21,18 +21,17 @@
   runtime catalog.
 - The catalog owns the generic image default, accuracy-sensitive image default,
   preset-specific model defaults, provider defaults, and both retry chains.
-  Qwen 3.6 is the generic image default because the latest complete run gives it
-  the strongest small-image OCR quality at the lowest full-result median; Qwen
-  3.8 remains its immediate clean successor. Built-in image
+  The generic image default follows the first available reviewed catalog entry.
+  Built-in image
   translation and accuracy-labeled OCR pipelines, structured tables, fact
   checking, comprehensive extraction, and ask-image all follow that broad
   stable default. Catalog availability or priority-chain membership does not
   make a model a built-in preset default. Authority-bearing Computer/Phone
   Control keeps its separate catalog-owned model chain.
 - The fast text-arena seed uses Groq GPT-OSS 20B. The general image retry
-  chain keeps Qwen 3.6 first and Qwen 3.8 second, then prioritizes reliable
+  chain keeps Qwen 3.8 first, then prioritizes reliable
   broad-image and provider-diverse OCR endpoints before higher-variance
-  fallbacks. The text chain keeps Qwen 3.8 first, with Qwen 3.6 and Groq
+  fallbacks. The text chain keeps Qwen 3.8 first, with Groq
   GPT-OSS as fast fallbacks before the remaining hosted endpoints. Most slow or
   lower-reliability endpoints remain selectable outside the bounded shipped
   chain; its final OpenRouter row preserves a provider-diverse fallback. Exact
@@ -59,7 +58,7 @@
 - The panel preserves Windows keep-open, size, multi-column, overlap, animation, drag/reposition, and refresh semantics through a thin Android bridge.
 - Input uses the Windows text-input DOM/CSS/message contract, including submit, cancel, history, close, and working microphone input.
 - Permission-gated image/audio paths fail before capture, explain the required Android permission, and preserve retry state.
-- Image presets support continuous relaunch. Non-image continuous mode remains a documented gap.
+- Image presets support continuous relaunch. Holding a text-input preset opens a persistent editor: submitting clears and refocuses it without changing the saved preset. Holding a selected-text preset retains the canonical Windows selection badge; tapping captures a fresh selection, and Stop disarms further captures. Android uses explicit touch capture because desktop mouse-release monitoring has no equivalent. Each callback remains bound to the active invocation; a stopped or replaced invocation cannot submit late clipboard text.
 - Result windows are session-owned, precreated in loading state, multi-window, and support markdown streaming or raw HTML according to block render mode.
 - Raw HTML is a document lifecycle, not a Markdown DOM update. A complete raw
   document (including one harmless outer `html`/`htm` code fence) is normalized,
@@ -73,9 +72,33 @@
 - Android result and mini-app WebViews follow [the shared Android overlay rendering contract](../../parity-fixtures/android-webview-overlays/rendering-contract.json): each overlay window owns hardware acceleration and its WebView composes directly without a persistent offscreen hardware layer.
 - Reuse Windows markdown fitting/theme/font/table and button-canvas contracts. Preserve text selection, one-finger window drag, two-finger bidirectional content scroll, navigation recovery, and result geometry ownership.
 - Edit/refine, undo/redo, share/download, and speaker actions are real Android actions. Refine starts with the endpoint that actually produced the displayed text when it is text-capable, then uses the current adaptive Text-to-Text retry chain and circuit policy. Its result badge follows the endpoint that completes the refine. Do not list implemented actions as placeholders.
-- Android still omits the desktop markdown/plain toggle and broom mouse-button variants.
+- Android result controls expose the Markdown/plain toggle. Plain mode escapes the source text and preserves it through streaming, refinement, history navigation, and theme changes. Raw HTML documents keep their own lifecycle and do not expose the toggle. Broom mouse-button variants remain desktop-specific.
+- Tablet acceptance exercises the real language picker and overlay WebViews in
+  both distributions: language selection persists, continuous submissions clear
+  and refocus without persisting the launch override, result toggles survive
+  content/theme updates, and stopping continuous selection disarms later input.
+  Reopening the same selection preset creates a new invocation; queued callbacks
+  from the destroyed badge cannot capture or stop the replacement.
 
 ## Provider Contract
+
+- OpenAI-compatible text and vision adapters preserve provider error events,
+  including errors carried by an HTTP-success stream. Malformed data events,
+  empty output, incomplete streams, and non-success completion reasons fail the
+  attempt. A stream completes only with `[DONE]` or an explicit successful
+  finish reason; unary replies reject explicit non-success finish reasons.
+  Usage-only events and SSE comments do not count as output. After a successful
+  finish, empty deltas may repeat the successful finish or carry metadata;
+  further output, malformed deltas, errors, and non-success finishes still fail.
+  The same reducer
+  serves ordinary streaming text, refinement, and vision on both platforms.
+  Partial output may be presented provisionally but is never accepted as a
+  successful final result after a failed completion.
+  Structural completion failures carry `PROVIDER_RESPONSE_INVALID` and advance
+  the normal model fallback chain. Cancellation remains terminal and must not
+  enter a buffered-reader retry loop.
+  Image-token admission reserves apply only to Vision rows, including when a
+  text row shares an endpoint or an unprofiled endpoint has an output budget.
 
 - Structured text callers explicitly choose provider-enforced schemas or
   locally validated streaming. The latter is permitted only when the caller
@@ -113,6 +136,7 @@
   `GG Live cũ`.
 - Every native Live setup envelope is built through the platform's typed setup builder; endpoint policy is applied by construction and feature adapters supply only capability deltas.
 - Live server events are decoded structurally. Setup completion must be a top-level field, all audio parts in a frame are retained, and finite responses complete on either `turnComplete` or `generationComplete`.
+- Finite Gemini Live text/vision response waits remain cancellable before and after first output. Cancelling closes the owning socket and prevents any subsequent chunk delivery; an empty frame does not count as first output. Setup errors take precedence over acknowledgement.
 - Blank, legacy, or unknown Gemini TTS model values normalize to the catalog-owned TTS default on both platforms; listed models remain unchanged.
 - Provider/auth failures and retryable model failures remain distinct. Retrying an open result updates its loading status.
 - Every enabled provider has a complete encrypted credential path from settings
@@ -122,16 +146,15 @@
 - A non-streaming plain-text vision caller never requests JSON mode or a schema.
   Endpoint profiles that may restate the requested output use the same
   endpoint-scoped repetition guard on both platforms; unrelated endpoints and
-  structured callers are unchanged. Only the exact Groq Qwen 3.6 and Qwen 3.8
-  vision profiles currently opt into this guard.
+  structured callers are unchanged. The catalog owns which endpoints opt in.
 - Ordinary LLM vision request shape comes from
   `catalog/model_catalog.json#vision_request_profiles` on both platforms.
   Google vision endpoints send image before text; Groq Qwen sends text before
   image. Media resolution remains provider-default:
   small-image probes showed no durable completion-latency win from forcing a
-  lower setting. Plain OCR is non-streaming because the product consumes the
-  complete transcription and the tested endpoints generally buffer their first
-  visible output until near completion.
+  lower setting. Plain OCR uses progress streaming when the endpoint supports
+  it, with interactive first-output deadlines, even when presentation waits for
+  the complete transcription.
 - A caller-supplied vision schema is sent only when the endpoint profile declares
   strict structured-output support. Gemini uses `responseJsonSchema`; endpoints
   without that capability keep their catalog-owned prompt-only or JSON-object
@@ -169,11 +192,20 @@
 - Computer-control pixel grounding has a separate catalog-owned fail-closed primary/fallback chain, locked by the Phone Control model-chain fixture. `CC_VISION_MODEL` explicitly replaces that default chain with one diagnostic model. General OCR/description fallbacks never inherit authority to click. A transport error, empty response, or malformed structured response may advance to the next grounding model; a valid not-visible or verification rejection is terminal. Coordinate clicks require a fresh marked-crop verification at 70% confidence; `CC_VERIFY_LOCATE=0` is a diagnostic escape hatch, not a preset default.
 - Retry state is shared by all preset request paths in a process. A rate-limit
   response observes a provider-reported delay between five seconds and six hours
-  or uses the five-minute default. Two consecutive timeouts open a thirty-minute
-  circuit; unavailable and billing failures open a six-hour circuit. Open
+  or uses the five-minute default. The first two consecutive timeout failures each
+  open a fifteen-second circuit. The third and subsequent timeout failures open a
+  sixty-second circuit, capped there. Success resets the timeout sequence. HTTP 5xx
+  and invalid provider responses open a fifteen-second circuit, except an output token limit (which still
+  advances the current chain but is request-dependent). This health state skips
+  requests before network I/O without changing the configured order or using
+  image dimensions. Unavailable and billing failures open a six-hour circuit. Open
   circuits become half-open after expiry and admit one probe. Success closes the
   circuit and clears failure state; a cancelled or abandoned probe releases its
-  claim. Recorded token-budget reset metadata may defer a request before network
+  claim. Interactive preset chains own retries: adapters return HTTP failures to
+  the chain immediately without sleeping and retrying the same endpoint. Android
+  already dispatches one HTTP attempt; Windows scopes this ownership to synchronous
+  chain execution so standalone provider calls retain their existing retry policy.
+  Recorded token-budget reset metadata may defer a request before network
   I/O when the known remaining budget cannot admit it. Provider error bodies and
   structural `retry-after` headers remain in the classified failure instead of
   being reduced to a status code. Presentation streaming and transport streaming
@@ -208,6 +240,7 @@
 
 - [audio-runtime.json](../../parity-fixtures/preset-system/audio-runtime.json)
 - [catalog-overrides.json](../../parity-fixtures/preset-system/catalog-overrides.json)
+- [chat-completion.json](../../parity-fixtures/preset-system/chat-completion.json)
 - [custom-models-dialog.json](../../parity-fixtures/preset-system/custom-models-dialog.json)
 - [gemini-live-socket-protocol.json](../../parity-fixtures/preset-system/gemini-live-socket-protocol.json)
 - [node-graph-editor.json](../../parity-fixtures/preset-system/node-graph-editor.json)

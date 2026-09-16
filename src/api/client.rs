@@ -7,6 +7,7 @@ use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 #[path = "client/download_transport.rs"]
 mod download_transport;
 pub mod first_token;
+pub(crate) mod retry_policy;
 mod token_transport;
 
 const STREAM_RESPONSE_START_TIMEOUT: Duration = Duration::from_secs(120);

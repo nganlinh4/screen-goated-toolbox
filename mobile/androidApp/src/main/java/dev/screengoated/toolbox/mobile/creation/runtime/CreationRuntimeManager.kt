@@ -106,8 +106,9 @@ private fun parseCreationRuntimeCapabilities(value: String): CreationRuntimeCapa
     val threeD = requireNotNull(tools.optJSONObject(IMAGE_TO_3D_TOOL))
     require(threeD.keys().asSequence().toSet() == setOf(GENERATION_MODES))
     val modes = requireNotNull(threeD.optJSONObject(GENERATION_MODES))
-    require(modes.keys().asSequence().toSet() == CREATION_GENERATION_MODES)
-    val optionalInstruction = CREATION_GENERATION_MODES.associateWith { mode ->
+    val advertisedModes = modes.keys().asSequence().toSet()
+    require(advertisedModes.isNotEmpty() && CREATION_GENERATION_MODES.containsAll(advertisedModes))
+    val optionalInstruction = advertisedModes.associateWith { mode ->
         val descriptor = requireNotNull(modes.optJSONObject(mode))
         require(descriptor.keys().asSequence().toSet() == setOf(OPTIONAL_INSTRUCTION))
         val capability = descriptor.opt(OPTIONAL_INSTRUCTION)
@@ -125,6 +126,9 @@ internal fun runtimeSupportsOptionalInstruction(value: String, mode: String): Bo
     parseCreationRuntimeCapabilities(value)
         ?.optionalInstruction
         ?.get(mode) == true
+
+internal fun runtimeGenerationModes(value: String): Set<String>? =
+    parseCreationRuntimeCapabilities(value)?.optionalInstruction?.keys
 
 private const val MAXIMUM_RUNTIME_FEATURES = 32
 private const val IMAGE_TO_3D_TOOL = "image_to_3d"

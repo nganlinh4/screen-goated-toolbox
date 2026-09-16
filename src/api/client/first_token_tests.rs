@@ -323,7 +323,8 @@ fn native_tls_survives_read_polls_after_first_output() {
 #[test]
 fn reused_connection_gets_a_fresh_first_token_deadline() {
     let (url, worker) = server(|socket| {
-        let body = b"data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n";
+        let body =
+            b"data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"stop\"}]}\n\n";
         write!(
             socket,
             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",

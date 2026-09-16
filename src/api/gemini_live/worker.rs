@@ -83,6 +83,8 @@ fn serve(
     }
 
     let mut thinking_sent = false;
+    let require_interaction_idle = crate::model_config::live_endpoint_profile(&request.req.model)
+        .is_some_and(|profile| profile.require_interaction_idle);
     let mut content_started = false;
     let response_start = Instant::now();
     let response_timeout = Duration::from_secs(20);
@@ -90,6 +92,12 @@ fn serve(
     let mut last_content_at: Option<Instant> = None;
 
     loop {
+        if require_interaction_idle && response_start.elapsed() >= Duration::from_secs(90) {
+            let _ = request.response_tx.send(LiveEvent::Error(
+                "Response did not reach interaction idle before deadline".to_string(),
+            ));
+            break;
+        }
         if request.req.is_cancelled_or_expired()
             || !manager.is_generation_valid(request.generation)
             || manager.shutdown.load(Ordering::SeqCst)
@@ -116,7 +124,7 @@ fn serve(
                         let _ = request.response_tx.send(LiveEvent::TextChunk(text));
                     }
                 }
-                if frame.response_complete() {
+                if frame.finite_response_complete(require_interaction_idle) {
                     let _ = request.response_tx.send(LiveEvent::TurnComplete);
                     break;
                 }
@@ -126,7 +134,7 @@ fn serve(
                 break;
             }
             Ok(LivePoll::PeerClosed(frame)) => {
-                if content_started {
+                if content_started && !require_interaction_idle {
                     let _ = request.response_tx.send(LiveEvent::TurnComplete);
                 } else {
                     let detail = frame
@@ -139,11 +147,11 @@ fn serve(
                         })
                         .unwrap_or_else(|| "no close details".to_string());
                     // No content yet + socket closed: retryable if this was a warm socket.
-                    if response_start.elapsed() < Duration::from_millis(500) {
+                    if !content_started && response_start.elapsed() < Duration::from_millis(500) {
                         return Err(());
                     }
                     let _ = request.response_tx.send(LiveEvent::Error(format!(
-                        "Connection closed before response content was received ({detail})"
+                        "Connection closed before response completion ({detail})"
                     )));
                 }
                 break;
@@ -151,6 +159,7 @@ fn serve(
             Ok(LivePoll::Unparsed { .. }) => {}
             Ok(LivePoll::Idle) => {
                 if let Some(last) = last_content_at
+                    && !require_interaction_idle
                     && last.elapsed() >= idle_finalize_after
                 {
                     let _ = request.response_tx.send(LiveEvent::TurnComplete);

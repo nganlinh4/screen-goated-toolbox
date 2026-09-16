@@ -19,7 +19,7 @@ object LiveTranslateParity {
         return previousLanguage != nextLanguage &&
             (
                 transcriptionProviderId == "gemini-live-s2s" ||
-                    transcriptionProviderId == "google-gemini-3-5-live-translate-audio"
+                    transcriptionProviderId in GeneratedLiveModelCatalog.realtimeS2sModelIds
                 )
     }
 

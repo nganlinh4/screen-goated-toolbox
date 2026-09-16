@@ -85,6 +85,21 @@ internal class PresetOverlayController(
         null
     }
     internal var activePreset: ResolvedPreset? = null
+    internal var selectionCaptureGeneration = 0L
+    internal var selectionCapturePending = false
+    internal val continuousSelection: PresetContinuousSelection = PresetContinuousSelection(
+        context, windowManager, ::uiLanguage, ::isDarkTheme,
+        stopped = {
+            selectionCaptureGeneration++
+            selectionCapturePending = false
+            processingIndicator.dismiss()
+        },
+    ) { resolved ->
+        if (!selectionCapturePending && !presetRepository.executionState.value.isExecuting && !inputModule.hasWindow()) {
+            activePreset = resolved
+            capturePresetSelection(resolved) { continuousSelection.presetId == resolved.preset.id }
+        }
+    }
     internal var bubbleBounds = OverlayBounds(x = 0, y = 0, width = dp(48), height = dp(48))
     internal var imageContinuousPresetId: String? = null
     internal var imageContinuousRearmPending = false
@@ -302,6 +317,8 @@ internal class PresetOverlayController(
     }
 
     fun destroy() {
+        selectionCaptureGeneration++
+        continuousSelection.close()
         catalogJob?.cancel()
         executionJob?.cancel()
         uiPreferencesJob?.cancel()
@@ -447,6 +464,8 @@ internal class PresetOverlayController(
     }
 
     internal fun dismissAllOverlays() {
+        selectionCaptureGeneration++
+        continuousSelection.close()
         processingIndicator.dismiss()
         dismissTarget.hide()
         panelModule.dismiss()

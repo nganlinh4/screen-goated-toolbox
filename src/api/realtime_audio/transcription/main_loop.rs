@@ -70,13 +70,15 @@ pub(super) struct RealtimeMainLoop<'a> {
 }
 
 #[cfg(test)]
-#[derive(Default)]
+#[derive(Default, serde::Serialize)]
 pub(super) struct SessionObservations {
     pub(super) first_no_result_reconnect_ms: Option<u128>,
     pub(super) transcript_updates: u64,
     pub(super) transcript_updates_after_first_flush: u64,
     pub(super) interim_updates: u64,
     pub(super) final_updates: u64,
+    pub(super) input_events: Vec<(u128, bool, String)>,
+    pub(super) generated_audio_bytes: usize,
 }
 
 pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
@@ -288,6 +290,11 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
 
         match session.poll() {
             Ok(LivePoll::Frame(frame)) => {
+                #[cfg(test)]
+                if let Some(observations) = observations.as_ref() {
+                    observations.lock().unwrap().generated_audio_bytes +=
+                        frame.audio_chunks.iter().map(Vec::len).sum::<usize>();
+                }
                 if frame.content_count() > 0 || frame.response_complete() || frame.interrupted {
                     recovery.reset();
                 }
@@ -318,6 +325,11 @@ pub(super) fn run_main_loop(params: RealtimeMainLoop<'_>) -> Result<()> {
                     if let Some(observations) = observations.as_ref() {
                         let mut observations = observations.lock().unwrap();
                         observations.transcript_updates += 1;
+                        observations.input_events.push((
+                            session_started.elapsed().as_millis(),
+                            is_final,
+                            transcript.clone(),
+                        ));
                         if is_final {
                             observations.final_updates += 1;
                         } else {
