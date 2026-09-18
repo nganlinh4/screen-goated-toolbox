@@ -13,6 +13,10 @@ versioned asset on the
 [`sgt-runtime-bundles`](https://github.com/nganlinh4/screen-goated-toolbox/releases/tag/sgt-runtime-bundles)
 release. That release is append-only: never replace or delete an asset that a
 released host can reference.
+Signed component discovery enumerates the stable release's paginated asset API,
+bounded per response and by elapsed time. Unrelated historical packages do not
+consume a fixed catalog-entry allowance. Catalog size, digest, signature, and
+host-compatibility checks still apply before activation.
 
 Mutable branches, nightly aliases, floating model revisions, and guessed URLs
 are not executable delivery contracts. HTTPS provides transport; the signed
