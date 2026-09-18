@@ -5,7 +5,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$resolvedExecutable = Join-Path $repoRoot $Executable
+$resolvedExecutable = if ([System.IO.Path]::IsPathRooted($Executable)) {
+    $Executable
+} else {
+    Join-Path $repoRoot $Executable
+}
 
 if (-not $SkipBuild) {
     Push-Location $repoRoot
@@ -32,12 +36,20 @@ $cases = @(
 
 foreach ($case in $cases) {
     Write-Host "Running $($case.Name) compositor restart smoke..."
-    $process = Start-Process `
-        -FilePath $resolvedExecutable `
-        -ArgumentList $case.Flag `
-        -PassThru `
-        -Wait `
-        -WindowStyle Hidden
+    $previousAcceptanceMode = $env:SGT_RESULT_COMPOSITOR_ACCEPTANCE_OFFSCREEN
+    try {
+        if ($case.Name -eq "result") {
+            $env:SGT_RESULT_COMPOSITOR_ACCEPTANCE_OFFSCREEN = "1"
+        }
+        $process = Start-Process `
+            -FilePath $resolvedExecutable `
+            -ArgumentList $case.Flag `
+            -PassThru `
+            -Wait `
+            -WindowStyle Hidden
+    } finally {
+        $env:SGT_RESULT_COMPOSITOR_ACCEPTANCE_OFFSCREEN = $previousAcceptanceMode
+    }
     if ($process.ExitCode -ne 0) {
         throw "$($case.Name) compositor smoke failed with exit code $($process.ExitCode)"
     }

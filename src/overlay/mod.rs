@@ -55,6 +55,15 @@ pub fn set_is_busy(busy: bool) {
     IS_BUSY_WITH_OVERLAY.store(busy, Ordering::SeqCst);
 }
 
+pub(crate) fn try_claim_capture() -> bool {
+    if selection::is_selection_overlay_active() || image_continuous_mode::is_active() {
+        return false;
+    }
+    IS_BUSY_WITH_OVERLAY
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+}
+
 pub mod utils; // MASTER preset wheel
 // realtime_overlay module removed (was old GDI-based, now using realtime_webview)
 pub mod favorite_bubble; // Floating bubble for favorite presets

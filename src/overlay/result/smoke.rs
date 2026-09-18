@@ -230,12 +230,14 @@ fn verify_refine_editor(cards: &[(HWND, String, std::thread::JoinHandle<()>)]) -
     let first_roundtrip = wait_for_refine_draft(hwnd, &format!("{INITIAL}{FIRST_INSERT}"));
 
     let restarted = super::scene_compositor::restart_and_wait(Duration::from_secs(10));
+    let recovered =
+        super::scene_compositor::recover_after_failure_and_wait(Duration::from_secs(10));
     std::thread::sleep(Duration::from_millis(200));
     super::set_refine_text(hwnd, SECOND_INSERT, true);
     let second_roundtrip =
         wait_for_refine_draft(hwnd, &format!("{INITIAL}{FIRST_INSERT}{SECOND_INSERT}"));
     super::trigger_refine_cancel(hwnd);
-    (first_roundtrip && second_roundtrip, restarted)
+    (first_roundtrip && second_roundtrip, restarted && recovered)
 }
 
 fn wait_for_refine_draft(hwnd: HWND, expected: &str) -> bool {

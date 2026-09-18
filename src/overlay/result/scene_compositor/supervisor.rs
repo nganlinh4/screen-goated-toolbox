@@ -72,8 +72,20 @@ pub(crate) fn wait_until_ready(timeout: Duration) -> bool {
 }
 
 pub(crate) fn restart_and_wait(timeout: Duration) -> bool {
+    recreate_and_wait(timeout, false)
+}
+
+pub(crate) fn recover_after_failure_and_wait(timeout: Duration) -> bool {
+    recreate_and_wait(timeout, true)
+}
+
+fn recreate_and_wait(timeout: Duration, force_failure: bool) -> bool {
     let previous_generation = GENERATION.load(Ordering::SeqCst);
-    super::delivery::request_restart();
+    if force_failure {
+        fail_live_renderer("forced recovery verification", true);
+    } else {
+        super::delivery::request_restart();
+    }
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         let live = LIVE_GENERATION.load(Ordering::SeqCst);
@@ -86,11 +98,15 @@ pub(crate) fn restart_and_wait(timeout: Duration) -> bool {
 }
 
 pub(super) fn ensure_process() -> ProcessState {
-    if !DESIRED.load(Ordering::SeqCst) {
+    if !DESIRED.load(Ordering::SeqCst) || crate::initialization::console_exit_started() {
         return ProcessState::Unavailable;
     }
     if LIVE_GENERATION.load(Ordering::SeqCst) != 0 && PROCESS.lock().unwrap().is_some() {
         return ProcessState::Running;
+    }
+    if PROCESS.lock().unwrap().is_some() {
+        super::delivery::request_restart();
+        return ProcessState::Unavailable;
     }
     if now_ms() < RESTART_NOT_BEFORE_MS.load(Ordering::SeqCst)
         || STARTING.swap(true, Ordering::SeqCst)
@@ -169,7 +185,9 @@ fn spawn_process() -> anyhow::Result<()> {
     std::thread::spawn(move || read_events(stdout, generation));
     std::thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            crate::log_info!("[ResultCompositor] child generation={generation}: {line}");
+            if DESIRED.load(Ordering::SeqCst) && !crate::initialization::console_exit_started() {
+                crate::log_info!("[ResultCompositor] child generation={generation}: {line}");
+            }
         }
     });
     crate::log_info!(
@@ -322,8 +340,20 @@ fn handle_renderer_failure(generation: u64, kind: RendererFailureKind) {
 pub(super) fn start_watchdog() {
     WATCHDOG.call_once(|| {
         std::thread::spawn(|| {
+            let mut previous_tick = now_ms();
             loop {
                 std::thread::sleep(Duration::from_secs(1));
+                let now = now_ms();
+                let paused = crate::overlay::compositor_process::watchdog_observation_stale(
+                    previous_tick,
+                    now,
+                    HEARTBEAT_TIMEOUT_MS,
+                );
+                previous_tick = now;
+                if paused {
+                    LAST_HEARTBEAT_MS.store(now, Ordering::SeqCst);
+                    continue;
+                }
                 let live = LIVE_GENERATION.load(Ordering::SeqCst);
                 if crate::overlay::compositor_process::watchdog_should_restart(
                     DESIRED.load(Ordering::SeqCst),
@@ -361,6 +391,9 @@ pub(super) fn fail_live_renderer(reason: &str, terminate: bool) {
 }
 
 fn fail_generation(generation: u64, reason: &str, terminate: bool) {
+    if crate::initialization::console_exit_started() {
+        return;
+    }
     if LIVE_GENERATION.load(Ordering::SeqCst) != generation {
         return;
     }
@@ -417,6 +450,9 @@ fn restart_delay_ms(failure: u32) -> u64 {
 }
 
 pub(super) fn restart_now() -> ProcessState {
+    if STARTING.swap(true, Ordering::SeqCst) {
+        return ProcessState::Unavailable;
+    }
     TRANSITIONING.store(true, Ordering::SeqCst);
     let mut old = PROCESS.lock().unwrap().take();
     if let Some(renderer) = old.as_mut() {
@@ -429,9 +465,19 @@ pub(super) fn restart_now() -> ProcessState {
         super::parent::DRAGGING.store(false, Ordering::SeqCst);
         super::reconciliation::reset();
         let _ = write_to(&mut renderer.stdin, &HostCommand::Shutdown);
-        crate::overlay::compositor_process::wait_for_exit_or_kill(&mut renderer.child);
+        if let Err(error) = crate::overlay::compositor_process::retire_renderer_tree(
+            &mut renderer.child,
+            &renderer._job,
+        ) {
+            crate::log_info!("[Compositor] restart deferred until browser job exits: {error:#}");
+            *PROCESS.lock().unwrap() = old;
+            STARTING.store(false, Ordering::SeqCst);
+            TRANSITIONING.store(false, Ordering::SeqCst);
+            return ProcessState::Unavailable;
+        }
     }
     drop(old);
+    STARTING.store(false, Ordering::SeqCst);
     let state = ensure_process();
     TRANSITIONING.store(false, Ordering::SeqCst);
     state

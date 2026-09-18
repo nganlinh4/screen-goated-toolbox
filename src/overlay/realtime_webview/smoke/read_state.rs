@@ -49,14 +49,23 @@ fn verify_transitions() -> anyhow::Result<()> {
     scene.layout.translation.y += scene.layout.transcription.height + 16;
     scene.layout.translation.visible = true;
     scene.settings.audio_source = "mic".into();
-    let direct = crate::model_config::GEMINI_LIVE_TRANSLATE_MODEL_ID;
+    let model_for_mode = |direct_speech: bool| {
+        crate::model_config::realtime_transcription_model_options()
+            .iter()
+            .map(|(id, _)| *id)
+            .find(|id| crate::model_config::is_gemini_live_s2s_model_id(id) == direct_speech)
+            .ok_or_else(|| {
+                anyhow::anyhow!("missing realtime model for direct_speech={direct_speech}")
+            })
+    };
+    let direct = model_for_mode(true)?;
     state::REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
     scene.tts_enabled = controller::reconcile_read_model(direct);
     scene.settings.transcription_model = direct.into();
     parent::replace_scene(scene.clone());
     expect_probe("direct-start", true, true)?;
 
-    let transcription = crate::model_config::GEMINI_LIVE_AUDIO_MODEL_ID_3_1;
+    let transcription = model_for_mode(false)?;
     scene.tts_enabled = controller::reconcile_read_model(transcription);
     scene.settings.transcription_model = transcription.into();
     parent::replace_scene(scene);

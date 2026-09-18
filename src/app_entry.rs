@@ -132,9 +132,11 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         crate::overlay::result::scene_compositor::warmup();
     }
 
-    crate::log_info!("Ensuring context menu entry...");
-    crate::registry_integration::ensure_context_menu_entry();
-    crate::log_info!("Context menu entry ensured.");
+    if !isolated_ui_test {
+        crate::log_info!("Ensuring context menu entry...");
+        crate::registry_integration::ensure_context_menu_entry();
+        crate::log_info!("Context menu entry ensured.");
+    }
 
     crate::initialization::init_com_and_dpi();
     crate::initialization::enable_dark_mode_for_app();

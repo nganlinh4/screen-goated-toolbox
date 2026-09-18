@@ -1,3 +1,4 @@
+use anyhow::Context;
 use webview2_com::{
     AddScriptToExecuteOnDocumentCreatedCompletedHandler,
     CreateCoreWebView2CompositionControllerCompletedHandler,
@@ -135,10 +136,13 @@ pub(super) fn build_host(
     height: i32,
     scale: f64,
     page_url: &str,
-) -> windows::core::Result<DcompHost> {
+) -> anyhow::Result<DcompHost> {
     unsafe {
-        let device = create_composition_device(software_rendering)?;
-        let target: IDCompositionTarget = device.CreateTargetForHwnd(hwnd, true)?;
+        let device = create_composition_device(software_rendering)
+            .context("create compositor graphics device")?;
+        let target: IDCompositionTarget = device
+            .CreateTargetForHwnd(hwnd, true)
+            .context("create compositor window target")?;
         let root: IDCompositionVisual = device.CreateVisual()?;
         target.SetRoot(&root)?;
 
@@ -168,7 +172,8 @@ pub(super) fn build_host(
                     Ok(())
                 }),
             )
-            .map_err(webview_error)?;
+            .map_err(webview_error)
+            .context("create compositor WebView2 environment")?;
             receiver.recv().ok().flatten().ok_or_else(pointer_error)?
         };
 
@@ -188,7 +193,8 @@ pub(super) fn build_host(
                     Ok(())
                 }),
             )
-            .map_err(webview_error)?;
+            .map_err(webview_error)
+            .context("create compositor WebView2 composition controller")?;
             receiver.recv().ok().flatten().ok_or_else(pointer_error)?
         };
         composition.SetRootVisualTarget(&root)?;

@@ -24,6 +24,11 @@ use winreg::enums::HKEY_CURRENT_USER;
 static CONSOLE_EXIT_STARTED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(windows)]
+pub(crate) fn console_exit_started() -> bool {
+    CONSOLE_EXIT_STARTED.load(Ordering::SeqCst)
+}
+
+#[cfg(windows)]
 pub fn setup_console_utf8() -> bool {
     const CP_UTF8: u32 = 65001;
     unsafe {

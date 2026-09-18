@@ -239,11 +239,15 @@ fn signal_delivery() {
 }
 
 fn ensure_process() -> ProcessState {
-    if !DESIRED.load(Ordering::SeqCst) {
+    if !DESIRED.load(Ordering::SeqCst) || crate::initialization::console_exit_started() {
         return ProcessState::Unavailable;
     }
     if LIVE_GENERATION.load(Ordering::SeqCst) != 0 && PROCESS.lock().unwrap().is_some() {
         return ProcessState::Running;
+    }
+    if PROCESS.lock().unwrap().is_some() {
+        request_restart();
+        return ProcessState::Unavailable;
     }
     if now_ms() < RESTART_NOT_BEFORE_MS.load(Ordering::SeqCst)
         || STARTING.swap(true, Ordering::SeqCst)
@@ -311,7 +315,9 @@ fn spawn_process() -> anyhow::Result<()> {
     std::thread::spawn(move || read_events(stdout, generation));
     std::thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            crate::log_info!("[StatusCompositor] child generation={generation}: {line}");
+            if DESIRED.load(Ordering::SeqCst) && !crate::initialization::console_exit_started() {
+                crate::log_info!("[StatusCompositor] child generation={generation}: {line}");
+            }
         }
     });
     crate::log_info!("[StatusCompositor] renderer spawned generation={generation} pid={pid}");
@@ -480,6 +486,9 @@ fn fail_live_renderer(reason: &str, terminate: bool) {
 }
 
 fn fail_generation(generation: u64, reason: &str, terminate: bool) {
+    if crate::initialization::console_exit_started() {
+        return;
+    }
     if LIVE_GENERATION.load(Ordering::SeqCst) != generation {
         return;
     }

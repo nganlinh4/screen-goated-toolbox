@@ -244,6 +244,11 @@ packaged frontend.
 
 ### Desktop input regression
 
+Compositor recovery waits for the owning browser job to empty before reusing its
+profile. A supervisor scheduling pause grants a fresh heartbeat observation
+window; it does not itself prove a renderer hang. Intentional console shutdown
+does not restart compositors or report their expected disconnects as failures.
+
 On an unlocked Windows desktop, exercise real result/status controllers against
 Explorer context menus, ordinary application input, and each visible taskbar:
 

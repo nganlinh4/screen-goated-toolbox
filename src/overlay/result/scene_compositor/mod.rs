@@ -46,7 +46,7 @@ pub(crate) use scene_groups::{
     group_ids as source_group_ids, is_group_alive as source_group_is_alive, prewarm_source_group,
     remove_source_group, restore_snapshot as source_group_restore_snapshot, reveal_source_card,
 };
-pub(crate) use supervisor::{restart_and_wait, wait_until_ready};
+pub(crate) use supervisor::{recover_after_failure_and_wait, restart_and_wait, wait_until_ready};
 pub(crate) use sync_scheduler::queue_window_sync;
 
 pub(crate) fn shutdown_for_exit() {
