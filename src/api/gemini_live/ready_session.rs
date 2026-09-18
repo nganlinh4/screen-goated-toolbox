@@ -288,6 +288,16 @@ impl ReadyLiveSession {
 
     /// Read and structurally classify one server message.
     pub fn poll(&mut self) -> Result<LivePoll> {
+        self.poll_with_observer(|_| {})
+    }
+
+    /// Inspect fixture-session wire frames without changing production parsing.
+    #[cfg(test)]
+    pub fn poll_observed(&mut self, observe: impl FnMut(&str)) -> Result<LivePoll> {
+        self.poll_with_observer(observe)
+    }
+
+    fn poll_with_observer(&mut self, mut observe: impl FnMut(&str)) -> Result<LivePoll> {
         if let Some(poll) = self.pending_polls.pop_front() {
             return Ok(poll);
         }
@@ -297,10 +307,12 @@ impl ReadyLiveSession {
 
         match self.socket.read() {
             Ok(Message::Text(text)) => {
+                observe(text.as_str());
                 Ok(classify_active_message(text.as_str(), LiveWireFormat::Text))
             }
             Ok(Message::Binary(bytes)) => {
                 let text = String::from_utf8_lossy(&bytes);
+                observe(&text);
                 Ok(classify_active_message(&text, LiveWireFormat::Binary))
             }
             Ok(Message::Close(frame)) => {

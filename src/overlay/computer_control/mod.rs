@@ -10,6 +10,8 @@
 
 mod artifacts;
 mod browser;
+#[cfg(test)]
+mod capability_probe;
 mod clipboard;
 mod controller;
 mod effect_receipt;

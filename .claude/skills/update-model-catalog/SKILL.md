@@ -86,6 +86,38 @@ SGT performance evidence.
 
 Do not infer sibling capabilities from a family name. Capability and default behavior are separate catalog facts.
 
+## Capability coverage and feature-specific reasoning
+
+For each evaluated endpoint, record documented capabilities separately from
+tested SGT uses. For the general catalog baseline, retain the lowest supported
+reasoning setting while checking applicable text, vision, audio, native tool
+calling, and session behavior. An
+untested capability remains untested; an ordinary text/OCR rejection does not
+reject the endpoint for every feature. Dedicated contracts need their own
+feature-path evidence before admission or rejection.
+
+Before attributing a failure to model quality, inspect actual wire image
+dimensions and resolution, tool declarations, output parsing, completion signals,
+and deadlines. Distinguish service-error output from an incorrect task answer.
+Use paired diagnostics to separate adapter limitations from endpoint behavior;
+do not silently replace the preserved baseline. Higher reasoning is a separate
+experiment, never a substitute for evaluating the general catalog's supported
+fast mode. Feature-specific evaluations follow the feature's quality and latency
+requirements: Computer/Phone Control may use the strongest supported reasoning
+setup. Preserve the fast baseline and report each configuration separately;
+do not impose the general catalog's speed policy on control admission.
+
+Control candidates need native tool and grounding evidence as well as real
+runtime acceptance. Report locator hits, verifier false accepts, full-task
+success, and completion latency separately. Removing a grounding model requires
+evidence for the replacement's coordinate accuracy and fresh-frame validation,
+not merely better narration or a higher general text score.
+
+The opt-in [Live capability diagnostics](../../../tests/catalog-benchmark/CAPABILITY-DIAGNOSTICS.md)
+exercise ordinary requests, native tool grounding, and full-catalog tool
+sequencing without admitting provisional endpoints. Their results remain
+diagnostic until the applicable feature's production acceptance passes.
+
 ## Run the benchmark day
 
 1. Use the ignored Rust benchmark in `tests/catalog-benchmark`; do not replace it with ad hoc HTTP timing.

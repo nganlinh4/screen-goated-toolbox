@@ -14,6 +14,7 @@ use crate::api::{
     translate_text_streaming,
 };
 use crate::model_config::{ModelConfig, ModelType};
+mod capability_probe;
 mod coordinate;
 mod ordering;
 use ordering::{case_at_difficulty, rotated};

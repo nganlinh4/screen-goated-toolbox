@@ -1,4 +1,5 @@
 mod history;
+mod live_grounding_probe;
 mod localization_probe;
 mod manifest;
 mod reasoning;
