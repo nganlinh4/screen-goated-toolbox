@@ -405,8 +405,10 @@ fn apply_selected_config_defaults_from(
     if selection.shortcuts_and_mini_apps {
         config.screen_record_window_size = defaults.screen_record_window_size;
         let screen_translate_hotkeys = config.screen_translate.hotkeys.clone();
+        let fullscreen_hotkeys = config.screen_translate.fullscreen_hotkeys.clone();
         config.screen_translate = defaults.screen_translate.clone();
         config.screen_translate.hotkeys = screen_translate_hotkeys;
+        config.screen_translate.fullscreen_hotkeys = fullscreen_hotkeys;
         let live_translate_hotkeys = config.live_translate.hotkeys.clone();
         config.live_translate = defaults.live_translate.clone();
         config.live_translate.hotkeys = live_translate_hotkeys;

@@ -31,6 +31,7 @@ pub const WM_UNREGISTER_HOTKEYS: u32 = WM_USER + 103;
 pub const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
 pub const COMPUTER_CONTROL_HOTKEY_ID: i32 = 9700;
 pub const SCREEN_TRANSLATE_HOTKEY_ID: i32 = 9600;
+pub const SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID: i32 = 9400;
 pub const LIVE_TRANSLATE_HOTKEY_ID: i32 = 9500;
 pub const TRANSLATION_GUMMY_HOTKEY_ID: i32 = 9800;
 
@@ -88,11 +89,18 @@ fn register_configured_hotkey(
     registration_id: i32,
     hotkey: &Hotkey,
 ) -> std::result::Result<i32, HotkeyRegistrationFailure> {
+    let repeat_flag = if (SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID..LIVE_TRANSLATE_HOTKEY_ID)
+        .contains(&registration_id)
+    {
+        MOD_NOREPEAT.0
+    } else {
+        0
+    };
     let result = unsafe {
         RegisterHotKey(
             Some(hwnd),
             registration_id,
-            HOT_KEY_MODIFIERS(hotkey.modifiers),
+            HOT_KEY_MODIFIERS(hotkey.modifiers | repeat_flag),
             hotkey.code,
         )
     };
@@ -189,17 +197,28 @@ pub fn register_all_hotkeys(hwnd: HWND) {
         );
     }
 
-    for (idx, hotkey) in app.config.screen_translate.hotkeys.iter().enumerate() {
-        if idx >= 100 || [0x04, 0x05, 0x06].contains(&hotkey.code) {
-            continue;
+    for (base, hotkeys) in [
+        (
+            SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID,
+            &app.config.screen_translate.fullscreen_hotkeys,
+        ),
+        (
+            SCREEN_TRANSLATE_HOTKEY_ID,
+            &app.config.screen_translate.hotkeys,
+        ),
+    ] {
+        for (idx, hotkey) in hotkeys.iter().take(100).enumerate() {
+            if [0x04, 0x05, 0x06].contains(&hotkey.code) {
+                continue;
+            }
+            register_and_track(
+                hwnd,
+                HotkeyRegistrationGroup::ScreenTranslate,
+                base + idx as i32,
+                hotkey,
+                &mut registered_ids,
+            );
         }
-        register_and_track(
-            hwnd,
-            HotkeyRegistrationGroup::ScreenTranslate,
-            SCREEN_TRANSLATE_HOTKEY_ID + idx as i32,
-            hotkey,
-            &mut registered_ids,
-        );
     }
 
     for (idx, hotkey) in app.config.live_translate.hotkeys.iter().enumerate() {
@@ -339,6 +358,21 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                     }
 
                     // Check global app hotkeys.
+                    if found_id.is_none() {
+                        for (idx, hk) in app
+                            .config
+                            .screen_translate
+                            .fullscreen_hotkeys
+                            .iter()
+                            .take(100)
+                            .enumerate()
+                        {
+                            if hk.code == vk && hk.modifiers == mods {
+                                found_id = Some(SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID + idx as i32);
+                                break;
+                            }
+                        }
+                    }
                     if found_id.is_none() {
                         for (idx, hk) in app.config.live_translate.hotkeys.iter().enumerate() {
                             if hk.code == vk && hk.modifiers == mods {

@@ -7,6 +7,7 @@ mod live_translate;
 mod overlays;
 mod preset_model_update;
 mod screen_translate;
+mod screen_translate_region;
 mod title_bar;
 
 use super::types::{DetailPane, SettingsApp};

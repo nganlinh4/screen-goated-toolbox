@@ -286,6 +286,8 @@ fn each_category_resets_only_its_owned_fields() {
                 if *key == "screen_translate" {
                     let mut expected_screen_translate = defaults.screen_translate.clone();
                     expected_screen_translate.hotkeys = config.screen_translate.hotkeys.clone();
+                    expected_screen_translate.fullscreen_hotkeys =
+                        config.screen_translate.fullscreen_hotkeys.clone();
                     assert_eq!(
                         actual[*key],
                         serde_json::to_value(expected_screen_translate).unwrap(),
@@ -545,6 +547,11 @@ fn non_default_config() -> Config {
     config.translation_gummy.guide_seen = true;
     config.screen_translate.target_language = "Korean".to_string();
     config.screen_translate.hotkeys = vec![Hotkey::new(9, 10)];
+    config.screen_translate.fullscreen_hotkeys = vec![Hotkey::new(13, 14)];
+    config.screen_translate.fixed_region = Some(crate::config::types::ScreenTranslateRegion {
+        monitor: "display".into(),
+        edges: [0, 1000, 10000, 9000],
+    });
     config.live_translate.hotkeys = vec![Hotkey::new(11, 12)];
     config
 }

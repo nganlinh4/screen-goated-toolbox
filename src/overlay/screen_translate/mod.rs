@@ -11,6 +11,7 @@ mod diagnostics;
 mod diagnostics_model_attempts;
 #[cfg(debug_assertions)]
 mod evidence_capture;
+pub(crate) mod fixed_region;
 pub(crate) mod geometry;
 mod incremental;
 mod inference;

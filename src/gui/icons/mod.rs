@@ -163,6 +163,26 @@ fn decode_atlas(page: &AtlasPage) -> egui::ColorImage {
     egui::ColorImage::from_rgba_premultiplied([page.width as usize, page.height as usize], &rgba)
 }
 
+/// Reuse the generated Material Symbols atlas in native pixel-buffer overlays.
+pub(crate) fn native_mask(icon: Icon, target: u32) -> (usize, Vec<u8>) {
+    let page = nearest_atlas_page(target);
+    let image = decode_atlas(page);
+    let cell = page.pixels + ICON_ATLAS_GUTTER * 2;
+    let index = icon.sprite_index() as u32;
+    let x = ((index % ICON_ATLAS_COLUMNS) * cell + ICON_ATLAS_GUTTER) as usize;
+    let y = ((index / ICON_ATLAS_COLUMNS) * cell + ICON_ATLAS_GUTTER) as usize;
+    let side = page.pixels as usize;
+    let mut mask = Vec::with_capacity(side * side);
+    for row in y..y + side {
+        mask.extend(
+            image.pixels[row * page.width as usize + x..row * page.width as usize + x + side]
+                .iter()
+                .map(|pixel| pixel.a()),
+        );
+    }
+    (side, mask)
+}
+
 fn icon_texture(ctx: &egui::Context, icon: Icon, target: u32) -> (egui::TextureId, egui::Rect) {
     let page = nearest_atlas_page(target);
     let texture = ICON_TEXTURES.with(|cache| {
@@ -394,6 +414,16 @@ mod tests {
         for &target in WINDOWS_DPI_TARGETS {
             let selected = nearest_atlas_page(target).pixels;
             assert_eq!(selected, target);
+        }
+    }
+
+    #[test]
+    fn native_controls_reuse_nonempty_atlas_masks() {
+        for icon in [Icon::Close, Icon::Check] {
+            let (side, mask) = native_mask(icon, 24);
+            assert_eq!(mask.len(), side * side);
+            assert!(mask.iter().any(|value| *value > 0));
+            assert!(mask.contains(&0));
         }
     }
 

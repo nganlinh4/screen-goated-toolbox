@@ -3,6 +3,8 @@
 
 mod magnification;
 mod messages;
+mod region_editor;
+mod region_editor_paint;
 mod render;
 mod state;
 
@@ -30,6 +32,14 @@ pub struct CapturedRegion {
 pub use render::extract_crop_from_hbitmap_public;
 pub use state::is_selection_overlay_active;
 
+pub(crate) fn edit_region(initial: RECT, bounds: RECT) -> anyhow::Result<Option<RECT>> {
+    region_editor::begin(initial, bounds);
+    let shown = show_overlay(0);
+    let result = region_editor::finish();
+    anyhow::ensure!(shown, "could not open the region editor");
+    Ok(result)
+}
+
 pub(crate) fn show_image_capture_overlay(
     target: crate::overlay::image_capture_target::ImageCaptureTarget,
     hotkey_id: i32,
@@ -41,7 +51,7 @@ pub(crate) fn show_image_capture_overlay(
 }
 
 #[allow(static_mut_refs)]
-fn show_overlay(hotkey_id: i32) {
+fn show_overlay(hotkey_id: i32) -> bool {
     unsafe {
         CURRENT_HOTKEY_ID = hotkey_id;
         SELECTION_OVERLAY_ACTIVE.store(true, Ordering::SeqCst);
@@ -49,6 +59,17 @@ fn show_overlay(hotkey_id: i32) {
         IS_FADING_OUT = false;
         IS_DRAGGING = false;
         IS_SELECTION_COMMITTED = false;
+        if let Some(rect) = region_editor::rectangle() {
+            START_POS = POINT {
+                x: rect.left,
+                y: rect.top,
+            };
+            CURR_POS = POINT {
+                x: rect.right,
+                y: rect.bottom,
+            };
+            IS_SELECTION_COMMITTED = true;
+        }
 
         // Reset zoom state
         ZOOM_LEVEL = 1.0;
@@ -82,6 +103,10 @@ fn show_overlay(hotkey_id: i32) {
         }
 
         SELECTION_ABORT_SIGNAL.store(false, Ordering::SeqCst);
+        if region_editor::active() {
+            TRIGGER_VK_CODE = 0;
+            IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
+        }
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("SnippingOverlay");
 
@@ -116,6 +141,11 @@ fn show_overlay(hotkey_id: i32) {
         )
         .unwrap_or_default();
 
+        if hwnd.is_invalid() {
+            SELECTION_OVERLAY_ACTIVE.store(false, Ordering::SeqCst);
+            return false;
+        }
+
         SELECTION_OVERLAY_HWND = SendHwnd(hwnd);
 
         // Install Hook
@@ -127,6 +157,11 @@ fn show_overlay(hotkey_id: i32) {
         );
         if let Ok(h) = hook {
             SELECTION_HOOK = h;
+        } else if region_editor::active() {
+            let _ = DestroyWindow(hwnd);
+            SELECTION_OVERLAY_ACTIVE.store(false, Ordering::SeqCst);
+            SELECTION_OVERLAY_HWND = SendHwnd::default();
+            return false;
         }
 
         // Re-check physical key state AFTER hook is installed
@@ -150,7 +185,9 @@ fn show_overlay(hotkey_id: i32) {
         }
 
         let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
-        let _ = SetTimer(Some(hwnd), CONTINUOUS_CHECK_TIMER_ID, 50, None);
+        if !region_editor::active() {
+            let _ = SetTimer(Some(hwnd), CONTINUOUS_CHECK_TIMER_ID, 50, None);
+        }
 
         let mut msg = MSG::default();
         loop {
@@ -183,4 +220,5 @@ fn show_overlay(hotkey_id: i32) {
         SELECTION_OVERLAY_ACTIVE.store(false, Ordering::SeqCst);
         SELECTION_OVERLAY_HWND = SendHwnd::default();
     }
+    true
 }

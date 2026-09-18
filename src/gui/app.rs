@@ -25,6 +25,7 @@ impl eframe::App for SettingsApp {
         // the non-panel logic + overlays (which paint via Area / ctx painters).
         let ctx = ui.ctx().clone();
         let ctx = &ctx;
+        self.poll_screen_translate_region_edit(ctx);
         // Log first update
         static LOGGED_STARTUP: std::sync::atomic::AtomicBool =
             std::sync::atomic::AtomicBool::new(false);

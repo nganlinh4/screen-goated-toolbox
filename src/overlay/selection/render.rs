@@ -305,6 +305,8 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
             }
         }
 
+        super::region_editor_paint::paint(pixels_u32, width, height, effective_alpha);
+
         // 4. Update the Layered Window
         let blend = BLENDFUNCTION {
             BlendOp: AC_SRC_OVER as u8,

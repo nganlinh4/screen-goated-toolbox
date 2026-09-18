@@ -30,28 +30,49 @@ impl SettingsApp {
                 let width = (ctx.content_rect().width() - 48.0).clamp(280.0, DIALOG_WIDTH);
                 ui.set_min_width(width);
                 ui.set_max_width(width);
+                let content_height = (ctx.content_rect().height() - 48.0).max(1.0);
+                ui.set_max_height(content_height);
+                let header_top = ui.cursor().top();
                 let mut restore_requested = false;
-                if dialog_header(
-                    ui,
-                    &theme,
-                    text.screen_translate.screen_translate_title,
-                    None,
-                    |ui| {
-                        if filled_button(
-                            ui,
-                            text.screen_translate.screen_translate_restore_label,
-                            theme.restore_fill(),
-                            theme.on_accent(),
-                            8,
-                        )
-                        .on_hover_text(text.screen_translate.screen_translate_restore_hint)
-                        .clicked()
-                        {
-                            restore_requested = true;
+                let header_closed = ui
+                    .scope(|ui| {
+                        let control_height = ui.spacing().interact_size.y;
+                        if width >= 760.0 {
+                            ui.spacing_mut().interact_size.y = control_height.max(24.0);
                         }
-                    },
-                ) {
+                        dialog_header(
+                            ui,
+                            &theme,
+                            text.screen_translate.screen_translate_title,
+                            None,
+                            |ui| {
+                                ui.spacing_mut().interact_size.y = control_height;
+                                if filled_button(
+                                    ui,
+                                    text.screen_translate.screen_translate_restore_label,
+                                    theme.restore_fill(),
+                                    theme.on_accent(),
+                                    8,
+                                )
+                                .on_hover_text(text.screen_translate.screen_translate_restore_hint)
+                                .clicked()
+                                {
+                                    restore_requested = true;
+                                }
+                                if width >= 760.0 {
+                                    ui.add_space(8.0);
+                                    render_intro(ui, &theme, text);
+                                }
+                            },
+                        )
+                    })
+                    .inner;
+                if header_closed {
                     close_requested = true;
+                }
+                if width < 760.0 {
+                    render_intro(ui, &theme, text);
+                    ui.add_space(8.0);
                 }
                 if restore_requested {
                     self.config
@@ -61,27 +82,44 @@ impl SettingsApp {
                 }
                 egui::ScrollArea::vertical()
                     .id_salt("screen_translate_settings_scroll")
-                    .max_height((ctx.content_rect().height() - 150.0).max(180.0))
+                    .max_height((content_height - (ui.cursor().top() - header_top)).max(1.0))
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-                        render_intro(ui, &theme, text);
-                        ui.add_space(8.0);
                         if ui.available_width() >= 760.0 {
                             ui.columns(2, |columns| {
                                 self.render_screen_translate_output(&mut columns[0], &theme, text);
                                 columns[0].add_space(8.0);
                                 self.render_screen_translate_models(&mut columns[0], &theme, text);
-                                self.render_screen_translate_prompt(&mut columns[1], &theme, text);
-                                columns[1].add_space(8.0);
-                                self.render_screen_translate_hotkeys(&mut columns[1], &theme, text);
+                                let height = columns[0].min_rect().height();
+                                self.render_screen_translate_prompt(
+                                    &mut columns[1],
+                                    &theme,
+                                    text,
+                                    height,
+                                );
+                            });
+                            ui.add_space(8.0);
+                            ui.columns(2, |columns| {
+                                self.render_screen_translate_hotkey_row(
+                                    &mut columns[0],
+                                    &theme,
+                                    text,
+                                    false,
+                                );
+                                self.render_screen_translate_hotkey_row(
+                                    &mut columns[1],
+                                    &theme,
+                                    text,
+                                    true,
+                                );
                             });
                         } else {
                             self.render_screen_translate_output(ui, &theme, text);
                             ui.add_space(8.0);
                             self.render_screen_translate_models(ui, &theme, text);
                             ui.add_space(8.0);
-                            self.render_screen_translate_prompt(ui, &theme, text);
+                            self.render_screen_translate_prompt(ui, &theme, text, 0.0);
                             ui.add_space(8.0);
                             self.render_screen_translate_hotkeys(ui, &theme, text);
                         }
@@ -114,6 +152,7 @@ impl SettingsApp {
                 crate::gui::theme::space::GAP,
             ))
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 self.render_screen_translate_language(ui, text);
                 ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
@@ -164,15 +203,19 @@ impl SettingsApp {
                 crate::gui::theme::space::GAP,
             ))
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 let labels = &text.screen_translate;
-                render_step(ui, theme, "1", labels.screen_translate_recognition_label)
-                    .on_hover_text(format!(
-                        "{}\n\n{}",
-                        labels.screen_translate_recognition_hint,
-                        labels.screen_translate_setup_hint
-                    ));
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(labels.screen_translate_recognition_label).strong(),
+                    )
+                    .wrap(),
+                )
+                .on_hover_text(format!(
+                    "{}\n\n{}",
+                    labels.screen_translate_recognition_hint, labels.screen_translate_setup_hint
+                ));
                 ui.horizontal_wrapped(|ui| {
-                    render_step_number(ui, theme, "2");
                     ui.strong(labels.screen_translate_model_label)
                         .on_hover_text(labels.screen_translate_model_fallback_hint);
                     changed |= model_selector::render_model_combo(
@@ -183,8 +226,6 @@ impl SettingsApp {
                         &self.config.ui_language,
                     );
                 });
-                render_step(ui, theme, "3", labels.screen_translate_presentation_label)
-                    .on_hover_text(labels.screen_translate_presentation_hint);
             });
         if changed {
             self.save_and_sync();
@@ -196,6 +237,7 @@ impl SettingsApp {
         ui: &mut egui::Ui,
         theme: &AppTheme,
         text: &LocaleText,
+        height: f32,
     ) {
         let mut changed = false;
         egui::Frame::new()
@@ -207,6 +249,10 @@ impl SettingsApp {
                 crate::gui::theme::space::GAP,
             ))
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.set_min_height(
+                    (height - 2.0 * f32::from(crate::gui::theme::space::GAP)).max(0.0),
+                );
                 ui.strong(text.screen_translate.screen_translate_prompt_label)
                     .on_hover_text(text.screen_translate.screen_translate_prompt_hint);
                 changed = node_graph::utils::show_prompt_editor(
@@ -229,6 +275,18 @@ impl SettingsApp {
         theme: &AppTheme,
         text: &LocaleText,
     ) {
+        self.render_screen_translate_hotkey_row(ui, theme, text, false);
+        ui.add_space(8.0);
+        self.render_screen_translate_hotkey_row(ui, theme, text, true);
+    }
+
+    fn render_screen_translate_hotkey_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        theme: &AppTheme,
+        text: &LocaleText,
+        fullscreen: bool,
+    ) {
         let mut remove = None;
         egui::Frame::new()
             .fill(theme.card_bg())
@@ -239,12 +297,21 @@ impl SettingsApp {
                 crate::gui::theme::space::GAP,
             ))
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.set_min_height(48.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
-                        egui::RichText::new(text.screen_translate.screen_translate_hotkey_label)
-                            .strong(),
+                        egui::RichText::new(if fullscreen {
+                            text.screen_translate
+                                .screen_translate_fullscreen_hotkey_label
+                        } else {
+                            text.screen_translate.screen_translate_hotkey_label
+                        })
+                        .strong(),
                     );
-                    if self.recording_screen_translate_hotkey {
+                    if self.recording_screen_translate_hotkey
+                        && self.recording_screen_translate_fullscreen == fullscreen
+                    {
                         ui.colored_label(theme.warning(), text.preset_basics.press_keys);
                         if filled_button(
                             ui,
@@ -268,10 +335,16 @@ impl SettingsApp {
                     .clicked()
                     {
                         self.recording_screen_translate_hotkey = true;
+                        self.recording_screen_translate_fullscreen = fullscreen;
                         self.screen_translate_hotkey_conflict_msg = None;
                     }
 
-                    if self.config.screen_translate.hotkeys.is_empty() {
+                    let hotkeys = if fullscreen {
+                        &self.config.screen_translate.fullscreen_hotkeys
+                    } else {
+                        &self.config.screen_translate.hotkeys
+                    };
+                    if hotkeys.is_empty() {
                         ui.label(
                             egui::RichText::new(
                                 text.screen_translate.screen_translate_hotkey_empty,
@@ -279,7 +352,7 @@ impl SettingsApp {
                             .color(theme.on_surface_variant()),
                         );
                     } else {
-                        for hotkey in &self.config.screen_translate.hotkeys {
+                        for hotkey in hotkeys {
                             if removable_chip(
                                 ui,
                                 &hotkey.display_name(),
@@ -294,86 +367,67 @@ impl SettingsApp {
                         }
                     }
                 });
-                if let Some(conflict) = &self.screen_translate_hotkey_conflict_msg {
+                if fullscreen
+                    && crate::gui::widgets::filled_trailing_icon_button(
+                        ui,
+                        text.screen_translate.screen_translate_adjust_region,
+                        Icon::ArrowRight,
+                        theme.neutral_fill(),
+                        theme.on_surface(),
+                        8,
+                    )
+                    .on_hover_text(text.screen_translate.screen_translate_fullscreen_hint)
+                    .clicked()
+                {
+                    self.start_screen_translate_region_edit(ui.ctx());
+                }
+                if self.recording_screen_translate_fullscreen == fullscreen
+                    && let Some(conflict) = &self.screen_translate_hotkey_conflict_msg
+                {
                     ui.add_space(4.0);
                     ui.colored_label(theme.danger_text(), text.hotkey_conflict_message(conflict));
                 }
             });
         if let Some((code, modifiers)) = remove {
             self.sync_global_hotkeys();
-            if let Some(index) = self
-                .config
-                .screen_translate
-                .hotkeys
+            let hotkeys = if fullscreen {
+                &mut self.config.screen_translate.fullscreen_hotkeys
+            } else {
+                &mut self.config.screen_translate.hotkeys
+            };
+            if let Some(index) = hotkeys
                 .iter()
                 .position(|hotkey| hotkey.code == code && hotkey.modifiers == modifiers)
             {
-                self.config.screen_translate.hotkeys.remove(index);
+                hotkeys.remove(index);
                 self.save_and_sync();
             }
         }
     }
 }
 
-fn render_step(ui: &mut egui::Ui, theme: &AppTheme, number: &str, label: &str) -> egui::Response {
-    ui.horizontal(|ui| {
-        render_step_number(ui, theme, number);
-        ui.add(egui::Label::new(egui::RichText::new(label).strong()).wrap());
-    })
-    .response
-}
-
-fn render_step_number(ui: &mut egui::Ui, theme: &AppTheme, value: &str) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
-    ui.painter()
-        .rect_filled(rect, egui::CornerRadius::same(7), theme.neutral_fill());
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        value,
-        egui::TextStyle::Button.resolve(ui.style()),
-        theme.on_surface(),
-    );
-}
-
 fn render_intro(ui: &mut egui::Ui, theme: &AppTheme, text: &LocaleText) {
-    egui::Frame::new()
-        .fill(theme.neutral_fill())
-        .corner_radius(egui::CornerRadius::same(10))
-        .inner_margin(egui::Margin::symmetric(
-            crate::gui::theme::space::EDGE,
-            crate::gui::theme::space::GAP,
-        ))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let (rect, _) =
-                    ui.allocate_exact_size(egui::vec2(30.0, 30.0), egui::Sense::hover());
-                ui.painter().rect_filled(
-                    rect,
-                    egui::CornerRadius::same(9),
-                    theme.launch_screen_translate(),
-                );
-                icons::paint_icon(
-                    ui.painter(),
-                    egui::Rect::from_center_size(
-                        rect.center(),
-                        egui::vec2(icons::ICON_LG, icons::ICON_LG),
-                    ),
-                    Icon::Translate,
-                    if ui.visuals().dark_mode {
-                        egui::Color32::from_rgb(22, 22, 26)
-                    } else {
-                        egui::Color32::WHITE
-                    },
-                );
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(text.screen_translate.screen_translate_intro)
-                            .size(12.5)
-                            .color(theme.on_surface()),
-                    )
-                    .wrap(),
-                );
-            });
+    // Reserve room for the header's close button when sharing its row.
+    let width = (ui.available_width() - 40.0).max(120.0);
+    ui.scope(|ui| {
+        ui.set_max_width(width);
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+            icons::paint_icon(
+                ui.painter(),
+                rect,
+                Icon::Translate,
+                theme.launch_screen_translate(),
+            );
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(text.screen_translate.screen_translate_intro)
+                        .size(crate::gui::widgets::DIALOG_DESCRIPTION_SIZE)
+                        .color(theme.on_surface_variant()),
+                )
+                .wrap(),
+            );
         });
+    });
 }

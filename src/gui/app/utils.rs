@@ -160,6 +160,8 @@ impl SettingsApp {
             self.config.screen_record_hotkeys = state.config.screen_record_hotkeys.clone();
             self.config.computer_control_hotkeys = state.config.computer_control_hotkeys.clone();
             self.config.screen_translate.hotkeys = state.config.screen_translate.hotkeys.clone();
+            self.config.screen_translate.fullscreen_hotkeys =
+                state.config.screen_translate.fullscreen_hotkeys.clone();
             self.config.live_translate.hotkeys = state.config.live_translate.hotkeys.clone();
             self.config.translation_gummy.hotkeys = state.config.translation_gummy.hotkeys.clone();
         }

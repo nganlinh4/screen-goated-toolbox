@@ -181,10 +181,12 @@ impl SettingsApp {
             self.screen_translate_hotkey_conflict_msg = Some(conflict);
             return;
         }
-        self.config
-            .screen_translate
-            .hotkeys
-            .push(Hotkey { code, modifiers });
+        let hotkeys = if self.recording_screen_translate_fullscreen {
+            &mut self.config.screen_translate.fullscreen_hotkeys
+        } else {
+            &mut self.config.screen_translate.hotkeys
+        };
+        hotkeys.push(Hotkey { code, modifiers });
         self.recording_screen_translate_hotkey = false;
         self.screen_translate_hotkey_conflict_msg = None;
         self.save_and_sync();

@@ -56,6 +56,17 @@ JSON shape remains compatible.
 
 ## Verification
 
+Screen Translate has independent draw-box and full-screen shortcut lists. The
+full-screen action captures immediately, without entering continuous-selection
+mode. Without a saved region it uses the display under the pointer. Adjust region
+opens the existing selection overlay with eight resize handles, drag-to-move,
+and explicit save/cancel controls; Escape cancels without changing settings.
+Saved edges are relative to the selected monitor, so resolution and desktop-origin
+changes preserve the region. If that monitor is unavailable, capture reports an
+error instead of selecting a different display; the editor can choose a new one.
+Resetting Screen Translate restores the full-screen default and retains both
+shortcut lists. Region editing does not prepare OCR or submit translation requests.
+
 From the repository root:
 
 ```powershell

@@ -158,7 +158,12 @@ impl Config {
             }
         }
 
-        for h in &self.screen_translate.hotkeys {
+        for h in self
+            .screen_translate
+            .hotkeys
+            .iter()
+            .chain(&self.screen_translate.fullscreen_hotkeys)
+        {
             if h.code == vk && h.modifiers == mods {
                 return Some(HotkeyConflict::Global {
                     owner: GlobalHotkeyOwner::ScreenTranslate,

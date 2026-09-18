@@ -279,6 +279,8 @@ impl SettingsApp {
             recording_computer_control_hotkey: false,
             computer_control_hotkey_conflict_msg: None,
             recording_screen_translate_hotkey: false,
+            recording_screen_translate_fullscreen: false,
+            screen_translate_region_edit: None,
             screen_translate_hotkey_conflict_msg: None,
             recording_live_translate_hotkey: false,
             live_translate_hotkey_conflict_msg: None,

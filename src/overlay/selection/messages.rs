@@ -57,6 +57,9 @@ pub unsafe extern "system" fn selection_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     unsafe {
+        if let Some(result) = super::region_editor::message(hwnd, msg) {
+            return result;
+        }
         match msg {
             WM_LBUTTONDOWN => {
                 if !IS_FADING_OUT {

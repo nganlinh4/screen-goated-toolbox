@@ -242,7 +242,7 @@ fn configured_translation_model(config: &crate::config::Config) -> String {
     config.screen_translate.translation_model.clone()
 }
 
-fn notify_error(error: &str) {
+pub(super) fn notify_error(error: &str) {
     let language = crate::APP
         .lock()
         .map(|app| app.config.ui_language.clone())
