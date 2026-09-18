@@ -12,6 +12,11 @@
 
 .crop-workspace-stage-shell {
   min-width: 0;
+  overflow: hidden;
+}
+
+.crop-workspace-video {
+  max-width: none;
 }
 
 .crop-ratio-panel {

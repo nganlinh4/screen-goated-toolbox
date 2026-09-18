@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/Slider";
 import { CropRatioPanel } from "@/components/CropRatioPanel";
 import { useSettings } from "@/hooks/useSettings";
+import { useCropViewport } from "@/hooks/useCropViewport";
 import { formatTime } from "@/utils/helpers";
 import { CropRect } from "@/types/video";
 import { getContainedRect } from "@/lib/dynamicCapture";
@@ -57,6 +58,7 @@ export function CropWorkspace({
     width: number;
     height: number;
   } | null>(null);
+  const bounds = useCropViewport(stageRef, videoBounds, show, videoSrc);
   const lockedPreset = CROP_ASPECT_RATIO_PRESETS.find(({ id }) => id === lockedPresetId);
 
   const alignCrop = useCallback((crop: CropRect): CropRect => {
@@ -229,8 +231,6 @@ export function CropWorkspace({
   }, [show, previewTime, duration]);
 
   if (!show || !videoSrc) return null;
-
-  const bounds = videoBounds;
 
   const handleResizeStart = (event: React.PointerEvent, type: CropResizeHandle) => {
     if (!bounds) return;
