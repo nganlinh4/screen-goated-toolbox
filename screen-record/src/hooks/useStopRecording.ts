@@ -8,7 +8,7 @@ import {
   WebcamConfig,
 } from "@/types/video";
 import { ensureProjectComposition } from "@/lib/projectComposition";
-import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
+import { getNewRecordingCameraConfig } from "@/lib/recordingDefaults";
 
 export interface UseStopRecordingParams {
   handleStopRecording: () => Promise<{
@@ -97,10 +97,7 @@ export function useStopRecording({
       setCurrentRawMicAudioPath(rawMicAudioPath || "");
       setCurrentRawWebcamVideoPath(rawWebcamVideoPath || "");
       setLastRawSavedPath("");
-      const nextWebcamConfig = cloneWebcamConfig({
-        ...DEFAULT_WEBCAM_CONFIG,
-        visible: initialSegment.webcamAvailable !== false,
-      });
+      const nextWebcamConfig = getNewRecordingCameraConfig(initialSegment.webcamAvailable === true);
       setWebcamConfig(nextWebcamConfig);
 
       if (rawAutoCopyEnabled && rawVideoPath && rawSaveDir) {

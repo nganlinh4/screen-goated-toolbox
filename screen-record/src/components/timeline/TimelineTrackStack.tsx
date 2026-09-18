@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { saveUniformAudioDefault } from "@/lib/recordingDefaults";
 import type { ComponentProps } from "react";
 import type {
   ImportedAudioSegment,
@@ -304,6 +305,7 @@ function TimelineTrackStackImpl({
             sourcePath={currentRawVideoPath}
             viewMode={volumeViewEnabled ? "volume" : "compact"}
             onUpdateDeviceAudioPoints={(points) => {
+              saveUniformAudioDefault("device", points);
               setSegment({ ...segment, deviceAudioPoints: points });
             }}
             beginBatch={beginBatch}
@@ -321,6 +323,7 @@ function TimelineTrackStackImpl({
             sourcePath={currentRawMicAudioPath}
             viewMode={volumeViewEnabled ? "volume" : "compact"}
             onUpdateMicAudioPoints={(points) => {
+              saveUniformAudioDefault("mic", points);
               setSegment({ ...segment, micAudioPoints: points });
             }}
             beginBatch={beginBatch}

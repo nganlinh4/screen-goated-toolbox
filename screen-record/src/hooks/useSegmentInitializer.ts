@@ -5,12 +5,15 @@ import { buildFlatDeviceAudioPoints } from "@/lib/deviceAudio";
 import { buildFlatMicAudioPoints } from "@/lib/micAudio";
 import { createSubtitleTrackStateFromSegments } from "@/lib/subtitleTracks";
 import { buildFullWebcamVisibilitySegments } from "@/lib/webcamVisibility";
-import { getSavedCropPref, getSavedKeystrokeLanguage } from "@/hooks/useVideoState";
+import { getDefaultAudioVolume } from "@/lib/recordingDefaults";
 import {
-  DEFAULT_KEYSTROKE_DELAY_SEC,
+  getSavedCropPref,
+  getSavedKeystrokeLanguage,
+  getSavedCustomCursorPref,
+  getSavedKeystrokeDelaySec,
   getSavedKeystrokeModePref,
   getSavedKeystrokeOverlayPref,
-} from "@/hooks/useKeystrokeOverlayEditor";
+} from "@/hooks/videoStatePreferences";
 
 export interface UseSegmentInitializerParams {
   duration: number;
@@ -56,9 +59,9 @@ export function useSegmentInitializer({
           { time: 0, speed: 1 },
           { time: duration, speed: 1 },
         ],
-        deviceAudioPoints: buildFlatDeviceAudioPoints(duration),
+        deviceAudioPoints: buildFlatDeviceAudioPoints(duration, getDefaultAudioVolume("device", 1)),
         deviceAudioOffsetSec: 0,
-        micAudioPoints: buildFlatMicAudioPoints(duration),
+        micAudioPoints: buildFlatMicAudioPoints(duration, getDefaultAudioVolume("mic", 0)),
         micAudioOffsetSec: 0,
         webcamVisibilitySegments: currentWebcamVideo
           ? buildFullWebcamVisibilitySegments(duration)
@@ -67,14 +70,14 @@ export function useSegmentInitializer({
         micAudioAvailable: Boolean(currentMicAudio),
         webcamOffsetSec: 0,
         keystrokeMode: getSavedKeystrokeModePref(),
-        keystrokeDelaySec: DEFAULT_KEYSTROKE_DELAY_SEC,
+        keystrokeDelaySec: getSavedKeystrokeDelaySec(),
         keystrokeLanguage: getSavedKeystrokeLanguage(),
         keystrokeEvents: [],
         keyboardVisibilitySegments: [],
         keyboardMouseVisibilitySegments: [],
         keystrokeOverlay: getSavedKeystrokeOverlayPref(),
         crop: getSavedCropPref(),
-        useCustomCursor: true,
+        useCustomCursor: getSavedCustomCursorPref(),
       };
       setSegment(initialSegment);
       setTimeout(() => {

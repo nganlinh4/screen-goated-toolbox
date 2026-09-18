@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { volumeViewSetting } from "@/lib/recordingDefaults";
 import { useSettings } from "@/hooks/useSettings";
 import type { TimelineAreaProps } from "./TimelineAreaTypes";
 import { buildTimelineRulerTicks } from "./timelineRuler";
@@ -107,7 +108,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   countFrontendRender("TimelineArea");
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
-  const [volumeViewEnabled, setVolumeViewEnabled] = useState(false);
+  const [volumeViewEnabled, setVolumeViewEnabled] = useState(volumeViewSetting.getInitial);
   const showEmptyRuler = duration <= 0;
   const keystrokeTrackLabel =
     segment?.keystrokeMode === "keyboard"
@@ -369,7 +370,10 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
           isMicAudioAvailable={isMicAudioAvailable}
           isWebcamAvailable={isWebcamAvailable}
           volumeViewEnabled={volumeViewEnabled}
-          setVolumeViewEnabled={setVolumeViewEnabled}
+          setVolumeViewEnabled={(enabled) => {
+            volumeViewSetting.persist(enabled);
+            setVolumeViewEnabled(enabled);
+          }}
           setSegment={setSegment}
           beginBatch={beginBatch}
           commitBatch={commitBatch}

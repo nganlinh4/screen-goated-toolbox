@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { getDefaultStyle, saveStyleDefault } from "@/lib/stylePreferences";
 import {
   VideoSegment,
   TextSegment,
@@ -38,7 +39,7 @@ export function useTextOverlays(props: UseTextOverlaysProps) {
         startTime,
         endTime: Math.min(startTime + segDur, props.duration),
         text: "New Text",
-        style: {
+        style: getDefaultStyle("text", {
           fontSize: 116,
           color: "#ffffff",
           x: 50,
@@ -53,7 +54,7 @@ export function useTextOverlays(props: UseTextOverlaysProps) {
           shadow: { ...DEFAULT_TEXT_SHADOW },
           animation: { ...DEFAULT_TEXT_ANIMATION },
           background: defaultTextBackground({ opacity: 0.6 }),
-        },
+        }),
       };
 
       props.setSegment({
@@ -75,6 +76,8 @@ export function useTextOverlays(props: UseTextOverlaysProps) {
   const handleTextDragMove = useCallback(
     (id: string, x: number, y: number) => {
       if (!props.segment) return;
+      const text = props.segment.textSegments.find((item) => item.id === id);
+      if (text) saveStyleDefault("text", { ...text.style, x, y });
       props.setSegment({
         ...props.segment,
         textSegments: props.segment.textSegments.map((t) =>

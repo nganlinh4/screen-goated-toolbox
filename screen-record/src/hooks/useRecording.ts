@@ -3,6 +3,7 @@ import { invoke } from "@/lib/ipc";
 import { videoRenderer } from "@/lib/videoRenderer";
 import { createVideoController } from "@/lib/videoController";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
+import { getDefaultAudioVolume } from "@/lib/recordingDefaults";
 import { autoZoomGenerator } from "@/lib/autoZoom";
 import {
   BackgroundConfig,
@@ -45,6 +46,7 @@ import {
   getSavedAutoZoomPref,
   getSavedAutoZoomConfig,
   getSavedSmartPointerPref,
+  getSavedCustomCursorPref,
   normalizeTrackDelaySec,
 } from "./videoStatePreferences";
 
@@ -299,11 +301,11 @@ export function useRecording(props: UseRecordingProps) {
             { time: 0, speed: 1 },
             { time: timelineDuration, speed: 1 },
           ],
-          deviceAudioPoints: buildFlatDeviceAudioPoints(timelineDuration),
+          deviceAudioPoints: buildFlatDeviceAudioPoints(timelineDuration, getDefaultAudioVolume("device", 1)),
           deviceAudioOffsetSec: 0,
           micAudioPoints: buildFlatMicAudioPoints(
             timelineDuration,
-            micDefaultVolume,
+            getDefaultAudioVolume("mic", micDefaultVolume),
           ),
           micAudioOffsetSec: normalizeTrackDelaySec(result.micAudioOffsetSec),
           webcamVisibilitySegments: webcamAvailable
@@ -395,7 +397,7 @@ export function useRecording(props: UseRecordingProps) {
           keyboardVisibilitySegments,
           keyboardMouseVisibilitySegments,
           keystrokeOverlay: getSavedKeystrokeOverlayPref(),
-          useCustomCursor: activeRecordingMode !== "withCursor",
+          useCustomCursor: activeRecordingMode !== "withCursor" && getSavedCustomCursorPref(),
         };
         if (
           props.videoRef.current &&

@@ -10,6 +10,7 @@ import { SmartSplitControl } from '@/components/sidepanel/SmartSplitControl';
 import { useSettings } from '@/hooks/useSettings';
 import { splitTextSegmentByMaxUnits } from '@/lib/segmentSmartSplit';
 import { normalizeTextStyle } from '@/lib/textStyleDefaults';
+import { saveStyleDefault } from '@/lib/stylePreferences';
 
 function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): string | undefined {
   const parts: string[] = [];
@@ -42,6 +43,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
 
   const updateStyle = (updates: Partial<TextSegment['style']>) => {
     if (!segment || !sourceId) return;
+    if (editingText) saveStyleDefault('text', { ...editingText.style, ...updates });
     if (hasSelection && selectionSet) {
       // Apply style changes to ALL selected segments
       onUpdateSegment({

@@ -1,4 +1,5 @@
 import type { SubtitleSegment } from '@/types/video';
+import { getDefaultStyle } from './stylePreferences';
 import {
   DEFAULT_TEXT_ANIMATION,
   DEFAULT_TEXT_LINE_HEIGHT,
@@ -9,7 +10,7 @@ import {
 } from '@/lib/textStyleDefaults';
 
 export function defaultSubtitleStyle() {
-  return {
+  return getDefaultStyle('subtitle', {
     fontSize: 54,
     color: '#ffffff',
     x: 50,
@@ -24,7 +25,7 @@ export function defaultSubtitleStyle() {
     shadow: { ...DEFAULT_TEXT_SHADOW },
     animation: { ...DEFAULT_TEXT_ANIMATION },
     background: defaultTextBackground({ opacity: 0.65 }),
-  };
+  });
 }
 
 export function createManualSubtitleSegment(

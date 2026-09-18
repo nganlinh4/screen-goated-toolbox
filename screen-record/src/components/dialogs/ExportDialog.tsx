@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useExportDialogDefaults } from '@/hooks/useExportDialogDefaults';
+import { MIN_VIDEO_BITRATE_KBPS, MAX_VIDEO_BITRATE_KBPS } from '@/lib/exportEstimator';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { FolderOpen } from '@/components/ui/MaterialIcon';
@@ -16,7 +18,6 @@ import { ExportOptions, VideoSegment, BackgroundConfig } from '@/types/video';
 import {
   computeResolutionOptions,
   computeGifResolutionOptions,
-  GIF_MAX_WIDTH,
   computeBitrateSliderBounds,
   getCanvasBaseDimensions,
   resolveExportDimensions,
@@ -146,6 +147,7 @@ export function ExportDialog({
         initialDir: exportOptions.outputDir || null,
       });
       if (selected) {
+        updateDefaults({ outputDir: selected });
         setExportOptions(prev => ({ ...prev, outputDir: selected }));
       }
     } catch (e) {
@@ -170,6 +172,7 @@ export function ExportDialog({
   const sourceResLabel = `${sourceResOptionW}×${sourceResOptionH}`;
   const selectedFormat = exportOptions.format === 'gif' ? 'gif' : 'mp4';
   const isGif = selectedFormat === 'gif';
+  const updateDefaults = useExportDialogDefaults(show, selectedFormat, baseW, baseH, setExportOptions);
   const mp4FpsChoiceValues = useMemo(
     () => Array.from(new Set([
       ...(fpsPreference.mode === 'fixed' ? [fpsPreference.fps] : []),
@@ -189,10 +192,15 @@ export function ExportDialog({
       : computeResolutionOptions(baseW, baseH, vidH)
   ).slice().sort((a, b) => b.width - a.width || b.height - a.height);
   const { width: outW, height: outH } = resolveExportDimensions(exportOptions.width, exportOptions.height, baseW, baseH);
-  const bitrateBounds = computeBitrateSliderBounds(outW, outH, exportOptions.fps);
+  const suggestedBitrateBounds = computeBitrateSliderBounds(outW, outH, exportOptions.fps);
   const targetVideoBitrateKbps = exportOptions.targetVideoBitrateKbps > 0
-    ? Math.max(bitrateBounds.minKbps, Math.min(exportOptions.targetVideoBitrateKbps, bitrateBounds.maxKbps))
-    : bitrateBounds.recommendedKbps;
+    ? Math.max(MIN_VIDEO_BITRATE_KBPS, Math.min(exportOptions.targetVideoBitrateKbps, MAX_VIDEO_BITRATE_KBPS))
+    : suggestedBitrateBounds.recommendedKbps;
+  const bitrateBounds = {
+    ...suggestedBitrateBounds,
+    minKbps: Math.max(MIN_VIDEO_BITRATE_KBPS, Math.min(suggestedBitrateBounds.minKbps, targetVideoBitrateKbps)),
+    maxKbps: Math.max(suggestedBitrateBounds.maxKbps, targetVideoBitrateKbps),
+  };
   const standardBitratePercent = bitrateBounds.maxKbps > bitrateBounds.minKbps
     ? ((bitrateBounds.recommendedKbps - bitrateBounds.minKbps) / (bitrateBounds.maxKbps - bitrateBounds.minKbps)) * 100
     : 0;
@@ -270,19 +278,6 @@ export function ExportDialog({
   useEffect(() => {
     if (!show) return;
 
-    // Default resolution each time the dialog opens — GIF gets explicit width, MP4 gets "match recorded" (0x0).
-    setExportOptions((prev) => {
-      const gif = (prev.format || 'mp4') === 'gif';
-      if (gif) {
-        const gifOptions = computeGifResolutionOptions(baseW, baseH);
-        const def = gifOptions[0];
-        if (!def || (prev.width === def.width && prev.height === def.height)) return prev;
-        return { ...prev, width: def.width, height: def.height };
-      }
-      if (prev.width === 0 && prev.height === 0) return prev;
-      return { ...prev, width: 0, height: 0 };
-    });
-
     // GIF has its own deliberately small FPS set. MP4 resolves the persisted
     // semantic preference only after source metadata exists, so a temporary
     // metadata gap can never turn "match recorded" into fixed 60 FPS.
@@ -304,24 +299,6 @@ export function ExportDialog({
     if (!show || exportOptions.format !== 'both') return;
     setExportOptions((prev) => ({ ...prev, format: 'mp4' }));
   }, [show, exportOptions.format, setExportOptions]);
-
-  useEffect(() => {
-    if (!show) return;
-    setExportOptions((prev) => {
-      const current = prev.targetVideoBitrateKbps;
-      const next = current > 0
-        ? Math.max(bitrateBounds.minKbps, Math.min(current, bitrateBounds.maxKbps))
-        : bitrateBounds.recommendedKbps;
-      if (current === next) return prev;
-      return { ...prev, targetVideoBitrateKbps: next };
-    });
-  }, [
-    show,
-    bitrateBounds.minKbps,
-    bitrateBounds.maxKbps,
-    bitrateBounds.recommendedKbps,
-    setExportOptions
-  ]);
 
   // Find currently selected resolution key, fall back to original (0x0)
   const selectedKey = `${exportOptions.width}x${exportOptions.height}`;
@@ -354,7 +331,9 @@ export function ExportDialog({
                     return (
                       <button
                         key={key}
-                        onClick={() => setExportOptions(prev => ({ ...prev, width: isSourceOption ? 0 : opt.width, height: isSourceOption ? 0 : opt.height }))}
+                        onClick={() => updateDefaults(isGif
+                          ? { gifWidth: opt.width }
+                          : { mp4Height: isSourceOption ? null : opt.height })}
                         className={`resolution-option ui-choice-tile min-h-[72px] rounded-2xl px-3 py-2 text-xs font-semibold flex flex-col items-center justify-center gap-0.5 relative ${
                           isSelected
                             ? 'ui-choice-tile-active text-[var(--on-surface)]'
@@ -392,18 +371,19 @@ export function ExportDialog({
                     {(['mp4', 'gif'] as const).map(fmt => (
                       <button
                         key={fmt}
-                        onClick={() => setExportOptions(prev => {
-                          if (fmt === 'gif') {
-                            const fps = clampGifFps(prev.fps);
-                            const gifOptions = computeGifResolutionOptions(baseW, baseH);
-                            const def = gifOptions[0];
-                            return { ...prev, format: fmt, fps, width: def?.width ?? GIF_MAX_WIDTH, height: def?.height ?? 540 };
-                          }
-                          const fps = fpsPreference.mode === 'source'
-                            ? (resolvedSourceFps ?? prev.fps)
-                            : fpsPreference.fps;
-                          return { ...prev, format: fmt, fps, width: 0, height: 0 };
-                        })}
+                        onClick={() => {
+                          updateDefaults({ format: fmt });
+                          setExportOptions(prev => {
+                            if (fmt === 'gif') {
+                              const fps = clampGifFps(prev.fps);
+                              return { ...prev, format: fmt, fps };
+                            }
+                            const fps = fpsPreference.mode === 'source'
+                              ? (resolvedSourceFps ?? prev.fps)
+                              : fpsPreference.fps;
+                            return { ...prev, format: fmt, fps };
+                          });
+                        }}
                         className={`format-option ui-chip-button flex-1 rounded-xl py-2 text-xs font-medium ${
                           selectedFormat === fmt
                             ? 'ui-chip-button-active'
@@ -479,7 +459,11 @@ export function ExportDialog({
                       max={bitrateBounds.maxKbps}
                       step={bitrateBounds.stepKbps}
                       value={targetVideoBitrateKbps}
-                      onChange={(e) => setExportOptions(prev => ({ ...prev, targetVideoBitrateKbps: Number(e.target.value) }))}
+                      onChange={(e) => {
+                        const bitrateKbps = Number(e.target.value);
+                        updateDefaults({ bitrateKbps });
+                        setExportOptions(prev => ({ ...prev, targetVideoBitrateKbps: bitrateKbps }));
+                      }}
                       className="flex-1 h-1 rounded-sm"
                     />
                   </div>
@@ -488,12 +472,18 @@ export function ExportDialog({
                       className="bitrate-standard-line absolute top-0 h-2 w-px bg-[var(--on-surface-variant)]/70"
                       style={{ left: `calc(${standardBitratePercent}% - 0.5px)` }}
                     />
-                    <div
+                    <button
+                      type="button"
+                      aria-pressed={exportOptions.targetVideoBitrateKbps === 0}
+                      onClick={() => {
+                        updateDefaults({ bitrateKbps: 0 });
+                        setExportOptions(prev => ({ ...prev, targetVideoBitrateKbps: 0 }));
+                      }}
                       className="bitrate-standard-label absolute top-[8px] -translate-x-1/2 text-[10px] text-[var(--on-surface-variant)] whitespace-nowrap"
                       style={{ left: `${standardBitratePercent}%` }}
                     >
                       {t.standard}
-                    </div>
+                    </button>
                   </div>
                 </div>
               </div>}

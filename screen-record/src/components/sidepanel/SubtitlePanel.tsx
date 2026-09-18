@@ -1,4 +1,5 @@
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
+import { saveStyleDefault } from '@/lib/stylePreferences';
 import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { useSettings } from '@/hooks/useSettings';
@@ -112,6 +113,7 @@ export function SubtitlePanel({
 
   const updateSelectedSubtitles = (updater: (subtitle: SubtitleSegment) => SubtitleSegment) => {
     if (!segment || !sourceSubtitle) return;
+    saveStyleDefault('subtitle', updater(sourceSubtitle).style);
     const targetIds = selection ?? new Set([sourceSubtitle.id]);
     onUpdateSegment(updateSubtitleStylesAcrossTracks(segment, targetIds, updater));
   };

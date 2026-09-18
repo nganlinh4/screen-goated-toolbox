@@ -13,6 +13,7 @@ const KEYSTROKE_OVERLAY_PREF_KEY = "screen-record-keystroke-overlay-pref-v1";
 const AUTO_ZOOM_PREF_KEY = "screen-record-auto-zoom-pref-v1";
 const AUTO_ZOOM_CONFIG_KEY = "screen-record-auto-zoom-config-v1";
 const SMART_POINTER_PREF_KEY = "screen-record-smart-pointer-pref-v1";
+const CUSTOM_CURSOR_PREF_KEY = "screen-record-custom-cursor-pref-v1";
 const EXPORT_FPS_PREF_KEY = "screen-record-export-fps-pref-v1";
 const CROP_PREF_KEY = "screen-record-crop-pref-v1";
 export const DEFAULT_EXPORT_FPS = 60;
@@ -196,6 +197,20 @@ const smartPointerPrefSetting = createPersistedSetting<boolean>(SMART_POINTER_PR
   serialize: (enabled) => (enabled ? "1" : "0"),
   fallback: true,
 });
+
+const customCursorPrefSetting = createPersistedSetting<boolean>(CUSTOM_CURSOR_PREF_KEY, {
+  parse: (raw) => raw !== "0",
+  serialize: (enabled) => (enabled ? "1" : "0"),
+  fallback: true,
+});
+
+export function getSavedCustomCursorPref(): boolean {
+  return customCursorPrefSetting.getInitial();
+}
+
+export function saveCustomCursorPref(enabled: boolean): void {
+  customCursorPrefSetting.persist(enabled);
+}
 
 export type ExportFpsPreference =
   | { mode: "source"; lastResolvedFps?: number }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { saveCustomCursorPref } from '@/hooks/videoStatePreferences';
 import { VideoSegment, BackgroundConfig } from '@/types/video';
 import { Slider } from '@/components/ui/Slider';
 import { Switch } from '@/components/ui/Switch';
@@ -239,6 +240,7 @@ export function CursorPanel({
             disabled={!canToggleCustomCursor}
             onCheckedChange={(val) => {
               if (!segment) return;
+              saveCustomCursorPref(val);
               onUpdateSegment({ ...segment, useCustomCursor: val });
             }}
           />

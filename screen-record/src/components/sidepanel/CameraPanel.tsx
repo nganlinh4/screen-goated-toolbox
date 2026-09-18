@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { saveCameraDefaults } from "@/lib/recordingDefaults";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PanelCard } from "@/components/layout/PanelCard";
 import { SettingRow } from "@/components/layout/SettingRow";
@@ -57,6 +58,7 @@ export function CameraPanel({
   const { t } = useSettings();
 
   const updateConfig = (updates: Partial<WebcamConfig>) => {
+    saveCameraDefaults({ ...webcamConfig, ...updates });
     setWebcamConfig((prev) => ({
       ...prev,
       ...updates,

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExportDialog } from "@/components/dialogs/ExportDialog";
 import { invoke } from "@/lib/ipc";
 import { videoExporter } from "@/lib/videoExporter";
+import { getExportDefaults } from "@/lib/exportPreferences";
 import type { BackgroundConfig, ExportOptions, VideoSegment } from "@/types/video";
 
 vi.mock("@/lib/ipc", () => ({
@@ -105,6 +106,7 @@ describe("ExportDialog format-safe defaults", () => {
     invokeMock.mockClear();
     getExportCapabilitiesMock.mockClear();
     localStorage.removeItem("screen-record-export-fps-pref-v1");
+    localStorage.removeItem("screen-record-export-defaults-v1");
   });
 
   it("converts stale GIF state back to visible MP4 FPS and original resolution", async () => {
@@ -201,5 +203,27 @@ describe("ExportDialog format-safe defaults", () => {
     });
     expect(invokeMock).toHaveBeenCalledWith("get_default_export_dir");
     expect(getExportCapabilitiesMock).toHaveBeenCalled();
+  });
+
+  it("restores an explicit resolution after reopening without learning from initial state", async () => {
+    const first = render(<Harness initial={baseOptions} />);
+    fireEvent.click(screen.getByRole("button", { name: /^720p/ }));
+    await waitFor(() => expect(readExportState().height).toBe(720));
+    expect(getExportDefaults().mp4Height).toBe(720);
+    first.unmount();
+    render(<Harness initial={{ ...baseOptions, width: 640, height: 360 }} />);
+    await waitFor(() => expect(readExportState()).toMatchObject({ width: 1280, height: 720 }));
+    expect(getExportDefaults().mp4Height).toBe(720);
+  });
+
+  it("keeps automatic bitrate automatic and remembers explicit bitrate changes", async () => {
+    render(<Harness initial={{ ...baseOptions, targetVideoBitrateKbps: 0 }} />);
+    await waitFor(() => expect(readExportState().fps).toBe(50));
+    expect(readExportState().targetVideoBitrateKbps).toBe(0);
+    fireEvent.change(screen.getByRole("slider", { name: /bitrate/i }), { target: { value: "12000" } });
+    expect(getExportDefaults().bitrateKbps).toBe(12000);
+    fireEvent.click(screen.getByRole("button", { name: "Standard", exact: true }));
+    expect(readExportState().targetVideoBitrateKbps).toBe(0);
+    expect(getExportDefaults().bitrateKbps).toBe(0);
   });
 });

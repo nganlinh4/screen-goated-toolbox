@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import type { MutableRefObject } from "react";
 import type { VideoSegment } from "@/types/video";
 import { updateSubtitleStylesAcrossTracks } from "@/lib/subtitleTrackMutations";
+import { saveStyleDefault } from "@/lib/stylePreferences";
 
 interface OverlayDragMove {
   kind: "text" | "subtitle";
@@ -65,11 +66,16 @@ export function useAppOverlaySelection({
     }
 
     if (subtitleMoves.size > 0) {
+      let savedStyle = false;
       nextSegment = updateSubtitleStylesAcrossTracks(
         nextSegment,
         new Set(subtitleMoves.keys()),
         (subtitle) => {
           const move = subtitleMoves.get(subtitle.id);
+          if (move && !savedStyle) {
+            saveStyleDefault("subtitle", { ...subtitle.style, ...move });
+            savedStyle = true;
+          }
           return move
             ? {
                 ...subtitle,
@@ -84,6 +90,8 @@ export function useAppOverlaySelection({
       );
     }
 
+    const movedText = nextSegment.textSegments.find((text) => textMoves.has(text.id));
+    if (movedText) saveStyleDefault("text", movedText.style);
     setSegment(nextSegment);
   }, [segmentRef, setSegment]);
 

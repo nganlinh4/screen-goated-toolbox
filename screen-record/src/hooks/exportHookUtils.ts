@@ -1,5 +1,6 @@
 import { ExportArtifact, ExportOptions } from "@/types/video";
 import { getSavedExportFpsPref } from "./videoStatePreferences";
+import { getExportDefaults } from "@/lib/exportPreferences";
 
 export interface NativeVideoMetadataProbe {
   width: number;
@@ -10,19 +11,20 @@ export interface NativeVideoMetadataProbe {
 }
 
 export function createInitialExportOptions(): ExportOptions {
+  const defaults = getExportDefaults();
   return {
     width: 0,
     height: 0,
     fps: getSavedExportFpsPref(),
-    targetVideoBitrateKbps: 0,
+    targetVideoBitrateKbps: defaults.bitrateKbps,
     speed: 1,
     exportProfile: "turbo_nv",
     preferNvTurbo: true,
     qualityGatePercent: 3,
     turboCodec: "hevc",
     preRenderPolicy: "aggressive",
-    outputDir: "",
-    format: "mp4",
+    outputDir: defaults.outputDir,
+    format: defaults.format,
   };
 }
 

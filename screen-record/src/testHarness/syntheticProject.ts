@@ -3,6 +3,7 @@ import { defaultSubtitleStyle } from "@/lib/subtitleDefaults";
 import { DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
 import type {
   ImportedAudioSegment,
+  MousePosition,
   NarrationSegment,
   Project,
   ProjectComposition,
@@ -19,6 +20,7 @@ export interface SyntheticProjectOptions {
   audioCount?: number;
   durationSec?: number;
   clipCount?: number;
+  mousePositions?: MousePosition[];
 }
 
 function makeSegment(
@@ -150,7 +152,7 @@ export function createSyntheticProjectFixture(options: SyntheticProjectOptions =
       segment: clipSegment,
       backgroundConfig,
       webcamConfig: DEFAULT_WEBCAM_CONFIG,
-      mousePositions: [],
+      mousePositions: options.mousePositions ?? [],
       rawVideoPath: `C:\\SGT-Test\\synthetic-${index}.mp4`,
       rawWebcamVideoPath: `C:\\SGT-Test\\synthetic-webcam-${index}.mp4`,
     };
@@ -184,7 +186,7 @@ export function createSyntheticProjectFixture(options: SyntheticProjectOptions =
     segment,
     backgroundConfig,
     webcamConfig: DEFAULT_WEBCAM_CONFIG,
-    mousePositions: [],
+    mousePositions: options.mousePositions ?? [],
     rawVideoPath: "C:\\SGT-Test\\synthetic-root.mp4",
     composition,
   };
