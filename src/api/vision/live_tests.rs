@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn qwen_payload_stays_below_tpm_and_disables_reasoning() {
+fn qwen_payload_uses_native_output_limit_and_disables_reasoning() {
     let payload = groq_vision_payload(
         "qwen/qwen3.8-27b",
         "prompt",
@@ -10,7 +10,7 @@ fn qwen_payload_stays_below_tpm_and_disables_reasoning() {
         false,
         None,
     );
-    assert_eq!(payload["max_completion_tokens"], 512);
+    assert!(payload.get("max_completion_tokens").is_none());
     assert_eq!(payload["reasoning_format"], "hidden");
     assert_eq!(payload["reasoning_effort"], "none");
     assert_eq!(payload["temperature"], 0.7);
@@ -27,15 +27,12 @@ fn qwen_payload_stays_below_tpm_and_disables_reasoning() {
         false,
         None,
     );
-    assert_eq!(
-        generic["max_completion_tokens"],
-        crate::model_config::DEFAULT_VISION_MAX_OUTPUT_TOKENS
-    );
+    assert!(generic.get("max_completion_tokens").is_none());
     assert!(generic.get("reasoning_format").is_none());
 }
 
 #[test]
-fn unprofiled_nvidia_vision_has_a_finite_provider_output_budget() {
+fn unprofiled_nvidia_vision_uses_provider_native_output_limit() {
     let payload = nvidia_vision_payload(
         "future-vision-model",
         "Read",
@@ -44,10 +41,7 @@ fn unprofiled_nvidia_vision_has_a_finite_provider_output_budget() {
         true,
         None,
     );
-    assert_eq!(
-        payload["max_tokens"],
-        crate::model_config::DEFAULT_VISION_MAX_OUTPUT_TOKENS
-    );
+    assert!(payload.get("max_tokens").is_none());
     assert!(payload.get("max_completion_tokens").is_none());
 }
 

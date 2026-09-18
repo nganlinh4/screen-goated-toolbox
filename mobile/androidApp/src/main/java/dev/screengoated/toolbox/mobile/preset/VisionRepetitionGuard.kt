@@ -63,16 +63,18 @@ private fun repetitionOnset(
 ): Int? {
     val scan = scanText(text)
     if (scan.points.size < MIN_JUDGED_CODE_POINTS) return null
+    val matches = PreviousVisionMatches(scan.points)
+    val fragments = VisionFragmentEvidence(text)
     val last = scan.points.size - MIN_REPEAT_SPAN
     for (start in MIN_REPEAT_SPAN..last) {
-        if (!occursEarlier(scan.points, start, MIN_FRAGMENT_SPAN)) continue
+        if (matches.span(start) < MIN_FRAGMENT_SPAN) continue
         if (scan.totalWritten - scan.written[start] < minimumEvidence) continue
-        if (!hasAnchor(scan.points, start)) continue
+        if (!matches.hasAnchor(start, MIN_REPEAT_SPAN)) continue
         val windowEnd = minOf(start + ONSET_WINDOW, scan.points.size)
-        if (coverage(scan.points, start, windowEnd) < LOCAL_COVERAGE) continue
-        if (coverage(scan.points, start, scan.points.size) < TAIL_COVERAGE) continue
+        if (matches.coverage(start, windowEnd, MIN_FRAGMENT_SPAN) < LOCAL_COVERAGE) continue
+        if (matches.coverage(start, scan.points.size, MIN_FRAGMENT_SPAN) < TAIL_COVERAGE) continue
         val offset = scan.offsets[start]
-        if (!isFragmented(text, offset)) continue
+        if (!fragments.at(offset)) continue
         restartBoundary(text, offset)?.let { return it }
     }
     return null
@@ -113,7 +115,7 @@ private fun normalizedScanText(text: String): String = buildString(text.length) 
         if (!Character.isWhitespace(point)) appendCodePoint(Character.toLowerCase(point))
         offset += Character.charCount(point)
     }
-}.let(::squeeze)
+}.let(::squeezeVisionText)
 
 private fun scanText(text: String): ScanText {
     val points = ArrayList<Int>(MAX_SCANNED_CODE_POINTS)
@@ -145,59 +147,7 @@ private fun scanText(text: String): ScanText {
     )
 }
 
-private fun occursEarlier(points: IntArray, start: Int, length: Int): Boolean {
-    if (start + length > points.size || length > start) return false
-    for (candidate in 0..start - length) {
-        var matches = true
-        for (index in 0 until length) {
-            if (points[candidate + index] != points[start + index]) {
-                matches = false
-                break
-            }
-        }
-        if (matches) return true
-    }
-    return false
-}
-
-private fun hasAnchor(points: IntArray, start: Int): Boolean =
-    (start..points.size - MIN_REPEAT_SPAN).any { occursEarlier(points, it, MIN_REPEAT_SPAN) }
-
-private fun coverage(points: IntArray, start: Int, end: Int): Float {
-    if (end <= start) return 0f
-    var covered = 0
-    var index = start
-    while (index < end) {
-        var span = 0
-        var length = MIN_FRAGMENT_SPAN
-        while (index + length <= points.size && occursEarlier(points, index, length)) {
-            span = length
-            length += 1
-        }
-        if (span >= MIN_FRAGMENT_SPAN) {
-            covered += minOf(span, end - index)
-            index += span
-        } else {
-            index += 1
-        }
-    }
-    return covered.toFloat() / (end - start)
-}
-
-private fun isFragmented(text: String, onset: Int): Boolean {
-    val matches = Regex("\\S+").findAll(text).toList()
-    val before = matches.filter { it.range.first < onset }.map { it.value.lowercase() }
-    val after = matches.filter { it.range.first >= onset }.map { it.value.lowercase() }
-    val haystack = squeeze(before.joinToString(separator = ""))
-    return after.zipWithNext().any { (first, second) ->
-        val joined = squeeze(first + second)
-        joined.codePointCount(0, joined.length) > first.codePointCount(0, first.length) &&
-            first !in before &&
-            joined in haystack
-    }
-}
-
-private fun squeeze(text: String): String = buildString(text.length) {
+internal fun squeezeVisionText(text: String): String = buildString(text.length) {
     var previous = -1
     var offset = 0
     while (offset < text.length) {

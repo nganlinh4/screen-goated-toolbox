@@ -87,10 +87,8 @@ internal fun preflightSkipReason(
         return "Model config not found: $modelId"
     }
     val model = PresetModelCatalog.getById(modelId)
-    val minimumTokens = model?.takeIf { it.modelType == PresetModelType.VISION }
-        ?.visionMaxOutputTokens?.let { 770 + it }
-    if (model != null && minimumTokens != null) {
-        ModelUsageStats.tokenBudgetWaitSeconds(model.provider, model.fullName, minimumTokens)
+    if (model != null) {
+        ModelUsageStats.tokenBudgetWaitSeconds(model.provider, model.fullName, 1)
             ?.let { return "MODEL_TOKEN_BUDGET:$modelId:${it.coerceAtLeast(1)}s" }
     }
     return null

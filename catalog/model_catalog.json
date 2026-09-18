@@ -23,7 +23,7 @@
     "qwen3_asr_1_7b_model_id": "local-qwen-3-asr-1-7b-audio",
     "realtime_translation_model_llm": "text-llm",
     "realtime_translation_model_gtx": "google-gtx",
-    "default_vision_max_output_tokens": 512
+    "default_vision_max_output_tokens": null
   },
   "endpoints": {
     "gemini-3.1-flash-lite": {
@@ -397,10 +397,11 @@
   ],
   "vision_request_profiles": {
     "groq:qwen/qwen3.8-27b": {
+      "minimum_dimension": 32,
       "input_order": "text-first",
       "media_resolution": "provider-default",
       "sampling": "qwen3-groq-non-thinking",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema",
       "restates_output": true
     },
@@ -408,84 +409,84 @@
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "google:gemma-4-31b-it": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3.1-flash-lite": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3.5-flash-lite": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-robotics-er-2-preview": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3-flash-preview": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3.5-flash": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3.6-flash": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "openrouter:dots-studio/dots-3-note-preview:free": {
       "input_order": "text-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3.7-flash": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "google:gemini-3.8-flash": {
       "input_order": "image-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "strict-json-schema"
     },
     "openrouter:google/gemma-4-26b-a4b-it:free": {
       "input_order": "text-first",
       "media_resolution": "provider-default",
       "sampling": "provider-default",
-      "max_output_tokens": 512,
+      "max_output_tokens": null,
       "structured_output": "json-object"
     }
   },

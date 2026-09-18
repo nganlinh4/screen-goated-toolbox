@@ -6,7 +6,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
-import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import kotlin.coroutines.coroutineContext
@@ -61,7 +60,8 @@ private suspend fun TextApiClient.streamGeminiStreaming(
     var thinkingShown = false
     var contentStarted = false
 
-    httpClient.newPresetCall(request, model, streamingEnabled = true, job = coroutineContext[Job]).execute().use { response ->
+    val job = coroutineContext[Job]
+    val result = httpClient.newPresetCall(request, model, streamingEnabled = true, job = job).execute().use { response ->
         ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
@@ -71,14 +71,7 @@ private suspend fun TextApiClient.streamGeminiStreaming(
 
         val body = response.body
         body.charStream().buffered().useLines { lines ->
-            lines.forEach { rawLine ->
-                coroutineContext.ensureActive()
-                val line = rawLine.trim()
-                if (!line.startsWith("data: ")) return@forEach
-                val data = line.removePrefix("data: ").trim()
-                if (data.isBlank() || data == "[DONE]") return@forEach
-
-                val delta = extractGeminiDelta(data)
+            consumeGeminiStream(lines.onEach { job?.ensureActive() }) { delta ->
                 if (delta.reasoning && !thinkingShown && !contentStarted) {
                     onChunk(thinkingLabel(uiLanguage))
                     thinkingShown = true
@@ -99,7 +92,8 @@ private suspend fun TextApiClient.streamGeminiStreaming(
         }
     }
 
-    return fullContent.toString()
+    job?.ensureActive()
+    return result
 }
 
 private suspend fun TextApiClient.generateGeminiBlocking(
@@ -126,19 +120,10 @@ private suspend fun TextApiClient.generateGeminiBlocking(
         }
 
         val body = response.body
-        val root = JSONObject(body.string())
-        val parts = root.optJSONArray("candidates")
-            ?.optJSONObject(0)
-            ?.optJSONObject("content")
-            ?.optJSONArray("parts") ?: return ""
-
-        val result = StringBuilder()
-        for (index in 0 until parts.length()) {
-            val part = parts.optJSONObject(index) ?: continue
-            if (part.optBoolean("thought", false)) continue
-            result.append(part.optString("text", ""))
+        val root = try { JSONObject(body.string()) } catch (error: org.json.JSONException) {
+            throw IOException("PROVIDER_RESPONSE_INVALID:Malformed provider response", error)
         }
-        return result.toString()
+        return parseGeminiCompletion(root)
     }
 }
 
@@ -178,29 +163,4 @@ internal fun buildGeminiPayload(
     // Search support is catalog capability metadata. Ordinary generation must
     // not spend grounding quota unless a caller uses an explicit search path.
     return payload
-}
-
-internal fun extractGeminiDelta(payload: String): GeminiDelta {
-    return try {
-        val root = JSONObject(payload)
-        val candidates = root.optJSONArray("candidates") ?: return GeminiDelta()
-        val candidate = candidates.optJSONObject(0) ?: return GeminiDelta()
-        val parts = candidate
-            .optJSONObject("content")
-            ?.optJSONArray("parts") ?: return GeminiDelta()
-
-        var content = ""
-        var reasoning = false
-        for (index in 0 until parts.length()) {
-            val part = parts.optJSONObject(index) ?: continue
-            if (part.optBoolean("thought", false)) {
-                reasoning = true
-                continue
-            }
-            content += part.optString("text", "")
-        }
-        GeminiDelta(content = content, reasoning = reasoning)
-    } catch (_: JSONException) {
-        GeminiDelta()
-    }
 }

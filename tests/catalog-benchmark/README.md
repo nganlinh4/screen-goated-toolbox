@@ -1,5 +1,9 @@
 # Catalog benchmark
 
+Protocol 16 uses provider-native ordinary vision output limits, validates Gemini
+completion explicitly, and normalizes catalog-declared minimum image dimensions.
+Earlier request-policy results remain historical; this change does not rerank models.
+
 Protocol 15 accepts empty trailing completion metadata in the shared streaming
 parser while still rejecting post-completion output and errors. Earlier runs
 with rejected metadata events must be rerun before comparing reliability.
@@ -158,8 +162,8 @@ changes, fix the shared adapter/profile and rerun under a new protocol.
 
 `ocr_paired_diagnostic` compares identical image/prompt inputs through the shared
 vision entry point with interactive streaming deadlines, relaxed streaming, and
-relaxed unary requests. This isolates transport behavior from the catalog OCR
-baseline, which currently uses unary requests. Raw OpenAI-compatible response
+relaxed unary requests. This compares production streaming with controlled
+transport alternatives. Raw OpenAI-compatible response
 capture reuses the production image and payload builders and preserves response
 framing and termination evidence. These diagnostic records never enter catalog
 history or establish model rankings.

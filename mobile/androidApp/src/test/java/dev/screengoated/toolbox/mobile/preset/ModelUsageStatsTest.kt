@@ -9,7 +9,7 @@ import org.junit.Test
 
 class ModelUsageStatsTest {
     @Test
-    fun imageAdmissionReserveDoesNotBlockTextOnTheSameEndpoint() {
+    fun nonzeroQuotaDoesNotRejectEitherModalityUsingGuessedCosts() {
         val models = PresetModelCatalog.runtimeModels()
         val vision = models.first { candidate ->
             candidate.provider == PresetModelProvider.GROQ && candidate.modelType == PresetModelType.VISION &&
@@ -22,11 +22,7 @@ class ModelUsageStatsTest {
         ))
         for (model in models.filter { it.provider == vision.provider && it.fullName == vision.fullName }) {
             val reason = preflightSkipReason(model.id, model.provider, ApiKeys(groqKey = "test-key"), emptySet(), PresetRuntimeSettings())
-            if (model.modelType == PresetModelType.VISION) {
-                org.junit.Assert.assertTrue(reason?.startsWith("MODEL_TOKEN_BUDGET:") == true)
-            } else {
-                assertNull(reason)
-            }
+            assertNull(reason)
         }
     }
 

@@ -203,14 +203,17 @@ The current policies come from production-path transport probes:
   `presence_penalty: 1.5`) together with the separate catalog-owned
   `reasoning_effort: none`. The shared path omits `top_k` and `min_p`;
   a future per-endpoint sampling extension requires its own production-path probe.
-- Every ordinary vision endpoint reserves 512 output tokens. A production-path
-  OCR probe used 220 completion tokens, while the ten benchmark responses were at
-  most 390 characters, so the ceiling is generous for extraction while bounding
-  what a single call can cost. On Groq it also reduced TPD admission from 4,483
-  to 2,937 tokens for the same small-image request without truncation, because a
-  reserve is charged whether it is used or not. The value is uniform so that
-  image behaviour does not change with the endpoint a chain happens to reach;
-  roughly 250-380 words depending on language, which bounds prose replies too.
+- Ordinary vision endpoints use provider-native output limits (`max_output_tokens: null`).
+  A finite ceiling is an optional endpoint contract, never a guess based on image
+  area or expected OCR length. Reaching a provider limit is a failed completion,
+  not a successful partial result and not evidence of endpoint ill health.
+- Optional `minimum_dimension` declares an endpoint's minimum width and height.
+  Proportional resampling satisfies it while retaining the selected fast model.
+  Already supported image dimensions remain unchanged; an impossible aspect ratio
+  fails only the current attempt. No image-size reliability heuristic reorders models.
+- Admission uses actual quota feedback, not guessed image-token costs or an
+  output reservation treated as consumed tokens. Provider-reported quota failures
+  retain their retry hints. No fixed account-tier TPM assumption rejects a prompt.
 - `structured_output` is a wire policy, not a default. `prompt-only` means a
   model is asked for structure in the prompt without attaching a schema;
   `json-object` and `strict-json-schema` select documented constrained modes.
@@ -226,7 +229,7 @@ The current policies come from production-path transport probes:
 OCR catalog timing measures full-answer completion through the preset's shared
 transport policy and interactive deadlines. Presentation settings do not change
 the provider transport. The ten-case suite includes compact and thin text crops.
-Unprofiled vision endpoints use `constants.default_vision_max_output_tokens`;
+Unprofiled vision endpoints use nullable `constants.default_vision_max_output_tokens`;
 reviewed specialized endpoints with unsupported ordinary-chat contracts belong
 in `withdrawn_models` so signed-feed offers cannot reintroduce them.
 Time-to-first-token is not benchmark evidence.

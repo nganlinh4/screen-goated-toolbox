@@ -190,6 +190,7 @@ internal fun parseDurationSeconds(text: String): Double? {
 }
 
 private fun isRateLimitError(error: String): Boolean {
+    if (error.startsWith("PROVIDER_REQUEST_LIMIT:")) return false
     val lower = error.lowercase()
     return "http 429" in lower || "status code 429" in lower || "request failed with 429" in lower ||
         "rate limit" in lower || "too many requests" in lower || "quota exceeded" in lower

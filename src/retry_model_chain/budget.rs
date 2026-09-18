@@ -15,15 +15,6 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-/// Cheapest image an endpoint can be billed for, measured against the live Groq
-/// endpoint on 2026-08-19 across eleven aspect ratios from 1:4 to 3:1.
-///
-/// Cost there tracks shape rather than size and is not monotonic in the aspect
-/// ratio, so it cannot be predicted from the dimensions alone: 1024x512 billed
-/// 770 while 1024x341 billed 1026 and 1024x682 billed 1794. The floor is stable
-/// though, and a floor is all an admission check needs.
-pub(super) const MEASURED_MIN_IMAGE_TOKENS: u32 = 770;
-
 #[derive(Clone, Copy, Debug)]
 struct TokenBudget {
     limit: u32,
@@ -134,10 +125,7 @@ mod tests {
         // Enough for the cheapest request, not for the dearest: must not block,
         // because the cheap case is the one we are allowed to assume.
         record_at(&endpoint, 8_000, 1_400, Duration::from_secs(20), start);
-        assert_eq!(
-            shortfall_at(&endpoint, MEASURED_MIN_IMAGE_TOKENS + 512, start),
-            None
-        );
+        assert_eq!(shortfall_at(&endpoint, 1_282, start), None);
         forget(&endpoint);
     }
 

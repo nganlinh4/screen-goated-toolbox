@@ -75,6 +75,7 @@ mod tests {
             media_resolution: VisionMediaResolutionPolicy::ProviderDefault,
             sampling: VisionSamplingPolicy::ProviderDefault,
             max_output_tokens: None,
+            minimum_dimension: None,
             structured_output: StructuredOutputPolicy::Unsupported,
             restates_output: false,
         }

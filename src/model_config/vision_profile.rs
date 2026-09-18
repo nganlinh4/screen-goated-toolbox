@@ -44,6 +44,7 @@ pub struct VisionRequestProfile {
     pub media_resolution: VisionMediaResolutionPolicy,
     pub sampling: VisionSamplingPolicy,
     pub max_output_tokens: Option<u32>,
+    pub minimum_dimension: Option<u32>,
     pub structured_output: StructuredOutputPolicy,
     /// Whether this endpoint is known to re-emit text it has already produced.
     ///
@@ -59,7 +60,8 @@ impl VisionRequestProfile {
         input_order: VisionInputOrder::TextFirst,
         media_resolution: VisionMediaResolutionPolicy::ProviderDefault,
         sampling: VisionSamplingPolicy::ProviderDefault,
-        max_output_tokens: Some(super::DEFAULT_VISION_MAX_OUTPUT_TOKENS),
+        max_output_tokens: super::DEFAULT_VISION_MAX_OUTPUT_TOKENS,
+        minimum_dimension: None,
         structured_output: StructuredOutputPolicy::Unsupported,
         restates_output: false,
     };

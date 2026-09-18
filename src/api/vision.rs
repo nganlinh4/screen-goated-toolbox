@@ -411,7 +411,7 @@ where
             return Err(anyhow::anyhow!("NO_API_KEY:groq"));
         }
 
-        let payload = groq_vision_payload(
+        let mut payload = groq_vision_payload(
             &model,
             &prompt,
             &mime_type,
@@ -420,7 +420,7 @@ where
             response_schema.as_ref(),
         );
 
-        let payload_bytes = serde_json::to_vec(&payload)
+        let mut payload_bytes = serde_json::to_vec(&payload)
             .map_err(|e| anyhow::anyhow!("Failed to encode Groq vision request: {e}"))?;
         println!(
             "[vision] Groq request model={model} mime={mime_type} image_bytes={} request_bytes={} limit={GROQ_SAFE_REQUEST_BYTES}",
@@ -464,6 +464,18 @@ where
             let retry_after = retry_after_seconds(response.headers());
             let body = response.into_body().read_to_string().unwrap_or_default();
             let message = groq_error_message(status, &body);
+            if let Some(limit) = super::groq::output_limit::output_limit_retry(
+                status,
+                rate_attempt,
+                &body,
+                payload["max_completion_tokens"].as_u64(),
+            ) {
+                payload["max_completion_tokens"] = limit.into();
+                payload_bytes = serde_json::to_vec(&payload)?;
+                trace.record_retry(Duration::ZERO);
+                rate_attempt += 1;
+                continue;
+            }
             if let Some(seconds) = groq_rate_limit_retry_delay(status, rate_attempt, retry_after) {
                 trace.record_retry(Duration::from_secs(seconds));
                 crate::log_info!("[vision] Groq token limit reached; retrying once in {seconds}s");
@@ -476,7 +488,10 @@ where
             if status == 401 || status == 403 {
                 return Err(anyhow::anyhow!("INVALID_API_KEY"));
             }
-            return Err(anyhow::anyhow!("Groq vision API HTTP {status}: {message}"));
+            return Err(anyhow::anyhow!(
+                "{}Groq vision API HTTP {status}: {message}",
+                super::groq::output_limit::failure_prefix(status, &body)
+            ));
         };
         if streaming_enabled {
             let reader = BufReader::new(resp.into_body().into_reader());

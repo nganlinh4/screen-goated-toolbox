@@ -151,6 +151,9 @@ pub(super) fn parse_duration_seconds(text: &str) -> Option<f64> {
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(super) fn rate_limit_error(error: &str) -> bool {
+    if error.starts_with("PROVIDER_REQUEST_LIMIT:") {
+        return false;
+    }
     let lower = error.to_ascii_lowercase();
     lower.contains("http 429")
         || lower.contains("status code 429")

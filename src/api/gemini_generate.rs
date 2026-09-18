@@ -9,7 +9,9 @@
 use crate::api::client::{UREQ_RESPONSE_AGENT, UREQ_STREAM_RESPONSE_AGENT};
 use crate::gui::locale::LocaleText;
 use anyhow::Result;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufReader, Read};
+
+mod completion;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -177,104 +179,38 @@ where
         return Err(labeled_error(error_label, error.display()));
     };
 
-    let mut full_content = String::new();
-    #[cfg(test)]
-    let mut usage_metadata = None;
-
     if streaming {
-        let reader = BufReader::new(resp.into_body().into_reader());
+        let mut full_content = String::new();
         let mut thinking_shown = false;
         let mut content_started = false;
         let locale = LocaleText::get(ui_language);
-
-        for line in reader.lines() {
-            if let Some(ct) = cancel_token
-                && ct.load(Ordering::Relaxed)
-            {
-                return Err(anyhow::anyhow!("Cancelled"));
-            }
-            let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
-            if let Some(json_str) = line.strip_prefix("data: ") {
-                if json_str.trim() == "[DONE]" {
-                    break;
+        completion::consume(
+            BufReader::new(resp.into_body().into_reader()),
+            cancel_token,
+            |text, thought| {
+                if thought && !thinking_shown && !content_started {
+                    on_chunk(locale.global_settings.model_thinking);
+                    thinking_shown = true;
                 }
-
-                if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    #[cfg(test)]
-                    if let Some(usage) = chunk_resp.get("usageMetadata") {
-                        usage_metadata = Some(usage.clone());
+                if !text.is_empty() {
+                    full_content.push_str(text);
+                    if !content_started && thinking_shown {
+                        on_chunk(&format!("{}{}", crate::api::WIPE_SIGNAL, full_content));
+                    } else {
+                        on_chunk(text);
                     }
-                    if let Some(candidates) =
-                        chunk_resp.get("candidates").and_then(|c| c.as_array())
-                        && let Some(first_candidate) = candidates.first()
-                        && let Some(parts) = first_candidate
-                            .get("content")
-                            .and_then(|c| c.get("parts"))
-                            .and_then(|p| p.as_array())
-                    {
-                        for part in parts {
-                            let is_thought = part
-                                .get("thought")
-                                .and_then(|t| t.as_bool())
-                                .unwrap_or(false);
-
-                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                if !is_thought && !text.is_empty() {
-                                    crate::api::client::first_token::received();
-                                }
-                                if is_thought {
-                                    if !thinking_shown && !content_started {
-                                        on_chunk(locale.global_settings.model_thinking);
-                                        thinking_shown = true;
-                                    }
-                                } else if !content_started && thinking_shown {
-                                    content_started = true;
-                                    full_content.push_str(text);
-                                    let wipe_content =
-                                        format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
-                                    on_chunk(&wipe_content);
-                                } else {
-                                    content_started = true;
-                                    full_content.push_str(text);
-                                    on_chunk(text);
-                                }
-                            }
-                        }
-                    }
+                    content_started = true;
                 }
-            }
-        }
+            },
+        )
     } else {
-        let chat_resp: serde_json::Value = resp
-            .into_body()
-            .read_json()
-            .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
-        #[cfg(test)]
-        {
-            usage_metadata = chat_resp.get("usageMetadata").cloned();
-        }
-
-        if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array())
-            && let Some(first_choice) = candidates.first()
-            && let Some(parts) = first_choice
-                .get("content")
-                .and_then(|c| c.get("parts"))
-                .and_then(|p| p.as_array())
-        {
-            full_content = parts
-                .iter()
-                .filter(|p| !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false))
-                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                .collect::<String>();
-            on_chunk(&full_content);
-        }
+        let root: serde_json::Value = resp.into_body().read_json().map_err(|e| {
+            anyhow::anyhow!("PROVIDER_RESPONSE_INVALID:Malformed provider response: {e}")
+        })?;
+        let result = completion::parse(&root)?;
+        on_chunk(&result.content);
+        Ok(result)
     }
-
-    Ok(GeminiGenerateOutput {
-        content: full_content,
-        #[cfg(test)]
-        usage_metadata,
-    })
 }
 
 fn gemini_payload(

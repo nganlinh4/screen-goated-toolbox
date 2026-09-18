@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "reported allowance",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "Request too large on output tokens per minute (OTPM): Limit 1000, Requested 1156. Reduce max_tokens.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": 1000,
+      "request_scoped": true
+    },
+    {
+      "name": "second attempt",
+      "status": 429,
+      "attempt": 1,
+      "body": {
+        "error": {
+          "message": "Request too large on output tokens per minute (OTPM): Limit 1000, Requested 1156. Reduce max_tokens.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": true
+    },
+    {
+      "name": "different status",
+      "status": 503,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "Request too large on output tokens per minute (OTPM): Limit 1000, Requested 1156. Reduce max_tokens.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": false
+    },
+    {
+      "name": "existing lower cap",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "Request too large on output tokens per minute (OTPM): Limit 1000, Requested 1156. Reduce max_tokens.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": 512,
+      "expected": null,
+      "request_scoped": true
+    },
+    {
+      "name": "equal cap",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "Request too large on output tokens per minute (OTPM): Limit 1000, Requested 1156. Reduce max_tokens.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": 1000,
+      "expected": null,
+      "request_scoped": true
+    },
+    {
+      "name": "higher cap",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "Request too large on output tokens per minute (OTPM): Limit 1000, Requested 1156. Reduce max_tokens.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": 2000,
+      "expected": 1000,
+      "request_scoped": true
+    },
+    {
+      "name": "ordinary exhaustion",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "(OTPM): Limit 1000, Used 900, Requested 200. Try later.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": false
+    },
+    {
+      "name": "input quota",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "(ITPM): Limit 1000, Requested 1156.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": true
+    },
+    {
+      "name": "combined quota",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "(TPM): Limit 1000, Requested 1156.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": true
+    },
+    {
+      "name": "unknown code",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "Request too large on output tokens per minute (OTPM): Limit 1000, Requested 1156. Reduce max_tokens.",
+          "code": "unknown",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": false
+    },
+    {
+      "name": "unknown type",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "Request too large on output tokens per minute (OTPM): Limit 1000, Requested 1156. Reduce max_tokens.",
+          "code": "rate_limit_exceeded",
+          "type": "unknown"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": false
+    },
+    {
+      "name": "zero allowance",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "(OTPM): Limit 0, Requested 1156.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": false
+    },
+    {
+      "name": "not oversized",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "(OTPM): Limit 1000, Requested 1000.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": false
+    },
+    {
+      "name": "invalid numeric field",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "(OTPM): Limit 1000x, Requested 1156.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": false
+    },
+    {
+      "name": "oversized numeric field",
+      "status": 429,
+      "attempt": 0,
+      "body": {
+        "error": {
+          "message": "(OTPM): Limit 2147483648, Requested 2147483649.",
+          "code": "rate_limit_exceeded",
+          "type": "tokens"
+        }
+      },
+      "current": null,
+      "expected": null,
+      "request_scoped": false
+    }
+  ]
+}

@@ -97,8 +97,17 @@
   Structural completion failures carry `PROVIDER_RESPONSE_INVALID` and advance
   the normal model fallback chain. Cancellation remains terminal and must not
   enter a buffered-reader retry loop.
-  Image-token admission reserves apply only to Vision rows, including when a
-  text row shares an endpoint or an unprofiled endpoint has an output budget.
+  Quota preflight skips an endpoint only when its tracked balance is exhausted;
+  it does not reserve guessed image or completion tokens for either modality.
+  When Groq rejects an oversized output reservation with an explicit OTPM
+  allowance, ordinary text and vision may retry once at that reported allowance. This shares the
+  existing short-rate-limit retry slot. Unknown errors and exhausted quota use
+  normal fallback; completion-limit responses never become successful OCR.
+  The contract is covered by `parity-fixtures/preset-system/groq-output-allowance.json`.
+  A provider rejection whose declared request size exceeds its token allowance
+  is request-scoped (`PROVIDER_REQUEST_LIMIT`), not evidence of an unhealthy
+  endpoint. It advances fallback without opening a model cooldown. Exhausted
+  quota with a used balance remains rate-limited and honors the provider wait.
 
 - Structured text callers explicitly choose provider-enforced schemas or
   locally validated streaming. The latter is permitted only when the caller
@@ -147,6 +156,10 @@
   Endpoint profiles that may restate the requested output use the same
   endpoint-scoped repetition guard on both platforms; unrelated endpoints and
   structured callers are unchanged. The catalog owns which endpoints opt in.
+  Matching reuses exact non-overlapping spans within the bounded scan instead of
+  repeating substring searches for every candidate. Thresholds and salvage
+  decisions stay identical. Shared long-output cases live in
+  `parity-fixtures/preset-system/vision-repetition-work.json`.
 - Ordinary LLM vision request shape comes from
   `catalog/model_catalog.json#vision_request_profiles` on both platforms.
   Google vision endpoints send image before text; Groq Qwen sends text before
@@ -162,16 +175,14 @@
 - Vision payloads preserve their real MIME type. Groq images use a prompt-aware
   encoded-byte budget below the provider request ceiling: keep PNG when it fits,
   otherwise use adaptive JPEG compression and resizing before sending. Qwen
-  vision uses the catalog's 512-token small-image ceiling,
+  vision uses provider-native output limits,
   `reasoning_format: hidden`, the
   catalog-owned `reasoning_effort: none`, and the Groq-accepted subset of the
   provider-documented non-thinking sampling profile (`temperature: 0.7`,
   `top_p: 0.8`, `presence_penalty: 1.5`). `top_k` and `min_p` must remain
   absent because the current Groq endpoint rejects each field with HTTP 400.
-  It also uses a conservative local
-  preflight for the portable 8,000-TPM tier. Prompts that cannot leave the
-  fixture-owned image/envelope reserve fail before image encoding or network
-  I/O. Other Groq vision models leave the ceiling unset. Blank final content
+  Account-tier token admission is provider-owned; a guessed portable TPM budget
+  never rejects an otherwise valid request locally. Blank final content
   advances the normal model fallback chain; it does not retry the same model
   with a different reasoning policy. A token-rate 429 may retry once when
   Groq's structural `retry-after` is at most two seconds; otherwise preserve the
@@ -206,7 +217,8 @@
   already dispatches one HTTP attempt; Windows scopes this ownership to synchronous
   chain execution so standalone provider calls retain their existing retry policy.
   Recorded token-budget reset metadata may defer a request before network
-  I/O when the known remaining budget cannot admit it. Provider error bodies and
+  I/O only when the provider-reported token balance is exhausted. Output ceilings
+  and guessed image-token costs must not bench an otherwise usable endpoint. Provider error bodies and
   structural `retry-after` headers remain in the classified failure instead of
   being reduced to a status code. Presentation streaming and transport streaming
   are separate: a final-only Markdown or raw-HTML result may still consume a
@@ -228,6 +240,16 @@
   error occurs, or all compatible unique candidates are exhausted. Request or
   image size may adjust time allowance but never model eligibility or ordering.
   Blank final content is a retryable model failure.
+- Ordinary vision uses provider-native output limits by default. A catalog ceiling
+  is optional and must represent an intentional endpoint contract, not an OCR
+  length estimate. Gemini success requires explicit `STOP` plus nonblank text;
+  malformed events, provider errors, blocked responses, incomplete EOF, and
+  `MAX_TOKENS` are failures even after partial text. Usage-only trailing metadata
+  is accepted. Output-limit failures advance without opening a health cooldown.
+- A catalog-owned minimum image dimension is a wire compatibility constraint.
+  Proportional resampling may satisfy it without changing the selected model or
+  chain order. Inputs already within the supported dimensions remain unchanged.
+  An impossible aspect ratio fails only that request, not the endpoint's health.
 - OpenRouter ordinary text, refine, vision, and recorder-subtitle requests
   apply catalog reasoning policy through OpenRouter's nested
   `reasoning: { effort: "none" }` field. `reasoning_effort` is not an
@@ -250,3 +272,4 @@
 - [text-input-overlay.json](../../parity-fixtures/preset-system/text-input-overlay.json)
 - [text-provider-routing.json](../../parity-fixtures/preset-system/text-provider-routing.json)
 - [vision-payload.json](../../parity-fixtures/preset-system/vision-payload.json)
+- [gemini-completion.json](../../parity-fixtures/preset-system/gemini-completion.json)

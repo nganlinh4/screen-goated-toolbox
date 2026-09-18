@@ -521,7 +521,7 @@ fn a_reported_rate_limit_window_replaces_the_fixed_cooldown() {
 fn real_groq_rate_headers_populate_the_token_budget() {
     use crate::retry_model_chain::{budget, budget_key, record_token_budget};
 
-    // An image's admission floor must not reserve image tokens for a text row.
+    // Nonzero reported quota must not be rejected based on guessed request costs.
     let mut headers = ureq::http::HeaderMap::new();
     headers.insert("x-ratelimit-limit-tokens", "8000".parse().unwrap());
     headers.insert("x-ratelimit-remaining-tokens", "1000".parse().unwrap());
@@ -529,10 +529,7 @@ fn real_groq_rate_headers_populate_the_token_budget() {
     record_token_budget("groq", "qwen/qwen3.8-27b", &headers);
 
     let key = budget_key("groq", "qwen/qwen3.8-27b");
-    // 1000 left cannot cover the cheapest measured call plus its output reserve.
-    assert!(budget::shortfall(&key, budget::MEASURED_MIN_IMAGE_TOKENS + 512).is_some());
-    // ... but it comfortably covers a hypothetical tiny one, so nothing is blocked.
-    assert_eq!(budget::shortfall(&key, 500), None);
+    assert_eq!(budget::shortfall(&key, 1), None);
     let config = Config {
         api_key: "test-key".into(),
         ..Default::default()
@@ -542,11 +539,7 @@ fn real_groq_rate_headers_populate_the_token_budget() {
         .filter(|model| model.provider == "groq" && model.full_name == "qwen/qwen3.8-27b")
     {
         let reason = preflight_skip_reason(&model.id, &model.provider, &config, &HashSet::new());
-        if model.model_type == crate::model_config::ModelType::Vision {
-            assert!(reason.unwrap().starts_with("MODEL_TOKEN_BUDGET:"));
-        } else {
-            assert_eq!(reason, None);
-        }
+        assert_eq!(reason, None);
     }
 
     // A response without the headers must leave admission untouched.

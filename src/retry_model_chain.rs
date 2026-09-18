@@ -89,16 +89,6 @@ fn budget_key(provider: &str, api_model: &str) -> String {
     format!("{}:{}", provider.trim(), api_model.trim())
 }
 
-/// Cheapest total this endpoint could be billed for one vision call, or `None`
-/// when the catalog has no measured floor to compare against.
-#[cfg(not(feature = "recorder-worker"))]
-fn minimum_vision_request_tokens(provider: &str, api_model: &str) -> Option<u32> {
-    let profile = crate::model_config::vision_request_profile(provider, api_model);
-    profile
-        .max_output_tokens
-        .map(|reserve| budget::MEASURED_MIN_IMAGE_TOKENS + reserve)
-}
-
 #[cfg(not(feature = "recorder-worker"))]
 #[path = "retry_model_chain/workload.rs"]
 mod workload;
@@ -381,14 +371,11 @@ pub fn preflight_skip_reason(
     if let Some(reason) = model_cooldown_skip_reason(model_id) {
         return Some(reason);
     }
-    // A window that cannot cover even the cheapest call this endpoint accepts
-    // will reject the next one, so skip it rather than pay for the rejection.
+    // Only a known exhausted window blocks admission; image and output costs are
+    // provider-owned and must not be inferred from an output ceiling.
     #[cfg(not(feature = "recorder-worker"))]
     if let Some(model) = get_model_by_id_with_custom(model_id, &config.custom_models)
-        && model.model_type == ModelType::Vision
-        && let Some(minimum) = minimum_vision_request_tokens(&model.provider, &model.full_name)
-        && let Some(wait) =
-            budget::shortfall(&budget_key(&model.provider, &model.full_name), minimum)
+        && let Some(wait) = budget::shortfall(&budget_key(&model.provider, &model.full_name), 1)
     {
         return Some(format!(
             "MODEL_TOKEN_BUDGET:{model_id}:{}s",

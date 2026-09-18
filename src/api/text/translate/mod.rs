@@ -5,6 +5,8 @@ mod groq;
 #[cfg(test)]
 mod live_tests;
 mod providers;
+#[cfg(test)]
+mod recovery_tests;
 
 use crate::api::providers::Provider;
 use anyhow::Result;

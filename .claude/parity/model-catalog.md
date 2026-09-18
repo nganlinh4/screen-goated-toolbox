@@ -74,10 +74,12 @@
   offered rows become immediately selectable and routable. Reviewed withdrawn
   endpoints remain the only catalog-level veto, including reviewed specialized
   endpoints whose input/output contract is unsupported by ordinary chat adapters.
-- Unprofiled vision endpoints use the catalog's finite default output budget on
-  both platforms. NVIDIA spells that budget `max_tokens`; Groq spells it
-  `max_completion_tokens`. Image area alone never gates endpoint eligibility or
-  causes automatic padding; the benchmark includes compact and thin crops.
+- Unprofiled vision endpoints use the catalog's nullable default output ceiling
+  on both platforms; null delegates to the provider's native limit. Explicit
+  ceilings use `max_tokens` for NVIDIA and `max_completion_tokens` for Groq.
+  Optional `minimum_dimension` is an endpoint compatibility contract, satisfied
+  by proportional resampling. Image area never predicts model reliability or
+  changes retry order; the benchmark includes compact and thin crops.
 - Every selector projects NVIDIA inventory from the newest verified feed whether
   adaptive ordering is on or off. The Live toggle controls formula ownership of
   priority order; it never makes a stale compiled NVIDIA endpoint look available.

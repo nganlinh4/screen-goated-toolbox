@@ -1,6 +1,5 @@
 package dev.screengoated.toolbox.mobile.preset
 
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -33,13 +32,13 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
         )
     }
 
+    val payload = openAiPayload(model.provider, model.fullName, prompt, inputText, stream = true)
     val request = Request.Builder()
         .url(endpoint)
         .header("Authorization", "Bearer $apiKey")
         .header("Content-Type", "application/json")
         .post(
-            openAiPayload(model.provider, model.fullName, prompt, inputText)
-                .toString()
+            payload.toString()
                 .toRequestBody(jsonMediaType),
         )
         .build()
@@ -47,7 +46,7 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
     val fullContent = StringBuilder()
     var thinkingShown = false
     var contentStarted = false
-    httpClient.newPresetCall(request, model, streamingEnabled = true, job = coroutineContext[Job]).execute().use { response ->
+    httpClient.executePresetOpenAiRequest(request, payload, providerName, model, streamingEnabled = true).use { response ->
         ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
@@ -166,24 +165,18 @@ private suspend fun TextApiClient.generateOpenAiCompatibleBlocking(
     inputText: String,
     onChunk: (String) -> Unit,
 ): String {
+    val payload = openAiPayload(model.provider, model.fullName, prompt, inputText, stream = false)
     val request = Request.Builder()
         .url(endpoint)
         .header("Authorization", "Bearer $apiKey")
         .header("Content-Type", "application/json")
         .post(
-            openAiPayload(model.provider, model.fullName, prompt, inputText, stream = false)
-                .toString()
+            payload.toString()
                 .toRequestBody(jsonMediaType),
         )
         .build()
 
-    httpClient.newPresetCall(request, model, streamingEnabled = false).execute().use { response ->
-        ModelUsageStats.update(model.provider, model.fullName, response.headers)
-        if (!response.isSuccessful) {
-            val code = response.code
-            if (code == 401 || code == 403) throw IOException(invalidApiKeyMessage(providerName))
-            throw IOException(response.providerFailureMessage("$providerName request"))
-        }
+    httpClient.executePresetOpenAiRequest(request, payload, providerName, model, streamingEnabled = false).use { response ->
 
         val content = parseOpenAiCompletion(response.body.string())
         if (content.isBlank()) {

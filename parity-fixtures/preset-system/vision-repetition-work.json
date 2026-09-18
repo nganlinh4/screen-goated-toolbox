@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "cases": [
+    {"text": "Open the garden gate and follow the path beside the river. Check the wooden bridge before crossing.\n", "repeat": 40},
+    {"text": "Row 01 | Ready | 24\nRow 02 | Waiting | 35\n", "repeat": 60},
+    {"text": "🌱 Plant | 12\n🌳 Tree | 24\n", "repeat": 100}
+  ]
+}

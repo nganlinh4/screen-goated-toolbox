@@ -14,14 +14,16 @@ private fun checkCompletionError(root: JSONObject) {
     if (!root.isNull("error")) {
         val error = root.opt("error")
         val code = (error as? JSONObject)?.opt("code")?.let { " $it" }.orEmpty()
-        val message = (error as? JSONObject)?.optString("message") ?: error.toString()
+        val message = (error as? JSONObject)?.optString("message") ?: error?.toString().orEmpty()
         throw IOException("PROVIDER_RESPONSE_INVALID:Provider response error$code: ${message.take(512)}")
     }
 }
 
 private fun checkCompletionFinish(choice: JSONObject): Boolean {
     if (choice.isNull("finish_reason")) return false
-    return when (val reason = choice.opt("finish_reason")) {
+    val reason = choice.opt("finish_reason") as? String
+        ?: throw IOException("PROVIDER_RESPONSE_INVALID:Provider finish reason is not text")
+    return when (reason) {
         "stop" -> true
         "length" -> throw IOException("PROVIDER_RESPONSE_INVALID:Provider completion token limit reached")
         else -> throw IOException("PROVIDER_RESPONSE_INVALID:Provider completion did not succeed: $reason")

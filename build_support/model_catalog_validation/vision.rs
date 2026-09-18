@@ -50,10 +50,8 @@ pub(super) fn validate_request_profiles(
             required.is_subset(&fields),
             "vision request profile is missing required fields for {profile_key:?}"
         );
-        // Optional because it records a fault that has actually been measured on
-        // one endpoint. Requiring it everywhere would mean declaring every other
-        // endpoint sound without having checked.
-        let optional = HashSet::from(["restates_output"]);
+        // Optional endpoint capabilities are declared only where applicable.
+        let optional = HashSet::from(["restates_output", "minimum_dimension"]);
         let unknown: Vec<&&str> = fields
             .iter()
             .filter(|field| !required.contains(*field) && !optional.contains(*field))
@@ -81,9 +79,19 @@ pub(super) fn validate_request_profiles(
             ["provider-default", "qwen3-groq-non-thinking"].contains(&sampling),
             "unsupported sampling policy for {profile_key:?}"
         );
+        if let Some(value) = profile.get("minimum_dimension") {
+            assert!(
+                value.as_u64().is_some_and(|n| (1..=2048).contains(&n)),
+                "invalid minimum_dimension"
+            );
+        }
         let max_output_tokens = match profile.get("max_output_tokens") {
             Some(serde_json::Value::Null) => None,
-            Some(value) => value.as_u64(),
+            Some(value) => Some(
+                value
+                    .as_u64()
+                    .expect("max_output_tokens must be null or an integer"),
+            ),
             None => panic!("missing max_output_tokens for {profile_key:?}"),
         };
         assert!(
@@ -103,9 +111,8 @@ pub(super) fn validate_request_profiles(
         if sampling == "qwen3-groq-non-thinking" {
             assert!(
                 profile_key.starts_with("groq:")
-                    && model_profiles[profile_key]["reasoning_policy"] == "openai-none"
-                    && max_output_tokens.is_some(),
-                "qwen3-groq-non-thinking requires Groq reasoning policy openai-none and an output limit"
+                    && model_profiles[profile_key]["reasoning_policy"] == "openai-none",
+                "qwen3-groq-non-thinking requires Groq reasoning policy openai-none"
             );
         }
     }

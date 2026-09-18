@@ -11,19 +11,6 @@ const GROQ_MAX_IMAGE_BYTES: usize = 2_500_000;
 const GROQ_MIN_IMAGE_BYTES: usize = 262_144;
 const GROQ_JPEG_QUALITIES: [u8; 5] = [90, 82, 74, 66, 58];
 const GROQ_RESIZE_DIMENSIONS: [u32; 6] = [2048, 1792, 1536, 1280, 1024, 768];
-const QWEN_PORTABLE_TPM_LIMIT: usize = 8_000;
-/// Worst-case image + envelope tokens for one Qwen vision request.
-///
-/// Measured against the live Groq endpoint on 2026-08-19 rather than derived
-/// from Qwen's published `smart_resize`, which predicts 64-256 tokens for these
-/// inputs while Groq bills 770-1794. Groq's cost tracks aspect ratio and not
-/// resolution at all: every 16:9 input from 1024x576 to 1920x1080 billed 770,
-/// every square input from 128x128 to 1024x1024 billed 1282, and 4:3 billed
-/// 1794, in exact steps of 512. The reserve therefore sits above the highest
-/// figure observed across the whole sweep instead of scaling with pixels.
-const QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE: usize = 3_072;
-const QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN: usize = 3;
-
 pub(super) struct PreparedImage {
     pub(super) b64_image: String,
     pub(super) image_data: Vec<u8>,
@@ -42,16 +29,10 @@ pub(super) fn prepare_image_payload(
 ) -> Result<PreparedImage> {
     let request_profile = crate::model_config::vision_request_profile(provider, model);
     let provider = Provider::from_wire(provider);
-    if provider == Some(Provider::Groq)
-        && request_profile.sampling
-            == crate::model_config::VisionSamplingPolicy::Qwen3GroqNonThinking
-    {
-        let completion_reserve = request_profile.max_output_tokens.ok_or_else(|| {
-            anyhow::anyhow!("Qwen Groq vision request profile has no output-token limit")
-        })?;
-        ensure_qwen_prompt_fits_portable_tpm(prompt_bytes, completion_reserve as usize)?;
-    }
     if provider == Some(Provider::Google)
+        && request_profile
+            .minimum_dimension
+            .is_none_or(|minimum| image.width().min(image.height()) >= minimum)
         && let Some(bytes) = original_bytes
     {
         println!("DEBUG: Zero-Copy optimization active for Google provider");
@@ -66,7 +47,16 @@ pub(super) fn prepare_image_payload(
         ));
     }
 
-    let resized = resize_to_max(&image, MAX_DIMENSION);
+    let (width, height) = compatible_dimensions(
+        image.width(),
+        image.height(),
+        request_profile.minimum_dimension,
+    )?;
+    let resized = if (width, height) == image.dimensions() {
+        image
+    } else {
+        image::imageops::resize(&image, width, height, image::imageops::FilterType::Lanczos3)
+    };
     let png = encode_png(&resized)?;
     if provider != Some(Provider::Groq) {
         return Ok(prepared(
@@ -95,6 +85,12 @@ pub(super) fn prepare_image_payload(
 
     for max_dimension in GROQ_RESIZE_DIMENSIONS {
         let candidate = resize_to_max(&resized, max_dimension);
+        if request_profile
+            .minimum_dimension
+            .is_some_and(|minimum| candidate.width().min(candidate.height()) < minimum)
+        {
+            continue;
+        }
         for quality in GROQ_JPEG_QUALITIES {
             let jpeg = encode_jpeg(&candidate, quality)?;
             if jpeg.len() <= budget {
@@ -146,19 +142,19 @@ fn groq_image_byte_budget(prompt_bytes: usize) -> Result<usize> {
     Ok(raw_budget.min(GROQ_MAX_IMAGE_BYTES))
 }
 
-fn ensure_qwen_prompt_fits_portable_tpm(
-    prompt_bytes: usize,
-    completion_token_reserve: usize,
-) -> Result<()> {
-    let estimated_prompt_tokens = prompt_bytes.div_ceil(QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN);
-    let estimated_request_tokens =
-        estimated_prompt_tokens + completion_token_reserve + QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE;
-    if estimated_request_tokens > QWEN_PORTABLE_TPM_LIMIT {
-        bail!(
-            "Qwen Groq vision prompt is too large for the portable {QWEN_PORTABLE_TPM_LIMIT}-TPM request budget (estimated {estimated_request_tokens} tokens)"
-        );
-    }
-    Ok(())
+fn compatible_dimensions(width: u32, height: u32, minimum: Option<u32>) -> Result<(u32, u32)> {
+    anyhow::ensure!(width > 0 && height > 0, "HTTP 400: Empty image dimensions");
+    let lower = f64::from(minimum.unwrap_or(1)) / f64::from(width.min(height));
+    let upper = f64::from(MAX_DIMENSION) / f64::from(width.max(height));
+    anyhow::ensure!(
+        lower <= upper,
+        "HTTP 400: Image aspect ratio cannot satisfy endpoint dimensions"
+    );
+    let scale = 1.0_f64.clamp(lower, upper);
+    Ok((
+        (f64::from(width) * scale).round() as u32,
+        (f64::from(height) * scale).round() as u32,
+    ))
 }
 
 fn resize_to_max(
@@ -230,20 +226,6 @@ mod tests {
             groq["resize_dimensions"],
             serde_json::json!(GROQ_RESIZE_DIMENSIONS)
         );
-        let qwen = &groq["qwen_portable_tpm"];
-        let profile = crate::model_config::vision_request_profile("groq", "qwen/qwen3.8-27b");
-        let completion_token_reserve =
-            profile.max_output_tokens.expect("Qwen output limit") as usize;
-        assert_eq!(qwen["limit"], QWEN_PORTABLE_TPM_LIMIT);
-        assert_eq!(qwen["completion_token_reserve"], completion_token_reserve);
-        assert_eq!(
-            qwen["image_and_envelope_token_reserve"],
-            QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE
-        );
-        assert_eq!(
-            qwen["estimated_prompt_bytes_per_token"],
-            QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN
-        );
     }
 
     #[test]
@@ -279,15 +261,23 @@ mod tests {
     }
 
     #[test]
-    fn qwen_rejects_tpm_oversize_locally_without_reducing_other_models() {
-        let completion_reserve =
-            crate::model_config::vision_request_profile("groq", "qwen/qwen3.8-27b")
-                .max_output_tokens
-                .expect("Qwen output limit") as usize;
-        assert!(ensure_qwen_prompt_fits_portable_tpm(60_000, completion_reserve).is_err());
-        assert!(ensure_qwen_prompt_fits_portable_tpm(1_000, completion_reserve).is_ok());
-
-        let image = ImageBuffer::from_pixel(64, 64, Rgba([20, 40, 60, 255]));
-        assert!(prepare_image_payload("groq", "qwen/qwen3.8-27b", image, None, 60_000).is_err());
+    fn dimension_contract_preserves_fast_endpoint_compatibility() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../parity-fixtures/preset-system/vision-payload.json"
+        ))
+        .unwrap();
+        for case in fixture["dimension_cases"].as_array().unwrap() {
+            let result = compatible_dimensions(
+                case["width"].as_u64().unwrap() as u32,
+                case["height"].as_u64().unwrap() as u32,
+                case["minimum"].as_u64().map(|n| n as u32),
+            );
+            if case["output"].is_null() {
+                assert!(result.is_err());
+            } else {
+                let size = result.unwrap();
+                assert_eq!(serde_json::json!([size.0, size.1]), case["output"]);
+            }
+        }
     }
 }

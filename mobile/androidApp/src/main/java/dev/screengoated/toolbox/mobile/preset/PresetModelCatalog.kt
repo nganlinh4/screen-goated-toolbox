@@ -114,6 +114,7 @@ data class PresetModelDescriptor(
     val visionSamplingPolicy: PresetVisionSamplingPolicy =
         PresetVisionSamplingPolicy.PROVIDER_DEFAULT,
     val visionMaxOutputTokens: Int? = dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_VISION_MAX_OUTPUT_TOKENS,
+    val visionMinimumDimension: Int? = null,
     val structuredOutputPolicy: PresetStructuredOutputPolicy =
         PresetStructuredOutputPolicy.UNSUPPORTED,
     val restatesOutput: Boolean = false,

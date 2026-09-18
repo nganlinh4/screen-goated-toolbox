@@ -74,7 +74,7 @@ class VisionImageBudgetTest {
 
         assertEquals("hidden", payload.getString("reasoning_format"))
         assertEquals("none", payload.getString("reasoning_effort"))
-        assertEquals(512, payload.getInt("max_completion_tokens"))
+        assertFalse(payload.has("max_completion_tokens"))
         assertEquals(0.7, payload.getDouble("temperature"), 0.0)
         assertEquals(0.8, payload.getDouble("top_p"), 0.0)
         assertEquals(1.5, payload.getDouble("presence_penalty"), 0.0)
@@ -104,7 +104,7 @@ class VisionImageBudgetTest {
             stream = false,
         )
         assertEquals(0.0, payload.getDouble("temperature"), 0.0)
-        assertEquals(dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_VISION_MAX_OUTPUT_TOKENS, payload.getInt("max_tokens"))
+        assertFalse(payload.has("max_tokens"))
         assertFalse(payload.has("max_completion_tokens"))
     }
 
@@ -144,16 +144,12 @@ class VisionImageBudgetTest {
         assertEquals(16_384, groq.getInt("json_reserve_bytes"))
         assertEquals(2_500_000, groq.getInt("maximum_encoded_image_bytes"))
         assertEquals(262_144, groq.getInt("minimum_encoded_image_bytes"))
-        val qwen = groq.getJSONObject("qwen_portable_tpm")
-        assertEquals(8_000, qwen.getInt("limit"))
-        assertEquals(512, qwen.getInt("completion_token_reserve"))
-        assertEquals(3_072, qwen.getInt("image_and_envelope_token_reserve"))
-        assertEquals(3, qwen.getInt("estimated_prompt_bytes_per_token"))
         assertEquals(2, groq.getInt("short_retry_after_max_seconds"))
 
         val ordinary = root.getJSONObject("ordinary_llm_profiles")
         assertEquals("streaming", ordinary.getString("ocr_transport"))
-        assertEquals(ordinary.getInt("default_max_output_tokens"), dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_VISION_MAX_OUTPUT_TOKENS)
+        assertTrue(ordinary.isNull("default_max_output_tokens"))
+        assertEquals(null, dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_VISION_MAX_OUTPUT_TOKENS)
         val cases = ordinary.getJSONArray("cases")
         for (index in 0 until cases.length()) {
             val case = cases.getJSONObject(index)
@@ -200,11 +196,18 @@ class VisionImageBudgetTest {
     }
 
     @Test
-    fun qwenTpmOversizeFailsBeforeImageEncodingOrNetworkRequest() {
-        assertThrows(IOException::class.java) {
-            ensureQwenPromptFitsPortableTpm(60_000, 512)
+    fun dimensionContractPreservesEndpointCompatibility() {
+        val cases = JSONObject(Files.readAllBytes(fixturePath()).decodeToString()).getJSONArray("dimension_cases")
+        for (index in 0 until cases.length()) {
+            val case = cases.getJSONObject(index)
+            val minimum = if (case.isNull("minimum")) null else case.getInt("minimum")
+            val calculate = { compatibleVisionDimensions(case.getInt("width"), case.getInt("height"), minimum) }
+            if (case.isNull("output")) assertThrows(IOException::class.java) { calculate() }
+            else {
+                val output = case.getJSONArray("output")
+                assertEquals(output.getInt(0) to output.getInt(1), calculate())
+            }
         }
-        ensureQwenPromptFitsPortableTpm(1_000, 512)
     }
 
     @Test

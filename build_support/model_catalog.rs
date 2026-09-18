@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-pub(crate) const GENERATOR_SCHEMA: u32 = 5;
+pub(crate) const GENERATOR_SCHEMA: u32 = 6;
 
 #[path = "model_catalog_validation.rs"]
 mod validation;
@@ -22,10 +22,6 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
         ("GEMINI_EMBEDDING_API_MODEL", "gemini_embedding_api_model"),
         ("GEMINI_LIVE_API_MODEL_2_5", "gemini_live_api_model_2_5"),
         ("GEMINI_LIVE_API_MODEL_3_1", "gemini_live_api_model_3_1"),
-        (
-            "GEMINI_LIVE_AUDIO_MODEL_ID_3_1",
-            "gemini_live_audio_model_id_3_1",
-        ),
         (
             "GEMINI_LIVE_TRANSLATE_MODEL_ID",
             "gemini_live_translate_model_id",
@@ -65,12 +61,18 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
         ));
     }
 
-    let vision_limit = constants["default_vision_max_output_tokens"]
-        .as_u64()
-        .filter(|value| *value > 0 && *value <= i32::MAX as u64)
-        .expect("default vision output budget must be a positive signed 32-bit integer");
+    let vision_limit = match &constants["default_vision_max_output_tokens"] {
+        serde_json::Value::Null => "None".to_string(),
+        value => format!(
+            "Some({})",
+            value
+                .as_u64()
+                .filter(|n| (1..=i32::MAX as u64).contains(n))
+                .expect("invalid default vision output limit")
+        ),
+    };
     lines.push(format!(
-        "pub const DEFAULT_VISION_MAX_OUTPUT_TOKENS: u32 = {vision_limit};"
+        "pub const DEFAULT_VISION_MAX_OUTPUT_TOKENS: Option<u32> = {vision_limit};"
     ));
     lines.push(format!(
         "pub const DEFAULT_GEMINI_LIVE_TTS_MODEL: &str = {};",
@@ -208,6 +210,10 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
             "qwen3-groq-non-thinking" => "VisionSamplingPolicy::Qwen3GroqNonThinking",
             value => panic!("unsupported vision sampling policy {value:?}"),
         };
+        let minimum_dimension = profile
+            .get("minimum_dimension")
+            .and_then(serde_json::Value::as_u64)
+            .map_or("None".to_string(), |value| format!("Some({value})"));
         let max_output_tokens = match profile.get("max_output_tokens") {
             Some(serde_json::Value::Null) => "None".to_string(),
             Some(value) => format!(
@@ -239,7 +245,7 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
             .split_once(':')
             .unwrap_or_else(|| panic!("vision request profile key must be provider:api-model"));
         lines.push(format!(
-            "        ({}, {}) => Some(VisionRequestProfile {{ input_order: {input_order}, media_resolution: {media_resolution}, sampling: {sampling}, max_output_tokens: {max_output_tokens}, structured_output: {structured_output}, restates_output: {restates_output} }}),",
+            "        ({}, {}) => Some(VisionRequestProfile {{ input_order: {input_order}, media_resolution: {media_resolution}, sampling: {sampling}, max_output_tokens: {max_output_tokens}, minimum_dimension: {minimum_dimension}, structured_output: {structured_output}, restates_output: {restates_output} }}),",
             rust_string(provider),
             rust_string(api_model)
         ));

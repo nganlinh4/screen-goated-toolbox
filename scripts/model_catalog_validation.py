@@ -54,8 +54,8 @@ PROFILE_FIELDS = (
 
 def validate_manifest(manifest: dict) -> None:
     vision_limit = manifest.get("constants", {}).get("default_vision_max_output_tokens")
-    if type(vision_limit) is not int or not 0 < vision_limit <= 2_147_483_647:
-        raise ValueError("default vision output budget must be a positive signed 32-bit integer")
+    if vision_limit is not None and (type(vision_limit) is not int or not 0 < vision_limit <= 2_147_483_647):
+        raise ValueError("default vision output limit must be null or a positive signed 32-bit integer")
     if manifest.get("schema_version") != 8:
         raise ValueError("catalog schema_version must be 8")
     if "model_id_migrations" in manifest:
@@ -114,7 +114,7 @@ def _validate_vision_request_profiles(manifest: dict) -> None:
         }
         # Optional because it records a fault measured on one endpoint. Requiring
         # it everywhere would declare every other endpoint sound unchecked.
-        optional = {"restates_output"}
+        optional = {"restates_output", "minimum_dimension"}
         missing = required - set(request_profile)
         if missing:
             raise ValueError(
@@ -134,6 +134,9 @@ def _validate_vision_request_profiles(manifest: dict) -> None:
         sampling = request_profile.get("sampling")
         if sampling not in {"provider-default", "qwen3-groq-non-thinking"}:
             raise ValueError(f"unsupported sampling policy for {profile_key}")
+        minimum = request_profile.get("minimum_dimension")
+        if minimum is not None and (type(minimum) is not int or not 1 <= minimum <= 2048):
+            raise ValueError(f"invalid minimum_dimension for {profile_key}")
         max_output_tokens = request_profile.get("max_output_tokens")
         if max_output_tokens is not None and (
             isinstance(max_output_tokens, bool)
@@ -149,11 +152,10 @@ def _validate_vision_request_profiles(manifest: dict) -> None:
             profile_key.startswith("groq:")
             and manifest["model_profiles"][profile_key]["reasoning_policy"]
             == "openai-none"
-            and max_output_tokens is not None
         ):
             raise ValueError(
                 "qwen3-groq-non-thinking requires Groq reasoning policy "
-                "openai-none and an output limit"
+                "openai-none"
             )
 
 

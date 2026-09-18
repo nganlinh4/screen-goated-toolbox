@@ -284,12 +284,31 @@ fn send_standard_payload<F>(
     payload: &serde_json::Value,
     use_json_format: bool,
     transport: TranslateTransportOptions<'_>,
-    mut on_chunk: F,
+    on_chunk: F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
+    send_standard_payload_to(
+        crate::api::groq::CHAT_COMPLETIONS_URL,
+        groq_api_key,
+        payload,
+        use_json_format,
+        transport,
+        on_chunk,
+    )
+}
+
+fn send_standard_payload_to(
+    endpoint: &str,
+    groq_api_key: &str,
+    payload: &serde_json::Value,
+    use_json_format: bool,
+    transport: TranslateTransportOptions<'_>,
+    mut on_chunk: impl FnMut(&str),
+) -> Result<String> {
     let model = payload["model"].as_str().unwrap_or_default();
+    let mut request_payload = payload.clone();
     let _deadline = crate::api::client::first_token::FirstTokenGuard::new(
         transport.streaming_enabled,
         transport.request_timeout,
@@ -298,11 +317,11 @@ where
     let mut rate_attempt = 0;
     let resp = loop {
         let request = UREQ_RESPONSE_AGENT
-            .post(crate::api::groq::CHAT_COMPLETIONS_URL)
+            .post(endpoint)
             .header("Authorization", &format!("Bearer {}", groq_api_key));
         let response =
             crate::api::client::with_request_timeouts(request, transport.request_timeout)
-                .send_json(payload)
+                .send_json(&request_payload)
                 .map_err(|error| {
                     anyhow::anyhow!(crate::api::client::transport_error_message(
                         "Groq transport error",
@@ -310,15 +329,32 @@ where
                     ))
                 })?;
         record_usage_simple(response.headers(), model);
+        if response.status().is_success() {
+            break response;
+        }
+        let status = response.status().as_u16();
         let delay = crate::api::groq::groq_rate_limit_retry_delay(
-            response.status().as_u16(),
+            status,
             rate_attempt,
             crate::api::groq::retry_after_seconds(response.headers()),
         );
+        let body = response.into_body().read_to_string().unwrap_or_default();
+        if let Some(limit) = crate::api::groq::output_limit::output_limit_retry(
+            status,
+            rate_attempt,
+            &body,
+            request_payload["max_completion_tokens"].as_u64(),
+        ) {
+            request_payload["max_completion_tokens"] = limit.into();
+            crate::log_info!(
+                "[Groq] retrying request with provider-declared output allowance={limit}"
+            );
+            rate_attempt += 1;
+            continue;
+        }
         if transport.locally_validated_schema
             && let Some(seconds) = delay
         {
-            let _ = response.into_body().read_to_string();
             crate::log_info!("[translate] Groq token limit reached; retrying once in {seconds}s");
             if !crate::api::groq::wait_for_groq_retry(seconds, transport.cancel_token) {
                 anyhow::bail!("Groq translation request cancelled");
@@ -326,7 +362,7 @@ where
             rate_attempt += 1;
             continue;
         }
-        break require_success(response)?;
+        return Err(response_error(status, &body));
     };
 
     let full_content;
@@ -372,6 +408,9 @@ where
 }
 
 #[cfg(test)]
+#[path = "groq_recovery_tests.rs"]
+mod recovery_tests;
+#[cfg(test)]
 #[path = "groq_replay_probe.rs"]
 mod replay_probe;
 
@@ -386,10 +425,18 @@ fn require_success(
         return Err(anyhow::anyhow!("INVALID_API_KEY"));
     }
     let body = response.into_body().read_to_string().unwrap_or_default();
-    Err(anyhow::anyhow!(
-        "Groq API HTTP {status}: {}",
-        groq_error_message(status, &body)
-    ))
+    Err(response_error(status, &body))
+}
+
+fn response_error(status: u16, body: &str) -> anyhow::Error {
+    if matches!(status, 401 | 403) {
+        return anyhow::anyhow!("INVALID_API_KEY");
+    }
+    anyhow::anyhow!(
+        "{}Groq API HTTP {status}: {}",
+        crate::api::groq::output_limit::failure_prefix(status, body),
+        groq_error_message(status, body)
+    )
 }
 
 fn groq_error_message(status: u16, body: &str) -> String {

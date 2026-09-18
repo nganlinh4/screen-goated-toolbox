@@ -60,6 +60,10 @@
       {
         "error": "Failed to decode input image",
         "reason": ""
+      },
+      {
+        "error": "PROVIDER_REQUEST_LIMIT:Groq API HTTP 429: request exceeds token allowance",
+        "reason": ""
       }
     ],
     "rate_limit_default_seconds": 300,

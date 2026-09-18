@@ -248,7 +248,7 @@ fn live_translate_routing_comes_from_the_endpoint_profile() {
         GEMINI_LIVE_TRANSLATE_MODEL_ID
     ));
     assert!(!is_gemini_live_translate_model_id(
-        GEMINI_LIVE_AUDIO_MODEL_ID_3_1
+        "google-gemini-3-1-live-transcribe-audio"
     ));
     let transcribe_id = "google-gemini-3-5-transcribe-live-audio";
     assert_eq!(
@@ -288,7 +288,8 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
 
     let qwen = vision_request_profile("groq", "qwen/qwen3.8-27b");
     assert_eq!(qwen.sampling, VisionSamplingPolicy::Qwen3GroqNonThinking);
-    assert_eq!(qwen.max_output_tokens, Some(512));
+    assert_eq!(qwen.max_output_tokens, None);
+    assert_eq!(qwen.minimum_dimension, Some(32));
     assert_eq!(
         qwen.structured_output,
         StructuredOutputPolicy::StrictJsonSchema

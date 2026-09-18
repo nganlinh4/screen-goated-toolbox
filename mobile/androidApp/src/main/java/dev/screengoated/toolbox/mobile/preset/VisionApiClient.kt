@@ -172,10 +172,6 @@ private const val GROQ_MAX_IMAGE_BYTES = 2_500_000
 private const val GROQ_MIN_IMAGE_BYTES = 262_144
 private val GROQ_JPEG_QUALITIES = intArrayOf(90, 82, 74, 66, 58)
 private val GROQ_RESIZE_DIMENSIONS = intArrayOf(2048, 1792, 1536, 1280, 1024, 768)
-private const val QWEN_PORTABLE_TPM_LIMIT = 8_000
-private const val QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE = 3_072
-private const val QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN = 3
-
 internal fun prepareImage(
     rawBytes: ByteArray,
     provider: PresetModelProvider,
@@ -185,19 +181,10 @@ internal fun prepareImage(
     val requestProfile = PresetModelCatalog.runtimeModels().firstOrNull {
         it.provider == provider && it.fullName == modelFullName
     }
-    if (
-        provider == PresetModelProvider.GROQ &&
-        requestProfile?.visionSamplingPolicy ==
-            PresetVisionSamplingPolicy.QWEN3_GROQ_NON_THINKING
-    ) {
-        val completionReserve = requireNotNull(requestProfile.visionMaxOutputTokens) {
-            "Qwen Groq vision request profile has no output-token limit"
-        }
-        ensureQwenPromptFitsPortableTpm(promptBytes, completionReserve)
-    }
     val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
         ?: throw IOException("Failed to decode image bytes")
-    val resized = resizeToMax(bitmap, MAX_DIMENSION)
+    val (width, height) = compatibleVisionDimensions(bitmap.width, bitmap.height, requestProfile?.visionMinimumDimension)
+    val resized = if (width == bitmap.width && height == bitmap.height) bitmap else bitmap.scale(width, height)
     if (resized !== bitmap) bitmap.recycle()
 
     val pngBytes = encodeBitmap(resized, Bitmap.CompressFormat.PNG, 100)
@@ -214,6 +201,10 @@ internal fun prepareImage(
 
     for (maxDimension in GROQ_RESIZE_DIMENSIONS) {
         val candidate = resizeToMax(resized, maxDimension)
+        if (requestProfile?.visionMinimumDimension?.let { minOf(candidate.width, candidate.height) < it } == true) {
+            if (candidate !== resized) candidate.recycle()
+            continue
+        }
         for (quality in GROQ_JPEG_QUALITIES) {
             val jpegBytes = encodeBitmap(candidate, Bitmap.CompressFormat.JPEG, quality)
             if (jpegBytes.size <= budget) {
@@ -238,24 +229,13 @@ internal fun groqImageByteBudget(promptBytes: Int): Int {
     return minOf(rawBudget, GROQ_MAX_IMAGE_BYTES)
 }
 
-internal fun ensureQwenPromptFitsPortableTpm(
-    promptBytes: Int,
-    completionTokenReserve: Int,
-) {
-    val estimatedPromptTokens =
-        (promptBytes + QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN - 1) /
-            QWEN_ESTIMATED_PROMPT_BYTES_PER_TOKEN
-    val estimatedRequestTokens =
-        estimatedPromptTokens +
-            completionTokenReserve +
-            QWEN_IMAGE_AND_ENVELOPE_TOKEN_RESERVE
-    if (estimatedRequestTokens > QWEN_PORTABLE_TPM_LIMIT) {
-        throw IOException(
-            "Qwen Groq vision prompt is too large for the portable " +
-                "$QWEN_PORTABLE_TPM_LIMIT-TPM request budget " +
-                "(estimated $estimatedRequestTokens tokens)",
-        )
-    }
+internal fun compatibleVisionDimensions(width: Int, height: Int, minimum: Int?): Pair<Int, Int> {
+    if (width <= 0 || height <= 0) throw IOException("HTTP 400: Empty image dimensions")
+    val lower = (minimum ?: 1).toDouble() / minOf(width, height)
+    val upper = MAX_DIMENSION.toDouble() / maxOf(width, height)
+    if (lower > upper) throw IOException("HTTP 400: Image aspect ratio cannot satisfy endpoint dimensions")
+    val scale = 1.0.coerceIn(lower, upper)
+    return kotlin.math.floor(width * scale + 0.5).toInt() to kotlin.math.floor(height * scale + 0.5).toInt()
 }
 
 private fun resizeToMax(bitmap: Bitmap, maxDimension: Int): Bitmap {

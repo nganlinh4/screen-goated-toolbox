@@ -39,7 +39,8 @@ internal suspend fun VisionApiClient.streamGeminiVision(
     var thinkingShown = false
     var contentStarted = false
 
-    httpClient.newPresetCall(request, model, streamingEnabled = true, job = coroutineContext[Job]).execute().use { response ->
+    val job = coroutineContext[Job]
+    val result = httpClient.newPresetCall(request, model, streamingEnabled = true, job = job).execute().use { response ->
         ModelUsageStats.update(model.provider, model.fullName, response.headers)
         if (!response.isSuccessful) {
             val code = response.code
@@ -49,14 +50,7 @@ internal suspend fun VisionApiClient.streamGeminiVision(
 
         val body = response.body
         body.charStream().buffered().useLines { lines ->
-            lines.forEach { rawLine ->
-                coroutineContext.ensureActive()
-                val line = rawLine.trim()
-                if (!line.startsWith("data: ")) return@forEach
-                val data = line.removePrefix("data: ").trim()
-                if (data.isBlank() || data == "[DONE]") return@forEach
-
-                val delta = extractGeminiDelta(data)
+            consumeGeminiStream(lines.onEach { job?.ensureActive() }) { delta ->
                 if (delta.reasoning && !thinkingShown && !contentStarted) {
                     onChunk(thinkingLabel(uiLanguage))
                     thinkingShown = true
@@ -77,7 +71,8 @@ internal suspend fun VisionApiClient.streamGeminiVision(
         }
     }
 
-    return fullContent.toString()
+    job?.ensureActive()
+    return result
 }
 
 private fun VisionApiClient.generateGeminiVisionBlocking(
@@ -93,19 +88,10 @@ private fun VisionApiClient.generateGeminiVisionBlocking(
         }
 
         val body = response.body
-        val root = JSONObject(body.string())
-        val parts = root.optJSONArray("candidates")
-            ?.optJSONObject(0)
-            ?.optJSONObject("content")
-            ?.optJSONArray("parts") ?: return ""
-
-        val result = StringBuilder()
-        for (index in 0 until parts.length()) {
-            val part = parts.optJSONObject(index) ?: continue
-            if (part.optBoolean("thought", false)) continue
-            result.append(part.optString("text", ""))
+        val root = try { JSONObject(body.string()) } catch (error: org.json.JSONException) {
+            throw IOException("PROVIDER_RESPONSE_INVALID:Malformed provider response", error)
         }
-        return result.toString()
+        return parseGeminiCompletion(root)
     }
 }
 

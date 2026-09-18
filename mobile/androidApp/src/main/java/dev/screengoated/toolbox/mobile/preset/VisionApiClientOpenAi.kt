@@ -1,7 +1,5 @@
 package dev.screengoated.toolbox.mobile.preset
 
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -11,7 +9,6 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
-import kotlin.math.ceil
 import kotlin.coroutines.coroutineContext
 
 private const val GROQ_MAX_RATE_LIMIT_WAIT_SECONDS = 2L
@@ -60,7 +57,7 @@ internal suspend fun VisionApiClient.streamOpenAiVision(
     var thinkingShown = false
     var contentStarted = false
 
-    executeOpenAiVisionRequest(request, providerName, model, streamingEnabled = true).use { response ->
+    httpClient.executePresetOpenAiRequest(request, payload, providerName, model, streamingEnabled = true, allowRateLimitWait = true).use { response ->
         val body = response.body
         val context = coroutineContext
         body.charStream().buffered().use { reader ->
@@ -102,56 +99,11 @@ private suspend fun VisionApiClient.generateOpenAiVisionBlocking(
         .post(payload.toString().toRequestBody(jsonMediaType))
         .build()
 
-    executeOpenAiVisionRequest(request, providerName, model, streamingEnabled = false).use { response ->
+    httpClient.executePresetOpenAiRequest(request, payload, providerName, model, streamingEnabled = false, allowRateLimitWait = true).use { response ->
         val content = parseOpenAiCompletion(response.body.string())
         if (content.isBlank()) throw IOException("$providerName vision returned blank content.")
         onChunk(content)
         return content
-    }
-}
-
-private suspend fun VisionApiClient.executeOpenAiVisionRequest(
-    request: Request,
-    providerName: String,
-    model: PresetModelDescriptor,
-    streamingEnabled: Boolean,
-): okhttp3.Response {
-    var retried = false
-    while (true) {
-        coroutineContext.ensureActive()
-        val response = httpClient.newPresetCall(request, model, streamingEnabled, job = coroutineContext[Job]).execute()
-        ModelUsageStats.update(model.provider, model.fullName, response.headers)
-        if (response.isSuccessful) return response
-
-        val code = response.code
-        val retryAfter = response.header("retry-after")?.trim()?.take(80)
-        val retryAfterSeconds = retryAfter
-            ?.toDoubleOrNull()
-            ?.let(::ceil)
-            ?.toLong()
-        val body = response.body.string()
-        response.close()
-        val retryDelayMillis = groqVisionRetryDelayMillis(
-            providerName = providerName,
-            statusCode = code,
-            alreadyRetried = retried,
-            retryAfterSeconds = retryAfterSeconds,
-        )
-        if (retryDelayMillis != null) {
-            retried = true
-            delay(retryDelayMillis)
-            continue
-        }
-        if (code == 401 || code == 403) {
-            throw IOException(invalidApiKeyMessage(providerName))
-        }
-        throw IOException(
-            buildString {
-                append("$providerName vision request failed with $code: ")
-                append(providerErrorMessage(code, body))
-                if (!retryAfter.isNullOrBlank()) append("; retry-after: ").append(retryAfter)
-            },
-        )
     }
 }
 
@@ -169,7 +121,7 @@ internal fun groqVisionRetryDelayMillis(
     }
     ?.times(1_000L)
 
-private fun providerErrorMessage(code: Int, body: String): String = try {
+internal fun providerErrorMessage(code: Int, body: String): String = try {
     JSONObject(body).optJSONObject("error")?.optString("message")
         ?.takeIf(String::isNotBlank)
         ?: "HTTP $code"

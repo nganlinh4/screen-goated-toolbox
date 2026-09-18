@@ -162,6 +162,7 @@ def generate_preset_kotlin(manifest: dict, output_path: Path) -> None:
                 f"            visionMediaResolution = PresetVisionMediaResolution.{VISION_MEDIA_RESOLUTION_MAP[request_profile['media_resolution']]},",
                 f"            visionSamplingPolicy = PresetVisionSamplingPolicy.{VISION_SAMPLING_POLICY_MAP[request_profile['sampling']]},",
                 f"            visionMaxOutputTokens = {max_output_tokens_value},",
+                f"            visionMinimumDimension = {request_profile.get('minimum_dimension', 'null')},",
                 f"            structuredOutputPolicy = PresetStructuredOutputPolicy.{STRUCTURED_OUTPUT_POLICY_MAP[request_profile['structured_output']]},",
                 f"            restatesOutput = {str(request_profile.get('restates_output', False)).lower()},",
                 f"            intelligenceTier = {profile['intelligence_tier']},",
@@ -246,7 +247,7 @@ def generate_preset_defaults_kotlin(manifest: dict, output_path: Path) -> None:
         "// Generated from catalog/model_catalog.json. Do not edit by hand.",
         f"const val DEFAULT_IMAGE_MODEL_ID = {kotlin_string(constants['default_image_model_id'])}",
         f"const val DEFAULT_TEXT_MODEL_ID = {kotlin_string(constants['default_text_model_id'])}",
-        f"const val DEFAULT_VISION_MAX_OUTPUT_TOKENS = {constants['default_vision_max_output_tokens']}",
+        f"val DEFAULT_VISION_MAX_OUTPUT_TOKENS: Int? = {constants['default_vision_max_output_tokens'] if constants['default_vision_max_output_tokens'] is not None else 'null'}",
     ]
 
     for const_name, model_id in preset_defaults.items():

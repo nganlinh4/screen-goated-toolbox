@@ -64,7 +64,7 @@ const TAIL_COVERAGE: f32 = 0.80;
 /// Derived, not tuned: a cut needs one repeat span before the onset and one
 /// after it, so below twice [`MIN_REPEAT_SPAN`] the scan cannot produce a
 /// candidate no matter what the text says. Anything higher would be an extra
-/// precision rule, and precision is already carried by [`is_fragmented`].
+/// precision rule, and precision is already carried by the broken-word evidence check.
 ///
 /// It was previously 32, from when length *was* the precision defence. That
 /// floor silently disabled the whole guard for short replies -- `DJI_0872.JPG`
@@ -73,8 +73,7 @@ const TAIL_COVERAGE: f32 = 0.80;
 /// is for a repetition to be a legitimate reading of the image.
 const MIN_JUDGED_CHARS: usize = MIN_REPEAT_SPAN * 2;
 
-/// Bound on characters examined. Vision replies are capped at 512 output tokens,
-/// so this covers them while keeping the scan's cost bounded.
+/// Bound on prefix characters examined, independent of the provider output limit.
 const MAX_SCANNED_CHARS: usize = 2_048;
 
 /// Byte offset where `text` starts restating itself, if it does.
@@ -141,6 +140,8 @@ pub(super) fn repetition_onset_with_evidence(text: &str, min_evidence: usize) ->
         return None;
     }
 
+    let matches = matching::PreviousMatches::new(&chars);
+    let fragments = fragments::FragmentEvidence::new(text);
     let last = chars.len().saturating_sub(MIN_REPEAT_SPAN);
     for (start, &offset) in offsets
         .iter()
@@ -150,7 +151,7 @@ pub(super) fn repetition_onset_with_evidence(text: &str, min_evidence: usize) ->
     {
         // Cheap rejection first: without even a fragment repeating here, nothing
         // downstream can hold.
-        if !occurs_earlier(&chars, start, MIN_FRAGMENT_SPAN) {
+        if matches.span(start) < MIN_FRAGMENT_SPAN {
             continue;
         }
         if total_written - written[start] < min_evidence {
@@ -160,17 +161,17 @@ pub(super) fn repetition_onset_with_evidence(text: &str, min_evidence: usize) ->
         // character. Damage at the very first seam used to disqualify an onset
         // outright, which is how an insertion or an omission escaped while the
         // same corruption with a clean first seam was caught.
-        if !has_anchor(&chars, start) {
+        if !matches.has_anchor(start, MIN_REPEAT_SPAN) {
             continue;
         }
         let window_end = (start + ONSET_WINDOW).min(chars.len());
-        if coverage(&chars, start, window_end) < LOCAL_COVERAGE {
+        if matches.coverage(start, window_end, MIN_FRAGMENT_SPAN) < LOCAL_COVERAGE {
             continue;
         }
-        if coverage(&chars, start, chars.len()) < TAIL_COVERAGE {
+        if matches.coverage(start, chars.len(), MIN_FRAGMENT_SPAN) < TAIL_COVERAGE {
             continue;
         }
-        if !is_fragmented(text, offset) {
+        if !fragments.at(offset) {
             continue;
         }
         if let Some(boundary) = restart_boundary(text, offset) {
@@ -198,47 +199,6 @@ fn snap_to_token_end(text: &str, cut: usize) -> usize {
         .map_or(text.len(), |offset| cut + offset)
 }
 
-/// Whether the text after `onset` contains a broken word.
-///
-/// This is what separates the defect from content that simply repeats. A table,
-/// a form or a list restates whole tokens, so every repeated word is intact. The
-/// defect re-tokenizes as it repeats and emits pieces of words -- `Screensh` for
-/// `Screenshot`, `khi` for `khiển` -- which never appear in correct output.
-///
-/// Only shorter pieces count. A longer token that merely starts with an earlier
-/// one is ordinary language (`Plant` and `Plants`), not damage.
-fn is_fragmented(text: &str, onset: usize) -> bool {
-    let mut before: Vec<String> = Vec::new();
-    let mut after: Vec<String> = Vec::new();
-    for (offset, token) in text.split_whitespace().map(|token| {
-        let offset = token.as_ptr() as usize - text.as_ptr() as usize;
-        (offset, token.to_lowercase())
-    }) {
-        if offset < onset {
-            before.push(token);
-        } else {
-            after.push(token);
-        }
-    }
-
-    // Damage means a word was split across a seam, so its pieces rejoin into
-    // something the reply had already written. That is the difference from text
-    // that legitimately repeats itself: a table, a receipt, or a screen showing
-    // `Configuration` beside a truncated `Config` repeats *whole* words, and no
-    // two of them join into an earlier one.
-    //
-    // Asking only whether a piece looks like part of an earlier word cannot make
-    // that distinction -- `Config` really is the start of `Configuration` -- and
-    // reading it that way cuts a correct reply in half.
-    let haystack = squeeze(&before.concat());
-    after.windows(2).any(|pair| {
-        let joined = squeeze(&format!("{}{}", pair[0], pair[1]));
-        joined.chars().count() > pair[0].chars().count()
-            && !before.contains(&pair[0])
-            && haystack.contains(&joined)
-    })
-}
-
 /// Collapses runs of one character, so a seam duplicate does not hide the join.
 ///
 /// `nvidia` + `a/nem` is `nvidiaa/nem` as emitted, and `nvidia/nem` as written
@@ -253,55 +213,11 @@ fn squeeze(text: &str) -> String {
     out
 }
 
-/// Whether the span of `length` at `start` appears anywhere before `start`.
-fn occurs_earlier(chars: &[char], start: usize, length: usize) -> bool {
-    if start + length > chars.len() || length > start {
-        return false;
-    }
-    chars[..start]
-        .windows(length)
-        .any(|window| window == &chars[start..start + length])
-}
+#[path = "repetition/fragments.rs"]
+mod fragments;
 
-/// Whether anything after `start` repeats earlier content at anchor length.
-///
-/// One such run anywhere in the restatement is enough. It is what separates a
-/// restatement from text that merely shares short runs with itself, and it is
-/// checked over the whole tail so damage cannot hide it by landing early.
-fn has_anchor(chars: &[char], start: usize) -> bool {
-    (start..chars.len().saturating_sub(MIN_REPEAT_SPAN) + 1)
-        .any(|index| occurs_earlier(chars, index, MIN_REPEAT_SPAN))
-}
-
-/// Share of `chars[start..end]` covered by spans that occurred before `start`.
-///
-/// Fragments count from [`MIN_FRAGMENT_SPAN`] upwards, because the caller has
-/// already established an anchor. Measuring recall here and leaving precision to
-/// the damage test is deliberate: a legitimately repetitive image -- a table, a
-/// receipt -- also covers itself completely, and is kept because its repeated
-/// words are whole.
-fn coverage(chars: &[char], start: usize, end: usize) -> f32 {
-    if end <= start {
-        return 0.0;
-    }
-    let mut covered = 0usize;
-    let mut index = start;
-    while index < end {
-        let mut span = 0usize;
-        let mut length = MIN_FRAGMENT_SPAN;
-        while index + length <= chars.len() && occurs_earlier(chars, index, length) {
-            span = length;
-            length += 1;
-        }
-        if span >= MIN_FRAGMENT_SPAN {
-            covered += span.min(end - index);
-            index += span;
-        } else {
-            index += 1;
-        }
-    }
-    covered as f32 / (end - start) as f32
-}
+#[path = "repetition/matching.rs"]
+mod matching;
 
 #[path = "repetition/guard.rs"]
 mod guard;

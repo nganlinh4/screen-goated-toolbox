@@ -1,0 +1,171 @@
+{
+  "stream": [
+    {
+      "name": "complete-with-usage",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Alpha \"}]}}]}\n\ndata: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Beta\"}]},\"finishReason\":\"STOP\"}]}\n\ndata: {\"usageMetadata\":{\"candidatesTokenCount\":2}}\n\n",
+      "output": "Alpha Beta"
+    },
+    {
+      "name": "thought-is-not-output",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"internal\",\"thought\":true}]}}]}\n\ndata: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Ready\"}]},\"finishReason\":\"STOP\"}]}\n\n",
+      "output": "Ready"
+    },
+    {
+      "name": "compact-framing-and-eof",
+      "body": "data:{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Ready\"}]},\"finishReason\":\"STOP\"}]}",
+      "output": "Ready"
+    },
+    {
+      "name": "multiline-sse",
+      "body": "data: {\"candidates\": [\ndata: {\"content\":{\"parts\":[{\"text\":\"Ready\"}]},\"finishReason\":\"STOP\"}]}\n\n",
+      "output": "Ready"
+    },
+    {
+      "name": "length-after-text",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Partial\"}]}}]}\n\ndata: {\"candidates\":[{\"finishReason\":\"MAX_TOKENS\"}]}\n\n",
+      "error": "token limit reached"
+    },
+    {
+      "name": "length-with-text",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Partial\"}]},\"finishReason\":\"MAX_TOKENS\"}]}\n\n",
+      "error": "token limit reached"
+    },
+    {
+      "name": "missing-stop",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Partial\"}]}}]}\n\ndata: [DONE]\n\n",
+      "error": "before completion"
+    },
+    {
+      "name": "error-after-text",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Partial\"}]}}]}\n\ndata: {\"error\":{\"code\":503,\"message\":\"unavailable\"}}\n\n",
+      "error": "Provider response error"
+    },
+    {
+      "name": "blocked",
+      "body": "data: {\"promptFeedback\":{\"blockReason\":\"SAFETY\"}}\n\n",
+      "error": "blocked response"
+    },
+    {
+      "name": "unsuccessful-finish",
+      "body": "data: {\"candidates\":[{\"finishReason\":\"SAFETY\"}]}\n\n",
+      "error": "did not succeed"
+    },
+    {
+      "name": "unknown-finish",
+      "body": "data: {\"candidates\":[{\"finishReason\":\"OTHER\"}]}\n\n",
+      "error": "did not succeed"
+    },
+    {
+      "name": "empty-stop",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" \"}]},\"finishReason\":\"STOP\"}]}\n\n",
+      "error": "no output content"
+    },
+    {
+      "name": "malformed-json",
+      "body": "data: {invalid}\n\n",
+      "error": "Malformed provider stream event"
+    },
+    {
+      "name": "non-text",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":7}]},\"finishReason\":\"STOP\"}]}\n\n",
+      "error": "not text"
+    },
+    {
+      "name": "after-stop",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Ready\"}]},\"finishReason\":\"STOP\"}]}\n\ndata: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"More\"}]}}]}\n\n",
+      "error": "after completion"
+    },
+    {
+      "name": "trailing-error-after-stop",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Ready\"}]},\"finishReason\":\"STOP\"}]}\n\ndata: {\"error\":{\"message\":\"failed\"}}\n\n",
+      "error": "Provider response error"
+    },
+    {
+      "name": "only-usage",
+      "body": "data: {\"usageMetadata\":{\"candidatesTokenCount\":0}}\n\n",
+      "error": "before completion"
+    }
+  ],
+  "unary": [
+    {
+      "name": "complete",
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "Ready"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "output": "Ready"
+    },
+    {
+      "name": "missing-stop",
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "Partial"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "error": "before completion"
+    },
+    {
+      "name": "length",
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "Partial"
+                }
+              ]
+            },
+            "finishReason": "MAX_TOKENS"
+          }
+        ]
+      },
+      "error": "token limit reached"
+    },
+    {
+      "name": "empty",
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": ""
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "error": "no output content"
+    },
+    {
+      "name": "provider-error",
+      "body": {
+        "error": {
+          "code": 500
+        }
+      },
+      "error": "Provider response error"
+    }
+  ]
+}
