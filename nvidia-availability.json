@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-18T20:58:06Z",
+ "generatedAt": "2026-09-19T00:24:04Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 470,
+   "p50_ms": 476,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -18,7 +18,7 @@
    "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 551,
+   "p50_ms": 554,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -26,7 +26,7 @@
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 599,
+   "p50_ms": 629,
    "success_rate": 0.75,
    "runs": 24
   },
@@ -34,15 +34,15 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 802,
-   "success_rate": 0.458,
+   "p50_ms": 811,
+   "success_rate": 0.5,
    "runs": 24
   },
   {
    "id": "mistralai/mistral-nemotron",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 923,
+   "p50_ms": 1049,
    "success_rate": 0.417,
    "runs": 24
   },
@@ -50,7 +50,7 @@
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 1165,
+   "p50_ms": 1115,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -58,8 +58,8 @@
    "id": "google/gemma-4-31b-it",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1498,
-   "success_rate": 0.292,
+   "p50_ms": 1319,
+   "success_rate": 0.333,
    "runs": 24
   }
  ]
