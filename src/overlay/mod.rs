@@ -28,6 +28,7 @@ pub mod preset_wheel;
 pub mod process;
 pub mod prompt_dj;
 pub mod recording;
+pub(crate) mod region_handle;
 pub mod result;
 pub mod screen_record;
 pub mod screen_translate;

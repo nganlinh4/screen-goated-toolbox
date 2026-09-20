@@ -22,14 +22,8 @@ pub(super) fn paint(pixels: &mut [u32], width: i32, height: i32, alpha: u8) {
             };
             *value = 0xff000000u32 | channel(0) | channel(8) | channel(16);
         };
-        let radius = (5.0 * s.scale).round() as i32;
         for p in handles(s.rect, s.bounds, (6.0 * s.scale).round() as i32) {
-            for y in p.y - radius..=p.y + radius {
-                for x in p.x - radius..=p.x + radius {
-                    let border = (x - p.x).abs() == radius || (y - p.y).abs() == radius;
-                    blend(x, y, if border { 0x4568c8 } else { 0xffffff }, 1.0);
-                }
-            }
+            crate::overlay::region_handle::paint(p, s.scale, &mut blend);
         }
         for (i, r) in controls(s).iter().enumerate() {
             rounded(
