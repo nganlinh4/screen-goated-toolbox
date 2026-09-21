@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-21T19:31:55Z",
+ "generatedAt": "2026-09-21T23:20:07Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -18,24 +18,16 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 806,
-   "success_rate": 0.917,
+   "p50_ms": 802,
+   "success_rate": 0.958,
    "runs": 24
   },
   {
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 887,
+   "p50_ms": 824,
    "success_rate": 0.958,
-   "runs": 24
-  },
-  {
-   "id": "openai/gpt-oss-20b",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 3001,
-   "success_rate": 0.708,
    "runs": 24
   },
   {
@@ -44,6 +36,14 @@
    "modality": "vision",
    "p50_ms": 3201,
    "success_rate": 0.708,
+   "runs": 24
+  },
+  {
+   "id": "openai/gpt-oss-20b",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 3246,
+   "success_rate": 0.75,
    "runs": 24
   }
  ]
