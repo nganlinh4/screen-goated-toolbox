@@ -18,6 +18,7 @@ internal suspend fun TextApiClient.streamGemini(
     uiLanguage: String,
     onChunk: (String) -> Unit,
     streamingEnabled: Boolean,
+    searchEnabled: Boolean,
 ): String {
     return if (streamingEnabled) {
         streamGeminiStreaming(
@@ -27,6 +28,7 @@ internal suspend fun TextApiClient.streamGemini(
             apiKey = apiKey,
             uiLanguage = uiLanguage,
             onChunk = onChunk,
+            searchEnabled = searchEnabled,
         )
     } else {
         generateGeminiBlocking(
@@ -34,6 +36,7 @@ internal suspend fun TextApiClient.streamGemini(
             prompt = prompt,
             inputText = inputText,
             apiKey = apiKey,
+            searchEnabled = searchEnabled,
         )
     }
 }
@@ -45,10 +48,11 @@ private suspend fun TextApiClient.streamGeminiStreaming(
     apiKey: String,
     uiLanguage: String,
     onChunk: (String) -> Unit,
+    searchEnabled: Boolean,
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:google")
 
-    val payload = buildGeminiPayload(model, prompt, inputText)
+    val payload = buildGeminiPayload(model, prompt, inputText, searchEnabled)
     val request = Request.Builder()
         .url("$GEMINI_ENDPOINT/${model.fullName}:streamGenerateContent?alt=sse")
         .header("x-goog-api-key", apiKey)
@@ -101,9 +105,10 @@ private suspend fun TextApiClient.generateGeminiBlocking(
     prompt: String,
     inputText: String,
     apiKey: String,
+    searchEnabled: Boolean,
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:google")
-    val payload = buildGeminiPayload(model, prompt, inputText)
+    val payload = buildGeminiPayload(model, prompt, inputText, searchEnabled)
     val request = Request.Builder()
         .url("$GEMINI_ENDPOINT/${model.fullName}:generateContent")
         .header("x-goog-api-key", apiKey)
@@ -131,6 +136,7 @@ internal fun buildGeminiPayload(
     model: PresetModelDescriptor,
     prompt: String,
     inputText: String,
+    searchEnabled: Boolean,
 ): JSONObject {
     val payload = JSONObject().put(
         "contents",
@@ -158,6 +164,12 @@ internal fun buildGeminiPayload(
         payload.put(
             "generationConfig",
             JSONObject().put("thinkingConfig", thinkingConfig),
+        )
+    }
+    if (searchEnabled) {
+        payload.put(
+            "tools",
+            JSONArray().put(JSONObject().put("google_search", JSONObject())),
         )
     }
     // Search support is catalog capability metadata. Ordinary generation must

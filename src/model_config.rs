@@ -28,7 +28,6 @@ pub enum OrdinaryReasoningPolicy {
     GeminiBudget(u32),
     GeminiLevel(&'static str),
     OpenAiEffort(&'static str),
-    ProviderManaged,
     LiveProfile,
 }
 
@@ -550,27 +549,4 @@ pub fn model_supports_search_by_id_with_custom(
     }
 
     false
-}
-
-/// Whether normal selection of this model actually enables its search tool.
-///
-/// This is intentionally separate from provider capability: an endpoint may
-/// support quota-bearing search while ordinary requests keep the tool off.
-#[cfg(not(feature = "recorder-worker"))]
-pub fn model_search_tool_enabled_by_default_by_id(id: &str) -> bool {
-    let custom_models = crate::APP
-        .lock()
-        .ok()
-        .map(|app| app.config.custom_models.clone())
-        .unwrap_or_default();
-    model_search_tool_enabled_by_default_by_id_with_custom(id, &custom_models)
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-pub fn model_search_tool_enabled_by_default_by_id_with_custom(
-    id: &str,
-    custom_models: &[crate::config::types::CustomModelDefinition],
-) -> bool {
-    get_model_by_id_with_custom(id, custom_models)
-        .is_some_and(|model| model.search_tool_enabled_by_default)
 }

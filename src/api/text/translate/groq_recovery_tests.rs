@@ -80,6 +80,7 @@ fn real_http_transport_retries_declared_output_allowance_for_both_response_modes
                 request_timeout: Some(crate::api::client::RequestTimeouts::uniform(
                     Duration::from_secs(3),
                 )),
+                search_enabled: false,
             },
             |_| {},
         );

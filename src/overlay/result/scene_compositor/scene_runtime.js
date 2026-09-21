@@ -395,6 +395,7 @@ function selectSurface(entry, documentHtml) {
   }
 }
 function applyAppearance(entry, model) {
+  entry.visualSurface.style.pointerEvents = model.controls?.inputPassthrough ? 'none' : '';
   const becameVisible = !entry.visible && model.visible;
   entry.card.dataset.presentation = model.presentation || 'standard';
   entry.sourceReplacement = model.source_replacement === true;
@@ -425,14 +426,14 @@ function applyAppearance(entry, model) {
   if (entry.sourceReplacement) {
     entry.card.hidden = false;
     entry.card.style.opacity = model.visible ? opacity : '0';
-    entry.card.style.pointerEvents = model.visible ? 'auto' : 'none';
+    entry.card.style.pointerEvents = model.visible && !model.controls?.inputPassthrough ? 'auto' : 'none';
     if (!model.visible) {
       entry.visualSurface.style.willChange = 'opacity';
       entry.sourceSurfacePrewarmed = true;
     }
   } else {
     entry.card.style.opacity = opacity;
-    entry.card.style.pointerEvents = '';
+    entry.card.style.pointerEvents = model.controls?.inputPassthrough ? 'none' : '';
     entry.card.hidden = !model.visible;
   }
   syncSourceBackdrop(entry);

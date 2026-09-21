@@ -46,6 +46,19 @@ static STARTING: AtomicBool = AtomicBool::new(false);
 static TRANSITIONING: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static LIVE_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+pub(super) fn capture_host() -> Option<windows::Win32::Foundation::HWND> {
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowThreadProcessId};
+    use windows::core::{PCWSTR, w};
+    let process = PROCESS.lock().unwrap();
+    let renderer = process.as_ref()?;
+    unsafe {
+        let hwnd = FindWindowW(w!("SGTResultSceneCompositor"), PCWSTR::null()).ok()?;
+        let mut pid = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        (pid == renderer.child.id()).then_some(hwnd)
+    }
+}
 static LIVE_PID: AtomicU32 = AtomicU32::new(0);
 static READY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static LAST_HEARTBEAT_MS: AtomicU64 = AtomicU64::new(0);
@@ -168,6 +181,7 @@ fn spawn_process() -> anyhow::Result<()> {
         },
     )?;
     write_to(&mut stdin, &super::processing::snapshot())?;
+    write_to(&mut stdin, &super::capture_exclusion::snapshot())?;
 
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let pid = child.id();

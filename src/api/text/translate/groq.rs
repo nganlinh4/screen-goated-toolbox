@@ -272,6 +272,10 @@ fn standard_payload(
         );
     }
     crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", model);
+    if transport.search_enabled {
+        payload["tools"] = serde_json::json!([{ "type": "browser_search" }]);
+        payload["tool_choice"] = "required".into();
+    }
     if let Some(limit) = transport.max_output_tokens {
         payload["max_completion_tokens"] = limit.into();
     }
@@ -478,6 +482,7 @@ mod tests {
                     ui_language: "en",
                     cancel_token: &None,
                     request_timeout: None,
+                    search_enabled: false,
                 };
                 let payload = standard_payload(
                     "openai/gpt-oss-20b",
@@ -511,6 +516,47 @@ mod tests {
                     true
                 );
             }
+        }
+    }
+
+    #[test]
+    fn browser_search_is_only_in_explicit_groq_requests() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../parity-fixtures/preset-system/text-provider-routing.json"
+        ))
+        .unwrap();
+        let contract = &fixture["ordinary_request_policy"];
+        for streaming_enabled in [false, true] {
+            let transport = TranslateTransportOptions {
+                locally_validated_schema: false,
+                max_output_tokens: None,
+                streaming_enabled,
+                ui_language: "en",
+                cancel_token: &None,
+                request_timeout: None,
+                search_enabled: false,
+            };
+            let ordinary =
+                standard_payload("openai/gpt-oss-20b", "request", false, None, transport);
+            assert!(ordinary.get("tools").is_none());
+            assert!(ordinary.get("tool_choice").is_none());
+
+            let search = standard_payload(
+                "openai/gpt-oss-20b",
+                "request",
+                false,
+                None,
+                TranslateTransportOptions {
+                    search_enabled: true,
+                    ..transport
+                },
+            );
+            assert_eq!(
+                search["tools"][0]["type"],
+                contract["explicit_groq_search_tool"]
+            );
+            assert_eq!(search["tool_choice"], contract["groq_search_tool_choice"]);
+            assert_eq!(search["reasoning_effort"], "low");
         }
     }
 

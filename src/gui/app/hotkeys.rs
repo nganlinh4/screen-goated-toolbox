@@ -181,7 +181,9 @@ impl SettingsApp {
             self.screen_translate_hotkey_conflict_msg = Some(conflict);
             return;
         }
-        let hotkeys = if self.recording_screen_translate_fullscreen {
+        let hotkeys = if self.recording_screen_translate_subtitles {
+            &mut self.config.screen_translate.subtitle_hotkeys
+        } else if self.recording_screen_translate_fullscreen {
             &mut self.config.screen_translate.fullscreen_hotkeys
         } else {
             &mut self.config.screen_translate.hotkeys

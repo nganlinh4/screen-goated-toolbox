@@ -36,5 +36,11 @@ impl RunEvidence {
     ) {
     }
     pub(crate) fn no_text(self) {}
+    pub(crate) fn finish_translation(
+        self,
+        _document: TranslationDocument,
+        _warning: Option<String>,
+    ) {
+    }
     pub(crate) fn fail(self, _stage: &str, _error: &anyhow::Error) {}
 }

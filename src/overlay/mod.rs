@@ -33,6 +33,7 @@ pub mod result;
 pub mod screen_record;
 pub mod screen_translate;
 pub mod selection; // Made public for extract_crop_from_hbitmap_public
+pub(crate) mod shell_policy;
 pub(crate) mod status_compositor;
 pub mod text_input; // NEW MODULE
 pub mod text_selection;

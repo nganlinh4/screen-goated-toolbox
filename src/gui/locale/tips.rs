@@ -137,7 +137,7 @@ const EN_RESULTS: &[UsageTip] = &[
 const EN_MODELS: &[UsageTip] = &[
     tip!(
         "search_marker_default",
-        "A model's **magnifying-glass marker** means its web-search tool is enabled during normal use."
+        "A model's **magnifying-glass marker** means it supports web search in a search-enabled preset. Ordinary requests do not turn search on automatically."
     ),
     tip!(
         "fallback_cooldown_search",
@@ -267,7 +267,7 @@ const KO_RESULTS: &[UsageTip] = &[
 const KO_MODELS: &[UsageTip] = &[
     tip!(
         "search_marker_default",
-        "모델의 **돋보기 표시**는 일반 사용 시 해당 모델의 웹 검색 도구가 활성화된다는 뜻입니다."
+        "모델의 **돋보기 표시**는 검색이 켜진 프리셋에서 웹 검색을 지원한다는 뜻입니다. 일반 요청에서는 검색이 자동으로 켜지지 않습니다."
     ),
     tip!(
         "fallback_cooldown_search",
@@ -397,7 +397,7 @@ const VI_RESULTS: &[UsageTip] = &[
 const VI_MODELS: &[UsageTip] = &[
     tip!(
         "search_marker_default",
-        "Dấu **kính lúp trên một mô hình** cho biết công cụ tìm kiếm web của mô hình đó được bật khi sử dụng bình thường."
+        "Dấu **kính lúp trên một mô hình** cho biết mô hình hỗ trợ tìm kiếm web trong preset đã bật tìm kiếm. Yêu cầu thông thường không tự bật tìm kiếm."
     ),
     tip!(
         "fallback_cooldown_search",

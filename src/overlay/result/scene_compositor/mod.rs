@@ -1,6 +1,7 @@
 pub(super) mod acceptance_capture;
 pub(super) mod activation;
 mod button_input;
+mod capture_exclusion;
 mod card_bridge;
 mod card_document;
 mod child;
@@ -31,6 +32,7 @@ mod supervisor;
 mod sync_scheduler;
 mod visual_region;
 
+pub(crate) use capture_exclusion::{capture_is_excluded, exclude_from_capture};
 pub use controls::{
     is_dragging, is_point_over_result_window, set_control_scope_opacity, set_external_drag,
     set_refine_text, sync as sync_controls, sync_all as sync_all_controls,
@@ -43,8 +45,9 @@ pub use parent::{
 pub(crate) use processing::ProcessingGlow;
 pub(crate) use scene_groups::{
     SourceCardHandle, SourceCardSpec, SourceGroupHandle, SourceGroupRestoreSnapshot,
-    group_ids as source_group_ids, is_group_alive as source_group_is_alive, prewarm_source_group,
-    remove_source_group, restore_snapshot as source_group_restore_snapshot, reveal_source_card,
+    group_ids as source_group_ids, is_group_alive as source_group_is_alive, move_source_group,
+    prewarm_source_group, remove_source_group, restore_snapshot as source_group_restore_snapshot,
+    reveal_source_card,
 };
 pub(crate) use supervisor::{recover_after_failure_and_wait, restart_and_wait, wait_until_ready};
 pub(crate) use sync_scheduler::queue_window_sync;

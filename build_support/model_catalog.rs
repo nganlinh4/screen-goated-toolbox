@@ -169,7 +169,6 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
             "gemini-low" => "OrdinaryReasoningPolicy::GeminiLevel(\"LOW\")".to_string(),
             "openai-none" => "OrdinaryReasoningPolicy::OpenAiEffort(\"none\")".to_string(),
             "openai-low" => "OrdinaryReasoningPolicy::OpenAiEffort(\"low\")".to_string(),
-            "provider-managed" => "OrdinaryReasoningPolicy::ProviderManaged".to_string(),
             "live-profile" => "OrdinaryReasoningPolicy::LiveProfile".to_string(),
             policy => panic!("unsupported ordinary reasoning policy {policy:?}"),
         };

@@ -105,13 +105,13 @@ impl SettingsApp {
                                     &mut columns[0],
                                     &theme,
                                     text,
-                                    false,
+                                    0,
                                 );
                                 self.render_screen_translate_hotkey_row(
                                     &mut columns[1],
                                     &theme,
                                     text,
-                                    true,
+                                    1,
                                 );
                             });
                         } else {
@@ -123,6 +123,8 @@ impl SettingsApp {
                             ui.add_space(8.0);
                             self.render_screen_translate_hotkeys(ui, &theme, text);
                         }
+                        ui.add_space(8.0);
+                        self.render_screen_translate_hotkey_row(ui, &theme, text, 2);
                     });
             },
         );
@@ -169,6 +171,12 @@ impl SettingsApp {
                         )
                         .changed();
                 });
+                changed |= ui
+                    .checkbox(
+                        &mut self.config.screen_translate.show_glow_box,
+                        text.screen_translate.screen_translate_show_glow_box,
+                    )
+                    .changed();
             });
         if changed {
             self.save_and_sync();
@@ -275,9 +283,9 @@ impl SettingsApp {
         theme: &AppTheme,
         text: &LocaleText,
     ) {
-        self.render_screen_translate_hotkey_row(ui, theme, text, false);
+        self.render_screen_translate_hotkey_row(ui, theme, text, 0);
         ui.add_space(8.0);
-        self.render_screen_translate_hotkey_row(ui, theme, text, true);
+        self.render_screen_translate_hotkey_row(ui, theme, text, 1);
     }
 
     fn render_screen_translate_hotkey_row(
@@ -285,8 +293,10 @@ impl SettingsApp {
         ui: &mut egui::Ui,
         theme: &AppTheme,
         text: &LocaleText,
-        fullscreen: bool,
+        mode: u8,
     ) {
+        let fullscreen = mode == 1;
+        let subtitles = mode == 2;
         let mut remove = None;
         egui::Frame::new()
             .fill(theme.card_bg())
@@ -301,7 +311,9 @@ impl SettingsApp {
                 ui.set_min_height(48.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
-                        egui::RichText::new(if fullscreen {
+                        egui::RichText::new(if subtitles {
+                            text.screen_translate.screen_translate_subtitle_mode
+                        } else if fullscreen {
                             text.screen_translate
                                 .screen_translate_fullscreen_hotkey_label
                         } else {
@@ -311,6 +323,7 @@ impl SettingsApp {
                     );
                     if self.recording_screen_translate_hotkey
                         && self.recording_screen_translate_fullscreen == fullscreen
+                        && self.recording_screen_translate_subtitles == subtitles
                     {
                         ui.colored_label(theme.warning(), text.preset_basics.press_keys);
                         if filled_button(
@@ -336,10 +349,13 @@ impl SettingsApp {
                     {
                         self.recording_screen_translate_hotkey = true;
                         self.recording_screen_translate_fullscreen = fullscreen;
+                        self.recording_screen_translate_subtitles = subtitles;
                         self.screen_translate_hotkey_conflict_msg = None;
                     }
 
-                    let hotkeys = if fullscreen {
+                    let hotkeys = if subtitles {
+                        &self.config.screen_translate.subtitle_hotkeys
+                    } else if fullscreen {
                         &self.config.screen_translate.fullscreen_hotkeys
                     } else {
                         &self.config.screen_translate.hotkeys
@@ -382,6 +398,7 @@ impl SettingsApp {
                     self.start_screen_translate_region_edit(ui.ctx());
                 }
                 if self.recording_screen_translate_fullscreen == fullscreen
+                    && self.recording_screen_translate_subtitles == subtitles
                     && let Some(conflict) = &self.screen_translate_hotkey_conflict_msg
                 {
                     ui.add_space(4.0);
@@ -390,7 +407,9 @@ impl SettingsApp {
             });
         if let Some((code, modifiers)) = remove {
             self.sync_global_hotkeys();
-            let hotkeys = if fullscreen {
+            let hotkeys = if subtitles {
+                &mut self.config.screen_translate.subtitle_hotkeys
+            } else if fullscreen {
                 &mut self.config.screen_translate.fullscreen_hotkeys
             } else {
                 &mut self.config.screen_translate.hotkeys

@@ -45,6 +45,7 @@ pub(super) struct TranslateInput<'a> {
     pub candidates: &'a [DetectedTextRegion],
     pub scene: &'a [DetectedTextRegion],
     pub prior_translations: &'a [TranslationRegion],
+    pub dialogue: &'a [super::request::context::DialogueTurn],
 }
 
 pub(super) fn translate<F>(
@@ -63,6 +64,7 @@ where
         candidates,
         scene,
         prior_translations,
+        dialogue,
     } = input;
     let config = crate::APP
         .lock()
@@ -105,6 +107,7 @@ where
             prior_translations,
             &accepted,
         )?;
+        super::request::context::append_dialogue(&mut prepared.text, dialogue)?;
         super::request::append_copy_review(&mut prepared, &pending, &copied_response)?;
         if !copied_response.is_empty() {
             crate::log_info!(
@@ -195,6 +198,7 @@ where
                         schema,
                     )),
                     max_output_tokens: Some(prepared.max_output_tokens),
+                    search_enabled: false,
                     search_label: None,
                     ui_language: &config.ui_language,
                     cancel_token: Some(attempt_cancel),

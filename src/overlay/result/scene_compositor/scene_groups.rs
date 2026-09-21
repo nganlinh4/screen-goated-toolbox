@@ -58,6 +58,7 @@ pub(crate) struct SourceGroupRestoreSnapshot {
 }
 
 struct SourceCardState {
+    input_passthrough: bool,
     spec: SourceCardSpec,
     text: String,
     segments: Vec<String>,
@@ -84,6 +85,8 @@ pub fn prewarm_source_group(
     source_image: Option<std::sync::Arc<image::RgbaImage>>,
 ) -> (SourceGroupHandle, Vec<SourceCardHandle>) {
     let root_id = controller.0 as isize;
+    let input_passthrough =
+        super::controls::snapshot(root_id).is_some_and(|controls| controls.input_passthrough);
     let mut cards = HashMap::with_capacity(specs.len());
     let mut card_order = Vec::with_capacity(specs.len());
     let mut handles = Vec::with_capacity(specs.len());
@@ -94,6 +97,7 @@ pub fn prewarm_source_group(
         cards.insert(
             id,
             SourceCardState {
+                input_passthrough,
                 spec,
                 text: String::new(),
                 segments: Vec::new(),
@@ -342,6 +346,16 @@ pub fn move_group(id: isize, dx: i32, dy: i32) -> Option<Vec<SceneGeometry>> {
     Some(cards)
 }
 
+pub(crate) fn move_source_group(handle: SourceGroupHandle, dx: i32, dy: i32) {
+    if let Some(cards) = move_group(handle.root_id, dx, dy) {
+        send_command(HostCommand::DragSettled {
+            gesture_id: None,
+            cards,
+        });
+        super::controls::sync_all();
+    }
+}
+
 fn move_scene_card(card: &mut SceneCard, dx: i32, dy: i32) -> SceneGeometry {
     card.rect.x = card.rect.x.saturating_add(dx);
     card.rect.y = card.rect.y.saturating_add(dy);
@@ -483,6 +497,7 @@ fn source_card(id: isize, state: &SourceCardState, offset: (i32, i32), opacity: 
         stack_order: state.stack_order,
         controls: SceneControls {
             hidden: true,
+            input_passthrough: state.input_passthrough,
             ..SceneControls::default()
         },
         presentation: ResultPresentation::TextOnly,

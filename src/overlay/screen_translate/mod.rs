@@ -25,6 +25,7 @@ pub(crate) mod request;
 mod runtime;
 mod schema;
 pub(crate) mod stream_parser;
+pub(crate) mod subtitles;
 mod text_metrics;
 mod translation_validation;
 mod units;
@@ -84,8 +85,24 @@ pub(crate) fn run_lab_queue(queue: std::path::PathBuf) {
                         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
                     let _ = std::fs::remove_file(&request);
                     if let Some(value) = value {
-                        if value.get("action").and_then(|item| item.as_str()) == Some("replay") {
+                        if value.get("action").and_then(|item| item.as_str())
+                            == Some("subtitle-toggle")
+                        {
+                            subtitles::toggle(0);
+                        } else if value.get("action").and_then(|item| item.as_str())
+                            == Some("subtitle-stop")
+                        {
+                            subtitles::stop();
+                        } else if value.get("action").and_then(|item| item.as_str())
+                            == Some("replay")
+                        {
                             replay::start(value);
+                        } else if value.get("action").and_then(|item| item.as_str())
+                            == Some("subtitle-image")
+                        {
+                            if let Some(path) = value.get("image").and_then(|item| item.as_str()) {
+                                subtitles::test_image(std::path::PathBuf::from(path));
+                            }
                         } else if let Some(image) = value
                             .get("image")
                             .and_then(|item| item.as_str())
@@ -107,6 +124,7 @@ pub(crate) fn run_lab_queue(queue: std::path::PathBuf) {
 pub(crate) fn run_lab_queue(_queue: std::path::PathBuf) {}
 
 pub(crate) fn stop_detector() {
+    subtitles::stop();
     runtime::cancel_active();
     detector::stop();
 }

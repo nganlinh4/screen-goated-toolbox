@@ -24,6 +24,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
         searchLabel: String?,
         onChunk: (String) -> Unit,
         streamingEnabled: Boolean = true,
+        searchEnabled: Boolean = false,
         targetLanguage: String? = null,
         predictionContent: String? = null,
     ): Result<String> = withContext(Dispatchers.IO) {
@@ -31,6 +32,9 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
             val model = resolveModel(modelId)
             require(model.modelType == PresetModelType.TEXT && model.provider.hasTextPresetRuntime()) {
                 "Unsupported text provider: ${model.provider.name.lowercase()}"
+            }
+            require(!searchEnabled || PresetModelCatalog.supportsSearch(model.provider, model.fullName)) {
+                "SEARCH_UNSUPPORTED:${model.provider.name.lowercase()}:${model.fullName}"
             }
             val normalizer = InitialLineBreakNormalizer()
             val normalizedOnChunk: (String) -> Unit = { chunk ->
@@ -45,6 +49,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                     uiLanguage = uiLanguage,
                     onChunk = normalizedOnChunk,
                     streamingEnabled = streamingEnabled,
+                    searchEnabled = searchEnabled,
                 )
 
                 PresetModelProvider.GROQ -> {
@@ -68,6 +73,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                             uiLanguage = uiLanguage,
                             onChunk = normalizedOnChunk,
                             streamingEnabled = streamingEnabled,
+                            searchEnabled = searchEnabled,
                         )
                     }
                 }
@@ -153,6 +159,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
         prompt: String,
         inputText: String,
         streamingEnabled: Boolean = true,
+        searchEnabled: Boolean = false,
     ): String {
         val model = resolveModel(modelId)
         return when (model.provider) {
@@ -161,6 +168,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                 prompt = prompt,
                 inputText = inputText,
                 streamingEnabled = streamingEnabled,
+                searchEnabled = searchEnabled,
             )
 
             PresetModelProvider.GROQ -> {
@@ -176,6 +184,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                         fullName = model.fullName,
                         prompt = prompt,
                         inputText = inputText,
+                        searchEnabled = searchEnabled,
                     )
                 }
             }

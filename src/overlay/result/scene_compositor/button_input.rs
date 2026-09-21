@@ -276,6 +276,9 @@ pub(super) fn captures_desktop_input() -> bool {
 }
 
 pub(super) fn settle_drag(gesture_id: Option<u64>) -> bool {
+    if super::gesture::is_gesture_active() {
+        return false;
+    }
     let settled = gesture_id.is_none_or(|id| {
         AWAITING_DRAG_SETTLE
             .compare_exchange(id, 0, Ordering::SeqCst, Ordering::SeqCst)

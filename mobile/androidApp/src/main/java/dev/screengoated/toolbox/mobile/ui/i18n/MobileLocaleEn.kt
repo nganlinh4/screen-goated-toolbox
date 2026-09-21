@@ -329,8 +329,9 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                     tips = listOf(
                         MobileUsageTipText(
                             id = MobileUsageTipId.SEARCH_MARKER_DEFAULT,
-                            text = "A **magnifying glass** beside a model means its web-search " +
-                                "tool is enabled by default.",
+                            text = "A **magnifying glass** beside a model means it supports " +
+                                "web search in a search-enabled preset. Ordinary requests " +
+                                "do not turn search on automatically.",
                         ),
                         MobileUsageTipText(
                             id = MobileUsageTipId.FALLBACK_COOLDOWN_SEARCH,

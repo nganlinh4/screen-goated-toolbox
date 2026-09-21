@@ -1,4 +1,5 @@
 function applyGeometry(entry, model) {
+  entry.geometry = { ...model.rect };
   const preservePosition = window.shouldPreserveResultDragGeometry?.(entry.card.dataset.id) === true;
   const scale = window.devicePixelRatio || 1; entry.card.style.setProperty('--sgt-box-radius', (__SGT_BOX_RADIUS_PX__ / scale) + 'px');
   const width = model.rect.width / scale;
@@ -20,6 +21,24 @@ function applyGeometry(entry, model) {
     entry.resizeFit = setTimeout(function() { queueFit(entry, entry.streaming); }, 40);
   }
 }
+
+window.__SGT_VERIFY_SCENE_GEOMETRY__ = function() {
+  if (window.__SGT_BUTTON_SCENE__?.isGeometryPreviewActive()) return;
+  const scale = window.devicePixelRatio || 1;
+  function matches(entry) {
+    const actual = entry.card.getBoundingClientRect();
+    const expected = entry.geometry;
+    return Math.abs(actual.left * scale - expected.x) <= 1
+      && Math.abs(actual.top * scale - expected.y) <= 1
+      && Math.abs(actual.width * scale - expected.width) <= 1
+      && Math.abs(actual.height * scale - expected.height) <= 1;
+  }
+  for (const entry of cards.values()) {
+    if (!entry.visible || !entry.geometry || matches(entry)) continue;
+    applyGeometry(entry, { rect: entry.geometry });
+    if (!matches(entry)) throw new Error('Result geometry did not converge: ' + entry.card.dataset.id);
+  }
+};
 
 function activateCard(entry, becameVisible) {
   if (!entry.visible || entry.navigationDepth !== 0) return;

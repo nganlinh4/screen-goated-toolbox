@@ -48,6 +48,7 @@ pub static mut IS_DRAGGING: bool = false;
 pub static mut IS_SELECTION_COMMITTED: bool = false;
 pub static mut IS_FADING_OUT: bool = false;
 pub static mut CURRENT_ALPHA: u8 = 0;
+pub static mut FADE_OUT_START_ALPHA: Option<u8> = None;
 pub static SELECTION_OVERLAY_ACTIVE: AtomicBool = AtomicBool::new(false);
 pub static mut SELECTION_OVERLAY_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
 pub static mut SELECTION_HOOK: HHOOK = HHOOK(std::ptr::null_mut());

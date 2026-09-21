@@ -113,6 +113,7 @@ fn translate_adherence_across_models() {
                     translate_text_streaming(
                         TranslateTextRequest {
                             max_output_tokens: None,
+                            search_enabled: false,
                             groq_api_key: Credentials::groq_key_for(&model.provider, key),
                             gemini_api_key: key,
                             text: source.to_string(),

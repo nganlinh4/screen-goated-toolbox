@@ -202,7 +202,7 @@ pub fn show_selector(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             windows::core::w!("SharedWindowSelectorClass"),
             windows::core::w!(""),
-            WS_POPUP | WS_VISIBLE,
+            WS_POPUP,
             screen_x,
             screen_y,
             screen_w,
@@ -211,7 +211,9 @@ pub fn show_selector(
             None,
             Some(hinstance.into()),
             None,
-        ) {
+        )
+        .and_then(crate::overlay::shell_policy::prepare)
+        {
             Ok(value) => value,
             Err(error) => {
                 eprintln!("[WindowSelector] CreateWindowExW failed: {error}");
@@ -300,6 +302,7 @@ pub fn show_selector(
             *wv.borrow_mut() = Some(webview);
         });
 
+        let _ = ShowWindow(hwnd, SW_SHOW);
         let mut msg = MSG::default();
         loop {
             match GetMessageW(&mut msg, None, 0, 0).0 {

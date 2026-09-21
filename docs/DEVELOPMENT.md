@@ -261,6 +261,20 @@ restores open windows. The runner checks empty, visible, dismissed, reopened, an
 recreated controllers. It writes a fresh report beneath the managed development
 cache's `evidence` directory. An obscured target or missing menu fails acceptance.
 
+Result geometry has a focused live regression for drag/resize cancellation,
+settlement, browser zoom, and browser-side revision acknowledgement:
+
+```powershell
+node --test src/overlay/result/scene_compositor/geometry_runtime.test.cjs
+python scripts/test_result_geometry.py --exe <development-exe>
+```
+
+The live runner requires `websocket-client` and an unlocked desktop. It uses
+physical pointer input against a separate renderer with an isolated runtime
+state root, enables a loopback debugging endpoint only for that process, and
+saves screenshots and the tested executable's SHA-256 in a fresh evidence
+directory. It restores the cursor and closes its renderer on completion.
+
 ### Development-only Windows performance profiles
 
 The normal `release` profile remains the compact shipping baseline. It uses

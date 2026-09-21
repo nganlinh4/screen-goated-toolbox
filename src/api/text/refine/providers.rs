@@ -43,6 +43,7 @@ where
             request_timeout: None,
             response_schema: None,
             media_resolution: None,
+            enable_google_search: false,
             retry_observer: None,
         },
         on_chunk,

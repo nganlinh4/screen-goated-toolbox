@@ -52,7 +52,6 @@ enum class PresetReasoningPolicy {
     GEMINI_LOW,
     OPENAI_NONE,
     OPENAI_LOW,
-    PROVIDER_MANAGED,
     LIVE_PROFILE,
 }
 
@@ -228,7 +227,7 @@ object PresetModelCatalog {
     fun isNonLlm(id: String): Boolean = getById(id)?.isNonLlm == true
 
     fun supportsSearchById(id: String): Boolean = getById(id)?.let {
-        it.supportsSearchOverride ?: false
+        it.supportsSearchOverride ?: supportsSearch(it.provider, it.fullName)
     } ?: false
 
     fun searchToolEnabledByDefaultById(id: String): Boolean =

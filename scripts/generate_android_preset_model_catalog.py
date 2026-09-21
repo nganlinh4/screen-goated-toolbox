@@ -35,7 +35,6 @@ REASONING_POLICY_MAP = {
     "gemini-low": "GEMINI_LOW",
     "openai-none": "OPENAI_NONE",
     "openai-low": "OPENAI_LOW",
-    "provider-managed": "PROVIDER_MANAGED",
     "live-profile": "LIVE_PROFILE",
 }
 

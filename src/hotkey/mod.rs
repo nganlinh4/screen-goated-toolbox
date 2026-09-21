@@ -1,6 +1,4 @@
-// --- HOTKEY MODULE ---
-// Hotkey registration, listener, and mouse hook.
-
+//! Hotkey registration, listener, and mouse hook.
 mod modifiers;
 pub(crate) mod names;
 mod processor;
@@ -32,6 +30,7 @@ pub const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
 pub const COMPUTER_CONTROL_HOTKEY_ID: i32 = 9700;
 pub const SCREEN_TRANSLATE_HOTKEY_ID: i32 = 9600;
 pub const SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID: i32 = 9400;
+pub const SCREEN_TRANSLATE_SUBTITLE_HOTKEY_ID: i32 = 9300;
 pub const LIVE_TRANSLATE_HOTKEY_ID: i32 = 9500;
 pub const TRANSLATION_GUMMY_HOTKEY_ID: i32 = 9800;
 
@@ -89,7 +88,7 @@ fn register_configured_hotkey(
     registration_id: i32,
     hotkey: &Hotkey,
 ) -> std::result::Result<i32, HotkeyRegistrationFailure> {
-    let repeat_flag = if (SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID..LIVE_TRANSLATE_HOTKEY_ID)
+    let repeat_flag = if (SCREEN_TRANSLATE_SUBTITLE_HOTKEY_ID..LIVE_TRANSLATE_HOTKEY_ID)
         .contains(&registration_id)
     {
         MOD_NOREPEAT.0
@@ -198,6 +197,10 @@ pub fn register_all_hotkeys(hwnd: HWND) {
     }
 
     for (base, hotkeys) in [
+        (
+            SCREEN_TRANSLATE_SUBTITLE_HOTKEY_ID,
+            &app.config.screen_translate.subtitle_hotkeys,
+        ),
         (
             SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID,
             &app.config.screen_translate.fullscreen_hotkeys,
@@ -358,19 +361,22 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                     }
 
                     // Check global app hotkeys.
-                    if found_id.is_none() {
-                        for (idx, hk) in app
-                            .config
-                            .screen_translate
-                            .fullscreen_hotkeys
-                            .iter()
-                            .take(100)
-                            .enumerate()
-                        {
-                            if hk.code == vk && hk.modifiers == mods {
-                                found_id = Some(SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID + idx as i32);
-                                break;
-                            }
+                    for (base, hotkeys) in [
+                        (
+                            SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID,
+                            &app.config.screen_translate.fullscreen_hotkeys,
+                        ),
+                        (
+                            SCREEN_TRANSLATE_SUBTITLE_HOTKEY_ID,
+                            &app.config.screen_translate.subtitle_hotkeys,
+                        ),
+                    ] {
+                        if found_id.is_none() {
+                            found_id = hotkeys
+                                .iter()
+                                .take(100)
+                                .position(|hk| hk.code == vk && hk.modifiers == mods)
+                                .map(|idx| base + idx as i32);
                         }
                     }
                     if found_id.is_none() {

@@ -29,6 +29,13 @@ pub(super) struct AppliedInputState {
 }
 
 impl AppliedInputState {
+    pub(super) fn blocks_visuals(&self, cards: &HashMap<isize, SceneCard>) -> bool {
+        self.is_hidden
+            && !cards
+                .values()
+                .any(|card| card.visible && card.controls.input_passthrough)
+    }
+
     pub(super) fn hidden() -> Self {
         Self {
             visible_cards: 0,
@@ -80,7 +87,8 @@ pub(super) fn create_input_surface(
             None,
             Some(instance.into()),
             None,
-        )?;
+        )
+        .and_then(crate::overlay::shell_policy::prepare)?;
 
         super::visual_region::hide(hwnd);
         Ok(hwnd)
@@ -230,9 +238,15 @@ pub(super) fn update_input_regions(
 
     // If no cards are visible, input surface must disappear unconditionally.
     // Stale or delayed interactive button regions cannot resurrect dead input islands.
-    if visible_cards == 0 {
+    if !cards
+        .values()
+        .any(|card| card.visible && !card.controls.input_passthrough)
+    {
         super::visual_region::hide(hwnd);
-        return AppliedInputState::hidden();
+        return AppliedInputState {
+            visible_cards,
+            ..AppliedInputState::hidden()
+        };
     }
 
     unsafe {
@@ -245,7 +259,10 @@ pub(super) fn update_input_regions(
         let mut input_region_count = 0usize;
         let mut region_valid = true;
 
-        for card in cards.values().filter(|card| card.visible) {
+        for card in cards
+            .values()
+            .filter(|card| card.visible && !card.controls.input_passthrough)
+        {
             if !card.external_navigation {
                 let left = card.rect.x.clamp(0, display_w);
                 let top = card.rect.y.clamp(0, display_h);
@@ -413,6 +430,7 @@ mod tests {
     fn empty_cards_with_stale_regions_hides_window_and_returns_hidden() {
         let _lock = REGION_LOCK.lock().unwrap();
         let hwnd = create_input_surface(0, 0, 800, 600).expect("create test surface");
+        assert_eq!(unsafe { GetPropW(hwnd, w!("NonRudeHWND")) }.0 as usize, 1);
         let cards: HashMap<isize, SceneCard> = HashMap::new();
         let stale_regions = vec![SceneRect {
             x: 10,
@@ -497,6 +515,49 @@ mod tests {
             let _ = update_input_regions(hwnd, &cards, &[], -1920, 0, 3840, 1080);
             let actual = CreateRectRgn(0, 0, 0, 0);
             let expected = CreateRectRgn(900, 100, 1300, 400);
+            assert_ne!(GetWindowRgn(hwnd, actual).0, 0);
+            assert!(EqualRgn(actual, expected).as_bool());
+            let _ = DeleteObject(actual.into());
+            let _ = DeleteObject(expected.into());
+            let _ = DestroyWindow(hwnd);
+        }
+    }
+
+    #[test]
+    fn passive_results_never_own_input_even_with_stale_control_regions() {
+        let _lock = REGION_LOCK.lock().unwrap();
+        let hwnd = create_input_surface(0, 0, 800, 600).expect("create test surface");
+        let rect = SceneRect {
+            x: 50,
+            y: 50,
+            width: 200,
+            height: 100,
+        };
+        let mut passive = test_card(1, rect.clone());
+        passive.controls.input_passthrough = true;
+        let mut cards = HashMap::from([(1, passive)]);
+        let state = update_input_regions(hwnd, &cards, &[rect], 0, 0, 800, 600);
+        assert!(state.is_hidden);
+        assert_eq!(state.input_region_count, 0);
+        assert!(!state.blocks_visuals(&cards));
+        cards.insert(
+            2,
+            test_card(
+                2,
+                SceneRect {
+                    x: 400,
+                    y: 100,
+                    width: 100,
+                    height: 100,
+                },
+            ),
+        );
+        let state = update_input_regions(hwnd, &cards, &[], 0, 0, 800, 600);
+        assert!(!state.is_hidden);
+        assert_eq!(state.input_region_count, 1);
+        unsafe {
+            let actual = CreateRectRgn(0, 0, 0, 0);
+            let expected = CreateRectRgn(400, 100, 500, 200);
             assert_ne!(GetWindowRgn(hwnd, actual).0, 0);
             assert!(EqualRgn(actual, expected).as_bool());
             let _ = DeleteObject(actual.into());

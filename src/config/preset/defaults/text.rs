@@ -167,6 +167,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .dynamic_prompt()
             .blocks(vec![
                 BlockBuilder::text(PRESET_SEARCH_MODEL_ID)
+                    .search()
                     .prompt("")
                     .language("Vietnamese")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
@@ -205,6 +206,7 @@ pub fn create_text_presets() -> Vec<Preset> {
                     .build(),
                 // Node 2: Summarize with sources (from 3)
                 BlockBuilder::text(PRESET_SEARCH_MODEL_ID)
+                    .search()
                     .prompt("Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
@@ -274,6 +276,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .text_type()
             .blocks(vec![
                 BlockBuilder::text(PRESET_SEARCH_MODEL_ID)
+                    .search()
                     .prompt("Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks. SEARCH FOR:")
                     .markdown_stream() // Upgraded: Đẹp -> Đẹp+Str
                     .build(),

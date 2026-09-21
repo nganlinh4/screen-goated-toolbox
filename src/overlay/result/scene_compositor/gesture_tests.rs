@@ -39,6 +39,32 @@ fn gesture_starts_inactive() {
 }
 
 #[test]
+fn cancelled_resize_returns_authoritative_settlement_targets() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let cards = HashMap::from([(
+        -98,
+        test_card(
+            -98,
+            SceneRect {
+                x: 40,
+                y: 60,
+                width: 300,
+                height: 180,
+            },
+        ),
+    )]);
+    begin_resize(-98, "se", 501, 1, POINT::default(), HWND::default(), &cards).unwrap();
+    preview_gesture(501, 70, 90);
+    let event = cancel_active_gesture().unwrap();
+    assert!(matches!(event, ChildEvent::DragFinished {
+        gesture_id: 501, outcome: DragOutcome::Cancelled, targets, ..
+    } if targets == [-98]));
+    assert!(super::super::button_input::settle_drag(Some(501)));
+    assert!(!super::super::button_input::settle_drag(Some(501)));
+    assert!(visual_preview_rects(&cards).is_empty());
+}
+
+#[test]
 fn stale_finish_does_not_destroy_newer_gesture() {
     let _guard = TEST_LOCK.lock().unwrap();
     let mut cards = HashMap::new();

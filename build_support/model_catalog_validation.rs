@@ -233,7 +233,6 @@ fn validate_reasoning_policy(
             "gemini-low",
             "openai-none",
             "openai-low",
-            "provider-managed",
             "live-profile",
         ]
         .contains(&policy),
@@ -242,10 +241,9 @@ fn validate_reasoning_policy(
     let compatible = match provider {
         "google" => matches!(policy, "gemini-disabled" | "gemini-minimal" | "gemini-low"),
         "gemini-live" => policy == "live-profile",
-        "groq" | "openrouter" | "nvidia" => matches!(
-            policy,
-            "not-applicable" | "openai-none" | "openai-low" | "provider-managed"
-        ),
+        "groq" | "openrouter" | "nvidia" => {
+            matches!(policy, "not-applicable" | "openai-none" | "openai-low")
+        }
         _ => policy == "not-applicable",
     };
     assert!(

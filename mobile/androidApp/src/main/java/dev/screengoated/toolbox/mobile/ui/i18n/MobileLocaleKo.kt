@@ -330,8 +330,8 @@ internal fun koreanMobileLocaleText(): MobileLocaleText {
                     tips = listOf(
                         MobileUsageTipText(
                             id = MobileUsageTipId.SEARCH_MARKER_DEFAULT,
-                            text = "모델 옆 **돋보기**는 웹 검색 도구가 기본으로 켜진다는 " +
-                                "뜻입니다.",
+                            text = "모델 옆 **돋보기**는 검색이 켜진 프리셋에서 웹 검색을 " +
+                                "지원한다는 뜻입니다. 일반 요청에서는 검색이 자동으로 켜지지 않습니다.",
                         ),
                         MobileUsageTipText(
                             id = MobileUsageTipId.FALLBACK_COOLDOWN_SEARCH,

@@ -49,12 +49,15 @@ pub(super) fn translate_region(
         .clone();
     let settings = config.screen_translate.clone();
     let model = settings.translation_model.clone();
-    let processing = crate::overlay::result::scene_compositor::ProcessingGlow::show(RECT {
-        left: region.left,
-        top: region.top,
-        right: region.left.saturating_add(i32::try_from(region.width)?),
-        bottom: region.top.saturating_add(i32::try_from(region.height)?),
-    })?;
+    let mut processing = super::processing::Progress::show(
+        RECT {
+            left: region.left,
+            top: region.top,
+            right: region.left.saturating_add(i32::try_from(region.width)?),
+            bottom: region.top.saturating_add(i32::try_from(region.height)?),
+        },
+        settings.show_glow_box,
+    )?;
     let mut png = Vec::new();
     image::codecs::png::PngEncoder::new_with_quality(
         &mut png,
@@ -88,19 +91,19 @@ pub(super) fn translate_region(
         let ocr_sender = sender.clone();
         let ocr_cancel = Arc::clone(&work_cancel);
         scope.spawn(move || {
+            let send = |event| {
+                ocr_sender
+                    .send(Message::Ocr(event))
+                    .map_err(|_| anyhow::anyhow!("capture consumer closed"))
+            };
             let result =
-                super::detector::incremental::detect(&png, width, height, &ocr_cancel, |event| {
-                    ocr_sender
-                        .send(Message::Ocr(event))
-                        .map_err(|_| anyhow::anyhow!("capture consumer closed"))
-                });
+                super::detector::incremental::detect(&png, width, height, &ocr_cancel, send);
             let _ = ocr_sender.send(Message::OcrDone(result.map_err(|e| e.to_string())));
         });
         let requests = workers::start(scope, &sender, &work_cancel, &trace_id, &settings);
         drop(sender);
         let mut capture = Some(region);
         let mut untranslated = Vec::new();
-        let mut processing = super::processing::Progress::new(processing);
         let mut overlay = None;
         let mut candidates = Vec::new();
         let mut indices = HashMap::new();
@@ -162,7 +165,7 @@ pub(super) fn translate_region(
                                 Arc::from(candidates.clone()),
                                 &trace_id,
                                 Some(render_units),
-                                Some(processing.id()),
+                                processing.id(),
                             )?;
                             overlay = Some(renderer);
                         }
@@ -338,7 +341,7 @@ pub(super) fn translate_region(
     })
 }
 
-fn candidate(region: &Region, width: u32, height: u32) -> Result<DetectedTextRegion> {
+pub(super) fn candidate(region: &Region, width: u32, height: u32) -> Result<DetectedTextRegion> {
     let x = |value: f32| ((value / width as f32 * 1000.0).round() as u16).min(1000);
     let y = |value: f32| ((value / height as f32 * 1000.0).round() as u16).min(1000);
     let left = region.quad.iter().map(|p| x(p[0])).min().unwrap().min(999);

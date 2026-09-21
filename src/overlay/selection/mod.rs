@@ -1,6 +1,7 @@
 // --- SELECTION MODULE ---
 // Screen selection overlay with zoom, pan, and color picker support.
 
+mod draw_region;
 mod magnification;
 mod messages;
 mod region_editor;
@@ -29,6 +30,7 @@ pub struct CapturedRegion {
 }
 
 // Re-export public items
+pub(crate) use region_editor::{dragged as drag_region, handles as region_handles};
 pub use render::extract_crop_from_hbitmap_public;
 pub use state::is_selection_overlay_active;
 
@@ -37,6 +39,14 @@ pub(crate) fn edit_region(initial: RECT, bounds: RECT) -> anyhow::Result<Option<
     let shown = show_overlay(0);
     let result = region_editor::finish();
     anyhow::ensure!(shown, "could not open the region editor");
+    Ok(result)
+}
+
+pub(crate) fn draw_region() -> anyhow::Result<Option<RECT>> {
+    draw_region::begin();
+    let shown = show_overlay(0);
+    let result = draw_region::finish();
+    anyhow::ensure!(shown, "could not open the region selector");
     Ok(result)
 }
 
@@ -57,6 +67,7 @@ fn show_overlay(hotkey_id: i32) -> bool {
         SELECTION_OVERLAY_ACTIVE.store(true, Ordering::SeqCst);
         CURRENT_ALPHA = 1; // Start at 1 to make the layered window hit-testable immediately
         IS_FADING_OUT = false;
+        FADE_OUT_START_ALPHA = None;
         IS_DRAGGING = false;
         IS_SELECTION_COMMITTED = false;
         if let Some(rect) = region_editor::rectangle() {
@@ -103,7 +114,7 @@ fn show_overlay(hotkey_id: i32) -> bool {
         }
 
         SELECTION_ABORT_SIGNAL.store(false, Ordering::SeqCst);
-        if region_editor::active() {
+        if region_editor::active() || draw_region::active() {
             TRIGGER_VK_CODE = 0;
             IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
         }
@@ -139,6 +150,7 @@ fn show_overlay(hotkey_id: i32) -> bool {
             Some(instance.into()),
             None,
         )
+        .and_then(crate::overlay::shell_policy::prepare)
         .unwrap_or_default();
 
         if hwnd.is_invalid() {
@@ -157,7 +169,7 @@ fn show_overlay(hotkey_id: i32) -> bool {
         );
         if let Ok(h) = hook {
             SELECTION_HOOK = h;
-        } else if region_editor::active() {
+        } else if region_editor::active() || draw_region::active() {
             let _ = DestroyWindow(hwnd);
             SELECTION_OVERLAY_ACTIVE.store(false, Ordering::SeqCst);
             SELECTION_OVERLAY_HWND = SendHwnd::default();
@@ -185,7 +197,7 @@ fn show_overlay(hotkey_id: i32) -> bool {
         }
 
         let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
-        if !region_editor::active() {
+        if !region_editor::active() && !draw_region::active() {
             let _ = SetTimer(Some(hwnd), CONTINUOUS_CHECK_TIMER_ID, 50, None);
         }
 

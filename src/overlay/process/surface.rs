@@ -120,6 +120,7 @@ impl LayerSurface {
                 Some(instance),
                 None,
             )
+            .and_then(crate::overlay::shell_policy::prepare)
         }
         .ok()?;
         let screen_dc = unsafe { GetDC(None) };

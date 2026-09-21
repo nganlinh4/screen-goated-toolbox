@@ -52,6 +52,7 @@ pub struct GeminiGenerateRequest<'a> {
     pub request_timeout: Option<crate::api::client::RequestTimeouts>,
     pub response_schema: Option<&'a serde_json::Value>,
     pub media_resolution: Option<GeminiMediaResolution>,
+    pub enable_google_search: bool,
     pub retry_observer: Option<&'a mut dyn FnMut(Duration)>,
 }
 
@@ -110,6 +111,7 @@ where
         request_timeout,
         response_schema,
         media_resolution,
+        enable_google_search,
         mut retry_observer,
     } = request;
     let _deadline = crate::api::client::first_token::FirstTokenGuard::new(
@@ -119,7 +121,13 @@ where
     );
     let url = gemini_content_url(model, streaming);
 
-    let payload = gemini_payload(parts, model, response_schema, media_resolution);
+    let payload = gemini_payload(
+        parts,
+        model,
+        response_schema,
+        media_resolution,
+        enable_google_search,
+    );
 
     // Optional provider tools are deliberately absent. Supporting a tool is a
     // capability, not consent to invoke its separate quota/cost on every request.
@@ -218,6 +226,7 @@ fn gemini_payload(
     model: &str,
     response_schema: Option<&serde_json::Value>,
     media_resolution: Option<GeminiMediaResolution>,
+    enable_google_search: bool,
 ) -> serde_json::Value {
     let mut payload = serde_json::json!({
         "contents": [{
@@ -225,6 +234,9 @@ fn gemini_payload(
             "parts": parts
         }]
     });
+    if enable_google_search {
+        payload["tools"] = serde_json::json!([{"google_search": {}}]);
+    }
     let mut gen_config = serde_json::Map::new();
     if let Some(thinking_config) = crate::api::gemini_thinking_config(model) {
         gen_config.insert("thinkingConfig".to_string(), thinking_config);
@@ -407,8 +419,21 @@ mod tests {
             "gemini-future-model",
             None,
             None,
+            false,
         );
         assert!(payload.get("tools").is_none());
+    }
+
+    #[test]
+    fn explicit_search_generation_enables_only_google_search() {
+        let payload = gemini_payload(
+            serde_json::json!([{"text": "current information"}]),
+            "gemini-3.1-flash-lite",
+            None,
+            None,
+            true,
+        );
+        assert_eq!(payload["tools"], serde_json::json!([{"google_search": {}}]));
     }
 
     #[test]
@@ -418,6 +443,7 @@ mod tests {
             "gemini-3.5-flash-lite",
             None,
             Some(GeminiMediaResolution::Low),
+            false,
         );
         assert_eq!(
             payload["generationConfig"]["mediaResolution"],
@@ -437,12 +463,14 @@ mod tests {
             "gemma-4-31b-it",
             Some(&schema),
             None,
+            false,
         );
         let flash = gemini_payload(
             serde_json::json!([{"text": "extract"}]),
             "gemini-3.5-flash-lite",
             Some(&schema),
             None,
+            false,
         );
         assert_eq!(
             gemma["generationConfig"]["responseMimeType"],

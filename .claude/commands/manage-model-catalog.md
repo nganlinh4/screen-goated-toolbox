@@ -56,9 +56,9 @@ rg -n '<internal-id>|<api-model>|supports_thinking|supports_search|model_is_non_
    `supports_search`,
    `search_tool_enabled_by_default`, localized daily-request quota,
    intelligence tier, and ordinary reasoning policy are explicit profile data;
-   do not add model-name heuristics. Search capability alone never authorizes a
-   tool or marker: inspect the production payload and set default tool behavior
-   independently.
+   do not add model-name heuristics. Search capability controls the model-list
+   marker but never authorizes an ordinary request to invoke a tool: inspect
+   the production payload and set default tool behavior independently.
 6. Audit feature-specific request logic in `src/api/`, `src/overlay/`, and
    Android clients. Verify the production request against the exact generated
    vision profile; do not add a model-name heuristic. A catalog entry does not

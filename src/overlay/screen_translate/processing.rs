@@ -4,23 +4,29 @@ use crate::overlay::result::scene_compositor::ProcessingGlow;
 use std::collections::BTreeMap;
 
 pub(super) struct Progress {
-    glow: ProcessingGlow,
+    glow: Option<ProcessingGlow>,
     remaining: BTreeMap<u16, Vec<[i32; 4]>>,
 }
 
 impl Progress {
-    pub(super) fn id(&self) -> u64 {
-        self.glow.id()
+    pub(super) fn id(&self) -> Option<u64> {
+        self.glow.as_ref().map(ProcessingGlow::id)
     }
 
-    pub(super) fn new(glow: ProcessingGlow) -> Self {
-        Self {
-            glow,
+    pub(super) fn show(
+        rect: windows::Win32::Foundation::RECT,
+        enabled: bool,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            glow: enabled.then(|| ProcessingGlow::show(rect)).transpose()?,
             remaining: BTreeMap::new(),
-        }
+        })
     }
 
     pub(super) fn geometry(&mut self, sources: &[DetectedTextRegion], width: u32, height: u32) {
+        if self.glow.is_none() {
+            return;
+        }
         self.remaining = sources
             .iter()
             .zip(super::geometry::processing_cells(sources, width, height))
@@ -30,10 +36,16 @@ impl Progress {
     }
 
     pub(super) fn partition(&mut self, units: &[super::units::Unit]) {
+        if self.glow.is_none() {
+            return;
+        }
         self.remaining = partition(std::mem::take(&mut self.remaining), units);
     }
 
     pub(super) fn resolved(&mut self, ids: &[u16]) {
+        if self.glow.is_none() {
+            return;
+        }
         let mut changed = false;
         for id in ids {
             changed |= self.remaining.remove(id).is_some();
@@ -44,12 +56,15 @@ impl Progress {
     }
 
     fn publish(&self) {
-        self.glow
-            .set_cells(self.remaining.values().flatten().copied().collect());
+        if let Some(glow) = &self.glow {
+            glow.set_cells(self.remaining.values().flatten().copied().collect());
+        }
     }
 
     pub(super) fn finish(self) {
-        self.glow.close();
+        if let Some(glow) = self.glow {
+            glow.close();
+        }
     }
 }
 
@@ -74,6 +89,25 @@ fn partition(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabled_glow_has_no_native_effect_or_pending_geometry() {
+        let mut progress = Progress::show(Default::default(), false).unwrap();
+        assert!(progress.id().is_none());
+        progress.geometry(&[], 100, 100);
+        progress.partition(&[super::super::units::Unit {
+            id: 1,
+            members: vec![1],
+        }]);
+        progress.resolved(&[1]);
+        assert!(progress.remaining.is_empty());
+        progress.finish();
+    }
+
+    #[test]
+    fn enabled_glow_still_validates_its_native_rectangle() {
+        assert!(Progress::show(Default::default(), true).is_err());
+    }
 
     #[test]
     fn completing_a_unit_retires_all_its_sources_and_no_neighbor() {

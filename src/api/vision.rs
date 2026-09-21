@@ -324,6 +324,7 @@ where
                 request_timeout,
                 response_schema: response_schema.as_ref(),
                 media_resolution: request_policy::media_resolution(profile),
+                enable_google_search: false,
                 retry_observer: Some(&mut retry_observer),
             },
             on_chunk,

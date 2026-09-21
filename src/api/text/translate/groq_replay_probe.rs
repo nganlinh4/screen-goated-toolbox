@@ -106,6 +106,7 @@ fn replay_structured_translation_modes() -> Result<()> {
                     request_timeout: Some(crate::api::client::RequestTimeouts::uniform(
                         Duration::from_secs(30),
                     )),
+                    search_enabled: false,
                 };
                 let base =
                     standard_payload(model, &prompt, true, Some(&content["schema"]), transport);

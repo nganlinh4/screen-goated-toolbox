@@ -311,7 +311,9 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
         let blend = BLENDFUNCTION {
             BlendOp: AC_SRC_OVER as u8,
             BlendFlags: 0,
-            SourceConstantAlpha: 255,
+            // Border pixels and frozen captures are opaque regardless of dim alpha.
+            // Fade the whole surface on exit instead of leaving them until destruction.
+            SourceConstantAlpha: exit_surface_opacity(CURRENT_ALPHA, FADE_OUT_START_ALPHA),
             AlphaFormat: AC_SRC_ALPHA as u8,
         };
 
@@ -346,6 +348,14 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
 
 fn selection_outline_visible(is_dragging: bool, is_committed: bool) -> bool {
     is_dragging || is_committed
+}
+
+fn exit_surface_opacity(current_alpha: u8, start_alpha: Option<u8>) -> u8 {
+    let Some(start_alpha) = start_alpha else {
+        return 255;
+    };
+    let progress = (f32::from(current_alpha) / f32::from(start_alpha.max(1))).clamp(0.0, 1.0);
+    (255.0 * progress * progress * (3.0 - 2.0 * progress)).round() as u8
 }
 
 /// Draw anti-aliased rounded selection box using SDF
@@ -447,7 +457,24 @@ fn draw_rounded_selection_box(
 
 #[cfg(test)]
 mod tests {
-    use super::selection_outline_visible;
+    use super::{exit_surface_opacity, selection_outline_visible};
+
+    #[test]
+    fn exit_fades_opaque_border_and_frozen_surface_to_zero() {
+        assert_eq!(exit_surface_opacity(1, None), 255);
+        for start in [1, 40, 80, 120] {
+            assert_eq!(exit_surface_opacity(start, Some(start)), 255);
+            assert_eq!(exit_surface_opacity(0, Some(start)), 0);
+            let mut previous = 255;
+            for current in (0..=start).rev() {
+                let opacity = exit_surface_opacity(current, Some(start));
+                assert!(opacity <= previous);
+                previous = opacity;
+            }
+        }
+        assert_eq!(exit_surface_opacity(60, Some(120)), 128);
+        assert!(exit_surface_opacity(12, Some(120)) < 10);
+    }
 
     #[test]
     fn committed_selection_keeps_its_outline_after_mouse_release() {

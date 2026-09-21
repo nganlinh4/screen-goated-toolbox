@@ -163,6 +163,14 @@ mod tests {
     fn visual_host_starts_empty_and_returns_to_empty_after_content() {
         let hwnd = super::super::child::create_host_window().unwrap();
         unsafe {
+            assert_eq!(
+                windows::Win32::UI::WindowsAndMessaging::GetPropW(
+                    hwnd,
+                    windows::core::w!("NonRudeHWND")
+                )
+                .0 as usize,
+                1
+            );
             assert!(!IsWindowVisible(hwnd).as_bool());
             let mut bounds = windows::Win32::Foundation::RECT::default();
             windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut bounds).unwrap();

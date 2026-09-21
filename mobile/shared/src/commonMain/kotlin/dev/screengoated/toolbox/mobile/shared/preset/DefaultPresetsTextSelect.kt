@@ -197,7 +197,7 @@ internal val defaultTextSelectPresets: List<Preset> = listOf(
                 PRESET_SEARCH_MODEL_ID,
                 "",
                 "language1" to "Vietnamese",
-            ),
+            ).copy(searchEnabled = true),
         ),
     ),
 
@@ -242,7 +242,7 @@ internal val defaultTextSelectPresets: List<Preset> = listOf(
                 PRESET_SEARCH_MODEL_ID,
                 "Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                 "language1" to "Vietnamese",
-            ),
+            ).copy(searchEnabled = true),
             // Node 3: Translate (from 0)
             textBlock(
                 DEFAULT_TEXT_MODEL_ID,

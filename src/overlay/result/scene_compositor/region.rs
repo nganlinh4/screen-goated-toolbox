@@ -49,7 +49,7 @@ pub(super) fn update(hwnd: HWND, _redraw: bool) {
         width,
         height,
     );
-    if applied.is_hidden && !super::processing::is_visible() {
+    if applied.blocks_visuals(&cards) && !super::processing::is_visible() {
         super::visual_region::hide(hwnd);
     } else if !super::visual_region::stack_below_input(hwnd, target_hwnd) {
         super::visual_region::hide(hwnd);

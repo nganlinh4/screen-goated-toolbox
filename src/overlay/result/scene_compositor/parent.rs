@@ -482,7 +482,14 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
             crate::log_info!(
                 "[ResultCompositor] command_failed command={command} id={id:?} error={error}"
             );
-            super::delivery::queue_snapshot();
+            if matches!(
+                command.as_str(),
+                "scene_batch" | "scene_serialization" | "execute_script"
+            ) {
+                super::supervisor::fail_live_renderer("scene application failed", true);
+            } else {
+                super::delivery::queue_snapshot();
+            }
         }
         ChildEvent::Navigation {
             id,
@@ -519,6 +526,8 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
                 } else {
                     settle_drag_geometry(&targets, Some(gesture_id));
                 }
+            } else if outcome == super::protocol::DragOutcome::Cancelled {
+                settle_drag_geometry(&targets, Some(gesture_id));
             } else {
                 send_command(HostCommand::DragSettled {
                     gesture_id: Some(gesture_id),

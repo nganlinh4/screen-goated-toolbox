@@ -329,8 +329,8 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                     tips = listOf(
                         MobileUsageTipText(
                             id = MobileUsageTipId.SEARCH_MARKER_DEFAULT,
-                            text = "**Kính lúp** cạnh một model nghĩa là công cụ tìm kiếm web " +
-                                "của model đó được bật mặc định.",
+                            text = "**Kính lúp** cạnh một model nghĩa là model hỗ trợ tìm kiếm " +
+                                "web trong preset đã bật tìm kiếm. Yêu cầu thông thường không tự bật tìm kiếm.",
                         ),
                         MobileUsageTipText(
                             id = MobileUsageTipId.FALLBACK_COOLDOWN_SEARCH,

@@ -28,6 +28,7 @@ fn provider_allowance_recovery_live() -> Result<()> {
                     response_schema: structured
                         .then_some(TranslationSchema::LocallyValidated(&schema)),
                     max_output_tokens: Some(2048),
+                    search_enabled: false,
                     search_label: None,
                     ui_language: "en",
                     cancel_token: None,

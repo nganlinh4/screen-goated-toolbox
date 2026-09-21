@@ -2,6 +2,11 @@ use crate::gui::locale::ScreenTranslateLocaleText;
 
 pub(super) fn get() -> ScreenTranslateLocaleText {
     ScreenTranslateLocaleText {
+        screen_translate_subtitle_mode: "Chế độ dịch sub phim/game",
+        screen_translate_subtitle_description: "Tự động dịch chữ xuất hiện trong vùng này.",
+        screen_translate_subtitle_toggle_hint: "{hotkey} để hiện/ẩn hộp",
+        screen_translate_subtitle_quit: "Thoát",
+        screen_translate_show_glow_box: "Hiện hoạt ảnh glow box",
         screen_translate_btn: "Dịch màn hình",
         screen_translate_short_btn: "Dịch MH",
         screen_translate_title: "Dịch màn hình",
@@ -11,7 +16,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_recognition_hint: "Đọc chữ đa ngôn ngữ và dựa vào bố cục để nhóm các dòng liên quan trước khi dịch.",
         screen_translate_setup_hint: "Thành phần nhận diện được tải xuống khi cần và nạp khi dùng tính năng này. Tiến độ được hiển thị trên màn hình.",
         screen_translate_restore_label: "Đặt lại cài đặt",
-        screen_translate_restore_hint: "Đặt lại ngôn ngữ, mô hình, hướng dẫn dịch, độ mờ và vùng chụp. Giữ nguyên cả hai nhóm phím tắt.",
+        screen_translate_restore_hint: "Đặt lại ngôn ngữ, mô hình, hướng dẫn dịch, độ mờ và vùng chụp. Giữ nguyên các nhóm phím tắt.",
         screen_translate_model_label: "Mô hình dịch",
         screen_translate_model_fallback_hint: "Nếu mô hình đã chọn không khả dụng hoặc gặp lỗi, SGT dùng danh sách ưu tiên Văn bản → Văn bản của bạn.",
         screen_translate_prompt_label: "Điều chỉnh prompt dịch nếu muốn",

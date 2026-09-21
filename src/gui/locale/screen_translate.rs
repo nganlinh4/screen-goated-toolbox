@@ -1,4 +1,9 @@
 pub struct ScreenTranslateLocaleText {
+    pub screen_translate_subtitle_mode: &'static str,
+    pub screen_translate_subtitle_description: &'static str,
+    pub screen_translate_subtitle_toggle_hint: &'static str,
+    pub screen_translate_subtitle_quit: &'static str,
+    pub screen_translate_show_glow_box: &'static str,
     pub screen_translate_btn: &'static str,
     pub screen_translate_short_btn: &'static str,
     pub screen_translate_title: &'static str,

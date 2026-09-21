@@ -133,11 +133,13 @@
   happens before streaming paint and in the returned final result on both
   platforms; leading spaces, tabs, and later line breaks remain untouched.
   Transport replacement signals restart the same initial-output normalization.
-- Search capability preserves explicit-search retry compatibility. It does not
-  draw a model-list marker: the marker comes only from the separate
-  catalog-owned `search_tool_enabled_by_default` behavior flag. Ordinary
+- Search capability preserves explicit-search retry compatibility and draws
+  the model-list marker. The separate catalog-owned
+  `search_tool_enabled_by_default` flag controls normal request behavior. Ordinary
   text/audio generation never invokes provider search tools implicitly;
   quota-bearing grounding is enabled only by an explicit search feature path.
+  Groq GPT-OSS search uses `browser_search` with a required tool choice and
+  rejects structured output before dispatch on both platforms.
 - Gemini Live setup uses the catalog-owned output ceiling for each endpoint: 8,192 for Live 2.5 and 65,536 for Live 3.1, on both Windows and Android.
 - `Viết liên tục` uses the older Live 2.5 input-transcription row
   (`google-gemini-2-5-live-transcribe-audio`), rendered as `GG Live cũ (Chép)`

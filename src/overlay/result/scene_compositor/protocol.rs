@@ -212,6 +212,9 @@ pub enum HostCommand {
     ExternalDrag {
         active: bool,
     },
+    CaptureExclusion {
+        enabled: bool,
+    },
     Theme {
         theme: SceneTheme,
     },

@@ -163,6 +163,7 @@ impl Config {
             .hotkeys
             .iter()
             .chain(&self.screen_translate.fullscreen_hotkeys)
+            .chain(&self.screen_translate.subtitle_hotkeys)
         {
             if h.code == vk && h.modifiers == mods {
                 return Some(HotkeyConflict::Global {

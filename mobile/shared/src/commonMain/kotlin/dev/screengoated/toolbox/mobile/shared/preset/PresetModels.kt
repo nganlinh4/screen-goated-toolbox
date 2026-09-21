@@ -33,6 +33,7 @@ data class ProcessingBlock(
     val prompt: String = "",
     val languageVars: Map<String, String> = emptyMap(),
     val streamingEnabled: Boolean = true,
+    val searchEnabled: Boolean = false,
     val renderMode: String = "markdown_stream",
     val showOverlay: Boolean = true,
     val autoCopy: Boolean = false,

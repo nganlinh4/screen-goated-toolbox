@@ -92,7 +92,8 @@ fn create_window() -> anyhow::Result<HWND> {
             None,
             Some(instance.into()),
             None,
-        )?;
+        )
+        .and_then(crate::overlay::shell_policy::prepare)?;
         SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA)?;
         super::region::initialize(hwnd);
         Ok(hwnd)
@@ -125,7 +126,20 @@ fn create_input_window() -> anyhow::Result<HWND> {
             None,
             Some(instance.into()),
             None,
-        )?)
+        )
+        .and_then(crate::overlay::shell_policy::prepare)?)
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn status_visual_and_input_hosts_are_nonfullscreen_before_show() {
+    for hwnd in [create_window().unwrap(), create_input_window().unwrap()] {
+        unsafe {
+            assert!(!IsWindowVisible(hwnd).as_bool());
+            assert_eq!(GetPropW(hwnd, w!("NonRudeHWND")).0 as usize, 1);
+            DestroyWindow(hwnd).unwrap();
+        }
     }
 }
 

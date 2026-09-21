@@ -2,6 +2,11 @@ use crate::gui::locale::ScreenTranslateLocaleText;
 
 pub(super) fn get() -> ScreenTranslateLocaleText {
     ScreenTranslateLocaleText {
+        screen_translate_subtitle_mode: "Movie/game subtitle translation",
+        screen_translate_subtitle_description: "Automatically translate text appearing in this region.",
+        screen_translate_subtitle_toggle_hint: "{hotkey} to show/hide the box",
+        screen_translate_subtitle_quit: "Quit",
+        screen_translate_show_glow_box: "Show glow box animation",
         screen_translate_btn: "Screen Translate",
         screen_translate_short_btn: "Screen Translate",
         screen_translate_title: "Screen Translate",
@@ -11,7 +16,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_recognition_hint: "Reads multilingual text and uses layout to group related lines before translation.",
         screen_translate_setup_hint: "Recognition components download when needed and load when you use this feature. Progress is shown on screen.",
         screen_translate_restore_label: "Reset settings",
-        screen_translate_restore_hint: "Reset language, model, instructions, opacity and capture region. Keep both shortcut lists.",
+        screen_translate_restore_hint: "Reset language, model, instructions, opacity and capture region. Keep all shortcut lists.",
         screen_translate_model_label: "Translation model",
         screen_translate_model_fallback_hint: "If the selected model is unavailable or fails, SGT uses your Text → Text priority list.",
         screen_translate_prompt_label: "Adjust the translation prompt if you wish",

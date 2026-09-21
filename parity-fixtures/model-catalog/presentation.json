@@ -208,12 +208,32 @@
     "general_collapsed_selectors": false
   },
   "search_marker": {
-    "source_field": "search_tool_enabled_by_default",
+    "source_field": "supports_search",
     "requires_provider_capability": true,
-    "capability_alone_never_draws_marker": true,
     "built_in_model_ids": [
-      "groq-compound-mini-search",
-      "groq-compound-search"
+      "google-gemini-3-1-flash-lite-vision",
+      "google-gemini-3-5-flash-lite-vision",
+      "google-gemini-robotics-er-2-vision",
+      "google-gemini-3-flash-vision",
+      "google-gemini-3-5-flash-vision",
+      "google-gemini-3-6-flash-vision",
+      "google-gemini-3-1-flash-lite-text",
+      "google-gemini-3-5-flash-lite-text",
+      "google-gemini-3-flash-text",
+      "google-gemini-3-5-flash-text",
+      "google-gemini-3-6-flash-text",
+      "google-gemini-robotics-er-2-text",
+      "google-gemini-3-1-flash-lite-audio",
+      "google-gemini-3-5-flash-lite-audio",
+      "google-gemini-3-flash-audio",
+      "google-gemini-3-5-flash-audio",
+      "google-gemini-3-6-flash-audio",
+      "google-gemini-3-7-flash-text",
+      "google-gemini-3-7-flash-vision",
+      "google-gemini-3-8-flash-text",
+      "google-gemini-3-8-flash-vision",
+      "groq-gpt-oss-120b-text",
+      "groq-gpt-oss-20b-text"
     ]
   },
   "row_order": [

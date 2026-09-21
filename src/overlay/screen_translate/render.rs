@@ -36,6 +36,15 @@ struct TranslationControls {
 enum RenderCommand {
     Region(TranslationRegion),
     Complete(TranslationDocument),
+    Move(i32, i32),
+}
+
+#[derive(Clone)]
+pub(super) struct OverlayMotion(Sender<RenderCommand>);
+impl OverlayMotion {
+    pub(super) fn shift(&self, dx: i32, dy: i32) {
+        let _ = self.0.send(RenderCommand::Move(dx, dy));
+    }
 }
 
 pub(super) struct TranslationOverlay {
@@ -44,6 +53,9 @@ pub(super) struct TranslationOverlay {
 }
 
 impl TranslationOverlay {
+    pub(super) fn motion(&self) -> OverlayMotion {
+        OverlayMotion(self.sender.clone())
+    }
     pub(super) fn send(&mut self, region: TranslationRegion) {
         let _ = self.sender.send(RenderCommand::Region(region));
     }
@@ -143,7 +155,13 @@ fn run_overlay_thread(
             .unwrap_or(100),
     };
     let chain_id = format!("screen-translate-{job_id}");
-    let controller = create_controller_window(origin, &controls, &chain_id, &trace_id);
+    let controller = create_controller_window(
+        origin,
+        &controls,
+        &chain_id,
+        &trace_id,
+        !super::runtime::is_subtitle(job_id),
+    );
     if let Some(id) = processing_id {
         crate::overlay::result::scene_compositor::ProcessingGlow::bind_controls(
             id,
@@ -196,7 +214,7 @@ fn run_overlay_thread(
         if !crate::overlay::result::scene_compositor::source_group_is_alive(group) {
             crate::overlay::result::scene_compositor::remove_source_group(group);
             if had_visible {
-                super::runtime::cancel_active();
+                super::runtime::cancel_job(job_id);
             }
             break;
         }
@@ -205,6 +223,9 @@ fn run_overlay_thread(
             break;
         }
         match receiver.recv_timeout(Duration::from_millis(8)) {
+            Ok(RenderCommand::Move(dx, dy)) => {
+                crate::overlay::result::scene_compositor::move_source_group(group, dx, dy);
+            }
             Ok(RenderCommand::Region(region)) => {
                 record_translations(region, &mut translations);
                 if refresh_blocks(&mut blocks, &translations, &scene, &trace_id, true) {
@@ -229,13 +250,29 @@ fn run_overlay_thread(
                 // an aborted translation.
                 if rendered == 0 {
                     close_source_overlay(group, controller);
+                    super::runtime::cancel_job(job_id);
                     return;
                 }
                 while crate::overlay::result::scene_compositor::source_group_is_alive(group) {
                     pump_messages();
-                    std::thread::sleep(Duration::from_millis(8));
+                    if !super::runtime::is_current(job_id) {
+                        close_source_overlay(group, controller);
+                        return;
+                    }
+                    match receiver.recv_timeout(Duration::from_millis(8)) {
+                        Ok(RenderCommand::Move(dx, dy)) => {
+                            crate::overlay::result::scene_compositor::move_source_group(
+                                group, dx, dy,
+                            );
+                        }
+                        Err(RecvTimeoutError::Disconnected) => {
+                            std::thread::sleep(Duration::from_millis(8));
+                        }
+                        _ => {}
+                    }
                 }
                 crate::overlay::result::scene_compositor::remove_source_group(group);
+                super::runtime::cancel_job(job_id);
                 return;
             }
             Err(RecvTimeoutError::Disconnected) => {
@@ -358,6 +395,7 @@ fn create_controller_window(
     controls: &TranslationControls,
     chain_id: &str,
     trace_id: &str,
+    show_controls: bool,
 ) -> HWND {
     let hwnd = crate::overlay::result::create_deferred_result_window_shell(
         ResultWindowParams {
@@ -388,7 +426,7 @@ fn create_controller_window(
             backdrop_data_url: String::new(),
             foreground_color: controls.color.clone(),
             chain_id: chain_id.to_string(),
-            control_options: Some(ResultControlOptions {
+            control_options: show_controls.then_some(ResultControlOptions {
                 anchor_rect: Some(controls.anchor),
                 control_color: Some(controls.color.clone()),
                 scale_percent: CONTROL_SCALE_PERCENT,

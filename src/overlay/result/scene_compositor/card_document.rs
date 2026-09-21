@@ -15,6 +15,7 @@ fn build_compositor_document() -> String {
     let scene_runtime = [
         include_str!("scene_runtime.js"),
         include_str!("scene_command_helpers.js"),
+        include_str!("scene_batch_runtime.js"),
     ]
     .concat();
     let card_css = format!(
@@ -178,7 +179,7 @@ mod tests {
         assert!(document.contains("Unified result controls did not initialize"));
         assert!(document.contains("hideControlsForDrag"));
         assert!(document.contains("releaseDragPreview"));
-        assert!(document.contains("hasReleasedDragPreview"));
+        assert!(document.contains("isGeometryPreviewActive"));
         assert!(document.contains("awaitingDragSettle = id"));
         assert!(document.contains("gesture_id: drag.gestureId"));
         assert!(document.contains("style.visibility = 'hidden'"));

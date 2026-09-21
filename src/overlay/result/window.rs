@@ -143,6 +143,7 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
             Some(instance.into()),
             None,
         )
+        .and_then(crate::overlay::shell_policy::prepare)
         .unwrap_or_default();
 
         {

@@ -12,7 +12,6 @@ pub(super) fn reasoning_policy_label(model: &ModelConfig) -> String {
             format!("gemini-level:{}", level.to_ascii_lowercase())
         }
         OrdinaryReasoningPolicy::OpenAiEffort(effort) => format!("openai-effort:{effort}"),
-        OrdinaryReasoningPolicy::ProviderManaged => "provider-managed".to_string(),
         OrdinaryReasoningPolicy::LiveProfile => "live-profile".to_string(),
     }
 }

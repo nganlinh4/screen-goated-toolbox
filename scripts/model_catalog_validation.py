@@ -339,7 +339,6 @@ def _validate_reasoning_policy(model_id: str, provider: str, profile: dict) -> N
         "gemini-low",
         "openai-none",
         "openai-low",
-        "provider-managed",
         "live-profile",
     }
     if policy not in allowed:
@@ -355,7 +354,6 @@ def _validate_reasoning_policy(model_id: str, provider: str, profile: dict) -> N
             "not-applicable",
             "openai-none",
             "openai-low",
-            "provider-managed",
         }
     else:
         compatible = policy == "not-applicable"

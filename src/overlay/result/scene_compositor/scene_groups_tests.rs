@@ -13,6 +13,7 @@ fn logical_translation_cells_never_own_result_controls() {
     let card = source_card(
         -42,
         &SourceCardState {
+            input_passthrough: false,
             spec: SourceCardSpec {
                 image_rect: Default::default(),
                 target_rect: RECT {
@@ -45,6 +46,7 @@ fn moving_geometry_leaves_the_control_cache_for_control_sync() {
     let mut card = source_card(
         -43,
         &SourceCardState {
+            input_passthrough: false,
             spec: SourceCardSpec {
                 image_rect: Default::default(),
                 target_rect: RECT {
@@ -98,6 +100,7 @@ fn image_snapshot_keeps_capture_alignment_and_excludes_unrevealed_cells() {
         height: 80,
     };
     let cell = |visible| SourceCardState {
+        input_passthrough: false,
         spec: SourceCardSpec {
             image_rect: original.clone(),
             target_rect: RECT {

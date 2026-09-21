@@ -154,6 +154,7 @@ fn run_google(
             request_timeout: timeout.map(crate::api::client::RequestTimeouts::uniform),
             response_schema: None,
             media_resolution: variant.resolution,
+            enable_google_search: false,
             retry_observer: None,
         },
         &mut |_| {},

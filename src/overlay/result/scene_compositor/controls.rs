@@ -174,6 +174,9 @@ fn from_state(
 ) -> SceneControls {
     let source_group_ids = super::scene_groups::group_ids(id);
     SceneControls {
+        input_passthrough: state.presentation
+            == crate::overlay::result::ResultPresentation::TextOnly
+            && state.control_options.is_none(),
         copy_image: super::scene_groups::has_source_image(id),
         hidden: state.presentation == crate::overlay::result::ResultPresentation::TextOnly
             && state.control_options.is_none(),
@@ -379,6 +382,7 @@ mod tests {
 
         let root_controls = from_state(1, states.get(&1).unwrap(), &states);
         assert!(!root_controls.hidden);
+        assert!(!root_controls.input_passthrough);
         assert_eq!(root_controls.control_anchor, Some([10, 20, 300, 180]));
         assert_eq!(root_controls.control_scale_percent, 125);
         assert!(root_controls.group_actions);
@@ -387,5 +391,6 @@ mod tests {
 
         let child_controls = from_state(2, states.get(&2).unwrap(), &states);
         assert!(child_controls.hidden);
+        assert!(child_controls.input_passthrough);
     }
 }

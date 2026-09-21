@@ -56,6 +56,7 @@ pub(super) fn queue_snapshot() {
         .commands
         .replace_with_snapshot(super::parent::scene_snapshot());
     pending.commands.push(super::processing::snapshot());
+    pending.commands.push(super::capture_exclusion::snapshot());
     pending.commands.push(HostCommand::Theme {
         theme: super::parent::current_theme(),
     });
@@ -132,6 +133,7 @@ fn take_pending() -> DeliveryBatch {
             .commands
             .replace_with_snapshot(super::parent::scene_snapshot());
         pending.commands.push(super::processing::snapshot());
+        pending.commands.push(super::capture_exclusion::snapshot());
         pending.commands.push(HostCommand::Theme {
             theme: super::parent::current_theme(),
         });

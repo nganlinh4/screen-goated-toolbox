@@ -461,6 +461,7 @@ internal class PresetGraphExecutor(
                     searchLabel = preset.name(uiLanguage()),
                     streamingEnabled = requireNotNull(PresetModelCatalog.getById(modelId))
                         .transportStreamingEnabled(),
+                    searchEnabled = block.searchEnabled,
                     targetLanguage = block.gtxTargetLanguage(),
                     onChunk = onChunk,
                 )

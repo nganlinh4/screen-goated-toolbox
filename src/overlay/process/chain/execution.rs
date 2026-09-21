@@ -208,6 +208,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 model_full_name: &current_model_full_name,
                 provider: &current_provider,
                 streaming_enabled: transport_streaming_enabled,
+                search_enabled: block.search_enabled,
                 request_timeout,
                 preset_id,
                 config,
@@ -371,6 +372,7 @@ struct ExecuteTextBlockRequest<'a> {
     model_full_name: &'a str,
     provider: &'a str,
     streaming_enabled: bool,
+    search_enabled: bool,
     request_timeout: Option<crate::api::client::RequestTimeouts>,
     preset_id: &'a str,
     config: &'a Config,
@@ -389,6 +391,7 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
         model_full_name,
         provider,
         streaming_enabled,
+        search_enabled,
         request_timeout,
         preset_id,
         config,
@@ -406,6 +409,7 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
     translate_text_streaming(
         TranslateTextRequest {
             max_output_tokens: None,
+            search_enabled,
             groq_api_key: groq_key,
             gemini_api_key: gemini_key,
             text: input_text.to_string(),

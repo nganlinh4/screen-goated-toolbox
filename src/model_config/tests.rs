@@ -51,10 +51,10 @@ fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.8-27b");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(856));
+    assert_eq!(model.typical_latency_ms, Some(1160));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-09-16-protocol15:ocr-small-1024")
+        Some("benchmark-2026-09-21-protocol16:ocr-small-1024")
     );
 }
 
@@ -125,10 +125,10 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.8-27b");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(322));
+    assert_eq!(model.typical_latency_ms, Some(273));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-09-16-protocol15:text")
+        Some("benchmark-2026-09-21-protocol16:text")
     );
     for (index, expected) in [
         (1, "groq-gpt-oss-20b-text"),
@@ -150,9 +150,9 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
     );
     let gemini_38 =
         get_model_by_id("google-gemini-3-8-flash-text").expect("Gemini 3.8 text fallback exists");
-    assert_eq!(gemini_38.typical_latency_ms, Some(8545));
+    assert_eq!(gemini_38.typical_latency_ms, Some(3343));
     assert_eq!(
-        default_text_to_text_priority_chain_ids().get(10).copied(),
+        default_text_to_text_priority_chain_ids().get(8).copied(),
         Some("google-gemini-3-8-flash-text")
     );
     let openrouter = get_model_by_id("openrouter-nemotron-3-super-120b-text")
@@ -295,10 +295,10 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         StructuredOutputPolicy::StrictJsonSchema
     );
     let qwen_model = get_model_by_id("groq-qwen-3-8-27b-vision").expect("Qwen vision model exists");
-    assert_eq!(qwen_model.typical_latency_ms, Some(856));
+    assert_eq!(qwen_model.typical_latency_ms, Some(1160));
     assert_eq!(
         qwen_model.performance_source.as_deref(),
-        Some("benchmark-2026-09-16-protocol15:ocr-small-1024")
+        Some("benchmark-2026-09-21-protocol16:ocr-small-1024")
     );
     let qwen_38 = vision_request_profile("groq", "qwen/qwen3.8-27b");
     assert_eq!(
@@ -320,8 +320,8 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         &[
             "groq-qwen-3-8-27b-vision",
             "google-gemini-3-5-flash-lite-vision",
-            "google-gemini-3-1-flash-lite-vision",
             "google-gemini-3-flash-vision",
+            "google-gemini-3-1-flash-lite-vision",
         ]
     );
 
@@ -346,14 +346,17 @@ fn search_capability_uses_exact_catalog_profiles() {
         "google-gemini-3-6-flash-text",
         "google-gemini-3-5-flash-vision",
         "google-gemini-3-8-flash-text",
-        "groq-compound-mini-search",
+        "google-gemini-robotics-er-2-text",
+        "groq-gpt-oss-120b-text",
+        "groq-gpt-oss-20b-text",
     ] {
         assert!(model_supports_search_by_id_with_custom(id, &[]), "{id}");
     }
     for id in [
         "google-gemma-4-31b-text",
         "google-gemini-3-1-live-text",
-        "groq-gpt-oss-120b-text",
+        "groq-compound-mini-search",
+        "groq-compound-search",
         "unknown-compound-text",
     ] {
         assert!(!model_supports_search_by_id_with_custom(id, &[]), "{id}");
@@ -361,7 +364,7 @@ fn search_capability_uses_exact_catalog_profiles() {
 }
 
 #[test]
-fn search_marker_requires_default_tool_execution_not_capability_alone() {
+fn search_marker_follows_search_capability_without_enabling_default_tools() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/parity-fixtures/model-catalog/presentation.json"
@@ -377,7 +380,7 @@ fn search_marker_requires_default_tool_execution_not_capability_alone() {
 
     let mut actual = get_all_models()
         .iter()
-        .filter(|model| model.search_tool_enabled_by_default)
+        .filter(|model| crate::gui::settings_ui::model_selector::model_shows_search_marker(model))
         .map(|model| model.id.clone())
         .collect::<Vec<_>>();
     actual.sort();
@@ -387,10 +390,14 @@ fn search_marker_requires_default_tool_execution_not_capability_alone() {
         "google-gemini-3-1-flash-lite-text",
         "google-gemini-3-5-flash-lite-vision",
         "google-gemini-3-6-flash-text",
+        "google-gemini-robotics-er-2-text",
+        "groq-gpt-oss-20b-text",
     ] {
         assert!(model_supports_search_by_id_with_custom(id, &[]), "{id}");
         assert!(
-            !model_search_tool_enabled_by_default_by_id_with_custom(id, &[]),
+            !get_model_by_id_with_custom(id, &[])
+                .unwrap()
+                .search_tool_enabled_by_default,
             "{id}"
         );
     }

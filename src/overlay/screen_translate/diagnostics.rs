@@ -213,6 +213,28 @@ mod debug {
             }
         }
 
+        pub(crate) fn finish_translation(
+            mut self,
+            document: TranslationDocument,
+            warning: Option<String>,
+        ) {
+            if let Some(state) = self.state.take() {
+                finalize(
+                    state,
+                    if warning.is_some() {
+                        "partial"
+                    } else {
+                        "complete"
+                    },
+                    None,
+                    warning,
+                    Some(document),
+                    0,
+                    false,
+                );
+            }
+        }
+
         pub(crate) fn fail(mut self, stage: &str, error: &anyhow::Error) {
             if let Some(state) = self.state.take() {
                 let status = if error.to_string().contains("cancelled") {

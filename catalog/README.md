@@ -170,7 +170,7 @@ platforms and must not be reimplemented with model-name heuristics.
 - OpenRouter encodes that policy as nested
   `reasoning: { effort: "<level>" }`; Groq uses `reasoning_effort`.
 - Gemini Live uses its exact endpoint profile.
-- Provider-managed compound/search behavior is explicit.
+- Provider-managed search behavior is explicit for every supported endpoint.
 - Help Assistant and Computer/Phone Control are correctness-sensitive
   exceptions and use bounded `LOW` thinking. Thought output is exposed only to
   the control runtime, never to ordinary model calls.
@@ -246,25 +246,35 @@ profile changes.
 
 ## Search Capability
 
-`supports_search` means the exact provider-qualified endpoint can accept its
-provider's search tool. It preserves capability when an explicitly
-search-enabled retry chain falls back. It does not authorize ordinary
-translation, refinement, OCR, or transcription requests to invoke search, and
-it must never directly control a search marker.
+`supports_search` means the exact provider-qualified endpoint can use search
+through SGT's preset request path. It preserves capability when an explicitly
+search-enabled retry chain falls back, and it controls the search-capability
+marker in model lists. The marker does not mean that ordinary requests invoke
+search. Gemini Live endpoints may support search at the provider but remain
+unmarked until SGT's Live adapter carries the opt-in search request.
 
-`search_tool_enabled_by_default` is the separate behavioral fact used by the
-model-list marker. It is true only when selecting that endpoint in the normal
+`search_tool_enabled_by_default` is the separate behavioral fact for normal
+request routing. It is true only when selecting that endpoint in the normal
 model path actually enables or invokes provider search. General Google models
-therefore keep `supports_search: true` but set this field to false: their
+keep `supports_search: true` but set this field to false: their
 quota-bearing grounding tool is reserved for a dedicated explicit feature
-path. Groq Compound sets both fields to true because its normal production
-request enables provider-managed web tools.
+path. Retired search-specialized endpoints are removed from the model rows and
+recorded in `withdrawn_models` so saved IDs cannot expose them again.
 
 Verify each true value against the provider's current model-capability page.
 Ordinary requests omit search tools so grounding billing/quota cannot turn a
 normal model call into a quota error. Search-specialized models and explicitly
 requested Computer/Phone Control turns may attach the tool through their
 dedicated path.
+
+Groq GPT-OSS 20B and 120B also support explicit browser search. That request
+uses the provider's lowest compatible reasoning level; ordinary calls retain
+their catalog reasoning policy. Browser search cannot combine with structured
+output on Groq.
+
+Preset processing blocks opt in with `search_enabled`. The flag follows retry
+dispatch, and an enabled block fails before the provider call if the selected
+endpoint lacks search capability.
 
 When adding or changing an endpoint, inspect the actual production payload and
 decide both fields independently. The validator rejects a default-enabled

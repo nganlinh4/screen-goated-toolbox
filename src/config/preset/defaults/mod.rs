@@ -103,6 +103,7 @@ pub fn get_default_presets() -> Vec<Preset> {
 #[cfg(test)]
 mod tests {
     use super::get_default_presets;
+    use crate::model_config::PRESET_SEARCH_MODEL_ID;
 
     #[test]
     fn continuous_device_transcription_matches_shared_contract() {
@@ -136,5 +137,22 @@ mod tests {
         assert!(prompt.contains("after the player clicks or taps the game"));
         assert!(!prompt.contains("ONLY MOUSE CONTROLS"));
         assert!(!prompt.contains("no keyboard required"));
+    }
+
+    #[test]
+    fn built_in_search_blocks_authorize_search_explicitly() {
+        let blocks = get_default_presets()
+            .into_iter()
+            .flat_map(|preset| preset.blocks)
+            .collect::<Vec<_>>();
+        assert!(blocks.iter().any(|block| block.search_enabled));
+        for block in blocks {
+            assert_eq!(
+                block.search_enabled,
+                block.model == PRESET_SEARCH_MODEL_ID,
+                "{}",
+                block.id
+            );
+        }
     }
 }

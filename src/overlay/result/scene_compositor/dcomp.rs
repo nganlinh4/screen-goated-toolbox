@@ -92,11 +92,19 @@ impl DcompHost {
 
     pub(super) fn evaluate_script(&self, script: &str) {
         let script = windows::core::HSTRING::from(script);
-        let handler = ExecuteScriptCompletedHandler::create(Box::new(|_code, _result| Ok(())));
+        let handler = ExecuteScriptCompletedHandler::create(Box::new(|code, _result| {
+            if let Err(error) = code {
+                report_script_failure(error);
+            }
+            Ok(())
+        }));
         unsafe {
-            let _ = self
+            if let Err(error) = self
                 .webview
-                .ExecuteScript(PCWSTR(script.as_ptr()), &handler);
+                .ExecuteScript(PCWSTR(script.as_ptr()), &handler)
+            {
+                report_script_failure(error);
+            }
         }
     }
 
@@ -221,6 +229,14 @@ pub(super) fn build_host(
         controller.SetIsVisible(false)?;
 
         let webview = controller.CoreWebView2()?;
+        // Shared overlay geometry is authored in physical pixels. Browser zoom
+        // must not independently scale the scene underneath its native regions.
+        controller.SetZoomFactor(1.0)?;
+        let settings = webview.Settings()?;
+        settings.SetIsZoomControlEnabled(false)?;
+        let settings5: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings5 =
+            settings.cast()?;
+        settings5.SetIsPinchZoomEnabled(false)?;
         inject_bootstrap(&webview)?;
         attach_ipc(&webview)?;
         attach_process_failure(&webview)?;
@@ -382,4 +398,12 @@ fn webview_error(error: webview2_com::Error) -> windows::core::Error {
 
 fn pointer_error() -> windows::core::Error {
     windows::core::Error::from(windows::Win32::Foundation::E_POINTER)
+}
+
+fn report_script_failure(error: windows::core::Error) {
+    super::child::emit_event(super::protocol::ChildEvent::CommandError {
+        command: "execute_script".into(),
+        id: None,
+        error: error.to_string(),
+    });
 }

@@ -198,6 +198,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .show_overlay(false)
                     .build(),
                 BlockBuilder::text(PRESET_SEARCH_MODEL_ID)
+                    .search()
                     .prompt("Fact-check the following claims/information. Search the internet to verify accuracy. Provide a clear verdict (TRUE/FALSE/PARTIALLY TRUE/UNVERIFIABLE) for each claim with evidence and sources. Respond in {language1}. Format as markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
@@ -223,6 +224,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .build(),
                 // Node 2: Summarize with sources (from 3)
                 BlockBuilder::text(PRESET_SEARCH_MODEL_ID)
+                    .search()
                     .prompt("Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str

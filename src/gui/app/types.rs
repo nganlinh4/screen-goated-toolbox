@@ -72,6 +72,7 @@ pub struct SettingsApp {
     pub(crate) computer_control_hotkey_conflict_msg: Option<HotkeyConflict>,
     pub(crate) recording_screen_translate_hotkey: bool,
     pub(crate) recording_screen_translate_fullscreen: bool,
+    pub(crate) recording_screen_translate_subtitles: bool,
     pub(crate) screen_translate_region_edit:
         Option<crate::overlay::screen_translate::fixed_region::RegionEditReceiver>,
     pub(crate) screen_translate_hotkey_conflict_msg: Option<HotkeyConflict>,

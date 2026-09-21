@@ -16,6 +16,9 @@ models. Regenerate the two synthetic PNGs with
 `py -3 tests/catalog-benchmark/generate_geometry_fixtures.py` (Pillow required).
 
 Latest applied catalog decisions, full candidate ledger and explicit quota gaps:
+[`RESULTS-2026-09-21-PROTOCOL16.md`](RESULTS-2026-09-21-PROTOCOL16.md).
+
+Previous protocol-15 catalog decisions:
 [`RESULTS-2026-09-16-PROTOCOL15.md`](RESULTS-2026-09-16-PROTOCOL15.md).
 
 Previous OCR and image-chain decision record:

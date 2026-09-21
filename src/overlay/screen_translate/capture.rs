@@ -106,32 +106,40 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
     crate::overlay::result::latency::begin(&trace_id);
     let region_width = i32::try_from(region.width).context("selected region is too wide")?;
     let region_height = i32::try_from(region.height).context("selected region is too tall")?;
-    let (target_language, translation_model, translation_prompt, ui_language) = crate::APP
-        .lock()
-        .map(|app| {
-            (
-                app.config.screen_translate.target_language.clone(),
-                configured_translation_model(&app.config),
-                app.config.screen_translate.translation_prompt.clone(),
-                app.config.ui_language.clone(),
-            )
-        })
-        .unwrap_or_else(|_| {
-            (
-                "Vietnamese".to_string(),
-                crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
-                crate::config::types::ScreenTranslateSettings::default_prompt(),
-                "en".to_string(),
-            )
-        });
+    let (target_language, translation_model, translation_prompt, ui_language, show_glow_box) =
+        crate::APP
+            .lock()
+            .map(|app| {
+                (
+                    app.config.screen_translate.target_language.clone(),
+                    configured_translation_model(&app.config),
+                    app.config.screen_translate.translation_prompt.clone(),
+                    app.config.ui_language.clone(),
+                    app.config.screen_translate.show_glow_box,
+                )
+            })
+            .unwrap_or_else(|_| {
+                (
+                    "Vietnamese".to_string(),
+                    crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
+                    crate::config::types::ScreenTranslateSettings::default_prompt(),
+                    "en".to_string(),
+                    true,
+                )
+            });
     let text = crate::gui::locale::LocaleText::get(&ui_language);
-    let processing = crate::overlay::result::scene_compositor::ProcessingGlow::show(RECT {
-        left: region.left,
-        top: region.top,
-        right: region.left.saturating_add(region_width),
-        bottom: region.top.saturating_add(region_height),
-    })?;
-    crate::overlay::result::latency::mark(&trace_id, "indicator_visible");
+    let mut processing = super::processing::Progress::show(
+        RECT {
+            left: region.left,
+            top: region.top,
+            right: region.left.saturating_add(region_width),
+            bottom: region.top.saturating_add(region_height),
+        },
+        show_glow_box,
+    )?;
+    if processing.id().is_some() {
+        crate::overlay::result::latency::mark(&trace_id, "indicator_visible");
+    }
     let jpeg = encode_jpeg(&region.image)?;
     crate::overlay::result::latency::mark(&trace_id, "capture_encoded");
 
@@ -161,7 +169,6 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
     crate::overlay::result::latency::mark(&trace_id, "detector_complete");
     super::appearance::annotate_backgrounds(&region.image, &mut accepted);
     let candidates = std::sync::Arc::<[super::contract::DetectedTextRegion]>::from(accepted);
-    let mut processing = super::processing::Progress::new(processing);
     processing.geometry(&candidates, region.width, region.height);
     crate::overlay::result::latency::mark(&trace_id, "background_analysis_complete");
     evidence.detected(&candidates, &detected.raw);
@@ -179,7 +186,7 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
         std::sync::Arc::clone(&candidates),
         &trace_id,
         None,
-        Some(processing.id()),
+        processing.id(),
     ) {
         Ok(renderer) => renderer,
         Err(error) => {
@@ -198,6 +205,7 @@ fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion
             candidates: &candidates,
             scene: &candidates,
             prior_translations: &[],
+            dialogue: &[],
         },
         Arc::clone(&cancel),
         |region| {

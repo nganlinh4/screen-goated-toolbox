@@ -424,6 +424,7 @@ pub(super) fn cancel_active_gesture() -> Option<ChildEvent> {
     };
     stop_observation();
 
+    super::button_input::await_settlement(active.gesture_id);
     match active.kind {
         GestureKind::Drag => {
             unsafe { place_targets(&active.targets, 0, 0, true) };
@@ -437,18 +438,32 @@ pub(super) fn cancel_active_gesture() -> Option<ChildEvent> {
             })
         }
         GestureKind::Resize {
-            edge, start_rect, ..
+            edge,
+            start_rect,
+            native_backed,
+            live_native,
         } => {
-            let rect = resized_rect(start_rect, edge, 0, 0);
-            Some(ChildEvent::ResizeFinished {
+            if live_native && native_backed {
+                unsafe {
+                    place_resized_target(
+                        &ActiveResize {
+                            id: active.owning_card,
+                            edge,
+                            start_rect,
+                            native_backed,
+                        },
+                        0,
+                        0,
+                    )
+                };
+            }
+            Some(ChildEvent::DragFinished {
                 gesture_id: active.gesture_id,
                 id: active.owning_card,
-                rect: SceneRect {
-                    x: rect.left,
-                    y: rect.top,
-                    width: rect.right.saturating_sub(rect.left).max(1),
-                    height: rect.bottom.saturating_sub(rect.top).max(1),
-                },
+                targets: active.targets.iter().map(|target| target.id).collect(),
+                outcome: DragOutcome::Cancelled,
+                dx: 0,
+                dy: 0,
             })
         }
     }

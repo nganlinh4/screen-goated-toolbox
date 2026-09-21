@@ -141,6 +141,7 @@ fn run_text(
         translate_text_streaming(
             TranslateTextRequest {
                 max_output_tokens: None,
+                search_enabled: false,
                 groq_api_key: Credentials::groq_key_for(&model.provider, provider_key),
                 gemini_api_key: provider_key,
                 text: case.input.clone(),

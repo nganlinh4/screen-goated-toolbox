@@ -65,6 +65,7 @@ pub(in crate::overlay::computer_control) fn read_text_pref_where(
         let response = translate_text_streaming(
             TranslateTextRequest {
                 max_output_tokens: None,
+                search_enabled: false,
                 groq_api_key: &groq_key,
                 gemini_api_key: &gemini_key,
                 text: context.to_string(),

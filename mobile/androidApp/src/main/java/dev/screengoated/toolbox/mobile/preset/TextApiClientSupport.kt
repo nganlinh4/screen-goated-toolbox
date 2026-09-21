@@ -38,6 +38,7 @@ internal fun openAiPayload(
     prompt: String,
     inputText: String,
     stream: Boolean = true,
+    searchEnabled: Boolean = false,
 ): JSONObject {
     val payload = JSONObject()
         .put("model", fullName)
@@ -50,7 +51,12 @@ internal fun openAiPayload(
             ),
         )
         .put("stream", stream)
-    return applyFastReasoningPolicy(payload, provider, fullName)
+    applyFastReasoningPolicy(payload, provider, fullName)
+    if (searchEnabled && provider == PresetModelProvider.GROQ) {
+        payload.put("tools", JSONArray().put(JSONObject().put("type", "browser_search")))
+        payload.put("tool_choice", "required")
+    }
+    return payload
 }
 
 

@@ -13,6 +13,7 @@ internal fun buildGeminiDebugPayload(
     prompt: String,
     inputText: String,
     streamingEnabled: Boolean,
+    searchEnabled: Boolean,
 ): String {
     val payload = buildJsonObject {
         putJsonArray("contents") {
@@ -42,6 +43,11 @@ internal fun buildGeminiDebugPayload(
             }
         }
         put("stream", streamingEnabled)
+        if (searchEnabled) {
+            putJsonArray("tools") {
+                add(buildJsonObject { putJsonObject("google_search") {} })
+            }
+        }
     }
     return debugJson.encodeToString(JsonObject.serializer(), payload)
 }
@@ -90,6 +96,10 @@ internal fun buildOpenAiCompatibleDebugPayload(
     fullName: String,
     prompt: String,
     inputText: String,
+    searchEnabled: Boolean = false,
 ): String {
-    return openAiPayload(provider, fullName, prompt, inputText).toString()
+    return openAiPayload(
+        provider, fullName, prompt, inputText,
+        searchEnabled = searchEnabled,
+    ).toString()
 }

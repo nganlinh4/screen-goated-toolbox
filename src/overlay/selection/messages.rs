@@ -61,6 +61,11 @@ pub unsafe extern "system" fn selection_wnd_proc(
             return result;
         }
         match msg {
+            WM_DISPLAYCHANGE if super::draw_region::active() => {
+                super::draw_region::begin();
+                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                LRESULT(0)
+            }
             WM_LBUTTONDOWN => {
                 if !IS_FADING_OUT {
                     IS_DRAGGING = true;
@@ -159,7 +164,9 @@ pub unsafe extern "system" fn selection_wnd_proc(
                     let height = (rect.bottom - rect.top).abs();
 
                     if width <= 10 && height <= 10 {
-                        handle_color_picker(hwnd);
+                        if !super::draw_region::active() {
+                            handle_color_picker(hwnd);
+                        }
                         IS_FADING_OUT = true;
                         if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM
                         {
@@ -287,6 +294,14 @@ unsafe fn handle_color_picker(hwnd: HWND) {
 #[allow(static_mut_refs)]
 unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
     unsafe {
+        if super::draw_region::commit(rect) {
+            IS_FADING_OUT = true;
+            if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
+                let _ = transform_fn(1.0, 0, 0);
+            }
+            let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
+            return Some(LRESULT(0));
+        }
         let target = capture_target();
 
         // For MASTER presets, show the preset wheel first
@@ -492,6 +507,10 @@ unsafe fn handle_fade_timer(hwnd: HWND) {
     unsafe {
         let mut changed = false;
         if IS_FADING_OUT {
+            let fade_start = FADE_OUT_START_ALPHA;
+            if fade_start.is_none() {
+                FADE_OUT_START_ALPHA = Some(CURRENT_ALPHA);
+            }
             if CURRENT_ALPHA > FADE_OUT_STEP {
                 CURRENT_ALPHA -= FADE_OUT_STEP;
                 changed = true;

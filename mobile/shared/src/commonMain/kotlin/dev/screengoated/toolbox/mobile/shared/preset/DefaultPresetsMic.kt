@@ -144,7 +144,7 @@ internal val defaultMicPresets: List<Preset> = listOf(
             textBlock(
                 PRESET_SEARCH_MODEL_ID,
                 "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
-            ),
+            ).copy(searchEnabled = true),
         ),
     ),
 

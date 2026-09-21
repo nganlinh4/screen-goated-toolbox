@@ -125,8 +125,7 @@ fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() 
     assert!(rebuild.contains("restoreControlsAfterLayout"));
     assert!(rebuild.contains("style.visibility = ''"));
     let host_commands = include_str!("host_command_runtime.js");
-    assert!(host_commands.contains("hasReleasedDragPreview?.() === true"));
-    assert!(host_commands.contains("if (!preservePreview)"));
+    assert!(host_commands.contains("for (const card of command.cards) updateGeometry(card)"));
     let scene = include_str!("scene_command_helpers.js");
     assert!(scene.contains("const preservePosition = window.shouldPreserveResultDragGeometry?."));
     assert!(scene.contains("if (!preservePosition)"));
@@ -139,7 +138,14 @@ fn drag_hides_controls_until_release_then_hands_preview_to_committed_geometry() 
         .find("setDragActive(false, gestureId)")
         .unwrap();
     assert!(merge < reveal);
-    assert!(controls[settled..].contains("matchesExternal"));
+    let dispatch = controls
+        .split("window.applyHostCommand = function(command)")
+        .nth(1)
+        .unwrap();
+    assert!(
+        dispatch.find("acceptsSettlement(command)").unwrap()
+            < dispatch.find("applyResultCommand(command)").unwrap()
+    );
 }
 
 #[test]

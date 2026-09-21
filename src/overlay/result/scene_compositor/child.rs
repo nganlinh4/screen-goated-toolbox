@@ -19,6 +19,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 
 const WM_DRAIN_COMMANDS: u32 = WM_APP + 91;
+#[path = "command_delivery.rs"]
+mod command_delivery;
 const WM_REFRESH_VISUAL: u32 = WM_APP + 92;
 const WM_RECONCILE_STACK: u32 = WM_APP + 93;
 static STACK_RECONCILIATION_PENDING: AtomicBool = AtomicBool::new(false);
@@ -114,7 +116,8 @@ pub(super) fn create_host_window() -> anyhow::Result<HWND> {
             None,
             Some(instance.into()),
             None,
-        )?;
+        )
+        .and_then(crate::overlay::shell_policy::prepare)?;
         SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA)?;
         let margins = MARGINS {
             cxLeftWidth: -1,
@@ -252,80 +255,7 @@ pub(super) fn send_mouse_to_webview(
 }
 
 fn drain_commands(hwnd: HWND) {
-    if !RENDERER_READY.load(Ordering::SeqCst) {
-        return;
-    }
-    let mut scripts = Vec::new();
-    let mut handled_command = false;
-    let mut highest_revision = 0u64;
-    let commands = COMMANDS.lock().unwrap().drain();
-    for command in commands {
-        if command == HostCommand::Shutdown {
-            unsafe {
-                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-            return;
-        }
-        handled_command = true;
-        if let HostCommand::ApplyRevision { revision } = &command {
-            highest_revision = highest_revision.max(*revision);
-        }
-        super::child_commands::apply(&command);
-        if !matches!(command, HostCommand::ApplyRevision { .. })
-            && let Ok(command_json) = serde_json::to_string(&command)
-        {
-            let script = format!(
-                "try{{window.applyHostCommand({command_json});}}catch(error){{console.error(error);}}"
-            );
-            scripts.push(script);
-        }
-    }
-    if handled_command {
-        let input_val = INPUT_SURFACE_HWND.load(Ordering::SeqCst);
-        let input_hwnd = if input_val != 0 {
-            HWND(input_val as *mut std::ffi::c_void)
-        } else {
-            hwnd
-        };
-        let cards = CARDS.lock().unwrap();
-        let button_regions = super::button_input::interactive_regions();
-        let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1) };
-        let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1) };
-        let x = super::compositor_host_x(unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) }, width);
-        let y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
-        let visual_ok = super::visual_region::update(hwnd, &cards, &button_regions, width, height);
-        if !visual_ok {
-            super::visual_region::hide(input_hwnd);
-            std::process::exit(1);
-        }
-        let applied = super::input_surface::update_input_regions(
-            input_hwnd,
-            &cards,
-            &button_regions,
-            x,
-            y,
-            width,
-            height,
-        );
-        if applied.is_hidden && !super::processing::is_visible() {
-            super::visual_region::hide(hwnd);
-        } else if !super::visual_region::stack_below_input(hwnd, input_hwnd) {
-            super::visual_region::hide(hwnd);
-            super::visual_region::hide(input_hwnd);
-            std::process::exit(1);
-        }
-        drop(cards);
-        if highest_revision > 0 {
-            emit_event(ChildEvent::StateAcknowledged {
-                revision: highest_revision,
-                visible_cards: applied.visible_cards,
-                input_rect_count: applied.input_region_count,
-            });
-        }
-    }
-    if !scripts.is_empty() {
-        evaluate_script(&scripts.concat());
-    }
+    command_delivery::drain(hwnd);
 }
 
 pub(super) fn handle_renderer_event(body: &str) {

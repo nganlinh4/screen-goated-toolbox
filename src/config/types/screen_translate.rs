@@ -14,10 +14,14 @@ pub struct ScreenTranslateSettings {
     pub translation_prompt: String,
     #[serde(default = "default_overlay_opacity")]
     pub overlay_opacity: u8,
+    #[serde(default = "default_show_glow_box")]
+    pub show_glow_box: bool,
     #[serde(default)]
     pub hotkeys: Vec<Hotkey>,
     #[serde(default)]
     pub fullscreen_hotkeys: Vec<Hotkey>,
+    #[serde(default)]
+    pub subtitle_hotkeys: Vec<Hotkey>,
     #[serde(default)]
     pub fixed_region: Option<ScreenTranslateRegion>,
 }
@@ -44,6 +48,10 @@ fn default_translation_prompt() -> String {
 
 fn default_overlay_opacity() -> u8 {
     100
+}
+
+fn default_show_glow_box() -> bool {
+    true
 }
 
 impl ScreenTranslateSettings {
@@ -79,9 +87,11 @@ impl ScreenTranslateSettings {
     pub fn restore_defaults_preserving_hotkeys(&mut self) {
         let hotkeys = std::mem::take(&mut self.hotkeys);
         let fullscreen_hotkeys = std::mem::take(&mut self.fullscreen_hotkeys);
+        let subtitle_hotkeys = std::mem::take(&mut self.subtitle_hotkeys);
         *self = Self {
             hotkeys,
             fullscreen_hotkeys,
+            subtitle_hotkeys,
             ..Self::default()
         };
     }
@@ -94,8 +104,10 @@ impl Default for ScreenTranslateSettings {
             translation_model: default_translation_model(),
             translation_prompt: default_translation_prompt(),
             overlay_opacity: default_overlay_opacity(),
+            show_glow_box: default_show_glow_box(),
             hotkeys: Vec::new(),
             fullscreen_hotkeys: Vec::new(),
+            subtitle_hotkeys: Vec::new(),
             fixed_region: None,
         }
     }
@@ -134,8 +146,10 @@ mod tests {
             translation_model: "custom".to_string(),
             translation_prompt: "Custom".to_string(),
             overlay_opacity: 37,
+            show_glow_box: false,
             hotkeys: hotkeys.clone(),
             fullscreen_hotkeys: hotkeys.clone(),
+            subtitle_hotkeys: hotkeys.clone(),
             fixed_region: Some(super::ScreenTranslateRegion {
                 monitor: "display".into(),
                 edges: [0, 500, 10000, 9500],
@@ -146,6 +160,7 @@ mod tests {
 
         assert_eq!(settings.hotkeys, hotkeys);
         assert_eq!(settings.fullscreen_hotkeys, hotkeys);
+        assert_eq!(settings.subtitle_hotkeys, hotkeys);
         assert!(settings.fixed_region.is_none());
         assert_eq!(settings.target_language, "Vietnamese");
         assert_eq!(
@@ -157,6 +172,7 @@ mod tests {
             ScreenTranslateSettings::default_prompt()
         );
         assert_eq!(settings.overlay_opacity, 100);
+        assert!(settings.show_glow_box);
     }
 
     #[test]
@@ -166,6 +182,7 @@ mod tests {
         assert_eq!(settings.hotkeys.len(), 1);
         assert!(settings.fullscreen_hotkeys.is_empty());
         assert!(settings.fixed_region.is_none());
+        assert!(settings.show_glow_box);
         assert_eq!(
             serde_json::from_value::<ScreenTranslateSettings>(
                 serde_json::to_value(&settings).unwrap()
@@ -173,6 +190,17 @@ mod tests {
             .unwrap(),
             settings
         );
+    }
+
+    #[test]
+    fn disabled_glow_survives_save_load_and_normalization() {
+        let settings = ScreenTranslateSettings {
+            show_glow_box: false,
+            ..Default::default()
+        };
+        let restored: ScreenTranslateSettings =
+            serde_json::from_value(serde_json::to_value(&settings).unwrap()).unwrap();
+        assert!(!restored.normalized().show_glow_box);
     }
 
     #[test]

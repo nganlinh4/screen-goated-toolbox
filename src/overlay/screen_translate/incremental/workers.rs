@@ -33,6 +33,7 @@ pub(super) fn start<'scope, 'env>(
                         candidates: &batch.candidates,
                         scene: &batch.scene,
                         prior_translations: &batch.prior_translations,
+                        dialogue: &[],
                     },
                     Arc::clone(&cancel),
                     |region| { let _ = sender.send(Message::Translated(lane, region)); },

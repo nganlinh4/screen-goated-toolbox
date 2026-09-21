@@ -97,7 +97,7 @@ pub(super) fn controls(state: &Editor) -> [RECT; 2] {
         },
     ]
 }
-pub(super) fn handles(rect: RECT, bounds: RECT, inset: i32) -> [POINT; 8] {
+pub(crate) fn handles(rect: RECT, bounds: RECT, inset: i32) -> [POINT; 8] {
     let x = (rect.left + rect.right) / 2;
     let y = (rect.top + rect.bottom) / 2;
     [
@@ -132,7 +132,7 @@ fn hit(s: &Editor, p: POINT) -> Option<usize> {
     contains(s.rect, p).then_some(8)
 }
 
-fn dragged(edge: usize, start: RECT, delta: POINT, b: RECT) -> RECT {
+pub(crate) fn dragged(edge: usize, start: RECT, delta: POINT, b: RECT) -> RECT {
     let mut r = start;
     let min_w = 16.min(b.right - b.left);
     let min_h = 16.min(b.bottom - b.top);

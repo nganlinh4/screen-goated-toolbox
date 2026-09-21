@@ -1,6 +1,8 @@
 package dev.screengoated.toolbox.mobile.preset
 
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
+import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
+import dev.screengoated.toolbox.mobile.shared.preset.PRESET_SEARCH_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -106,6 +108,54 @@ class TextApiClientTest {
     }
 
     @Test
+    fun explicitGeminiSearchRequestEnablesOnlyGoogleSearch() {
+        val payload = json.parseToJsonElement(
+            client.debugBuildRequestBody(
+                modelId = "google-gemini-3-1-flash-lite-text",
+                prompt = "Search for current information.",
+                inputText = "Gemini API",
+                searchEnabled = true,
+            ),
+        ).jsonObject
+
+        assertEquals(
+            setOf("google_search"),
+            payload.getValue("tools").jsonArray
+                .flatMap { it.jsonObject.keys }
+                .toSet(),
+        )
+    }
+
+    @Test
+    fun explicitGroqSearchRequestUsesBrowserSearchOnly() {
+        for (modelId in listOf("groq-gpt-oss-20b-text", "groq-gpt-oss-120b-text")) {
+            val ordinary = json.parseToJsonElement(
+                client.debugBuildRequestBody(modelId, "Answer.", "Question"),
+            ).jsonObject
+            assertFalse(ordinary.containsKey("tools"))
+
+            val search = json.parseToJsonElement(
+                client.debugBuildRequestBody(
+                    modelId, "Search.", "Question", searchEnabled = true,
+                ),
+            ).jsonObject
+            assertEquals("browser_search", search.getValue("tools").jsonArray[0]
+                .jsonObject.getValue("type").jsonPrimitive.content)
+            assertEquals("required", search.getValue("tool_choice").jsonPrimitive.content)
+            assertEquals("low", search.getValue("reasoning_effort").jsonPrimitive.content)
+        }
+    }
+
+    @Test
+    fun builtInSearchBlocksAuthorizeSearchExplicitly() {
+        val blocks = DefaultPresets.all.flatMap { it.blocks }
+        assertTrue(blocks.any { it.searchEnabled })
+        blocks.forEach { block ->
+            assertEquals(block.id, block.model == PRESET_SEARCH_MODEL_ID, block.searchEnabled)
+        }
+    }
+
+    @Test
     fun searchCapabilityUsesExactCatalogProfiles() {
         for (modelId in listOf(
             "google-gemini-3-flash-text",
@@ -114,14 +164,17 @@ class TextApiClientTest {
             "google-gemini-3-6-flash-text",
             "google-gemini-3-5-flash-vision",
             "google-gemini-3-8-flash-text",
-            "groq-compound-mini-search",
+            "google-gemini-robotics-er-2-text",
+            "groq-gpt-oss-120b-text",
+            "groq-gpt-oss-20b-text",
         )) {
             assertTrue(modelId, PresetModelCatalog.supportsSearchById(modelId))
         }
         for (modelId in listOf(
             "google-gemma-4-31b-text",
             "google-gemini-3-1-live-text",
-            "groq-gpt-oss-120b-text",
+            "groq-compound-mini-search",
+            "groq-compound-search",
             "unknown-compound-text",
         )) {
             assertFalse(modelId, PresetModelCatalog.supportsSearchById(modelId))
@@ -129,7 +182,7 @@ class TextApiClientTest {
     }
 
     @Test
-    fun searchMarkerRequiresDefaultToolExecutionNotCapabilityAlone() {
+    fun searchMarkerFollowsSearchCapabilityWithoutEnablingDefaultTools() {
         val fixture = json.parseToJsonElement(
             Files.readAllBytes(modelPresentationFixturePath()).decodeToString(),
         ).jsonObject
@@ -140,7 +193,7 @@ class TextApiClientTest {
             .map { it.jsonPrimitive.content }
             .sorted()
         val actual = PresetModelCatalog.models
-            .filter { it.searchToolEnabledByDefault }
+            .filter { PresetModelCatalog.supportsSearchById(it.id) }
             .map { it.id }
             .sorted()
         assertEquals(expected, actual)
@@ -149,6 +202,8 @@ class TextApiClientTest {
             "google-gemini-3-1-flash-lite-text",
             "google-gemini-3-5-flash-lite-vision",
             "google-gemini-3-6-flash-text",
+            "google-gemini-robotics-er-2-text",
+            "groq-gpt-oss-20b-text",
         )) {
             assertTrue(modelId, PresetModelCatalog.supportsSearchById(modelId))
             assertFalse(
@@ -189,28 +244,6 @@ class TextApiClientTest {
             ),
         ).jsonObject
         assertEquals(0.0, payload.getValue("temperature").jsonPrimitive.content.toDouble(), 0.0)
-    }
-
-    @Test
-    fun compoundMiniBodyUsesCompoundToolsContract() {
-        val payload = json.parseToJsonElement(
-            client.debugBuildRequestBody(
-                modelId = "groq-compound-mini-search",
-                prompt = "Search this.",
-                inputText = "Hello",
-            ),
-        ).jsonObject
-
-        assertEquals("groq/compound-mini", payload.getValue("model").jsonPrimitive.content)
-        assertFalse(payload.getValue("stream").jsonPrimitive.boolean)
-        val tools = payload.getValue("compound_custom")
-            .jsonObject
-            .getValue("tools")
-            .jsonObject
-            .getValue("enabled_tools")
-            .jsonArray
-            .map { it.jsonPrimitive.content }
-        assertEquals(listOf("web_search", "visit_website"), tools)
     }
 
     @Test

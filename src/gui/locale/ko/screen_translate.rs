@@ -2,6 +2,11 @@ use crate::gui::locale::ScreenTranslateLocaleText;
 
 pub(super) fn get() -> ScreenTranslateLocaleText {
     ScreenTranslateLocaleText {
+        screen_translate_subtitle_mode: "영화/게임 자막 번역 모드",
+        screen_translate_subtitle_description: "이 영역에 나타나는 글자를 자동으로 번역합니다.",
+        screen_translate_subtitle_toggle_hint: "{hotkey} 키로 영역 상자 표시/숨기기",
+        screen_translate_subtitle_quit: "종료",
+        screen_translate_show_glow_box: "글로우 박스 애니메이션 표시",
         screen_translate_btn: "화면 번역",
         screen_translate_short_btn: "화면 번역",
         screen_translate_title: "화면 번역",
@@ -11,7 +16,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_recognition_hint: "다국어 텍스트를 읽고 레이아웃을 참고해 관련된 줄을 묶어 번역합니다.",
         screen_translate_setup_hint: "필요한 인식 구성 요소를 다운로드하고, 이 기능을 사용할 때 불러옵니다. 진행 상황은 화면에 표시됩니다.",
         screen_translate_restore_label: "설정 초기화",
-        screen_translate_restore_hint: "언어, 모델, 번역 지침, 불투명도와 캡처 영역을 초기화합니다. 두 단축키 목록은 유지합니다.",
+        screen_translate_restore_hint: "언어, 모델, 번역 지침, 불투명도와 캡처 영역을 초기화합니다. 모든 단축키 목록은 유지합니다.",
         screen_translate_model_label: "번역 모델",
         screen_translate_model_fallback_hint: "선택한 모델을 사용할 수 없거나 오류가 나면 텍스트 → 텍스트 우선순위 목록을 사용합니다.",
         screen_translate_prompt_label: "원하면 번역 프롬프트를 조정하세요",

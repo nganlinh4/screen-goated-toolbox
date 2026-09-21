@@ -40,6 +40,8 @@ pub struct TranslateTextRequest<'a> {
     pub response_schema: Option<TranslationSchema<'a>>,
     /// Optional output cap for OpenAI-compatible translation providers.
     pub max_output_tokens: Option<u32>,
+    /// Explicit authorization to invoke a provider web-search tool.
+    pub search_enabled: bool,
     pub search_label: Option<String>,
     pub ui_language: &'a str,
     pub cancel_token: Option<Arc<AtomicBool>>,
@@ -57,6 +59,7 @@ struct TranslateTransportOptions<'a> {
     ui_language: &'a str,
     cancel_token: &'a Option<Arc<AtomicBool>>,
     request_timeout: Option<crate::api::client::RequestTimeouts>,
+    search_enabled: bool,
 }
 
 pub fn translate_text_streaming<F>(
@@ -98,6 +101,7 @@ fn translate_text_streaming_inner(
         use_json_format,
         response_schema,
         max_output_tokens,
+        search_enabled,
         search_label,
         ui_language,
         cancel_token,
@@ -152,6 +156,7 @@ fn translate_text_streaming_inner(
         ui_language,
         cancel_token: &cancel_token,
         request_timeout,
+        search_enabled,
     };
 
     println!(
@@ -165,6 +170,14 @@ fn translate_text_streaming_inner(
 
     if response_schema.is_some() && !supports_structured_translation(&provider) {
         return Err(anyhow::anyhow!("STRUCTURED_OUTPUT_UNSUPPORTED:{provider}"));
+    }
+    if search_enabled
+        && !crate::model_config::model_supports_search_by_provider_and_name(&provider, &model)
+    {
+        return Err(anyhow::anyhow!("SEARCH_UNSUPPORTED:{provider}:{model}"));
+    }
+    if search_enabled && provider == "groq" && (response_schema.is_some() || use_json_format) {
+        return Err(anyhow::anyhow!("SEARCH_STRUCTURED_OUTPUT_UNSUPPORTED:groq"));
     }
     match Provider::from_wire(&provider) {
         Some(Provider::Ollama) => {

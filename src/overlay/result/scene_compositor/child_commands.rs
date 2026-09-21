@@ -1,9 +1,10 @@
 use super::child::CARDS;
 use super::protocol::HostCommand;
 
-pub(super) fn apply(command: &HostCommand) {
+pub(super) fn apply(command: &HostCommand) -> bool {
     let mut cards = CARDS.lock().unwrap();
     match command {
+        HostCommand::CaptureExclusion { .. } => {}
         HostCommand::Processing { effects } => super::processing::apply(effects),
         HostCommand::Snapshot { cards: snapshot } => {
             cards.clear();
@@ -55,13 +56,14 @@ pub(super) fn apply(command: &HostCommand) {
             gesture_id,
             cards: updates,
         } => {
-            if super::button_input::settle_drag(*gesture_id) {
-                for update in updates {
-                    if let Some(card) = cards.get_mut(&update.id) {
-                        card.rect = update.rect.clone();
-                        card.control_rect = update.control_rect.clone();
-                        card.visible = update.visible;
-                    }
+            if !super::button_input::settle_drag(*gesture_id) {
+                return false;
+            }
+            for update in updates {
+                if let Some(card) = cards.get_mut(&update.id) {
+                    card.rect = update.rect.clone();
+                    card.control_rect = update.control_rect.clone();
+                    card.visible = update.visible;
                 }
             }
         }
@@ -98,4 +100,5 @@ pub(super) fn apply(command: &HostCommand) {
         | HostCommand::ApplyRevision { .. }
         | HostCommand::Shutdown => {}
     }
+    true
 }

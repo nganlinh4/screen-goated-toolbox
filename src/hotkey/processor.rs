@@ -47,6 +47,15 @@ pub unsafe extern "system" fn hotkey_proc(
 
 /// Handle a hotkey message.
 fn handle_hotkey(id: i32) {
+    if (crate::hotkey::SCREEN_TRANSLATE_SUBTITLE_HOTKEY_ID
+        ..crate::hotkey::SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID)
+        .contains(&id)
+    {
+        overlay::screen_translate::subtitles::toggle(
+            (id - crate::hotkey::SCREEN_TRANSLATE_SUBTITLE_HOTKEY_ID) as usize,
+        );
+        return;
+    }
     if (crate::hotkey::SCREEN_TRANSLATE_FULLSCREEN_HOTKEY_ID
         ..crate::hotkey::LIVE_TRANSLATE_HOTKEY_ID)
         .contains(&id)

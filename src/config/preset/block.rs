@@ -42,6 +42,10 @@ pub struct ProcessingBlock {
     #[serde(default = "default_true")]
     pub streaming_enabled: bool,
 
+    /// Whether this block explicitly authorizes a provider web-search tool.
+    #[serde(default)]
+    pub search_enabled: bool,
+
     /// Render mode: "stream", "plain", "markdown"
     #[serde(default = "default_render_mode")]
     pub render_mode: String,
@@ -87,6 +91,7 @@ impl Default for ProcessingBlock {
             selected_language: "Vietnamese".to_string(),
             language_vars: HashMap::new(),
             streaming_enabled: true,
+            search_enabled: false,
             render_mode: "markdown_stream".to_string(),
             show_overlay: true,
             auto_copy: false,
@@ -182,6 +187,12 @@ impl BlockBuilder {
     /// Enable/disable streaming
     pub fn streaming(mut self, enabled: bool) -> Self {
         self.block.streaming_enabled = enabled;
+        self
+    }
+
+    /// Enable the provider's web-search tool for this block only.
+    pub fn search(mut self) -> Self {
+        self.block.search_enabled = true;
         self
     }
 

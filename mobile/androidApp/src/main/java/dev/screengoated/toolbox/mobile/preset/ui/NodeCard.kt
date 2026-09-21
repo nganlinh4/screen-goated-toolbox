@@ -264,7 +264,7 @@ internal fun NodeCard(
                                 availableModels.forEach { model ->
                                     val providerIcon = providerIconRes(model.provider)
                                     val hasSearch =
-                                        catalog.searchToolEnabledByDefaultById(model.id)
+                                        catalog.supportsSearchById(model.id)
                                     val isSelected = model.id == block.model
                                     androidx.compose.material3.DropdownMenuItem(
                                         modifier = if (isSelected) Modifier

@@ -89,6 +89,20 @@
     if (Object.keys(windows).length === 0) clearClickableRegions();
   }
 
+  function acceptsSettlement(command) {
+    const id = Number(command.gesture_id || 0);
+    return id !== 0
+      ? nativeDrag === id || awaitingDragSettle === id
+      : externalDrag && !nativeDrag && !awaitingDragSettle;
+  }
+
+  function releaseGeometryPreview(gestureId) {
+    window.settleResultDragGesture?.(gestureId);
+    window.__SGT_CARD_RESIZE__?.settleGesture(gestureId);
+    window.clearResultDragControlPreview?.();
+    window.releaseResultDragGeometryLock?.();
+  }
+
   function apply(command) {
     if (command.type === 'processing') {
       rebuild(); return;
@@ -107,11 +121,6 @@
       for (const card of command.cards || []) mergeCard(card);
     } else if (command.type === 'drag_settled') {
       const gestureId = Number(command.gesture_id || 0);
-      const matchesLocal = gestureId !== 0
-        && (nativeDrag === gestureId || awaitingDragSettle === gestureId);
-      const matchesExternal = gestureId === 0 && externalDrag
-        && !nativeDrag && !awaitingDragSettle;
-      if (!matchesLocal && !matchesExternal) return;
       for (const card of command.cards || []) mergeCard(card);
       setDragActive(false, gestureId);
       return;
@@ -159,10 +168,7 @@
     if (matchesAwaiting) awaitingDragSettle = 0;
     if (matchesExternal) externalDrag = false;
     if (nativeDrag || awaitingDragSettle || externalDrag) return;
-    window.settleResultDragGesture?.(id);
-    window.__SGT_CARD_RESIZE__?.settleGesture(id);
-    window.clearResultDragControlPreview?.();
-    window.releaseResultDragGeometryLock?.();
+    releaseGeometryPreview(id);
     rebuild(id);
   }
 
@@ -212,6 +218,10 @@
 
   const applyResultCommand = window.applyHostCommand;
   window.applyHostCommand = function(command) {
+    if (command.type === 'drag_settled') {
+      if (!acceptsSettlement(command)) return;
+      releaseGeometryPreview(Number(command.gesture_id || 0));
+    }
     applyResultCommand(command);
     apply(command);
   };
@@ -221,7 +231,7 @@
     clearClickableRegions: clearClickableRegions,
     setDragActive: setDragActive,
     releaseDragPreview: releaseDragPreview,
-    hasReleasedDragPreview: function() { return awaitingDragSettle !== 0; },
+    isGeometryPreviewActive: function() { return Boolean(nativeDrag || awaitingDragSettle || externalDrag); },
     pulseCompletion: pulseCompletion
   };
 })();

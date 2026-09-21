@@ -165,6 +165,7 @@ fn run_case(
         translate_text_streaming(
             TranslateTextRequest {
                 max_output_tokens: Some(prepared.max_output_tokens),
+                search_enabled: false,
                 groq_api_key: Credentials::groq_key_for(&model.provider, provider_key),
                 gemini_api_key: provider_key,
                 text: prepared.text.clone(),

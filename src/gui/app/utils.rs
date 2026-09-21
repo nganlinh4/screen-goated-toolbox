@@ -162,6 +162,8 @@ impl SettingsApp {
             self.config.screen_translate.hotkeys = state.config.screen_translate.hotkeys.clone();
             self.config.screen_translate.fullscreen_hotkeys =
                 state.config.screen_translate.fullscreen_hotkeys.clone();
+            self.config.screen_translate.subtitle_hotkeys =
+                state.config.screen_translate.subtitle_hotkeys.clone();
             self.config.live_translate.hotkeys = state.config.live_translate.hotkeys.clone();
             self.config.translation_gummy.hotkeys = state.config.translation_gummy.hotkeys.clone();
         }

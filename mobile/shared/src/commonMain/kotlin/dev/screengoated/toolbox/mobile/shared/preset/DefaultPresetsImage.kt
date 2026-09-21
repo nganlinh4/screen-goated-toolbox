@@ -212,7 +212,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
                 PRESET_SEARCH_MODEL_ID,
                 "Fact-check the following claims/information. Search the internet to verify accuracy. Provide a clear verdict (TRUE/FALSE/PARTIALLY TRUE/UNVERIFIABLE) for each claim with evidence and sources. Respond in {language1}. Format as markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                 "language1" to "Vietnamese",
-            ),
+            ).copy(searchEnabled = true),
         ),
     ),
 
@@ -240,7 +240,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
                 PRESET_SEARCH_MODEL_ID,
                 "Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                 "language1" to "Vietnamese",
-            ),
+            ).copy(searchEnabled = true),
             // Node 3: Translate (from 0)
             textBlock(
                 DEFAULT_TEXT_MODEL_ID,

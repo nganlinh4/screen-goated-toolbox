@@ -121,6 +121,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
                     .show_overlay(false)
                     .build(),
                 BlockBuilder::text(PRESET_SEARCH_MODEL_ID)
+                    .search()
                     .prompt("Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
                     .markdown_stream() // Đẹp+Str
                     .build(),

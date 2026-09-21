@@ -3,13 +3,20 @@
 use crate::gui::icons::{Icon, draw_icon_static, provider_icon};
 use crate::model_config::{
     ModelConfig, ModelType, get_all_models_with_custom, get_all_models_with_ollama,
-    model_is_non_llm, sort_models_for_display,
+    model_is_non_llm, model_supports_search_by_provider_and_name, sort_models_for_display,
 };
 use crate::retry_model_chain::RetryChainKind;
 use eframe::egui;
 
 pub(crate) const MODEL_SELECTOR_WIDTH: f32 = 240.0 - crate::gui::model_performance::PREFIX_WIDTH;
 pub(crate) const MODEL_POPUP_MAX_HEIGHT: f32 = 360.0;
+
+/// Whether this selectable model supports SGT's explicit search path.
+pub(crate) fn model_shows_search_marker(model: &ModelConfig) -> bool {
+    model.supports_search_override.unwrap_or_else(|| {
+        model_supports_search_by_provider_and_name(&model.provider, &model.full_name)
+    })
+}
 
 pub(crate) fn model_popup_scroll<R>(
     ui: &mut egui::Ui,
@@ -136,7 +143,7 @@ pub(crate) fn render_model_combo_from_models(
                             changed = true;
                             egui::Popup::toggle_id(ui.ctx(), popup_id);
                         }
-                        if model.search_tool_enabled_by_default {
+                        if model_shows_search_marker(model) {
                             draw_icon_static(ui, Icon::Search, Some(crate::gui::icons::ICON_XS));
                         }
                     });

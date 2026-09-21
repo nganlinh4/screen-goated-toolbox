@@ -15,8 +15,7 @@ window.applyHostCommand = function(command) {
   else if (command.type === 'geometry') {
     for (const card of command.cards) updateGeometry(card);
   } else if (command.type === 'drag_settled') {
-    const preservePreview = window.__SGT_BUTTON_SCENE__?.hasReleasedDragPreview?.() === true;
-    if (!preservePreview) for (const card of command.cards) updateGeometry(card);
+    for (const card of command.cards) updateGeometry(card);
   } else if (command.type === 'opacity') {
     const entry = cards.get(String(command.id));
     if (entry) {

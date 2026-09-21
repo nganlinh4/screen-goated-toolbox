@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct SceneControls {
     pub hidden: bool,
     #[serde(default)]
+    pub input_passthrough: bool,
+    #[serde(default)]
     pub copy_image: bool,
     pub control_anchor: Option<[i32; 4]>,
     pub control_color: Option<String>,
@@ -32,6 +34,7 @@ impl Default for SceneControls {
     fn default() -> Self {
         Self {
             hidden: false,
+            input_passthrough: false,
             copy_image: false,
             control_anchor: None,
             control_color: None,

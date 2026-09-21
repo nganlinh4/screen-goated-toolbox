@@ -106,6 +106,18 @@
   image fallback. Gemini 3.8 Live is a text fallback. Quality, reliability and
   representative OCR completion latency own these choices; coordinate evidence
   remains separate and does not change the control chain.
+- The 2026-09-21 protocol-16 checkpoint keeps Qwen 3.8 as both generic heads
+  and keeps Gemini 3.5 Flash Lite as the immediate image fallback. Gemini 3
+  Flash now precedes 3.1 Flash Lite for image fallback after returning 9/10 OCR
+  results with higher reviewed similarity and lower representative latency.
+  Gemini 3.8 Flash moves ahead of 3.8 Live and 3.5 Flash in the late text stack.
+  Shared project/account quota exhaustion does not retire established rows.
+- The 2026-09-21 lifecycle checkpoint withdraws Groq Compound and Compound Mini
+  at their provider shutdown. The Search preset falls back to Gemini 3.1 Flash
+  Lite through the existing explicit-search path; retired provider-managed
+  search endpoints do not remain selectable on either platform. It also vetoes
+  NVIDIA Nemotron 3 Nano Omni reasoning after a complete protocol-16 ordinary
+  vision row produced no usable OCR result and no strict coordinate success.
 - Every model-selection surface, including the Android node editor, observes
   live-feed revisions and applies the shared provider-enabled predicate. A
   newly offered NVIDIA endpoint therefore appears without reopening the editor,
@@ -128,13 +140,22 @@
   set, so neither platform may expose a stale modality through a local allowlist.
 - Quota labels mean daily request count and use only the localized daily-count
   form or localized Unlimited form.
-- `supports_search` is provider capability metadata used for explicit
-  search-path compatibility. It never draws the search marker by itself.
-  A model row shows the marker only when its endpoint profile sets
-  `search_tool_enabled_by_default`, meaning selecting that model in the normal
-  model path actually invokes search. Quota-bearing Google grounding remains
-  explicit-feature-only; Groq Compound is marked because its normal request
-  enables provider-managed web tools.
+- `supports_search` marks endpoints whose search tool is usable through SGT's
+  explicit preset path. The model-list search marker follows this capability on
+  both platforms; it does not mean ordinary requests invoke search.
+  `search_tool_enabled_by_default` separately controls normal request behavior.
+  Quota-bearing Google grounding remains explicit-feature-only. Provider Live
+  search support stays unmarked while SGT's Live adapter cannot carry the
+  opt-in search request. Retired search-specialized endpoints do not leave a
+  marker-bearing catalog row.
+- Groq GPT-OSS 20B and 120B use the provider's browser-search tool only on
+  explicit search blocks. Search requests require low reasoning and cannot
+  combine with structured output; ordinary calls keep their fast policy.
+- Search presets mark the exact processing block with `search_enabled`. Both
+  platforms carry that flag through retry and provider dispatch, enable Google
+  Search only on the explicit Gemini request path, and reject an enabled search
+  request if the selected endpoint lacks search capability. Ordinary blocks
+  continue to omit provider tools even when they use the same endpoint.
 
 ## Failure And Recovery
 

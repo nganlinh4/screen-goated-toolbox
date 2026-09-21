@@ -13,7 +13,13 @@
   "ordinary_request_policy": {
     "search_capability_is_metadata": true,
     "implicit_provider_tools": false,
-    "grounding_requires_explicit_search_path": true
+    "grounding_requires_explicit_search_path": true,
+    "search_block_field": "search_enabled",
+    "explicit_google_search_tool": "google_search",
+    "explicit_groq_search_tool": "browser_search",
+    "groq_search_tool_choice": "required",
+    "groq_search_structured_output_supported": false,
+    "unsupported_search_fails_before_dispatch": true
   },
   "output_normalization": {
     "scopes": [
@@ -89,18 +95,19 @@
       "thinking_level": "MINIMAL"
     },
     {
-      "name": "compound_mini_uses_groq_compound_contract",
-      "model_id": "groq-compound-mini-search",
-      "provider": "GROQ",
-      "api_model": "groq/compound-mini",
-      "supports_search": true
-    },
-    {
       "name": "groq_gpt_oss_policy_is_provider_qualified",
       "model_id": "groq-gpt-oss-120b-text",
       "provider": "GROQ",
       "api_model": "openai/gpt-oss-120b",
-      "supports_search": false,
+      "supports_search": true,
+      "reasoning_effort": "low"
+    },
+    {
+      "name": "groq_gpt_oss_20b_supports_browser_search",
+      "model_id": "groq-gpt-oss-20b-text",
+      "provider": "GROQ",
+      "api_model": "openai/gpt-oss-20b",
+      "supports_search": true,
       "reasoning_effort": "low"
     },
     {

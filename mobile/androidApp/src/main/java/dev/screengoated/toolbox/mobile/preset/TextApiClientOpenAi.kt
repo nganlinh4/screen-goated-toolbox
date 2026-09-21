@@ -18,6 +18,7 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
     uiLanguage: String,
     onChunk: (String) -> Unit,
     streamingEnabled: Boolean,
+    searchEnabled: Boolean = false,
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:${providerName.lowercase()}")
     if (!streamingEnabled) {
@@ -29,10 +30,14 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
             prompt = prompt,
             inputText = inputText,
             onChunk = onChunk,
+            searchEnabled = searchEnabled,
         )
     }
 
-    val payload = openAiPayload(model.provider, model.fullName, prompt, inputText, stream = true)
+    val payload = openAiPayload(
+        model.provider, model.fullName, prompt, inputText,
+        stream = true, searchEnabled = searchEnabled,
+    )
     val request = Request.Builder()
         .url(endpoint)
         .header("Authorization", "Bearer $apiKey")
@@ -164,8 +169,12 @@ private suspend fun TextApiClient.generateOpenAiCompatibleBlocking(
     prompt: String,
     inputText: String,
     onChunk: (String) -> Unit,
+    searchEnabled: Boolean,
 ): String {
-    val payload = openAiPayload(model.provider, model.fullName, prompt, inputText, stream = false)
+    val payload = openAiPayload(
+        model.provider, model.fullName, prompt, inputText,
+        stream = false, searchEnabled = searchEnabled,
+    )
     val request = Request.Builder()
         .url(endpoint)
         .header("Authorization", "Bearer $apiKey")
