@@ -2,13 +2,13 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "screen-recorder-5.5.3-d64324c186f3b733.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.5.3-d64324c186f3b733.zip",
+      "asset": "screen-recorder-5.6.0-fe797d091e2c4208.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.6.0-fe797d091e2c4208.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "260c12a919662e2d13932edb2225751a631ca597d8564aaff1975882089182c5",
-          "sizeBytes": 9528320
+          "sha256": "1efa4c8c69130ccf9d1308c6715c43ec5dca6acaf797e0c6494f0bc2b46e2e55",
+          "sizeBytes": 9537024
         },
         {
           "path": "licenses/worker/THIRD-PARTY-LICENSES.json",
@@ -22,12 +22,12 @@
         },
         {
           "path": "web/assets/AudioPanel.js",
-          "sha256": "00f5b891f0d2ecb9003b344a4cc8467430a82f7e069e4dd57276127c32dbc5c1",
+          "sha256": "4dad9663822da8b47bbfe9d31119a1eb9bfe493011427598a1b33b9b40d85d96",
           "sizeBytes": 11722
         },
         {
           "path": "web/assets/BackgroundPanel.js",
-          "sha256": "c8d2223d9ca566ff1ec166a313fb499ee2b7890d12339e3a646a4aabe2472263",
+          "sha256": "00445cff883c1b3c08e6a998322dbefb445b8577896dea0fb1e8f6e1dfca177b",
           "sizeBytes": 16204
         },
         {
@@ -37,28 +37,28 @@
         },
         {
           "path": "web/assets/CameraPanel.js",
-          "sha256": "607b7d4b9080cfda752be7faa8cb2cfa087a68bd184835ad1028b188a4cae9d3",
-          "sizeBytes": 3378
+          "sha256": "f10a8449ee27e8f87220afd2e382eb5d6ff2d82de3bfdfa98279e56bc106e38b",
+          "sizeBytes": 3400
         },
         {
           "path": "web/assets/CursorPanel.js",
-          "sha256": "cb4c03fcccc0affe8ac0fb6a578ffe6b9af201955a4d3d7a2df87c43be28da7c",
-          "sizeBytes": 7067
+          "sha256": "91e03201b28a3605131378c4362d85d60dbd28b24ae5c8eb4724087229c9b86f",
+          "sizeBytes": 7082
         },
         {
           "path": "web/assets/EditorOverlays.css",
-          "sha256": "65345533d9e248e570a84c8c8c61501cfb2e5460fdd96beb2bad1a7fc908ea8d",
-          "sizeBytes": 7038
+          "sha256": "046b8394a34ec8cd4864c399245365502dc0038be7fe146e9fa8956872f3ae35",
+          "sizeBytes": 7091
         },
         {
           "path": "web/assets/EditorOverlays.js",
-          "sha256": "d47db0f113062dce142411c62314be8dea6c3d88d5c7055973d2789284448784",
-          "sizeBytes": 73804
+          "sha256": "9bf6904187cdc5ddb9672d8afcb464585f8f5b1e7a6f4388fac274d5d81bb76d",
+          "sizeBytes": 75073
         },
         {
           "path": "web/assets/NarrationPanel.js",
-          "sha256": "85a979255604b8d0692348f0f5bea8e49c7094411bb2a1371827c8ca8a0b20ab",
-          "sizeBytes": 62376
+          "sha256": "09522ab2e32d49fd05f6c28accfb6eeb52343b90f450b5cfd1c9d7e8823bde50",
+          "sizeBytes": 62404
         },
         {
           "path": "web/assets/PanelCard.js",
@@ -67,38 +67,38 @@
         },
         {
           "path": "web/assets/PanelSelect.js",
-          "sha256": "21ad2153fa2e37b28f5052b5f2f4ea3769173797247216237d88472e6c765994",
-          "sizeBytes": 6437
+          "sha256": "286945744f2786cabbc2a0dab9db26d3f4fbbfe848b8c1b99ef3af52d993bb77",
+          "sizeBytes": 6442
         },
         {
           "path": "web/assets/SettingRow.js",
-          "sha256": "8bf630df19152aeb6f386601eacfd7c2b04e0272c90b63dd6604c8b04bb58f9d",
+          "sha256": "71bc182e88a3b3b5feaba9ce87440f10ca7ea075b8ab72903a875ccec271700b",
           "sizeBytes": 821
         },
         {
           "path": "web/assets/SmartSplitControl.js",
-          "sha256": "48b22ab93a0df7040788189c42c88dc1b89ea653ac28fd29cf501d9d0e98380a",
+          "sha256": "a4e5ebbab33ed147732ea3b5d9d5e8d347d5bfd5b3cf46c648b7306aea202ad7",
           "sizeBytes": 6717
         },
         {
           "path": "web/assets/SubtitlePanel.js",
-          "sha256": "b57a6a548fe4475941ffb95ef5a4847d77dbb4489e653cdc26b996e4d9ec15ba",
-          "sizeBytes": 38194
+          "sha256": "dd72ac59ef2f08f9e662fbc1e7daa3ac1445a859ba7fc7eeb0104fff34f6e2c6",
+          "sizeBytes": 38228
         },
         {
           "path": "web/assets/TextPanel.js",
-          "sha256": "118727be5c8818248dac6a1b00b4f8bac70cfc5a20a85bf3f028048f2a9489ae",
-          "sizeBytes": 11719
+          "sha256": "2f343276449f6b7c3cfab74b358cf832c137713ca43af5524fff7cdb0b948953",
+          "sizeBytes": 11755
         },
         {
           "path": "web/assets/ZoomPanel.js",
-          "sha256": "04c6f892433cd9665f65f4226f3fe3784ddaa69a36a9cbc61de80adbc256931e",
-          "sizeBytes": 1866
+          "sha256": "79987625c2ad82da6af66fd31c73e8f07ec09f014011e622186310e00e0cc7b5",
+          "sizeBytes": 1865
         },
         {
           "path": "web/assets/compositionExport.js",
-          "sha256": "44a43a9610fdb699d478350df52f9f52b36f1f667c3ec11b09035053338ec17d",
-          "sizeBytes": 3585
+          "sha256": "c900a7c6dac379a5b8c8ca2eafdbe6487ec6cda3bfba731f79ac2708d17b5510",
+          "sizeBytes": 3586
         },
         {
           "path": "web/assets/editor-renderer.js",
@@ -107,7 +107,7 @@
         },
         {
           "path": "web/assets/exportStaging.js",
-          "sha256": "6beabd39105bcab1b898894f6a824e7a98bf4029e6d53b19dc890e4c591b76c2",
+          "sha256": "1a7e1671fe9b6a77f0e25c193fca498171feacfdfacdf7d23a6310523e91284c",
           "sizeBytes": 785
         },
         {
@@ -117,8 +117,13 @@
         },
         {
           "path": "web/assets/index.js",
-          "sha256": "fa24ac14300ac73513231ac3aed90f4ac3b0894c7d4dc5d26363c51c3d717e26",
-          "sizeBytes": 644446
+          "sha256": "dd008b6feefcfc1f894e131c27cbaad1fa46ce9cda8a68fc2fb5b38c5f307f05",
+          "sizeBytes": 646741
+        },
+        {
+          "path": "web/assets/persistedState.js",
+          "sha256": "fd993f6301e67650cde6f8cf1fea8fadea98d3b1c0c10bd04badeb9cf9aeae1e",
+          "sizeBytes": 257
         },
         {
           "path": "web/assets/rolldown-runtime.js",
@@ -157,8 +162,8 @@
         },
         {
           "path": "web/assets/videoExporter.js",
-          "sha256": "6964981476e93b653c5f733fec9f5d95443059b78332cf6c7b7e52d6981e0d3e",
-          "sizeBytes": 11435
+          "sha256": "b5abdc889c5fe33552ed11497e597703355e211a676ed4b45d1a245edb57de88",
+          "sizeBytes": 11450
         },
         {
           "path": "web/bg-antelope-canyon.jpg",
@@ -1027,8 +1032,8 @@
         },
         {
           "path": "web/index.html",
-          "sha256": "c1a2eedbee43edcf8f8acdde5b950d1c9c570b0a632a7321f4f8899bacfbdd11",
-          "sizeBytes": 1248
+          "sha256": "2b17715a7d57481aa77ab119c27bd307e8a31741db941a3fc145a5c1e09f1892",
+          "sizeBytes": 1324
         },
         {
           "path": "web/licenses/THIRD-PARTY-LICENSES.json",
@@ -1042,10 +1047,10 @@
         }
       ],
       "id": "screen-recorder",
-      "sha256": "d64324c186f3b733075a84185b83d6329e4b54cbe83d6bf8572fd2287be9f308",
-      "sizeBytes": 6013446,
-      "unpackedSizeBytes": 16390556,
-      "version": "5.5.3"
+      "sha256": "fe797d091e2c4208793bd284cb42e4f100c6a31931851ec1983a37f97ae79b43",
+      "sizeBytes": 6019786,
+      "unpackedSizeBytes": 16403365,
+      "version": "5.6.0"
     }
   ],
   "schemaVersion": 1

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "sequence": 13,
+  "sequence": 14,
   "channel": "stable",
-  "minHostVersion": "5.5.1",
-  "maxHostVersionExclusive": "5.6.0",
+  "minHostVersion": "5.6.0",
+  "maxHostVersionExclusive": "5.7.0",
   "contracts": [
     {
       "name": "windows-creation-v1",
