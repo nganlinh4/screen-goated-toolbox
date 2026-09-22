@@ -3,9 +3,17 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-22T17:00:54Z",
+ "generatedAt": "2026-09-22T21:23:43Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
+  {
+   "id": "poolside/laguna-xs-2.1",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 276,
+   "success_rate": 0.333,
+   "runs": 24
+  },
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
@@ -18,7 +26,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 798,
+   "p50_ms": 806,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -34,8 +42,8 @@
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 3846,
-   "success_rate": 0.792,
+   "p50_ms": 3669,
+   "success_rate": 0.833,
    "runs": 24
   }
  ]
