@@ -9,6 +9,24 @@
 - Hard Codex work: `model_reasoning_effort=xhigh` unless user asks speed.
 - No filler. Short, concrete updates. Outcome first.
 
+## External workspace hygiene
+
+- For cleanup outside this repo, inventory project-related worktrees, managed
+  development caches, temp roots, app data, and user export locations. Do not
+  assume the latest task is the whole scope.
+- Classify each target by ownership and use: disposable scratch, reusable build
+  input, active app state, user export, credential, or uncertain data. Check Git
+  status and running processes before removing a worktree or runtime state.
+- A cleanup request authorizes removal of verified disposable artifacts without
+  per-path confirmation. Resolve each target and confirm it is inside the named
+  cleanup root before recursive deletion. Use `git worktree remove` for clean
+  worktrees and `git worktree prune` for stale metadata; never force-remove a
+  dirty worktree or erase uncertain user data based on its name or age alone.
+- Finish development and release work by removing task-owned failed downloads,
+  temporary manifests, and isolated smoke state after their checks pass. Retain
+  live app data, credentials, user exports, and immutable published assets.
+  Report any intentionally retained external artifacts and why they remain.
+
 ## Code
 
 - Rust edition 2024. Windows app. `eframe` + `wgpu`; WebView2 mini apps; Android companion.
