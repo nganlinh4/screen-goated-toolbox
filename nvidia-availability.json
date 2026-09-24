@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-24T17:16:18Z",
+ "generatedAt": "2026-09-24T21:34:23Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -34,7 +34,7 @@
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 1014,
+   "p50_ms": 1016,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -50,8 +50,8 @@
    "id": "z-ai/glm-5.3",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 5202,
-   "success_rate": 0.292,
+   "p50_ms": 3555,
+   "success_rate": 0.333,
    "runs": 24
   }
  ]
