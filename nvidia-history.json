@@ -5,7 +5,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -231,7 +231,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -457,7 +457,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -683,7 +683,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -909,7 +909,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -1131,7 +1131,7 @@
    ]
   },
   "deepseek-ai/deepseek-v4.1-flash": {
-   "control": "effort-none",
+   "control": null,
    "vision": {
     "gate": 1,
     "answered": 1,
@@ -1142,8 +1142,8 @@
     "p95_ms": 4574
    },
    "eligibility_gate": 1,
-   "healthy_streak": 2,
-   "failing_streak": 0,
+   "healthy_streak": 0,
+   "failing_streak": 1,
    "eligible": false,
    "recent": [
     {
@@ -1235,6 +1235,15 @@
      "p95_ms": 5766,
      "passed": true,
      "reason": ""
+    },
+    {
+     "gate": 1,
+     "answered": 0,
+     "attempts": 3,
+     "p50_ms": null,
+     "p95_ms": null,
+     "passed": false,
+     "reason": "insufficient replies (0/3)"
     }
    ]
   },
@@ -1243,7 +1252,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -1469,7 +1478,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -1703,7 +1712,7 @@
    },
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 156,
+   "failing_streak": 157,
    "eligible": false,
    "recent": [
     {
@@ -1929,7 +1938,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -2155,7 +2164,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -2381,7 +2390,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -2607,18 +2616,9 @@
    "vision": false,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 7,
+   "failing_streak": 8,
    "eligible": false,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 3,
-     "attempts": 3,
-     "p50_ms": 1231,
-     "p95_ms": 1728,
-     "passed": true,
-     "reason": ""
-    },
     {
      "gate": 1,
      "answered": 3,
@@ -2825,6 +2825,15 @@
      "reason": "no working reasoning control",
      "p50_ms": null,
      "p95_ms": null
+    },
+    {
+     "gate": 1,
+     "answered": 0,
+     "attempts": 3,
+     "passed": false,
+     "reason": "no working reasoning control",
+     "p50_ms": null,
+     "p95_ms": null
     }
    ]
   },
@@ -2833,7 +2842,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -3059,7 +3068,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -3285,7 +3294,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -3511,7 +3520,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -3737,7 +3746,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -3963,7 +3972,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -4196,19 +4205,10 @@
     "p95_ms": 11881
    },
    "eligibility_gate": 1,
-   "healthy_streak": 17,
+   "healthy_streak": 18,
    "failing_streak": 0,
    "eligible": true,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 3,
-     "attempts": 3,
-     "p50_ms": 1074,
-     "p95_ms": 3527,
-     "passed": true,
-     "reason": ""
-    },
     {
      "gate": 1,
      "answered": 3,
@@ -4415,6 +4415,15 @@
      "p95_ms": 3203,
      "passed": true,
      "reason": ""
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 2597,
+     "p95_ms": 10954,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
@@ -4423,7 +4432,7 @@
    "vision": false,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 43,
+   "failing_streak": 44,
    "eligible": false,
    "recent": [
     {
@@ -4649,7 +4658,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -4882,19 +4891,10 @@
     "p95_ms": 3031
    },
    "eligibility_gate": 1,
-   "healthy_streak": 2,
+   "healthy_streak": 3,
    "failing_streak": 0,
-   "eligible": false,
+   "eligible": true,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 3,
-     "attempts": 3,
-     "p50_ms": 3132,
-     "p95_ms": 3638,
-     "passed": true,
-     "reason": ""
-    },
     {
      "gate": 1,
      "answered": 3,
@@ -5101,6 +5101,15 @@
      "p95_ms": 9685,
      "passed": true,
      "reason": ""
+    },
+    {
+     "gate": 1,
+     "answered": 2,
+     "attempts": 3,
+     "p50_ms": 4222,
+     "p95_ms": 5861,
+     "passed": true,
+     "reason": "no reply (000)"
     }
    ]
   },
@@ -5109,7 +5118,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -5335,7 +5344,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -5561,7 +5570,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -5787,7 +5796,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -6013,7 +6022,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -6239,7 +6248,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -6465,18 +6474,9 @@
    "vision": false,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 1,
+   "failing_streak": 2,
    "eligible": false,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 3,
-     "attempts": 3,
-     "p50_ms": 3133,
-     "p95_ms": 7390,
-     "passed": true,
-     "reason": ""
-    },
     {
      "gate": 1,
      "answered": 0,
@@ -6683,6 +6683,15 @@
      "p95_ms": null,
      "passed": false,
      "reason": "insufficient replies (0/3)"
+    },
+    {
+     "gate": 1,
+     "answered": 0,
+     "attempts": 3,
+     "passed": false,
+     "reason": "no working reasoning control",
+     "p50_ms": null,
+     "p95_ms": null
     }
    ]
   },
@@ -6691,7 +6700,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -6917,7 +6926,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -7143,18 +7152,9 @@
    "vision": false,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 60,
+   "failing_streak": 61,
    "eligible": false,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 0,
-     "attempts": 3,
-     "passed": false,
-     "reason": "no working reasoning control",
-     "p50_ms": null,
-     "p95_ms": null
-    },
     {
      "gate": 1,
      "answered": 0,
@@ -7361,6 +7361,15 @@
      "p95_ms": null,
      "passed": false,
      "reason": "insufficient replies (0/3)"
+    },
+    {
+     "gate": 1,
+     "answered": 0,
+     "attempts": 3,
+     "passed": false,
+     "reason": "no working reasoning control",
+     "p50_ms": null,
+     "p95_ms": null
     }
    ]
   },
@@ -7369,7 +7378,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -7595,7 +7604,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -7821,7 +7830,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -8047,7 +8056,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -8273,7 +8282,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -8499,7 +8508,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -8725,7 +8734,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -8950,19 +8959,10 @@
    "control": "effort-none",
    "vision": false,
    "eligibility_gate": 1,
-   "healthy_streak": 2,
+   "healthy_streak": 3,
    "failing_streak": 0,
    "eligible": true,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 3,
-     "attempts": 3,
-     "p50_ms": 521,
-     "p95_ms": 816,
-     "passed": true,
-     "reason": ""
-    },
     {
      "gate": 1,
      "answered": 3,
@@ -9169,6 +9169,15 @@
      "p95_ms": 949,
      "passed": true,
      "reason": ""
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 602,
+     "p95_ms": 751,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
@@ -9176,19 +9185,10 @@
    "control": "effort-none",
    "vision": false,
    "eligibility_gate": 1,
-   "healthy_streak": 32,
+   "healthy_streak": 33,
    "failing_streak": 0,
    "eligible": true,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 3,
-     "attempts": 3,
-     "p50_ms": 900,
-     "p95_ms": 2516,
-     "passed": true,
-     "reason": ""
-    },
     {
      "gate": 1,
      "answered": 3,
@@ -9395,6 +9395,15 @@
      "p95_ms": 4033,
      "passed": true,
      "reason": ""
+    },
+    {
+     "gate": 1,
+     "answered": 2,
+     "attempts": 3,
+     "p50_ms": 1812,
+     "p95_ms": 2424,
+     "passed": true,
+     "reason": "no reply (503)"
     }
    ]
   },
@@ -9402,19 +9411,10 @@
    "control": "effort-none",
    "vision": false,
    "eligibility_gate": 1,
-   "healthy_streak": 3,
+   "healthy_streak": 4,
    "failing_streak": 0,
    "eligible": true,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 2,
-     "attempts": 3,
-     "p50_ms": 1644,
-     "p95_ms": 2592,
-     "passed": true,
-     "reason": "no reply (000)"
-    },
     {
      "gate": 1,
      "answered": 3,
@@ -9621,6 +9621,15 @@
      "p95_ms": 425,
      "passed": true,
      "reason": "no reply (000)"
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 641,
+     "p95_ms": 3739,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
@@ -9629,7 +9638,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -9855,7 +9864,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -10081,7 +10090,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -10307,7 +10316,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -10533,7 +10542,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -10758,19 +10767,10 @@
    "control": "plain",
    "vision": false,
    "eligibility_gate": 1,
-   "healthy_streak": 192,
+   "healthy_streak": 193,
    "failing_streak": 0,
    "eligible": true,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 3,
-     "attempts": 3,
-     "p50_ms": 648,
-     "p95_ms": 698,
-     "passed": true,
-     "reason": ""
-    },
     {
      "gate": 1,
      "answered": 3,
@@ -10977,6 +10977,15 @@
      "p95_ms": 3268,
      "passed": true,
      "reason": ""
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 824,
+     "p95_ms": 2164,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
@@ -10984,19 +10993,10 @@
    "control": "plain",
    "vision": false,
    "eligibility_gate": 1,
-   "healthy_streak": 3,
+   "healthy_streak": 4,
    "failing_streak": 0,
    "eligible": true,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 3,
-     "attempts": 3,
-     "p50_ms": 572,
-     "p95_ms": 615,
-     "passed": true,
-     "reason": ""
-    },
     {
      "gate": 1,
      "answered": 3,
@@ -11203,6 +11203,15 @@
      "p95_ms": 1149,
      "passed": true,
      "reason": ""
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 1299,
+     "p95_ms": 1643,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
@@ -11211,7 +11220,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -11437,18 +11446,9 @@
    "vision": false,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 3,
+   "failing_streak": 4,
    "eligible": false,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 2,
-     "attempts": 3,
-     "p50_ms": 8894,
-     "p95_ms": 9638,
-     "passed": false,
-     "reason": "too slow (8894ms)"
-    },
     {
      "gate": 1,
      "answered": 3,
@@ -11655,17 +11655,7 @@
      "reason": "no working reasoning control",
      "p50_ms": null,
      "p95_ms": null
-    }
-   ]
-  },
-  "poolside/laguna-xs-2.1": {
-   "control": "plain",
-   "vision": false,
-   "eligibility_gate": 1,
-   "healthy_streak": 6,
-   "failing_streak": 0,
-   "eligible": true,
-   "recent": [
+    },
     {
      "gate": 1,
      "answered": 0,
@@ -11674,7 +11664,17 @@
      "reason": "no working reasoning control",
      "p50_ms": null,
      "p95_ms": null
-    },
+    }
+   ]
+  },
+  "poolside/laguna-xs-2.1": {
+   "control": "plain",
+   "vision": false,
+   "eligibility_gate": 1,
+   "healthy_streak": 0,
+   "failing_streak": 1,
+   "eligible": true,
+   "recent": [
     {
      "gate": 1,
      "answered": 1,
@@ -11881,6 +11881,15 @@
      "p95_ms": 440,
      "passed": true,
      "reason": "no reply (503)"
+    },
+    {
+     "gate": 1,
+     "answered": 2,
+     "attempts": 3,
+     "p50_ms": 10136,
+     "p95_ms": 11844,
+     "passed": false,
+     "reason": "too slow (10136ms)"
     }
    ]
   },
@@ -11889,7 +11898,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -12115,7 +12124,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -12341,7 +12350,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -12567,7 +12576,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
@@ -12792,19 +12801,10 @@
    "control": "plain",
    "vision": false,
    "eligibility_gate": 1,
-   "healthy_streak": 3,
+   "healthy_streak": 4,
    "failing_streak": 0,
    "eligible": true,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 1,
-     "attempts": 3,
-     "p50_ms": 9673,
-     "p95_ms": 9673,
-     "passed": false,
-     "reason": "insufficient replies (1/3)"
-    },
     {
      "gate": 1,
      "answered": 2,
@@ -13011,6 +13011,15 @@
      "p95_ms": 1728,
      "passed": true,
      "reason": ""
+    },
+    {
+     "gate": 1,
+     "answered": 3,
+     "attempts": 3,
+     "p50_ms": 3371,
+     "p95_ms": 3377,
+     "passed": true,
+     "reason": ""
     }
    ]
   },
@@ -13027,18 +13036,9 @@
    },
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 9,
+   "failing_streak": 10,
    "eligible": false,
    "recent": [
-    {
-     "gate": 1,
-     "answered": 0,
-     "attempts": 3,
-     "passed": false,
-     "reason": "no working reasoning control",
-     "p50_ms": null,
-     "p95_ms": null
-    },
     {
      "gate": 1,
      "answered": 0,
@@ -13245,6 +13245,15 @@
      "reason": "no working reasoning control",
      "p50_ms": null,
      "p95_ms": null
+    },
+    {
+     "gate": 1,
+     "answered": 0,
+     "attempts": 3,
+     "passed": false,
+     "reason": "no working reasoning control",
+     "p50_ms": null,
+     "p95_ms": null
     }
    ]
   },
@@ -13253,7 +13262,7 @@
    "vision": null,
    "eligibility_gate": 1,
    "healthy_streak": 0,
-   "failing_streak": 192,
+   "failing_streak": 193,
    "eligible": false,
    "recent": [
     {
