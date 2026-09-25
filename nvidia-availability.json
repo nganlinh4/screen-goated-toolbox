@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-25T00:34:53Z",
+ "generatedAt": "2026-09-25T07:54:41Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -18,7 +18,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 823,
+   "p50_ms": 785,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -42,8 +42,8 @@
    "id": "z-ai/glm-5.3",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 3463,
-   "success_rate": 0.375,
+   "p50_ms": 3555,
+   "success_rate": 0.417,
    "runs": 24
   }
  ]
