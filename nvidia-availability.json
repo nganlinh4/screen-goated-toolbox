@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-26T11:31:26Z",
+ "generatedAt": "2026-09-26T16:28:12Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 491,
+   "p50_ms": 510,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -18,7 +18,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 758,
+   "p50_ms": 766,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -28,6 +28,14 @@
    "modality": "vision",
    "p50_ms": 949,
    "success_rate": 1.0,
+   "runs": 24
+  },
+  {
+   "id": "google/diffusiongemma-26b-a4b-it",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 1005,
+   "success_rate": 0.208,
    "runs": 24
   },
   {
@@ -42,24 +50,24 @@
    "id": "meta/muse-glimmer-30b",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 2810,
+   "p50_ms": 2783,
    "success_rate": 0.792,
-   "runs": 24
-  },
-  {
-   "id": "moonshotai/kimi-k3",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 3125,
-   "success_rate": 0.167,
    "runs": 24
   },
   {
    "id": "z-ai/glm-5.3",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 3463,
-   "success_rate": 0.5,
+   "p50_ms": 3371,
+   "success_rate": 0.542,
+   "runs": 24
+  },
+  {
+   "id": "moonshotai/kimi-k3",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 3756,
+   "success_rate": 0.208,
    "runs": 24
   }
  ]
