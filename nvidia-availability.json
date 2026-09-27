@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-27T18:28:34Z",
+ "generatedAt": "2026-09-27T23:06:20Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -18,7 +18,7 @@
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 721,
+   "p50_ms": 679,
    "success_rate": 0.708,
    "runs": 24
   },
@@ -26,7 +26,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 766,
+   "p50_ms": 790,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -34,7 +34,7 @@
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 850,
+   "p50_ms": 825,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -42,16 +42,16 @@
    "id": "google/diffusiongemma-26b-a4b-it",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 896,
-   "success_rate": 0.417,
+   "p50_ms": 1005,
+   "success_rate": 0.458,
    "runs": 24
   },
   {
-   "id": "meta/muse-glimmer-30b",
+   "id": "google/gemma-4-31b-it",
    "control": "plain",
-   "modality": "vision",
-   "p50_ms": 2783,
-   "success_rate": 0.792,
+   "modality": "text",
+   "p50_ms": 1321,
+   "success_rate": 0.5,
    "runs": 24
   },
   {
