@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-09-28T14:04:41Z",
+ "generatedAt": "2026-09-28T20:35:25Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -19,14 +19,14 @@
    "control": "effort-none",
    "modality": "text",
    "p50_ms": 679,
-   "success_rate": 0.708,
+   "success_rate": 0.75,
    "runs": 24
   },
   {
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 790,
+   "p50_ms": 766,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -42,15 +42,23 @@
    "id": "google/diffusiongemma-26b-a4b-it",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 1005,
-   "success_rate": 0.542,
+   "p50_ms": 1114,
+   "success_rate": 0.583,
+   "runs": 24
+  },
+  {
+   "id": "google/gemma-4-31b-it",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 1321,
+   "success_rate": 0.583,
    "runs": 24
   },
   {
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 3842,
+   "p50_ms": 3309,
    "success_rate": 0.542,
    "runs": 24
   }
