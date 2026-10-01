@@ -3,15 +3,15 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-01T13:25:45Z",
+ "generatedAt": "2026-10-01T19:35:43Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 308,
-   "success_rate": 0.375,
+   "p50_ms": 310,
+   "success_rate": 0.417,
    "runs": 24
   },
   {
@@ -50,8 +50,16 @@
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2337,
-   "success_rate": 0.75,
+   "p50_ms": 2427,
+   "success_rate": 0.792,
+   "runs": 24
+  },
+  {
+   "id": "meta/llama-3.2-90b-vision-instruct",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 2571,
+   "success_rate": 0.125,
    "runs": 24
   },
   {
@@ -59,15 +67,7 @@
    "control": "effort-low",
    "modality": "text",
    "p50_ms": 3006,
-   "success_rate": 0.583,
-   "runs": 24
-  },
-  {
-   "id": "z-ai/glm-5.3-flash",
-   "control": "effort-low",
-   "modality": "vision",
-   "p50_ms": 3318,
-   "success_rate": 0.167,
+   "success_rate": 0.625,
    "runs": 24
   }
  ]
