@@ -3,14 +3,22 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-02T12:44:08Z",
+ "generatedAt": "2026-10-02T19:22:10Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
+  {
+   "id": "poolside/laguna-xs-2.1",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 310,
+   "success_rate": 0.542,
+   "runs": 24
+  },
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 461,
+   "p50_ms": 456,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -18,7 +26,7 @@
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 521,
+   "p50_ms": 487,
    "success_rate": 0.917,
    "runs": 24
   },
@@ -34,7 +42,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 811,
+   "p50_ms": 858,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -42,8 +50,8 @@
    "id": "meta/llama-3.2-90b-vision-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1728,
-   "success_rate": 0.25,
+   "p50_ms": 1874,
+   "success_rate": 0.292,
    "runs": 24
   },
   {
@@ -52,6 +60,14 @@
    "modality": "text",
    "p50_ms": 1978,
    "success_rate": 0.875,
+   "runs": 24
+  },
+  {
+   "id": "meta/muse-glimmer-30b",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 5971,
+   "success_rate": 0.417,
    "runs": 24
   }
  ]
