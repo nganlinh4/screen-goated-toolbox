@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-03T21:22:40Z",
+ "generatedAt": "2026-10-04T00:42:15Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 487,
+   "p50_ms": 481,
    "success_rate": 0.917,
    "runs": 24
   },
@@ -18,7 +18,7 @@
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 654,
+   "p50_ms": 702,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -26,7 +26,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 916,
+   "p50_ms": 766,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -42,8 +42,8 @@
    "id": "z-ai/glm-5.3",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 3280,
-   "success_rate": 0.458,
+   "p50_ms": 3006,
+   "success_rate": 0.5,
    "runs": 24
   }
  ]
