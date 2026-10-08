@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-08T06:12:57Z",
+ "generatedAt": "2026-10-08T13:38:37Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -20,7 +20,7 @@
    "modality": "text",
    "p50_ms": 354,
    "success_rate": 1.0,
-   "runs": 17
+   "runs": 18
   },
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
@@ -34,15 +34,15 @@
    "id": "google/diffusiongemma-26b-a4b-it",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 611,
-   "success_rate": 0.458,
+   "p50_ms": 609,
+   "success_rate": 0.5,
    "runs": 24
   },
   {
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 685,
+   "p50_ms": 713,
    "success_rate": 1.0,
    "runs": 24
   },
