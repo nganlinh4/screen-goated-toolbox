@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-08T13:38:37Z",
+ "generatedAt": "2026-10-08T19:58:51Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -11,7 +11,7 @@
    "control": "plain",
    "modality": "text",
    "p50_ms": 335,
-   "success_rate": 0.625,
+   "success_rate": 0.667,
    "runs": 24
   },
   {
@@ -20,7 +20,7 @@
    "modality": "text",
    "p50_ms": 354,
    "success_rate": 1.0,
-   "runs": 18
+   "runs": 19
   },
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
@@ -34,8 +34,8 @@
    "id": "google/diffusiongemma-26b-a4b-it",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 609,
-   "success_rate": 0.5,
+   "p50_ms": 611,
+   "success_rate": 0.542,
    "runs": 24
   },
   {
@@ -50,7 +50,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 922,
+   "p50_ms": 1002,
    "success_rate": 0.917,
    "runs": 24
   },
@@ -60,6 +60,14 @@
    "modality": "text",
    "p50_ms": 1454,
    "success_rate": 1.0,
+   "runs": 24
+  },
+  {
+   "id": "meta/llama-3.2-90b-vision-instruct",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 2474,
+   "success_rate": 0.583,
    "runs": 24
   }
  ]
