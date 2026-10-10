@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-10T12:39:08Z",
+ "generatedAt": "2026-10-10T18:40:27Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 356,
+   "p50_ms": 360,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -23,19 +23,27 @@
    "runs": 24
   },
   {
-   "id": "meta/llama-3.2-11b-vision-instruct",
-   "control": "plain",
+   "id": "z-ai/glm-5.3-flash",
+   "control": "effort-low",
    "modality": "vision",
-   "p50_ms": 736,
-   "success_rate": 1.0,
+   "p50_ms": 563,
+   "success_rate": 0.125,
    "runs": 24
   },
   {
    "id": "google/diffusiongemma-26b-a4b-it",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 755,
-   "success_rate": 0.792,
+   "p50_ms": 683,
+   "success_rate": 0.833,
+   "runs": 24
+  },
+  {
+   "id": "meta/llama-3.2-11b-vision-instruct",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 717,
+   "success_rate": 1.0,
    "runs": 24
   },
   {
@@ -50,8 +58,16 @@
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1556,
+   "p50_ms": 1510,
    "success_rate": 0.958,
+   "runs": 24
+  },
+  {
+   "id": "meta/muse-glimmer-30b",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 4713,
+   "success_rate": 0.583,
    "runs": 24
   },
   {
