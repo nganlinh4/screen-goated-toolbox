@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-11T12:58:36Z",
+ "generatedAt": "2026-10-11T18:58:12Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3-super-120b-a12b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 375,
+   "p50_ms": 384,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -26,8 +26,8 @@
    "id": "google/diffusiongemma-26b-a4b-it",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 611,
-   "success_rate": 0.958,
+   "p50_ms": 683,
+   "success_rate": 1.0,
    "runs": 24
   },
   {
@@ -35,7 +35,7 @@
    "control": "effort-low",
    "modality": "vision",
    "p50_ms": 712,
-   "success_rate": 0.25,
+   "success_rate": 0.292,
    "runs": 24
   },
   {
@@ -50,7 +50,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 844,
+   "p50_ms": 849,
    "success_rate": 0.917,
    "runs": 24
   },
@@ -66,8 +66,8 @@
    "id": "z-ai/glm-5.3",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 3929,
-   "success_rate": 0.542,
+   "p50_ms": 3989,
+   "success_rate": 0.583,
    "runs": 24
   },
   {
