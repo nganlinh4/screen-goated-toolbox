@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-14T07:43:08Z",
+ "generatedAt": "2026-10-14T13:47:17Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -12,6 +12,14 @@
    "modality": "text",
    "p50_ms": 336,
    "success_rate": 1.0,
+   "runs": 24
+  },
+  {
+   "id": "poolside/laguna-xs-2.1",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 391,
+   "success_rate": 0.458,
    "runs": 24
   },
   {
@@ -26,7 +34,7 @@
    "id": "google/diffusiongemma-26b-a4b-it",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 547,
+   "p50_ms": 472,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -34,7 +42,7 @@
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 756,
+   "p50_ms": 778,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -50,7 +58,7 @@
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1833,
+   "p50_ms": 1886,
    "success_rate": 0.917,
    "runs": 24
   }
