@@ -43,23 +43,14 @@ pub fn internal_create_window_loop() {
         crate::log_info!("[TextInput] Class Registered");
 
         crate::log_info!("[TextInput] Calculating scale...");
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let area = crate::overlay::display_placement::primary_work_area();
         let scale = {
             let dpi = GetDpiForSystem();
             crate::log_info!("[TextInput] System DPI: {}", dpi);
             dpi as f64 / 96.0
         };
-        // Width scaling: matches 800px physical at 1.25 scale (Laptop preferred),
-        // but creates ~580px physical at 1.0 scale (PC preferred, narrower than 640).
-        let mut win_w = ((880.0 * scale) - 300.0).round() as i32;
-
-        // User requested smaller width for 1920x1080 laptops (usually scale > 1.0)
-        // Current formula gives 800px at 1.25 scale, which is too wide.
-        // We reduce it by 15% to ~680px for this specific case.
-        if screen_w == 1920 && scale > 1.1 {
-            win_w = (win_w as f64 * 0.85).round() as i32;
-        }
-        let win_h = (253.0 * scale).round() as i32;
+        let win_w = ((560.0 * scale).round() as i32).min(area.width);
+        let win_h = ((253.0 * scale).round() as i32).min(area.height);
 
         crate::log_info!(
             "[TextInput] Creating window: scale={:.2}, width={}, height={}",

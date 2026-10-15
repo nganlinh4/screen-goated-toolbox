@@ -20,12 +20,12 @@ pub fn get_rect_with_saved_geometry(preset_id: &str, original_rect: RECT) -> REC
         // Only apply saved geometry for non-image presets
         let is_image_category = preset.preset_type == "image";
         if !is_image_category && let Some(geom) = &preset.window_geometry {
-            return RECT {
+            return crate::overlay::display_placement::fit_rect_to_work_area(RECT {
                 left: geom.x,
                 top: geom.y,
                 right: geom.x + geom.width,
                 bottom: geom.y + geom.height,
-            };
+            });
         }
     }
     original_rect
@@ -60,7 +60,7 @@ pub fn get_next_window_position_for_chain(chain_id: &str, initial_rect: RECT) ->
             ..Default::default()
         };
         if GetMonitorInfoW(h_monitor, &mut mi).as_bool() {
-            mi.rcMonitor
+            mi.rcWork
         } else {
             RECT {
                 left: 0,
@@ -81,6 +81,7 @@ pub fn get_next_window_position_for_chain(chain_id: &str, initial_rect: RECT) ->
             calculate_next_window_rect(prev, monitor_rect)
         }
     };
+    let next_rect = crate::overlay::display_placement::fit_rect_to_work_area(next_rect);
 
     // Update last position for this chain
     positions.insert(chain_id.to_string(), next_rect);

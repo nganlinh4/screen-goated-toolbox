@@ -7,12 +7,16 @@ use super::state::*;
 use crate::config::get_all_languages;
 use crate::gui::locale::LocaleText;
 use crate::overlay::realtime_html::{RealtimeHtmlOptions, get_realtime_html};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, HWND_TOPMOST, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SW_HIDE,
-    SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, ShowWindow,
+    GetSystemMetrics, HWND_TOPMOST, IsWindowVisible, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, ShowWindow,
 };
 use wry::{Rect, WebViewBuilder};
+
+static PAINT_REQUEST: AtomicU64 = AtomicU64::new(0);
+static LAYOUT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub fn create_realtime_webview(
     hwnd: HWND,
@@ -255,13 +259,29 @@ fn apply_layout(hwnd: HWND, active: bool) {
     let snapshot = layout::snapshot_for_renderer();
     layout::apply_native_region(hwnd);
     let payload = serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".into());
-    evaluate(&format!("window.applyRealtimeLayout?.({payload});"));
-    if active {
+    LAYOUT_ACTIVE.store(active, Ordering::SeqCst);
+    let already_visible = unsafe { IsWindowVisible(hwnd).as_bool() };
+    let paint_request = PAINT_REQUEST.fetch_add(1, Ordering::SeqCst) + 1;
+    evaluate(&format!(
+        "window.applyRealtimeLayout?.({payload},{});",
+        if active && !already_visible {
+            paint_request
+        } else {
+            0
+        }
+    ));
+    if active && already_visible {
         show_for_layout(hwnd);
-    } else {
+    } else if !active {
         unsafe {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
+    }
+}
+
+pub(super) fn reveal_after_paint(hwnd: HWND, request: u64) {
+    if LAYOUT_ACTIVE.load(Ordering::SeqCst) && request == PAINT_REQUEST.load(Ordering::SeqCst) {
+        show_for_layout(hwnd);
     }
 }
 

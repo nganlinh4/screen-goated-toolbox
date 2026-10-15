@@ -1,24 +1,53 @@
 use super::*;
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
+};
 use wry::WebView;
 
 /// Reposition the badge window to bottom-center of the primary screen and show it.
 /// Shared by the queue-processing and progress-update handlers.
 fn show_badge_centered(hwnd: HWND) {
     unsafe {
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
-        let screen_h = GetSystemMetrics(SM_CYSCREEN);
-        let x = (screen_w - BADGE_WIDTH) / 2;
-        let y = screen_h - BADGE_HEIGHT - 100;
+        let monitor = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        let work = if GetMonitorInfoW(monitor, &mut info).as_bool() {
+            info.rcWork
+        } else {
+            RECT {
+                left: 0,
+                top: 0,
+                right: GetSystemMetrics(SM_CXSCREEN).max(1),
+                bottom: GetSystemMetrics(SM_CYSCREEN).max(1),
+            }
+        };
+        let width = BADGE_WIDTH.min(work.right - work.left);
+        let height = BADGE_HEIGHT.min(work.bottom - work.top);
+        let x = work.left + (work.right - work.left - width) / 2;
+        let y = (work.bottom - height - 100).max(work.top);
 
         let _ = SetWindowPos(
             hwnd,
             Some(HWND_TOPMOST),
             x,
             y,
-            BADGE_WIDTH,
-            BADGE_HEIGHT,
+            width,
+            height,
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         );
+        BADGE_WEBVIEW.with(|slot| {
+            if let Some(webview) = slot.borrow().as_ref() {
+                let _ = webview.set_bounds(wry::Rect {
+                    position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                        width as u32,
+                        height as u32,
+                    )),
+                });
+            }
+        });
     }
 }
 

@@ -155,7 +155,7 @@ fn rebuild_native_region(hwnd: HWND) {
                 let _ = DeleteObject(region.into());
             }
         }
-        let _ = SetWindowRgn(hwnd, Some(combined), true);
+        let _ = SetWindowRgn(hwnd, Some(combined), false);
     }
 }
 

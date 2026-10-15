@@ -30,6 +30,8 @@ pub(crate) static PENDING_DISMISS_LABEL: LazyLock<Mutex<String>> =
 pub(crate) static PENDING_CSS: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new(String::new()));
 pub(crate) static PENDING_POS: LazyLock<Mutex<(i32, i32)>> = LazyLock::new(|| Mutex::new((0, 0)));
+pub(crate) static PENDING_SIZE: LazyLock<Mutex<(i32, i32)>> =
+    LazyLock::new(|| Mutex::new((WHEEL_WIDTH, WHEEL_HEIGHT)));
 
 thread_local! {
     pub(crate) static WHEEL_WEBVIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };

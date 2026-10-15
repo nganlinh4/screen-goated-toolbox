@@ -130,12 +130,12 @@ unsafe fn internal_create_loop() {
         let _ = RegisterClassW(&wc);
     });
 
-    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-    let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    let area = crate::overlay::display_placement::primary_work_area();
+    let screen_w = area.width;
+    let screen_h = area.height;
     let width = ((screen_w as f64 * 0.50) as i32).clamp(820, 1100);
     let height = ((screen_h as f64 * 0.55) as i32).clamp(540, 720);
-    let x = (screen_w - width) / 2;
-    let y = (screen_h - height) / 2;
+    let rect = area.centered(width, height);
 
     let title = HSTRING::from(
         crate::gui::locale::LocaleText::get(&super::current_ui_language())
@@ -149,10 +149,10 @@ unsafe fn internal_create_loop() {
             class_name,
             PCWSTR(title.as_ptr()),
             WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_SYSMENU,
-            x,
-            y,
-            width,
-            height,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
             None,
             None,
             Some(instance.into()),

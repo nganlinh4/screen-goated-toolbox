@@ -2,7 +2,8 @@ use super::html::generate_items_html;
 use super::runtime::internal_create_window_loop;
 use super::state::{
     IS_WARMED_UP, IS_WARMING_UP, PENDING_CSS, PENDING_DISMISS_LABEL, PENDING_ITEMS_HTML,
-    PENDING_POS, WHEEL_ACTIVE, WHEEL_HEIGHT, WHEEL_HWND, WHEEL_RESULT, WHEEL_WIDTH, WheelEntry,
+    PENDING_POS, PENDING_SIZE, WHEEL_ACTIVE, WHEEL_HEIGHT, WHEEL_HWND, WHEEL_RESULT, WHEEL_WIDTH,
+    WheelEntry,
 };
 use super::styles::generate_css;
 use crate::APP;
@@ -11,8 +12,7 @@ use crate::gui::settings_ui::get_localized_preset_name;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::{LPARAM, POINT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetSystemMetrics, MSG, PM_REMOVE, PeekMessageW, PostMessageW,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, TranslateMessage,
+    DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, TranslateMessage,
 };
 
 pub fn warmup() {
@@ -117,22 +117,19 @@ fn show_entries(entries: Vec<WheelEntry>, center_pos: POINT, ui_lang: &str) -> O
         WHEEL_RESULT.store(-1, Ordering::SeqCst);
         WHEEL_ACTIVE.store(true, Ordering::SeqCst);
 
-        let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-        let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-        let win_x = (center_pos.x - WHEEL_WIDTH / 2)
-            .max(screen_x)
-            .min(screen_x + screen_w - WHEEL_WIDTH);
-        let win_y = (center_pos.y - WHEEL_HEIGHT / 2)
-            .max(screen_y)
-            .min(screen_y + screen_h - WHEEL_HEIGHT);
+        let area = crate::overlay::display_placement::work_area_at_point(center_pos);
+        let rect = area.fit(
+            center_pos.x - WHEEL_WIDTH / 2,
+            center_pos.y - WHEEL_HEIGHT / 2,
+            WHEEL_WIDTH,
+            WHEEL_HEIGHT,
+        );
 
         *PENDING_ITEMS_HTML.lock().unwrap() = generate_items_html(&entries);
         *PENDING_DISMISS_LABEL.lock().unwrap() = dismiss_label(ui_lang).to_string();
         *PENDING_CSS.lock().unwrap() = generate_css(crate::overlay::is_dark_mode());
-        *PENDING_POS.lock().unwrap() = (win_x, win_y);
+        *PENDING_POS.lock().unwrap() = (rect.left, rect.top);
+        *PENDING_SIZE.lock().unwrap() = (rect.right - rect.left, rect.bottom - rect.top);
 
         let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
         let wheel_hwnd = windows::Win32::Foundation::HWND(hwnd_val as *mut _);

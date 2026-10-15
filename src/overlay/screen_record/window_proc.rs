@@ -67,8 +67,9 @@ pub(super) unsafe extern "system" fn sr_wnd_proc(
             WM_NCHITTEST => handle_nchittest(hwnd, lparam),
             WM_GETMINMAXINFO => {
                 let info = &mut *(lparam.0 as *mut MINMAXINFO);
-                info.ptMinTrackSize.x = 800;
-                info.ptMinTrackSize.y = 500;
+                let area = crate::overlay::display_placement::window_work_area(hwnd);
+                info.ptMinTrackSize.x = 800.min(area.width);
+                info.ptMinTrackSize.y = 500.min(area.height);
                 LRESULT(0)
             }
             WM_EXITSIZEMOVE => {

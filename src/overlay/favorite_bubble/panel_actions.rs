@@ -10,8 +10,8 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetSystemMetrics, GetWindowRect, PostMessageW, SM_CXSCREEN, SWP_NOACTIVATE,
-    SWP_NOCOPYBITS, SWP_NOZORDER, SetForegroundWindow, SetWindowPos, WM_HOTKEY,
+    FindWindowW, GetWindowRect, PostMessageW, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOZORDER,
+    SetForegroundWindow, SetWindowPos, WM_HOTKEY,
 };
 use windows::core::w;
 use wry::Rect;
@@ -152,9 +152,12 @@ pub(super) fn resize_panel_height(content_height: i32) {
         let _ = GetWindowRect(bubble_hwnd, &mut bubble_rect);
 
         // Recalculate Y position to keep centered on bubble
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let area = crate::overlay::display_placement::work_area_at_point(POINT {
+            x: bubble_rect.left,
+            y: bubble_rect.top,
+        });
         let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
-        let (_panel_x, panel_y) = if bubble_rect.left > screen_w / 2 {
+        let (_panel_x, panel_y) = if bubble_rect.left > area.x + area.width / 2 {
             (
                 bubble_rect.left - current_width - 4,
                 bubble_rect.top - new_height_pixels / 2 + bubble_size / 2,
@@ -167,15 +170,16 @@ pub(super) fn resize_panel_height(content_height: i32) {
         };
 
         // Clamp Y
-        let actual_panel_y = panel_y.max(10);
+        let fitted = area.fit(panel_rect.left, panel_y, current_width, new_height_pixels);
+        let actual_panel_y = fitted.top;
 
         let _ = SetWindowPos(
             panel_hwnd,
             None,
-            panel_rect.left, // Keep X
+            fitted.left,
             actual_panel_y,
-            current_width,
-            new_height_pixels,
+            fitted.right - fitted.left,
+            fitted.bottom - fitted.top,
             SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
         );
 
@@ -185,8 +189,8 @@ pub(super) fn resize_panel_height(content_height: i32) {
                 let _ = webview.set_bounds(Rect {
                     position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                        current_width as u32,
-                        new_height_pixels as u32,
+                        (fitted.right - fitted.left) as u32,
+                        (fitted.bottom - fitted.top) as u32,
                     )),
                 });
             }

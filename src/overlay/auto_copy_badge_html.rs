@@ -134,7 +134,7 @@ pub(super) fn get_badge_html() -> String {
     }}
 
     .progress-badge {{
-        min-width: 360px;
+        min-width: min(360px, 90%);
         max-width: 70%;
         padding: 10px 18px 12px;
         gap: 6px;

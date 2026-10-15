@@ -1,6 +1,6 @@
 //! Input simulation: paste (Ctrl+V) and type text to target windows.
 
-use super::{is_text_input_focused, warn_no_caret};
+use super::{is_text_input_focused, paste_diagnostics, warn_no_caret};
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
@@ -19,39 +19,59 @@ pub fn get_target_window_for_paste() -> Option<HWND> {
     }
 }
 
-pub fn force_focus_and_paste(hwnd_target: HWND) {
+pub fn force_focus_and_paste(hwnd_target: HWND, diagnostic_id: u64) {
     unsafe {
+        paste_diagnostics::focus(diagnostic_id, "before_focus", Some(hwnd_target));
         // 1. Force focus back to the target window
         if IsWindow(Some(hwnd_target)).as_bool() {
             let cur_thread = GetCurrentThreadId();
             let target_thread = GetWindowThreadProcessId(hwnd_target, None);
 
             if cur_thread != target_thread {
-                let _ = AttachThreadInput(cur_thread, target_thread, true);
-                let _ = SetForegroundWindow(hwnd_target);
+                let attached = AttachThreadInput(cur_thread, target_thread, true).as_bool();
+                let foreground_set = SetForegroundWindow(hwnd_target).as_bool();
                 // Important: Bring window to top so it receives input
-                let _ = BringWindowToTop(hwnd_target);
-                let _ = SetFocus(Some(hwnd_target));
-                let _ = AttachThreadInput(cur_thread, target_thread, false);
+                let brought_to_top = BringWindowToTop(hwnd_target).is_ok();
+                let previous_focus = SetFocus(Some(hwnd_target));
+                let detached = AttachThreadInput(cur_thread, target_thread, false).as_bool();
+                if paste_diagnostics::enabled() {
+                    crate::log_info!(
+                        "[AutoPasteBatch] id={diagnostic_id} stage=focus_calls attached={attached} foreground_set={foreground_set} brought_to_top={brought_to_top} previous_focus={previous_focus:?} detached={detached}"
+                    );
+                }
             } else {
-                let _ = SetForegroundWindow(hwnd_target);
+                let foreground_set = SetForegroundWindow(hwnd_target).as_bool();
+                if paste_diagnostics::enabled() {
+                    crate::log_info!(
+                        "[AutoPasteBatch] id={diagnostic_id} stage=focus_calls same_thread=true foreground_set={foreground_set}"
+                    );
+                }
             }
         } else {
+            paste_diagnostics::focus(diagnostic_id, "invalid_target", Some(hwnd_target));
             return;
         }
 
         // 2. Wait for focus to settle
         std::thread::sleep(std::time::Duration::from_millis(350));
+        paste_diagnostics::focus(diagnostic_id, "after_focus", Some(hwnd_target));
 
         // 2.5 Warn if no writable area detected (but never block — detection can miss valid targets)
-        if !is_text_input_focused() {
+        let text_input_focused = is_text_input_focused();
+        if paste_diagnostics::enabled() {
+            crate::log_info!(
+                "[AutoPasteBatch] id={diagnostic_id} stage=caret_probe detected={text_input_focused}"
+            );
+        }
+        if !text_input_focused {
             warn_no_caret();
             // Don't return — proceed with paste anyway since detection can be wrong
         }
 
         // 3. CLEANUP MODIFIERS SMARTLY
         // Only send KeyUp if the key is actually physically pressed to avoid side effects
-        let release_if_pressed = |vk: u16| {
+        let mut released_modifiers = 0;
+        let mut release_if_pressed = |vk: u16| {
             let state = GetAsyncKeyState(vk as i32);
             if (state as u16 & 0x8000) != 0 {
                 let input = INPUT {
@@ -64,7 +84,7 @@ pub fn force_focus_and_paste(hwnd_target: HWND) {
                         },
                     },
                 };
-                SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                released_modifiers += SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
             }
         };
 
@@ -75,6 +95,7 @@ pub fn force_focus_and_paste(hwnd_target: HWND) {
         release_if_pressed(VK_CONTROL.0); // Ctrl
 
         std::thread::sleep(std::time::Duration::from_millis(50));
+        paste_diagnostics::focus(diagnostic_id, "before_keys", Some(hwnd_target));
 
         // 4. Send Ctrl+V Sequence
         let send_input_event = |vk: u16, flags: KEYBD_EVENT_FLAGS| {
@@ -90,22 +111,28 @@ pub fn force_focus_and_paste(hwnd_target: HWND) {
                     },
                 },
             };
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+            SendInput(&[input], std::mem::size_of::<INPUT>() as i32)
         };
 
         // Ctrl Down
-        send_input_event(VK_CONTROL.0, KEYBD_EVENT_FLAGS(0));
+        let ctrl_down = send_input_event(VK_CONTROL.0, KEYBD_EVENT_FLAGS(0));
         std::thread::sleep(std::time::Duration::from_millis(50));
 
         // V Down
-        send_input_event(VK_V.0, KEYBD_EVENT_FLAGS(0));
+        let v_down = send_input_event(VK_V.0, KEYBD_EVENT_FLAGS(0));
         std::thread::sleep(std::time::Duration::from_millis(50));
 
         // V Up
-        send_input_event(VK_V.0, KEYEVENTF_KEYUP);
+        let v_up = send_input_event(VK_V.0, KEYEVENTF_KEYUP);
         std::thread::sleep(std::time::Duration::from_millis(50));
 
         // Ctrl Up
-        send_input_event(VK_CONTROL.0, KEYEVENTF_KEYUP);
+        let ctrl_up = send_input_event(VK_CONTROL.0, KEYEVENTF_KEYUP);
+        if paste_diagnostics::enabled() {
+            crate::log_info!(
+                "[AutoPasteBatch] id={diagnostic_id} stage=keys_sent released_modifiers={released_modifiers} ctrl_down={ctrl_down} v_down={v_down} v_up={v_up} ctrl_up={ctrl_up}"
+            );
+        }
+        paste_diagnostics::focus(diagnostic_id, "after_keys", Some(hwnd_target));
     }
 }

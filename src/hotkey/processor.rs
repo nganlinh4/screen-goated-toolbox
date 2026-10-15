@@ -205,7 +205,15 @@ fn handle_hotkey(id: i32) {
     if !is_audio_stopping {
         let target_window = overlay::utils::get_target_window_for_paste();
         if let Ok(mut app) = APP.lock() {
+            let diagnose = app
+                .config
+                .presets
+                .get(preset_idx)
+                .is_some_and(|preset| preset.auto_paste);
             app.last_active_window = target_window.map(SendHwnd);
+            if diagnose {
+                overlay::utils::paste_diagnostics::focus(0, "hotkey_capture", target_window);
+            }
         }
     }
 

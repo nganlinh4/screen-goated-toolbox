@@ -103,11 +103,20 @@ fn cursor_rect() -> crate::overlay::status_compositor::protocol::PhysicalRect {
     unsafe {
         let _ = GetCursorPos(&mut point);
     }
+    let area = crate::overlay::display_placement::work_area_at_point(point);
+    let scale = crate::overlay::display_placement::primary_scale();
+    let rect = area.near_point(
+        point,
+        OFFSET_X,
+        OFFSET_Y,
+        (f64::from(BADGE_WIDTH) * scale).round() as i32,
+        (f64::from(BADGE_HEIGHT) * scale).round() as i32,
+    );
     crate::overlay::status_compositor::physical_rect(
-        point.x + OFFSET_X,
-        point.y + OFFSET_Y,
-        BADGE_WIDTH,
-        BADGE_HEIGHT,
+        rect.left,
+        rect.top,
+        rect.right - rect.left,
+        rect.bottom - rect.top,
     )
 }
 

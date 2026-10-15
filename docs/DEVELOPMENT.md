@@ -205,6 +205,12 @@ text-range postconditions are still checked; unverified keyboard delivery cannot
 distinguish concurrent user edits from its own output.
 These records contain no transcript or document text. A keyboard batch accepted
 by Windows is not proof that the destination applied it correctly.
+For batch clipboard auto-paste, debug builds record `[AutoPasteBatch]` stages in
+`session.log`; set `SGT_AUTOPASTE_BATCH_DIAGNOSTICS=1` to enable the same records
+in a release build. The stages identify the captured and routed window, focused
+native control, clipboard sequence, focus calls, caret probe, and accepted
+Ctrl+V input events. They contain no clipboard or transcript text. Accepted
+input events do not prove that the destination inserted the clipboard content.
 Capture health also records maximum callback processing time and observed callback
 gap in microseconds; these distinguish slow application callbacks from delivery gaps
 when investigating audio-buffer discontinuities. They do not measure lost audio directly.

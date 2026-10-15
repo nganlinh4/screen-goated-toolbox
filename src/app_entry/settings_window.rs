@@ -66,9 +66,16 @@ pub(super) fn run(
     let _ = tray_menu.append(&tray_settings_item);
     let _ = tray_menu.append(&tray_quit_item);
 
+    let (available_width, available_height) = crate::gui::window_state::available_size_points();
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
-        .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
-        .with_min_inner_size([MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT])
+        .with_inner_size([
+            WINDOW_WIDTH.min(available_width),
+            WINDOW_HEIGHT.min(available_height),
+        ])
+        .with_min_inner_size([
+            MIN_WINDOW_WIDTH.min(available_width),
+            MIN_WINDOW_HEIGHT.min(available_height),
+        ])
         .with_resizable(true)
         .with_visible(false)
         .with_transparent(false)

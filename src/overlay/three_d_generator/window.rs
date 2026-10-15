@@ -151,8 +151,9 @@ unsafe extern "system" fn window_proc(
             WM_NCHITTEST => resize_hit_test(hwnd, lparam),
             WM_GETMINMAXINFO => {
                 let info = &mut *(lparam.0 as *mut MINMAXINFO);
-                info.ptMinTrackSize.x = MIN_WINDOW_WIDTH;
-                info.ptMinTrackSize.y = MIN_WINDOW_HEIGHT;
+                let area = crate::overlay::display_placement::window_work_area(hwnd);
+                info.ptMinTrackSize.x = MIN_WINDOW_WIDTH.min(area.width);
+                info.ptMinTrackSize.y = MIN_WINDOW_HEIGHT.min(area.height);
                 LRESULT(0)
             }
             WM_EXITSIZEMOVE => {
@@ -223,22 +224,20 @@ unsafe fn internal_create_loop() {
         let _ = RegisterClassW(&wc);
     });
 
-    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-    let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    let area = crate::overlay::display_placement::primary_work_area();
+    let screen_w = area.width;
+    let screen_h = area.height;
     let default_width = ((screen_w as f64 * 0.58) as i32).clamp(920, 1240);
     let default_height = ((screen_h as f64 * 0.62) as i32).clamp(600, 820);
     let saved = load_window_size().unwrap_or(SavedWindowSize {
         width: default_width,
         height: default_height,
     });
-    let width = saved
-        .width
-        .clamp(MIN_WINDOW_WIDTH, screen_w.max(MIN_WINDOW_WIDTH));
+    let width = saved.width.clamp(MIN_WINDOW_WIDTH.min(screen_w), screen_w);
     let height = saved
         .height
-        .clamp(MIN_WINDOW_HEIGHT, screen_h.max(MIN_WINDOW_HEIGHT));
-    let x = (screen_w - width) / 2;
-    let y = (screen_h - height) / 2;
+        .clamp(MIN_WINDOW_HEIGHT.min(screen_h), screen_h);
+    let rect = area.centered(width, height);
 
     let title = HSTRING::from(
         crate::gui::locale::LocaleText::get(&super::current_ui_language())
@@ -252,10 +251,10 @@ unsafe fn internal_create_loop() {
             class_name,
             PCWSTR(title.as_ptr()),
             WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_SYSMENU,
-            x,
-            y,
-            width,
-            height,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
             None,
             None,
             Some(instance.into()),

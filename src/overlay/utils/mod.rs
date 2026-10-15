@@ -1,6 +1,7 @@
 mod clipboard;
 mod error_messages;
 mod input;
+pub(crate) mod paste_diagnostics;
 mod streaming_paste;
 pub(crate) use error_messages::extract_http_status_code;
 

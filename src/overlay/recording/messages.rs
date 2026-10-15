@@ -143,13 +143,19 @@ fn handle_close(hwnd: HWND) {
 
 fn recording_rect() -> crate::overlay::status_compositor::protocol::PhysicalRect {
     let (width, height) = get_ui_dimensions();
-    let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-    let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-    crate::overlay::status_compositor::physical_rect(
-        (screen_width - width) / 2,
-        (screen_height - height) / 2 + 100,
+    let area = crate::overlay::display_placement::primary_work_area();
+    let centered = area.centered(width, height);
+    let rect = area.fit(
+        centered.left,
+        centered.top + (area.height / 10).min(100),
         width,
         height,
+    );
+    crate::overlay::status_compositor::physical_rect(
+        rect.left,
+        rect.top,
+        rect.right - rect.left,
+        rect.bottom - rect.top,
     )
 }
 

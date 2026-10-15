@@ -11,11 +11,11 @@ const paused = locale.match(/recording_paused: "([^"]+)"/)[1];
 const hint = locale.match(/recording_subtext: "([^"]+)"/)[1];
 const font = fs.readFileSync(path.join(repo, 'assets/GoogleSansFlex-VariableFont_GRAD,ROND,opsz,slnt,wdth,wght.ttf')).toString('base64');
 
-function documentHtml(dark, width) {
+function documentHtml(dark) {
   const icon = name => icons.match(new RegExp('"' + name + '" => \\{\\s*r#"([\\s\\S]*?)"#'))[1];
   const values = {
     font_css: `@font-face {font-family:'Google Sans Flex';font-weight:1 1000;font-stretch:25% 151%;src:url(data:font/ttf;base64,${font}) format('truetype');}`,
-    width: width - 20, height: 50, is_dark: dark,
+    is_dark: dark,
     container_bg: dark ? '#121212' : '#fafafa', container_border: dark ? '#333' : '#ddd',
     text_color: dark ? 'white' : '#222', subtext_color: dark ? '#bbb' : '#666',
     btn_bg: dark ? '#222' : '#eee', btn_hover_bg: dark ? '#333' : '#ddd',
@@ -37,15 +37,17 @@ function documentHtml(dark, width) {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     for (const dark of [true, false]) {
-      await page.goto('about:blank');
-      await page.setContent(documentHtml(dark, 375), { waitUntil: 'domcontentloaded' });
-      await page.evaluate(async () => {
+      for (const width of [300, 375, 450, 500]) {
+        await page.setViewportSize({ width, height: 70 });
+        await page.goto('about:blank');
+        await page.setContent(documentHtml(dark), { waitUntil: 'domcontentloaded' });
+        await page.evaluate(async () => {
         await document.fonts.ready;
         document.body.classList.add('visible');
         barHeights.forEach((_, index) => barHeights[index] = 6 + (index * 17) % 48);
         updateState('paused', 0);
-      });
-      for (const shortcut of ['Esc / Page Down', 'Esc / Ctrl + Page Down', 'Esc']) {
+        });
+        for (const shortcut of ['Esc / Page Down', 'Esc / Ctrl + Page Down', 'Esc']) {
         const text = hint.replace('{hotkey}', shortcut);
         const metrics = await page.evaluate(text => {
           updateSubtext(text);
@@ -53,25 +55,34 @@ function documentHtml(dark, width) {
           const range = document.createRange();
           range.selectNodeContents(element);
           return { text: element.textContent, rendered: range.getBoundingClientRect().width,
-            available: element.clientWidth, axes: element.style.fontVariationSettings,
+            available: element.getBoundingClientRect().width, axes: element.style.fontVariationSettings,
             size: getComputedStyle(element).fontSize };
         }, text);
         assert.equal(metrics.text, text);
         assert.ok(metrics.rendered <= metrics.available + 0.1, JSON.stringify(metrics));
         assert.equal(metrics.size, '10px');
         if (shortcut === 'Esc') assert.match(metrics.axes, /"wdth" 100/);
-      }
-      const before = await page.locator('#volume-canvas').evaluate(canvas => canvas.toDataURL());
-      await page.waitForTimeout(100);
-      assert.equal(await page.locator('#volume-canvas').evaluate(canvas => canvas.toDataURL()), before);
-      await page.evaluate(text => updateSubtext(text), hint.replace('{hotkey}', 'Esc / Page Down'));
-      const output = process.env.SGT_RECORDING_UI_EVIDENCE_DIR;
-      if (output) {
-        fs.mkdirSync(output, { recursive: true });
-        await page.screenshot({ path: path.join(output, `recording-${dark ? 'dark' : 'light'}.png`) });
+        }
+        const placement = await page.locator('.container').evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+          viewportWidth: innerWidth, viewportHeight: innerHeight };
+        });
+        assert.ok(placement.left >= 0 && placement.top >= 0 &&
+        placement.right <= placement.viewportWidth && placement.bottom <= placement.viewportHeight,
+          JSON.stringify(placement));
+        const before = await page.locator('#volume-canvas').evaluate(canvas => canvas.toDataURL());
+        await page.waitForTimeout(100);
+        assert.equal(await page.locator('#volume-canvas').evaluate(canvas => canvas.toDataURL()), before);
+        await page.evaluate(text => updateSubtext(text), hint.replace('{hotkey}', 'Esc / Page Down'));
+        const output = process.env.SGT_RECORDING_UI_EVIDENCE_DIR;
+        if (output) {
+          fs.mkdirSync(output, { recursive: true });
+          await page.screenshot({ path: path.join(output, `recording-${width}-${dark ? 'dark' : 'light'}.png`) });
+        }
       }
     }
     assert.deepEqual(errors, []);
-    console.log('PASS: variable-width hints fit in both themes at 10px; short hints reset; paused waveforms remain frozen.');
+    console.log('PASS: recording UI fits 300-500 CSS-pixel frames in both themes; paused waveforms remain frozen.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

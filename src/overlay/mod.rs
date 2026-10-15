@@ -18,6 +18,7 @@ pub mod creation_recovery;
 pub mod creation_runtime;
 pub mod creation_source;
 mod creation_source_snapshot;
+pub(crate) mod display_placement;
 pub mod generation_history;
 pub(crate) mod image_capture_target;
 pub mod image_continuous_mode; // Non-blocking image selection mode (right-click gestures)

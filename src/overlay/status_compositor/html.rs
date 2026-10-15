@@ -209,6 +209,8 @@ window.statusDisplayChanged = display => {{
   displayScale = Math.max(1, Number(display.scale) || 1);
   for (const [name, rect] of Object.entries(frameRects)) place(name, rect);
 }};
+window.statusFirstFrame = request => requestAnimationFrame(() => requestAnimationFrame(() =>
+  post({{type:'scene_painted',request}})));
 window.setStatusRecordingPointer = (target, active) => {{
   const pause = frameWindow('recording')?.document.querySelector('#btn-pause');
   const cancel = frameWindow('recording')?.document.querySelector('.btn-close');

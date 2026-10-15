@@ -1,6 +1,7 @@
 //! Native visibility and clipping for the render-only host.
 use super::protocol::{SceneCard, SceneRect};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, DeleteObject, EqualRgn, GetWindowRgn, RGN_OR, SetWindowRgn,
@@ -10,6 +11,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SM_YVIRTUALSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SWP_NOZORDER, SetWindowPos, ShowWindow,
 };
+
+static FIRST_SCENE_PAINTED: AtomicBool = AtomicBool::new(false);
+
+pub(super) fn first_scene_painted() -> bool {
+    FIRST_SCENE_PAINTED.load(Ordering::SeqCst)
+}
+
+pub(super) fn mark_first_scene_painted() {
+    FIRST_SCENE_PAINTED.store(true, Ordering::SeqCst);
+}
 
 pub(super) fn stack_below_input(visual: HWND, input: HWND) -> bool {
     unsafe {
@@ -147,6 +158,9 @@ fn apply(hwnd: HWND, rects: &[SceneRect], width: i32, height: i32) -> bool {
                 hide(hwnd);
                 return false;
             }
+            if !first_scene_painted() {
+                return true;
+            }
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         }
         true
@@ -161,6 +175,7 @@ mod tests {
 
     #[test]
     fn visual_host_starts_empty_and_returns_to_empty_after_content() {
+        FIRST_SCENE_PAINTED.store(false, Ordering::SeqCst);
         let hwnd = super::super::child::create_host_window().unwrap();
         unsafe {
             assert_eq!(
@@ -182,6 +197,9 @@ mod tests {
                 width: 120,
                 height: 80,
             };
+            assert!(apply(hwnd, std::slice::from_ref(&rect), 800, 600));
+            assert!(!IsWindowVisible(hwnd).as_bool());
+            mark_first_scene_painted();
             assert!(apply(hwnd, &[rect], 800, 600));
             assert!(IsWindowVisible(hwnd).as_bool());
             assert_eq!(GetWindowRgn(hwnd, region).0, 2);
@@ -204,5 +222,6 @@ mod tests {
             let _ = DeleteObject(region.into());
             let _ = DestroyWindow(hwnd);
         }
+        FIRST_SCENE_PAINTED.store(false, Ordering::SeqCst);
     }
 }

@@ -107,8 +107,8 @@ pub fn generate_html() -> String {
     }}
 
     .container {{
-        width: {width}px;
-        height: {height}px;
+        width: calc(100% - 20px);
+        height: calc(100% - 20px);
         background: {container_bg};
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
@@ -160,6 +160,12 @@ pub fn generate_html() -> String {
         height: 30px;
         width: 100px;
         margin-right: 5px;
+    }}
+
+    .volume-group {{ display: flex; align-items: center; }}
+
+    @media (max-width: 360px) {{
+        .volume-group {{ display: none; }}
     }}
 
     .btn {{
@@ -222,7 +228,7 @@ pub fn generate_html() -> String {
             <div class="sub-text">{tx_sub}</div>
         </div>
 
-        <div style="display: flex; align-items: center;">
+        <div class="volume-group">
             <canvas id="volume-canvas" width="200" height="60" style="width: 100px; height: 30px;"></canvas>
         </div>
 
@@ -249,7 +255,7 @@ pub fn generate_html() -> String {
         const textGroup = document.querySelector('.text-group');
 
         function fitSubtext() {{
-            const available = textGroup.clientWidth;
+            const available = textGroup.getBoundingClientRect().width - 1;
             if (!available) return;
             const range = document.createRange();
             range.selectNodeContents(subtextEl);
@@ -526,8 +532,6 @@ pub fn generate_html() -> String {
 </body>
 </html>
     "#,
-        width = get_ui_dimensions().0 - 20,
-        height = get_ui_dimensions().1 - 20,
         font_css = font_css,
         tx_rec = text_rec,
         tx_proc = text_proc,

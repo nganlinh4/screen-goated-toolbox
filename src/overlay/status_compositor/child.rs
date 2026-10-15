@@ -15,7 +15,7 @@ use windows::core::{HSTRING, PCWSTR, w};
 
 const WM_DRAIN_COMMANDS: u32 = WM_APP + 81;
 static HOST_HWND: AtomicIsize = AtomicIsize::new(0);
-static INPUT_HWND: AtomicIsize = AtomicIsize::new(0);
+pub(super) static INPUT_HWND: AtomicIsize = AtomicIsize::new(0);
 static RENDERER_READY: AtomicBool = AtomicBool::new(false);
 static SCRIPT_RESYNC_PENDING: AtomicBool = AtomicBool::new(false);
 static REGISTER_CLASS: Once = Once::new();
@@ -262,7 +262,11 @@ fn drain_commands(hwnd: HWND) {
         }
     }
     if scene_changed {
-        super::region::update(hwnd, &SCENE.lock().unwrap());
+        let scene = SCENE.lock().unwrap();
+        if let Some(request) = super::first_frame::request(&scene) {
+            execute_script(&format!("window.statusFirstFrame({request});"));
+        }
+        super::region::update(hwnd, &scene);
     }
 }
 
@@ -329,13 +333,22 @@ fn apply_native_state(command: &HostCommand) {
     }
     let recording = scene.recording.clone();
     drop(scene);
-    sync_input_window(recording.as_ref());
+    super::first_frame::sync_input_window(recording.as_ref());
 }
 
 pub(super) fn handle_renderer_message(body: &str) {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
         return;
     };
+    if value.get("type").and_then(|item| item.as_str()) == Some("scene_painted") {
+        let request = value.get("request").and_then(serde_json::Value::as_u64);
+        if request.is_some_and(super::first_frame::acknowledge) {
+            let scene = SCENE.lock().unwrap();
+            super::region::update(HWND(HOST_HWND.load(Ordering::SeqCst) as _), &scene);
+            super::first_frame::sync_input_window(scene.recording.as_ref());
+        }
+        return;
+    }
     if value.get("type").and_then(|item| item.as_str()) == Some("recording_regions") {
         let pause = value
             .get("pause")
@@ -388,7 +401,7 @@ fn move_recording_drag() {
     if let Some(recording) = SCENE.lock().unwrap().recording.as_mut() {
         recording.rect = rect;
     }
-    sync_input_window(Some(&RecordingScene {
+    super::first_frame::sync_input_window(Some(&RecordingScene {
         rect,
         visible: true,
         state: String::new(),
@@ -488,6 +501,7 @@ fn execute_script(script: &str) {
 }
 
 fn request_script_resync() {
+    super::first_frame::retry();
     if !SCRIPT_RESYNC_PENDING.swap(true, Ordering::SeqCst) {
         emit_event(ChildEvent::ResyncRequested);
     }
@@ -498,29 +512,6 @@ pub(super) fn emit_event(event: ChildEvent) {
     if serde_json::to_writer(&mut *stdout, &event).is_ok() {
         let _ = stdout.write_all(b"\n");
         let _ = stdout.flush();
-    }
-}
-
-fn sync_input_window(recording: Option<&RecordingScene>) {
-    let value = INPUT_HWND.load(Ordering::SeqCst);
-    if value == 0 {
-        return;
-    }
-    let hwnd = HWND(value as *mut std::ffi::c_void);
-    unsafe {
-        if let Some(recording) = recording.filter(|recording| recording.visible) {
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                recording.rect.x,
-                recording.rect.y,
-                recording.rect.width.max(1),
-                recording.rect.height.max(1),
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
-        } else {
-            let _ = ShowWindow(hwnd, SW_HIDE);
-        }
     }
 }
 
@@ -576,7 +567,7 @@ fn reconcile_recording_after_display_change(display: super::DisplayMetrics) {
         })
     };
     if let Some(recording) = moved {
-        sync_input_window(Some(&recording));
+        super::first_frame::sync_input_window(Some(&recording));
         if let Ok(rect) = serde_json::to_string(&recording.rect) {
             execute_script(&format!("window.moveStatusRecording({rect});"));
         }

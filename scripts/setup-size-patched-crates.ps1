@@ -7,7 +7,13 @@ $contracts = & (Join-Path $PSScriptRoot "size-patched-crate-contract.ps1")
 foreach ($contract in $contracts) {
     $destination = Join-Path $repoRoot $contract.RelativeDirectory
     if (Test-Path -LiteralPath $destination) {
-        continue
+        if (-not (Test-Path -LiteralPath $destination -PathType Container)) {
+            throw "$($contract.Name) path exists but is not a directory: $destination"
+        }
+        if (@(Get-ChildItem -LiteralPath $destination -Force).Count -ne 0) {
+            continue
+        }
+        Remove-Item -LiteralPath $destination
     }
     $work = Join-Path ([System.IO.Path]::GetTempPath()) `
         ("sgt-$($contract.Name)-" + [guid]::NewGuid().ToString("N"))

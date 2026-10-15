@@ -1,5 +1,6 @@
 mod child;
 mod dcomp;
+mod first_frame;
 mod html;
 mod input;
 mod mailbox;
@@ -12,7 +13,6 @@ use protocol::{HostCommand, NotificationScene, PhysicalRect, ProgressScene, Reco
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
@@ -224,26 +224,29 @@ pub(crate) fn physical_rect(x: i32, y: i32, width: i32, height: i32) -> Physical
 fn notification_rect() -> PhysicalRect {
     const WIDTH: i32 = 1200;
     const HEIGHT: i32 = 400;
-    let screen_width =
-        unsafe { GetSystemMetrics(windows::Win32::UI::WindowsAndMessaging::SM_CXSCREEN) };
-    let screen_height =
-        unsafe { GetSystemMetrics(windows::Win32::UI::WindowsAndMessaging::SM_CYSCREEN) };
-    physical_rect(
-        (screen_width - WIDTH) / 2,
-        screen_height - HEIGHT - 100,
+    let area = crate::overlay::display_placement::primary_work_area();
+    let rect = area.fit(
+        area.x + (area.width - WIDTH.min(area.width)) / 2,
+        area.y + area.height - HEIGHT.min(area.height) - 100,
         WIDTH,
         HEIGHT,
+    );
+    physical_rect(
+        rect.left,
+        rect.top,
+        rect.right - rect.left,
+        rect.bottom - rect.top,
     )
 }
 
-pub(super) fn display_metrics(hwnd: HWND) -> DisplayMetrics {
+pub(super) fn display_metrics(_hwnd: HWND) -> DisplayMetrics {
     let (x, y, width, height) = virtual_screen();
     DisplayMetrics {
         x,
         y,
         width,
         height,
-        scale: (unsafe { GetDpiForWindow(hwnd) } as f64 / 96.0).max(1.0),
+        scale: crate::overlay::display_placement::primary_scale(),
     }
 }
 

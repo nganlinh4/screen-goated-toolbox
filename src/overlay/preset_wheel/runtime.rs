@@ -1,9 +1,9 @@
 use super::html::get_wheel_template;
 use super::state::{
     HwndWrapper, IS_WARMED_UP, IS_WARMING_UP, OVERLAY_HWND, PENDING_CSS, PENDING_DISMISS_LABEL,
-    PENDING_ITEMS_HTML, PENDING_POS, REGISTER_OVERLAY_CLASS, REGISTER_WHEEL_CLASS, WHEEL_ACTIVE,
-    WHEEL_HEIGHT, WHEEL_HWND, WHEEL_RESULT, WHEEL_WEB_CONTEXT, WHEEL_WEBVIEW, WHEEL_WIDTH,
-    WM_APP_HIDE, WM_APP_REAL_SHOW, WM_APP_SHOW,
+    PENDING_ITEMS_HTML, PENDING_POS, PENDING_SIZE, REGISTER_OVERLAY_CLASS, REGISTER_WHEEL_CLASS,
+    WHEEL_ACTIVE, WHEEL_HEIGHT, WHEEL_HWND, WHEEL_RESULT, WHEEL_WEB_CONTEXT, WHEEL_WEBVIEW,
+    WHEEL_WIDTH, WM_APP_HIDE, WM_APP_REAL_SHOW, WM_APP_SHOW,
 };
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -271,6 +271,7 @@ unsafe extern "system" fn wheel_wnd_proc(
         match msg {
             WM_APP_SHOW => {
                 let items_html = PENDING_ITEMS_HTML.lock().unwrap().clone();
+                let (wheel_width, wheel_height) = *PENDING_SIZE.lock().unwrap();
                 let dismiss_label = PENDING_DISMISS_LABEL.lock().unwrap().clone();
                 let themed_css = PENDING_CSS.lock().unwrap().clone();
 
@@ -317,8 +318,8 @@ unsafe extern "system" fn wheel_wnd_proc(
                                 wry::dpi::PhysicalPosition::new(0, 0),
                             ),
                             size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                                WHEEL_WIDTH as u32,
-                                WHEEL_HEIGHT as u32,
+                                wheel_width as u32,
+                                wheel_height as u32,
                             )),
                         });
                     }
@@ -331,6 +332,7 @@ unsafe extern "system" fn wheel_wnd_proc(
             WM_APP_REAL_SHOW => {
                 let _ = KillTimer(Some(hwnd), 99);
                 let (target_x, target_y) = *PENDING_POS.lock().unwrap();
+                let (wheel_width, wheel_height) = *PENDING_SIZE.lock().unwrap();
 
                 let overlay_val = OVERLAY_HWND.load(Ordering::SeqCst);
                 let overlay = HWND(overlay_val as *mut _);
@@ -357,8 +359,8 @@ unsafe extern "system" fn wheel_wnd_proc(
                     Some(HWND_TOPMOST),
                     target_x,
                     target_y,
-                    WHEEL_WIDTH + 50,
-                    WHEEL_HEIGHT + 50,
+                    wheel_width,
+                    wheel_height,
                     SWP_NOACTIVATE,
                 );
 

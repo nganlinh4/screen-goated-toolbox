@@ -116,16 +116,13 @@ pub(super) unsafe fn internal_create_sr_loop() {
             let _ = RegisterClassW(&wc);
         });
 
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
-        let screen_h = GetSystemMetrics(SM_CYSCREEN);
-
+        let area = crate::overlay::display_placement::primary_work_area();
         let (width, height) = {
             let app = crate::APP.lock().unwrap();
             let (w, h) = app.config.screen_record_window_size;
-            (w.max(1000), h.max(500))
+            (w.max(800), h.max(500))
         };
-        let x = (screen_w - width) / 2;
-        let y = (screen_h - height) / 2;
+        let rect = area.centered(width, height);
 
         let hwnd = CreateWindowExW(
             WS_EX_APPWINDOW,
@@ -138,10 +135,10 @@ pub(super) unsafe fn internal_create_sr_loop() {
                 | WS_MINIMIZEBOX
                 | WS_MAXIMIZEBOX
                 | WS_CLIPCHILDREN,
-            x,
-            y,
-            width,
-            height,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
             None,
             None,
             Some(instance.into()),

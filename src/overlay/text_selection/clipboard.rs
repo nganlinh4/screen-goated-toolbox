@@ -66,7 +66,7 @@ pub fn process_selected_text(preset_idx: usize, clipboard_text: String) {
             preset_idx
         };
 
-        let (config, mut preset, screen_w, screen_h) = {
+        let (config, mut preset) = {
             let Ok(mut app) = APP.lock() else {
                 crate::log_info!("[TextSelection] App state unavailable while starting preset");
                 return;
@@ -80,22 +80,12 @@ pub fn process_selected_text(preset_idx: usize, clipboard_text: String) {
                 return;
             };
             app.config.active_preset_idx = final_preset_idx;
-            (
-                app.config.clone(),
-                preset,
-                GetSystemMetrics(SM_CXSCREEN),
-                GetSystemMetrics(SM_CYSCREEN),
-            )
+            (app.config.clone(), preset)
         };
 
         preset.text_input_mode = "select".to_string();
 
-        let center_rect = RECT {
-            left: (screen_w - 700) / 2,
-            top: (screen_h - 300) / 2,
-            right: (screen_w + 700) / 2,
-            bottom: (screen_h + 300) / 2,
-        };
+        let center_rect = crate::overlay::display_placement::primary_work_area().centered(700, 300);
         let localized_name =
             crate::gui::settings_ui::get_localized_preset_name(&preset.id, &config.ui_language);
         let cancel_hotkey = preset

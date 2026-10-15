@@ -12,14 +12,21 @@ use eframe::egui;
 const FOOTER_MINIMUM_WIDTH_ID: &str = "footer_minimum_window_width";
 
 fn enforce_footer_minimum_width(ctx: &egui::Context, content_width: f32) {
-    let minimum_width = footer_minimum_window_width(content_width);
+    let hwnd = unsafe { crate::gui::app::main_window_hwnd() };
+    let (available_width, available_height) = if hwnd.is_invalid() {
+        crate::gui::window_state::available_size_points()
+    } else {
+        crate::gui::window_state::available_size_points_for_window(hwnd)
+    };
+    let minimum_width = footer_minimum_window_width(content_width).min(available_width);
+    let minimum_height = crate::MIN_WINDOW_HEIGHT.min(available_height);
     let minimum_id = egui::Id::new(FOOTER_MINIMUM_WIDTH_ID);
     let previous_width = ctx.data(|data| data.get_temp::<f32>(minimum_id));
 
     if previous_width.is_none_or(|width| (width - minimum_width).abs() >= 0.5) {
         ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
             minimum_width,
-            crate::MIN_WINDOW_HEIGHT,
+            minimum_height,
         )));
         ctx.data_mut(|data| data.insert_temp(minimum_id, minimum_width));
     }
@@ -37,7 +44,7 @@ fn enforce_footer_minimum_width(ctx: &egui::Context, content_width: f32) {
     {
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
             minimum_width,
-            inner_size.y.max(crate::MIN_WINDOW_HEIGHT),
+            inner_size.y.max(minimum_height),
         )));
     }
 }
@@ -80,19 +87,23 @@ impl SettingsApp {
             )
             .show(root_ui, |ui| {
                 let screen_translate_was_open = self.show_screen_translate_dialog;
-                footer_content_width = render_footer(
-                    ui,
-                    &text,
-                    FooterToggles {
-                        show_computer_control: &mut self.show_computer_control_dialog,
-                        show_live_translate: &mut self.show_live_translate_dialog,
-                        show_screen_translate: &mut self.show_screen_translate_dialog,
-                        show_pointer_gallery: &mut self.pointer_gallery.show_window,
-                        show_translation_gummy: &mut self.show_translation_gummy,
-                        show_tts_playground: &mut self.show_tts_playground,
-                        show_download: &mut self.download_manager.show_window,
-                    },
-                );
+                egui::ScrollArea::horizontal()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        footer_content_width = render_footer(
+                            ui,
+                            &text,
+                            FooterToggles {
+                                show_computer_control: &mut self.show_computer_control_dialog,
+                                show_live_translate: &mut self.show_live_translate_dialog,
+                                show_screen_translate: &mut self.show_screen_translate_dialog,
+                                show_pointer_gallery: &mut self.pointer_gallery.show_window,
+                                show_translation_gummy: &mut self.show_translation_gummy,
+                                show_tts_playground: &mut self.show_tts_playground,
+                                show_download: &mut self.download_manager.show_window,
+                            },
+                        );
+                    });
                 if !screen_translate_was_open && self.show_screen_translate_dialog {
                     crate::overlay::screen_translate::prepare_detector();
                 }

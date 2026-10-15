@@ -27,12 +27,20 @@ pub fn handle_auto_copy(
     if !block.auto_copy {
         return;
     }
+    let diagnostic_id = crate::overlay::utils::paste_diagnostics::next_id();
 
     // CASE 1: Image Input Adapter (Source Copy)
     if is_input_adapter && let RefineContext::Image(img_data) = context {
         let img_data_clone = img_data.clone();
         std::thread::spawn(move || {
+            let before = crate::overlay::utils::paste_diagnostics::clipboard_sequence();
             crate::overlay::utils::copy_image_to_clipboard(&img_data_clone);
+            if crate::overlay::utils::paste_diagnostics::enabled() {
+                crate::log_info!(
+                    "[AutoPasteBatch] id={diagnostic_id} stage=image_copy_done clipboard_seq_before={before} clipboard_seq_after={}",
+                    crate::overlay::utils::paste_diagnostics::clipboard_sequence()
+                );
+            }
         });
     }
 
@@ -44,7 +52,15 @@ pub fn handle_auto_copy(
         let txt_for_badge = result_text.to_string();
         let should_show_badge = !is_input_adapter;
         std::thread::spawn(move || {
-            crate::overlay::utils::copy_to_clipboard(&txt_c, HWND::default());
+            let before = crate::overlay::utils::paste_diagnostics::clipboard_sequence();
+            let copied = crate::overlay::utils::copy_to_clipboard(&txt_c, HWND::default());
+            if crate::overlay::utils::paste_diagnostics::enabled() {
+                crate::log_info!(
+                    "[AutoPasteBatch] id={diagnostic_id} stage=text_copy_done copied={copied} clipboard_seq_before={before} clipboard_seq_after={} chars={}",
+                    crate::overlay::utils::paste_diagnostics::clipboard_sequence(),
+                    txt_c.chars().count()
+                );
+            }
             if should_show_badge {
                 crate::overlay::auto_copy_badge::show_auto_copy_badge_text(&txt_for_badge);
             }
@@ -57,6 +73,12 @@ pub fn handle_auto_copy(
     // 1. Non-input_adapter blocks with text content (actual processed results)
     // 2. Image copies from input_adapter (intentional image copy)
     let should_trigger_paste = (has_content && !is_input_adapter) || image_copied;
+    if should_trigger_paste && crate::overlay::utils::paste_diagnostics::enabled() {
+        crate::log_info!(
+            "[AutoPasteBatch] id={diagnostic_id} stage=postprocess preset={preset_id} paste_disabled={disable_auto_paste} image={image_copied} chars={}",
+            result_text.chars().count()
+        );
+    }
 
     if should_trigger_paste && !disable_auto_paste {
         let txt_c = result_text.to_string();
@@ -65,13 +87,14 @@ pub fn handle_auto_copy(
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(100));
 
-            let (should_add_newline, should_paste, target_window) = {
+            let (should_add_newline, should_paste, target_window, preset_source) = {
                 let app = crate::APP.lock().unwrap();
                 if let Some(preset) = app.config.presets.iter().find(|p| p.id == preset_id_clone) {
                     (
                         preset.auto_paste_newline,
                         preset.auto_paste,
                         app.last_active_window,
+                        "id",
                     )
                 } else {
                     let active_idx = app.config.active_preset_idx;
@@ -81,12 +104,24 @@ pub fn handle_auto_copy(
                             preset.auto_paste_newline,
                             preset.auto_paste,
                             app.last_active_window,
+                            "active_index",
                         )
                     } else {
-                        (false, false, app.last_active_window)
+                        (false, false, app.last_active_window, "missing")
                     }
                 }
             };
+            if crate::overlay::utils::paste_diagnostics::enabled() {
+                crate::log_info!(
+                    "[AutoPasteBatch] id={diagnostic_id} stage=route should_paste={should_paste} newline={should_add_newline} preset_source={preset_source} clipboard_seq={}",
+                    crate::overlay::utils::paste_diagnostics::clipboard_sequence()
+                );
+                crate::overlay::utils::paste_diagnostics::focus(
+                    diagnostic_id,
+                    "before_route",
+                    target_window.map(|window| window.0),
+                );
+            }
 
             let final_text = if !txt_c.trim().is_empty() {
                 if should_add_newline {
@@ -102,21 +137,44 @@ pub fn handle_auto_copy(
                 if txt_c.trim().is_empty() {
                     // Image-only paste path
                     if let Some(target) = target_window {
-                        crate::overlay::utils::force_focus_and_paste(target.0);
+                        crate::overlay::utils::force_focus_and_paste(target.0, diagnostic_id);
                     }
                 } else {
                     // Text paste path
                     if text_input::is_active() {
+                        if crate::overlay::utils::paste_diagnostics::enabled() {
+                            crate::log_info!(
+                                "[AutoPasteBatch] id={diagnostic_id} stage=destination internal_prompt"
+                            );
+                        }
                         text_input::set_editor_text(&final_text);
                         text_input::refocus_editor();
                     } else if crate::overlay::result::is_any_refine_active() {
+                        if crate::overlay::utils::paste_diagnostics::enabled() {
+                            crate::log_info!(
+                                "[AutoPasteBatch] id={diagnostic_id} stage=destination refine_editor"
+                            );
+                        }
                         if let Some(parent) = crate::overlay::result::get_active_refine_parent() {
                             crate::overlay::result::set_refine_text(parent, &final_text, true);
                         }
                     } else if let Some(target) = target_window {
-                        crate::overlay::utils::force_focus_and_paste(target.0);
+                        if crate::overlay::utils::paste_diagnostics::enabled() {
+                            crate::log_info!(
+                                "[AutoPasteBatch] id={diagnostic_id} stage=destination external_window"
+                            );
+                        }
+                        crate::overlay::utils::force_focus_and_paste(target.0, diagnostic_id);
+                    } else if crate::overlay::utils::paste_diagnostics::enabled() {
+                        crate::log_info!(
+                            "[AutoPasteBatch] id={diagnostic_id} stage=destination missing_target"
+                        );
                     }
                 }
+            } else if crate::overlay::utils::paste_diagnostics::enabled() {
+                crate::log_info!(
+                    "[AutoPasteBatch] id={diagnostic_id} stage=destination paste_disabled"
+                );
             }
         });
     }

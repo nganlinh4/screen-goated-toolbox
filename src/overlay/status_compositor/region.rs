@@ -21,6 +21,10 @@ pub(super) fn initialize(hwnd: HWND) {
 pub(super) fn update(hwnd: HWND, scene: &StatusSnapshot) {
     let display = super::display_metrics(hwnd);
     let visible = visible_rects(scene);
+    if !visible.is_empty() && !super::first_frame::painted() {
+        initialize(hwnd);
+        return;
+    }
     unsafe {
         let combined = CreateRectRgn(0, 0, 0, 0);
         if combined.is_invalid() {
@@ -45,7 +49,7 @@ pub(super) fn update(hwnd: HWND, scene: &StatusSnapshot) {
                 return;
             }
         }
-        if SetWindowRgn(hwnd, Some(combined), true) == 0 {
+        if SetWindowRgn(hwnd, Some(combined), false) == 0 {
             let _ = DeleteObject(combined.into());
             initialize(hwnd);
             return;
@@ -65,6 +69,10 @@ pub(super) fn update(hwnd: HWND, scene: &StatusSnapshot) {
             );
         }
     }
+}
+
+pub(super) fn has_visible_content(scene: &StatusSnapshot) -> bool {
+    !visible_rects(scene).is_empty()
 }
 
 fn visible_rects(scene: &StatusSnapshot) -> Vec<PhysicalRect> {

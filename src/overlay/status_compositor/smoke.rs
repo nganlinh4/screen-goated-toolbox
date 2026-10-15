@@ -1,5 +1,7 @@
 use super::protocol::PhysicalRect;
 use std::time::Duration;
+use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, IsWindowVisible};
+use windows::core::{PCWSTR, w};
 
 pub(crate) fn run() -> i32 {
     if !super::parent::wait_until_ready(Duration::from_secs(8)) {
@@ -31,6 +33,17 @@ pub(crate) fn run() -> i32 {
         "All merged surfaces are live".to_string(),
         42.0,
     );
+
+    if !(0..100).any(|_| {
+        std::thread::sleep(Duration::from_millis(20));
+        unsafe {
+            FindWindowW(w!("SGTStatusCompositorDComp"), PCWSTR::null())
+                .is_ok_and(|hwnd| IsWindowVisible(hwnd).as_bool())
+        }
+    }) {
+        crate::debug_log::log_debug("[StatusSmoke] status=failed reason=first_scene_not_visible");
+        return 1;
+    }
 
     for frame in 0..900 {
         let phase = frame as f32 * 0.14;

@@ -53,10 +53,15 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
         .ctx()
         .data(|data| data.get_temp::<f32>(content_width_id()))
         .unwrap_or(0.0);
-    let leading_slack = ((ui.available_width() - measured_width) / 2.0).max(0.0);
+    let viewport_width = ui.clip_rect().width();
+    let leading_slack = if measured_width > 0.0 {
+        ((viewport_width - measured_width) / 2.0).max(0.0)
+    } else {
+        0.0
+    };
 
     let row = ui.allocate_ui_with_layout(
-        egui::vec2(ui.available_width(), row_height),
+        egui::vec2(viewport_width.max(measured_width), row_height),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
             ui.add_space(leading_slack);

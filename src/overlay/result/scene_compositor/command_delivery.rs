@@ -2,8 +2,28 @@
 use super::super::{button_input, child_commands, input_surface, processing, visual_region};
 use super::{CARDS, COMMANDS, ChildEvent, HostCommand, INPUT_SURFACE_HWND, RENDERER_READY};
 use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::*;
+
+static FIRST_PAINT_REQUESTED: AtomicBool = AtomicBool::new(false);
+static FIRST_PAINT_TOKEN: AtomicU64 = AtomicU64::new(0);
+
+pub(super) fn current_paint_token(token: u64) -> bool {
+    token == FIRST_PAINT_TOKEN.load(Ordering::SeqCst)
+}
+
+fn first_paint_token(visible: bool) -> u64 {
+    if !visible {
+        FIRST_PAINT_REQUESTED.store(false, Ordering::SeqCst);
+        FIRST_PAINT_TOKEN.fetch_add(1, Ordering::SeqCst);
+    } else if !visual_region::first_scene_painted()
+        && !FIRST_PAINT_REQUESTED.swap(true, Ordering::SeqCst)
+    {
+        return FIRST_PAINT_TOKEN.fetch_add(1, Ordering::SeqCst) + 1;
+    }
+    0
+}
 
 pub(super) fn drain(hwnd: HWND) {
     if !RENDERER_READY.load(Ordering::SeqCst) {
@@ -58,6 +78,8 @@ pub(super) fn drain(hwnd: HWND) {
         hwnd
     };
     let cards = CARDS.lock().unwrap();
+    let paint_token =
+        first_paint_token(cards.values().any(|card| card.visible) || processing::is_visible());
     let buttons = button_input::interactive_regions();
     let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1) };
     let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1) };
@@ -69,6 +91,9 @@ pub(super) fn drain(hwnd: HWND) {
     }
     let applied =
         input_surface::update_input_regions(input_hwnd, &cards, &buttons, x, y, width, height);
+    if !visual_region::first_scene_painted() {
+        visual_region::hide(input_hwnd);
+    }
     if applied.blocks_visuals(&cards) && !processing::is_visible() {
         visual_region::hide(hwnd);
     } else if !visual_region::stack_below_input(hwnd, input_hwnd) {
@@ -88,6 +113,6 @@ pub(super) fn drain(hwnd: HWND) {
         "null".to_string()
     };
     super::evaluate_script(&format!(
-        "window.__SGT_APPLY_SCENE_BATCH__(function(){{{scripts}}},{acknowledgement});"
+        "window.__SGT_APPLY_SCENE_BATCH__(function(){{{scripts}}},{acknowledgement},{paint_token});"
     ));
 }

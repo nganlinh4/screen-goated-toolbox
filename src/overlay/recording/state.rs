@@ -47,20 +47,22 @@ pub fn update_audio_viz(rms: f32) {
 
 /// Get adaptive UI dimensions based on screen aspect ratio
 pub fn get_ui_dimensions() -> (i32, i32) {
-    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
-
-    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-    let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    let area = crate::overlay::display_placement::primary_work_area();
+    let screen_w = area.width;
+    let screen_h = area.height;
 
     // Width scales inversely with aspect ratio for consistent UI appearance
     // At 16:9 (1.78:1): 450px width
     // At 21:9 (2.37:1): 375px width (narrower on ultrawide)
     let aspect_ratio = screen_w as f64 / screen_h as f64;
     let base_aspect = 16.0 / 9.0; // 1.778
-    let width = (450.0 - (aspect_ratio - base_aspect) * 127.0).clamp(350.0, 500.0) as i32;
+    let scale = crate::overlay::display_placement::primary_scale();
+    let width =
+        ((450.0 - (aspect_ratio - base_aspect) * 127.0).clamp(350.0, 500.0) * scale).round() as i32;
+    let width = width.min(screen_w);
 
     // Height stays constant at 70px
-    let height = 70;
+    let height = ((70.0 * scale).round() as i32).min(screen_h);
 
     (width, height)
 }

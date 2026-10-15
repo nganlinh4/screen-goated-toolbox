@@ -32,6 +32,16 @@ pub(super) fn handle(hwnd: HWND, raw: &str) {
         super::child::renderer_ready();
         return;
     }
+    if message.role == "compositor" {
+        if let Some(request) = message
+            .body
+            .strip_prefix("layout_painted:")
+            .and_then(|value| value.parse().ok())
+        {
+            super::webview::reveal_after_paint(hwnd, request);
+        }
+        return;
+    }
     let Some(role) = CardRole::parse(&message.role) else {
         return;
     };

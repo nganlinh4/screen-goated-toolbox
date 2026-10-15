@@ -211,19 +211,11 @@ fn run_help_request(gemini_key: String, ui_language: String, question: String) {
     }
 
     use windows::Win32::UI::WindowsAndMessaging::{
-        DispatchMessageW, GetMessageW, GetSystemMetrics, MSG, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW,
-        SetForegroundWindow, ShowWindow, TranslateMessage,
+        DispatchMessageW, GetMessageW, MSG, SW_SHOW, SetForegroundWindow, ShowWindow,
+        TranslateMessage,
     };
 
-    let (screen_w, screen_h) =
-        unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
-
-    let center_rect = windows::Win32::Foundation::RECT {
-        left: screen_w / 2 - 300,
-        top: screen_h / 2 - 200,
-        right: screen_w / 2 + 300,
-        bottom: screen_h / 2 + 200,
-    };
+    let center_rect = crate::overlay::display_placement::primary_work_area().centered(600, 400);
 
     let result_hwnd =
         crate::overlay::result::create_result_window(crate::overlay::result::ResultWindowParams {

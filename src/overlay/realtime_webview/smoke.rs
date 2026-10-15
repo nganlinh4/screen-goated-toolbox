@@ -1,8 +1,10 @@
 use std::time::Duration;
 
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    FindWindowW, GetSystemMetrics, IsWindowVisible, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
+use windows::core::{PCWSTR, w};
 
 use super::layout::{CardRect, CardRole, CompositorLayout};
 use super::protocol::{CardSettings, CardText, RealtimeScene};
@@ -21,6 +23,16 @@ pub(crate) fn run() -> i32 {
         return 1;
     }
     super::parent::replace_scene(smoke_scene());
+    if !(0..100).any(|_| {
+        std::thread::sleep(Duration::from_millis(20));
+        unsafe {
+            FindWindowW(w!("SGTRealtimeCompositorHost"), PCWSTR::null())
+                .is_ok_and(|hwnd| IsWindowVisible(hwnd).as_bool())
+        }
+    }) {
+        crate::debug_log::log_debug("[RealtimeSmoke] status=failed reason=first_scene_not_visible");
+        return 1;
+    }
     for frame in 0..240 {
         super::parent::update_text(
             CardRole::Transcription,

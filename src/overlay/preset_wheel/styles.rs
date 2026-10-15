@@ -97,7 +97,7 @@ pub(crate) fn generate_css(is_dark: bool) -> String {
 html, body {{
     width: 100%;
     height: 100%;
-    overflow: hidden;
+    overflow: auto;
     background: transparent;
     font-family: 'Google Sans Flex', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
     font-variation-settings: 'wght' 500, 'wdth' 100, 'ROND' 100;
@@ -111,7 +111,7 @@ html, body {{
     align-items: center;
     justify-content: center;
     min-height: 100%;
-    padding: 40px;
+    padding: clamp(12px, 4vw, 40px);
     gap: 10px;
 }}
 
@@ -167,6 +167,7 @@ html, body {{
     justify-content: center;
     gap: 10px;
     padding: 20px;
+    max-width: 100%;
 }}
 
 .preset-row {{
@@ -176,6 +177,7 @@ html, body {{
     align-items: center;
     gap: 10px;
     min-height: 40px;
+    flex-wrap: wrap;
 }}
 
 .preset-item {{

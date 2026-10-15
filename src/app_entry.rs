@@ -13,6 +13,7 @@ use std::process::ExitCode;
 
 pub(crate) fn run() -> eframe::Result<ExitCode> {
     if crate::overlay::realtime_webview::is_child_process() {
+        crate::initialization::init_com_and_dpi();
         if let Err(error) = crate::overlay::realtime_webview::run_child() {
             eprintln!("realtime compositor failed: {error:#}");
             std::process::exit(1);
@@ -20,6 +21,7 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
     if crate::overlay::status_compositor::is_child_process() {
+        crate::initialization::init_com_and_dpi();
         if let Err(error) = crate::overlay::status_compositor::run_child() {
             eprintln!("status compositor failed: {error:#}");
             std::process::exit(1);
@@ -27,6 +29,7 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
     if crate::overlay::result::scene_compositor::is_child_process() {
+        crate::initialization::init_com_and_dpi();
         if let Err(error) = crate::overlay::result::scene_compositor::run_child() {
             eprintln!("result compositor failed: {error:#}");
             std::process::exit(1);

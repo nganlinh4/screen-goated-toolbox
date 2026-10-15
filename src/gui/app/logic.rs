@@ -160,8 +160,12 @@ impl SettingsApp {
                 let work_top = mi.rcWork.top as f32;
 
                 let pixels_per_point = ctx.pixels_per_point();
-                let win_w_physical = WINDOW_WIDTH * pixels_per_point;
-                let win_h_physical = WINDOW_HEIGHT * pixels_per_point;
+                let (available_width, available_height) =
+                    crate::gui::window_state::available_size_points();
+                let initial_width = WINDOW_WIDTH.min(available_width);
+                let initial_height = WINDOW_HEIGHT.min(available_height);
+                let win_w_physical = initial_width * pixels_per_point;
+                let win_h_physical = initial_height * pixels_per_point;
 
                 let center_x_physical = work_left + (work_w - win_w_physical) / 2.0;
                 let center_y_physical = work_top + (work_h - win_h_physical) / 2.0;
@@ -178,8 +182,8 @@ impl SettingsApp {
                         x_logical, y_logical,
                     )));
                     ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                        WINDOW_WIDTH,
-                        WINDOW_HEIGHT,
+                        initial_width,
+                        initial_height,
                     )));
                 }
 
@@ -236,9 +240,11 @@ impl SettingsApp {
                 }
 
                 if !crate::gui::window_state::restored_geometry() {
+                    let (available_width, available_height) =
+                        crate::gui::window_state::available_size_points();
                     ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                        WINDOW_WIDTH,
-                        WINDOW_HEIGHT,
+                        WINDOW_WIDTH.min(available_width),
+                        WINDOW_HEIGHT.min(available_height),
                     )));
                 }
 

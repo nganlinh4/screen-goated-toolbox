@@ -129,8 +129,9 @@ pub(super) unsafe fn internal_create_pdj_loop() {
             let _ = RegisterClassW(&wc);
         });
 
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
-        let screen_h = GetSystemMetrics(SM_CYSCREEN);
+        let area = crate::overlay::display_placement::primary_work_area();
+        let screen_w = area.width;
+        let screen_h = area.height;
 
         // Adaptive sizing based on screen aspect ratio:
         // - Width: Use 70% of screen width, capped between 1200 and 1600 pixels
@@ -143,8 +144,7 @@ pub(super) unsafe fn internal_create_pdj_loop() {
 
         let width = ((screen_w as f64 * 0.70) as i32).clamp(1200, 1600);
         let height = ((screen_h as f64 * height_pct) as i32).clamp(550, 900);
-        let x = (screen_w - width) / 2;
-        let y = (screen_h - height) / 2;
+        let rect = area.centered(width, height);
 
         let (api_key, lang, theme_mode) = {
             let app = crate::APP.lock().unwrap();
@@ -162,10 +162,10 @@ pub(super) unsafe fn internal_create_pdj_loop() {
             class_name,
             PCWSTR(title_wide.as_ptr()),
             WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_SYSMENU, // Start hidden (no WS_VISIBLE)
-            x,
-            y,
-            width,
-            height,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
             None,
             None,
             Some(instance.into()),

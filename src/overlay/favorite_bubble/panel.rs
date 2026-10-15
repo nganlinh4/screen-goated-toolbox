@@ -12,9 +12,9 @@ use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyWindow, GetForegroundWindow, GetSystemMetrics, GetWindowRect, HWND_TOPMOST,
-    PostMessageW, SM_CXSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOCOPYBITS,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, ShowWindow, WM_APP,
+    DestroyWindow, GetForegroundWindow, GetWindowRect, HWND_TOPMOST, PostMessageW, SW_HIDE,
+    SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SetWindowPos, ShowWindow, WM_APP,
 };
 use wry::Rect;
 
@@ -218,7 +218,10 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
         let panel_w = panel_rect.right - panel_rect.left;
         let panel_h = panel_rect.bottom - panel_rect.top;
 
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let area = crate::overlay::display_placement::work_area_at_point(POINT {
+            x: bubble_x,
+            y: bubble_y,
+        });
         let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
         let bubble_overlap = bubble_size + 4;
 
@@ -226,7 +229,7 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
 
         // Panel extends behind bubble - calculate position accordingly
-        let (panel_x, panel_y, side) = if bubble_x > screen_w / 2 {
+        let (panel_x, panel_y, side) = if bubble_x > area.x + area.width / 2 {
             // Bubble on right - panel content is to the left, overlap extends right
             (
                 bubble_x - (panel_w - bubble_overlap) - 4,
@@ -238,12 +241,13 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
             (bubble_x, bubble_y - panel_h / 2 + bubble_size / 2, "left")
         };
 
-        let actual_panel_y = panel_y.max(10);
+        let fitted = area.fit(panel_x, panel_y, panel_w, panel_h);
+        let actual_panel_y = fitted.top;
 
         let _ = SetWindowPos(
             panel_hwnd,
             None,
-            panel_x,
+            fitted.left,
             actual_panel_y,
             0,
             0,
@@ -344,14 +348,17 @@ pub(super) unsafe fn refresh_panel_layout_and_content(
         let panel_width_physical = (panel_width as f32 * scale).ceil() as i32;
         let panel_height_physical = (panel_height as f32 * scale).ceil() as i32;
 
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let area = crate::overlay::display_placement::work_area_at_point(POINT {
+            x: bubble_rect.left,
+            y: bubble_rect.top,
+        });
         let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
 
         // Extend panel to overlap behind bubble for seamless bloom/collapse animations
         let bubble_overlap = bubble_size + 4;
         let panel_width_with_overlap = panel_width_physical + bubble_overlap;
 
-        let (panel_x, panel_y, side) = if bubble_rect.left > screen_w / 2 {
+        let (panel_x, panel_y, side) = if bubble_rect.left > area.x + area.width / 2 {
             (
                 bubble_rect.left - panel_width_physical - 4,
                 bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
@@ -365,15 +372,21 @@ pub(super) unsafe fn refresh_panel_layout_and_content(
             )
         };
 
-        let actual_panel_y = panel_y.max(10);
+        let fitted = area.fit(
+            panel_x,
+            panel_y,
+            panel_width_with_overlap,
+            panel_height_physical,
+        );
+        let actual_panel_y = fitted.top;
 
         let _ = SetWindowPos(
             panel_hwnd,
             None,
-            panel_x,
+            fitted.left,
             actual_panel_y,
-            panel_width_with_overlap,
-            panel_height_physical,
+            fitted.right - fitted.left,
+            fitted.bottom - fitted.top,
             SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
         );
 
@@ -400,8 +413,8 @@ pub(super) unsafe fn refresh_panel_layout_and_content(
                 let _ = webview.set_bounds(Rect {
                     position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                        panel_width_with_overlap as u32,
-                        panel_height_physical as u32,
+                        (fitted.right - fitted.left) as u32,
+                        (fitted.bottom - fitted.top) as u32,
                     )),
                 });
             }

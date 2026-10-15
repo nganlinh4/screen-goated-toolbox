@@ -172,15 +172,22 @@ pub fn internal_create_tag_thread() {
 
                 let mut pt = POINT::default();
                 let _ = GetCursorPos(&mut pt);
-                let target_x = pt.x + OFFSET_X;
-                let target_y = pt.y + OFFSET_Y;
+                let area = crate::overlay::display_placement::work_area_at_point(pt);
+                let scale = crate::overlay::display_placement::primary_scale();
+                let badge = area.near_point(
+                    pt,
+                    OFFSET_X,
+                    OFFSET_Y,
+                    (f64::from(BADGE_WIDTH) * scale).round() as i32,
+                    (f64::from(BADGE_HEIGHT) * scale).round() as i32,
+                );
 
                 crate::overlay::status_compositor::selection_position(
                     crate::overlay::status_compositor::physical_rect(
-                        target_x,
-                        target_y,
-                        BADGE_WIDTH,
-                        BADGE_HEIGHT,
+                        badge.left,
+                        badge.top,
+                        badge.right - badge.left,
+                        badge.bottom - badge.top,
                     ),
                 );
 

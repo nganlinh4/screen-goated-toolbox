@@ -2,6 +2,8 @@ use std::sync::LazyLock;
 
 #[path = "../../../../src/overlay/auto_copy_badge/mod.rs"]
 pub mod auto_copy_badge;
+#[path = "../../../../src/overlay/display_placement.rs"]
+pub(crate) mod display_placement;
 pub mod html_components;
 pub mod realtime_webview;
 #[path = "../../../../src/overlay/shell_policy.rs"]

@@ -259,6 +259,19 @@ fn drain_commands(hwnd: HWND) {
 }
 
 pub(super) fn handle_renderer_event(body: &str) {
+    if let Some(token) = body
+        .strip_prefix("scene_painted:")
+        .and_then(|value| value.parse().ok())
+    {
+        if command_delivery::current_paint_token(token) {
+            super::visual_region::mark_first_scene_painted();
+            let visual = HWND(HOST_HWND.load(Ordering::SeqCst) as _);
+            if !visual.is_invalid() {
+                super::region::update(visual, true);
+            }
+        }
+        return;
+    }
     let host_value = HOST_HWND.load(Ordering::SeqCst);
     if host_value != 0 {
         let host = HWND(host_value as *mut std::ffi::c_void);

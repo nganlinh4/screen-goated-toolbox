@@ -256,29 +256,41 @@ fn initial_layout(
     translation_size: (i32, i32),
     has_translation: bool,
 ) -> layout::CompositorLayout {
-    unsafe {
-        let screen_width = GetSystemMetrics(SM_CXSCREEN);
-        let screen_height = GetSystemMetrics(SM_CYSCREEN);
+    {
+        let area = crate::overlay::display_placement::primary_work_area();
+        let gap = GAP.min((area.width / 20).max(0));
+        let transcription_width = transcription_size.0.clamp(1, area.width);
+        let translation_width = translation_size.0.clamp(1, area.width);
+        let (transcription_width, translation_width) =
+            if has_translation && transcription_width + translation_width + gap > area.width {
+                let available = (area.width - gap).max(2);
+                let first = available / 2;
+                (first, available - first)
+            } else {
+                (transcription_width, translation_width)
+            };
         let total_width = if has_translation {
-            transcription_size.0 + translation_size.0 + GAP
+            transcription_width + translation_width + gap
         } else {
-            transcription_size.0
+            transcription_width
         };
-        let x = (screen_width - total_width) / 2;
-        let y = (screen_height - transcription_size.1) / 2;
+        let x = area.x + (area.width - total_width) / 2;
+        let transcription_height = transcription_size.1.clamp(1, area.height);
+        let translation_height = translation_size.1.clamp(1, area.height);
+        let y = area.y + (area.height - transcription_height.max(translation_height)) / 2;
         layout::CompositorLayout {
             transcription: layout::CardRect {
                 x,
                 y,
-                width: transcription_size.0,
-                height: transcription_size.1,
+                width: transcription_width,
+                height: transcription_height,
                 visible: true,
             },
             translation: layout::CardRect {
-                x: x + transcription_size.0 + GAP,
+                x: x + transcription_width + gap,
                 y,
-                width: translation_size.0,
-                height: translation_size.1,
+                width: translation_width,
+                height: translation_height,
                 visible: has_translation,
             },
         }

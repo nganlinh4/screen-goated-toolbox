@@ -48,6 +48,26 @@ pub(crate) fn restored_geometry() -> bool {
     RESTORED_GEOMETRY.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+pub(crate) fn available_size_points() -> (f32, f32) {
+    let (point, area) = crate::overlay::display_placement::cursor_work_area();
+    let scale = crate::overlay::display_placement::scale_at_point(point) as f32;
+    (
+        (area.width as f32 / scale - 24.0).max(1.0),
+        (area.height as f32 / scale - 56.0).max(1.0),
+    )
+}
+
+pub(crate) fn available_size_points_for_window(
+    hwnd: windows::Win32::Foundation::HWND,
+) -> (f32, f32) {
+    let area = crate::overlay::display_placement::window_work_area(hwnd);
+    let scale = window_scale(hwnd);
+    (
+        (area.width as f32 / scale - 24.0).max(1.0),
+        (area.height as f32 / scale - 56.0).max(1.0),
+    )
+}
+
 pub(crate) fn restore(viewport: eframe::egui::ViewportBuilder) -> eframe::egui::ViewportBuilder {
     let Some(state) = load().filter(|state| is_visible(*state, virtual_screen())) else {
         return viewport;

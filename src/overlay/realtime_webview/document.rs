@@ -92,11 +92,13 @@ function endActiveInteraction() {{
 }}
 window.addEventListener('mouseup', endActiveInteraction);
 window.addEventListener('blur', endActiveInteraction);
-window.applyRealtimeLayout = function(next) {{
+window.applyRealtimeLayout = function(next, paintRequest) {{
   model.transcription = next.transcription;
   model.translation = next.translation;
   applyCard('transcription');
   applyCard('translation');
+  if (paintRequest) requestAnimationFrame(() => requestAnimationFrame(() =>
+    window.ipc.postMessage(JSON.stringify({{role:'compositor',body:'layout_painted:' + paintRequest,scale:physicalScale()}}))));
 }};
 window.runRealtimeCardScript = function(role, script) {{
   const target = cards[role] && cards[role].contentWindow;
@@ -135,7 +137,8 @@ mod tests {
     fn one_document_hosts_both_realtime_cards_and_one_native_ipc_bridge() {
         let document = compositor_document("<p>mic</p>", "<p>translation</p>");
         assert_eq!(document.matches("<iframe").count(), 2);
-        assert_eq!(document.matches("window.ipc.postMessage").count(), 3);
+        assert_eq!(document.matches("window.ipc.postMessage").count(), 4);
+        assert!(document.contains("layout_painted:"));
         assert!(document.contains("applyRealtimeLayout"));
         assert!(document.contains("runRealtimeCardScript"));
         assert_eq!(document.matches("</script>").count(), 1);
