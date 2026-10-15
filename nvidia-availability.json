@@ -3,22 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-15T17:06:16Z",
+ "generatedAt": "2026-10-15T21:28:23Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 309,
-   "success_rate": 1.0,
-   "runs": 24
-  },
-  {
-   "id": "nvidia/nemotron-3-super-120b-a12b",
-   "control": "effort-none",
-   "modality": "text",
-   "p50_ms": 419,
+   "p50_ms": 299,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -26,23 +18,23 @@
    "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 430,
-   "success_rate": 0.458,
+   "p50_ms": 410,
+   "success_rate": 0.5,
+   "runs": 24
+  },
+  {
+   "id": "nvidia/nemotron-3-super-120b-a12b",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 434,
+   "success_rate": 1.0,
    "runs": 24
   },
   {
    "id": "google/diffusiongemma-26b-a4b-it",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 436,
-   "success_rate": 1.0,
-   "runs": 24
-  },
-  {
-   "id": "meta/llama-3.2-11b-vision-instruct",
-   "control": "plain",
-   "modality": "vision",
-   "p50_ms": 825,
+   "p50_ms": 472,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -50,7 +42,23 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 835,
+   "p50_ms": 800,
+   "success_rate": 1.0,
+   "runs": 24
+  },
+  {
+   "id": "stepfun-ai/step-5-preview",
+   "control": "effort-none",
+   "modality": "text",
+   "p50_ms": 831,
+   "success_rate": 1.0,
+   "runs": 3
+  },
+  {
+   "id": "meta/llama-3.2-11b-vision-instruct",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 856,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -58,16 +66,8 @@
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1643,
+   "p50_ms": 1583,
    "success_rate": 0.958,
-   "runs": 24
-  },
-  {
-   "id": "meta/muse-glimmer-30b",
-   "control": "plain",
-   "modality": "vision",
-   "p50_ms": 5007,
-   "success_rate": 0.667,
    "runs": 24
   }
  ]
