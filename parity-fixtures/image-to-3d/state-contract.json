@@ -225,26 +225,6 @@
     "requestedPolycountForwardedExactly": true,
     "cases": [
       {
-        "mode": "fast",
-        "polycount": 100,
-        "autoSegment": false,
-        "effectiveAutoSegment": false,
-        "showAutoSegment": false,
-        "baseTopology": "triangle",
-        "resultSegmented": true,
-        "canSegmentAfterGeneration": false
-      },
-      {
-        "mode": "fast",
-        "polycount": 15000,
-        "autoSegment": true,
-        "effectiveAutoSegment": false,
-        "showAutoSegment": false,
-        "baseTopology": "triangle",
-        "resultSegmented": true,
-        "canSegmentAfterGeneration": false
-      },
-      {
         "mode": "quality",
         "polycount": 501,
         "autoSegment": false,
@@ -279,17 +259,6 @@
       }
     ],
     "clampingCases": [
-      {
-        "mode": "fast",
-        "polycount": 20000,
-        "normalizedPolycount": 15000,
-        "autoSegment": true,
-        "effectiveAutoSegment": false,
-        "showAutoSegment": false,
-        "baseTopology": "triangle",
-        "resultSegmented": true,
-        "canSegmentAfterGeneration": false
-      },
       {
         "mode": "quality",
         "polycount": 100,
@@ -534,7 +503,7 @@
   },
   "qualityControl": {
     "realUiPlatforms": ["windows", "android_full", "android_play"],
-    "cases": ["fast", "quality"],
+    "cases": ["quality"],
     "sourceSelectedThroughProductSurface": true,
     "terminalStateRequired": true,
     "committedArtifactValidated": true,

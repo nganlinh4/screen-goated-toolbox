@@ -24,7 +24,7 @@ export function frozenGenerationSettings(
   source: FrozenSettingsSource,
 ): FrozenGenerationSettings | undefined {
   if (
-    (source.generationMode !== "fast" && source.generationMode !== "quality")
+    source.generationMode !== "quality"
     || typeof source.polycount !== "number"
     || !Number.isInteger(source.polycount)
     || typeof source.autoSegment !== "boolean"

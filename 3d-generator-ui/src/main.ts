@@ -109,7 +109,7 @@ const state: AppState = {
   referencePreviewToken: 0,
   generationCapabilities: {
     ready: false,
-    optionalInstruction: { fast: false, quality: false },
+    optionalInstruction: { quality: false },
   },
 };
 function pathLeaf(path: string) {

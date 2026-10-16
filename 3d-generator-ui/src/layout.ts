@@ -76,7 +76,6 @@ export function appMarkup() {
         <div class="control-section">
           <span class="control-label" data-i18n="generationMode"></span>
           <div class="mode-options" role="group" data-i18n-aria="generationMode">
-            <button type="button" data-generation-mode="fast" data-i18n="fast"></button>
             <button type="button" data-generation-mode="quality" data-i18n="quality"></button>
           </div>
         </div>
@@ -96,7 +95,7 @@ export function appMarkup() {
             <label for="polycountRange" data-i18n="topology"></label>
             <output id="polycountValue">5,000</output>
           </div>
-          <input class="range" id="polycountRange" type="range" min="100" max="20000" step="100" value="5000" />
+          <input class="range" id="polycountRange" type="range" min="500" max="20000" step="100" value="5000" />
           <div class="range-scale"><span data-i18n="light"></span><span data-i18n="detailed"></span></div>
         </div>
         <div class="control-section compact" id="autoSegmentSection">

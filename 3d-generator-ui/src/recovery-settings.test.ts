@@ -30,16 +30,10 @@ test("recovery restores every frozen setting without deriving it from result sta
   );
 });
 
-test("recovery fails closed when frozen settings are absent or noncanonical", () => {
+test("recovery fails closed when frozen settings are absent", () => {
   assert.equal(frozenGenerationSettings({
     generationMode: "quality",
     autoSegment: false,
-    outputDir: "C:\\Creation Library",
-  }), undefined);
-  assert.equal(frozenGenerationSettings({
-    generationMode: "fast",
-    polycount: 20_000,
-    autoSegment: true,
     outputDir: "C:\\Creation Library",
   }), undefined);
 });

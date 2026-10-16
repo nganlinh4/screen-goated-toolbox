@@ -9,7 +9,6 @@ const MAX_INSTRUCTION_CHARACTERS: usize = 1_000;
 
 #[derive(Clone, Copy, Default)]
 struct ProductCapabilities {
-    fast_instruction: bool,
     quality_instruction: bool,
 }
 
@@ -27,8 +26,6 @@ fn refresh() {
     std::thread::spawn(|| {
         let next =
             ProductCapabilities {
-                fast_instruction:
-                    crate::overlay::creation_runtime::supports_optional_3d_instruction("fast"),
                 quality_instruction:
                     crate::overlay::creation_runtime::supports_optional_3d_instruction("quality"),
             };
@@ -48,7 +45,6 @@ pub(super) fn product_capabilities() -> Value {
     json!({
         "ready": current.is_some(),
         "optionalInstruction": {
-            "fast": value.fast_instruction,
             "quality": value.quality_instruction,
         }
     })

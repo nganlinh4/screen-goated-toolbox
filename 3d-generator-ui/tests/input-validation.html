@@ -29,7 +29,7 @@
         document.querySelector("#submission-count").textContent = `Remote submissions: ${++submissions}`;
         throw new Error("Invalid source must not reach submission");
       case "job_statuses": case "history_results": return [];
-      case "generation_capabilities": return { ready: true, optionalInstruction: { fast: false, quality: false } };
+      case "generation_capabilities": return { ready: true, optionalInstruction: { quality: false } };
       case "capacity_verification_status": return { pendingCount: 0 };
       case "runtime_preparation_status": case "prepare_runtime": return readiness;
       case "default_output_dir": return "";

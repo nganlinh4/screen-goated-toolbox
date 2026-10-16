@@ -25,10 +25,7 @@ pub(in crate::overlay::three_d_generator) fn start_job(
         return Err("Pick an image first.".to_string());
     }
     let inspected = crate::overlay::creation_source::inspect_image(&request.image_path)?;
-    if let Some(error) = super::super::input_policy::error(
-        &inspected,
-        request.generation_mode == generation_mode::GenerationMode::Fast,
-    ) {
+    if let Some(error) = super::super::input_policy::error(&inspected) {
         return Err(error.to_string());
     }
     request.image_path = inspected.path.to_string_lossy().to_string();

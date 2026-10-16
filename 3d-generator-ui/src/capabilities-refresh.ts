@@ -7,6 +7,6 @@ export async function refreshCapabilities(
     state.generationCapabilities = await invoke("generation_capabilities");
     update();
   } catch {
-    state.generationCapabilities = { ready: false, optionalInstruction: { fast: false, quality: false } };
+    state.generationCapabilities = { ready: false, optionalInstruction: { quality: false } };
   }
 }

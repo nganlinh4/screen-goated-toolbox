@@ -1,17 +1,11 @@
 use crate::overlay::creation_source::InspectedImage;
 
-pub(super) fn error(image: &InspectedImage, fast: bool) -> Option<&'static str> {
-    validate(image.width, image.height, image.size_bytes, fast)
+pub(super) fn error(image: &InspectedImage) -> Option<&'static str> {
+    validate(image.width, image.height, image.size_bytes)
 }
 
-fn validate(width: u32, height: u32, bytes: u64, fast: bool) -> Option<&'static str> {
-    if fast && (width < 32 || height < 32) {
-        Some("image_too_small")
-    } else if fast && bytes > 20_000_000 {
-        Some("image_too_large")
-    } else {
-        None
-    }
+fn validate(_width: u32, _height: u32, _bytes: u64) -> Option<&'static str> {
+    None
 }
 
 #[cfg(test)]
@@ -19,7 +13,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mode_specific_input_boundaries() {
+    fn quality_input_boundaries() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../parity-fixtures/image-to-3d/input-contract.json"
         ))
@@ -29,8 +23,7 @@ mod tests {
                 validate(
                     case["width"].as_u64().unwrap() as u32,
                     case["height"].as_u64().unwrap() as u32,
-                    case["bytes"].as_u64().unwrap(),
-                    case["mode"] == "fast"
+                    case["bytes"].as_u64().unwrap()
                 ),
                 case["error"].as_str()
             );

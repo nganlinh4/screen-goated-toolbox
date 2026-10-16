@@ -6,10 +6,10 @@ test("input preflight forwards the selected mode and preserves public rejection 
   for (const error of [null, "image_too_small", "image_too_large", "image_invalid"] as const) {
     const invoke = async <T>(cmd: string, args?: unknown): Promise<T> => {
       assert.equal(cmd, "validate_image");
-      assert.deepEqual(args, { path: "source.png", generationMode: "fast" });
+      assert.deepEqual(args, { path: "source.png", generationMode: "quality" });
       return { error } as T;
     };
-    assert.equal(await validateInput(invoke, "source.png", "fast"), error);
+    assert.equal(await validateInput(invoke, "source.png", "quality"), error);
   }
 });
 
@@ -17,5 +17,5 @@ test("missing, malformed and unavailable validation fails closed", async () => {
   for (const value of [null, {}, { error: "unknown" }]) {
     assert.equal(await validateInput(async <T>() => value as T, "source.png", "quality"), "validation_unavailable");
   }
-  assert.equal(await validateInput(async () => { throw new Error("unavailable"); }, "source.png", "fast"), "validation_unavailable");
+  assert.equal(await validateInput(async () => { throw new Error("unavailable"); }, "source.png", "quality"), "validation_unavailable");
 });

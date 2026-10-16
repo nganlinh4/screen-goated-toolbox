@@ -1,8 +1,10 @@
+import type { GenerationMode } from "./generation-mode";
+
 export type InputError = "image_too_small" | "image_too_large" | "image_invalid" | "validation_unavailable";
 type Invoke = <T = unknown>(cmd: string, args?: unknown) => Promise<T>;
 
 export async function validateInput(
-  invoke: Invoke, path: string, generationMode: "fast" | "quality",
+  invoke: Invoke, path: string, generationMode: GenerationMode,
 ): Promise<InputError | null> {
   try {
     const result = await invoke<{ error: InputError | null }>("validate_image", { path, generationMode });

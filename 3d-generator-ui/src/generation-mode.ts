@@ -1,4 +1,4 @@
-export type GenerationMode = "fast" | "quality";
+export type GenerationMode = "quality";
 export type MeshTopology = "triangle" | "quad";
 
 export type GenerationSettings = {
@@ -11,10 +11,7 @@ export type GenerationSettings = {
   topology: MeshTopology;
 };
 
-const LIMITS: Record<GenerationMode, { minimum: number; maximum: number }> = {
-  fast: { minimum: 100, maximum: 15_000 },
-  quality: { minimum: 500, maximum: 20_000 },
-};
+const LIMITS = { minimum: 500, maximum: 20_000 };
 
 export function generationSettings(
   mode: GenerationMode,
@@ -22,16 +19,14 @@ export function generationSettings(
   requestedAutoSegment: boolean,
   topology?: MeshTopology,
 ): GenerationSettings {
-  const selectedMode = mode === "fast" ? "fast" : "quality";
-  const limits = LIMITS[selectedMode];
   const finitePolycount = Number.isFinite(polycount) ? Math.round(polycount) : 5_000;
   return {
-    mode: selectedMode,
-    polycount: Math.min(limits.maximum, Math.max(limits.minimum, finitePolycount)),
-    minimumPolycount: limits.minimum,
-    maximumPolycount: limits.maximum,
-    autoSegment: selectedMode === "quality" && requestedAutoSegment,
-    showAutoSegment: selectedMode === "quality",
-    topology: selectedMode === "fast" || requestedAutoSegment ? "triangle" : topology || "quad",
+    mode,
+    polycount: Math.min(LIMITS.maximum, Math.max(LIMITS.minimum, finitePolycount)),
+    minimumPolycount: LIMITS.minimum,
+    maximumPolycount: LIMITS.maximum,
+    autoSegment: requestedAutoSegment,
+    showAutoSegment: true,
+    topology: requestedAutoSegment ? "triangle" : topology || "quad",
   };
 }

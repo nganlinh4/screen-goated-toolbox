@@ -75,12 +75,12 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .get("generationMode")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "generationMode is required".to_string())?;
-            if !matches!(mode, "fast" | "quality") {
+            if !matches!(mode, "quality") {
                 return Err("Invalid generation mode".to_string());
             }
             match crate::overlay::creation_source::inspect_image(path) {
                 Ok(image) => {
-                    Ok(json!({"error": super::input_policy::error(&image, mode == "fast")}))
+                    Ok(json!({"error": super::input_policy::error(&image)}))
                 }
                 Err(_) => Ok(json!({"error": "image_invalid"})),
             }

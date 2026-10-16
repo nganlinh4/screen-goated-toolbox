@@ -43,7 +43,7 @@ test("only the first press consumes a draft and later presses clone frozen setti
     sourceProvenance: "surface-import",
     name: "source.png",
     extension: "PNG",
-    generationMode: "fast",
+    generationMode: "quality",
     polycount: 8_500,
     autoSegment: false,
     instruction: "keep the shape",
@@ -73,7 +73,7 @@ test("only the first press consumes a draft and later presses clone frozen setti
       [
         "source.png",
         "surface-import",
-        "fast",
+        "quality",
         8_500,
         "keep the shape",
         "chosen",
@@ -83,7 +83,7 @@ test("only the first press consumes a draft and later presses clone frozen setti
       [
         "source.png",
         "surface-import",
-        "fast",
+        "quality",
         8_500,
         "keep the shape",
         "chosen",

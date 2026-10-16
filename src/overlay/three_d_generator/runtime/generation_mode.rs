@@ -15,8 +15,6 @@ pub(super) fn segmentation_level(operation: &RuntimeOperation) -> &str {
     }
 }
 
-const FAST_MIN_POLYCOUNT: u32 = 100;
-const FAST_MAX_POLYCOUNT: u32 = 15_000;
 const QUALITY_MIN_POLYCOUNT: u32 = 500;
 // The workspace advertises 50 000 faces, but only a paid provider tier can
 // use the top of that range; 20 000 is the ceiling proven to complete on the
@@ -26,7 +24,6 @@ const QUALITY_MAX_POLYCOUNT: u32 = 20_000;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(in crate::overlay::three_d_generator) enum GenerationMode {
-    Fast,
     #[default]
     Quality,
 }
@@ -34,14 +31,12 @@ pub(in crate::overlay::three_d_generator) enum GenerationMode {
 impl GenerationMode {
     pub(super) const fn as_str(self) -> &'static str {
         match self {
-            Self::Fast => "fast",
             Self::Quality => "quality",
         }
     }
 
     const fn polycount_limits(self) -> (u32, u32) {
         match self {
-            Self::Fast => (FAST_MIN_POLYCOUNT, FAST_MAX_POLYCOUNT),
             Self::Quality => (QUALITY_MIN_POLYCOUNT, QUALITY_MAX_POLYCOUNT),
         }
     }
@@ -108,15 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_mode_clamps_settings_without_hidden_routing_state() {
-        let mut fast = request(20_000, true);
-        fast.generation_mode = GenerationMode::Fast;
-        normalize_request(&mut fast);
-        assert_eq!(fast.generation_mode, GenerationMode::Fast);
-        assert_eq!(fast.polycount, FAST_MAX_POLYCOUNT);
-        assert!(!fast.auto_segment);
-        assert_eq!(fast.segmentation_mode, "none");
-
+    fn normalize_clamps_settings_without_hidden_routing_state() {
         let mut quality = request(100, true);
         normalize_request(&mut quality);
         assert_eq!(quality.polycount, QUALITY_MIN_POLYCOUNT);
@@ -125,10 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn frozen_settings_reject_values_that_would_be_normalized() {
+    fn frozen_settings_accept_valid_quality_values() {
         assert!(frozen_settings_valid(GenerationMode::Quality, 5_000, true));
-        assert!(frozen_settings_valid(GenerationMode::Fast, 15_000, false));
-        assert!(!frozen_settings_valid(GenerationMode::Fast, 15_001, false));
-        assert!(!frozen_settings_valid(GenerationMode::Fast, 5_000, true));
     }
 }
