@@ -426,6 +426,16 @@ body.file-dragging .drop-overlay { opacity: 1; visibility: visible; }
   font-size: 9px;
 }
 
+.queue-lineage {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--faint);
+  font-size: 9px;
+}
+
+.queue-lineage.current { color: var(--accent); }
+
 .queue-actions { display: flex; justify-content: flex-end; gap: 1px; padding-right: 2px; opacity: 0; }
 .queue-actions button { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 4px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
 .queue-actions button:hover { background: var(--control); color: var(--text); }

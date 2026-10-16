@@ -148,6 +148,12 @@ const en = {
   importLimit: "Add up to {count} images at a time.",
   modelStats: "{vertices} vertices · {faces} faces",
   modelStatsQuads: "{vertices} vertices · {polygons} polygons ({quads} quads)",
+  loopAnimation: "Loop",
+  modelStatsFps: "{fps} FPS",
+  revisionGeneration: "Generation",
+  revisionOptimizeTriangle: "Optimize triangles",
+  revisionOptimizeQuad: "Optimize quads",
+  revisionCurrent: "Current",
 } as const;
 
 type Messages = { [K in keyof typeof en]: string };
@@ -217,6 +223,12 @@ const ko: Messages = {
   importLimit: "한 번에 최대 {count}개의 이미지를 추가하세요.",
   modelStats: "정점 {vertices}개 · 면 {faces}개",
   modelStatsQuads: "정점 {vertices}개 · 폴리곤 {polygons}개 (쿼드 {quads}개)",
+  loopAnimation: "반복",
+  modelStatsFps: "{fps} FPS",
+  revisionGeneration: "생성",
+  revisionOptimizeTriangle: "삼각형 최적화",
+  revisionOptimizeQuad: "쿼드 최적화",
+  revisionCurrent: "현재",
 };
 
 const vi: Messages = {
@@ -284,6 +296,12 @@ const vi: Messages = {
   importLimit: "Mỗi lần thêm tối đa {count} ảnh.",
   modelStats: "{vertices} đỉnh · {faces} mặt",
   modelStatsQuads: "{vertices} đỉnh · {polygons} đa giác ({quads} tứ giác)",
+  loopAnimation: "Lặp lại",
+  modelStatsFps: "{fps} FPS",
+  revisionGeneration: "Tạo mô hình",
+  revisionOptimizeTriangle: "Tối ưu tam giác",
+  revisionOptimizeQuad: "Tối ưu tứ giác",
+  revisionCurrent: "Hiện tại",
 };
 
 const dictionaries: Record<Locale, Messages> = { en, ko, vi };

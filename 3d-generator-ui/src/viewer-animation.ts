@@ -7,6 +7,7 @@ export type PlaybackState = {
   time: number;
   duration: number;
   speed: number;
+  loop: boolean;
 };
 
 /** Playback owns authored transforms; presentation transforms belong to its parent. */
@@ -16,6 +17,7 @@ export class ModelAnimation {
   private selected = -1;
   private playing = false;
   private speed = 1;
+  private loop = true;
   private root: THREE.Object3D;
   private clips: THREE.AnimationClip[];
 
@@ -34,6 +36,7 @@ export class ModelAnimation {
       time: this.action?.time ?? 0,
       duration: this.clips[this.selected]?.duration ?? 0,
       speed: this.speed,
+      loop: this.loop,
     };
   }
 
@@ -43,6 +46,10 @@ export class ModelAnimation {
     this.selected = index;
     this.playing = false;
     this.action = this.mixer.clipAction(this.clips[index]).reset().play();
+    if (!this.loop) {
+      this.action.setLoop(THREE.LoopOnce, Infinity);
+      this.action.clampWhenFinished = true;
+    }
     this.action.paused = true;
     this.mixer.update(0);
   }
@@ -50,6 +57,13 @@ export class ModelAnimation {
   setPlaying(playing: boolean) {
     this.playing = playing && this.action !== null && this.state().duration > 0;
     if (this.action) this.action.paused = !this.playing;
+  }
+
+  setLoop(loop: boolean) {
+    this.loop = loop;
+    if (!this.action) return;
+    this.action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+    this.action.clampWhenFinished = !loop;
   }
 
   seek(seconds: number) {
@@ -68,6 +82,9 @@ export class ModelAnimation {
     if (!this.playing || !Number.isFinite(seconds) || seconds <= 0) return false;
     this.mixer.update(Math.min(seconds, 0.1) * this.speed);
     this.root.updateMatrixWorld(true);
+    if (!this.loop && this.playing && this.action && this.action.time >= this.state().duration - 1e-9) {
+      this.playing = false;
+    }
     return true;
   }
 

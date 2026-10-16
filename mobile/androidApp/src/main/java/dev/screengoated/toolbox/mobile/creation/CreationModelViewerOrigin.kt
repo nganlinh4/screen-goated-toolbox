@@ -97,6 +97,7 @@ internal data class CreationModelViewerLabels(
                 "animationTime" to strings.playback.animationTime,
                 "animationSpeed" to strings.playback.animationSpeed,
                 "resetPose" to strings.playback.resetPose,
+                "loop" to strings.playback.loop,
             ),
         )
     }

@@ -1,7 +1,8 @@
-import { locale, t } from "./i18n";
+import { locale, t, type MessageKey } from "./i18n";
 import { ICONS } from "./layout";
 import type { AppNodes, AppState, QueueItem, QueueState } from "./types";
 import { newestSessionsFirst } from "../../ui-shared/creation-history-order";
+import { lineageChains, type LineageInfo } from "./lineage";
 
 type QueueViewOptions = {
   state: AppState;
@@ -30,6 +31,17 @@ function itemQueueLabel(item: QueueItem) {
   if (item.historyId && item.state === "done") return t("savedResult");
   return item.state === "queued" && !item.submitted ? t("draft") : queueStateLabel(item.state);
 }
+
+const REVISION_LABEL_KEYS: Record<string, MessageKey> = {
+  generation: "revisionGeneration",
+  separate_parts: "separateParts",
+  optimize_triangle: "revisionOptimizeTriangle",
+  optimize_quad: "revisionOptimizeQuad",
+  add_materials: "materials",
+  generate_pbr: "pbr",
+  rig: "rig",
+  animate: "animate",
+};
 
 export class ModelQueueView {
   private signature = "";
@@ -111,6 +123,7 @@ export class ModelQueueView {
     }
     const currentItems = state.items.filter((item) => !item.historyId);
     const presentationItems = newestSessionsFirst(state.items);
+    const lineage = lineageChains(state.items);
     const batchIds = [...new Set(currentItems.map((item) => item.batchId))];
     const showBatchLabels =
       batchIds.length > 1 || currentItems.some((item) => batchItems(item.batchId).length > 1);
@@ -129,10 +142,11 @@ export class ModelQueueView {
       }
       const rowSignature = JSON.stringify([
         locale(), item.historyId || "", item.result?.outputName || "", this.renamingId === item.id,
+        lineage.get(item.id) || "",
       ]);
       let row = this.rows.get(item.id);
       if (!row || this.rowSignatures.get(item.id) !== rowSignature) {
-        const replacement = this.createRow(item);
+        const replacement = this.createRow(item, lineage.get(item.id));
         row?.replaceWith(replacement);
         row = replacement;
         this.rows.set(item.id, row);
@@ -143,7 +157,7 @@ export class ModelQueueView {
     nodes.queueList.append(fragment);
   }
 
-  private createRow(item: QueueItem) {
+  private createRow(item: QueueItem, lineage?: LineageInfo) {
     const { state } = this.options;
     const row = document.createElement("div");
     row.className = `queue-item ${item.id === state.selectedId ? "selected" : ""}`;
@@ -170,6 +184,14 @@ export class ModelQueueView {
     small.textContent = itemQueueLabel(item);
     if (this.renamingId === item.id && item.historyId) this.appendRenameInput(copy, small, item);
     else copy.append(strong, small);
+    if (lineage) {
+      const label = document.createElement("span");
+      label.className = `queue-lineage${lineage.current ? " current" : ""}`;
+      const kindKey = REVISION_LABEL_KEYS[lineage.kind];
+      const kindLabel = kindKey ? t(kindKey) : lineage.kind;
+      label.textContent = `v${lineage.version} · ${kindLabel}${lineage.current ? ` · ${t("revisionCurrent")}` : ""}`;
+      copy.append(label);
+    }
     select.append(copy);
     select.addEventListener("click", () => this.options.onSelect(item.id));
     select.addEventListener("keydown", (event) => {

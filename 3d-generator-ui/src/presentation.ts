@@ -30,13 +30,14 @@ type PresentationOptions = {
 export class ModelPresentation {
   private sourceThumbnailUrl = "";
   private progressIdentity = "";
+  private fps = 0;
   constructor(private readonly options: PresentationOptions) {}
 
   applyTranslations() {
     this.options.viewer.setPlaybackLabels({
       animationClip: t("animationClip"), playAnimation: t("playAnimation"),
       pauseAnimation: t("pauseAnimation"), animationTime: t("animationTime"),
-      animationSpeed: t("animationSpeed"), resetPose: t("resetPose"),
+      animationSpeed: t("animationSpeed"), resetPose: t("resetPose"), loop: t("loopAnimation"),
     });
     document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((node) => {
       node.textContent = t(node.dataset.i18n as MessageKey);
@@ -392,6 +393,7 @@ export class ModelPresentation {
 
   private formatModelStats(stats: ModelStats) {
     const number = new Intl.NumberFormat(locale());
+    const fps = this.fps > 0 ? ` · ${t("modelStatsFps", { fps: this.fps })}` : "";
     // A quad model's faces are polygons; reporting its triangle count would
     // describe the render, not the mesh the file contains.
     if (stats.polygons !== undefined && stats.quads !== undefined) {
@@ -399,11 +401,20 @@ export class ModelPresentation {
         vertices: number.format(stats.vertices),
         polygons: number.format(stats.polygons),
         quads: number.format(stats.quads),
-      });
+      }) + fps;
     }
     return t("modelStats", {
       vertices: number.format(stats.vertices),
       faces: number.format(stats.faces),
-    });
+    }) + fps;
+  }
+
+  setFps(fps: number) {
+    if (this.fps === fps) return;
+    this.fps = fps;
+    const item = this.options.selectedItem();
+    if (item?.modelStats && this.options.nodes.modelStats.classList.contains("visible")) {
+      this.options.nodes.modelStats.textContent = this.formatModelStats(item.modelStats);
+    }
   }
 }

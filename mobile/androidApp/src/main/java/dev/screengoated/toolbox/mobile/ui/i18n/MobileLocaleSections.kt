@@ -136,6 +136,7 @@ data class CreationPlaybackLocale(
     val animationTime: String,
     val animationSpeed: String,
     val resetPose: String,
+    val loop: String,
 )
 
 data class Creation3dRefinementLocale(

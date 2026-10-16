@@ -48,3 +48,27 @@ test("reset restores authored rest pose and invalid selections cannot lose it", 
   playback.dispose();
   assert.deepEqual(playback.state().clips, []);
 });
+
+test("loop off clamps at the clip end and stops playback; loop on wraps", () => {
+  const looped = fixture();
+  assert.equal(looped.playback.state().loop, true);
+  looped.playback.setPlaying(true);
+  for (let tick = 0; tick < 12; tick += 1) looped.playback.update(0.1);
+  assert.ok(Math.abs(looped.playback.state().time - 0.2) < 0.001);
+  assert.equal(looped.playback.state().playing, true);
+  looped.playback.dispose();
+
+  const once = fixture();
+  once.playback.setLoop(false);
+  assert.equal(once.playback.state().loop, false);
+  once.playback.setPlaying(true);
+  for (let tick = 0; tick < 6; tick += 1) once.playback.update(0.1);
+  assert.ok(Math.abs(once.playback.state().time - 0.6) < 0.001);
+  assert.equal(once.playback.state().playing, true);
+  for (let tick = 0; tick < 6; tick += 1) once.playback.update(0.1);
+  assert.ok(Math.abs(once.playback.state().time - 1) < 0.001);
+  assert.equal(once.playback.state().playing, false);
+  assert.equal(once.playback.update(0.1), false);
+  assert.ok(Math.abs(once.playback.state().time - 1) < 0.001);
+  once.playback.dispose();
+});

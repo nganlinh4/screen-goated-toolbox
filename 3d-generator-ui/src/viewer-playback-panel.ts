@@ -3,12 +3,12 @@ import "./viewer-playback.css";
 
 export type PlaybackLabels = {
   animationClip: string; playAnimation: string; pauseAnimation: string;
-  animationTime: string; animationSpeed: string; resetPose: string;
+  animationTime: string; animationSpeed: string; resetPose: string; loop: string;
 };
 
 const DEFAULT_LABELS: PlaybackLabels = {
   animationClip: "Animation", playAnimation: "Play", pauseAnimation: "Pause",
-  animationTime: "Animation time", animationSpeed: "Playback speed", resetPose: "Rest pose",
+  animationTime: "Animation time", animationSpeed: "Playback speed", resetPose: "Rest pose", loop: "Loop",
 };
 
 export class PlaybackPanel {
@@ -18,6 +18,7 @@ export class PlaybackPanel {
   private seek = document.createElement("input");
   private speed = document.createElement("select");
   private reset = document.createElement("button");
+  private loop = document.createElement("button");
   private time = document.createElement("output");
   private playback: ModelAnimation | null = null;
   private labels = DEFAULT_LABELS;
@@ -32,9 +33,10 @@ export class PlaybackPanel {
     this.seek.className = "viewer-playback-seek";
     this.speed.className = "viewer-playback-speed";
     this.reset.className = "viewer-playback-reset";
+    this.loop.className = "viewer-playback-loop";
     this.time.className = "viewer-playback-time";
     this.time.setAttribute("aria-live", "off");
-    this.play.type = this.reset.type = "button";
+    this.play.type = this.reset.type = this.loop.type = "button";
     this.seek.type = "range";
     this.seek.min = "0";
     this.seek.step = "0.001";
@@ -42,7 +44,7 @@ export class PlaybackPanel {
       this.speed.add(new Option(`${value}×`, String(value)));
     }
     this.speed.value = "1";
-    this.element.append(this.clips, this.play, this.seek, this.time, this.speed, this.reset);
+    this.element.append(this.clips, this.play, this.seek, this.time, this.speed, this.loop, this.reset);
     container.append(this.element);
     this.clips.addEventListener("change", () => this.change(() => {
       if (this.clips.value === "-1") this.playback?.resetPose();
@@ -59,6 +61,10 @@ export class PlaybackPanel {
     this.speed.addEventListener("change", () => this.change(() => {
       this.playback?.setSpeed(Number(this.speed.value));
     }));
+    this.loop.addEventListener("click", () => this.change(() => {
+      const playback = this.playback;
+      if (playback) playback.setLoop(!playback.state().loop);
+    }));
     this.reset.addEventListener("click", () => this.change(() => this.playback?.resetPose()));
     this.setLabels(DEFAULT_LABELS);
   }
@@ -69,6 +75,7 @@ export class PlaybackPanel {
     this.seek.setAttribute("aria-label", labels.animationTime);
     this.speed.setAttribute("aria-label", labels.animationSpeed);
     this.reset.textContent = labels.resetPose;
+    this.loop.textContent = labels.loop;
     if (this.clips.options.length) this.clips.options[0].text = labels.resetPose;
     this.update();
   }
@@ -89,6 +96,7 @@ export class PlaybackPanel {
     if (!state) return;
     this.play.textContent = state.playing ? this.labels.pauseAnimation : this.labels.playAnimation;
     this.play.setAttribute("aria-pressed", String(state.playing));
+    this.loop.setAttribute("aria-pressed", String(state.loop));
     this.clips.value = String(state.selected);
     this.seek.max = String(state.duration);
     this.seek.value = String(state.time);

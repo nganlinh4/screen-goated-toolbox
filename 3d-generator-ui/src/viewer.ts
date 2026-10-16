@@ -5,6 +5,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { LatestOnlyLane } from "./latest-only-lane";
 import { modelGeometryStats, prepareSegmentedGeometry } from "./segmented-geometry";
 import { EdgeShader } from "./viewer-edge-shader";
@@ -36,7 +37,7 @@ export class ModelViewer {
   private camera = new THREE.PerspectiveCamera(34, 1, 0.01, 100);
   private controls: OrbitControls;
   private composer: EffectComposer;
-  private edgePass: ShaderPass;
+  private edgePass!: ShaderPass;
   private metadataTarget: THREE.WebGLRenderTarget;
   private metadataMaterial: THREE.ShaderMaterial;
   private metadataIds = new WeakMap<THREE.Object3D, number>();
@@ -61,14 +62,19 @@ export class ModelViewer {
   private playback: ModelAnimation | null = null;
   private playbackPanel: PlaybackPanel;
   private previousFrame = 0;
+  private pmrem: THREE.PMREMGenerator | null = null;
+  private environmentTarget: THREE.WebGLRenderTarget | null = null;
+  private contextLost = false;
+  private fpsEma = 0;
+  private fpsListener: ((fps: number) => void) | null = null;
+  private lastFpsReport = 0;
   private hemisphere = new THREE.HemisphereLight(0xe5fbf5, 0x1a2524, 2.15);
   private key = new THREE.DirectionalLight(0xf5fff9, 3.2);
   private rim = new THREE.DirectionalLight(0x54c9b3, 2.0);
 
   constructor(private canvas: HTMLCanvasElement, private container: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.setPixelRatio(this.pixelRatio());
+    this.renderer = this.createRenderer();
+    this.updateEnvironment();
     this.camera.position.set(0, 0.1, 3.4);
 
     this.controls = new OrbitControls(this.camera, this.canvas);
@@ -99,21 +105,9 @@ export class ModelViewer {
     this.grid.visible = false;
     this.scene.add(this.grid);
 
-    const renderTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: true });
-    renderTarget.samples = Math.min(2, this.renderer.capabilities.maxSamples);
-    this.composer = new EffectComposer(this.renderer, renderTarget);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.edgePass = new ShaderPass(EdgeShader);
-    this.composer.addPass(this.edgePass);
-    this.composer.addPass(new OutputPass());
+    this.composer = this.createComposer();
 
-    this.metadataTarget = new THREE.WebGLRenderTarget(1, 1, {
-      depthBuffer: true,
-      depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
-      minFilter: THREE.NearestFilter,
-      magFilter: THREE.NearestFilter,
-    });
-    this.metadataTarget.texture.colorSpace = THREE.NoColorSpace;
+    this.metadataTarget = this.createMetadataTarget();
     this.metadataMaterial = new THREE.ShaderMaterial({
       uniforms: { uSurfaceId: { value: 0 } },
       vertexShader: THREE.ShaderLib.normal.vertexShader,
@@ -137,6 +131,8 @@ export class ModelViewer {
       this.requestRender();
     });
     document.addEventListener("visibilitychange", this.visibilityChanged);
+    this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
+    this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
 
     this.idleObject = this.createIdleObject();
     this.scene.add(this.idleObject);
@@ -158,6 +154,75 @@ export class ModelViewer {
     this.requestRender();
   };
 
+  onFpsUpdate(listener: ((fps: number) => void) | null) {
+    this.fpsListener = listener;
+  }
+
+  private createRenderer() {
+    const renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.setPixelRatio(this.pixelRatio());
+    return renderer;
+  }
+
+  private createComposer() {
+    const renderTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: true });
+    renderTarget.samples = Math.min(2, this.renderer.capabilities.maxSamples);
+    const composer = new EffectComposer(this.renderer, renderTarget);
+    composer.addPass(new RenderPass(this.scene, this.camera));
+    this.edgePass = new ShaderPass(EdgeShader);
+    composer.addPass(this.edgePass);
+    composer.addPass(new OutputPass());
+    return composer;
+  }
+
+  private createMetadataTarget() {
+    const target = new THREE.WebGLRenderTarget(1, 1, {
+      depthBuffer: true,
+      depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+    });
+    target.texture.colorSpace = THREE.NoColorSpace;
+    return target;
+  }
+
+  private updateEnvironment() {
+    this.pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.environmentTarget = this.pmrem.fromScene(new RoomEnvironment());
+    this.scene.environment = this.environmentTarget.texture;
+  }
+
+  private handleContextLost = (event: Event) => {
+    this.contextLost = true;
+    // Preventing the default lets the browser give the canvas back.
+    event.preventDefault();
+  };
+
+  private handleContextRestored = () => {
+    // The flag guards double-init: rebuild only once, after a real loss.
+    if (this.disposed || !this.contextLost) return;
+    this.contextLost = false;
+    this.rebuildGpuResources();
+  };
+
+  private rebuildGpuResources() {
+    this.composer.dispose();
+    this.metadataTarget.dispose();
+    this.environmentTarget?.dispose();
+    this.pmrem?.dispose();
+    this.renderer.dispose();
+    this.renderer = this.createRenderer();
+    this.composer = this.createComposer();
+    this.metadataTarget = this.createMetadataTarget();
+    this.updateEnvironment();
+    this.applyMaterials();
+    this.setTheme(this.theme);
+    this.resize();
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -170,6 +235,8 @@ export class ModelViewer {
     this.clearResult();
     this.playbackPanel.dispose();
     document.removeEventListener("visibilitychange", this.visibilityChanged);
+    this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
+    this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.disposeGroup(this.idleObject);
     this.grid.geometry.dispose();
     const gridMaterials = Array.isArray(this.grid.material)
@@ -179,6 +246,8 @@ export class ModelViewer {
     (this.scene.userData.toonGradient as THREE.Texture | undefined)?.dispose();
     this.metadataMaterial.dispose();
     this.metadataTarget.dispose();
+    this.environmentTarget?.dispose();
+    this.pmrem?.dispose();
     this.composer.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
@@ -536,6 +605,14 @@ export class ModelViewer {
     const time = (now - this.startedAt) / 1000;
     const delta = this.previousFrame ? (now - this.previousFrame) / 1000 : 0;
     this.previousFrame = now;
+    if (delta > 0 && delta < 1) {
+      const instant = 1 / delta;
+      this.fpsEma = this.fpsEma ? this.fpsEma + (instant - this.fpsEma) * 0.15 : instant;
+      if (this.fpsListener && now - this.lastFpsReport >= 500) {
+        this.lastFpsReport = now;
+        this.fpsListener(Math.round(this.fpsEma));
+      }
+    }
     const animationChanged = this.playback?.update(delta) ?? false;
     if (animationChanged) this.playbackPanel.update();
     if (this.idleObject.visible) {

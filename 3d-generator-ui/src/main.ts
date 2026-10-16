@@ -225,6 +225,7 @@ presentation = new ModelPresentation({
   renderQueue: () => queueView.render(),
   stripExtension,
 });
+modelDisplay.onFpsUpdate((fps) => presentation.setFps(fps));
 
 function updateUi() {
   presentation.updateUi();

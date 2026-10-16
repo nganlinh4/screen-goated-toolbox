@@ -89,7 +89,7 @@ internal fun vietnameseMobileLocaleText(): MobileLocaleText {
                 ),
             ),
             model3d = Creation3dLocale(
-                playback = CreationPlaybackLocale("Hoạt ảnh", "Phát", "Tạm dừng", "Thời gian hoạt ảnh", "Tốc độ phát", "Tư thế gốc"),
+                playback = CreationPlaybackLocale("Hoạt ảnh", "Phát", "Tạm dừng", "Thời gian hoạt ảnh", "Tốc độ phát", "Tư thế gốc", "Lặp lại"),
                 mode = "Chế độ",
                 fast = "Nhanh",
                 quality = "Tốt",

@@ -47,3 +47,16 @@ test("viewer build cannot add chunks to the desktop dist contract", () => {
   assert.match(config, /entryFileNames: "assets\/viewer\.js"/);
   assert.match(config, /cssCodeSplit: false/);
 });
+
+test("viewer recovers from context loss and renders through ACES tone mapping", () => {
+  const viewer = source("./viewer.ts");
+  assert.match(viewer, /webglcontextlost/);
+  assert.match(viewer, /event\.preventDefault\(\)/);
+  assert.match(viewer, /webglcontextrestored/);
+  assert.match(viewer, /ACESFilmicToneMapping/);
+  assert.match(viewer, /toneMappingExposure = 1/);
+  assert.match(viewer, /new THREE\.PMREMGenerator/);
+  assert.match(viewer, /RoomEnvironment/);
+  assert.match(viewer, /environmentTarget\?\.dispose\(\)/);
+  assert.match(viewer, /pmrem\?\.dispose\(\)/);
+});

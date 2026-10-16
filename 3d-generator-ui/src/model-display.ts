@@ -8,6 +8,7 @@ type ModelTarget = {
   cancelPendingModelLoad: () => void;
   setModel: (url: string, segmented: boolean) => Promise<ModelStats | null>;
   showIdle: () => void;
+  onFpsUpdate?: (listener: ((fps: number) => void) | null) => void;
 };
 
 export type ModelDisplayOutcome =
@@ -60,6 +61,10 @@ export class ModelDisplayLane {
     this.lane.invalidate();
     this.viewer.cancelPendingModelLoad();
     void this.releaseAsset();
+  }
+
+  onFpsUpdate(listener: ((fps: number) => void) | null) {
+    this.viewer.onFpsUpdate?.(listener);
   }
 
   private releaseAsset() {

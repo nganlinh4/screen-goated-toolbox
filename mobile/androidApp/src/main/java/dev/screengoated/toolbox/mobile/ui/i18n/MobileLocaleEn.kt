@@ -89,7 +89,7 @@ internal fun englishMobileLocaleText(): MobileLocaleText {
                 ),
             ),
             model3d = Creation3dLocale(
-                playback = CreationPlaybackLocale("Animation", "Play", "Pause", "Animation time", "Playback speed", "Rest pose"),
+                playback = CreationPlaybackLocale("Animation", "Play", "Pause", "Animation time", "Playback speed", "Rest pose", "Loop"),
                 mode = "Mode",
                 fast = "Fast",
                 quality = "Quality",
