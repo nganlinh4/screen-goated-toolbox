@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-20T11:45:56Z",
+ "generatedAt": "2026-10-20T17:15:14Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -18,16 +18,8 @@
    "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
    "control": "effort-none",
    "modality": "vision",
-   "p50_ms": 404,
-   "success_rate": 0.913,
-   "runs": 23
-  },
-  {
-   "id": "google/diffusiongemma-26b-a4b-it",
-   "control": "plain",
-   "modality": "vision",
-   "p50_ms": 631,
-   "success_rate": 1.0,
+   "p50_ms": 403,
+   "success_rate": 0.917,
    "runs": 24
   },
   {
@@ -50,7 +42,7 @@
    "id": "stepfun-ai/step-5-preview",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 1466,
+   "p50_ms": 1610,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -58,7 +50,7 @@
    "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 1796,
+   "p50_ms": 2001,
    "success_rate": 0.875,
    "runs": 24
   }
