@@ -3,22 +3,22 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-21T07:44:18Z",
+ "generatedAt": "2026-10-21T13:52:16Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 329,
-   "success_rate": 0.417,
+   "p50_ms": 283,
+   "success_rate": 0.458,
    "runs": 24
   },
   {
    "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
    "control": "effort-none",
    "modality": "vision",
-   "p50_ms": 403,
+   "p50_ms": 405,
    "success_rate": 0.917,
    "runs": 24
   },
@@ -31,11 +31,19 @@
    "runs": 24
   },
   {
+   "id": "google/diffusiongemma-26b-a4b-it",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 866,
+   "success_rate": 0.917,
+   "runs": 24
+  },
+  {
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 887,
-   "success_rate": 0.625,
+   "p50_ms": 988,
+   "success_rate": 0.667,
    "runs": 24
   },
   {
@@ -50,16 +58,8 @@
    "id": "stepfun-ai/step-5-preview",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 1668,
+   "p50_ms": 1707,
    "success_rate": 1.0,
-   "runs": 24
-  },
-  {
-   "id": "z-ai/glm-5.3",
-   "control": "thinking-off",
-   "modality": "text",
-   "p50_ms": 4270,
-   "success_rate": 0.542,
    "runs": 24
   }
  ]
