@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-20T21:41:15Z",
+ "generatedAt": "2026-10-21T00:39:42Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -26,7 +26,7 @@
    "id": "google/diffusiongemma-26b-a4b-it",
    "control": "plain",
    "modality": "vision",
-   "p50_ms": 690,
+   "p50_ms": 649,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -42,7 +42,7 @@
    "id": "openai/gpt-oss-20b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1500,
+   "p50_ms": 1434,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -52,6 +52,14 @@
    "modality": "text",
    "p50_ms": 1668,
    "success_rate": 1.0,
+   "runs": 24
+  },
+  {
+   "id": "z-ai/glm-5.3-flash",
+   "control": "effort-low",
+   "modality": "vision",
+   "p50_ms": 2032,
+   "success_rate": 0.292,
    "runs": 24
   }
  ]
