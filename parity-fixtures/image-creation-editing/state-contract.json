@@ -1,6 +1,6 @@
 {
   "schema": "sgt.creation.image",
-  "fixtureVersion": 66,
+  "fixtureVersion": 68,
   "tool": "image",
   "jobIdPrefix": "image_",
   "operation": "create_image",

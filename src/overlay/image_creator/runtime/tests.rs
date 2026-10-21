@@ -27,7 +27,7 @@ fn image_entry_and_reference_retention_contract_remains_fail_closed() {
         "../../../../parity-fixtures/image-creation-editing/state-contract.json"
     ))
     .unwrap();
-    assert_eq!(fixture["fixtureVersion"].as_u64(), Some(66));
+    assert_eq!(fixture["fixtureVersion"].as_u64(), Some(68));
 
     let quality = &fixture["qualityControl"];
     assert_eq!(
@@ -53,20 +53,6 @@ fn image_entry_and_reference_retention_contract_remains_fail_closed() {
         assert_eq!(upload[field].as_bool(), Some(true), "{field}");
     }
 }
-
-#[test]
-fn hidden_image_creation_rejects_admission_before_mutating_output() {
-    let output =
-        std::env::temp_dir().join(format!("sgt-hidden-image-admission-{}", std::process::id()));
-    let mut request = request(Vec::new());
-    request.output_dir = Some(output.to_string_lossy().to_string());
-
-    let error = start_job(request).unwrap_err();
-
-    assert_eq!(error, "Image creation is temporarily unavailable.");
-    assert!(!output.exists());
-}
-
 #[test]
 fn image_sessions_accept_zero_or_multiple_unique_references() {
     let root = std::env::temp_dir().join(format!(

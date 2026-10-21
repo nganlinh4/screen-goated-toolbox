@@ -64,7 +64,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_image_contract_hides_and_gates_release_entry() {
+    fn shared_image_contract_hides_release_entry() {
         let contract: serde_json::Value = serde_json::from_str(IMAGE_CREATOR_CONTRACT).unwrap();
         let availability = &contract["releaseAvailability"];
         assert_eq!(availability["enabled"], false);

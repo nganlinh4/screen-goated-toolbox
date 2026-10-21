@@ -64,7 +64,7 @@ class CreationProductContractTest {
             Triple(
                 "parity-fixtures/image-creation-editing/state-contract.json",
                 "fixtureVersion",
-                66,
+                68,
             ),
         )
         fixtures.forEach { (path, versionField, version) ->
