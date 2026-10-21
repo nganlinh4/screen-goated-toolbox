@@ -258,7 +258,7 @@ fn adaptive_priority_policy_matches_the_shared_platform_fixture() {
     );
     let size = &fixture["priority_chain_size"];
     assert!(size["user_limit"].is_null());
-    assert_eq!(size["prepared_image_default_target"], 10);
+    assert_eq!(size["prepared_image_default_target"], 9);
     assert_eq!(size["prepared_text_default_target"], 12);
 }
 

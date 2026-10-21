@@ -34,8 +34,12 @@
   fallbacks. The text chain keeps Qwen 3.8 first, with Groq
   GPT-OSS as fast fallbacks before the remaining hosted endpoints. Most slow or
   lower-reliability endpoints remain selectable outside the bounded shipped
-  chain; its final OpenRouter row preserves a provider-diverse fallback. Exact
-  order remains owned only by the shared catalog and fixture.
+  chain; its final OpenRouter row preserves a provider-diverse fallback. The
+  2026-10-18 update promotes Flash Lite 3.5 to the first Google text slot and
+  uses dots 3 Note at the OpenRouter text tail. The ordinary image chain has
+  nine defaults after disabling Gemma 4 26B vision, and retains 3.1 Flash Lite
+  only at its tail. Existing saved choices follow normal reset/adoption behavior.
+  Exact order remains owned only by the shared catalog and fixture.
 - The Windows one-time post-update recommendation prompt compares the staged
   preset models, priority chains, and recommended-provider defaults. Applying
   updates changed built-in model slots, restores both priority chains, and

@@ -136,7 +136,7 @@ class ModelPerformancePrefixTest {
     fun priorityChainTargetsDoNotLimitUserRows() {
         val size = fixture().getValue("priority_chain_size").jsonObject
         assertTrue(size.getValue("user_limit").toString() == "null")
-        assertEquals(10, size.getValue("prepared_image_default_target").jsonPrimitive.int)
+        assertEquals(9, size.getValue("prepared_image_default_target").jsonPrimitive.int)
         assertEquals(12, size.getValue("prepared_text_default_target").jsonPrimitive.int)
     }
 

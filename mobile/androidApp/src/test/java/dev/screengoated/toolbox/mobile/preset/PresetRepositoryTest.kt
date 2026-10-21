@@ -382,13 +382,12 @@ class PresetRepositoryTest {
     }
 
     @Test
-    fun presetModelCatalogIncludesGemma4FamilyAcrossModalities() {
+    fun gemmaTextRemainsAvailableWhenOrdinaryVisionIsDisabled() {
         val textModel = requireNotNull(PresetModelCatalog.getById("google-gemma-4-26b-a4b-text"))
-        val visionModel = requireNotNull(PresetModelCatalog.getById("google-gemma-4-26b-a4b-vision"))
+        assertTrue(PresetModelCatalog.getById("google-gemma-4-26b-a4b-vision") == null)
 
         assertEquals(PresetModelProvider.GOOGLE, textModel.provider)
         assertEquals(PresetModelType.TEXT, textModel.modelType)
-        assertEquals(PresetModelType.VISION, visionModel.modelType)
         assertTrue(PresetModelCatalog.forType(PresetModelType.TEXT).any { it.id == "google-gemma-4-31b-text" })
         assertTrue(PresetModelCatalog.forType(PresetModelType.VISION).any { it.id == "google-gemma-4-31b-vision" })
         assertTrue(PresetModelCatalog.getById("google-gemma-4-26b-a4b-text-audio") == null)

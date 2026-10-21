@@ -1,5 +1,5 @@
 {
-  "version": 21,
+  "version": 22,
   "id_rule": {
     "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-(?:text|vision|audio|search)$",
     "forbidden_lifecycle_segments": [
@@ -181,7 +181,7 @@
   },
   "priority_chain_size": {
     "user_limit": null,
-    "prepared_image_default_target": 10,
+    "prepared_image_default_target": 9,
     "prepared_text_default_target": 12
   },
   "default_head_adoption": {

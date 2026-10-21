@@ -7,14 +7,14 @@ description: Run one unified model-discovery and production-path benchmark day, 
 
 Discovery is the first phase of a benchmark day, never a separate workflow. The
 same session verifies current provider state, benchmarks every runnable general
-model, performs direct quality review, audits production request parity, and only
-then changes the shared catalog when authorized.
+model, performs direct quality review, audits production request parity, and then
+applies evidence-supported decisions to the shared catalog.
 
 ## Start
 
 1. From the repository root, read `.claude/commands/manage-model-catalog.md`, `catalog/README.md`, `tests/catalog-benchmark/README.md`, and `tests/catalog-benchmark/history-policy.json` completely.
 2. Inspect `git status --short`; preserve unrelated work.
-3. Treat discovery and benchmarking as read-only evidence unless catalog mutation is explicitly authorized. A request to benchmark and update the catalog authorizes the complete discovery, provisional-profile, benchmark, review, and catalog-decision workflow; carry it through without asking again.
+3. Invoking this skill, including a request to do benchmark-day, authorizes the complete discovery, provisional-profile, benchmark, review, and catalog-update workflow. Apply evidence-supported performance metadata, admission/withdrawal, default, and retry-order changes without asking for separate confirmation. Honor an explicit report-only or no-changes request.
 4. For cross-platform catalog changes, read `.claude/skills/enforce-mobile-parity/SKILL.md`, `.claude/parity/model-catalog.md`, and the affected feature parity spec before editing.
 
 ## Unified discovery phase
@@ -124,8 +124,8 @@ diagnostic until the applicable feature's production acceptance passes.
 2. Ensure child processes receive the intended `.env` values explicitly. A saved app key can otherwise mask an edited `.env`. Compare only non-secret fingerprints when diagnosing key selection.
 3. Run all ten round-major levels for every runnable general model, including
    NVIDIA feed candidates. Use focused filters only for screening or recovery.
-   The enabled catalog is not the discovery boundary. With catalog edits
-   authorized, prepare exact production profiles for uncataloged candidates and
+   The enabled catalog is not the discovery boundary. Prepare exact production
+   profiles for uncataloged candidates within the requested scope and
    test them before deciding final admission. Reuse completed same-day cells only
    when their protocol, fixtures, endpoint, and request policy remain compatible.
 4. Preserve request errors, malformed responses, overloads, retries, and quota failures. They are reliability evidence, not latency samples.
@@ -174,7 +174,7 @@ Close the discovery ledger before claiming completion: each eligible endpoint
 must have complete benchmark evidence and an admission/rejection decision, or an
 explicit current access/quota/contract blocker. Separate never tested, previously
 rejected, retested, and excluded endpoints. Do not describe an enabled-catalog
-subset as the complete benchmark day. Apply authorized evidence-supported catalog
+subset as the complete benchmark day. Apply evidence-supported catalog
 changes and report unresolved gaps precisely. Preserve reviewer provenance;
 agent review must never be described as human sign-off.
 

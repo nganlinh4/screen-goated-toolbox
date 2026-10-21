@@ -87,7 +87,7 @@
   A cataloged text row must not capture a vision offer for the same endpoint (or
   vice versa); the unmatched capability is projected as a compactly named
   discovered row with its feed latency on both platforms.
-- The image `10` and text `12` counts are shipped-default preparation targets,
+- The image `9` and text `12` counts are shipped-default preparation targets,
   never UI, persistence, or runtime limits. Users may add any number of rows.
 - The chosen-model sentinel is numbered `0`, editable retry rows are numbered
   continuously from `1`, and the automatic-fallback sentinel receives the next
@@ -118,6 +118,18 @@
   search endpoints do not remain selectable on either platform. It also vetoes
   NVIDIA Nemotron 3 Nano Omni reasoning after a complete protocol-16 ordinary
   vision row produced no usable OCR result and no strict coordinate success.
+- The 2026-10-18 protocol-16 checkpoint retains Qwen 3.8 as both generic heads
+  and Gemini 3.5 Flash Lite as the immediate image fallback. Flash Lite 3.5
+  becomes the first Google text fallback; the canonical 3.6 Flash replaces
+  its 3.5 alias in the text chain. The complete dots 3 Note text row replaces
+  the less reliable OpenRouter Nemotron tail. Gemini 3.8 Live precedes 3.8
+  Flash for text, and 3.1 Flash Lite moves to the image tail after four OCR
+  timeouts. Gemma 4 26B's vision row is disabled after ten OCR timeouts;
+  its text row and endpoint profile remain available. NVIDIA Step 5's current
+  ordinary profile is withdrawn for reasoning leakage in all ten text outputs.
+  Feed availability cannot override that reviewed veto. Existing tiers remain
+  curated; automatic OCR similarity does not assign intelligence tiers. Control,
+  audio, explicit-search defaults and persisted user choices remain separate.
 - Every model-selection surface, including the Android node editor, observes
   live-feed revisions and applies the shared provider-enabled predicate. A
   newly offered NVIDIA endpoint therefore appears without reopening the editor,

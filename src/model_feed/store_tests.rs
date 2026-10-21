@@ -36,26 +36,40 @@ fn a_known_model_resolves_to_its_catalog_row() {
 
 #[test]
 fn a_reviewed_withdrawal_cannot_return_through_the_signed_feed() {
-    let endpoint = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning";
-    let feed = AvailabilityFeed {
-        schema_version: 3,
-        control_version: 1,
-        availability_gate_version: 1,
-        provider: "nvidia".to_string(),
-        generated_at: "2026-09-21T00:00:00Z".to_string(),
-        models: vec![crate::model_feed::FeedModel {
-            id: endpoint.to_string(),
-            control: Some(super::super::FeedControl::Plain),
-            modality: Some("vision".to_string()),
-            p50_ms: Some(100),
-            success_rate: 1.0,
-            runs: 100,
-        }],
-    };
+    for (endpoint, modality, model_type, control) in [
+        (
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+            "vision",
+            ModelType::Vision,
+            super::super::FeedControl::Plain,
+        ),
+        (
+            "stepfun-ai/step-5-preview",
+            "text",
+            ModelType::Text,
+            super::super::FeedControl::EffortNone,
+        ),
+    ] {
+        let feed = AvailabilityFeed {
+            schema_version: 3,
+            control_version: 1,
+            availability_gate_version: 1,
+            provider: "nvidia".to_string(),
+            generated_at: "2026-10-18T00:00:00Z".to_string(),
+            models: vec![crate::model_feed::FeedModel {
+                id: endpoint.to_string(),
+                control: Some(control),
+                modality: Some(modality.to_string()),
+                p50_ms: Some(100),
+                success_rate: 1.0,
+                runs: 100,
+            }],
+        };
 
-    assert!(!endpoint_is_offered(&feed, ModelType::Vision, endpoint));
-    assert_eq!(catalog_id_for("nvidia", endpoint, ModelType::Vision), None);
-    assert!(discovered_models_from_feed(&feed).is_empty());
+        assert!(!endpoint_is_offered(&feed, model_type, endpoint));
+        assert_eq!(catalog_id_for("nvidia", endpoint, model_type), None);
+        assert!(discovered_models_from_feed(&feed).is_empty());
+    }
 }
 
 #[test]

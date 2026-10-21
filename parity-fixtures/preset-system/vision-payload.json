@@ -16,16 +16,6 @@
       },
       {
         "provider": "google",
-        "api_model": "gemma-4-26b-a4b-it",
-        "input_order": "image-first",
-        "media_resolution": "provider-default",
-        "sampling": "provider-default",
-        "max_output_tokens": null,
-        "structured_output": "strict-json-schema",
-        "restates_output": false
-      },
-      {
-        "provider": "google",
         "api_model": "gemma-4-31b-it",
         "input_order": "image-first",
         "media_resolution": "provider-default",

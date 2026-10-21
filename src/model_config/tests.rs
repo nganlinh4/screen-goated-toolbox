@@ -51,10 +51,10 @@ fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.8-27b");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(1160));
+    assert_eq!(model.typical_latency_ms, Some(974));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-09-21-protocol16:ocr-small-1024")
+        Some("benchmark-2026-10-18-protocol16:ocr-small-1024")
     );
 }
 
@@ -125,15 +125,15 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.8-27b");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(273));
+    assert_eq!(model.typical_latency_ms, Some(246));
     assert_eq!(
         model.performance_source.as_deref(),
-        Some("benchmark-2026-09-21-protocol16:text")
+        Some("benchmark-2026-10-18-protocol16:text")
     );
     for (index, expected) in [
         (1, "groq-gpt-oss-20b-text"),
         (2, "groq-gpt-oss-120b-text"),
-        (3, "google-gemini-3-1-flash-lite-text"),
+        (3, "google-gemini-3-5-flash-lite-text"),
     ] {
         assert_eq!(
             default_text_to_text_priority_chain_ids()
@@ -142,17 +142,16 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
             Some(expected)
         );
     }
-    // The provider-diverse fallback remains at the tail despite its lower
-    // reliability, after every stronger primary candidate.
+    // Retain a provider-diverse tail with complete ordinary text coverage.
     assert_eq!(
         default_text_to_text_priority_chain_ids().get(11).copied(),
-        Some("openrouter-nemotron-3-super-120b-text")
+        Some("openrouter-dots-3-note-text")
     );
     let gemini_38 =
         get_model_by_id("google-gemini-3-8-flash-text").expect("Gemini 3.8 text fallback exists");
-    assert_eq!(gemini_38.typical_latency_ms, Some(3343));
+    assert_eq!(gemini_38.typical_latency_ms, Some(6138));
     assert_eq!(
-        default_text_to_text_priority_chain_ids().get(8).copied(),
+        default_text_to_text_priority_chain_ids().get(10).copied(),
         Some("google-gemini-3-8-flash-text")
     );
     let openrouter = get_model_by_id("openrouter-nemotron-3-super-120b-text")
@@ -295,10 +294,10 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         StructuredOutputPolicy::StrictJsonSchema
     );
     let qwen_model = get_model_by_id("groq-qwen-3-8-27b-vision").expect("Qwen vision model exists");
-    assert_eq!(qwen_model.typical_latency_ms, Some(1160));
+    assert_eq!(qwen_model.typical_latency_ms, Some(974));
     assert_eq!(
         qwen_model.performance_source.as_deref(),
-        Some("benchmark-2026-09-21-protocol16:ocr-small-1024")
+        Some("benchmark-2026-10-18-protocol16:ocr-small-1024")
     );
     let qwen_38 = vision_request_profile("groq", "qwen/qwen3.8-27b");
     assert_eq!(
@@ -321,7 +320,7 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
             "groq-qwen-3-8-27b-vision",
             "google-gemini-3-5-flash-lite-vision",
             "google-gemini-3-flash-vision",
-            "google-gemini-3-1-flash-lite-vision",
+            "google-gemini-3-5-flash-vision",
         ]
     );
 

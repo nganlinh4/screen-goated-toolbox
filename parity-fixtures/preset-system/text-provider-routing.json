@@ -79,8 +79,8 @@
       "thinking_level": "MINIMAL"
     },
     {
-      "name": "gemma_4_vision_26b_uses_minimal_thinking",
-      "model_id": "google-gemma-4-26b-a4b-vision",
+      "name": "gemma_4_text_26b_uses_minimal_thinking",
+      "model_id": "google-gemma-4-26b-a4b-text",
       "provider": "GOOGLE",
       "api_model": "gemma-4-26b-a4b-it",
       "supports_search": false,

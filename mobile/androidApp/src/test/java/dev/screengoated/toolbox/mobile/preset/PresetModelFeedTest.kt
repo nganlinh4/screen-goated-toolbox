@@ -70,17 +70,18 @@ class PresetModelFeedTest {
 
     @Test
     fun reviewedWithdrawalCannotReturnThroughSignedFeed() {
-        val endpoint = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-        PresetModelFeed.publish(
-            schemaThreeFeed(model(endpoint, 100, 1.0, 100, modality = "vision")),
-        )
-        val chain = PresetRetryChainKind.IMAGE_TO_TEXT.effectiveChain(
-            PresetRuntimeSettings(),
-            ApiKeys(nvidiaKey = "test-key"),
-        )
-
-        assertFalse(discoveredModelId("nvidia", endpoint) in chain)
-        assertTrue(PresetModelCatalog.forType(PresetModelType.VISION).none { it.fullName == endpoint })
+        for ((endpoint, modality, kind) in listOf(
+            Triple("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "vision", PresetRetryChainKind.IMAGE_TO_TEXT),
+            Triple("stepfun-ai/step-5-preview", "text", PresetRetryChainKind.TEXT_TO_TEXT),
+        )) {
+            PresetModelFeed.publish(
+                schemaThreeFeed(model(endpoint, 100, 1.0, 100, modality = modality)),
+            )
+            val chain = kind.effectiveChain(PresetRuntimeSettings(), ApiKeys(nvidiaKey = "test-key"))
+            assertFalse(discoveredModelId("nvidia", endpoint) in chain)
+            val type = if (modality == "vision") PresetModelType.VISION else PresetModelType.TEXT
+            assertTrue(PresetModelCatalog.forType(type).none { it.fullName == endpoint })
+        }
     }
 
     @Test
