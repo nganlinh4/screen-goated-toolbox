@@ -3,15 +3,15 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-23T07:37:21Z",
+ "generatedAt": "2026-10-23T13:31:09Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 278,
-   "success_rate": 0.75,
+   "p50_ms": 283,
+   "success_rate": 0.792,
    "runs": 24
   },
   {
@@ -26,7 +26,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1168,
+   "p50_ms": 1115,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -39,19 +39,11 @@
    "runs": 24
   },
   {
-   "id": "openai/gpt-oss-20b",
+   "id": "meta/llama-3.2-11b-vision-instruct",
    "control": "plain",
-   "modality": "text",
-   "p50_ms": 1672,
-   "success_rate": 0.875,
-   "runs": 24
-  },
-  {
-   "id": "z-ai/glm-5.3",
-   "control": "thinking-off",
-   "modality": "text",
-   "p50_ms": 4681,
-   "success_rate": 0.542,
+   "modality": "vision",
+   "p50_ms": 2983,
+   "success_rate": 0.708,
    "runs": 24
   }
  ]
