@@ -162,15 +162,12 @@ mod tests {
 
     #[test]
     fn live_priority_rows_show_the_latency_used_to_rank_them() {
-        let mut models = crate::gui::settings_ui::model_selector::selector_models(&[]);
-        let id = "nvidia-nemotron-3-super-120b-text";
-        let model = models
-            .iter_mut()
-            .find(|model| model.id == id)
-            .expect("curated NVIDIA model");
+        let mut models = crate::model_config::get_all_models().to_vec();
+        let model = models.first_mut().expect("canonical model catalog");
+        let id = model.id.clone();
         model.typical_latency_ms = Some(1_400);
 
-        apply_live_latency_overrides(&mut models, [(id.to_string(), 483)]);
+        apply_live_latency_overrides(&mut models, [(id.clone(), 483)]);
 
         assert_eq!(
             models
