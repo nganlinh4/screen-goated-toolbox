@@ -89,10 +89,16 @@ class PresetFirstTokenDeadlineTest {
         Thread.sleep(450)
     }) { url ->
         val job = Job()
-        val started = System.nanoTime()
-        val error = runCatching { consume(url, job) { job.cancel() } }.exceptionOrNull()
+        var cancelRequestedNanos: Long? = null
+        val error = runCatching { consume(url, job) {
+            cancelRequestedNanos = System.nanoTime()
+            job.cancel()
+        } }.exceptionOrNull()
+        val completedNanos = System.nanoTime()
+        assertTrue("Decoded output must reach cancellation", cancelRequestedNanos != null)
         assertTrue(error is IOException)
-        assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 400)
+        val cancellationMillis = TimeUnit.NANOSECONDS.toMillis(completedNanos - requireNotNull(cancelRequestedNanos))
+        assertTrue("Post-output cancellation took ${cancellationMillis}ms", cancellationMillis < 400)
     }
 
     companion object {
