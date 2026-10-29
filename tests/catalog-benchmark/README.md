@@ -15,7 +15,10 @@ values remain the last reviewed decisions; this protocol change does not rank
 models. Regenerate the two synthetic PNGs with
 `py -3 tests/catalog-benchmark/generate_geometry_fixtures.py` (Pillow required).
 
-Latest applied catalog decisions, full candidate ledger and explicit quota gaps:
+Latest applied catalog decisions, candidate ledger and explicit quota gaps:
+[`RESULTS-2026-10-29-PROTOCOL16.md`](RESULTS-2026-10-29-PROTOCOL16.md).
+
+Previous protocol-16 decisions and full candidate ledger:
 [`RESULTS-2026-10-18-PROTOCOL16.md`](RESULTS-2026-10-18-PROTOCOL16.md).
 
 Previous protocol-15 catalog decisions:

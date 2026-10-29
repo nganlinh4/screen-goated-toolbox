@@ -172,7 +172,8 @@ fn every_interactive_request_receives_a_bounded_initial_budget() {
     let model = "groq-qwen-3-8-27b-vision";
     let timeouts =
         interactive_request_timeouts(model, &config, InteractiveRequestWorkload::default());
-    assert_eq!(timeouts.total, Duration::from_secs(5));
+    // Four times the catalog's 1,471 ms representative OCR latency.
+    assert_eq!(timeouts.total, Duration::from_millis(5_884));
 }
 
 #[test]

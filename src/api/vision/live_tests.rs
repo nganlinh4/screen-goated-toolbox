@@ -69,10 +69,10 @@ fn vision_schema_uses_generic_json_mode() {
 }
 
 #[test]
-fn openrouter_nemotron_uses_nested_reasoning_and_prompt_only_structure() {
+fn openrouter_dots_uses_nested_reasoning_and_strict_schema() {
     let schema = serde_json::json!({"type": "object"});
     let payload = openrouter_vision_payload(
-        "nvidia/nemotron-3-super-120b-a12b:free",
+        "dots-studio/dots-3-note-preview:free",
         "prompt",
         "image/png",
         "AA==",
@@ -82,7 +82,7 @@ fn openrouter_nemotron_uses_nested_reasoning_and_prompt_only_structure() {
 
     assert_eq!(payload["reasoning"]["effort"], "none");
     assert!(payload.get("reasoning_effort").is_none());
-    assert!(payload.get("response_format").is_none());
+    assert_eq!(payload["response_format"]["type"], "json_schema");
     assert_eq!(payload["messages"][0]["content"][0]["type"], "text");
 }
 

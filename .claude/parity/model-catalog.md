@@ -130,6 +130,13 @@
   Feed availability cannot override that reviewed veto. Existing tiers remain
   curated; automatic OCR similarity does not assign intelligence tiers. Control,
   audio, explicit-search defaults and persisted user choices remain separate.
+- The 2026-10-29 protocol-16 checkpoint keeps every head and leading fallback.
+  Gemini 3.8 Flash moves to the tail of both generic chains after a complete
+  run returned 5/10 text and 0/10 OCR answers under provider overload, and
+  dots 3 Note now precedes it for text. The OpenRouter Nemotron 3 Super free
+  route is withdrawn because the provider retired it; the NVIDIA-hosted
+  Nemotron row is unaffected. Latency metadata, and therefore interactive
+  deadlines, refresh from rows with at least eight of ten successful cells.
 - Every model-selection surface, including the Android node editor, observes
   live-feed revisions and applies the shared provider-enabled predicate. A
   newly offered NVIDIA endpoint therefore appears without reopening the editor,

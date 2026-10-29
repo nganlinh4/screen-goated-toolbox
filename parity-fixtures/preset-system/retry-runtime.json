@@ -153,8 +153,8 @@
       "openrouter-dots-3-note-vision",
       "google-gemini-robotics-er-2-vision",
       "google-gemini-3-6-flash-vision",
-      "google-gemini-3-8-flash-vision",
-      "google-gemini-3-1-flash-lite-vision"
+      "google-gemini-3-1-flash-lite-vision",
+      "google-gemini-3-8-flash-vision"
     ],
     "text_to_text": [
       "groq-qwen-3-8-27b-text",
@@ -167,8 +167,8 @@
       "google-gemini-3-6-flash-text",
       "google-gemini-3-1-flash-lite-text",
       "google-gemini-3-8-live-text",
-      "google-gemini-3-8-flash-text",
-      "openrouter-dots-3-note-text"
+      "openrouter-dots-3-note-text",
+      "google-gemini-3-8-flash-text"
     ]
   }
 }
