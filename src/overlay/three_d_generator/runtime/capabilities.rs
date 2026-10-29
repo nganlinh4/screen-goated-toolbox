@@ -24,11 +24,11 @@ fn refresh() {
         return;
     }
     std::thread::spawn(|| {
-        let next =
-            ProductCapabilities {
-                quality_instruction:
-                    crate::overlay::creation_runtime::supports_optional_3d_instruction("quality"),
-            };
+        let next = ProductCapabilities {
+            quality_instruction: crate::overlay::creation_runtime::supports_optional_3d_instruction(
+                "quality",
+            ),
+        };
         *CAPABILITIES
             .lock()
             .unwrap_or_else(|value| value.into_inner()) = Some(next);
