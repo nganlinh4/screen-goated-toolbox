@@ -150,6 +150,13 @@ fn spawn_process() -> anyhow::Result<()> {
     };
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let pid = child.id();
+    if let Err(error) =
+        crate::overlay::compositor_process::observe_exit(&child, "realtime-compositor", generation)
+    {
+        crate::crash_report::record_event(&format!(
+            "[RendererExit] observer unavailable role=realtime-compositor generation={generation} pid={pid}: {error:#}"
+        ));
+    }
     LIVE_GENERATION.store(generation, Ordering::SeqCst);
     LIVE_PID.store(pid, Ordering::SeqCst);
     READY_GENERATION.store(0, Ordering::SeqCst);
@@ -362,6 +369,10 @@ fn fail_generation(generation: u64, reason: &str, terminate: bool) {
         return;
     }
     if terminate {
+        crate::crash_report::record_event(&format!(
+            "[RendererTermination] role=realtime-compositor generation={generation} pid={} reason={reason}",
+            LIVE_PID.load(Ordering::SeqCst)
+        ));
         terminate_generation(generation);
     }
     if LIVE_GENERATION

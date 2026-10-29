@@ -462,5 +462,5 @@ pub fn restart_app() {
 pub fn exit_app() -> ! {
     crate::gui::window_state::save_main_window();
     crate::overlay::screen_record::cleanup_on_app_exit();
-    std::process::exit(0)
+    crate::crash_report::exit(0, "quit")
 }

@@ -11,6 +11,30 @@ use windows::Win32::System::JobObjects::{
 const GRACEFUL_EXIT_TIMEOUT: Duration = Duration::from_millis(750);
 const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+/// Keep an independent handle so exit status survives generation replacement
+/// and termination of the renderer's entire browser job.
+pub(crate) fn observe_exit(child: &Child, role: &'static str, generation: u64) -> Result<()> {
+    use windows::Win32::Foundation::WAIT_OBJECT_0;
+    use windows::Win32::System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject};
+    let borrowed =
+        unsafe { std::os::windows::io::BorrowedHandle::borrow_raw(child.as_raw_handle()) };
+    let process = borrowed
+        .try_clone_to_owned()
+        .context("duplicate renderer diagnostic handle")?;
+    let pid = child.id();
+    std::thread::Builder::new().name(format!("{role}-exit")).spawn(move || {
+        let handle = HANDLE(process.as_raw_handle());
+        let mut code = 0;
+        if unsafe { WaitForSingleObject(handle, INFINITE) } == WAIT_OBJECT_0
+            && unsafe { GetExitCodeProcess(handle, &mut code) }.is_ok()
+        {
+            crate::crash_report::record_event(&format!("[RendererExit] role={role} generation={generation} pid={pid} exit_code=0x{code:08X}"));
+        }
+        drop(process);
+    }).context("start renderer exit observer")?;
+    Ok(())
+}
+
 /// Reusing a browser profile requires every process in its owning job to exit,
 /// not just the compositor that launched the browser.
 pub(crate) fn retire_renderer_tree(child: &mut Child, job: &OwnedHandle) -> Result<()> {

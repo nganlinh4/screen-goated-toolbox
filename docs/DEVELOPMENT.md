@@ -154,11 +154,40 @@ communications endpoint cannot be resolved. Device names, virtual-device status,
 mute, and silence do not override the user's role choices. Selection is resolved
 afresh when capture starts. Output loopback and Windows defaults are unchanged.
 
-The desktop app keeps diagnostic output in the single file
+The desktop app keeps routine diagnostic output in the single file
 `%LOCALAPPDATA%\SGT\logs\session.log`. When the file would exceed 16 MiB, SGT
 atomically compacts it to its newest 12 MiB at a complete-line boundary. The
 retention window is therefore activity-based rather than a fixed number of
-days. For support, request only `session.log`.
+days. For routine support, request `session.log`.
+
+Process diagnostics live under `%LOCALAPPDATA%\SGT\crashes`. Each session has
+an executable SHA-256 and load address, version, architecture, profile, process
+role, PID, and creation time in `identity.json`. Rust panic summaries and forced stack traces
+are written synchronously before any dialog; the first origin is preserved and
+the other three report slots rotate. Renderer children use the same reporting
+without modal dialogs or diagnostic output on their protocol stdout.
+
+A separate diagnostic observer captures native exception minidumps and records
+the actual Windows exit status in `exit.txt`. `exit-intent.txt` identifies a
+requested exit; missing intent means an unexplained exit, not proof of a crash.
+The host also records renderer generation, PID, and exit status in its synchronous
+`events.log`, bounded to the newest 64 KiB at complete-line boundaries.
+The observer runs from the same executable, needs no administrator privileges,
+and does not change Windows Error Reporting settings. Panic and native snapshots
+are limited to one each per process; dumps larger than 32 MiB are discarded while
+text evidence is retained. Native snapshots are best effort: fail-fast,
+forced termination, or exhausted resources may leave only the observed exit
+status and earlier text evidence. Power loss can prevent even an exit record.
+
+Retention preserves live and uncertain sessions and unfamiliar files. Verified
+inactive sessions keep up to eight incident sessions and eight routine sessions
+within a shared 128 MiB budget, prioritizing incident evidence; active sessions
+can temporarily exceed that budget. Existing legacy crash dumps are preserved.
+`SGT_RUNTIME_STATE_ROOT` isolates these reports along with the runtime logs.
+For crash investigation, collect the affected session directory and `session.log`.
+Reports and dumps stay local; dumps can contain application memory. Resolving
+stripped release addresses also requires the matching executable/PDB from that
+exact build; a same-version development PDB is not interchangeable.
 
 Normal logging retains startup, session/backend transitions, completion summaries,
 retries, errors, and rendering failures. Repeated compositor acknowledgements,

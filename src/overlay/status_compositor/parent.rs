@@ -302,6 +302,13 @@ fn spawn_process() -> anyhow::Result<()> {
     }
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let pid = child.id();
+    if let Err(error) =
+        crate::overlay::compositor_process::observe_exit(&child, "status-compositor", generation)
+    {
+        crate::crash_report::record_event(&format!(
+            "[RendererExit] observer unavailable role=status-compositor generation={generation} pid={pid}: {error:#}"
+        ));
+    }
     LIVE_GENERATION.store(generation, Ordering::SeqCst);
     LIVE_PID.store(pid, Ordering::SeqCst);
     READY_GENERATION.store(0, Ordering::SeqCst);
@@ -493,6 +500,10 @@ fn fail_generation(generation: u64, reason: &str, terminate: bool) {
         return;
     }
     if terminate {
+        crate::crash_report::record_event(&format!(
+            "[RendererTermination] role=status-compositor generation={generation} pid={} reason={reason}",
+            LIVE_PID.load(Ordering::SeqCst)
+        ));
         terminate_generation(generation);
     }
     if LIVE_GENERATION
@@ -560,26 +571,4 @@ fn now_ms() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn restart_backoff_is_exponential_and_bounded() {
-        assert_eq!(restart_delay_ms(1), 250);
-        assert_eq!(restart_delay_ms(2), 500);
-        assert_eq!(restart_delay_ms(3), 1_000);
-        assert_eq!(restart_delay_ms(8), 30_000);
-        assert_eq!(restart_delay_ms(u32::MAX), 30_000);
-    }
-
-    #[test]
-    fn software_fallback_preserves_existing_browser_arguments() {
-        let arguments = browser_arguments_with_software_fallback(Some(OsString::from("--foo")));
-        assert!(arguments.to_string_lossy().contains("--foo"));
-        assert!(
-            arguments
-                .to_string_lossy()
-                .contains(SOFTWARE_RENDERING_ARGUMENT)
-        );
-    }
-}
+mod tests;

@@ -12,11 +12,29 @@ use single_instance::InstanceOutcome;
 use std::process::ExitCode;
 
 pub(crate) fn run() -> eframe::Result<ExitCode> {
+    if let Some(code) = crate::crash_report::run_monitor_if_requested() {
+        return Ok(if code == 0 {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        });
+    }
+    let startup_args = StartupArgs::collect();
+    let child_process = crate::overlay::realtime_webview::is_child_process()
+        || crate::overlay::status_compositor::is_child_process()
+        || crate::overlay::result::scene_compositor::is_child_process();
+    let crash_report_mode = if child_process || headless::is_requested(&startup_args) {
+        crate::initialization::CrashReportMode::NonInteractive
+    } else {
+        crate::initialization::CrashReportMode::Interactive
+    };
+    crate::initialization::setup_crash_handler(crash_report_mode);
+
     if crate::overlay::realtime_webview::is_child_process() {
         crate::initialization::init_com_and_dpi();
         if let Err(error) = crate::overlay::realtime_webview::run_child() {
             eprintln!("realtime compositor failed: {error:#}");
-            std::process::exit(1);
+            crate::crash_report::exit(1, &format!("realtime-compositor-error: {error:#}"));
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -24,7 +42,7 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         crate::initialization::init_com_and_dpi();
         if let Err(error) = crate::overlay::status_compositor::run_child() {
             eprintln!("status compositor failed: {error:#}");
-            std::process::exit(1);
+            crate::crash_report::exit(1, &format!("status-compositor-error: {error:#}"));
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -32,7 +50,7 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         crate::initialization::init_com_and_dpi();
         if let Err(error) = crate::overlay::result::scene_compositor::run_child() {
             eprintln!("result compositor failed: {error:#}");
-            std::process::exit(1);
+            crate::crash_report::exit(1, &format!("result-compositor-error: {error:#}"));
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -44,9 +62,8 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         eprintln!("[Console] WARNING: failed to enable UTF-8 input/output");
     }
 
-    let startup_args = StartupArgs::collect();
     if let Some(exit_code) = headless::run_pre_boot(&startup_args) {
-        std::process::exit(exit_code);
+        crate::crash_report::exit(exit_code, "headless-pre-boot");
     }
 
     crate::log_info!("========================================");
@@ -56,17 +73,8 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
     );
     crate::log_info!("========================================");
 
-    // Install panic reporting before any substantial startup work so early failures
-    // do not exit silently on Windows release builds.
-    let crash_report_mode = if headless::is_requested(&startup_args) {
-        crate::initialization::CrashReportMode::NonInteractive
-    } else {
-        crate::initialization::CrashReportMode::Interactive
-    };
-    crate::initialization::setup_crash_handler(crash_report_mode);
-
     if let Some(exit_code) = headless::run_after_bootstrap(&startup_args) {
-        std::process::exit(exit_code);
+        crate::crash_report::exit(exit_code, "headless-complete");
     }
 
     let screen_record_wry_smoke = startup_args.configure_screen_record_wry_smoke();

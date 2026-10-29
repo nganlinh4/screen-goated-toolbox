@@ -14,6 +14,7 @@ mod audio_input;
 mod catalog_benchmark;
 mod component_registry;
 mod config;
+mod crash_report;
 mod creation_feature_availability;
 mod crypto;
 mod debug_log;
@@ -54,7 +55,9 @@ pub const WINDOW_WIDTH: f32 = MIN_WINDOW_WIDTH;
 pub const WINDOW_HEIGHT: f32 = MIN_WINDOW_HEIGHT;
 
 fn main() -> eframe::Result<std::process::ExitCode> {
-    app_entry::run()
+    let result = app_entry::run();
+    crash_report::record_main_result(&result);
+    result
 }
 
 // Re-export hotkey functions for external access.

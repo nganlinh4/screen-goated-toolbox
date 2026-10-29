@@ -38,7 +38,7 @@ pub(super) fn update(hwnd: HWND, _redraw: bool) {
     };
     if !super::visual_region::update(hwnd, &cards, &button_regions, width, height) {
         super::visual_region::hide(target_hwnd);
-        std::process::exit(1);
+        crate::crash_report::exit(1, "renderer-visual-region-failed");
     }
     let applied = super::input_surface::update_input_regions(
         target_hwnd,
@@ -54,7 +54,7 @@ pub(super) fn update(hwnd: HWND, _redraw: bool) {
     } else if !super::visual_region::stack_below_input(hwnd, target_hwnd) {
         super::visual_region::hide(hwnd);
         super::visual_region::hide(target_hwnd);
-        std::process::exit(1);
+        crate::crash_report::exit(1, "renderer-window-stack-failed");
     }
 }
 

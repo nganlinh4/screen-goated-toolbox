@@ -87,7 +87,7 @@ pub(super) fn drain(hwnd: HWND) {
     let y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
     if !visual_region::update(hwnd, &cards, &buttons, width, height) {
         visual_region::hide(input_hwnd);
-        std::process::exit(1);
+        crate::crash_report::exit(1, "renderer-visual-region-failed");
     }
     let applied =
         input_surface::update_input_regions(input_hwnd, &cards, &buttons, x, y, width, height);
@@ -99,7 +99,7 @@ pub(super) fn drain(hwnd: HWND) {
     } else if !visual_region::stack_below_input(hwnd, input_hwnd) {
         visual_region::hide(hwnd);
         visual_region::hide(input_hwnd);
-        std::process::exit(1);
+        crate::crash_report::exit(1, "renderer-window-stack-failed");
     }
     drop(cards);
     let acknowledgement = if revision > 0 {

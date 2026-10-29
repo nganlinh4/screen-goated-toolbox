@@ -506,7 +506,7 @@ fn refresh_visual_region() {
         if input != 0 {
             super::visual_region::hide(HWND(input as *mut _));
         }
-        std::process::exit(1);
+        crate::crash_report::exit(1, "renderer-visual-region-failed");
     }
 }
 
@@ -522,7 +522,7 @@ static EVENT_TX: LazyLock<std::sync::mpsc::SyncSender<ChildEvent>> = LazyLock::n
                         .and_then(|_| stdout.flush())
                         .is_err()
                 {
-                    std::process::exit(1);
+                    crate::crash_report::exit(1, "renderer-event-output-failed");
                 }
             }
         })
@@ -534,7 +534,7 @@ pub(super) fn emit_event(event: ChildEvent) {
     if EVENT_TX.try_send(event).is_err() {
         // Lost lifecycle events invalidate the input contract. Ending this owned
         // child removes its HWNDs and lets the parent supervisor resynchronize.
-        std::process::exit(1);
+        crate::crash_report::exit(1, "renderer-event-queue-full");
     }
 }
 

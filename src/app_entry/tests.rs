@@ -27,9 +27,9 @@ fn desktop_startup_phases_remain_in_dependency_order() {
         &source,
         "src/app_entry.rs",
         &[
+            "setup_crash_handler",
             "setup_console_utf8",
             "headless::run_pre_boot",
-            "setup_crash_handler",
             "headless::run_after_bootstrap",
             "configure_screen_record_wry_smoke",
             "configure_creation_ui_test",
