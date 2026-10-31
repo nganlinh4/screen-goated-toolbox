@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-10-31T12:41:36Z",
+ "generatedAt": "2026-10-31T18:36:33Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 306,
+   "p50_ms": 309,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -26,8 +26,8 @@
    "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 424,
-   "success_rate": 0.375,
+   "p50_ms": 429,
+   "success_rate": 0.417,
    "runs": 24
   },
   {
@@ -42,24 +42,40 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 1387,
+   "p50_ms": 1455,
    "success_rate": 0.958,
    "runs": 24
   },
   {
-   "id": "openai/gpt-oss-20b",
+   "id": "meta/llama-3.2-90b-vision-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 1806,
-   "success_rate": 0.875,
+   "p50_ms": 2289,
+   "success_rate": 0.333,
    "runs": 24
   },
   {
    "id": "minimaxai/minimax-m3.1-flash",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2314,
+   "p50_ms": 2482,
    "success_rate": 1.0,
+   "runs": 24
+  },
+  {
+   "id": "mistralai/mistral-large-4-1t-a52b",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 2514,
+   "success_rate": 0.778,
+   "runs": 9
+  },
+  {
+   "id": "meta/muse-glimmer-30b",
+   "control": "plain",
+   "modality": "vision",
+   "p50_ms": 5564,
+   "success_rate": 0.583,
    "runs": 24
   }
  ]
