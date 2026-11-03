@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-11-03T02:23:35Z",
+ "generatedAt": "2026-11-03T11:59:16Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 299,
+   "p50_ms": 307,
    "success_rate": 0.958,
    "runs": 24
   },
@@ -18,7 +18,7 @@
    "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 360,
+   "p50_ms": 326,
    "success_rate": 0.667,
    "runs": 24
   },
@@ -34,7 +34,7 @@
    "id": "nvidia/nemotron-3.5-bolt-e4b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 452,
+   "p50_ms": 456,
    "success_rate": 0.917,
    "runs": 24
   },
