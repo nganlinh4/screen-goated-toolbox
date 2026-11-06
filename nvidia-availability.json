@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-11-05T23:40:44Z",
+ "generatedAt": "2026-11-06T06:55:38Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 288,
+   "p50_ms": 285,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -18,8 +18,8 @@
    "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 292,
-   "success_rate": 0.958,
+   "p50_ms": 287,
+   "success_rate": 1.0,
    "runs": 24
   },
   {
@@ -34,8 +34,8 @@
    "id": "nvidia/nemotron-3.5-bolt-e4b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 453,
-   "success_rate": 0.958,
+   "p50_ms": 445,
+   "success_rate": 1.0,
    "runs": 24
   },
   {
@@ -44,6 +44,14 @@
    "modality": "text",
    "p50_ms": 790,
    "success_rate": 0.958,
+   "runs": 24
+  },
+  {
+   "id": "google/gemma-4-31b-it",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 977,
+   "success_rate": 0.125,
    "runs": 24
   },
   {
@@ -58,7 +66,7 @@
    "id": "mistralai/mistral-large-4-1t-a52b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 3417,
+   "p50_ms": 2894,
    "success_rate": 0.708,
    "runs": 24
   }
