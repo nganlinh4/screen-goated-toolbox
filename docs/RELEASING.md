@@ -238,8 +238,7 @@ Android host builds until every item is complete:
    `component-delivery/creation-runtime-v1.json` and the verified physical
    Windows product at `component-delivery/windows/creation-v1.json`.
 
-Creation runtime source and its build procedure are maintained in the private
-[`sgt-creation-runtime`](https://github.com/nganlinh4/sgt-creation-runtime)
+Creation runtime source and its build procedure are maintained outside this
 repository. Follow that repository's release instructions; this public host
 accepts only the resulting reviewed, immutable delivery contract.
 

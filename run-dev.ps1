@@ -183,14 +183,14 @@ function Sync-CreationStaging {
 }
 
 function Build-CreationRuntime {
-    $runtimeRoot = if ([string]::IsNullOrWhiteSpace($env:SGT_CREATION_RUNTIME_ROOT)) {
-        [IO.Path]::GetFullPath((Join-Path $repoRoot "..\sgt-creation-runtime"))
-    } else {
-        [IO.Path]::GetFullPath($env:SGT_CREATION_RUNTIME_ROOT)
+    if ([string]::IsNullOrWhiteSpace($env:SGT_CREATION_RUNTIME_ROOT)) {
+        Write-Host "Creation runtime source is not configured; using managed delivery." -ForegroundColor Yellow
+        return
     }
+    $runtimeRoot = [IO.Path]::GetFullPath($env:SGT_CREATION_RUNTIME_ROOT)
     $runtimeManifest = Join-Path $runtimeRoot "Cargo.toml"
     if (-not (Test-Path -LiteralPath $runtimeManifest)) {
-        Write-Host "Private creation runtime checkout not present; using managed delivery." -ForegroundColor Yellow
+        Write-Host "Creation runtime source was not found; using managed delivery." -ForegroundColor Yellow
         return
     }
 
