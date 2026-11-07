@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-11-06T21:33:11Z",
+ "generatedAt": "2026-11-07T01:58:30Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -18,7 +18,7 @@
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 284,
+   "p50_ms": 287,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -42,15 +42,23 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 781,
+   "p50_ms": 778,
    "success_rate": 0.958,
+   "runs": 24
+  },
+  {
+   "id": "google/gemma-4-31b-it",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 1240,
+   "success_rate": 0.208,
    "runs": 24
   },
   {
    "id": "minimaxai/minimax-m3.1-flash",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2511,
+   "p50_ms": 2563,
    "success_rate": 0.833,
    "runs": 24
   },
@@ -58,7 +66,7 @@
    "id": "mistralai/mistral-large-4-1t-a52b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 3417,
+   "p50_ms": 3482,
    "success_rate": 0.708,
    "runs": 24
   }
