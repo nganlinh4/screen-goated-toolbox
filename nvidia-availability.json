@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-11-08T01:28:20Z",
+ "generatedAt": "2026-11-08T09:05:04Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 261,
+   "p50_ms": 251,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -18,23 +18,23 @@
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 284,
+   "p50_ms": 282,
    "success_rate": 0.958,
-   "runs": 24
-  },
-  {
-   "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
-   "control": "effort-none",
-   "modality": "vision",
-   "p50_ms": 386,
-   "success_rate": 1.0,
    "runs": 24
   },
   {
    "id": "nvidia/nemotron-3.5-bolt-e4b",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 402,
+   "p50_ms": 383,
+   "success_rate": 1.0,
+   "runs": 24
+  },
+  {
+   "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+   "control": "effort-none",
+   "modality": "vision",
+   "p50_ms": 389,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -47,10 +47,18 @@
    "runs": 24
   },
   {
+   "id": "google/gemma-4-31b-it",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 1240,
+   "success_rate": 0.375,
+   "runs": 24
+  },
+  {
    "id": "minimaxai/minimax-m3.1-flash",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 2511,
+   "p50_ms": 2708,
    "success_rate": 0.792,
    "runs": 24
   }
