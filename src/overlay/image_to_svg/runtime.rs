@@ -23,8 +23,12 @@ use process::run_job;
 use recovery::ensure_recovery_started;
 
 const MAX_PARALLEL_JOBS: usize = 2;
-const MAX_QUEUED_JOBS: usize = 50;
-const MAX_RETAINED_TERMINAL_JOBS: usize = 64;
+// The picker admits 100 images per import, so the queue must admit a whole
+// batch: a smaller cap silently failed everything past it. Terminal statuses
+// are retained past the cap so a finished job cannot be pruned while its
+// completion is still unread.
+const MAX_QUEUED_JOBS: usize = 100;
+const MAX_RETAINED_TERMINAL_JOBS: usize = 128;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -485,6 +489,11 @@ fn cancel_jobs(job_id: Option<&str>, shutdown: bool) -> (bool, Vec<JobStatus>) {
                 if let Some(job) = state.jobs.get_mut(&candidate.job_id) {
                     job.stage = "cancelled".to_string();
                     job.progress_text = "Cancelled".to_string();
+                    // The queue renders the progress key in preference to the
+                    // text, so a cancelled job that keeps its last worker key
+                    // reads "Drawing vector paths" under a "Cancelled" heading.
+                    job.progress_key = None;
+                    job.phase = Some("cancelled".to_string());
                 }
                 state.requests.remove(&candidate.job_id);
                 state.request_fingerprints.remove(&candidate.job_id);

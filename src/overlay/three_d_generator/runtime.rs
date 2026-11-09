@@ -31,8 +31,10 @@ use process::run_runtime_operation;
 use restore::ensure_recovery_started;
 
 const MAX_PARALLEL_JOBS: usize = 2;
-const MAX_QUEUED_JOBS: usize = 50;
-const MAX_RETAINED_TERMINAL_JOBS: usize = 64;
+// The picker admits 100 images per import, so the queue must admit a whole
+// batch; terminal statuses are retained past the cap.
+const MAX_QUEUED_JOBS: usize = 100;
+const MAX_RETAINED_TERMINAL_JOBS: usize = 128;
 const CONTINUATION_WINDOW_MS: u64 = 24 * 60 * 60 * 1_000;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

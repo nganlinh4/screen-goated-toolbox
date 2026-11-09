@@ -1,5 +1,6 @@
 use super::*;
 
+mod artifact_refresh;
 mod persistence;
 
 const TEST_FILE_IDENTITY: &str = "00000000:0000000000000001";

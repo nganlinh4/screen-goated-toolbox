@@ -41,25 +41,17 @@ const BLOCKED_ELEMENTS: &[&str] = &[
 ];
 
 pub(super) fn bounded_embedded_raster_pixels(value: &str) -> Option<u64> {
-    if value.len() > 2_800_000
-        || !value
-            .get(.."data:image/".len())
-            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:image/"))
-    {
+    if value.len() > 2_800_000 {
         return None;
     }
-    let lower = value[..value.len().min(64)].to_ascii_lowercase();
-    let expected_format = if lower.starts_with("data:image/png;base64,") {
-        image::ImageFormat::Png
-    } else if lower.starts_with("data:image/jpeg;base64,") {
-        image::ImageFormat::Jpeg
-    } else {
-        return None;
+    let expected_format = match value[..value.len().min(64)].to_ascii_lowercase() {
+        header if header.starts_with("data:image/png;base64,") => image::ImageFormat::Png,
+        header if header.starts_with("data:image/jpeg;base64,") => image::ImageFormat::Jpeg,
+        _ => return None,
     };
-    let (_, payload) = value.split_once(',')?;
-    let Ok(bytes) = general_purpose::STANDARD.decode(payload) else {
-        return None;
-    };
+    let bytes = general_purpose::STANDARD
+        .decode(value.split_once(',')?.1)
+        .ok()?;
     if expected_format == image::ImageFormat::Png && png_is_animated(&bytes) {
         return None;
     }
@@ -491,6 +483,11 @@ fn write_svg_edits(path: &Path, svg: &str) -> Result<Value, String> {
     }
     validate_svg_edit(svg)?;
     atomic_replace_existing(path, svg.as_bytes())?;
+    // Editing replaces delivered bytes: re-pin size, digest and identity.
+    let repin = crate::overlay::generation_history::refresh_artifact_proof;
+    if let Err(error) = repin("svg", &path.to_string_lossy()) {
+        crate::log_info!("[image-to-svg] Artifact proof was not refreshed: {error}");
+    }
     Ok(json!({ "sizeBytes": svg.len() }))
 }
 
@@ -582,13 +579,11 @@ pub(in crate::overlay::image_to_svg) fn open_output(
     let path = requested_path
         .filter(|value| !value.trim().is_empty())
         .map(PathBuf::from)
-        .map(Ok)
-        .unwrap_or_else(super::default_output_dir)?;
+        .map_or_else(super::default_output_dir, Ok)?;
     let target = if path.is_file() {
         path.parent()
             .map(PathBuf::from)
-            .map(Ok)
-            .unwrap_or_else(super::default_output_dir)?
+            .map_or_else(super::default_output_dir, Ok)?
     } else {
         path
     };

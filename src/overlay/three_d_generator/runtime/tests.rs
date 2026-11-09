@@ -164,13 +164,14 @@ fn queued_jobs_are_never_pruned_as_terminal_history() {
         state.insert_job(id, status);
     }
     assert_eq!(state.jobs.len(), MAX_QUEUED_JOBS);
+    let newest = format!("queued-{:02}", MAX_QUEUED_JOBS - 1);
     assert_eq!(
         state.job_order.first().map(String::as_str),
         Some("queued-00")
     );
     assert_eq!(
         state.job_order.last().map(String::as_str),
-        Some("queued-49")
+        Some(newest.as_str())
     );
 }
 
