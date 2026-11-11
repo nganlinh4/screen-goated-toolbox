@@ -3,38 +3,22 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-11-11T01:57:39Z",
+ "generatedAt": "2026-11-11T09:30:18Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
-  {
-   "id": "poolside/laguna-xs-2.1",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 204,
-   "success_rate": 1.0,
-   "runs": 24
-  },
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 257,
+   "p50_ms": 269,
    "success_rate": 0.958,
-   "runs": 24
-  },
-  {
-   "id": "nvidia/nemotron-3.5-bolt-e4b",
-   "control": "plain",
-   "modality": "text",
-   "p50_ms": 351,
-   "success_rate": 1.0,
    "runs": 24
   },
   {
    "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
    "control": "effort-none",
    "modality": "vision",
-   "p50_ms": 389,
+   "p50_ms": 391,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -42,7 +26,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 686,
+   "p50_ms": 731,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -58,8 +42,8 @@
    "id": "meta/llama-3.2-90b-vision-instruct",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 3540,
-   "success_rate": 0.542,
+   "p50_ms": 3352,
+   "success_rate": 0.583,
    "runs": 24
   }
  ]
