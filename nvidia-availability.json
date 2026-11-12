@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-11-12T00:47:36Z",
+ "generatedAt": "2026-11-12T09:54:20Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -34,7 +34,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 731,
+   "p50_ms": 769,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -44,6 +44,14 @@
    "modality": "text",
    "p50_ms": 2441,
    "success_rate": 0.917,
+   "runs": 24
+  },
+  {
+   "id": "mistralai/mistral-large-4-1t-a52b",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 3215,
+   "success_rate": 0.583,
    "runs": 24
   }
  ]
